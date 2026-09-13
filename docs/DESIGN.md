@@ -1,6 +1,6 @@
 # Claude Code 세션 컨트롤 플레인 설계안
 
-> 상태: Draft v0.3 · 작성일: 2026-09-12 · 개정: 2026-09-13
+> 상태: Approved v0.4 (G1) · 작성일: 2026-09-12 · 개정: 2026-09-14
 > 범위: HTTP API로 Claude Code 세션을 생성·재개·관찰하고, Kubernetes 위에서 세션 워커를 수평 확장하는 시스템
 > 배포 대상: AWS EKS
 
@@ -187,6 +187,15 @@ CREATE TABLE unassigned_sessions (
   signaled_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- KEDA와 local-scaler가 공유하는 유일한 스케일 지표 쿼리.
+CREATE FUNCTION queue_unassigned_session_count()
+RETURNS DOUBLE PRECISION
+LANGUAGE SQL
+STABLE
+AS $$
+  SELECT COUNT(*)::DOUBLE PRECISION FROM unassigned_sessions
+$$;
+
 -- 워커 생존 리스. Redis 백엔드에서는 TTL 키가 이 역할을 한다(§4.2).
 CREATE TABLE workers (
   pod_id    TEXT PRIMARY KEY,
@@ -329,12 +338,13 @@ worker pod
 
 1. `heartbeat:{pod_id}` 갱신 루프 시작(10초 주기, TTL 30초)
 2. `queue:unassigned`에서 세션 ID 하나를 집음
-3. Postgres에서 매핑 획득
+3. Postgres에서 매핑 획득. 아래 `UPDATE`와 미배정 신호 삭제를 한 트랜잭션에서 실행
    ```sql
    UPDATE sessions SET pod_id = $pod, status = 'running'
    WHERE id = $session AND pod_id IS NULL RETURNING *;
+   DELETE FROM unassigned_sessions WHERE session_id = $session;
    ```
-   실패(다른 pod가 선점)하면 그 신호를 버리고 2로 돌아감
+   `UPDATE`가 성공한 경우에만 `DELETE`하고 함께 커밋한다. 실패(다른 pod가 선점)하면 신호를 삭제하지 않고 2로 돌아감
 4. 스토리지에서 `transcript.jsonl`을 `~/.claude/projects/<hash>/`에 복원, `git clone --branch session/{id}`
 5. 이후 `queue:session:{session_id}`를 처음부터 소비
 
@@ -398,7 +408,7 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 
 ### 6.4 질문·권한 요청 처리
 
-`canUseTool` 콜백은 툴 실행 직전에 블로킹된다. 툴 호출 도중에는 resume이 불가능하므로 대기 중에는 pod가 살아 있어야 한다. 정책:
+`canUseTool` 콜백은 툴 실행 직전에 블로킹된다. 이 콜백을 기다리는 현재 PoC 경로에서는 대기 중 pod가 살아 있어야 한다. 프로세스가 사라지면 resume이 보류 중인 콜백이나 툴 실행을 되살리지 않고, 같은 `tool_use_id`에 중단 오류 `tool_result`를 합성하기 때문이다(94S-8). 정책:
 
 - 타임아웃 기본 30분. 넘으면 deny 후 턴을 `needs_input`으로 종료하고 유휴 타이머 진입
 - 자주 묻는 툴은 `allowedTools`로 사전 허용하고, 안전은 샌드박스(§6.7)로 확보
@@ -413,7 +423,9 @@ v0.1의 코드는 `BLPOP answer:{session_id}`로 세션 단위 대기만 했다.
 
 권한 승인·거부가 걸린 채널이므로 단순 버그가 아니라 잘못된 권한이 부여되는 경로다. 타임아웃은 항상 deny로 닫고, 파싱에 실패한 답변도 deny로 취급한다.
 
-이 절의 전제인 "툴 호출 도중에는 resume이 불가능하다"는 아직 실측하지 않았다(94S-8). `tool_use`는 있고 `tool_result`가 없는 트랜스크립트를 SDK가 어떻게 처리하는지에 따라 대기 중 pod를 내릴 수 있을지가 갈리고, §12.2의 타임아웃 값도 함께 움직인다.
+94S-8에서 `@anthropic-ai/claude-agent-sdk` 0.3.265와 Claude Code 2.1.265를 로컬 fake Messages API로 실측했다. `canUseTool` 대기 중 abort는 같은 `tool_use_id`에 권한 실패 `tool_result`를 기록하고, 프로세스를 강제 종료해 `tool_use`만 남긴 뒤 resume하면 같은 ID에 `interrupted` 결과를 합성할 뿐 콜백이나 툴을 재호출하지 않았다. 따라서 앱의 `request_id`는 `tool_use_id`로 대체하지 않고, 늦은 답변은 계속 폐기한다.
+
+SDK에는 `PreToolUse`의 `permissionDecision: "defer"`로 툴을 영속 보류한 뒤 같은 `tool_use_id`에서 재개하는 별도 경로가 있다. 그러나 한 턴의 다중 tool batch에는 defer가 적용되지 않고, 현재 PoC의 `canUseTool`·answers 계약과 다른 durable 상태가 필요하다. 더구나 0.3.265 실측에서 deferred continuation이 앱이 추가한 `systemPrompt`를 누락하는 [upstream 회귀](https://github.com/anthropics/claude-agent-sdk-typescript/issues/395)가 재현됐다. PoC에는 도입하지 않는다. 장시간 승인 대기의 pod 비용이 실제 병목이 되면 SDK 버전을 다시 고정해 system prompt·다중 툴·외부 SessionStore까지 검증한 뒤 전환한다.
 
 ### 6.5 턴 종료와 유휴 회수
 
@@ -466,7 +478,9 @@ v0.1은 heartbeat를 확인해 pod 큐와 미배정 큐 중 하나를 골랐다.
 
 ### 7.2 스케일 아웃
 
-KEDA ScaledJob이 `queue:unassigned`의 크기를 본다. **미배정 세션 1개당 pod 1개.** 메시지 수가 아니라 세션 수다 — 같은 세션에 메시지가 10개 들어와도 그 세션을 집을 워커는 하나면 되고, v0.1처럼 메시지 수를 세면 9개의 pod가 떠서 클레임에 실패하고 도로 나간다.
+KEDA 2.20.x ScaledJob이 Postgres의 `unassigned_sessions` 행 수를 본다. **미배정 세션 1개당 pod 1개.** `session_id`가 PK이므로 `COUNT(*)`가 distinct 세션 수이며, 메시지 수가 아니다. 같은 세션에 메시지가 10개 들어와도 그 세션을 집을 워커는 하나면 된다.
+
+스케일 지표는 마이그레이션의 `queue_unassigned_session_count()`로 정의한다. KEDA와 local-scaler가 모두 `SELECT queue_unassigned_session_count()`를 호출하므로 SQL이 서로 어긋나지 않는다. `accurate`의 전제를 지키기 위해 워커는 클레임 성공 시 매핑 획득과 미배정 신호 삭제를 같은 트랜잭션에서 커밋하고, 클레임 실패 시 신호를 삭제하지 않는다. 재큐잉도 매핑 해제와 `status = queued` 전이 뒤 같은 트랜잭션에서 신호를 복원한다(§6.2, §7.4).
 
 `minReplicaCount`는 두지 않는다.
 
@@ -479,9 +493,11 @@ metadata:
   name: claude-worker
 spec:
   jobTargetRef:
+    backoffLimit: 0
     template:
       spec:
         runtimeClassName: gvisor
+        restartPolicy: Never
         terminationGracePeriodSeconds: 120
         nodeSelector: { node-pool: spot }
         containers:
@@ -492,21 +508,19 @@ spec:
               requests: { cpu: "1", memory: 2Gi }
               limits: { cpu: "4", memory: 8Gi }
   pollingInterval: 5
+  minReplicaCount: 0
   maxReplicaCount: 100
   scalingStrategy: { strategy: accurate }
   triggers:
-    # 백엔드 미정(94S-10). PoC 기본은 Postgres(§12.4, §14.1)이므로 아래
-    # redis-streams 트리거로는 워커가 한 대도 뜨지 않는다. 매니페스트 작성
-    # 전에 KEDA postgresql 스케일러로 갈지 Redis 구현을 완성할지 결정한다.
-    - type: redis-streams
+    - type: postgresql
       metadata:
-        address: redis:6379
-        stream: queue:unassigned
-        consumerGroup: workers
-        pendingEntriesCount: "1"
+        connectionFromEnv: DATABASE_URL
+        query: SELECT queue_unassigned_session_count()
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
 ```
 
-어느 트리거를 쓰든 지표는 **미배정 세션 수**(`unassigned_sessions`의 행 수, 또는 그에 해당하는 Redis Set 크기)여야 한다.
+`pollingInterval: 5`는 trigger 하나인 ScaledJob 하나당 정상 상태에서 약 분당 12회의 count query다. scaler는 DB pool을 재사용하지만 pool 상한을 직접 설정하지 않으므로 실제 Postgres connection 수와 query 지연은 kind에서 관측한다. scaler 전용 DB role에는 함수 실행에 필요한 최소 권한만 주고 연결 문자열은 Secret에서 주입한다.
 
 ScaledJob을 쓰는 이유: Deployment는 pod가 스스로 종료하면 즉시 대체 pod를 띄우고, 스케일 인 시 어떤 pod를 죽일지 KEDA가 고른다. Job은 워커가 종료하면 그걸로 끝이라 "유휴 pod가 스스로 나간다"는 모델과 맞는다.
 
@@ -813,6 +827,7 @@ services:
 
   api:                         # /ui 세션 인스펙터도 여기서 서빙 (§10.5)
     build: { context: ., dockerfile: Dockerfile.api }
+    profiles: ["apps"]         # M1에서 이미지가 생기기 전에는 기본 기동에서 제외
     ports: ["3000:3000"]
     env_file: .env
     depends_on: [postgres, localstack]
@@ -828,12 +843,15 @@ services:
 
   scaler:                      # KEDA 대체
     build: { context: ., dockerfile: Dockerfile.local-scaler }
+    profiles: ["apps"]         # M3에서 이미지가 생기기 전에는 기본 기동에서 제외
     env_file: .env
     volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
     depends_on: [postgres]
 ```
 
 Redis는 없다. PoC 큐 백엔드가 Postgres 단독이므로(§12.4, §14.1) 쓰지 않는 서비스를 띄우면 "Redis도 필요하다"는 오해가 굳는다.
+
+M0에서는 앱 이미지가 아직 없으므로 `docker compose up -d`가 Postgres·LocalStack·gitea만 띄운다. M1~M3에서 각 이미지가 생기면 `apps` profile을 활성화하고, 전체 로컬 경로를 완성하는 94S-36에서 기본 기동 계약을 다시 확정한다. 존재하지 않는 하위 단계의 이미지를 M0 인수 조건으로 요구하지 않는다.
 
 스토리지는 원래 MinIO였고 한때 s3mock이었으나 LocalStack으로 바꿨다. 이유는 운영 격차를 줄이는 것이다 — LocalStack은 S3와 Secrets Manager를 실제 AWS API로 제공하므로, 앱이 쓰는 SDK 호출 경로가 운영과 같아진다. s3mock은 S3만 흉내냈다. 운영에서는 실제 S3를 쓴다(§4.3).
 
@@ -1003,9 +1021,9 @@ API 서버가 `/ui`에 단일 페이지를 서빙한다. 별도 앱도 이미지
 
 빌드 캐시는 스냅샷하지 않는다. `node_modules`는 lock 파일에서 재생성되므로 스토리지에 둘 이유가 약하고, 캐시를 스냅샷하면 "세션의 실체는 트랜스크립트와 코드뿐"(§1.1)이라는 전제가 깨진다. 재수화 비용이 실제로 문제가 되면 노드 레벨 캐시(§11 콜드스타트)로 먼저 대응한다.
 
-### 12.2 질문 대기 타임아웃 — 기본 30분, 대기 중 pod는 유지
+### 12.2 질문 대기 타임아웃 — 기본 30분, PoC의 대기 중 pod는 유지
 
-`QUESTION_TIMEOUT_SEC=1800`. 툴 실행 도중에는 resume이 불가능하므로(§6.4) 대기 중 pod를 내릴 수 없고, 30분은 사람이 알림을 보고 답하기에 충분하면서 잊힌 세션이 pod를 하루 종일 붙들지 않는 선이다. 타임아웃은 deny로 끝나고 세션은 유휴 타이머로 들어간다.
+`QUESTION_TIMEOUT_SEC=1800`. 94S-8 실측에서 `canUseTool` 대기 중 프로세스를 종료하면 resume이 원 콜백을 재호출하지 않는다는 것을 확인했다. 따라서 현재 PoC 경로는 pod를 유지하며, 30분은 사람이 답할 시간과 잊힌 세션의 pod 점유를 함께 제한하는 제품 정책이다. 타임아웃은 abort가 아니라 명시적 deny로 끝내고 세션은 유휴 타이머로 들어간다. SDK의 durable defer 경로는 §6.4에 적은 제약을 다시 검증한 뒤 별도 결정으로 도입한다.
 
 ### 12.3 ScaledJob 채택
 
@@ -1021,7 +1039,7 @@ API 서버가 `/ui`에 단일 페이지를 서빙한다. 별도 앱도 이미지
 
 `LISTEN/NOTIFY`는 이벤트의 저장소가 아니라 깨우기 수단이다. SSE 재개는 `events` 테이블(§4.1)에서 오고, NOTIFY 페이로드에 본문을 싣지 않는다(§5.1).
 
-이 결정이 §7.2의 KEDA 트리거와 맞물린다. 현재 매니페스트는 `redis-streams` 트리거만 정의하므로, Postgres 백엔드로 클러스터에 올리려면 KEDA `postgresql` 스케일러로 바꾸거나 Redis 구현을 완성해야 한다. 배포 착수 전에 정한다.
+KEDA 트리거는 **KEDA 2.20.x `postgresql` scaler**로 확정한다(94S-10). Redis 구현을 완성하지 않아도 Postgres 단독 PoC를 kind에 올릴 수 있다. KEDA와 local-scaler의 지표 SQL은 마이그레이션의 `queue_unassigned_session_count()`로 고정한다. 5초 poll의 실제 connection 수·query plan/지연, Pending Job 중복 억제, claim·재큐잉 신호 정합성은 M5의 kind 검증(94S-34, 94S-37)에서 확인한다. Redis 전환은 Postgres 큐가 병목이라는 실측 근거가 생길 때만 검토한다.
 
 ### 12.5 인증 — API 키, owner는 키 단위
 
@@ -1118,8 +1136,8 @@ M0~M5는 §15의 로컬 트랙이다. 배포 트랙(§16.2)은 이 마일스톤 
 ### 14.4 시작 절차
 
 1. 이 문서를 끝까지 읽는다
-2. 문서 내 모순이나 구현 시 결정이 필요한 지점(§12 포함)을 목록으로 제시한다 — v0.2 개정이 이 단계의 결과이며, 남은 미결 항목은 §6.4(툴 실행 중 resume 동작, 94S-8)와 §12.4(KEDA 트리거 백엔드, 94S-10) 둘이다
-3. 작업 단위와 의존관계는 §16에 있다. M0 계획을 제안하고 승인을 기다린다
+2. 문서 내 모순이나 구현 시 결정이 필요한 지점(§12 포함)을 목록으로 제시한다. 94S-8로 `canUseTool` 중단·resume 동작과 pod 유지 정책을, 94S-10으로 KEDA 2.20.x `postgresql` scaler를 확정했다. 실제 kind 동작과 부하는 M5 검증 게이트로 넘긴다
+3. 작업 단위와 의존관계는 §16에 있다. 사용자가 M0 구현을 승인하면 Linear의 `blocked-by` 순서대로 진행한다
 
 ---
 
@@ -1225,9 +1243,9 @@ Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https
 | [94S-9](https://linear.app/94soon/issue/94S-9) | 모노레포 골격과 `bun run check` (§8) | — |
 | [94S-11](https://linear.app/94soon/issue/94S-11) | `packages/contracts` zod 스키마 (§5, §5.1) | 94S-7, 94S-9 |
 | [94S-12](https://linear.app/94soon/issue/94S-12) | `packages/db` 스키마·마이그레이션 (§4.1) | 94S-7, 94S-9 |
-| [94S-15](https://linear.app/94soon/issue/94S-15) | 클레임·해제·상태 전이 쿼리 (§7.5, §7.8, §7.9) | 94S-12 |
+| [94S-15](https://linear.app/94soon/issue/94S-15) | 클레임·해제·상태 전이 쿼리 (§7.5, §7.8, §7.9) | 94S-11, 94S-12 |
 | [94S-16](https://linear.app/94soon/issue/94S-16) | `packages/queue` 인터페이스와 Postgres 구현 (§4.2, §12.4) | 94S-11, 94S-12 |
-| [94S-13](https://linear.app/94soon/issue/94S-13) | `packages/storage` JSONL·git 영속화 (§4.3, §6.3.1) | 94S-9 |
+| [94S-13](https://linear.app/94soon/issue/94S-13) | `packages/storage` JSONL·git 영속화 (§4.3, §6.3.1) | 94S-9, 94S-14 |
 | [94S-35](https://linear.app/94soon/issue/94S-35) | `packages/observability` 구조화 로거 (§11.2) | 94S-9, 94S-11 |
 | [94S-14](https://linear.app/94soon/issue/94S-14) | 로컬 의존 서비스 compose: Postgres·LocalStack·gitea (§10.1, §10.4) | 94S-9 |
 
