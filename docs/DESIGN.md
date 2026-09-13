@@ -779,7 +779,7 @@ KEDA 대역이라 워커 컨테이너를 직접 띄우고, 그래서 docker CLI�
 
 | 운영 의존 | 로컬 대체 | 계정 필요? |
 |-----------|-----------|-----------|
-| S3, Secrets Manager | LocalStack (94S-51) | 아니오 |
+| S3, Secrets Manager | LocalStack (94S-14) | 아니오 |
 | RDS | Postgres 컨테이너 | 아니오 |
 | GitHub | gitea 컨테이너 | 아니오 |
 | ECR | 로컬 빌드, `kind load` | 아니오 |
@@ -802,7 +802,7 @@ services:
     ports: ["5432:5432"]
     volumes: ["./sql:/docker-entrypoint-initdb.d"]
 
-  localstack:                  # S3 + Secrets Manager. 운영과 같은 AWS API (94S-51)
+  localstack:                  # S3 + Secrets Manager. 운영과 같은 AWS API (94S-14)
     image: localstack/localstack:3
     environment: { SERVICES: "s3,secretsmanager", AWS_DEFAULT_REGION: ap-northeast-1 }
     ports: ["4566:4566"]
@@ -835,7 +835,7 @@ services:
 
 Redis는 없다. PoC 큐 백엔드가 Postgres 단독이므로(§12.4, §14.1) 쓰지 않는 서비스를 띄우면 "Redis도 필요하다"는 오해가 굳는다.
 
-스토리지는 원래 MinIO였고 한때 s3mock이었으나 LocalStack으로 바꿨다(94S-51). 이유는 운영 격차를 줄이는 것이다 — LocalStack은 S3와 Secrets Manager를 실제 AWS API로 제공하므로, 앱이 쓰는 SDK 호출 경로가 운영과 같아진다. s3mock은 S3만 흉내냈다. 운영에서는 실제 S3를 쓴다(§4.3).
+스토리지는 원래 MinIO였고 한때 s3mock이었으나 LocalStack으로 바꿨다. 이유는 운영 격차를 줄이는 것이다 — LocalStack은 S3와 Secrets Manager를 실제 AWS API로 제공하므로, 앱이 쓰는 SDK 호출 경로가 운영과 같아진다. s3mock은 S3만 흉내냈다. 운영에서는 실제 S3를 쓴다(§4.3).
 
 `local-scaler.ts`는 5초마다 미배정 세션 수를 보고, 그 수가 실행 중 워커 수보다 많으면 `docker compose run -d --name worker-$(uuid) -e POD_ID=... worker`를 실행한다. 지표 계산은 KEDA가 읽을 값과 같은 함수를 쓴다(§7.2). 워커는 유휴 타이머 만료 시 스스로 종료하므로 컨테이너는 사라진다.
 
@@ -886,7 +886,7 @@ compose 구성은 §10.1, kind 구성은 `infra/kind/`에 둔다. kind에서는 
 ./scripts/dev up --kind   # 2단계: kind + KEDA, 같은 매니페스트
 ```
 
-### 10.4 로컬과 운영의 격차 (94S-37, 94S-51)
+### 10.4 로컬과 운영의 격차 (94S-14, 94S-37)
 
 앞 표는 무엇을 어디서 확인하는지를 정하지만, **로컬이 운영과 같다는 뜻은 아니다.** 남는 격차를 적어둔다. 적어두지 않으면 "로컬에서 됐으니 괜찮다"가 근거로 쓰인다.
 
@@ -1101,7 +1101,7 @@ EFS도 후보였으나 git 작업처럼 작은 파일이 많은 워크로드에�
 | M0 | 모노레포 골격, `packages/{contracts,db,queue,storage,observability}`, `infra/docker-compose.yml` | 94S-9, 94S-11, 94S-12, 94S-15, 94S-16, 94S-13, 94S-35, 94S-14 | 쿼리 함수 유닛 테스트 통과 |
 | M1 | API 서버: 인증, `/sessions`, `/messages`, `/events`(SSE 재개), `/answers`, `/stop`·`/pin`·`DELETE`, 프로브 | 94S-17, 94S-38, 94S-21, 94S-26, 94S-22, 94S-23, 94S-27 | 라우팅 분기 테스트 통과 |
 | M2 | 워커: §6.2 기동, §6.3 턴 처리, §6.4 `canUseTool`↔answers, §6.3.1 체크포인트, §6.5 유휴 타이머, §6.6 SIGTERM drain | 94S-19, 94S-18, 94S-24, 94S-28, 94S-29, 94S-30 | §7.8 전이표의 모든 전이가 코드에 대응, drain은 단일 경로 |
-| M3 | reconciler(§7.4), local-scaler(§10), LocalStack 전환, 계정 없는 기본 모드, 세션 인스펙터, 원커맨드 기동, 장애 재현 레시피 | 94S-20, 94S-25, 94S-51, 94S-52, 94S-50, 94S-36, 94S-53 | 고아 매핑 정리 테스트 통과. **외부 계정 하나 없이** 브라우저에서 세션 생명주기와 장애 복구를 관찰 가능 |
+| M3 | reconciler(§7.4), local-scaler(§10), 계정 없는 기본 모드, 세션 인스펙터, 원커맨드 기동, 장애 재현 레시피 | 94S-20, 94S-25, 94S-52, 94S-50, 94S-36, 94S-53 | 고아 매핑 정리 테스트 통과. **외부 계정 하나 없이** 브라우저에서 세션 생명주기와 장애 복구를 관찰 가능 |
 | M4 | e2e: docker compose 위에서 §13 시나리오 1~5와 동시성 회귀 테스트 자동화, SDK는 fake 모드 | 94S-32, 94S-33 | **CI(GitHub Actions)에서 전체 통과.** 초록 체크가 아니라 `gh run view <id> --log`의 실제 로그로 확인 |
 | M5 | Dockerfile(§9), `infra/k8s/base`와 overlays, kind 검증. 착수 전 KEDA 트리거 백엔드 확정(§12.4) | 94S-31, 94S-34, 94S-37 | 이미지 빌드 성공, kind + KEDA에서 세션 생성 시 Job이 실제로 생성 |
 
@@ -1152,7 +1152,7 @@ G2를 통과하지 못한 채 G3로 넘어가면, 클러스터 문제와 애플�
 - 세션 하나를 돌렸을 때 구조화 로그·메트릭·트레이스가 전부 나온다 (94S-35, 94S-41)
 - 마이그레이션 적용과 롤백을 로컬에서 리허설했다 (94S-39)
 - 세션 인스펙터에서 세션·워커·큐 현황과 이벤트 타임라인을 볼 수 있다 (94S-50)
-- 로컬 AWS 의존이 LocalStack이라 SDK 호출 경로가 운영과 같다 (94S-51)
+- 로컬 AWS 의존이 LocalStack이라 SDK 호출 경로가 운영과 같다 (94S-14)
 - **AWS 계정·클러스터·LLM 키 없이** 세션 생성부터 resume까지 완주한다 (94S-52)
 - §10.6의 운영 장애 상황을 손으로 일으켜 `/ui`에서 관찰할 수 있다 (94S-53)
 - kind 검증이 머지 전 게이트로 걸려 있고, 명령 하나로 뜬다 (94S-36, 94S-37)
@@ -1200,11 +1200,11 @@ G2를 통과하지 못한 채 G3로 넘어가면, 클러스터 문제와 애플�
 
 ## 16. 티켓 맵
 
-Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56). 아래가 그 47장이다.
+Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56). 아래가 그 46장이다.
 
 **정본은 Linear다.** 의존관계는 각 이슈의 blocked-by 관계가, 게이트 소속은 프로젝트 마일스톤이 정본이고, 아래 표는 읽기 편하도록 옮겨 적은 사본이다. 둘이 어긋나면 Linear가 맞다.
 
-프로젝트 마일스톤이 §15.1의 게이트와 1:1로 대응한다 — G1 3장, G2 30장, G3 3장, G4 11장. 아래 소제목이 그 구분을 따른다.
+프로젝트 마일스톤이 §15.1의 게이트와 1:1로 대응한다 — G1 3장, G2 29장, G3 3장, G4 11장. 아래 소제목이 그 구분을 따른다.
 
 문서의 다른 절에 붙은 `(94S-NN)`은 이 표를 가리킨다.
 
@@ -1229,7 +1229,7 @@ Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https
 | [94S-16](https://linear.app/94soon/issue/94S-16) | `packages/queue` 인터페이스와 Postgres 구현 (§4.2, §12.4) | 94S-11, 94S-12 |
 | [94S-13](https://linear.app/94soon/issue/94S-13) | `packages/storage` JSONL·git 영속화 (§4.3, §6.3.1) | 94S-9 |
 | [94S-35](https://linear.app/94soon/issue/94S-35) | `packages/observability` 구조화 로거 (§11.2) | 94S-9, 94S-11 |
-| [94S-14](https://linear.app/94soon/issue/94S-14) | 로컬 의존 서비스 docker-compose (§10.1) | 94S-9 |
+| [94S-14](https://linear.app/94soon/issue/94S-14) | 로컬 의존 서비스 compose: Postgres·LocalStack·gitea (§10.1, §10.4) | 94S-9 |
 
 **API 서버**
 
@@ -1260,8 +1260,7 @@ Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https
 |------|------|------|
 | [94S-20](https://linear.app/94soon/issue/94S-20) | reconciler 고아 매핑 정리 (§7.4) | 94S-15, 94S-16 |
 | [94S-25](https://linear.app/94soon/issue/94S-25) | local-scaler (§9.4, §10) | 94S-14, 94S-19 |
-| [94S-51](https://linear.app/94soon/issue/94S-51) | 로컬 AWS 의존을 LocalStack으로 통일 (§10.1, §10.4) | 94S-13, 94S-14 |
-| [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 (§10.0) | 94S-18, 94S-24, 94S-51 |
+| [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 (§10.0) | 94S-14, 94S-18, 94S-24 |
 | [94S-50](https://linear.app/94soon/issue/94S-50) | 세션 인스펙터 UI (§10.5) | 94S-21, 94S-22, 94S-23 |
 | [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동(compose·kind)과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25, 94S-38 |
 | [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황 로컬 재현 레시피 (§10.6) | 94S-33, 94S-44, 94S-50, 94S-52 |
