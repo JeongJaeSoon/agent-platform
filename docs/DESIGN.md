@@ -1226,7 +1226,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | [94S-51](https://linear.app/94soon/issue/94S-51) | 로컬 AWS 의존을 LocalStack으로 통일 (§10.1, §10.4) | 94S-13, 94S-14 |
 | [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 (§10.0) | 94S-18, 94S-24, 94S-51 |
 | [94S-50](https://linear.app/94soon/issue/94S-50) | 세션 인스펙터 UI (§10.5) | 94S-21, 94S-22, 94S-23 |
-| [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동(compose·kind)과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25 |
+| [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동(compose·kind)과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25, 94S-38 |
 | [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황 로컬 재현 레시피 (§10.6) | 94S-33, 94S-50, 94S-52 |
 | [94S-32](https://linear.app/94soon/issue/94S-32) | PoC 시나리오 5종 e2e, CI 실행 (§13) | 94S-20, 94S-22, 94S-23, 94S-25, 94S-26, 94S-30 |
 | [94S-33](https://linear.app/94soon/issue/94S-33) | 동시성 회귀 테스트 (§13) | 94S-32 |
@@ -1236,7 +1236,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | 티켓 | 내용 | 선행 |
 |------|------|------|
 | [94S-31](https://linear.app/94soon/issue/94S-31) | Dockerfile 3종 (§9) | 94S-17, 94S-19 |
-| [94S-34](https://linear.app/94soon/issue/94S-34) | 쿠버네티스 매니페스트와 overlay (§7.2, §6.7) | 94S-10, 94S-31, 94S-33 |
+| [94S-34](https://linear.app/94soon/issue/94S-34) | 쿠버네티스 매니페스트와 overlay (§7.2, §6.7) | 94S-10, 94S-31, 94S-33, 94S-38 |
 | [94S-37](https://linear.app/94soon/issue/94S-37) | kind에서 KEDA·NetworkPolicy·gVisor 실동작 검증 (§10.3) | 94S-34 |
 
 94S-37은 **머지 전 게이트**다. compose 경로에는 매니페스트가 등장하지 않으므로(§10.4), 이것을 통과하지 않은 변경은 클러스터로 가지 않는다.
@@ -1257,7 +1257,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | [94S-45](https://linear.app/94soon/issue/94S-45) | 테넌트별 LLM·git 자격증명 분리 | 94S-19, 94S-21 | §11.4 |
 | [94S-46](https://linear.app/94soon/issue/94S-46) | CD 파이프라인, 이미지 승격 | 94S-31, 94S-34, 94S-39 | §11.1 |
 | [94S-47](https://linear.app/94soon/issue/94S-47) | 스팟 노드 풀과 선점 복구 스테이징 검증 | 94S-34, 94S-37, 94S-46 | §11.6, N2·N4 |
-| [94S-49](https://linear.app/94soon/issue/94S-49) | 운영 런북과 백업·복구 | 94S-47, 94S-48 | §11.5, §15.3 |
+| [94S-49](https://linear.app/94soon/issue/94S-49) | 운영 런북과 백업·복구 | 94S-47, 94S-48, 94S-53 | §11.5, §15.3 |
 
 ### 16.3 최장 경로
 
@@ -1268,3 +1268,5 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 ```
 
 이 사슬이 일정의 하한이다. 94S-8과 94S-10은 사슬 밖이지만 각각 94S-28과 94S-34를 막으므로 일찍 닫는다.
+
+94S-38(프로브)은 작지만 94S-34와 94S-36 둘을 막는다. 매니페스트에 liveness·readiness를 걸려면 엔드포인트가 먼저 있어야 하고, 기동 스크립트의 준비 대기도 `readyz`를 폴링한다.
