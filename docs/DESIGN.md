@@ -719,7 +719,8 @@ ENTRYPOINT ["bun", "run", "/app/worker.ts"]
 주요 환경변수(Secret으로 주입):
 
 ```
-ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY   # LLM 엔드포인트
+SDK_MODE=fake|real                       # 로컬 기본은 fake, 운영은 real (§10.0)
+ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY   # LLM 엔드포인트. SDK_MODE=real일 때만 필요
 CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 # 서드파티 게이트웨이 사용 시
 REDIS_URL, DATABASE_URL
 S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY
@@ -757,6 +758,25 @@ KEDA 대역이라 워커 컨테이너를 직접 띄우고, 그래서 docker CLI�
 ## 10. 로컬 개발 환경
 
 목표: 쿠버네티스 없이 동일한 메시지 흐름과 pod 생명주기를 재현한다. 워커 "pod"는 docker compose의 컨테이너 하나로 대응하고, KEDA 대신 간단한 스케일러 스크립트가 `docker compose run`으로 워커를 띄운다.
+
+### 10.0 외부 계정 없이 도는가 (94S-52)
+
+**클론한 사람이 AWS 계정도, 쿠버네티스 클러스터도, LLM API 키도 없이 전체 흐름을 돌려볼 수 있어야 한다.** 없으면 "일단 키부터 받아오라"가 첫 장벽이 되고, 기여자와 신규 합류자가 거기서 멈춘다.
+
+| 운영 의존 | 로컬 대체 | 계정 필요? |
+|-----------|-----------|-----------|
+| S3, Secrets Manager | LocalStack (94S-51) | 아니오 |
+| RDS | Postgres 컨테이너 | 아니오 |
+| GitHub | gitea 컨테이너 | 아니오 |
+| ECR | 로컬 빌드, `kind load` | 아니오 |
+| EKS | kind (94S-37) | 아니오 |
+| KEDA ScaledJob | local-scaler(compose) / 실제 KEDA(kind) | 아니오 |
+| **Anthropic API** | **fake SDK 모드** (94S-18) | **아니오 — 기본값이 fake다** |
+| 알림 채널 | 로컬 관측 스택의 수신함 (94S-41) | 아니오 |
+
+`ANTHROPIC_API_KEY`는 **선택**이다. 키가 없으면 fake SDK가 미리 정해진 응답 시퀀스를 재생하므로, 세션 생성 → 이벤트 스트림 → 권한 질문 → 답변 → 턴 종료 → 유휴 회수 → resume까지 전 경로를 그대로 체험할 수 있다. 실제 모델 출력이 필요할 때만 키를 넣는다.
+
+fake를 e2e 전용으로 두지 않고 **로컬 기본값**으로 두는 이유는 두 가지다. 키 없이 시작할 수 있어야 하고, 개발 중 반복 실행이 과금되지 않아야 한다.
 
 ### 10.1 docker-compose.yml
 
@@ -806,13 +826,13 @@ Redis는 없다. PoC 큐 백엔드가 Postgres 단독이므로(§12.4, §14.1) �
 
 ### 10.2 실행 순서
 
-```bash
-cp .env.example .env            # ANTHROPIC_BASE_URL 등 채우기
-docker compose up -d postgres localstack gitea
-docker compose up -d api scaler
-# 또는 위 전부를 한 번에: 94S-36의 기동 스크립트
+키도 계정도 없이 시작한다(§10.0).
 
-open http://localhost:3000/ui  # 세션 인스펙터 (§10.5)
+```bash
+cp .env.example .env            # 그대로 써도 된다. LLM은 fake 모드가 기본
+./scripts/dev up                # 의존 서비스 → 마이그레이션 → api·scaler → 샘플 리포 (94S-36)
+
+open http://localhost:3000/ui   # 세션 인스펙터 (§10.5)
 
 # 세션 생성
 curl -X POST localhost:3000/v1/sessions \
@@ -843,6 +863,13 @@ docker ps                       # 새 워커가 뜨고 같은 세션을 resume
 | 3 | 스테이징(EKS) | 실제 스팟 선점과 2분 알림 처리, 노드 이미지 pull 시간, 실부하에서의 스케일 동작, 알림 파이프라인 |
 
 compose 구성은 §10.1, kind 구성은 `infra/kind/`에 둔다. kind에서는 워커 이미지를 `kind load docker-image`로 올리고, Postgres·스토리지·git remote는 compose 그대로 두고 `host.docker.internal`로 접근한다.
+
+**두 단계 모두 명령 하나로 뜬다**(94S-36). 클러스터 계정 없이 쿠버네티스 경로를 그대로 밟아볼 수 있어야 2단계가 실제로 쓰인다.
+
+```bash
+./scripts/dev up          # 1단계: compose
+./scripts/dev up --kind   # 2단계: kind + KEDA, 같은 매니페스트
+```
 
 ### 10.4 로컬과 운영의 격차 (94S-37, 94S-51)
 
@@ -877,7 +904,29 @@ API 서버가 `/ui`에 단일 페이지를 서빙한다. 별도 앱도 이미지
 
 **`AUTH_MODE=none`일 때만 서빙한다.** 즉 로컬 전용이다. 운영에 브라우저 화면을 노출하면 인증 표면이 늘어나는데, 운영 쪽 가시성은 이미 메트릭·트레이싱(§11.2)이 담당한다. 운영에서도 이 화면이 필요해지면 그때 인증을 붙여 여는 것을 별도로 판단한다.
 
-### 10.6 단일 머신 대안: 에이전트 뷰 감독자 활용
+### 10.6 운영 상황을 로컬에서 일으키기 (94S-53)
+
+설계가 견디겠다고 주장하는 상황들(§7.9)을 **손으로 일으켜 볼 수 있어야 한다.** 자동화된 회귀 테스트(94S-33)는 통과 여부만 알려주고, 무슨 일이 일어나는지는 보여주지 않는다. 눈으로 보는 경로가 따로 필요하다.
+
+각 항목은 명령 한 줄이고, 결과는 `/ui`의 타임라인에서 관찰한다.
+
+| 운영에서 | 로컬에서 일으키는 법 | 기대 결과 |
+|----------|---------------------|-----------|
+| 스팟 선점(2분 알림) | `docker stop <worker>` — SIGTERM + grace period | drain 경로로 저장 후 종료, 세션이 새 워커에서 이어짐 |
+| 알림 없는 노드 소실 | `docker kill <worker>` | heartbeat 만료 → reconciler가 1분 내 재큐잉 |
+| OOM | 워커 메모리 한도를 낮춰 기동 | 위와 같은 사고 종료 경로 |
+| node drain·롤링 업데이트 | kind에서 `kubectl drain` | SIGTERM 경로 |
+| split-brain | `docker pause <worker>` 후 reconciler가 해제하게 두고 `unpause` | 구 워커의 쓰기가 거부됨(94S-44) |
+| 메시지 순서 역전 시도 | 워커를 죽인 직후 메시지 두 개를 연속 전송 | 적재 순서대로 처리 |
+| 클레임 경쟁 | 워커를 여러 개 동시 기동 | 정확히 하나만 클레임, 나머지는 스스로 종료 |
+| 권한 대기와 타임아웃 | fake SDK가 툴 요청을 내도록 설정, `QUESTION_TIMEOUT_SEC`를 짧게 | `needs_input` 전이 → 타임아웃 시 deny |
+| 예산 초과 | fake SDK의 `usage`를 크게 | 턴 중단, `failed` 전이(94S-43) |
+| 큐 적체 | 스케일러를 멈추고 세션을 여러 개 생성 | 미배정 세션 수가 쌓이고, 스케일러 재개 시 해소 |
+| DB 순단 | `docker stop postgres` 후 재기동 | `readyz` 실패 → 복구 후 정상화 |
+
+이 표는 런북(94S-49)의 로컬 리허설 대상과 같은 목록이다. 운영에서 대응할 상황을 로컬에서 먼저 겪어보는 것이 목적이다.
+
+### 10.7 단일 머신 대안: 에이전트 뷰 감독자 활용
 
 컨트롤 플레인을 아직 만들기 전에 "여러 세션을 API로 다루는" 감을 잡고 싶다면, 한 머신에서 `claude --bg`, `claude agents --json`, `claude logs`, `claude stop`을 감싸는 얇은 HTTP 래퍼를 먼저 만들어 볼 수 있다. 감독자가 세션 프로세스 관리·유휴 회수·worktree 격리를 대신 해주므로 API 표면만 검증할 수 있다. 다만 후속 메시지 전달이 `attach` 경유라 API화가 어색하고, 다중 노드로 확장이 안 되므로 PoC 이후에는 본 설계로 옮긴다.
 
@@ -1019,7 +1068,7 @@ OIDC가 아니라 API 키다. 이 API의 클라이언트는 사람이 아니라 
 | M0 | 모노레포 골격, `packages/{contracts,db,queue,storage,observability}`, `infra/docker-compose.yml` | 94S-9, 94S-11, 94S-12, 94S-15, 94S-16, 94S-13, 94S-35, 94S-14 | 쿼리 함수 유닛 테스트 통과 |
 | M1 | API 서버: 인증, `/sessions`, `/messages`, `/events`(SSE 재개), `/answers`, `/stop`·`/pin`·`DELETE`, 프로브 | 94S-17, 94S-38, 94S-21, 94S-26, 94S-22, 94S-23, 94S-27 | 라우팅 분기 테스트 통과 |
 | M2 | 워커: §6.2 기동, §6.3 턴 처리, §6.4 `canUseTool`↔answers, §6.3.1 체크포인트, §6.5 유휴 타이머, §6.6 SIGTERM drain | 94S-19, 94S-18, 94S-24, 94S-28, 94S-29, 94S-30 | §7.8 전이표의 모든 전이가 코드에 대응, drain은 단일 경로 |
-| M3 | reconciler(§7.4), local-scaler(§10), LocalStack 전환, 세션 인스펙터, 원커맨드 기동 | 94S-20, 94S-25, 94S-51, 94S-50, 94S-36 | 고아 매핑 정리 테스트 통과, 브라우저에서 세션 생명주기 관찰 가능 |
+| M3 | reconciler(§7.4), local-scaler(§10), LocalStack 전환, 계정 없는 기본 모드, 세션 인스펙터, 원커맨드 기동, 장애 재현 레시피 | 94S-20, 94S-25, 94S-51, 94S-52, 94S-50, 94S-36, 94S-53 | 고아 매핑 정리 테스트 통과. **외부 계정 하나 없이** 브라우저에서 세션 생명주기와 장애 복구를 관찰 가능 |
 | M4 | e2e: docker compose 위에서 §13 시나리오 1~5와 동시성 회귀 테스트 자동화, SDK는 fake 모드 | 94S-32, 94S-33 | **CI(GitHub Actions)에서 전체 통과.** 초록 체크가 아니라 `gh run view <id> --log`의 실제 로그로 확인 |
 | M5 | Dockerfile(§9), `infra/k8s/base`와 overlays, kind 검증. 착수 전 KEDA 트리거 백엔드 확정(§12.4) | 94S-31, 94S-34, 94S-37 | 이미지 빌드 성공, kind + KEDA에서 세션 생성 시 Job이 실제로 생성 |
 
@@ -1071,7 +1120,9 @@ G2를 통과하지 못한 채 G3로 넘어가면, 클러스터 문제와 애플�
 - 마이그레이션 적용과 롤백을 로컬에서 리허설했다 (94S-39)
 - 세션 인스펙터에서 세션·워커·큐 현황과 이벤트 타임라인을 볼 수 있다 (94S-50)
 - 로컬 AWS 의존이 LocalStack이라 SDK 호출 경로가 운영과 같다 (94S-51)
-- kind 검증이 머지 전 게이트로 걸려 있다 (94S-37)
+- **AWS 계정·클러스터·LLM 키 없이** 세션 생성부터 resume까지 완주한다 (94S-52)
+- §10.6의 운영 장애 상황을 손으로 일으켜 `/ui`에서 관찰할 수 있다 (94S-53)
+- kind 검증이 머지 전 게이트로 걸려 있고, 명령 하나로 뜬다 (94S-36, 94S-37)
 
 ### 15.3 배포 트랙 완료 조건
 
@@ -1116,7 +1167,7 @@ G2를 통과하지 못한 채 G3로 넘어가면, 클러스터 문제와 애플�
 
 ## 16. 티켓 맵
 
-Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94S-6)이고 아래가 그 자식 45개다. **의존관계는 Linear의 blocked-by 관계가 정본이며**, 아래 표는 읽기 편하도록 옮겨 적은 것이다. 둘이 어긋나면 Linear가 맞다.
+Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94S-6)이고 아래가 그 자식 47개다. **의존관계는 Linear의 blocked-by 관계가 정본이며**, 아래 표는 읽기 편하도록 옮겨 적은 것이다. 둘이 어긋나면 Linear가 맞다.
 
 문서의 다른 절에 붙은 `(94S-NN)`은 이 표를 가리킨다.
 
@@ -1173,8 +1224,10 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | [94S-20](https://linear.app/94soon/issue/94S-20) | reconciler 고아 매핑 정리 (§7.4) | 94S-15, 94S-16 |
 | [94S-25](https://linear.app/94soon/issue/94S-25) | local-scaler (§9.4, §10) | 94S-14, 94S-19 |
 | [94S-51](https://linear.app/94soon/issue/94S-51) | 로컬 AWS 의존을 LocalStack으로 통일 (§10.1, §10.4) | 94S-13, 94S-14 |
+| [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 (§10.0) | 94S-18, 94S-24, 94S-51 |
 | [94S-50](https://linear.app/94soon/issue/94S-50) | 세션 인스펙터 UI (§10.5) | 94S-21, 94S-22, 94S-23 |
-| [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25 |
+| [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동(compose·kind)과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25 |
+| [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황 로컬 재현 레시피 (§10.6) | 94S-33, 94S-50, 94S-52 |
 | [94S-32](https://linear.app/94soon/issue/94S-32) | PoC 시나리오 5종 e2e, CI 실행 (§13) | 94S-20, 94S-22, 94S-23, 94S-25, 94S-26, 94S-30 |
 | [94S-33](https://linear.app/94soon/issue/94S-33) | 동시성 회귀 테스트 (§13) | 94S-32 |
 
