@@ -259,6 +259,8 @@ Base path: `/v1`
 | GET | `/sessions/{id}/events` | `Last-Event-ID` 헤더 | `text/event-stream` | 이벤트 스트리밍. 재접속 시 이어보기 |
 | POST | `/sessions/{id}/answers` | `{request_id, answer}` | `204` | 질문·권한 요청 응답 |
 | GET | `/sessions/{id}/transcript` | `?after_uuid` | `[{normalized message}]` | JSONL 정규화 이력. **PoC 범위 밖** — `events` 테이블(§4.1)이 같은 이력을 제공하므로 두 번째 경로를 만들지 않는다. JSONL은 resume용 원본으로만 쓴다 |
+
+**F6은 이 엔드포인트가 아니라 `events`로 만족된다.** "트랜스크립트가 외부 스토리지에 남고 이를 통해 이력과 상태를 조회할 수 있다"는 요구에서, 영속화는 §4.3의 S3 업로드(94S-13)가, 조회는 `events` 테이블과 SSE 재생(94S-16, 94S-22)이 담당한다. JSONL 원본 형태 그대로가 필요한 클라이언트가 생기면 그때 이 엔드포인트를 연다(§15.4).
 | POST | `/sessions/{id}/stop` | | `202` | 현재 턴 중단 |
 | POST | `/sessions/{id}/pin` | `{pinned: bool}` | `204` | 유휴 회수 제외 |
 | DELETE | `/sessions/{id}` | | `204` | pod·브랜치·스토리지 정리 |
@@ -820,6 +822,7 @@ services:
     env_file: .env
     environment:
       POD_ID: "${POD_ID:-local-worker}"
+    mem_limit: "${WORKER_MEM_LIMIT:-2g}"   # 낮춰서 OOM 재현 (§10.6)
     profiles: ["worker"]
     depends_on: [postgres, localstack]
 
@@ -897,6 +900,8 @@ compose 구성은 §10.1, kind 구성은 `infra/kind/`에 둔다. kind에서는 
 | **격리** | 없음 | gVisor | kind에 gVisor가 없으면 런타임 클래스가 무시되는지 확인하고 기록한다(94S-37) |
 | **중단** | `docker kill`, `docker stop` | 스팟 선점 2분 알림, node drain | 알림 있는 종료는 kind `drain`으로, 알림 없는 소실은 kind 노드를 죽여서 재현한다. 실제 선점만 스테이징(94S-47) |
 | **네트워크** | compose 네트워크 | NetworkPolicy, VPC | kind에서 정책 적용 여부만 확인 |
+| **이미지 pull 지연** | 없음 — kind는 `kind load`로 로컬 이미지를 주입하므로 레지스트리 pull을 겪지 않는다 | 스팟 노드가 뜰 때마다 ECR에서 pull | **좁힐 수 없다.** kind 검증을 통과해도 콜드스타트(§11.6)는 스테이징에서야 처음 드러난다. 94S-47이 실측해 §11.6에 기록한다 |
+| **리소스 제한** | compose에 메모리 제한을 명시해야 OOM을 재현할 수 있다(§10.1) | `limits: memory` 초과 시 OOMKill | compose의 워커 서비스에 `mem_limit`을 두면 §10.6의 OOM 레시피가 성립한다 |
 
 **가장 큰 격차는 첫 줄이다.** compose는 메시지 흐름과 세션 생명주기를 재현하지만 쿠버네티스를 재현하지 않는다. 그래서 compose는 빠른 반복용이고, kind 검증이 통과하지 않은 변경은 클러스터로 가지 않는다.
 
@@ -926,7 +931,7 @@ API 서버가 `/ui`에 단일 페이지를 서빙한다. 별도 앱도 이미지
 |----------|---------------------|-----------|
 | 스팟 선점(2분 알림) | `docker stop <worker>` — SIGTERM + grace period | drain 경로로 저장 후 종료, 세션이 새 워커에서 이어짐 |
 | 알림 없는 노드 소실 | `docker kill <worker>` | heartbeat 만료 → reconciler가 1분 내 재큐잉 |
-| OOM | 워커 메모리 한도를 낮춰 기동 | 위와 같은 사고 종료 경로 |
+| OOM | `WORKER_MEM_LIMIT=256m`으로 워커 기동(§10.1) | 위와 같은 사고 종료 경로 |
 | node drain·롤링 업데이트 | kind에서 `kubectl drain` | SIGTERM 경로 |
 | split-brain | `docker pause <worker>` 후 reconciler가 해제하게 두고 `unpause` | 구 워커의 쓰기가 거부됨(94S-44) |
 | 메시지 순서 역전 시도 | 워커를 죽인 직후 메시지 두 개를 연속 전송 | 적재 순서대로 처리 |
@@ -1242,7 +1247,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | [94S-18](https://linear.app/94soon/issue/94S-18) | Agent SDK 어댑터와 fake (§14.1) | 94S-11 |
 | [94S-24](https://linear.app/94soon/issue/94S-24) | 턴 처리 루프와 이벤트 발행 (§6.3) | 94S-18, 94S-19 |
 | [94S-28](https://linear.app/94soon/issue/94S-28) | `canUseTool` ↔ answers 왕복 (§6.4) | 94S-8, 94S-23, 94S-24 |
-| [94S-29](https://linear.app/94soon/issue/94S-29) | 체크포인트 한 쌍 영속화 (§6.3.1) | 94S-13, 94S-24 |
+| [94S-29](https://linear.app/94soon/issue/94S-29) | 체크포인트 한 쌍 영속화 (§6.3.1) | 94S-8, 94S-13, 94S-24 |
 | [94S-30](https://linear.app/94soon/issue/94S-30) | 유휴 타이머와 단일 drain 경로 (§6.5, §6.6) | 94S-24, 94S-29 |
 
 **보조 컴포넌트와 검증 (G2)**
@@ -1255,7 +1260,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 (§10.0) | 94S-18, 94S-24, 94S-51 |
 | [94S-50](https://linear.app/94soon/issue/94S-50) | 세션 인스펙터 UI (§10.5) | 94S-21, 94S-22, 94S-23 |
 | [94S-36](https://linear.app/94soon/issue/94S-36) | 원커맨드 기동(compose·kind)과 온보딩 문서 (§10.2, §15.2) | 94S-14, 94S-25, 94S-38 |
-| [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황 로컬 재현 레시피 (§10.6) | 94S-33, 94S-50, 94S-52 |
+| [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황 로컬 재현 레시피 (§10.6) | 94S-33, 94S-44, 94S-50, 94S-52 |
 | [94S-32](https://linear.app/94soon/issue/94S-32) | PoC 시나리오 5종 e2e, CI 실행 (§13) | 94S-20, 94S-22, 94S-23, 94S-25, 94S-26, 94S-30 |
 | [94S-33](https://linear.app/94soon/issue/94S-33) | 동시성 회귀 테스트 (§13) | 94S-32 |
 
@@ -1264,7 +1269,7 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 | 티켓 | 내용 | 선행 |
 |------|------|------|
 | [94S-31](https://linear.app/94soon/issue/94S-31) | Dockerfile 3종 (§9) | 94S-17, 94S-19 |
-| [94S-34](https://linear.app/94soon/issue/94S-34) | 쿠버네티스 매니페스트와 overlay (§7.2, §6.7) | 94S-10, 94S-31, 94S-33, 94S-38 |
+| [94S-34](https://linear.app/94soon/issue/94S-34) | 쿠버네티스 매니페스트와 overlay (§6.7, §7.2, §9.2). API Deployment+HPA가 여기 포함되며 그것이 N1을 만족한다 | 94S-10, 94S-31, 94S-33, 94S-38 |
 | [94S-37](https://linear.app/94soon/issue/94S-37) | kind에서 KEDA·NetworkPolicy·gVisor 실동작 검증 (§10.3) | 94S-34 |
 
 94S-37은 **머지 전 게이트**다. compose 경로에는 매니페스트가 등장하지 않으므로(§10.4), 이것을 통과하지 않은 변경은 클러스터로 가지 않는다.
@@ -1290,11 +1295,17 @@ Linear 팀 `94soon`. 부모 이슈는 [94S-6](https://linear.app/94soon/issue/94
 ### 16.3 최장 경로
 
 ```
-94S-7 → 94S-9 → 94S-12 → 94S-15 → 94S-19 → 94S-24 → 94S-29
-      → 94S-30 → 94S-32 → 94S-33 → 94S-34 → 94S-37 → 94S-46
-      → 94S-47 → 94S-49
+94S-9 → 94S-12 → 94S-15 → 94S-19 → 94S-24 → 94S-29 → 94S-30
+      → 94S-32 → 94S-33 → 94S-34 → ┬ 94S-37 ┬ → 94S-47 → 94S-49
+                                    └ 94S-46 ┘
 ```
 
-이 사슬이 일정의 하한이다. 94S-8과 94S-10은 사슬 밖이지만 각각 94S-28과 94S-34를 막으므로 일찍 닫는다.
+이 사슬이 일정의 하한이다.
+
+**94S-37과 94S-46은 병렬이다.** 둘 다 94S-34가 끝나면 바로 착수할 수 있고, 94S-47에서 처음 합류한다(94S-47 선행 = 94S-34, 94S-37, 94S-46). 직렬로 읽으면 없는 대기가 생긴다.
+
+94S-7은 이 사슬의 선두가 아니다. 94S-9는 선행이 없고, 둘은 94S-12의 공통 선행일 뿐이다(94S-7은 이미 완료).
+
+94S-8과 94S-10은 사슬 밖이지만 각각 94S-28·94S-29와 94S-34를 막으므로 일찍 닫는다. 특히 94S-8은 §6.3.1 체크포인트 순서의 안전성 근거이기도 하다 — 두 스텝 사이에서 크래시했을 때 SDK가 `tool_use`를 재호출하는지에 따라 멱등성 처리가 필요해질 수 있다.
 
 94S-38(프로브)은 작지만 94S-34와 94S-36 둘을 막는다. 매니페스트에 liveness·readiness를 걸려면 엔드포인트가 먼저 있어야 하고, 기동 스크립트의 준비 대기도 `readyz`를 폴링한다.
