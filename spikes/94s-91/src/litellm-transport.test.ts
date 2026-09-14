@@ -105,18 +105,18 @@ describe("actual LiteLLM Anthropic transport", () => {
   }, 120_000);
 
   afterAll(async () => {
-    if (proxy?.exitCode === null) {
-      proxy.kill("SIGTERM");
-      await Promise.race([
-        new Promise((resolve) => proxy.once("exit", resolve)),
-        Bun.sleep(2_000),
-      ]);
-      if (proxy.exitCode === null) {
-        proxy.kill("SIGKILL");
-        await new Promise((resolve) => proxy.once("exit", resolve));
-      }
-    }
     upstream?.stop();
+    if (proxy?.exitCode === null) {
+      proxy.kill("SIGKILL");
+      await waitFor(
+        () => proxy.exitCode !== null || proxy.signalCode !== null,
+        5_000,
+      );
+    }
+    proxy?.stdin.destroy();
+    proxy?.stdout.destroy();
+    proxy?.stderr.destroy();
+    proxy?.unref();
     await context?.dispose();
   }, 10_000);
 
