@@ -319,7 +319,7 @@ SDK 호출의 세부 signature는 94S-91이 고정한다. 구현은 다음 의�
 
 v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그러면 턴 도중 사고 종료 시 트랜스크립트에는 "파일 X를 이렇게 고쳤다"는 tool_result가 남아 있는데 원격 브랜치에는 그 수정이 없다. 새 워커는 그 상태로 resume하고, Claude는 자기가 이미 썼다고 기억하는 파일이 없는 워크스페이스에서 작업을 이어간다. 진행분 손실이 아니라 트랜스크립트와 실제 상태의 모순이라 재개 후 행동이 어긋난다.
 
-저장 전에는 SDK event 수집뿐 아니라 background writer와 subagent 파일 변경까지 quiesce되었고 진행 중 tool callback·write가 없는지 확인한다. quiescence를 증명하지 못하면 새 generation을 publish하지 않고 이전 generation을 유지하며 명시적 오류를 기록한다. 체크포인트 순서는 다음과 같다.
+저장 전에는 SDK event 수집뿐 아니라 background writer와 subagent 파일 변경까지 quiesce되었고 진행 중 tool callback·write가 없는지 확인한다. 확인 직후부터 pointer CAS의 성공·실패까지 배타적 checkpoint lease로 새 writer 시작을 거절해 검사와 저장 사이 TOCTOU를 막는다. quiescence를 증명하지 못하거나 lease를 얻지 못하면 새 generation을 publish하지 않고 이전 generation을 유지하며 명시적 오류를 기록한다. 체크포인트 순서는 다음과 같다.
 
 1. workspace를 commit해 exact git SHA를 얻고 remote에 push한다. subagent revision은 git SHA가 아니라 각 transcript backend가 제공하는 exact revision으로 별도 기록한다.
 2. 94S-92가 선택한 단일 backend의 root/subagent data를 immutable object로 업로드하고 hash/revision을 검증한다.
@@ -330,7 +330,9 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 
 G2는 현재 `pod_id`와 previous revision의 CAS까지만 요구한다. 94S-44는 G4에서 checkpoint 외 전체 write에 claim epoch fencing을 확장하며, G2가 이를 구현 완료했다고 주장하지 않는다.
 
-94S-92가 JSONL 또는 SessionStore 중 재개 backend 하나를 선택하고, 94S-93은 선택한 backend 하나만 구현한다. 94S-92 결론 전에는 SessionStore 연동 코드를 추가하지 않는다. SDK가 session 중 `mirror_error`를 보고해도 turn 자체는 계속될 수 있지만, 오류 뒤에 생긴 suffix는 checkpoint가 아니며 복구 정본으로 승격하지 않는다. legacy checkpoint에는 SHA가 없음을 명시하고 별도 migration/fallback 정책으로 읽으며, 새 manifest의 hash 검증을 통과한 것처럼 취급하지 않는다. SDK가 임시 config directory를 요구하면 session/owner별 디렉터리를 만들고 host user settings·auto memory·다른 tenant cache를 공유하지 않는다.
+94S-92 실측 결과 고정 SDK의 `SessionStore`를 단일 transcript backend로 채택한다. S3 mirror의 최신 상태는 checkpoint가 아니다. 94S-93은 root/subagent별 immutable part key와 SHA-256 목록을 exact revision으로 고정하고 manifest가 지정한 revision만 복원한다. SDK가 session 중 `mirror_error`를 보고해도 turn 자체는 성공할 수 있으므로 해당 turn 뒤 suffix는 checkpoint로 승격하지 않는다. append timeout 뒤 늦은 write와 retry가 함께 반영될 수 있어 동일 UUID의 deep-equal entry만 중복 제거하고 payload가 다르면 손상으로 거절한다. manifest revision이 없거나 object/hash 검증이 실패하면 SDK의 local fallback을 호출하지 않고 claim을 실패시킨다.
+
+M0 filesystem snapshot은 병행 write backend가 아니라 lossless legacy importer와 rollback 입력으로만 유지한다. legacy `meta.json`에는 workspace git SHA가 없어 과거 transcript와 branch HEAD를 검증 가능한 동일 시점으로 취급하지 않는다. 원본 object·metadata·branch를 보존한 채 quiescent 전환 시점의 exact git SHA와 가져온 전체 transcript revision을 새 generation으로 발행하고 CAS 전에는 legacy 경로로 롤백한다. SDK가 임시 config directory를 요구하면 session/owner별 allowlist config root를 원본으로 제공하고 host user settings·auto memory·다른 tenant cache를 공유하지 않는다. 상세 실측과 실패 계약은 `spikes/94s-92/README.md`에 기록한다.
 
 ### 6.4 질문·권한 요청 처리
 
@@ -1133,8 +1135,8 @@ Linear 팀 `94soon`, 프로젝트 [Claude Code 세션 컨트롤 플레인](https
 | [94S-50](https://linear.app/94soon/issue/94S-50) | 세션 인스펙터 UI로 로컬 실행 상태 가시화 | Backlog | [94S-21](https://linear.app/94soon/issue/94S-21), [94S-22](https://linear.app/94soon/issue/94S-22), [94S-23](https://linear.app/94soon/issue/94S-23) |
 | [94S-52](https://linear.app/94soon/issue/94S-52) | 외부 계정 없이 도는 로컬 기본 모드 구성 | Backlog | [94S-14](https://linear.app/94soon/issue/94S-14), [94S-18](https://linear.app/94soon/issue/94S-18), [94S-24](https://linear.app/94soon/issue/94S-24) |
 | [94S-53](https://linear.app/94soon/issue/94S-53) | 운영 장애 상황을 로컬에서 재현하는 레시피와 헬퍼 작성 | Backlog | [94S-33](https://linear.app/94soon/issue/94S-33), [94S-44](https://linear.app/94soon/issue/94S-44), [94S-50](https://linear.app/94soon/issue/94S-50), [94S-52](https://linear.app/94soon/issue/94S-52) |
-| [94S-91](https://linear.app/94soon/issue/94S-91) | [조사] 고정 Agent SDK의 Claude Code 호환성과 중단·승인·재개 계약을 확정 | Backlog | [94S-8](https://linear.app/94soon/issue/94S-8), [94S-11](https://linear.app/94soon/issue/94S-11) |
-| [94S-92](https://linear.app/94soon/issue/94S-92) | [조사] SessionStore와 filesystem checkpoint의 복구 backend를 선택 | Backlog | [94S-8](https://linear.app/94soon/issue/94S-8), [94S-13](https://linear.app/94soon/issue/94S-13), [94S-91](https://linear.app/94soon/issue/94S-91) |
+| [94S-91](https://linear.app/94soon/issue/94S-91) | [조사] 고정 Agent SDK의 Claude Code 호환성과 중단·승인·재개 계약을 확정 | Done | [94S-8](https://linear.app/94soon/issue/94S-8), [94S-11](https://linear.app/94soon/issue/94S-11) |
+| [94S-92](https://linear.app/94soon/issue/94S-92) | [조사] SessionStore와 filesystem checkpoint의 복구 backend를 선택 | Done | [94S-8](https://linear.app/94soon/issue/94S-8), [94S-13](https://linear.app/94soon/issue/94S-13), [94S-91](https://linear.app/94soon/issue/94S-91) |
 | [94S-93](https://linear.app/94soon/issue/94S-93) | 검증된 session 저장 backend와 immutable checkpoint manifest를 연동 | Backlog | [94S-13](https://linear.app/94soon/issue/94S-13), [94S-18](https://linear.app/94soon/issue/94S-18), [94S-92](https://linear.app/94soon/issue/94S-92) |
 
 #### G3 로컬 클러스터

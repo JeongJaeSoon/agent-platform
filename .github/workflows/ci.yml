@@ -24,8 +24,28 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
+      localstack:
+        image: localstack/localstack:3
+        env:
+          SERVICES: s3
+          AWS_DEFAULT_REGION: ap-northeast-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
     env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_ENDPOINT_URL: http://127.0.0.1:4566
+      AWS_REGION: ap-northeast-1
+      AWS_SECRET_ACCESS_KEY: test
       QUEUE_DATABASE_URL: postgresql://postgres:dev@127.0.0.1:5432/sessions
+      S3_BUCKET: claude-sessions
+      SESSION_STORE_LOCALSTACK_TEST: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -41,3 +61,5 @@ jobs:
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
       - run: bun run --cwd spikes/94s-91 check
+      - run: bun install --cwd spikes/94s-92 --frozen-lockfile
+      - run: bun run --cwd spikes/94s-92 check
