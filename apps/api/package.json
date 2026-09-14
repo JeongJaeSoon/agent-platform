@@ -1,0 +1,25 @@
+{
+  "name": "@claude-session-platform/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "bun --watch src/server.ts",
+    "start": "bun run src/server.ts",
+    "keys": "bun run src/keys.ts"
+  },
+  "dependencies": {
+    "@claude-session-platform/contracts": "workspace:*",
+    "@claude-session-platform/db": "workspace:*",
+    "@claude-session-platform/observability": "workspace:*",
+    "drizzle-orm": "0.44.5",
+    "hono": "4.13.7",
+    "pg": "8.16.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.10",
+    "@types/pg": "8.15.5"
+  }
+}
