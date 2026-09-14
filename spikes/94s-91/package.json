@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "bun run typecheck && bun run test:contract",
+    "check": "bun run typecheck && bun run test:contract && bun run test:transport",
     "probe:smoke": "bun run src/smoke-probe.ts",
     "probe:version": "bun run src/version-probe.ts",
-    "test:contract": "bun test src/sdk-contract.test.ts",
+    "test:contract": "bun test src/sdk-contract.test.ts src/lifecycle-contract.test.ts src/isolation-contract.test.ts src/native-event-projection.test.ts",
+    "test:transport": "bun test src/litellm-transport.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { resolveClaudeExecutable } from "./harness";
 
 const sdkEntry = Bun.resolveSync(
   "@anthropic-ai/claude-agent-sdk",
@@ -8,10 +9,7 @@ const sdkEntry = Bun.resolveSync(
 const sdkPackage = JSON.parse(
   await readFile(join(dirname(sdkEntry), "package.json"), "utf8"),
 ) as { version: string };
-const executable = Bun.resolveSync(
-  "@anthropic-ai/claude-agent-sdk-darwin-arm64/claude",
-  import.meta.dir,
-);
+const executable = resolveClaudeExecutable();
 const processResult = Bun.spawnSync([executable, "--version"]);
 
 console.log(

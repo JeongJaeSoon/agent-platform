@@ -40,6 +40,12 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       join(context.workspace, "CLAUDE.md"),
       "PROJECT_INSTRUCTION_SENTINEL_94S_91",
     );
+    const rulesDirectory = join(context.workspace, ".claude", "rules");
+    await mkdir(rulesDirectory, { recursive: true });
+    await writeFile(
+      join(rulesDirectory, "contract-rule.md"),
+      "PROJECT_RULE_SENTINEL_94S_91",
+    );
 
     const messages = await runSdkQuery(context, server.url, "Reply briefly.", {
       maxTurns: 1,
@@ -47,6 +53,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     const request = JSON.stringify(server.requests[0]);
 
     expect(request).toContain("PROJECT_INSTRUCTION_SENTINEL_94S_91");
+    expect(request).toContain("PROJECT_RULE_SENTINEL_94S_91");
     expect(request).toContain("APPEND_SENTINEL_94S_91");
     expect(server.requests[0]?.path).toBe("/v1/messages?beta=true");
     expect(messageTypes(messages)).toEqual(["system", "assistant", "result"]);
@@ -257,7 +264,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         );
         await Bun.sleep(30);
         const answer = options.toolUseID.endsWith("alpha")
-          ? "alpha-two"
+          ? "alpha custom response"
           : "beta-one";
         callbackAnswers.set(options.toolUseID, answer);
         activeCallbacks -= 1;
@@ -279,13 +286,13 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(maximumActiveCallbacks).toBe(2);
     expect(callbackAnswers).toEqual(
       new Map([
-        ["toolu_94s91_question_alpha", "alpha-two"],
+        ["toolu_94s91_question_alpha", "alpha custom response"],
         ["toolu_94s91_question_beta", "beta-one"],
       ]),
     );
     const followUp = JSON.stringify(server.requests[1]?.body.messages);
     expect(followUp).toContain("toolu_94s91_question_alpha");
-    expect(followUp).toContain("alpha-two");
+    expect(followUp).toContain("alpha custom response");
     expect(followUp).toContain("toolu_94s91_question_beta");
     expect(followUp).toContain("beta-one");
   }, 30_000);
@@ -334,6 +341,61 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(JSON.stringify(resumedMessages)).toContain(
       "RESUMED_TURN_COMPLETE_94S_91",
     );
+  }, 30_000);
+
+  test("deduplicates a stable user UUID but treats a regenerated UUID as a new turn", async () => {
+    context = await createProbeContext();
+    const outputPath = join(context.workspace, "repeated-user-message.txt");
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0 || index === 2
+        ? toolReply(
+            "Bash",
+            { command: `printf 'once\\n' >> ${JSON.stringify(outputPath)}` },
+            `toolu_94s91_repeated_${index}`,
+          )
+        : textReply(`turn ${index} complete`),
+    );
+    const uuid = crypto.randomUUID();
+
+    const firstMessages: SDKMessage[] = [];
+    for await (const message of query({
+      prompt: oneMessage("Run the repeated message fixture.", uuid),
+      options: sdkOptions(context, server.url, {
+        allowedTools: ["Bash"],
+        tools: ["Bash"],
+      }),
+    })) {
+      firstMessages.push(message);
+    }
+
+    for await (const _message of query({
+      prompt: oneMessage("Run the repeated message fixture.", uuid),
+      options: sdkOptions(context, server.url, {
+        allowedTools: ["Bash"],
+        resume: sessionIdFrom(firstMessages),
+        tools: ["Bash"],
+      }),
+    })) {
+      void _message;
+    }
+
+    expect(await readFile(outputPath, "utf8")).toBe("once\n");
+
+    for await (const _message of query({
+      prompt: oneMessage(
+        "Run the repeated message fixture.",
+        crypto.randomUUID(),
+      ),
+      options: sdkOptions(context, server.url, {
+        allowedTools: ["Bash"],
+        resume: sessionIdFrom(firstMessages),
+        tools: ["Bash"],
+      }),
+    })) {
+      void _message;
+    }
+
+    expect(await readFile(outputPath, "utf8")).toBe("once\nonce\n");
   }, 30_000);
 
   test("interrupts only the current turn and accepts a same-process follow-up", async () => {
@@ -742,6 +804,13 @@ function userMessage(
     type: "user",
     uuid,
   };
+}
+
+async function* oneMessage(
+  content: string,
+  uuid: `${string}-${string}-${string}-${string}-${string}`,
+): AsyncGenerator<SDKUserMessage> {
+  yield userMessage(content, uuid);
 }
 
 function deferred<T>(): {
