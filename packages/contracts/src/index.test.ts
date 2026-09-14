@@ -55,13 +55,13 @@ describe("session contracts", () => {
     expect(
       postSessionAnswerRequestSchema.safeParse({
         request_id: "permission-01",
-        answer: { allow: true },
+        answer: { kind: "permission", behavior: "allow" },
       }).success,
     ).toBe(true);
     expect(
       postSessionAnswerRequestSchema.safeParse({
         request_id: "",
-        answer: { allow: true },
+        answer: { kind: "permission", behavior: "allow" },
       }).success,
     ).toBe(false);
     expect(
@@ -70,8 +70,39 @@ describe("session contracts", () => {
     expect(
       postSessionAnswerRequestSchema.safeParse({
         request_id: "q_01",
-        answer: { allow: true },
+        answer: { kind: "permission", behavior: "allow" },
         unexpected: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      postSessionAnswerRequestSchema.parse({
+        request_id: "q_02",
+        answer: {
+          kind: "questions",
+          answers: [
+            { question_id: "single", value: "yes" },
+            { question_id: "multi", value: ["a", "b"] },
+            { question_id: "free", value: "typed response" },
+          ],
+        },
+      }).answer.kind,
+    ).toBe("questions");
+    expect(
+      postSessionAnswerRequestSchema.safeParse({
+        request_id: "q_03",
+        answer: {
+          kind: "questions",
+          answers: [
+            { question_id: "duplicate", value: "one" },
+            { question_id: "duplicate", value: "two" },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      postSessionAnswerRequestSchema.safeParse({
+        request_id: "permission-02",
+        answer: { kind: "permission", behavior: "deny" },
       }).success,
     ).toBe(false);
   });
