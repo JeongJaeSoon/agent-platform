@@ -54,13 +54,15 @@ export const turnSchema = z.object({
 });
 export const pullRequestSchema = z.object({ url: z.string().url() });
 
-export const createSessionRequestSchema = z.object({
-  repo_url: z.string().url(),
-  base_branch: z.string().min(1),
-  message: z.string().min(1),
-  model: z.string().min(1).optional(),
-  permission_mode: permissionModeSchema.optional(),
-});
+export const createSessionRequestSchema = z
+  .object({
+    repo_url: z.string().url(),
+    base_branch: z.string().min(1),
+    message: z.string().min(1),
+    model: z.string().min(1).optional(),
+    permission_mode: permissionModeSchema.optional(),
+  })
+  .strict();
 export const createSessionResponseSchema = z.object({
   session_id: z.string().uuid(),
 });
@@ -75,15 +77,41 @@ export const getSessionResponseSchema = z.object({
   pull_requests: z.array(pullRequestSchema),
 });
 
-export const sessionMessageSchema = z.object({ message: z.string().min(1) });
+export const sessionMessageSchema = z
+  .object({ message: z.string().min(1) })
+  .strict();
 export const postSessionMessageRequestSchema = sessionMessageSchema;
 export const postSessionMessageResponseSchema = z.object({
   turn_id: z.number().int().positive(),
 });
-export const pinSessionRequestSchema = z.object({ pinned: z.boolean() });
+export const pinSessionRequestSchema = z
+  .object({ pinned: z.boolean() })
+  .strict();
 export const noContentResponseSchema = z.undefined();
 export const healthResponseSchema = z.object({ status: z.literal("ok") });
 export const readyResponseSchema = z.object({ status: z.literal("ready") });
+export const apiRootResponseSchema = z
+  .object({
+    status: z.literal("ok"),
+    owner_id: z.string().min(1),
+  })
+  .strict();
+export const apiErrorCodeSchema = z.enum([
+  "bad_request",
+  "unauthorized",
+  "not_found",
+  "internal_error",
+]);
+export const apiErrorResponseSchema = z
+  .object({
+    error: z
+      .object({
+        code: apiErrorCodeSchema,
+        message: z.string().min(1),
+      })
+      .strict(),
+  })
+  .strict();
 
 export const unassignedSessionSignalSchema = z.undefined();
 
@@ -111,6 +139,9 @@ export type PinSessionRequest = z.infer<typeof pinSessionRequestSchema>;
 export type NoContentResponse = z.infer<typeof noContentResponseSchema>;
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type ReadyResponse = z.infer<typeof readyResponseSchema>;
+export type ApiRootResponse = z.infer<typeof apiRootResponseSchema>;
+export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
+export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 export type UnassignedSessionSignal = z.infer<
   typeof unassignedSessionSignalSchema
 >;

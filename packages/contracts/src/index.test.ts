@@ -41,6 +41,14 @@ describe("session contracts", () => {
         message: "",
       }).success,
     ).toBe(false);
+    expect(
+      createSessionRequestSchema.safeParse({
+        repo_url: "https://github.com/acme/example.git",
+        base_branch: "main",
+        message: "Implement the health check.",
+        unexpected: true,
+      }).success,
+    ).toBe(false);
   });
 
   test("correlates answers with a non-empty request id", () => {
@@ -58,6 +66,13 @@ describe("session contracts", () => {
     ).toBe(false);
     expect(
       postSessionAnswerRequestSchema.safeParse({ request_id: "q_01" }).success,
+    ).toBe(false);
+    expect(
+      postSessionAnswerRequestSchema.safeParse({
+        request_id: "q_01",
+        answer: { allow: true },
+        unexpected: true,
+      }).success,
     ).toBe(false);
   });
 

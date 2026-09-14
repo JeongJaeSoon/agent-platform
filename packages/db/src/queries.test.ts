@@ -5,6 +5,8 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   claim,
+  createApiKey,
+  findApiKeyOwner,
   findOrphanedSessions,
   getSessionForOwner,
   release,
@@ -13,6 +15,7 @@ import {
 } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
+  apiKeys,
   queueMessages,
   sessions,
   unassignedSessions,
@@ -155,5 +158,39 @@ describe("session queries", () => {
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId)),
     ).toHaveLength(1);
+  });
+});
+
+describe("API key queries", () => {
+  test("stores only the digest and resolves one active owner", async () => {
+    const plaintext = "csp_plaintext_is_never_stored";
+    const digest = new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(plaintext),
+      ),
+    );
+    await createApiKey(db, {
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      keyHash: digest,
+    });
+
+    const [stored] = await db.select().from(apiKeys);
+    expect(stored?.keyHash).toEqual(digest);
+    expect(new TextDecoder().decode(stored?.keyHash)).not.toContain(plaintext);
+    expect(await findApiKeyOwner(db, digest)).toBe("owner-a");
+    expect(await findApiKeyOwner(db, new Uint8Array(32))).toBeNull();
+  });
+
+  test("does not resolve revoked keys", async () => {
+    const digest = new Uint8Array(32).fill(7);
+    await db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      keyHash: digest,
+      revokedAt: new Date(),
+    });
+    expect(await findApiKeyOwner(db, digest)).toBeNull();
   });
 });

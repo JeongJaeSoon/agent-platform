@@ -57,6 +57,7 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - run: bun test ./apps/api/src/server.integration.ts
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
