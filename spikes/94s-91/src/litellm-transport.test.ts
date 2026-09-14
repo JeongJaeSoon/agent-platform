@@ -109,7 +109,7 @@ describe("actual LiteLLM Anthropic transport", () => {
       proxy.kill("SIGTERM");
       await Promise.race([
         new Promise((resolve) => proxy.once("exit", resolve)),
-        Bun.sleep(5_000),
+        Bun.sleep(2_000),
       ]);
       if (proxy.exitCode === null) {
         proxy.kill("SIGKILL");
@@ -118,7 +118,7 @@ describe("actual LiteLLM Anthropic transport", () => {
     }
     upstream?.stop();
     await context?.dispose();
-  });
+  }, 10_000);
 
   test("routes the actual SDK stream and preserves Anthropic transport metadata", async () => {
     const messages = await runSdkQuery(
