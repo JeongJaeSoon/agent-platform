@@ -1,0 +1,106 @@
+name: claude-session-platform
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sessions}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../packages/db/migrations/0000_gifted_morg.sql:/docker-entrypoint-initdb.d/0000_m0.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: s3,secretsmanager
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  gitea:
+    image: gitea/gitea:1.22
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+    ports:
+      - "3001:3000"
+      - "2222:22"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/v1/version >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    profiles: ["apps"]
+    ports:
+      - "3000:3000"
+    env_file: ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      gitea:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.worker
+    profiles: ["worker"]
+    env_file: ../.env
+    environment:
+      POD_ID: ${POD_ID:-local-worker}
+    mem_limit: ${WORKER_MEM_LIMIT:-2g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      gitea:
+        condition: service_healthy
+
+  scaler:
+    build:
+      context: ..
+      dockerfile: Dockerfile.local-scaler
+    profiles: ["apps"]
+    env_file: ../.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  localstack-data:
+  gitea-data:
