@@ -13,6 +13,7 @@ const requiredUnknownSchema = z
 const assistantMessagePayloadSchema = z.object({
   type: z.literal("assistant"),
   message: requiredUnknownSchema,
+  parent_tool_use_id: z.string().min(1).nullable().optional(),
 });
 
 export const sseEventSchema = z.discriminatedUnion("event", [
@@ -41,6 +42,7 @@ export const sseEventSchema = z.discriminatedUnion("event", [
     event: z.literal("question"),
     data: z.object({
       request_id: z.string().min(1),
+      tool_use_id: z.string().min(1),
       kind: z.enum(["permission", "question"]),
       tool: z.string().min(1).optional(),
       input: requiredUnknownSchema,

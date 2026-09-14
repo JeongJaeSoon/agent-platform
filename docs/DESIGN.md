@@ -46,6 +46,8 @@ LLM provider는 Anthropic 직접 연결을 기본으로 하며, 선택 profile�
 
 SDK의 기본 prompt는 CLI preset과 다르므로 preset을 명시한다. `settingSources`도 기본값에 의존하지 않는다. plugin·MCP·hook은 실행 가능한 코드이므로 서버가 허용한 profile/version을 기록하고 새 worker에서도 동일하게 로드한다. secret 값은 profile·manifest·이벤트에 넣지 않는다.
 
+94S-91 실측에서 격리된 `HOME`, `CLAUDE_CONFIG_DIR`, `settingSources: ["project"]`만으로는 workspace 상위 디렉터리의 `CLAUDE.md` 로딩을 막지 못했다. tenant workspace는 repo만 분리하지 않고 root까지의 전체 상위 경로를 tenant 전용 clean mount로 제공한다. SessionStore나 filesystem backend가 임시 config를 만들 때도 host settings·memory·credential을 복사하지 않고 allowlist profile만 복원한다.
+
 2026-09-15 공식 문서 확인: [SDK 개요](https://code.claude.com/docs/en/agent-sdk/overview), [설정과 기능](https://code.claude.com/docs/en/agent-sdk/claude-code-features), [system prompt](https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts). 제3자 제품의 claude.ai 로그인·구독 한도 제공에는 별도 승인이 필요하므로 API key 인증을 기본으로 한다. 내부 프로젝트명과 외부 제품 표시는 구분하며, 외부 UI/문서는 자체 이름과 허용된 Claude Agent 표기를 사용한다.
 
 ### 1.3 개정의 완료 경계
@@ -348,9 +350,9 @@ v0.1의 코드는 `BLPOP answer:{session_id}`로 세션 단위 대기만 했다.
 
 권한 승인·거부가 걸린 채널이므로 단순 버그가 아니라 잘못된 권한이 부여되는 경로다. permission 타임아웃과 파싱 실패는 해당 요청만 deny로 닫는다. 질문 timeout의 사용자 표시와 SDK 반환값도 kind별로 명시한다. interrupt나 drain은 모든 pending request에 명시적 종결 event를 남기되, 서로 다른 요청의 답을 삭제하지 않는다.
 
-94S-8에서 `@anthropic-ai/claude-agent-sdk` 0.3.265와 Claude Code 2.1.265를 로컬 fake Messages API로 실측했다. `canUseTool` 대기 중 abort는 같은 `tool_use_id`에 권한 실패 `tool_result`를 기록하고, 프로세스를 강제 종료해 `tool_use`만 남긴 뒤 resume하면 같은 ID에 `interrupted` 결과를 합성할 뿐 콜백이나 툴을 재호출하지 않았다. 이는 과거 버전의 증거다. 앱 `request_id`는 `tool_use_id`와 별도로 유지하고 늦은 답변은 해당 종결 요청에만 거절한다. 현재 고정 후보의 동작은 94S-91에서 다시 검증한다.
+94S-91은 `@anthropic-ai/claude-agent-sdk` 0.3.270과 Claude Code 2.1.270을 고정했다. 승인 대기 중 `AbortController`는 side effect 없이 `success/completed` result를 먼저 낸 뒤 iterator error로 끝날 수 있고, SIGTERM은 result 없이 transcript의 pending `tool_use_id`를 남기며, SIGKILL은 transcript tail 자체를 잃을 수 있다. abort와 SIGTERM 뒤 resume은 session을 열어도 pending callback이나 tool을 재호출하지 않고, SIGKILL 뒤에는 `No conversation found`가 될 수 있다. 앱 `request_id`는 `tool_use_id`와 별도로 유지하고 늦은 답변은 해당 종결 요청에만 거절한다. `result.success`만으로 승인 대기 turn의 성공을 판정하지 않는다.
 
-SDK에는 `PreToolUse`의 `permissionDecision: "defer"`로 툴을 영속 보류한 뒤 같은 `tool_use_id`에서 재개하는 별도 경로가 있다. 그러나 한 턴의 다중 tool batch에는 defer가 적용되지 않고, 현재 PoC의 `canUseTool`·answers 계약과 다른 durable 상태가 필요하다. 더구나 0.3.265 실측에서 deferred continuation이 앱이 추가한 `systemPrompt`를 누락하는 [anthropics/claude-agent-sdk-typescript#395](https://github.com/anthropics/claude-agent-sdk-typescript/issues/395)가 재현됐다. PoC에는 도입하지 않는다. 장시간 승인 대기의 pod 비용이 실제 병목이 되면 SDK 버전을 다시 고정해 system prompt·다중 툴·외부 SessionStore까지 검증한 뒤 전환한다.
+0.3.270의 `PreToolUse permissionDecision: "defer"`는 한 assistant message의 복수 tool hook을 모두 호출하고 `success/tool_deferred`로 turn을 닫지만, resume에서 deferred tool을 재호출하지 않는다. 외부 승인 저장소의 continuation 수단으로 채택하지 않는다. 승인 대기 중에는 live callback과 worker process를 유지하고, timeout이면 해당 request를 deny한 뒤 안정된 새 user message UUID로 재시도한다. 같은 UUID의 redelivery는 SDK가 deduplicate하지만 UUID를 재생성하면 새 turn이므로 앱 queue가 UUID의 생성과 재전송 안정성을 소유한다.
 
 ### 6.5 턴 종료와 유휴 회수
 

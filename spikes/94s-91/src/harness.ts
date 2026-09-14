@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -28,7 +35,9 @@ export type FakeReply = {
 
 export type RecordedRequest = {
   body: AnthropicRequest;
+  headers: Record<string, string>;
   path: string;
+  signal?: AbortSignal;
 };
 
 export type FakeAnthropicServer = {
@@ -49,7 +58,7 @@ export function startFakeAnthropicServer(
   reply: (
     request: RecordedRequest,
     index: number,
-  ) => FakeReply | Promise<FakeReply>,
+  ) => FakeReply | Response | Promise<FakeReply | Response>,
 ): FakeAnthropicServer {
   const requests: RecordedRequest[] = [];
   const server = Bun.serve({
@@ -63,12 +72,16 @@ export function startFakeAnthropicServer(
 
       const recorded = {
         body: (await request.json()) as AnthropicRequest,
+        headers: Object.fromEntries(request.headers.entries()),
         path: `${url.pathname}${url.search}`,
+        signal: request.signal,
       };
       requests.push(recorded);
+      const response = await reply(recorded, requests.length - 1);
+      if (response instanceof Response) return response;
       return anthropicResponse(
         recorded.body.model ?? "claude-sonnet-4-5",
-        await reply(recorded, requests.length - 1),
+        response,
         recorded.body.stream === true,
       );
     },
@@ -82,7 +95,7 @@ export function startFakeAnthropicServer(
 }
 
 export async function createProbeContext(): Promise<ProbeContext> {
-  const root = await mkdtemp(join(tmpdir(), "94s-91-sdk-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "94s-91-sdk-")));
   const workspace = join(root, "workspace");
   const claudeHome = join(root, "claude-home");
   await mkdir(join(workspace, ".claude"), { recursive: true });
@@ -91,13 +104,35 @@ export async function createProbeContext(): Promise<ProbeContext> {
   return {
     claudeHome,
     dispose: () => rm(root, { force: true, recursive: true }),
-    executable: Bun.resolveSync(
-      "@anthropic-ai/claude-agent-sdk-darwin-arm64/claude",
-      import.meta.dir,
-    ),
+    executable: resolveClaudeExecutable(),
     root,
     workspace,
   };
+}
+
+export async function readTranscripts(context: ProbeContext): Promise<string> {
+  const files = await readdir(context.claudeHome, { recursive: true });
+  const transcriptPaths = files
+    .filter((path) => path.endsWith(".jsonl"))
+    .map((path) => join(context.claudeHome, path));
+  return (
+    await Promise.all(transcriptPaths.map((path) => readFile(path, "utf8")))
+  ).join("\n");
+}
+
+export function resolveClaudeExecutable(): string {
+  const platform = process.platform;
+  if (process.arch !== "x64" && process.arch !== "arm64") {
+    throw new Error(`Unsupported Claude Code architecture: ${process.arch}`);
+  }
+  const arch = process.arch;
+  const packageName = `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
+  try {
+    return Bun.resolveSync(`${packageName}/claude`, import.meta.dir);
+  } catch (error) {
+    if (platform !== "linux") throw error;
+    return Bun.resolveSync(`${packageName}-musl/claude`, import.meta.dir);
+  }
 }
 
 export async function runSdkQuery(

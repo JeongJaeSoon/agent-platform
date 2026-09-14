@@ -88,6 +88,7 @@ describe("SSE contracts", () => {
       tool_result: { type: "tool_result" },
       question: {
         request_id: "q_01",
+        tool_use_id: "toolu_01",
         kind: "permission",
         tool: "Bash",
         input: { command: "pwd" },
