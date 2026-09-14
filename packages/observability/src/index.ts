@@ -61,7 +61,9 @@ export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevel {
 }
 
 function sanitizeText(value: string): string {
-  return secretValue.test(value) || sensitiveText.test(value) ? redacted : value;
+  return secretValue.test(value) || sensitiveText.test(value)
+    ? redacted
+    : value;
 }
 
 function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
