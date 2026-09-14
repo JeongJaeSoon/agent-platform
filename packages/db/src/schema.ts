@@ -101,6 +101,7 @@ export const queueMessages = pgTable(
       .notNull()
       .defaultNow(),
     claimedBy: text("claimed_by"),
+    claimToken: uuid("claim_token"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
