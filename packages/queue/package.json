@@ -1,0 +1,20 @@
+{
+  "name": "@claude-session-platform/queue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@claude-session-platform/contracts": "workspace:*",
+    "@claude-session-platform/db": "workspace:*",
+    "drizzle-orm": "0.44.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.10",
+    "@types/pg": "8.15.5",
+    "pg": "8.16.3"
+  }
+}

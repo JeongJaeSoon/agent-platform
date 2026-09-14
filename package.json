@@ -1,0 +1,20 @@
+{
+  "name": "claude-session-platform",
+  "private": true,
+  "packageManager": "bun@1.3.10",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "biome check .",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@types/bun": "^1.4.2",
+    "typescript": "5.9.2"
+  }
+}

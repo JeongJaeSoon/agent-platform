@@ -1,0 +1,15 @@
+{
+  "name": "@claude-session-platform/storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0"
+  },
+  "scripts": {
+    "benchmark:localstack": "bun run src/benchmark.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test src"
+  }
+}

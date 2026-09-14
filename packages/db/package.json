@@ -1,0 +1,22 @@
+{
+  "name": "@claude-session-platform/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bun run src/migrate.ts"
+  },
+  "dependencies": {
+    "@claude-session-platform/contracts": "workspace:*",
+    "drizzle-orm": "0.44.5",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.10",
+    "@types/pg": "8.15.5",
+    "drizzle-kit": "0.31.4"
+  }
+}

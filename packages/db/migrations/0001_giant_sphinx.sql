@@ -1,0 +1,1 @@
+ALTER TABLE "queue_messages" ADD COLUMN "claim_token" uuid;
