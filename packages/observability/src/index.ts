@@ -60,11 +60,13 @@ export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevel {
   return isLogLevel(normalized) ? normalized : "info";
 }
 
+function sanitizeText(value: string): string {
+  return secretValue.test(value) || sensitiveText.test(value) ? redacted : value;
+}
+
 function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
   if (typeof value === "string") {
-    return secretValue.test(value) || sensitiveText.test(value)
-      ? redacted
-      : value;
+    return sanitizeText(value);
   }
 
   if (Array.isArray(value)) {
@@ -172,7 +174,7 @@ export class StructuredLogger {
       record = {
         timestamp: this.now().toISOString(),
         level,
-        message: secretValue.test(message) ? redacted : message,
+        message: sanitizeText(message),
         ...this.getContext(),
         ...(sanitizedFields && Object.keys(sanitizedFields).length > 0
           ? { fields: sanitizedFields }

@@ -11,6 +11,39 @@ import {
 } from "./index.ts";
 
 describe("structured logging", () => {
+  test.each([false, true])(
+    "redacts sensitive text in log messages with includeMessageBodies=%s",
+    (includeMessageBodies) => {
+      const sink = new MemoryLogSink();
+      const logger = createLogger({ sinks: [sink], includeMessageBodies });
+      const canary = "SYNTHETIC_LOG_CANARY";
+      const keys = [
+        "password",
+        "api_key",
+        "access-key",
+        "authorization",
+        "token",
+        "credential",
+        "request_body",
+        "prompt",
+      ];
+
+      for (const key of keys) {
+        logger.error(`operation failed: ${key}=${canary}`);
+        logger.warn(`operation failed: ${key}: ${canary}`);
+      }
+
+      expect(sink.records).toHaveLength(keys.length * 2);
+      expect(
+        sink.records.every((record) => record.message === "[REDACTED]"),
+      ).toBe(true);
+      expect(JSON.stringify(sink.records).includes(canary)).toBe(false);
+
+      logger.info("checkpoint.completed");
+      expect(sink.records.at(-1)?.message).toBe("checkpoint.completed");
+    },
+  );
+
   test("redacts credentials, omits message bodies, and tolerates broken sinks", () => {
     const sink = new MemoryLogSink();
     const logger = createLogger({
