@@ -1,0 +1,20 @@
+{
+  "name": "@claude-session-platform/94s-91-sdk-gate",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "bun run typecheck && bun run test:contract",
+    "probe:smoke": "bun run src/smoke-probe.ts",
+    "probe:version": "bun run src/version-probe.ts",
+    "test:contract": "bun test src/sdk-contract.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.270",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "5.9.2"
+  }
+}

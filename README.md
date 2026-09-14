@@ -9,6 +9,7 @@
 - 작업 순서·상태·인수 조건: [Linear 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)의 native blocked-by 관계
 - 구조·runtime 계약·검증 계획: [설계서](docs/DESIGN.md)
 - 다음 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92). 해당 선행 결론 없이 SDK 구현을 완료로 표시하지 않는다.
+- 94S-91의 process-level 조사 harness와 현재 검증 범위는 [`spikes/94s-91`](spikes/94s-91/README.md)에 둔다.
 
 ## 현재 구현 범위
 
