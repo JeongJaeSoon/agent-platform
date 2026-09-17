@@ -9,6 +9,7 @@ import {
   findApiKeyOwner,
   findOrphanedSessions,
   getSessionForOwner,
+  reconcileOrphanedSessions,
   release,
   requeueOrphan,
   transitionSession,
@@ -18,6 +19,7 @@ import {
   apiKeys,
   queueMessages,
   sessions,
+  turns,
   unassignedSessions,
   workers,
 } from "./schema.ts";
@@ -152,6 +154,329 @@ describe("session queries", () => {
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.status, "queued")));
     expect(session?.podId).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toHaveLength(1);
+  });
+
+  test("reconciles a stale owner by releasing the original queue row", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "stale-owner",
+      status: "running",
+    });
+    await db.insert(workers).values({
+      podId: "stale-owner",
+      lastSeen: new Date(now.getTime() - 2_000),
+    });
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, message: "retry me", status: "queued" })
+      .returning({ id: turns.id });
+    const [message] = await db
+      .insert(queueMessages)
+      .values({
+        sessionId,
+        turnId: turn?.id,
+        kind: "message",
+        payload: { message: "retry me" },
+        claimedBy: "stale-owner",
+        claimToken: crypto.randomUUID(),
+        visibleAt: new Date(now.getTime() + 60_000),
+      })
+      .returning({ id: queueMessages.id });
+
+    expect(
+      await reconcileOrphanedSessions(db, {
+        leaseTtlMs: 1_000,
+        now,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "requeued",
+        releasedMessageIds: [message?.id],
+        sessionId,
+        stalePodId: "stale-owner",
+      }),
+    ]);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const [released] = await db
+      .select()
+      .from(queueMessages)
+      .where(eq(queueMessages.id, message?.id ?? -1));
+    expect(session).toMatchObject({ podId: null, status: "queued" });
+    expect(released).toMatchObject({
+      id: message?.id,
+      claimedBy: null,
+      claimToken: null,
+      visibleAt: now,
+    });
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toHaveLength(1);
+  });
+
+  test("does not signal an empty orphan or touch a fresh lease", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const emptyId = await insertSession({
+      podId: "missing-owner",
+      status: "running",
+    });
+    const freshId = await insertSession({
+      podId: "fresh-owner",
+      status: "running",
+    });
+    await db.insert(workers).values({
+      podId: "fresh-owner",
+      lastSeen: new Date(now.getTime() - 100),
+    });
+
+    expect(
+      await reconcileOrphanedSessions(db, {
+        leaseTtlMs: 1_000,
+        now,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "released",
+        sessionId: emptyId,
+      }),
+    ]);
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, emptyId)),
+    ).toHaveLength(0);
+    expect(await getSessionForOwner(db, emptyId, "owner-a")).toMatchObject({
+      podId: null,
+      status: "failed",
+    });
+    expect(await getSessionForOwner(db, freshId, "owner-a")).toMatchObject({
+      podId: "fresh-owner",
+      status: "running",
+    });
+  });
+
+  test("acks terminal queue rows instead of replaying them", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "terminal-owner",
+      status: "running",
+    });
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, message: "done", status: "done" })
+      .returning({ id: turns.id });
+    const [message] = await db
+      .insert(queueMessages)
+      .values({
+        sessionId,
+        turnId: turn?.id,
+        kind: "message",
+        payload: { message: "already completed" },
+        claimedBy: "terminal-owner",
+        claimToken: crypto.randomUUID(),
+      })
+      .returning({ id: queueMessages.id });
+
+    expect(
+      await reconcileOrphanedSessions(db, {
+        leaseTtlMs: 1_000,
+        now,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "released",
+        releasedMessageIds: [],
+        terminalMessageIds: [message?.id],
+      }),
+    ]);
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, sessionId)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toHaveLength(0);
+  });
+
+  test("acks completed and interrupted rows without replaying them", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "mixed-owner",
+      status: "running",
+    });
+    const createdTurns = await db
+      .insert(turns)
+      .values([
+        { sessionId, message: "checkpoint", status: "done" },
+        { sessionId, message: "stopped", status: "interrupted" },
+      ])
+      .returning({ id: turns.id, status: turns.status });
+    const checkpointTurn = createdTurns.find(({ status }) => status === "done");
+    const interruptedTurn = createdTurns.find(
+      ({ status }) => status === "interrupted",
+    );
+    if (!checkpointTurn || !interruptedTurn) {
+      throw new Error("Failed to seed recovery turns");
+    }
+    const messages = await db
+      .insert(queueMessages)
+      .values([
+        {
+          sessionId,
+          turnId: checkpointTurn.id,
+          kind: "message",
+          payload: { message: "checkpoint" },
+          claimedBy: "mixed-owner",
+          claimToken: crypto.randomUUID(),
+        },
+        {
+          sessionId,
+          turnId: interruptedTurn.id,
+          kind: "message",
+          payload: { message: "stopped" },
+          claimedBy: "mixed-owner",
+          claimToken: crypto.randomUUID(),
+        },
+      ])
+      .returning({ id: queueMessages.id, turnId: queueMessages.turnId });
+    const checkpointMessage = messages.find(
+      ({ turnId }) => turnId === checkpointTurn.id,
+    );
+    const interruptedMessage = messages.find(
+      ({ turnId }) => turnId === interruptedTurn.id,
+    );
+    if (!checkpointMessage || !interruptedMessage) {
+      throw new Error("Failed to seed recovery messages");
+    }
+
+    expect(
+      await reconcileOrphanedSessions(db, {
+        leaseTtlMs: 1_000,
+        now,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "released",
+        releasedMessageIds: [],
+        terminalMessageIds: [checkpointMessage.id, interruptedMessage.id],
+      }),
+    ]);
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, sessionId)),
+    ).toHaveLength(0);
+  });
+
+  test("blocks replay when in-flight side effects are not proven safe", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "unsafe-owner",
+      status: "running",
+    });
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, message: "in flight", status: "running" })
+      .returning({ id: turns.id });
+    const messages = await db
+      .insert(queueMessages)
+      .values([
+        {
+          sessionId,
+          turnId: turn?.id,
+          kind: "message",
+          payload: { message: "running" },
+          claimedBy: "unsafe-owner",
+          claimToken: crypto.randomUUID(),
+        },
+        {
+          sessionId,
+          kind: "message",
+          payload: { message: "unknown execution state" },
+          claimedBy: "unsafe-owner",
+          claimToken: crypto.randomUUID(),
+        },
+      ])
+      .returning({ id: queueMessages.id });
+
+    expect(
+      await reconcileOrphanedSessions(db, {
+        leaseTtlMs: 1_000,
+        now,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "blocked",
+        blockedMessageIds: messages.map(({ id }) => id),
+        releasedMessageIds: [],
+        terminalMessageIds: [],
+      }),
+    ]);
+    expect(await getSessionForOwner(db, sessionId, "owner-a")).toMatchObject({
+      podId: null,
+      status: "failed",
+    });
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, sessionId)),
+    ).toHaveLength(2);
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toHaveLength(0);
+  });
+
+  test("supports dry-run and concurrent reconcilers without duplicate work", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "concurrent-owner",
+      status: "running",
+    });
+    await db.insert(queueMessages).values({
+      sessionId,
+      kind: "message",
+      payload: { message: "once" },
+    });
+    const dryRun = await reconcileOrphanedSessions(db, {
+      dryRun: true,
+      leaseTtlMs: 1_000,
+      now,
+    });
+    expect(dryRun).toEqual([
+      expect.objectContaining({ dryRun: true, sessionId }),
+    ]);
+    expect(await getSessionForOwner(db, sessionId, "owner-a")).toMatchObject({
+      podId: "concurrent-owner",
+      status: "running",
+    });
+
+    const results = await Promise.all([
+      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
+      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
+    ]);
+    expect(results.flat()).toHaveLength(1);
     expect(
       await db
         .select()

@@ -22,6 +22,7 @@
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
 | `apps/api` | Hono `/v1` 골격, API 키 인증, strict zod 검증·에러 응답, 키 발급 CLI |
 | `apps/worker` | Claude Agent SDK 0.3.270 adapter, 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
+| `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
 | `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration |
 
 immutable checkpoint manifest와 authoritative pointer, typed pending requests, SDK 기반 resume은 후속 확장이다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
@@ -48,6 +49,18 @@ bun test spikes/94s-91/src/litellm-transport.test.ts
 ```bash
 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun test ./apps/api/src/server.integration.ts
+```
+
+reconciler는 스케줄러를 내장하지 않고 한 batch만 처리한 뒤 종료한다. 워커와 같은 `HEARTBEAT_TTL_SEC`를 사용해야 하며, 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
+
+```bash
+DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=true \
+  bun run --cwd apps/reconciler start
+
+DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
+  bun run --cwd apps/reconciler start
 ```
 
 로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001·2222가 이미 사용 중인지 먼저 확인한다.
