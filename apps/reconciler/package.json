@@ -1,0 +1,19 @@
+{
+  "name": "@claude-session-platform/reconciler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "start": "bun run src/main.ts"
+  },
+  "dependencies": {
+    "@claude-session-platform/db": "workspace:*",
+    "@claude-session-platform/observability": "workspace:*",
+    "drizzle-orm": "0.44.5",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5"
+  }
+}

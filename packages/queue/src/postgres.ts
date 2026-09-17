@@ -262,13 +262,20 @@ export class PostgresQueue implements QueueBackend {
 
   async lease(command: LeaseCommand): Promise<LeaseResult> {
     if (command.action === "heartbeat") {
-      await this.#db
-        .insert(workers)
-        .values({ podId: command.podId, lastSeen: command.now ?? new Date() })
-        .onConflictDoUpdate({
-          target: workers.podId,
-          set: { lastSeen: command.now ?? new Date() },
-        });
+      await this.#db.transaction(async (tx) => {
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.podId, command.podId))
+          .for("update");
+        await tx
+          .insert(workers)
+          .values({ podId: command.podId, lastSeen: command.now ?? new Date() })
+          .onConflictDoUpdate({
+            target: workers.podId,
+            set: { lastSeen: command.now ?? new Date() },
+          });
+      });
       return { action: "heartbeat", podId: command.podId };
     }
     if (command.action === "release") {

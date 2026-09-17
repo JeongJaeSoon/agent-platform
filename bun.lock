@@ -27,6 +27,19 @@
         "@types/pg": "8.15.5",
       },
     },
+    "apps/reconciler": {
+      "name": "@claude-session-platform/reconciler",
+      "version": "0.0.0",
+      "dependencies": {
+        "@claude-session-platform/db": "workspace:*",
+        "@claude-session-platform/observability": "workspace:*",
+        "drizzle-orm": "0.44.5",
+        "pg": "8.16.3",
+      },
+      "devDependencies": {
+        "@types/pg": "8.15.5",
+      },
+    },
     "apps/worker": {
       "name": "@claude-session-platform/worker",
       "version": "0.0.0",
@@ -169,6 +182,8 @@
     "@claude-session-platform/observability": ["@claude-session-platform/observability@workspace:packages/observability"],
 
     "@claude-session-platform/queue": ["@claude-session-platform/queue@workspace:packages/queue"],
+
+    "@claude-session-platform/reconciler": ["@claude-session-platform/reconciler@workspace:apps/reconciler"],
 
     "@claude-session-platform/storage": ["@claude-session-platform/storage@workspace:packages/storage"],
 
