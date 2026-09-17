@@ -2,7 +2,7 @@
 
 공식 TypeScript Claude Agent SDK로 세션을 제어하고, HTTP API·큐·이벤트·격리·영속화를 제공하는 플랫폼이다.
 
-현재는 **G1 설계 확정, M0 기반 레이어, G2 SDK·저장소 gate와 API 골격까지**다. API 키 인증과 `/v1` base path는 구현됐지만 세션 endpoint와 워커 실행 루프는 아직 구현하지 않았다. 전체 앱·SDK·LiteLLM·Kubernetes가 동작한다고 해석하지 않는다.
+현재는 **G1 설계 확정, M0 기반 레이어, G2 SDK·저장소 gate, API 골격과 SDK adapter까지**다. API 키 인증과 `/v1` base path, 고정 SDK의 streaming·interrupt·abort·resume 경계는 구현됐지만 세션 endpoint와 워커 턴 처리 루프는 아직 구현하지 않았다. 전체 앱이나 Kubernetes가 동작한다고 해석하지 않는다.
 
 ## 정본과 다음 단계
 
@@ -21,6 +21,7 @@
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
 | `apps/api` | Hono `/v1` 골격, API 키 인증, strict zod 검증·에러 응답, 키 발급 CLI |
+| `apps/worker` | Claude Agent SDK 0.3.270 adapter, 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
 | `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration |
 
 immutable checkpoint manifest와 authoritative pointer, typed pending requests, SDK 기반 resume은 후속 확장이다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
@@ -35,6 +36,14 @@ bun run check
 ```
 
 `check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다. `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다.
+
+워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
+
+```bash
+bun run --cwd apps/worker test:unit
+bun run --cwd apps/worker test:direct-local
+bun test spikes/94s-91/src/litellm-transport.test.ts
+```
 
 ```bash
 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -72,6 +81,6 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 ## SDK와 LiteLLM 방향
 
-워커는 `@anthropic-ai/claude-agent-sdk`를 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 설정·인증·버전·모델 alias와 검증 조건은 [설계서 §9](docs/DESIGN.md#9-dockerfile)에 둔다.
+워커는 `apps/worker/src/sdk-adapter.ts` 경계 안에서만 `@anthropic-ai/claude-agent-sdk`를 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 설정·인증·버전·모델 alias와 검증 조건은 [설계서 §9](docs/DESIGN.md#9-dockerfile)에 둔다.
 
-검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 CI는 `bun run check`, API PostgreSQL process integration, 94S-91·94S-92 gate suite를 실행하지만 아직 워커 제품 runtime이나 배포 검증을 대신하지 않는다.
+검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 94S-91 transport gate는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 아직 워커 턴 루프나 배포 검증을 대신하지 않는다.
