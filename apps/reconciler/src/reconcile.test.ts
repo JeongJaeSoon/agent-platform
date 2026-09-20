@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ReconciledOrphan } from "@claude-session-platform/db";
-import {
-  MemoryLogSink,
-  StructuredLogger,
-} from "@claude-session-platform/observability";
+import type { ReconciledOrphan } from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { runReconciler } from "./reconcile.ts";
 
 describe("reconciler run", () => {

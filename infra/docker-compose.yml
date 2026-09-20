@@ -1,4 +1,4 @@
-name: claude-session-platform
+name: agent-platform
 
 services:
   postgres:

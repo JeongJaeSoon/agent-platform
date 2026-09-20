@@ -1,7 +1,4 @@
-import type {
-  SessionStatus,
-  TurnStatus,
-} from "@claude-session-platform/contracts";
+import type { SessionStatus, TurnStatus } from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type * as schema from "./schema.ts";

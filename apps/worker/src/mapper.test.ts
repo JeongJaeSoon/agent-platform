@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sseEventSchema } from "@claude-session-platform/contracts";
+import { sseEventSchema } from "@agent-platform/contracts";
 
 import { frameFromNativeMessage, pendingRequestEvent } from "./mapper.ts";
 

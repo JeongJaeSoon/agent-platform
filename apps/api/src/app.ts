@@ -2,11 +2,11 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
-} from "@claude-session-platform/contracts";
+} from "@agent-platform/contracts";
 import {
   createLogger,
   type StructuredLogger,
-} from "@claude-session-platform/observability";
+} from "@agent-platform/observability";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";

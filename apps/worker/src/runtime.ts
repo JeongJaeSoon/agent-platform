@@ -1,4 +1,4 @@
-import type { SseEvent } from "@claude-session-platform/contracts";
+import type { SseEvent } from "@agent-platform/contracts";
 
 export const CLAUDE_AGENT_SDK_VERSION = "0.3.270";
 

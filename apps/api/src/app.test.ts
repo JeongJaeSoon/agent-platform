@@ -3,11 +3,8 @@ import {
   apiErrorResponseSchema,
   healthResponseSchema,
   postSessionMessageRequestSchema,
-} from "@claude-session-platform/contracts";
-import {
-  MemoryLogSink,
-  StructuredLogger,
-} from "@claude-session-platform/observability";
+} from "@agent-platform/contracts";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { createApiApp, jsonWithSchema, parseJsonBody } from "./app.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 

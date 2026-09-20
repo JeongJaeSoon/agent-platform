@@ -1,4 +1,4 @@
-import { SESSION_STATUS_VALUES } from "@claude-session-platform/contracts";
+import { SESSION_STATUS_VALUES } from "@agent-platform/contracts";
 import { sql } from "drizzle-orm";
 import {
   bigint,

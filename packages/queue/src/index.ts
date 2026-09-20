@@ -3,7 +3,7 @@ import type {
   PostSessionAnswerRequest,
   SessionMessage,
   SseEvent,
-} from "@claude-session-platform/contracts";
+} from "@agent-platform/contracts";
 
 export type QueuePayload = SessionMessage | PostSessionAnswerRequest;
 

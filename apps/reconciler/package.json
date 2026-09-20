@@ -1,5 +1,5 @@
 {
-  "name": "@claude-session-platform/reconciler",
+  "name": "@agent-platform/reconciler",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,8 @@
     "start": "bun run src/main.ts"
   },
   "dependencies": {
-    "@claude-session-platform/db": "workspace:*",
-    "@claude-session-platform/observability": "workspace:*",
+    "@agent-platform/db": "workspace:*",
+    "@agent-platform/observability": "workspace:*",
     "drizzle-orm": "0.44.5",
     "pg": "8.16.3"
   },

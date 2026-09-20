@@ -2,7 +2,7 @@ import {
   postSessionAnswerRequestSchema,
   sessionMessageSchema,
   sseEventSchema,
-} from "@claude-session-platform/contracts";
+} from "@agent-platform/contracts";
 import {
   type Database,
   events,
@@ -10,7 +10,7 @@ import {
   sessions,
   unassignedSessions,
   workers,
-} from "@claude-session-platform/db";
+} from "@agent-platform/db";
 import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type {
   EnqueueInput,

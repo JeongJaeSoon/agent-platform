@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import * as schema from "@claude-session-platform/db";
+import * as schema from "@agent-platform/db";
 import {
   queueMessages,
   sessions,
   unassignedSessions,
-} from "@claude-session-platform/db";
+} from "@agent-platform/db";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
