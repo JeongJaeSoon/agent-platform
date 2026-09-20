@@ -1,5 +1,5 @@
 {
-  "name": "claude-session-platform",
+  "name": "agent-platform",
   "private": true,
   "packageManager": "bun@1.3.10",
   "workspaces": [

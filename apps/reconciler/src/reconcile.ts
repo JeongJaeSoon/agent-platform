@@ -1,4 +1,4 @@
-import type { ReconciledOrphan } from "@claude-session-platform/db";
+import type { ReconciledOrphan } from "@agent-platform/db";
 
 export type ReconcileOptions = {
   dryRun: boolean;

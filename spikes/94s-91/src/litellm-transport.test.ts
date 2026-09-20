@@ -208,8 +208,8 @@ function liteLlmEnvironment(): NodeJS.ProcessEnv {
     NO_PROXY: "127.0.0.1,localhost",
     PATH: process.env.PATH,
     TMPDIR: "/tmp",
-    UV_CACHE_DIR: "/tmp/claude-session-platform-uv-cache",
-    UV_TOOL_DIR: "/tmp/claude-session-platform-uv-tools",
+    UV_CACHE_DIR: "/tmp/agent-platform-uv-cache",
+    UV_TOOL_DIR: "/tmp/agent-platform-uv-tools",
   };
 }
 

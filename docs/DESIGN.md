@@ -570,7 +570,7 @@ let pendingRequests: Map<string, PendingRequest>;
 Bun workspaces 기반 단일 저장소. API·워커·reconciler가 같은 타입과 DB 클라이언트를 공유하므로 모노레포가 맞다.
 
 ```
-claude-session-platform/
+agent-platform/
 ├── package.json                 # workspaces: ["apps/*", "packages/*"]
 ├── bun.lock
 ├── tsconfig.base.json

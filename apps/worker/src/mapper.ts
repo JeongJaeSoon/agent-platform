@@ -1,7 +1,4 @@
-import {
-  type SseEvent,
-  sseEventSchema,
-} from "@claude-session-platform/contracts";
+import { type SseEvent, sseEventSchema } from "@agent-platform/contracts";
 
 import {
   type AgentFrame,

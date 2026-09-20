@@ -1,4 +1,6 @@
-# Claude Code 세션 컨트롤 플레인
+# Agent Platform (코드명 Kollegium) — 세션 컨트롤 플레인
+
+> 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 통합 설계 정본은 Obsidian `Private/Project/agent-platform`이며, 이 README 이하와 [docs/DESIGN.md](docs/DESIGN.md)는 rename 이전 구현 범위의 기록이다.
 
 공식 TypeScript Claude Agent SDK로 세션을 제어하고, HTTP API·큐·이벤트·격리·영속화를 제공하는 플랫폼이다.
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "claude-session-platform",
+      "name": "agent-platform",
       "devDependencies": {
         "@biomejs/biome": "2.2.4",
         "@types/bun": "^1.4.2",
@@ -11,12 +11,12 @@
       },
     },
     "apps/api": {
-      "name": "@claude-session-platform/api",
+      "name": "@agent-platform/api",
       "version": "0.0.0",
       "dependencies": {
-        "@claude-session-platform/contracts": "workspace:*",
-        "@claude-session-platform/db": "workspace:*",
-        "@claude-session-platform/observability": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
         "drizzle-orm": "0.44.5",
         "hono": "4.13.7",
         "pg": "8.16.3",
@@ -28,11 +28,11 @@
       },
     },
     "apps/reconciler": {
-      "name": "@claude-session-platform/reconciler",
+      "name": "@agent-platform/reconciler",
       "version": "0.0.0",
       "dependencies": {
-        "@claude-session-platform/db": "workspace:*",
-        "@claude-session-platform/observability": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
         "drizzle-orm": "0.44.5",
         "pg": "8.16.3",
       },
@@ -41,26 +41,26 @@
       },
     },
     "apps/worker": {
-      "name": "@claude-session-platform/worker",
+      "name": "@agent-platform/worker",
       "version": "0.0.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.270",
-        "@claude-session-platform/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "zod": "4.6.5",
       },
     },
     "packages/contracts": {
-      "name": "@claude-session-platform/contracts",
+      "name": "@agent-platform/contracts",
       "version": "0.0.0",
       "dependencies": {
         "zod": "^3.24.2",
       },
     },
     "packages/db": {
-      "name": "@claude-session-platform/db",
+      "name": "@agent-platform/db",
       "version": "0.0.0",
       "dependencies": {
-        "@claude-session-platform/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "drizzle-orm": "0.44.5",
         "pg": "8.16.3",
       },
@@ -71,15 +71,15 @@
       },
     },
     "packages/observability": {
-      "name": "@claude-session-platform/observability",
+      "name": "@agent-platform/observability",
       "version": "0.0.0",
     },
     "packages/queue": {
-      "name": "@claude-session-platform/queue",
+      "name": "@agent-platform/queue",
       "version": "0.0.0",
       "dependencies": {
-        "@claude-session-platform/contracts": "workspace:*",
-        "@claude-session-platform/db": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
         "drizzle-orm": "0.44.5",
       },
       "devDependencies": {
@@ -89,7 +89,7 @@
       },
     },
     "packages/storage": {
-      "name": "@claude-session-platform/storage",
+      "name": "@agent-platform/storage",
       "version": "0.0.0",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.888.0",
@@ -173,21 +173,21 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.2.4", "", { "os": "win32", "cpu": "x64" }, "sha512-3Y4V4zVRarVh/B/eSHczR4LYoSVyv3Dfuvm3cWs5w/HScccS0+Wt/lHOcDTRYeHjQmMYVC3rIRWqyN2EI52+zg=="],
 
-    "@claude-session-platform/api": ["@claude-session-platform/api@workspace:apps/api"],
+    "@agent-platform/api": ["@agent-platform/api@workspace:apps/api"],
 
-    "@claude-session-platform/contracts": ["@claude-session-platform/contracts@workspace:packages/contracts"],
+    "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
 
-    "@claude-session-platform/db": ["@claude-session-platform/db@workspace:packages/db"],
+    "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
-    "@claude-session-platform/observability": ["@claude-session-platform/observability@workspace:packages/observability"],
+    "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
-    "@claude-session-platform/queue": ["@claude-session-platform/queue@workspace:packages/queue"],
+    "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
 
-    "@claude-session-platform/reconciler": ["@claude-session-platform/reconciler@workspace:apps/reconciler"],
+    "@agent-platform/reconciler": ["@agent-platform/reconciler@workspace:apps/reconciler"],
 
-    "@claude-session-platform/storage": ["@claude-session-platform/storage@workspace:packages/storage"],
+    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 
-    "@claude-session-platform/worker": ["@claude-session-platform/worker@workspace:apps/worker"],
+    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 
@@ -515,7 +515,7 @@
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
-    "@claude-session-platform/worker/zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
+    "@agent-platform/worker/zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
 
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 

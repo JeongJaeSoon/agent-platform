@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { SESSION_STATUS_VALUES } from "@claude-session-platform/contracts";
+import { SESSION_STATUS_VALUES } from "@agent-platform/contracts";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

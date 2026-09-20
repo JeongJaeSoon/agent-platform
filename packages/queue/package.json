@@ -1,5 +1,5 @@
 {
-  "name": "@claude-session-platform/queue",
+  "name": "@agent-platform/queue",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@claude-session-platform/contracts": "workspace:*",
-    "@claude-session-platform/db": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/db": "workspace:*",
     "drizzle-orm": "0.44.5"
   },
   "devDependencies": {

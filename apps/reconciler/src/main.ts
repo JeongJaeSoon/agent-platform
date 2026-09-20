@@ -1,6 +1,6 @@
-import * as schema from "@claude-session-platform/db";
-import { reconcileOrphanedSessions } from "@claude-session-platform/db";
-import { createLogger } from "@claude-session-platform/observability";
+import * as schema from "@agent-platform/db";
+import { reconcileOrphanedSessions } from "@agent-platform/db";
+import { createLogger } from "@agent-platform/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { runReconciler } from "./reconcile.ts";

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as schema from "@claude-session-platform/db";
-import { apiKeys } from "@claude-session-platform/db";
+import * as schema from "@agent-platform/db";
+import { apiKeys } from "@agent-platform/db";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
