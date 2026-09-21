@@ -189,10 +189,13 @@ export function createPostgresSessionUnitOfWork(
     },
 
     appendInputAtomic(input: AppendMessageInput): Promise<AppendMessageResult> {
+      // uuid columns compare case-insensitively but the idempotency resource
+      // is text: normalise so "ABC…" and "abc…" share one scope (codex P2).
+      const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         operation: APPEND_MESSAGE,
-        resource: input.sessionId,
+        resource: sessionId,
         key: input.idempotencyKey,
       };
       return db.transaction(async (tx) => {
@@ -215,7 +218,7 @@ export function createPostgresSessionUnitOfWork(
           .from(sessions)
           .where(
             and(
-              eq(sessions.id, input.sessionId),
+              eq(sessions.id, sessionId),
               eq(sessions.ownerId, scope.principal),
             ),
           )
@@ -233,17 +236,17 @@ export function createPostgresSessionUnitOfWork(
         const [last] = await tx
           .select({ sequence: max(turns.sequence) })
           .from(turns)
-          .where(eq(turns.sessionId, input.sessionId));
+          .where(eq(turns.sessionId, sessionId));
         const sequence = (last?.sequence ?? 0) + 1;
         await insertQueuedTurn(tx, {
-          sessionId: input.sessionId,
+          sessionId: sessionId,
           sequence,
           message: input.message,
         });
         await tx
           .update(sessions)
           .set({ updatedAt: new Date() })
-          .where(eq(sessions.id, input.sessionId));
+          .where(eq(sessions.id, sessionId));
 
         const receiptId = randomUUID();
         const turnId = String(sequence);
@@ -255,7 +258,7 @@ export function createPostgresSessionUnitOfWork(
         await recordAcceptance(tx, scope, input.payloadHash, {
           id: receiptId,
           targetRef: {
-            session_id: input.sessionId,
+            session_id: sessionId,
             turn_id: turnId,
             request_id: null,
           },
@@ -303,6 +306,9 @@ export class InvalidCursorError extends Error {
 // Turns page in FIFO order; the cursor is the last sequence on the page.
 type TurnCursor = { sequence: number };
 const TURN_ID = /^[1-9]\d{0,9}$/;
+// turns.sequence is a PostgreSQL integer; anything above cannot exist and
+// must not reach the query, where it would fail with 22003 (codex P2).
+const SEQUENCE_MAX = 2_147_483_647;
 
 function encodeTurnCursor(cursor: TurnCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
@@ -314,7 +320,7 @@ function decodeTurnCursor(value: string): TurnCursor {
     if (
       Number.isInteger(parsed.sequence) &&
       parsed.sequence >= 1 &&
-      parsed.sequence <= 2_147_483_647
+      parsed.sequence <= SEQUENCE_MAX
     ) {
       return { sequence: parsed.sequence };
     }
@@ -324,7 +330,9 @@ function decodeTurnCursor(value: string): TurnCursor {
 
 // Public turn_id is the 1-based sequence; anything else is not found.
 function parseTurnId(turnId: string): number | null {
-  return TURN_ID.test(turnId) ? Number(turnId) : null;
+  if (!TURN_ID.test(turnId)) return null;
+  const sequence = Number(turnId);
+  return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
 type SessionRow = typeof sessions.$inferSelect;

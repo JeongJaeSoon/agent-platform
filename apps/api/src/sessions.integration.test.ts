@@ -378,6 +378,10 @@ integration("sessions API on PostgreSQL", () => {
     });
     expect(implicit.status).toBe(202);
     expect(await implicit.json()).toEqual(accepted);
+    // Session ids are uuids: a differently-cased path is the same scope.
+    const upper = await append(sessionId.toUpperCase(), "msg-1");
+    expect(upper.status).toBe(202);
+    expect(await upper.json()).toEqual(accepted);
     const conflict = await append(sessionId, "msg-1", { message: "other" });
     expect(conflict.status).toBe(409);
     expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
@@ -626,7 +630,16 @@ integration("sessions API on PostgreSQL", () => {
       status: "completed",
       checkpoint_revision: 3,
     });
-    for (const turnId of ["0", "8", "02", "abc", "1e1", "99999999999"]) {
+    for (const turnId of [
+      "0",
+      "8",
+      "02",
+      "abc",
+      "1e1",
+      "2147483648",
+      "9999999999",
+      "99999999999",
+    ]) {
       const response = await app.request(
         `/v1/sessions/${sessionId}/turns/${turnId}`,
         { headers },
