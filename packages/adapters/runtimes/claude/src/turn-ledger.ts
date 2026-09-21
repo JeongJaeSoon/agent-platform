@@ -13,9 +13,10 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
  *
  * The SDK may fold several queued sends into one turn, so a result settles
  * every uuid it lists in `user_message_uuids` (or `user_message_uuid`), not
- * just one input. A result from an older producer that names no uuid settles
- * everything queued so far. Informational frames after a result do not reopen
- * the turn unless input is still pending.
+ * just one input. A result that attributes no uuid (delivery failures, zeroed
+ * or session-scoped errors) settles nothing: the ledger fails closed rather
+ * than guess which input the transcript now holds. Informational frames after
+ * a result do not reopen the turn unless input is still pending.
  */
 export class TurnLedger {
   private consumed = false;
@@ -28,6 +29,9 @@ export class TurnLedger {
   }
 
   queued(uuid: string): void {
+    if (this.pending.has(uuid)) {
+      throw new Error(`Input uuid is already queued: ${uuid}`);
+    }
     this.pending.add(uuid);
   }
 
@@ -40,9 +44,7 @@ export class TurnLedger {
       return;
     }
     this.streaming = false;
-    const consumed = consumedUuids(message);
-    if (consumed === undefined) this.pending.clear();
-    else for (const uuid of consumed) this.pending.delete(uuid);
+    for (const uuid of consumedUuids(message)) this.pending.delete(uuid);
   }
 
   streamEnded(): void {
@@ -74,7 +76,7 @@ export class TurnLedger {
   }
 }
 
-function consumedUuids(message: NativeSdkMessage): string[] | undefined {
+function consumedUuids(message: NativeSdkMessage): string[] {
   if (Array.isArray(message.user_message_uuids)) {
     return message.user_message_uuids.filter(
       (value): value is string => typeof value === "string",
@@ -83,5 +85,5 @@ function consumedUuids(message: NativeSdkMessage): string[] | undefined {
   if (typeof message.user_message_uuid === "string") {
     return [message.user_message_uuid];
   }
-  return undefined;
+  return [];
 }

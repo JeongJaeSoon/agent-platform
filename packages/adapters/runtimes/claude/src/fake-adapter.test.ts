@@ -92,6 +92,18 @@ describe("fake agent runtime", () => {
     expect((await run.prepareCheckpoint()).status).toBe("ready");
   });
 
+  test("rejects a duplicate uuid before it reaches the input queue", () => {
+    const runtime = new FakeAgentRuntime([]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    run.send({ message: "one", uuid: "dup" });
+    expect(() => run.send({ message: "again", uuid: "dup" })).toThrow(
+      "Input uuid is already queued: dup",
+    );
+    expect(runtime.inputs).toHaveLength(1);
+  });
+
   test("refuses a second event consumer", async () => {
     const run = new FakeAgentRuntime([]).start(config, {
       onPermission: async () => ({ behavior: "allow" }),

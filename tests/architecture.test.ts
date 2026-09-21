@@ -84,6 +84,30 @@ function specifierOf(match: RegExpMatchArray): string {
   return match[1] ?? match[2] ?? match[3] ?? "";
 }
 
+function specifiers(source: string): string[] {
+  return [...source.matchAll(importPattern)].map(specifierOf);
+}
+
+function packageOf(specifier: string): string {
+  return specifier
+    .split("/")
+    .slice(0, specifier.startsWith("@") ? 2 : 1)
+    .join("/");
+}
+
+/** Files under `files` whose imports resolve to the workspace package `name`. */
+async function filesImporting(
+  files: string[],
+  name: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const file of files) {
+    const source = await readFile(file, "utf8");
+    if (specifiers(source).some((s) => packageOf(s) === name)) found.push(file);
+  }
+  return found;
+}
+
 async function packageImports(directory: string): Promise<Set<string>> {
   const found = new Set<string>();
   for (const file of await sourceFiles(join(directory, "src"))) {
@@ -187,13 +211,9 @@ describe("architecture", () => {
     for (const directory of await workspacePackages()) {
       if (directory.endsWith(`${join("packages", "testkit")}`)) continue;
       const pkg = await manifest(directory);
-      let imports = false;
-      for (const file of await testFiles(join(directory, "src"))) {
-        if ((await readFile(file, "utf8")).includes(`"${testkit}`)) {
-          imports = true;
-          break;
-        }
-      }
+      const imports =
+        (await filesImporting(await testFiles(join(directory, "src")), testkit))
+          .length > 0;
       if (imports && pkg.devDependencies?.[testkit] === undefined) {
         missing.push(relative(root, directory));
       }
@@ -205,23 +225,56 @@ describe("architecture", () => {
     const offenders: string[] = [];
     for (const directory of await workspacePackages()) {
       if (directory.endsWith(`${join("packages", "testkit")}`)) continue;
-      for (const file of await sourceFiles(join(directory, "src"))) {
-        const source = await readFile(file, "utf8");
-        if (source.includes(`"${testkit}`))
-          offenders.push(relative(root, file));
-      }
+      for (const file of await filesImporting(
+        await sourceFiles(join(directory, "src")),
+        testkit,
+      ))
+        offenders.push(relative(root, file));
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("the import scan sees single-quoted and template-literal specifiers", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      await mkdir(join(fixture, "src"), { recursive: true });
+      const cases: Array<[string, string]> = [
+        ["single.ts", `import { x } from '${claudeSdk}';`],
+        [
+          "template.ts",
+          "export const load = () => import(`" + claudeSdk + "`);",
+        ],
+        ["reexport.ts", `export * from "${claudeSdk}/sdk.mjs";`],
+        ["clean.ts", `import { y } from "${testkit}/workspace";`],
+      ];
+      for (const [name, body] of cases)
+        await writeFile(join(fixture, "src", name), `${body}\n`);
+      const files = await sourceFiles(join(fixture, "src"));
+      const sdk = (await filesImporting(files, claudeSdk)).map((f) =>
+        relative(fixture, f),
+      );
+      expect(sdk.sort()).toEqual([
+        join("src", "reexport.ts"),
+        join("src", "single.ts"),
+        join("src", "template.ts"),
+      ]);
+      const kit = (await filesImporting(files, testkit)).map((f) =>
+        relative(fixture, f),
+      );
+      expect(kit).toEqual([join("src", "clean.ts")]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   test("the Claude SDK is imported only by the adapter's runtime and run modules", async () => {
     const importing: string[] = [];
     for (const directory of await workspacePackages()) {
-      for (const file of await sourceFiles(join(directory, "src"))) {
-        const source = await readFile(file, "utf8");
-        if (source.includes(`from "${claudeSdk}"`))
-          importing.push(relative(root, file));
-      }
+      for (const file of await filesImporting(
+        await sourceFiles(join(directory, "src")),
+        claudeSdk,
+      ))
+        importing.push(relative(root, file));
     }
     expect(importing.sort()).toEqual([
       join(claudeAdapter, "src", "run.ts"),

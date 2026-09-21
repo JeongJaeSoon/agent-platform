@@ -50,12 +50,36 @@ describe("turn ledger", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
-  test("a result without uuid attribution settles everything queued", () => {
+  test("a result without uuid attribution settles nothing", () => {
     const ledger = new TurnLedger("s1");
     ledger.queued("a");
-    ledger.queued("b");
-    ledger.observe({ type: "result", session_id: "s1" });
+    ledger.observe({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      queued_turn_count: 1,
+      session_id: "s1",
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(running);
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
     expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("refuses to queue a uuid that is already pending", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    expect(() => ledger.queued("a")).toThrow("Input uuid is already queued: a");
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
+    ledger.queued("a");
+    expect(ledger.prepareCheckpoint()).toEqual(running);
   });
 
   test("informational frames after a result do not reopen an idle turn", () => {

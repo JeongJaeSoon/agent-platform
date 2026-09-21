@@ -68,8 +68,8 @@ export class ClaudeSdkRun implements AgentRun {
   }
 
   send(input: AgentInput): void {
-    this.input.push(input);
     this.ledger.queued(input.uuid);
+    this.input.push(input);
   }
 
   finishInput(): void {
