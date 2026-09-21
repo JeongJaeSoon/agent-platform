@@ -174,7 +174,7 @@ describe("session queries", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "retry me", status: "queued" })
+      .values({ sessionId, sequence: 1, message: "retry me", status: "queued" })
       .returning({ id: turns.id });
     const [message] = await db
       .insert(queueMessages)
@@ -275,7 +275,7 @@ describe("session queries", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "done", status: "completed" })
+      .values({ sessionId, sequence: 1, message: "done", status: "completed" })
       .returning({ id: turns.id });
     const [message] = await db
       .insert(queueMessages)
@@ -324,8 +324,8 @@ describe("session queries", () => {
     const createdTurns = await db
       .insert(turns)
       .values([
-        { sessionId, message: "checkpoint", status: "completed" },
-        { sessionId, message: "stopped", status: "interrupted" },
+        { sessionId, sequence: 1, message: "checkpoint", status: "completed" },
+        { sessionId, sequence: 2, message: "stopped", status: "interrupted" },
       ])
       .returning({ id: turns.id, status: turns.status });
     const checkpointTurn = createdTurns.find(
@@ -396,7 +396,12 @@ describe("session queries", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "in flight", status: "running" })
+      .values({
+        sessionId,
+        sequence: 1,
+        message: "in flight",
+        status: "running",
+      })
       .returning({ id: turns.id });
     const messages = await db
       .insert(queueMessages)

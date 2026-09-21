@@ -83,7 +83,12 @@ integration("orphan reconciliation on PostgreSQL", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "retry original row", status: "queued" })
+      .values({
+        sessionId,
+        sequence: 1,
+        message: "retry original row",
+        status: "queued",
+      })
       .returning({ id: turns.id });
     const [message] = await db
       .insert(queueMessages)

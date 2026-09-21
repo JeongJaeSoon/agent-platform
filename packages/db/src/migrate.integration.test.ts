@@ -65,10 +65,12 @@ integrationTest(
           "SELECT admission_state FROM sessions WHERE id = $1",
           [sessionId],
         );
-        const turnStatus = await verified.query<{ status: string }>(
-          "SELECT status FROM turns WHERE session_id = $1",
-          [sessionId],
-        );
+        const turnStatus = await verified.query<{
+          sequence: number;
+          status: string;
+        }>("SELECT status, sequence FROM turns WHERE session_id = $1", [
+          sessionId,
+        ]);
         const tables = await verified.query<{ table_name: string }>(`
           SELECT table_name
           FROM information_schema.tables
@@ -82,13 +84,14 @@ integrationTest(
         expect(column.rows[0]?.claim_token).toBe(true);
         expect(session.rows[0]?.admission_state).toBe("stopped");
         expect(turnStatus.rows[0]?.status).toBe("completed");
+        expect(turnStatus.rows[0]?.sequence).toBe(1);
         expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
           "checkpoints",
           "executions",
           "pending_requests",
           "receipts",
         ]);
-        expect(journal.rows[0]?.count).toBe("3");
+        expect(journal.rows[0]?.count).toBe("4");
       } finally {
         await verified.end();
       }
@@ -119,6 +122,7 @@ integrationTest(
         "0000_gifted_morg.sql",
         "0001_giant_sphinx.sql",
         "0002_thin_victor_mancha.sql",
+        "0003_lethal_blue_blade.sql",
       ]) {
         await legacy.query(
           await readFile(
@@ -140,7 +144,7 @@ integrationTest(
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
-        expect(journal.rows[0]?.count).toBe("3");
+        expect(journal.rows[0]?.count).toBe("4");
       } finally {
         await verified.end();
       }
