@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { buildOpenApiDocument } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import {
+  registerSessionRoutes,
+  sessionRouteErrors,
+} from "./routes/sessions.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
@@ -39,21 +42,51 @@ function honoRoutes(): Set<string> {
   );
 }
 
-function openApiRoutes(): Set<string> {
+function openApiOperations(): Map<string, { errors: number[] }> {
   const document = buildOpenApiDocument();
-  return new Set(
+  return new Map(
     Object.entries(document.paths).flatMap(([path, operations]) =>
-      Object.keys(operations).map(
-        (method) => `${method.toUpperCase()} ${path}`,
-      ),
+      Object.entries(operations).map(([method, operation]) => [
+        `${method.toUpperCase()} ${path}`,
+        {
+          errors: Object.keys((operation as { responses: object }).responses)
+            .map(Number)
+            .filter((status) => status >= 400),
+        },
+      ]),
     ),
   );
 }
+
+function openApiRoutes(): Set<string> {
+  return new Set(openApiOperations().keys());
+}
+
+// Declared but not yet produced by any handler.
+const DECLARED_ONLY_ERRORS: Record<string, number[]> = {
+  "POST /v1/sessions": [429],
+};
 
 test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();
   for (const route of honoRoutes()) {
     expect(declared, `${route} is served but not in OpenAPI`).toContain(route);
+  }
+});
+
+test("each handler's error statuses match its OpenAPI operation", () => {
+  const declared = openApiOperations();
+  for (const route of honoRoutes()) {
+    if (route === "GET /v1") continue;
+    const implemented = sessionRouteErrors[route];
+    expect(implemented, `${route} has no error status table`).toBeDefined();
+    const expected = [
+      ...(implemented ?? []),
+      ...(DECLARED_ONLY_ERRORS[route] ?? []),
+    ].sort();
+    expect([...(declared.get(route)?.errors ?? [])].sort(), route).toEqual(
+      expected,
+    );
   }
 });
 

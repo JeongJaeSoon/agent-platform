@@ -17,29 +17,23 @@ import { registerSessionRoutes } from "./routes/sessions.ts";
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
 
-if (authMode !== "none" && !databaseUrl) {
-  throw new Error("DATABASE_URL is required unless AUTH_MODE=none");
+// The sessions API is storage-backed, so a process without a database would
+// advertise routes it cannot serve; refuse to start instead.
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required");
 }
 
-const pool = databaseUrl
-  ? new Pool({ connectionString: databaseUrl })
-  : undefined;
-const db = pool ? drizzle(pool, { schema }) : undefined;
-const keyStore = db ? new DatabaseApiKeyStore(db) : undefined;
-const sessions = db
-  ? createSessionService({
-      authorization: ownerScopedPolicy,
-      inputs: createPostgresSessionUnitOfWork(db),
-      reader: createPostgresSessionReader(db),
-      catalog: parseSessionCatalog(process.env.SESSION_CATALOG_JSON),
-    })
-  : undefined;
+const db = drizzle(new Pool({ connectionString: databaseUrl }), { schema });
+const sessions = createSessionService({
+  authorization: ownerScopedPolicy,
+  inputs: createPostgresSessionUnitOfWork(db),
+  reader: createPostgresSessionReader(db),
+  catalog: parseSessionCatalog(process.env.SESSION_CATALOG_JSON),
+});
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
-  ...(keyStore === undefined ? {} : { keyStore }),
-  registerRoutes(router) {
-    if (sessions) registerSessionRoutes(router, sessions);
-  },
+  keyStore: new DatabaseApiKeyStore(db),
+  registerRoutes: (router) => registerSessionRoutes(router, sessions),
 });
 
 export default {

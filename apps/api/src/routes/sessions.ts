@@ -59,13 +59,21 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
       throw new ApiHttpError(
         503,
         "BACKEND_UNAVAILABLE",
-        "Storage is unavailable, retry with the same Idempotency-Key",
+        "Storage is unavailable, retry later",
         true,
       );
     }
     throw error;
   }
 }
+
+// Error statuses each handler can produce; the OpenAPI parity test holds the
+// route table to this. 429 stays declared-only until quota lands (94S-131).
+export const sessionRouteErrors: Record<string, number[]> = {
+  "POST /v1/sessions": [400, 401, 409, 413, 422, 503],
+  "GET /v1/sessions": [400, 401, 503],
+  "GET /v1/sessions/{id}": [401, 404, 503],
+};
 
 export function registerSessionRoutes(
   router: ApiRouter,

@@ -130,6 +130,10 @@ export function createPostgresSessionUnitOfWork(
 // survives the round trip (JS Date would truncate to milliseconds).
 type Cursor = { created_at: string; id: string };
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
+// Only the exact shape PostgreSQL renders; JS Date.parse is far more lenient
+// than the timestamptz cast and a forged cursor must not reach the query.
+const PG_TIMESTAMPTZ_TEXT =
+  /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/;
 
 function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
@@ -140,7 +144,7 @@ function decodeCursor(value: string): Cursor {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString());
     if (
       typeof parsed.created_at === "string" &&
-      !Number.isNaN(Date.parse(parsed.created_at)) &&
+      PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
       sessionIdSchema.safeParse(parsed.id).success
     ) {
       return parsed;
@@ -221,7 +225,16 @@ export function createPostgresSessionReader(db: Database): SessionReader {
           ),
         )
         .orderBy(desc(sessions.createdAt), desc(sessions.id))
-        .limit(query.limit + 1);
+        .limit(query.limit + 1)
+        .catch((error: unknown) => {
+          // A well-formed but out-of-range timestamp (month 13) only fails
+          // at the cast: SQLSTATE 22007/22008 mean the cursor, not the DB.
+          const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+          if (code === "22007" || code === "22008") {
+            throw new InvalidCursorError();
+          }
+          throw error;
+        });
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {

@@ -273,14 +273,13 @@ integration("sessions API on PostgreSQL", () => {
         ).json(),
       );
       expect(defaults.items).toHaveLength(50);
+      const forged = (created_at: string, id: string = crypto.randomUUID()) =>
+        Buffer.from(JSON.stringify({ created_at, id })).toString("base64url");
       for (const cursor of [
         "nope",
-        Buffer.from(
-          JSON.stringify({
-            created_at: "2026-01-01T00:00:00Z",
-            id: "not-a-uuid",
-          }),
-        ).toString("base64url"),
+        forged("2026-01-01T00:00:00Z", "not-a-uuid"),
+        forged("0"),
+        forged("2026-13-45 99:00:00+00"),
       ]) {
         const bad = await app.request(`/v1/sessions?cursor=${cursor}`, {
           headers: { "X-Owner-Id": listOwner },

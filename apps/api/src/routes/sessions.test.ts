@@ -147,6 +147,12 @@ describe("POST /v1/sessions validation", () => {
       code: "BACKEND_UNAVAILABLE",
       retryable: true,
     });
+    const list = await app({
+      listSessions: async () => {
+        throw down;
+      },
+    }).request("/v1/sessions", { headers: { "X-Owner-Id": "owner-a" } });
+    expect(list.status).toBe(503);
   });
 
   test("answers 413 for an oversized body and for an oversized message", async () => {
