@@ -11,13 +11,15 @@ export type AcceptSessionInput = {
   idempotencyKey: string;
   payloadHash: string;
   profileId: string;
-  repository: { id: string; url: string; branch: string };
+  // null when the catalog no longer lists the profile/repository: a replay
+  // of an earlier acceptance must still succeed, a new request must not.
+  repository: { id: string; url: string; branch: string } | null;
   message: string;
 };
 
 export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
-  | { outcome: "conflict" };
+  | { outcome: "conflict" | "unsupported" };
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {

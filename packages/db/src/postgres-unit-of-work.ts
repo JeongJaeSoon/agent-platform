@@ -4,6 +4,7 @@ import {
   createSessionResponseSchema,
   executionObservationSchema,
   type ListSessionsQuery,
+  sessionIdSchema,
 } from "@agent-platform/contracts";
 import type {
   AcceptSessionInput,
@@ -68,6 +69,9 @@ export function createPostgresSessionUnitOfWork(
           };
         }
 
+        if (!input.repository) {
+          return { outcome: "unsupported" };
+        }
         const sessionId = randomUUID();
         await tx.insert(sessions).values({
           id: sessionId,
@@ -122,7 +126,10 @@ export function createPostgresSessionUnitOfWork(
   };
 }
 
+// created_at is the database's own text rendering so microsecond precision
+// survives the round trip (JS Date would truncate to milliseconds).
 type Cursor = { created_at: string; id: string };
+const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
 
 function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
@@ -133,8 +140,8 @@ function decodeCursor(value: string): Cursor {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString());
     if (
       typeof parsed.created_at === "string" &&
-      typeof parsed.id === "string" &&
-      !Number.isNaN(Date.parse(parsed.created_at))
+      !Number.isNaN(Date.parse(parsed.created_at)) &&
+      sessionIdSchema.safeParse(parsed.id).success
     ) {
       return parsed;
     }
@@ -202,7 +209,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     async listSessions(ownerId: string, query: ListSessionsQuery) {
       const cursor = query.cursor ? decodeCursor(query.cursor) : null;
       const rows = await db
-        .select()
+        .select({ session: sessions, cursorAt: CREATED_AT_TEXT })
         .from(sessions)
         .where(
           and(
@@ -218,13 +225,10 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: await summarize(page),
+        items: await summarize(page.map((row) => row.session)),
         next_cursor:
           rows.length > query.limit && last
-            ? encodeCursor({
-                created_at: last.createdAt.toISOString(),
-                id: last.id,
-              })
+            ? encodeCursor({ created_at: last.cursorAt, id: last.session.id })
             : null,
       };
     },

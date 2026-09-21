@@ -28,6 +28,19 @@ const STATUS_BY_CODE: Partial<
   NOT_FOUND: 404,
 };
 
+// pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket
+// failures; drizzle wraps them, so look at the cause too.
+function isStorageUnavailable(error: unknown): boolean {
+  const cause = error instanceof Error && error.cause ? error.cause : error;
+  const code = (cause as { code?: unknown })?.code;
+  return (
+    typeof code === "string" &&
+    (code.startsWith("08") ||
+      code.startsWith("57P") ||
+      code.startsWith("ECONN"))
+  );
+}
+
 async function mapped<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
@@ -41,6 +54,14 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
     }
     if (error instanceof InvalidCursorError) {
       throw new ApiHttpError(400, "BAD_REQUEST", "Invalid cursor");
+    }
+    if (isStorageUnavailable(error)) {
+      throw new ApiHttpError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "Storage is unavailable, retry with the same Idempotency-Key",
+        true,
+      );
     }
     throw error;
   }

@@ -74,10 +74,79 @@ describe("POST /v1/sessions validation", () => {
   });
 
   test("rejects unknown profile or repository with 422", async () => {
-    const response = await post({ ...valid, profile_id: "nope" });
+    const unsupported = async () => ({ outcome: "unsupported" }) as const;
+    const request = (body: unknown) =>
+      app({ acceptInputAtomic: unsupported }).request("/v1/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": "owner-a",
+          "Idempotency-Key": "key-1",
+        },
+        body: JSON.stringify(body),
+      });
+    const response = await request({ ...valid, profile_id: "nope" });
     expect(response.status).toBe(422);
     expect(await errorCode(response)).toBe("UNSUPPORTED_CAPABILITY");
-    expect((await post({ ...valid, repository_id: "nope" })).status).toBe(422);
+    expect((await request({ ...valid, repository_id: "nope" })).status).toBe(
+      422,
+    );
+    // Inherited object keys are not registered profiles.
+    expect((await request({ ...valid, profile_id: "toString" })).status).toBe(
+      422,
+    );
+  });
+
+  test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
+    const replayed = {
+      session_id: crypto.randomUUID(),
+      turn_id: "1",
+      receipt_id: crypto.randomUUID(),
+      receipt_status: "accepted",
+      status: "queued",
+    } as const;
+    const response = await app({
+      acceptInputAtomic: async (input) => {
+        expect(input.repository).toBeNull();
+        return { outcome: "replayed", response: replayed };
+      },
+    }).request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify({ ...valid, profile_id: "removed-profile" }),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual(replayed);
+  });
+
+  test("maps storage connection failures to a retryable 503", async () => {
+    const down = Object.assign(new Error("connection terminated"), {
+      code: "57P01",
+    });
+    const response = await app({
+      acceptInputAtomic: async () => {
+        throw new Error("query failed", { cause: down });
+      },
+    }).request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify(valid),
+    });
+    expect(response.status).toBe(503);
+    expect(
+      apiErrorResponseSchema.parse(await response.json()).error,
+    ).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
   });
 
   test("answers 413 for an oversized body and for an oversized message", async () => {

@@ -42,6 +42,11 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
+// Plain-object catalogs must not resolve inherited keys such as "toString".
+function own<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 export function payloadHash(payload: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(payload)), "utf8")
@@ -57,7 +62,7 @@ export function createSessionService(deps: {
   const { authorization, inputs, reader, catalog } = deps;
 
   function runtimeFor(profileId: string | null): SessionRuntime {
-    const profile = profileId ? catalog.profiles[profileId] : undefined;
+    const profile = profileId ? own(catalog.profiles, profileId) : undefined;
     return {
       kind: profile?.runtime_kind ?? "claude_agent_sdk",
       version: profile?.runtime_version ?? "unknown",
@@ -81,29 +86,33 @@ export function createSessionService(deps: {
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
       requireAuthorized(actor, "sessions:write", actor.ownerId);
-      const profile = catalog.profiles[input.body.profile_id];
-      const repository = catalog.repositories[input.body.repository_id];
-      if (!profile || !repository) {
-        throw new SessionServiceError(
-          "UNSUPPORTED_CAPABILITY",
-          "Unknown profile_id or repository_id",
-        );
-      }
+      const profile = own(catalog.profiles, input.body.profile_id);
+      const repository = own(catalog.repositories, input.body.repository_id);
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
-        repository: { id: input.body.repository_id, ...repository },
+        repository:
+          profile && repository
+            ? { id: input.body.repository_id, ...repository }
+            : null,
         message: input.body.message,
       });
-      if (result.outcome === "conflict") {
-        throw new SessionServiceError(
-          "IDEMPOTENCY_CONFLICT",
-          "Idempotency-Key was already used with a different payload",
-        );
+      switch (result.outcome) {
+        case "conflict":
+          throw new SessionServiceError(
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency-Key was already used with a different payload",
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "Unknown profile_id or repository_id",
+          );
+        default:
+          return result.response;
       }
-      return result.response;
     },
 
     async listSessions(

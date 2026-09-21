@@ -273,10 +273,20 @@ integration("sessions API on PostgreSQL", () => {
         ).json(),
       );
       expect(defaults.items).toHaveLength(50);
-      const bad = await app.request("/v1/sessions?cursor=nope", {
-        headers: { "X-Owner-Id": listOwner },
-      });
-      expect(bad.status).toBe(400);
+      for (const cursor of [
+        "nope",
+        Buffer.from(
+          JSON.stringify({
+            created_at: "2026-01-01T00:00:00Z",
+            id: "not-a-uuid",
+          }),
+        ).toString("base64url"),
+      ]) {
+        const bad = await app.request(`/v1/sessions?cursor=${cursor}`, {
+          headers: { "X-Owner-Id": listOwner },
+        });
+        expect(bad.status).toBe(400);
+      }
     } finally {
       for (const id of ids) {
         await db.delete(queueMessages).where(eq(queueMessages.sessionId, id));
