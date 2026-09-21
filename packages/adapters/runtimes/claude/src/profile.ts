@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { z } from "zod";
 
-import type { RuntimeConfig, RuntimeProfile } from "./runtime.ts";
+import type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 
 const profileSchema = z.discriminatedUnion("kind", [
   z
@@ -35,9 +35,9 @@ export type RuntimePolicy = {
 };
 
 export function validateRuntimeConfig(
-  config: RuntimeConfig,
+  config: ClaudeRuntimeConfig,
   policy: RuntimePolicy,
-): RuntimeConfig {
+): ClaudeRuntimeConfig {
   const profile = profileSchema.parse(config.profile);
   const endpoint = normalizeEndpoint(profile.endpoint);
   const approvedEndpoints = new Set(policy.endpoints.map(normalizeEndpoint));
@@ -56,7 +56,7 @@ export function validateRuntimeConfig(
 }
 
 export function runtimeEnvironment(
-  config: Pick<RuntimeConfig, "claudeConfigDir" | "home" | "profile">,
+  config: Pick<ClaudeRuntimeConfig, "claudeConfigDir" | "home" | "profile">,
   host: NodeJS.ProcessEnv = process.env,
 ): Record<string, string | undefined> {
   const environment: Record<string, string | undefined> = {

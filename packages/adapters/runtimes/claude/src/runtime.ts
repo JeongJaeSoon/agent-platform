@@ -1,79 +1,32 @@
 import { spawn } from "node:child_process";
-import {
-  type Options,
-  type Query,
-  query,
-  type SDKMessage,
-  type SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentRun,
+  AgentRuntime,
+  RuntimeCapabilities,
+  RuntimeHooks,
+} from "@agent-platform/runtime-core";
+import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
 
-import { frameFromNativeMessage } from "./mapper.ts";
+import {
+  CLAUDE_RUNTIME_CAPABILITIES,
+  type ClaudeRuntimeConfig,
+} from "./config.ts";
 import {
   type RuntimePolicy,
   runtimeEnvironment,
   validateRuntimeConfig,
 } from "./profile.ts";
-import type {
-  AgentFrame,
-  AgentInput,
-  AgentRun,
-  AgentRuntime,
-  NativeSdkMessage,
-  PermissionDecision,
-  PermissionRequest,
-  RuntimeConfig,
-} from "./runtime.ts";
+import { ClaudeSdkRun, InputStream } from "./run.ts";
 
-class InputStream implements AsyncIterable<SDKUserMessage> {
-  private readonly queued: SDKUserMessage[] = [];
-  private readonly waiting: Array<
-    (value: IteratorResult<SDKUserMessage>) => void
-  > = [];
-  private finished = false;
+export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
+  readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
 
-  push(input: AgentInput): void {
-    if (this.finished) throw new Error("Input stream is closed");
-    const message: SDKUserMessage = {
-      type: "user",
-      message: { role: "user", content: input.message },
-      parent_tool_use_id: null,
-      uuid: input.uuid as NonNullable<SDKUserMessage["uuid"]>,
-    };
-    const waiter = this.waiting.shift();
-    if (waiter === undefined) this.queued.push(message);
-    else waiter({ done: false, value: message });
-  }
-
-  finish(): void {
-    this.finished = true;
-    for (const waiter of this.waiting.splice(0))
-      waiter({ done: true, value: undefined });
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    return {
-      next: async () => {
-        const value = this.queued.shift();
-        if (value !== undefined) return { done: false, value };
-        if (this.finished) return { done: true, value: undefined };
-        return new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
-          this.waiting.push(resolve);
-        });
-      },
-    };
-  }
-}
-
-export class ClaudeSdkRuntime implements AgentRuntime {
   constructor(
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
   ) {}
 
-  start(
-    config: RuntimeConfig,
-    onPermission: (request: PermissionRequest) => Promise<PermissionDecision>,
-  ): AgentRun {
+  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
     validateRuntimeConfig(config, this.policy);
     const input = new InputStream();
     const abortController = new AbortController();
@@ -81,7 +34,7 @@ export class ClaudeSdkRuntime implements AgentRuntime {
       prompt: input,
       options: buildSdkOptions(
         config,
-        onPermission,
+        hooks,
         abortController,
         this.processObserver,
       ),
@@ -91,13 +44,14 @@ export class ClaudeSdkRuntime implements AgentRuntime {
       input,
       sdkQuery,
       abortController,
+      config.resume,
     );
   }
 }
 
 export function buildSdkOptions(
-  config: RuntimeConfig,
-  onPermission: (request: PermissionRequest) => Promise<PermissionDecision>,
+  config: ClaudeRuntimeConfig,
+  hooks: RuntimeHooks,
   abortController = new AbortController(),
   processObserver?: RuntimeProcessObserver,
 ): Options {
@@ -112,7 +66,7 @@ export function buildSdkOptions(
           toolUseID: options.toolUseID,
         };
       }
-      const decision = await onPermission({
+      const decision = await hooks.onPermission({
         input: toolInput,
         requestId: options.requestId,
         signal: options.signal,
@@ -132,7 +86,7 @@ export function buildSdkOptions(
     permissionMode: config.permissionMode ?? "default",
     ...(config.plugins === undefined ? {} : { plugins: config.plugins }),
     pluginDelivery: "initialize",
-    ...(config.resume === undefined ? {} : { resume: config.resume }),
+    ...(config.mode === "resume" ? { resume: config.resume } : {}),
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,
     systemPrompt: {
@@ -187,48 +141,5 @@ export function resolvePinnedClaudeExecutable(): string {
   } catch (error) {
     if (platform !== "linux") throw error;
     return Bun.resolveSync(`${packageName}-musl/claude`, import.meta.dir);
-  }
-}
-
-class ClaudeSdkRun implements AgentRun {
-  constructor(
-    private readonly correlationId: string,
-    private readonly input: InputStream,
-    private readonly sdkQuery: Query,
-    private readonly abortController: AbortController,
-  ) {}
-
-  send(input: AgentInput): void {
-    this.input.push(input);
-  }
-
-  finishInput(): void {
-    this.input.finish();
-  }
-
-  async interrupt(): Promise<{ stillQueued: string[] }> {
-    const receipt = await this.sdkQuery.interrupt();
-    return { stillQueued: receipt?.still_queued ?? [] };
-  }
-
-  abort(): void {
-    this.abortController.abort();
-  }
-
-  close(): void {
-    this.input.finish();
-    this.sdkQuery.close();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
-    let cursor = 0;
-    for await (const message of this.sdkQuery) {
-      yield frameFromNativeMessage(
-        message as SDKMessage as unknown as NativeSdkMessage,
-        this.correlationId,
-        `sdk:${cursor}`,
-      );
-      cursor += 1;
-    }
   }
 }

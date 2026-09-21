@@ -3,12 +3,13 @@ import {
   sessionEventSchema,
 } from "@agent-platform/contracts";
 
-import {
-  type AgentFrame,
-  CLAUDE_AGENT_SDK_VERSION,
-  type NativeEnvelope,
-  type NativeSdkMessage,
-} from "./runtime.ts";
+import type {
+  AgentFrame,
+  NativeEnvelope,
+  NativeSdkMessage,
+} from "@agent-platform/runtime-core";
+
+import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 
 const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =

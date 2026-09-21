@@ -46,6 +46,16 @@
       "version": "0.0.0",
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-claude": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
+      },
+    },
+    "packages/adapters/runtimes/claude": {
+      "name": "@agent-platform/runtime-claude",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "zod": "4.6.5",
       },
@@ -104,6 +114,13 @@
         "pg": "8.16.3",
       },
     },
+    "packages/runtime-core": {
+      "name": "@agent-platform/runtime-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-platform/contracts": "workspace:*",
+      },
+    },
     "packages/storage": {
       "name": "@agent-platform/storage",
       "version": "0.0.0",
@@ -139,6 +156,10 @@
     "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
 
     "@agent-platform/reconciler": ["@agent-platform/reconciler@workspace:apps/reconciler"],
+
+    "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
+
+    "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
 
     "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 

@@ -1,15 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { RuntimeConfig } from "./runtime.ts";
+import type { ClaudeRuntimeConfig } from "./config.ts";
+import { ClaudeSdkRun, InputStream } from "./run.ts";
 import {
   buildSdkOptions,
   ClaudeSdkRuntime,
   resolvePinnedClaudeExecutable,
-} from "./sdk-adapter.ts";
+} from "./runtime.ts";
 
-const config: RuntimeConfig = {
+const config: ClaudeRuntimeConfig = {
   appendSystemPrompt: "platform rules",
   claudeConfigDir: "/tenant/config",
   correlationId: "sdk-options",
+  mode: "new",
   cwd: "/tenant/workspace",
   home: "/tenant/home",
   model: "primary",
@@ -23,11 +25,30 @@ const config: RuntimeConfig = {
   tools: ["Read"],
 };
 
+describe("Claude SDK run", () => {
+  test("a send rejected by a closed input stream leaves the checkpoint state untouched", async () => {
+    const run = new ClaudeSdkRun(
+      "closed",
+      new InputStream(),
+      { interrupt: async () => undefined, close: () => undefined } as never,
+      new AbortController(),
+      "resume-1",
+    );
+    run.finishInput();
+    expect(() => run.send({ message: "late", uuid: "late" })).toThrow(
+      "Input stream is closed",
+    );
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+  });
+});
+
 describe("Claude SDK adapter options", () => {
   test("uses explicit Claude Code defaults without auto-allowing tools", () => {
-    const options = buildSdkOptions(config, async () => ({
-      behavior: "allow",
-    }));
+    const options = buildSdkOptions(config, {
+      onPermission: async () => ({
+        behavior: "allow",
+      }),
+    });
     expect(options.permissionMode).toBe("default");
     expect(options.allowedTools).toBeUndefined();
     expect(options.tools).toEqual(["Read"]);
@@ -49,9 +70,11 @@ describe("Claude SDK adapter options", () => {
 
   test("denies tools outside the server allowlist before the host callback", async () => {
     let callbackCount = 0;
-    const options = buildSdkOptions(config, async () => {
-      callbackCount += 1;
-      return { behavior: "allow" };
+    const options = buildSdkOptions(config, {
+      onPermission: async () => {
+        callbackCount += 1;
+        return { behavior: "allow" };
+      },
     });
     const canUseTool = options.canUseTool;
     if (canUseTool === undefined) throw new Error("canUseTool is required");
@@ -83,7 +106,7 @@ describe("Claude SDK adapter options", () => {
     expect(() =>
       runtime.start(
         { ...config, permissionMode: "bypassPermissions" as never },
-        async () => ({ behavior: "allow" }),
+        { onPermission: async () => ({ behavior: "allow" }) },
       ),
     ).toThrow("Unsupported permission mode");
   });
@@ -92,10 +115,12 @@ describe("Claude SDK adapter options", () => {
     const untrusted = {
       ...config,
       pathToClaudeCodeExecutable: "/tmp/not-the-pinned-cli",
-    } as RuntimeConfig;
-    const options = buildSdkOptions(untrusted, async () => ({
-      behavior: "allow",
-    }));
+    } as ClaudeRuntimeConfig;
+    const options = buildSdkOptions(untrusted, {
+      onPermission: async () => ({
+        behavior: "allow",
+      }),
+    });
     expect(options.pathToClaudeCodeExecutable).toBe(
       resolvePinnedClaudeExecutable(),
     );
