@@ -123,6 +123,56 @@ describe("API authentication", () => {
     expect(sink.records.some((record) => record.level === "error")).toBe(false);
   });
 
+  test.each([
+    ["pg socket drop", new Error("Connection terminated unexpectedly")],
+    ["pg connect timeout", new Error("timeout expired")],
+    [
+      "pg-pool timeout wrapping a socket error",
+      new Error("Connection terminated due to connection timeout", {
+        cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+      }),
+    ],
+    [
+      "SQLSTATE 57P01",
+      Object.assign(new Error("terminating"), { code: "57P01" }),
+    ],
+  ])("maps a %s during key lookup to 503", async (_name, failure) => {
+    const keyStore: ApiKeyStore = {
+      async findOwner() {
+        throw new Error("Failed query", { cause: failure });
+      },
+    };
+    const app = createApiApp({ authMode: "api-key", keyStore });
+    const response = await app.request("/v1", {
+      headers: { Authorization: "Bearer csp_any" },
+    });
+    expect(response.status).toBe(503);
+  });
+
+  test("keeps 500 for a key lookup failure that is not a storage outage", async () => {
+    const { logger, sink } = loggerWithMemory();
+    const keyStore: ApiKeyStore = {
+      async findOwner() {
+        throw new Error("Failed query", {
+          cause: Object.assign(new Error("relation does not exist"), {
+            code: "42P01",
+          }),
+        });
+      },
+    };
+    const app = createApiApp({ authMode: "api-key", keyStore, logger });
+    const response = await app.request("/v1", {
+      headers: { Authorization: "Bearer csp_any" },
+    });
+    expect(response.status).toBe(500);
+    expect(apiErrorResponseSchema.parse(await response.json())).toMatchObject({
+      error: { code: "INTERNAL_ERROR", retryable: false },
+    });
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({ level: "error" }),
+    );
+  });
+
   test("trusts X-Owner-Id only in explicit local mode and warns", async () => {
     const { logger, sink } = loggerWithMemory();
     const app = createApiApp({ authMode: "none", logger });

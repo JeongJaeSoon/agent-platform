@@ -43,17 +43,46 @@ export class ApiHttpError extends Error {
   }
 }
 
-// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs and
-// node socket errors; the cause of a DrizzleQueryError carries the code.
+const SOCKET_ERROR_CODES = new Set([
+  "ETIMEDOUT",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+]);
+
+// pg raises these without a code when a socket drops or a timeout fires
+// (pg/lib/client.js, pg-pool/index.js).
+const PG_CONNECTION_MESSAGES =
+  /^(Connection terminated|timeout expired|Query read timeout)/;
+
+// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs,
+// node socket errors, and pg's code-less connection failures. Walks the
+// cause chain because Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
-  const cause = error instanceof Error && error.cause ? error.cause : error;
-  const code = (cause as { code?: unknown })?.code;
-  return (
-    typeof code === "string" &&
-    (code.startsWith("08") ||
-      code.startsWith("57P") ||
-      code.startsWith("ECONN"))
-  );
+  for (let depth = 0, current = error; depth < 5; depth += 1) {
+    const code = (current as { code?: unknown })?.code;
+    if (
+      typeof code === "string" &&
+      (code.startsWith("08") ||
+        code.startsWith("57P") ||
+        code.startsWith("ECONN") ||
+        SOCKET_ERROR_CODES.has(code))
+    ) {
+      return true;
+    }
+    if (
+      current instanceof Error &&
+      PG_CONNECTION_MESSAGES.test(current.message)
+    ) {
+      return true;
+    }
+    if (!(current instanceof Error) || !current.cause) {
+      return false;
+    }
+    current = current.cause;
+  }
+  return false;
 }
 
 export function storageUnavailableError(): ApiHttpError {
