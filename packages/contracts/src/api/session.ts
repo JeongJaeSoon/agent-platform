@@ -134,15 +134,17 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
 });
 
 export const MESSAGE_MAX_BYTES = 32 * 1024;
+export const PAYLOAD_TOO_LARGE_ISSUE = "PAYLOAD_TOO_LARGE";
 export const REQUEST_BODY_MAX_BYTES = 64 * 1024;
 const utf8 = new TextEncoder();
 export const messageTextSchema = z
   .string()
   .min(1)
-  .refine(
-    (text) => utf8.encode(text).length <= MESSAGE_MAX_BYTES,
-    `Message exceeds ${MESSAGE_MAX_BYTES} UTF-8 bytes`,
-  )
+  .refine((text) => utf8.encode(text).length <= MESSAGE_MAX_BYTES, {
+    message: `Message exceeds ${MESSAGE_MAX_BYTES} UTF-8 bytes`,
+    // Lets HTTP handlers answer 413 instead of the generic 400.
+    params: { code: PAYLOAD_TOO_LARGE_ISSUE },
+  })
   .meta({ description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8` });
 
 export const createSessionRequestSchema = z

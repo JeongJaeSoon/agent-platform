@@ -133,7 +133,7 @@ const routes: Route[] = [
     scope: "read",
     query: "ListSessionsQuery",
     success: { status: 200, schema: "ListSessionsResponse" },
-    errors: [400, 401],
+    errors: [400, 401, 503],
   },
   {
     method: "get",
@@ -142,7 +142,7 @@ const routes: Route[] = [
     summary: "Session detail with projection, execution and durability",
     scope: "read",
     success: { status: 200, schema: "SessionDetail" },
-    errors: [401, 404],
+    errors: [401, 404, 503],
   },
   {
     method: "post",

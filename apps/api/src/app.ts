@@ -2,6 +2,7 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  PAYLOAD_TOO_LARGE_ISSUE,
   REQUEST_BODY_MAX_BYTES,
 } from "@agent-platform/contracts";
 import {
@@ -86,6 +87,18 @@ export async function parseJsonBody<T extends z.ZodType>(
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
+    const oversized = parsed.error.issues.some(
+      (issue) =>
+        issue.code === "custom" &&
+        issue.params?.code === PAYLOAD_TOO_LARGE_ISSUE,
+    );
+    if (oversized) {
+      throw new ApiHttpError(
+        413,
+        "PAYLOAD_TOO_LARGE",
+        "Request field too large",
+      );
+    }
     throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
   }
   return parsed.data;

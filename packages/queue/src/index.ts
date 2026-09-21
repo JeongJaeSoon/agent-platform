@@ -57,5 +57,6 @@ export interface QueueBackend {
   lease(command: LeaseCommand): Promise<LeaseResult>;
 }
 
+export { enqueueWithin } from "@agent-platform/db";
 export { PostgresQueue } from "./postgres.ts";
 export { RedisQueueStub } from "./redis.ts";
