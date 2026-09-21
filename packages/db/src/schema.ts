@@ -87,6 +87,9 @@ export const turns = pgTable(
     deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
     terminalReason: text("terminal_reason"),
     outcomeUnknown: boolean("outcome_unknown").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(

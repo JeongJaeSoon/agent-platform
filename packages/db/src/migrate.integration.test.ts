@@ -91,7 +91,7 @@ integrationTest(
           "pending_requests",
           "receipts",
         ]);
-        expect(journal.rows[0]?.count).toBe("4");
+        expect(journal.rows[0]?.count).toBe("5");
       } finally {
         await verified.end();
       }
@@ -118,6 +118,8 @@ integrationTest(
     testUrl.pathname = `/${databaseName}`;
     const legacy = new Pool({ connectionString: testUrl.toString(), max: 1 });
     try {
+      // The compose initdb mounts stop at 0003: adoptLegacyM0Schema only
+      // recognises up to 0003, so 0004+ must be applied by the migrator.
       for (const filename of [
         "0000_gifted_morg.sql",
         "0001_giant_sphinx.sql",
@@ -144,7 +146,7 @@ integrationTest(
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
-        expect(journal.rows[0]?.count).toBe("4");
+        expect(journal.rows[0]?.count).toBe("5");
       } finally {
         await verified.end();
       }

@@ -356,6 +356,7 @@
                   "SESSION_PAUSED",
                   "SESSION_RESUMING",
                   "SESSION_CLOSED",
+                  "SESSION_STOPPED",
                   "RECOVERY_REQUIRED",
                   "CHECKPOINT_UNAVAILABLE",
                   "PAUSE_COMMITTING",
@@ -2283,6 +2284,7 @@
                       "SESSION_PAUSED",
                       "SESSION_RESUMING",
                       "SESSION_CLOSED",
+                      "SESSION_STOPPED",
                       "RECOVERY_REQUIRED",
                       "CHECKPOINT_UNAVAILABLE",
                       "PAUSE_COMMITTING",
@@ -2815,6 +2817,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2901,6 +2913,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2958,6 +2980,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {

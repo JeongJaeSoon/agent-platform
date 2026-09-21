@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  ADMISSION_STATE_VALUES,
   createSessionResponseSchema,
   getSessionResponseSchema,
+  getTurnResponseSchema,
   listSessionsResponseSchema,
+  listTurnsResponseSchema,
+  postSessionMessageResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  checkpoints,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   idempotencyKeys,
@@ -19,7 +24,7 @@ import {
   createSessionService,
   ownerScopedPolicy,
 } from "@agent-platform/platform";
-import { count, eq } from "drizzle-orm";
+import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
@@ -88,6 +93,7 @@ integration("sessions API on PostgreSQL", () => {
         await db
           .delete(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, id));
+        await db.delete(checkpoints).where(eq(checkpoints.sessionId, id));
         await db.delete(turns).where(eq(turns.sessionId, id));
       }
       await db
@@ -98,6 +104,38 @@ integration("sessions API on PostgreSQL", () => {
     }
     await pool.end();
   });
+
+  function append(
+    sessionId: string,
+    key: string,
+    payload: unknown = { message: "Apply the proposed fix.", mode: "enqueue" },
+    ownerId = owner,
+  ) {
+    return app.request(`/v1/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": ownerId,
+        "Idempotency-Key": key,
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function createdSession(key: string) {
+    return createSessionResponseSchema.parse(await (await create(key)).json())
+      .session_id;
+  }
+
+  async function queueOrder(sessionId: string) {
+    const rows = await db
+      .select({ sequence: turns.sequence })
+      .from(queueMessages)
+      .innerJoin(turns, eq(turns.id, queueMessages.turnId))
+      .where(eq(queueMessages.sessionId, sessionId))
+      .orderBy(asc(queueMessages.id));
+    return rows.map((row) => row.sequence);
+  }
 
   function create(key: string, payload: unknown = body, ownerId = owner) {
     return app.request("/v1/sessions", {
@@ -301,4 +339,289 @@ integration("sessions API on PostgreSQL", () => {
       await db.delete(sessions).where(eq(sessions.ownerId, listOwner));
     }
   }, 60_000);
+
+  test("appends a message as the next turn with its own receipt and idempotency scope", async () => {
+    const sessionId = await createdSession("append-1");
+    const response = await append(sessionId, "msg-1");
+    expect(response.status).toBe(202);
+    const accepted = postSessionMessageResponseSchema.parse(
+      await response.json(),
+    );
+    expect(accepted).toMatchObject({
+      turn_id: "2",
+      receipt_status: "accepted",
+    });
+    expect(await rowsFor(sessionId)).toEqual({
+      sessions: 1,
+      turns: 2,
+      queue: 2,
+      unassigned: 1,
+    });
+    expect(await queueOrder(sessionId)).toEqual([1, 2]);
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, accepted.receipt_id));
+    expect(receipt).toMatchObject({
+      ownerId: owner,
+      operation: "append_message",
+      status: "accepted",
+      targetRef: { session_id: sessionId, turn_id: "2", request_id: null },
+    });
+
+    const replay = await append(sessionId, "msg-1");
+    expect(replay.status).toBe(202);
+    expect(await replay.json()).toEqual(accepted);
+    // mode is defaulted before hashing, so omitting it is the same payload.
+    const implicit = await append(sessionId, "msg-1", {
+      message: "Apply the proposed fix.",
+    });
+    expect(implicit.status).toBe(202);
+    expect(await implicit.json()).toEqual(accepted);
+    const conflict = await append(sessionId, "msg-1", { message: "other" });
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect(await rowsFor(sessionId)).toMatchObject({ turns: 2, queue: 2 });
+
+    // The create key and the append key live in different scopes, and so do
+    // append keys of different sessions.
+    const other = await createdSession("append-2");
+    const reused = await append(other, "msg-1");
+    expect(reused.status).toBe(202);
+    expect(
+      postSessionMessageResponseSchema.parse(await reused.json()).turn_id,
+    ).toBe("2");
+    const sameAsCreate = await append(sessionId, "append-1");
+    expect(sameAsCreate.status).toBe(202);
+    expect(
+      postSessionMessageResponseSchema.parse(await sameAsCreate.json()).turn_id,
+    ).toBe("3");
+  });
+
+  test("3 concurrent messages get turn ids 2,3,4 without gaps in queue order", async () => {
+    const sessionId = await createdSession("race-append");
+    const responses = await Promise.all(
+      [1, 2, 3].map((n) =>
+        append(sessionId, `race-${n}`, { message: `message ${n}` }),
+      ),
+    );
+    expect(responses.map((r) => r.status)).toEqual([202, 202, 202]);
+    const turnIds = await Promise.all(
+      responses.map(
+        async (r) =>
+          postSessionMessageResponseSchema.parse(await r.json()).turn_id,
+      ),
+    );
+    expect([...turnIds].sort()).toEqual(["2", "3", "4"]);
+    const stored = await db
+      .select({ sequence: turns.sequence, message: turns.message })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId))
+      .orderBy(asc(turns.sequence));
+    expect(stored.map((row) => row.sequence)).toEqual([1, 2, 3, 4]);
+    expect(await queueOrder(sessionId)).toEqual([1, 2, 3, 4]);
+    // Each response's turn_id names the row that holds its message.
+    for (const [index, turnId] of turnIds.entries()) {
+      expect(stored[Number(turnId) - 1]?.message).toBe(`message ${index + 1}`);
+    }
+    const [keyed] = await db
+      .select({ n: count() })
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.resource, sessionId));
+    expect(keyed?.n).toBe(3);
+  });
+
+  test("rejects messages by admission state and keeps the turn count", async () => {
+    const sessionId = await createdSession("admission-1");
+    const expected: Record<string, [number, string | null]> = {
+      active: [202, null],
+      pausing: [409, "SESSION_PAUSED"],
+      paused: [409, "SESSION_PAUSED"],
+      resuming: [409, "SESSION_RESUMING"],
+      stopping: [409, "SESSION_STOPPED"],
+      stopped: [409, "SESSION_STOPPED"],
+      recovery_required: [409, "RECOVERY_REQUIRED"],
+      closed: [409, "SESSION_CLOSED"],
+    };
+    expect(Object.keys(expected).sort()).toEqual(
+      [...ADMISSION_STATE_VALUES].sort(),
+    );
+    for (const state of ADMISSION_STATE_VALUES) {
+      await db
+        .update(sessions)
+        .set({ admissionState: state })
+        .where(eq(sessions.id, sessionId));
+      const response = await append(sessionId, `admission-${state}`);
+      const [status, code] = expected[state] ?? [0, null];
+      expect(response.status, state).toBe(status);
+      if (code) {
+        const body = await response.json();
+        expect(body.error.code, state).toBe(code);
+        expect(body.error.retryable).toBe(false);
+      }
+    }
+    expect(await rowsFor(sessionId)).toMatchObject({ turns: 2, queue: 2 });
+    await db
+      .update(sessions)
+      .set({ admissionState: "active" })
+      .where(eq(sessions.id, sessionId));
+  });
+
+  test("hides other owners' sessions from messages and turns", async () => {
+    const sessionId = await createdSession("foreign-1");
+    const foreignAppend = await append(
+      sessionId,
+      "foreign",
+      undefined,
+      stranger,
+    );
+    expect(foreignAppend.status).toBe(404);
+    expect((await foreignAppend.json()).error.details).toBeNull();
+    expect(await rowsFor(sessionId)).toMatchObject({ turns: 1 });
+    for (const path of [
+      `/v1/sessions/${sessionId}/turns`,
+      `/v1/sessions/${sessionId}/turns/1`,
+    ]) {
+      const response = await app.request(path, {
+        headers: { "X-Owner-Id": stranger },
+      });
+      expect(response.status, path).toBe(404);
+    }
+    const missing = await append(crypto.randomUUID(), "missing");
+    expect(missing.status).toBe(404);
+  });
+
+  test("lists turns in FIFO order through cursors and serves the detail projection", async () => {
+    const sessionId = await createdSession("turns-1");
+    for (let n = 2; n <= 7; n += 1) {
+      expect(
+        (await append(sessionId, `turns-${n}`, { message: `m${n}` })).status,
+      ).toBe(202);
+    }
+    const headers = { "X-Owner-Id": owner };
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const url = `/v1/sessions/${sessionId}/turns?limit=3${cursor ? `&cursor=${cursor}` : ""}`;
+      const response = await app.request(url, { headers });
+      expect(response.status).toBe(200);
+      const page = listTurnsResponseSchema.parse(await response.json());
+      seen.push(...page.items.map((item) => item.turn_id));
+      for (const item of page.items) {
+        expect(item).toMatchObject({
+          session_id: sessionId,
+          status: "queued",
+          terminal_reason: null,
+          checkpoint_revision: null,
+          started_at: null,
+          ended_at: null,
+        });
+      }
+      cursor = page.next_cursor;
+      pages += 1;
+    } while (cursor);
+    expect(pages).toBe(3);
+    expect(seen).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+    for (const bad of [
+      "nope",
+      Buffer.from('{"sequence":0}').toString("base64url"),
+    ]) {
+      const response = await app.request(
+        `/v1/sessions/${sessionId}/turns?cursor=${bad}`,
+        { headers },
+      );
+      expect(response.status, bad).toBe(400);
+    }
+
+    // Simulate a finished turn the way the worker will record it (94S-121+).
+    const [second] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId))
+      .orderBy(asc(turns.sequence))
+      .offset(1)
+      .limit(1);
+    if (!second) throw new Error("turn 2 missing");
+    const startedAt = new Date("2026-09-22T01:00:00.000Z");
+    const endedAt = new Date("2026-09-22T01:00:05.000Z");
+    await db
+      .update(turns)
+      .set({
+        status: "completed",
+        terminalReason: "end_turn",
+        attemptId: "attempt-1",
+        startedAt,
+        endedAt,
+        resultJson: {
+          result: "Fixed the failing test.",
+          usage: { input_tokens: 10, output_tokens: 20 },
+        },
+      })
+      .where(eq(turns.id, second.id));
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 3,
+      manifestRef: "s3://claude-sessions/manifest",
+      manifestSha256: "0".repeat(64),
+      turnId: second.id,
+    });
+
+    const detail = await app.request(`/v1/sessions/${sessionId}/turns/2`, {
+      headers,
+    });
+    expect(detail.status).toBe(200);
+    expect(getTurnResponseSchema.parse(await detail.json())).toMatchObject({
+      turn_id: "2",
+      session_id: sessionId,
+      status: "completed",
+      message: "m2",
+      terminal_reason: "end_turn",
+      checkpoint_revision: 3,
+      started_at: startedAt.toISOString(),
+      ended_at: endedAt.toISOString(),
+      result: "Fixed the failing test.",
+      usage: { input_tokens: 10, output_tokens: 20 },
+      attempts: [
+        {
+          attempt_id: "attempt-1",
+          state: "exited",
+          lease_epoch: 0,
+          execution_generation: 0,
+          started_at: startedAt.toISOString(),
+          ended_at: endedAt.toISOString(),
+        },
+      ],
+    });
+    const queued = getTurnResponseSchema.parse(
+      await (
+        await app.request(`/v1/sessions/${sessionId}/turns/3`, { headers })
+      ).json(),
+    );
+    expect(queued).toMatchObject({
+      status: "queued",
+      result: null,
+      usage: null,
+      attempts: [],
+    });
+    const listed = listTurnsResponseSchema.parse(
+      await (
+        await app.request(`/v1/sessions/${sessionId}/turns?limit=2`, {
+          headers,
+        })
+      ).json(),
+    );
+    expect(listed.items[1]).toMatchObject({
+      turn_id: "2",
+      status: "completed",
+      checkpoint_revision: 3,
+    });
+    for (const turnId of ["0", "8", "02", "abc", "1e1", "99999999999"]) {
+      const response = await app.request(
+        `/v1/sessions/${sessionId}/turns/${turnId}`,
+        { headers },
+      );
+      expect(response.status, turnId).toBe(404);
+    }
+  });
 });

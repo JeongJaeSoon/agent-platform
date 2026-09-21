@@ -152,7 +152,7 @@ const routes: Route[] = [
     scope: "write",
     body: "PostSessionMessageRequest",
     success: { status: 202, schema: "PostSessionMessageResponse" },
-    errors: [400, 401, 404, 409, 413, 429],
+    errors: [400, 401, 404, 409, 413, 429, 503],
   },
   {
     method: "get",
@@ -162,7 +162,7 @@ const routes: Route[] = [
     scope: "read",
     query: "ListTurnsQuery",
     success: { status: 200, schema: "ListTurnsResponse" },
-    errors: [400, 401, 404],
+    errors: [400, 401, 404, 503],
   },
   {
     method: "get",
@@ -171,7 +171,7 @@ const routes: Route[] = [
     summary: "Committed result of one turn",
     scope: "read",
     success: { status: 200, schema: "TurnDetail" },
-    errors: [401, 404],
+    errors: [401, 404, 503],
   },
   {
     method: "get",

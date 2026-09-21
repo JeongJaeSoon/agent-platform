@@ -175,6 +175,7 @@ describe("receipt and error contracts", () => {
       "SESSION_PAUSED",
       "SESSION_RESUMING",
       "SESSION_CLOSED",
+      "SESSION_STOPPED",
       "RECOVERY_REQUIRED",
       "CHECKPOINT_UNAVAILABLE",
       "PAUSE_COMMITTING",
