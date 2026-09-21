@@ -36,6 +36,7 @@ export class ApiHttpError extends Error {
     readonly status: ContentfulStatusCode,
     readonly code: ApiErrorCode,
     message: string,
+    readonly retryable = false,
   ) {
     super(message);
   }
@@ -52,13 +53,14 @@ function errorResponse(
   status: ContentfulStatusCode,
   code: ApiErrorCode,
   message: string,
+  retryable = false,
 ): Response {
   return context.json(
     apiErrorResponseSchema.parse({
       error: {
         code,
         message,
-        retryable: status === 429 || status === 503,
+        retryable,
         request_id: context.get("requestId"),
         details: null,
       },
@@ -71,13 +73,14 @@ export async function parseJsonBody<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
 ): Promise<z.infer<T>> {
-  const contentLength = Number(context.req.header("Content-Length") ?? 0);
-  if (contentLength > REQUEST_BODY_MAX_BYTES) {
+  // Measure the bytes actually received; Content-Length can be absent or lie.
+  const raw = await context.req.arrayBuffer();
+  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
     throw new ApiHttpError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
   }
   let body: unknown;
   try {
-    body = await context.req.json();
+    body = JSON.parse(new TextDecoder().decode(raw));
   } catch {
     throw new ApiHttpError(400, "BAD_REQUEST", "Invalid JSON body");
   }
@@ -164,7 +167,13 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   );
   app.onError((error, context) => {
     if (error instanceof ApiHttpError) {
-      return errorResponse(context, error.status, error.code, error.message);
+      return errorResponse(
+        context,
+        error.status,
+        error.code,
+        error.message,
+        error.retryable,
+      );
     }
     logger.error("Unhandled API request error", {
       error_name: error instanceof Error ? error.name : "UnknownError",

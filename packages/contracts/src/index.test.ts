@@ -259,6 +259,13 @@ describe("answers, pending requests and control", () => {
         answer: { kind: "permission", behavior: "allow" },
       }).success,
     ).toBe(false);
+    expect(
+      postSessionAnswerRequestSchema.safeParse({
+        request_id: "perm_03",
+        kind: "permission",
+        decision: "deny",
+      }).success,
+    ).toBe(false);
   });
 
   test("types pending requests by kind", () => {

@@ -10,7 +10,16 @@ export const permissionAnswerSchema = z
     decision: z.enum(["allow", "deny"]),
     reason: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((answer, context) => {
+    if (answer.decision === "deny" && answer.reason === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "A denial needs a reason the model can act on",
+        path: ["reason"],
+      });
+    }
+  });
 
 export const questionAnswerSchema = z
   .object({

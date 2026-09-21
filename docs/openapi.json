@@ -27,7 +27,7 @@
           "message": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 32768
+            "description": "At most 32768 bytes of UTF-8"
           }
         },
         "required": [
@@ -69,7 +69,7 @@
           "message": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 32768
+            "description": "At most 32768 bytes of UTF-8"
           },
           "mode": {
             "default": "enqueue",
@@ -2182,82 +2182,6 @@
         "required": [
           "receipt_id",
           "receipt_status"
-        ],
-        "additionalProperties": false
-      },
-      "RecoveryDecisionResult": {
-        "type": "object",
-        "properties": {
-          "resulting_admission_state": {
-            "type": "string",
-            "enum": [
-              "active",
-              "pausing",
-              "paused",
-              "resuming",
-              "stopping",
-              "stopped",
-              "recovery_required",
-              "closed"
-            ]
-          },
-          "checkpoint_revision": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "resumable": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "resulting_admission_state",
-          "checkpoint_revision",
-          "resumable"
-        ],
-        "additionalProperties": false
-      },
-      "TerminateReceiptResult": {
-        "type": "object",
-        "properties": {
-          "execution_gone": {
-            "type": "boolean"
-          },
-          "checkpoint_revision": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "unconfirmed_turn_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "execution_gone",
-          "checkpoint_revision",
-          "unconfirmed_turn_id"
         ],
         "additionalProperties": false
       },

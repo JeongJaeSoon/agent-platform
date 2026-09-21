@@ -21,12 +21,10 @@ import {
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   recoveryDecisionRequestSchema,
-  recoveryDecisionResultSchema,
   resumeSessionRequestSchema,
   sessionDurabilitySchema,
   sessionSummarySchema,
   sseEventSchema,
-  terminateReceiptResultSchema,
   terminateSessionRequestSchema,
   turnSummarySchema,
 } from "./api/index.ts";
@@ -69,8 +67,6 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
-  RecoveryDecisionResult: recoveryDecisionResultSchema,
-  TerminateReceiptResult: terminateReceiptResultSchema,
   Receipt: getReceiptResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -288,17 +284,17 @@ function queryParameters(schema: JsonSchema) {
   }));
 }
 
-const pathParamSchemas: Record<string, z.ZodObject> = {
-  "/v1/sessions/{id}": sessionIdParamsSchema,
-  "/v1/sessions/{id}/turns/{turn_id}": turnIdParamsSchema,
-  "/v1/receipts/{id}": receiptIdParamsSchema,
-};
+function paramsSchemaFor(path: string): z.ZodObject {
+  if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.includes("{turn_id}")) return turnIdParamsSchema;
+  if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
+  throw new Error(`No params schema registered for ${path}`);
+}
 
 function pathParameters(path: string) {
   const names = [...path.matchAll(/\{(\w+)\}/g)].map(([, name]) => name);
   if (names.length === 0) return [];
-  const schema =
-    pathParamSchemas[path] ?? pathParamSchemas["/v1/sessions/{id}"];
+  const schema = paramsSchemaFor(path);
   const properties = (
     z.toJSONSchema(schema as z.ZodType, { io: "input" }) as JsonSchema
   ).properties as Record<string, JsonSchema>;

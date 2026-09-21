@@ -135,14 +135,15 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
 
 export const MESSAGE_MAX_BYTES = 32 * 1024;
 export const REQUEST_BODY_MAX_BYTES = 64 * 1024;
+const utf8 = new TextEncoder();
 export const messageTextSchema = z
   .string()
   .min(1)
-  .max(MESSAGE_MAX_BYTES)
   .refine(
-    (text) => new TextEncoder().encode(text).length <= MESSAGE_MAX_BYTES,
+    (text) => utf8.encode(text).length <= MESSAGE_MAX_BYTES,
     `Message exceeds ${MESSAGE_MAX_BYTES} UTF-8 bytes`,
-  );
+  )
+  .meta({ description: `At most ${MESSAGE_MAX_BYTES} bytes of UTF-8` });
 
 export const createSessionRequestSchema = z
   .object({

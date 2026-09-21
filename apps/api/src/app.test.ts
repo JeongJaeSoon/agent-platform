@@ -142,10 +142,9 @@ describe("API validation and errors", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Content-Length": String(65 * 1024),
         "X-Owner-Id": "local-owner",
       },
-      body: JSON.stringify({ message: "hello" }),
+      body: JSON.stringify({ message: "x".repeat(65 * 1024) }),
     });
     expect(oversized.status).toBe(413);
     expect(
