@@ -1,45 +1,35 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  type FakeAnthropicServer,
+  startFakeAnthropicServer,
+  textReply,
+  toolReply,
+} from "@agent-platform/testkit/fake-anthropic";
+import {
+  createIsolatedWorkspace,
+  type IsolatedWorkspace,
+} from "@agent-platform/testkit/workspace";
 import type { AgentFrame } from "./runtime.ts";
 import { ClaudeSdkRuntime } from "./sdk-adapter.ts";
 
-type RecordedRequest = {
-  body: Record<string, unknown>;
-  headers: Record<string, string>;
-};
-
-type FakeReply =
-  | { text: string; type: "text" }
-  | {
-      id: string;
-      input: Record<string, unknown>;
-      name: string;
-      type: "tool";
-    };
-
-let root: string | undefined;
-let server: ReturnType<typeof startFakeAnthropicServer> | undefined;
+let isolated: IsolatedWorkspace | undefined;
+let server: FakeAnthropicServer | undefined;
 
 afterEach(async () => {
   server?.stop();
-  if (root !== undefined) await rm(root, { force: true, recursive: true });
-  root = undefined;
+  await isolated?.dispose();
+  isolated = undefined;
   server = undefined;
 });
 
 describe("actual Claude SDK adapter with local Messages API", () => {
   test("keeps a streaming process across turns with explicit isolated options", async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "94s-18-sdk-")));
-    const workspace = join(root, "workspace");
-    const home = join(root, "home");
-    await mkdir(join(workspace, ".claude"), { recursive: true });
-    await mkdir(home, { recursive: true });
-    server = startFakeAnthropicServer((index) => ({
-      type: "text",
-      text: `turn-${index + 1}`,
-    }));
+    isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(`turn-${index + 1}`),
+    );
     const spawnedPids: number[] = [];
     const exitedPids: number[] = [];
     const runtime = new ClaudeSdkRuntime(
@@ -159,22 +149,18 @@ describe("actual Claude SDK adapter with local Messages API", () => {
   }, 30_000);
 
   test("forwards permission request correlation through the adapter", async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "94s-18-permission-")));
-    const workspace = join(root, "workspace");
-    const home = join(root, "home");
-    await mkdir(join(workspace, ".claude"), { recursive: true });
-    await mkdir(home, { recursive: true });
-    server = startFakeAnthropicServer((index) =>
+    isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
       index === 0
-        ? {
-            type: "tool",
-            id: "toolu_permission",
-            name: "Bash",
-            input: {
+        ? toolReply(
+            "Bash",
+            {
               command: `printf denied > ${JSON.stringify(join(workspace, "permission-denied.txt"))}`,
             },
-          }
-        : { type: "text", text: "permission handled" },
+            "toolu_permission",
+          )
+        : textReply("permission handled"),
     );
     const runtime = new ClaudeSdkRuntime({
       endpoints: [server.url],
@@ -223,22 +209,19 @@ describe("actual Claude SDK adapter with local Messages API", () => {
   }, 30_000);
 
   test("interrupts the current turn and returns a receipt", async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "94s-18-interrupt-")));
-    const workspace = join(root, "workspace");
-    const home = join(root, "home");
-    await mkdir(workspace, { recursive: true });
-    await mkdir(home, { recursive: true });
+    isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
+    const { home, workspace } = isolated;
     let requestStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {
       requestStarted = resolve;
     });
-    server = startFakeAnthropicServer(async (index) => {
+    server = startFakeAnthropicServer(async (_request, index) => {
       requestStarted?.();
       if (index === 0) {
         await Bun.sleep(500);
-        return { type: "text", text: "INTERRUPTED_RESPONSE_MUST_NOT_SURFACE" };
+        return textReply("INTERRUPTED_RESPONSE_MUST_NOT_SURFACE");
       }
-      return { type: "text", text: "FOLLOW_UP_AFTER_INTERRUPT" };
+      return textReply("FOLLOW_UP_AFTER_INTERRUPT");
     });
     const spawnedPids: number[] = [];
     const exitedPids: number[] = [];
@@ -286,16 +269,13 @@ describe("actual Claude SDK adapter with local Messages API", () => {
   }, 30_000);
 
   test("aborts the whole adapter run and reaps its process", async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "94s-18-abort-")));
-    const workspace = join(root, "workspace");
-    const home = join(root, "home");
-    await mkdir(workspace, { recursive: true });
-    await mkdir(home, { recursive: true });
+    isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
+    const { home, workspace } = isolated;
     let requestStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {
       requestStarted = resolve;
     });
-    server = startFakeAnthropicServer(async (_index, request) => {
+    server = startFakeAnthropicServer(async (request) => {
       requestStarted?.();
       await aborted(request.signal);
       return new Response("request aborted", { status: 499 });
@@ -346,107 +326,6 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     await waitFor(() => exitedPids.length === 1, 5_000);
   }, 30_000);
 });
-
-function startFakeAnthropicServer(
-  reply: (
-    index: number,
-    request: Request,
-  ) => FakeReply | Response | Promise<FakeReply | Response>,
-): {
-  requests: RecordedRequest[];
-  stop(): void;
-  url: string;
-} {
-  const requests: RecordedRequest[] = [];
-  const bunServer = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      if (request.method !== "POST" || !url.pathname.endsWith("/messages")) {
-        return new Response("not found", { status: 404 });
-      }
-      const body = (await request.json()) as Record<string, unknown>;
-      requests.push({
-        body,
-        headers: Object.fromEntries(request.headers.entries()),
-      });
-      const replyValue = await reply(requests.length - 1, request);
-      if (replyValue instanceof Response) return replyValue;
-      const model =
-        typeof body.model === "string" ? body.model : "claude-sonnet-4-5";
-      const id = `msg_${crypto.randomUUID()}`;
-      const block =
-        replyValue.type === "text"
-          ? { type: "text", text: "" }
-          : {
-              type: "tool_use",
-              id: replyValue.id,
-              name: replyValue.name,
-              input: {},
-            };
-      const delta =
-        replyValue.type === "text"
-          ? { type: "text_delta", text: replyValue.text }
-          : {
-              type: "input_json_delta",
-              partial_json: JSON.stringify(replyValue.input),
-            };
-      const stopReason = replyValue.type === "text" ? "end_turn" : "tool_use";
-      const events = [
-        {
-          type: "message_start",
-          message: {
-            id,
-            type: "message",
-            role: "assistant",
-            model,
-            content: [],
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 0 },
-          },
-        },
-        {
-          type: "content_block_start",
-          index: 0,
-          content_block: block,
-        },
-        {
-          type: "content_block_delta",
-          index: 0,
-          delta,
-        },
-        { type: "content_block_stop", index: 0 },
-        {
-          type: "message_delta",
-          delta: { stop_reason: stopReason, stop_sequence: null },
-          usage: { output_tokens: 2 },
-        },
-        { type: "message_stop" },
-      ];
-      return new Response(
-        events
-          .map(
-            (event) =>
-              `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
-          )
-          .join(""),
-        {
-          headers: {
-            "content-type": "text/event-stream",
-            "request-id": `req_${crypto.randomUUID()}`,
-          },
-        },
-      );
-    },
-  });
-  return {
-    requests,
-    stop: () => bunServer.stop(true),
-    url: `http://127.0.0.1:${bunServer.port}`,
-  };
-}
 
 async function waitFor(
   predicate: () => boolean,
