@@ -18,23 +18,31 @@ localstackTest(
   async () => {
     const fixture = await createLocalstackBucket({ prefix: "testkit-it" });
     const { bucket, s3 } = fixture;
-    await s3.send(
-      new PutObjectCommand({ Bucket: bucket, Key: "a/one", Body: "1" }),
-    );
-    await s3.send(
-      new PutObjectCommand({ Bucket: bucket, Key: "a/two", Body: "2" }),
-    );
-    await s3.send(
-      new PutObjectCommand({ Bucket: bucket, Key: "b/keep", Body: "3" }),
-    );
+    let destroyed = false;
+    try {
+      await s3.send(
+        new PutObjectCommand({ Bucket: bucket, Key: "a/one", Body: "1" }),
+      );
+      await s3.send(
+        new PutObjectCommand({ Bucket: bucket, Key: "a/two", Body: "2" }),
+      );
+      await s3.send(
+        new PutObjectCommand({ Bucket: bucket, Key: "b/keep", Body: "3" }),
+      );
 
-    expect(await fixture.deletePrefix("a/")).toBe(2);
-    const remaining = await s3.send(
-      new ListObjectsV2Command({ Bucket: bucket }),
-    );
-    expect(remaining.Contents?.map((object) => object.Key)).toEqual(["b/keep"]);
+      expect(await fixture.deletePrefix("a/")).toBe(2);
+      const remaining = await s3.send(
+        new ListObjectsV2Command({ Bucket: bucket }),
+      );
+      expect(remaining.Contents?.map((object) => object.Key)).toEqual([
+        "b/keep",
+      ]);
 
-    await fixture.destroy();
+      await fixture.destroy();
+      destroyed = true;
+    } finally {
+      if (!destroyed) await fixture.destroy();
+    }
     const probe = localstackClient(localstackEnv());
     try {
       await expect(

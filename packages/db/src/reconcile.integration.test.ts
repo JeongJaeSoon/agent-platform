@@ -58,8 +58,11 @@ integration("orphan reconciliation on PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
-    await database.drop();
+    try {
+      await pool.end();
+    } finally {
+      await database.drop();
+    }
   });
 
   async function seedOrphan(now: Date) {

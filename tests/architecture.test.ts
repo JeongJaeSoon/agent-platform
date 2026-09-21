@@ -17,7 +17,10 @@ async function workspacePackages(): Promise<string[]> {
   return directories;
 }
 
-async function sourceFiles(directory: string): Promise<string[]> {
+async function typescriptFiles(
+  directory: string,
+  keep: (name: string) => boolean,
+): Promise<string[]> {
   const entries = await readdir(directory, {
     recursive: true,
     withFileTypes: true,
@@ -27,10 +30,18 @@ async function sourceFiles(directory: string): Promise<string[]> {
       (entry) =>
         entry.isFile() &&
         entry.name.endsWith(".ts") &&
-        !entry.name.endsWith(".test.ts") &&
+        keep(entry.name) &&
         !entry.parentPath.includes(`${join(directory, "node_modules")}`),
     )
     .map((entry) => join(entry.parentPath, entry.name));
+}
+
+function sourceFiles(directory: string): Promise<string[]> {
+  return typescriptFiles(directory, (name) => !name.endsWith(".test.ts"));
+}
+
+function testFiles(directory: string): Promise<string[]> {
+  return typescriptFiles(directory, (name) => name.endsWith(".test.ts"));
 }
 
 describe("architecture", () => {
@@ -39,13 +50,41 @@ describe("architecture", () => {
     for (const directory of await workspacePackages()) {
       const manifest = JSON.parse(
         await readFile(join(directory, "package.json"), "utf8"),
-      ) as { dependencies?: Record<string, string>; name?: string };
+      ) as Record<string, Record<string, string> | string | undefined>;
       if (manifest.name === testkit) continue;
-      if (manifest.dependencies?.[testkit] !== undefined) {
-        offenders.push(relative(root, directory));
+      for (const field of [
+        "dependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ]) {
+        const section = manifest[field];
+        if (typeof section === "object" && section[testkit] !== undefined) {
+          offenders.push(`${relative(root, directory)} (${field})`);
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("every package whose tests import testkit declares it as a devDependency", async () => {
+    const missing: string[] = [];
+    for (const directory of await workspacePackages()) {
+      if (directory.endsWith(`${join("packages", "testkit")}`)) continue;
+      const manifest = JSON.parse(
+        await readFile(join(directory, "package.json"), "utf8"),
+      ) as { devDependencies?: Record<string, string> };
+      let imports = false;
+      for (const file of await testFiles(join(directory, "src"))) {
+        if ((await readFile(file, "utf8")).includes(`"${testkit}`)) {
+          imports = true;
+          break;
+        }
+      }
+      if (imports && manifest.devDependencies?.[testkit] === undefined) {
+        missing.push(relative(root, directory));
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   test("no runtime source imports testkit", async () => {

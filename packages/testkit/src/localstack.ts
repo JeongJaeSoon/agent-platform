@@ -60,14 +60,19 @@ export async function createLocalstackBucket(
   const env = options.env ?? localstackEnv();
   const bucket = `${options.prefix ?? "testkit-it"}-${randomUUID()}`;
   const s3 = localstackClient(env);
-  await s3.send(
-    new CreateBucketCommand({
-      Bucket: bucket,
-      CreateBucketConfiguration: {
-        LocationConstraint: env.region as "ap-northeast-1",
-      },
-    }),
-  );
+  try {
+    await s3.send(
+      new CreateBucketCommand({
+        Bucket: bucket,
+        CreateBucketConfiguration: {
+          LocationConstraint: env.region as "ap-northeast-1",
+        },
+      }),
+    );
+  } catch (error) {
+    s3.destroy();
+    throw error;
+  }
   const deletePrefix = async (prefix: string) => {
     let deleted = 0;
     let token: string | undefined;

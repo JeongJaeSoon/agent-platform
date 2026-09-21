@@ -40,8 +40,11 @@ integration("PostgresQueue on PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
-    await database.drop();
+    try {
+      await pool.end();
+    } finally {
+      await database.drop();
+    }
   });
 
   test("uses concurrent SKIP LOCKED claims without duplicates", async () => {

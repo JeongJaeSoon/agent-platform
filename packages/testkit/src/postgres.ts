@@ -48,10 +48,10 @@ export async function createTempDatabase(
   let dropped = false;
   const drop = async () => {
     if (dropped) return;
-    dropped = true;
     await withAdminPool(admin.toString(), (pool) =>
       pool.query(`DROP DATABASE IF EXISTS ${quoted} WITH (FORCE)`),
     );
+    dropped = true;
   };
   if (options.migrate ?? true) {
     try {
