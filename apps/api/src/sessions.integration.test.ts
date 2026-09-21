@@ -414,11 +414,21 @@ integration("sessions API on PostgreSQL", () => {
     );
     expect([...turnIds].sort()).toEqual(["2", "3", "4"]);
     const stored = await db
-      .select({ sequence: turns.sequence, message: turns.message })
+      .select({
+        sequence: turns.sequence,
+        message: turns.message,
+        createdAt: turns.createdAt,
+      })
       .from(turns)
       .where(eq(turns.sessionId, sessionId))
       .orderBy(asc(turns.sequence));
     expect(stored.map((row) => row.sequence)).toEqual([1, 2, 3, 4]);
+    // created_at follows the sequence, not the transaction start.
+    for (let index = 1; index < stored.length; index += 1) {
+      expect(stored[index]?.createdAt.getTime() ?? 0).toBeGreaterThanOrEqual(
+        stored[index - 1]?.createdAt.getTime() ?? 0,
+      );
+    }
     expect(await queueOrder(sessionId)).toEqual([1, 2, 3, 4]);
     // Each response's turn_id names the row that holds its message.
     for (const [index, turnId] of turnIds.entries()) {

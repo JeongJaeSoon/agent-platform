@@ -108,6 +108,9 @@ async function insertQueuedTurn(
   tx: Database,
   input: { sessionId: string; sequence: number; message: string },
 ) {
+  // now() is the transaction start, which can precede a competing append
+  // that won the session lock first; clock_timestamp() keeps created_at
+  // ordered like sequence.
   const [turn] = await tx
     .insert(turns)
     .values({
@@ -115,6 +118,7 @@ async function insertQueuedTurn(
       sequence: input.sequence,
       message: input.message,
       status: "queued",
+      createdAt: sql`clock_timestamp()`,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
