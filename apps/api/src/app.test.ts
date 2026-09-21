@@ -127,6 +127,10 @@ describe("API authentication", () => {
     ["pg socket drop", new Error("Connection terminated unexpectedly")],
     ["pg connect timeout", new Error("timeout expired")],
     [
+      "pg-pool acquisition timeout on a saturated pool",
+      new Error("timeout exceeded when trying to connect"),
+    ],
+    [
       "pg-pool timeout wrapping a socket error",
       new Error("Connection terminated due to connection timeout", {
         cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
@@ -135,6 +139,10 @@ describe("API authentication", () => {
     [
       "SQLSTATE 57P01",
       Object.assign(new Error("terminating"), { code: "57P01" }),
+    ],
+    [
+      "SQLSTATE 53300 too many connections",
+      Object.assign(new Error("too many connections"), { code: "53300" }),
     ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {

@@ -182,6 +182,7 @@ describe("receipt and error contracts", () => {
       "PAUSE_CANCELLED",
       "CONTROL_SUPERSEDED",
       "BACKEND_UNAVAILABLE",
+      "NOT_READY",
       "CURSOR_EXPIRED",
     ]) {
       expect(API_ERROR_CODE_VALUES as readonly string[]).toContain(code);

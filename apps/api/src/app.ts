@@ -2,8 +2,10 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  healthResponseSchema,
   PAYLOAD_TOO_LARGE_ISSUE,
   REQUEST_BODY_MAX_BYTES,
+  readyResponseSchema,
 } from "@agent-platform/contracts";
 import {
   createLogger,
@@ -13,6 +15,7 @@ import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
+import type { ReadinessProbe } from "./readiness.ts";
 
 export interface ApiVariables {
   ownerId: string;
@@ -30,6 +33,9 @@ export interface CreateApiAppOptions {
   keyStore?: ApiKeyStore;
   logger?: StructuredLogger;
   registerRoutes?: (router: ApiRouter) => void;
+  // Backs GET /readyz; without one the process reports 503 NOT_READY, so a
+  // build that forgot to wire the probe is never routed traffic.
+  readiness?: ReadinessProbe;
 }
 
 export class ApiHttpError extends Error {
@@ -51,20 +57,22 @@ const SOCKET_ERROR_CODES = new Set([
   "EAI_AGAIN",
 ]);
 
-// pg raises these without a code when a socket drops or a timeout fires
-// (pg/lib/client.js, pg-pool/index.js).
+// pg raises these without a code when a socket drops, a timeout fires, or a
+// saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
 const PG_CONNECTION_MESSAGES =
-  /^(Connection terminated|timeout expired|Query read timeout)/;
+  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect)/;
 
-// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs,
-// node socket errors, and pg's code-less connection failures. Walks the
-// cause chain because Drizzle and pg-pool both wrap the original error.
+// Postgres connection (08xxx), insufficient-resources (53xxx: too many
+// connections, disk full) and operator-intervention (57Pxx) SQLSTATEs, node
+// socket errors, and pg's code-less connection failures. Walks the cause
+// chain because Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
     const code = (current as { code?: unknown })?.code;
     if (
       typeof code === "string" &&
       (code.startsWith("08") ||
+        code.startsWith("53") ||
         code.startsWith("57P") ||
         code.startsWith("ECONN") ||
         SOCKET_ERROR_CODES.has(code))
@@ -97,6 +105,11 @@ export function storageUnavailableError(): ApiHttpError {
 // Errors the auth middleware can produce on every /v1 route; the OpenAPI
 // parity test holds the root operation to this.
 export const rootRouteErrors = [401, 503];
+// Liveness never fails; readiness only ever answers 503 NOT_READY.
+export const probeRouteErrors: Record<string, number[]> = {
+  "GET /healthz": [],
+  "GET /readyz": [503],
+};
 
 const missingKeyStore: ApiKeyStore = {
   async findOwner() {
@@ -110,6 +123,7 @@ function errorResponse(
   code: ApiErrorCode,
   message: string,
   retryable = false,
+  details: unknown = null,
 ): Response {
   return context.json(
     apiErrorResponseSchema.parse({
@@ -118,7 +132,7 @@ function errorResponse(
         message,
         retryable,
         request_id: context.get("requestId"),
-        details: null,
+        details,
       },
     }),
     status,
@@ -192,6 +206,38 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   if (authMode === "none") {
     logger.warn("API authentication is disabled", { auth_mode: "none" });
   }
+
+  // Probes sit outside /v1 so an orchestrator needs no API key to call them.
+  app.get("/healthz", (context) =>
+    jsonWithSchema(context, healthResponseSchema, { status: "ok" }),
+  );
+  app.get("/readyz", async (context) => {
+    const result = options.readiness
+      ? await options.readiness()
+      : ({
+          ready: false,
+          check: "config",
+          reason: "no readiness probe",
+        } as const);
+    if (!result.ready) {
+      logger.warn("API readiness check failed", {
+        check: result.check,
+        reason: result.reason,
+      });
+      return errorResponse(
+        context,
+        503,
+        "NOT_READY",
+        `Not ready: ${result.check} check failed`,
+        true,
+        { check: result.check },
+      );
+    }
+    return jsonWithSchema(context, readyResponseSchema, {
+      status: "ready",
+      checks: { database: "ok", schema: "ok", config: "ok" },
+    });
+  });
 
   v1.use("*", async (context, next) => {
     let ownerId: string | null = null;

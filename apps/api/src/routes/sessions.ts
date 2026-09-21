@@ -46,7 +46,7 @@ const STATUS_BY_CODE: Partial<
 
 // pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket
 // failures; drizzle wraps them, so look at the cause too.
-async function mapped<T>(work: () => Promise<T>): Promise<T> {
+export async function mapped<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
@@ -93,7 +93,7 @@ function requireIdempotencyKey(context: Context<ApiEnvironment>): string {
 }
 
 // A malformed id is indistinguishable from a missing session on purpose.
-function requireParams<T extends z.ZodType>(
+export function requireParams<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
 ): z.infer<T> {

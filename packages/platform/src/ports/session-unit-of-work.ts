@@ -4,6 +4,7 @@ import type {
   ListSessionsQuery,
   ListTurnsQuery,
   PostSessionMessageResponse,
+  Receipt,
   SessionDetail,
   SessionSummary,
   TurnDetail,
@@ -78,4 +79,6 @@ export interface SessionReader {
     sessionId: string,
     turnId: string,
   ): Promise<TurnDetail | null>;
+  // null when the receipt does not exist or belongs to another owner.
+  getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
 }

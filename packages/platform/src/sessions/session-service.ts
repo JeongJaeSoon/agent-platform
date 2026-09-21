@@ -10,6 +10,7 @@ import type {
   ListTurnsResponse,
   PostSessionMessageRequest,
   PostSessionMessageResponse,
+  Receipt,
   SessionDetail,
   SessionRuntime,
   TurnDetail,
@@ -227,6 +228,17 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       return turn;
+    },
+
+    // Only the principal that issued the command may read its receipt;
+    // anyone else sees the same 404 as for a receipt that never existed.
+    async getReceipt(actor: Principal, receiptId: string): Promise<Receipt> {
+      requireAuthorized(actor, "sessions:read", actor.ownerId);
+      const receipt = await reader.getReceipt(actor.ownerId, receiptId);
+      if (!receipt) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return receipt;
     },
   };
 }

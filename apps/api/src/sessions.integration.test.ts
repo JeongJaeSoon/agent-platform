@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   ADMISSION_STATE_VALUES,
   createSessionResponseSchema,
+  getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
   listSessionsResponseSchema,
   listTurnsResponseSchema,
   postSessionMessageResponseSchema,
+  readyResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
@@ -20,6 +22,7 @@ import {
   turns,
   unassignedSessions,
 } from "@agent-platform/db";
+import { createLogger } from "@agent-platform/observability";
 import {
   createSessionService,
   ownerScopedPolicy,
@@ -29,6 +32,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
+import { createProbePool, createReadinessProbe } from "./readiness.ts";
+import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
@@ -36,6 +41,7 @@ const integration = databaseUrl ? describe : describe.skip;
 
 integration("sessions API on PostgreSQL", () => {
   let pool: Pool;
+  let probePool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
   const owner = `owner-${crypto.randomUUID()}`;
@@ -76,9 +82,17 @@ integration("sessions API on PostgreSQL", () => {
         },
       },
     });
+    probePool = createProbePool(databaseUrl ?? "", createLogger(), 500);
     app = createApiApp({
       authMode: "none",
-      registerRoutes: (router) => registerSessionRoutes(router, service),
+      registerRoutes: (router) => {
+        registerSessionRoutes(router, service);
+        registerReceiptRoutes(router, service);
+      },
+      readiness: createReadinessProbe({
+        db: probePool,
+        requiredEnv: ["QUEUE_DATABASE_URL"],
+      }),
     });
   });
 
@@ -102,6 +116,7 @@ integration("sessions API on PostgreSQL", () => {
       await db.delete(receipts).where(eq(receipts.ownerId, ownerId));
       await db.delete(sessions).where(eq(sessions.ownerId, ownerId));
     }
+    await probePool.end();
     await pool.end();
   });
 
@@ -219,6 +234,90 @@ integration("sessions API on PostgreSQL", () => {
           .where(eq(receipts.ownerId, owner))
       )[0]?.n,
     ).toBe(1);
+  });
+
+  test("serves the create and append receipts to their owner only", async () => {
+    const created = createSessionResponseSchema.parse(
+      await (await create("receipt-1")).json(),
+    );
+    const appended = postSessionMessageResponseSchema.parse(
+      await (await append(created.session_id, "receipt-msg-1")).json(),
+    );
+    for (const [receiptId, operation, turnId] of [
+      [created.receipt_id, "create_session", "1"],
+      [appended.receipt_id, "append_message", "2"],
+    ] as const) {
+      const response = await app.request(`/v1/receipts/${receiptId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(response.status).toBe(200);
+      const receipt = getReceiptResponseSchema.parse(await response.json());
+      expect(receipt).toMatchObject({
+        id: receiptId,
+        operation,
+        status: "accepted",
+        target_ref: {
+          session_id: created.session_id,
+          turn_id: turnId,
+          request_id: null,
+        },
+        error: null,
+      });
+      expect(receipt.created_at).toBe(receipt.updated_at);
+    }
+    expect(
+      getReceiptResponseSchema.parse(
+        await (
+          await app.request(`/v1/receipts/${created.receipt_id}`, {
+            headers: { "X-Owner-Id": owner },
+          })
+        ).json(),
+      ).result,
+    ).toEqual(created);
+
+    const foreign = await app.request(`/v1/receipts/${created.receipt_id}`, {
+      headers: { "X-Owner-Id": stranger },
+    });
+    expect(foreign.status).toBe(404);
+    expect((await foreign.json()).error.details).toBeNull();
+    const unknown = await app.request(`/v1/receipts/${crypto.randomUUID()}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  test("readiness passes against the migrated database without touching any backend", async () => {
+    const response = await app.request("/readyz");
+    expect(response.status).toBe(200);
+    expect(readyResponseSchema.parse(await response.json()).status).toBe(
+      "ready",
+    );
+    expect((await app.request("/healthz")).status).toBe(200);
+  });
+
+  test("probe pool cancels a statement that outlives the timeout and stays usable", async () => {
+    const started = Date.now();
+    await expect(probePool.query("SELECT pg_sleep(5)")).rejects.toMatchObject({
+      // 57014 query_canceled: the server killed it, not just the client.
+      code: "57014",
+    });
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect((await app.request("/readyz")).status).toBe(200);
+    expect(probePool.waitingCount).toBe(0);
+  });
+
+  test("survives the backend of an idle probe connection being terminated", async () => {
+    expect((await app.request("/readyz")).status).toBe(200);
+    expect(probePool.idleCount).toBe(1);
+    const pid = (
+      await probePool.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+    ).rows[0]?.pid;
+    // From another connection, kill the backend the idle probe client holds.
+    await pool.query("SELECT pg_terminate_backend($1)", [pid]);
+    await Bun.sleep(100);
+    // pg-pool has emitted "error" for the idle client by now; the process is
+    // still here and the next probe simply reconnects.
+    expect((await app.request("/readyz")).status).toBe(200);
   });
 
   test("10 concurrent creates with one key produce one session, turn and receipt", async () => {

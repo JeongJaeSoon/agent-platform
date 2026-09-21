@@ -363,6 +363,7 @@
                   "PAUSE_CANCELLED",
                   "CONTROL_SUPERSEDED",
                   "BACKEND_UNAVAILABLE",
+                  "NOT_READY",
                   "CURSOR_EXPIRED",
                   "LEASE_EXPIRED",
                   "STALE_EPOCH"
@@ -440,10 +441,31 @@
           "status": {
             "type": "string",
             "const": "ready"
+          },
+          "checks": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "database",
+                "schema",
+                "config"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "const": "ok"
+            },
+            "required": [
+              "database",
+              "schema",
+              "config"
+            ]
           }
         },
         "required": [
-          "status"
+          "status",
+          "checks"
         ],
         "additionalProperties": false
       },
@@ -2291,6 +2313,7 @@
                       "PAUSE_CANCELLED",
                       "CONTROL_SUPERSEDED",
                       "BACKEND_UNAVAILABLE",
+                      "NOT_READY",
                       "CURSOR_EXPIRED",
                       "LEASE_EXPIRED",
                       "STALE_EPOCH"
@@ -3753,6 +3776,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {

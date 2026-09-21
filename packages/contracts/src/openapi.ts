@@ -259,7 +259,7 @@ const routes: Route[] = [
     summary: "Current outcome of an accepted command",
     scope: "read",
     success: { status: 200, schema: "Receipt" },
-    errors: [401, 404],
+    errors: [401, 404, 503],
   },
 ];
 
