@@ -102,7 +102,7 @@ export function startFakeAnthropicServer(
           : options.failWith;
       if (failure !== undefined) return errorResponse(failure);
       const reply = await resolve(recorded, index);
-      if (reply instanceof Response) return reply.clone();
+      if (reply instanceof Response) return reusable(reply);
       return anthropicResponse(
         recorded.body.model ?? defaultModel,
         reply,
@@ -177,6 +177,17 @@ export function errorResponse(failure: FakeFailure): Response {
       headers: { "request-id": `req_${crypto.randomUUID()}` },
     },
   );
+}
+
+// A scripted Response may be served more than once, so hand out a copy and
+// keep the original body unread.
+function reusable(response: Response): Response {
+  const copy = response.clone();
+  return new Response(copy.body, {
+    headers: copy.headers,
+    status: copy.status,
+    statusText: copy.statusText,
+  });
 }
 
 function toResolver(replies: ReplyScript): ReplyResolver {

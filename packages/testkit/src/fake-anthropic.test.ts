@@ -86,6 +86,17 @@ describe("fake Anthropic Messages API", () => {
     expect(texts).toEqual(["one", "two", "two"]);
   });
 
+  test("serves a scripted Response object more than once", async () => {
+    server = startFakeAnthropicServer([
+      Response.json({ custom: true }, { status: 418 }),
+    ]);
+    const first = await postMessages(server.url, { messages: [] });
+    const second = await postMessages(server.url, { messages: [] });
+    expect([first.status, second.status]).toEqual([418, 418]);
+    expect(await first.json()).toEqual({ custom: true });
+    expect(await second.json()).toEqual({ custom: true });
+  });
+
   test("passes the recorded request and index to a resolver", async () => {
     server = startFakeAnthropicServer((request, index) =>
       textReply(`${request.body.model}-${index}`),
