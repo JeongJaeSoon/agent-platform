@@ -65,6 +65,7 @@ class FakeRun implements AgentRun {
   send(input: AgentInput): void {
     if (this.closed) throw new Error("Input stream is closed");
     this.runtime.inputs.push(input);
+    this.streaming = true;
   }
 
   finishInput(): void {
@@ -109,7 +110,6 @@ class FakeRun implements AgentRun {
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
     let cursor = 0;
-    this.streaming = true;
     const controlSignal = AbortSignal.any([
       this.abortController.signal,
       this.interruptController.signal,

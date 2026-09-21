@@ -56,8 +56,8 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
 
 export class ClaudeSdkRun implements AgentRun {
   private sessionId: string | undefined;
-  // True between the first frame of a turn and its `result`; a checkpoint
-  // taken in that window would miss the transcript the SDK has not flushed.
+  // True from send() until the turn's `result` frame; a checkpoint taken in
+  // that window would miss the transcript the SDK has not flushed.
   private streaming = false;
 
   constructor(
@@ -72,6 +72,7 @@ export class ClaudeSdkRun implements AgentRun {
 
   send(input: AgentInput): void {
     this.input.push(input);
+    this.streaming = true;
   }
 
   finishInput(): void {

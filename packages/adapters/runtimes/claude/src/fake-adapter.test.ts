@@ -58,6 +58,11 @@ describe("fake agent runtime", () => {
       status: "ready",
       checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.270" },
     });
+    resumed.send({ message: "queued", uuid: "queued-1" });
+    expect(await resumed.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "A turn is still running",
+    });
   });
 
   test("controls init, arbitrary order, usage, and result errors", async () => {
