@@ -5,10 +5,10 @@ import {
 } from "@agent-platform/contracts";
 import {
   type Database,
+  enqueueWithin,
   events,
   queueMessages,
   sessions,
-  unassignedSessions,
   workers,
 } from "@agent-platform/db";
 import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
@@ -51,17 +51,6 @@ function parsePayload(payload: unknown): QueuePayload {
   return sessionMessageSchema.parse(payload);
 }
 
-function validatePayload(payload: unknown): {
-  kind: "answer" | "message";
-  payload: QueuePayload;
-} {
-  const answer = postSessionAnswerRequestSchema.safeParse(payload);
-  if (answer.success) {
-    return { kind: "answer", payload: answer.data };
-  }
-  return { kind: "message", payload: sessionMessageSchema.parse(payload) };
-}
-
 function waitForPoll(delayMs: number, signal?: AbortSignal) {
   if (signal?.aborted) {
     return Promise.resolve();
@@ -89,37 +78,7 @@ export class PostgresQueue implements QueueBackend {
   }
 
   async enqueue(input: EnqueueInput) {
-    return this.#db.transaction(async (tx) => {
-      const validated = validatePayload(input.payload);
-      const [inserted] = await tx
-        .insert(queueMessages)
-        .values({
-          sessionId: input.sessionId,
-          turnId: input.turnId,
-          kind: validated.kind,
-          payload: validated.payload,
-        })
-        .returning({ id: queueMessages.id });
-      if (!inserted) {
-        throw new Error("Failed to enqueue message");
-      }
-      const [session] = await tx
-        .select({ podId: sessions.podId })
-        .from(sessions)
-        .where(eq(sessions.id, input.sessionId))
-        .limit(1)
-        .for("update");
-      if (!session) {
-        throw new Error("Session not found");
-      }
-      if (session.podId === null) {
-        await tx
-          .insert(unassignedSessions)
-          .values({ sessionId: input.sessionId })
-          .onConflictDoNothing({ target: unassignedSessions.sessionId });
-      }
-      return inserted.id;
-    });
+    return this.#db.transaction((tx) => enqueueWithin(tx, input));
   }
 
   async consume(
