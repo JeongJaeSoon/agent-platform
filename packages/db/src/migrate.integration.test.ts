@@ -53,8 +53,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 1, applied: 3, total: 4 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(first).toEqual({ adopted: 1, applied: 4, total: 5 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 5 });
       expect(
         sink.records.map(({ level, message, fields }) => ({
           level,
@@ -65,12 +65,12 @@ integrationTest(
         {
           level: "info",
           message: "db.migrate.adopted",
-          fields: { adopted: 1, applied: 3, total: 4 },
+          fields: { adopted: 1, applied: 4, total: 5 },
         },
         {
           level: "info",
           message: "db.migrate.noop",
-          fields: { adopted: 0, applied: 0, total: 4 },
+          fields: { adopted: 0, applied: 0, total: 5 },
         },
       ]);
 
@@ -159,8 +159,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 4, applied: 0, total: 4 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(first).toEqual({ adopted: 4, applied: 1, total: 5 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 5 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.adopted",
         "db.migrate.noop",
@@ -198,8 +198,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 0, applied: 4, total: 4 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(first).toEqual({ adopted: 0, applied: 5, total: 5 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 5 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
