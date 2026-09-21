@@ -79,6 +79,15 @@ describe("readiness probe", () => {
     expect(result.ready === false && result.reason).toContain(
       "0004_calm_blue_shield",
     );
+
+    // Same timestamp, different SQL behind it: not the schema this build ships.
+    const rewritten = await database(true);
+    await rewritten.query(
+      `UPDATE "drizzle"."__drizzle_migrations" SET hash = 'deadbeef' WHERE created_at = ${expectedMigrationHead().when}`,
+    );
+    expect(
+      await createReadinessProbe({ db: rewritten, requiredEnv, environment })(),
+    ).toMatchObject({ ready: false, check: "schema" });
   });
 
   test("fails the config check when a required variable is missing or blank", async () => {

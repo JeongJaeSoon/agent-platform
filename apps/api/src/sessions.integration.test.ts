@@ -31,7 +31,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import { createReadinessProbe } from "./readiness.ts";
+import { createProbePool, createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -40,6 +40,7 @@ const integration = databaseUrl ? describe : describe.skip;
 
 integration("sessions API on PostgreSQL", () => {
   let pool: Pool;
+  let probePool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
   const owner = `owner-${crypto.randomUUID()}`;
@@ -80,6 +81,7 @@ integration("sessions API on PostgreSQL", () => {
         },
       },
     });
+    probePool = createProbePool(databaseUrl ?? "", 500);
     app = createApiApp({
       authMode: "none",
       registerRoutes: (router) => {
@@ -87,7 +89,7 @@ integration("sessions API on PostgreSQL", () => {
         registerReceiptRoutes(router, service);
       },
       readiness: createReadinessProbe({
-        db: pool,
+        db: probePool,
         requiredEnv: ["QUEUE_DATABASE_URL"],
       }),
     });
@@ -113,6 +115,7 @@ integration("sessions API on PostgreSQL", () => {
       await db.delete(receipts).where(eq(receipts.ownerId, ownerId));
       await db.delete(sessions).where(eq(sessions.ownerId, ownerId));
     }
+    await probePool.end();
     await pool.end();
   });
 
@@ -289,6 +292,17 @@ integration("sessions API on PostgreSQL", () => {
       "ready",
     );
     expect((await app.request("/healthz")).status).toBe(200);
+  });
+
+  test("probe pool cancels a statement that outlives the timeout and stays usable", async () => {
+    const started = Date.now();
+    await expect(probePool.query("SELECT pg_sleep(5)")).rejects.toMatchObject({
+      // 57014 query_canceled: the server killed it, not just the client.
+      code: "57014",
+    });
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect((await app.request("/readyz")).status).toBe(200);
+    expect(probePool.waitingCount).toBe(0);
   });
 
   test("10 concurrent creates with one key produce one session, turn and receipt", async () => {
