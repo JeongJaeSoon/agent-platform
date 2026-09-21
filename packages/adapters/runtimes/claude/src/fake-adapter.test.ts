@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-
+import type { AgentFrame } from "@agent-platform/runtime-core";
+import type { ClaudeRuntimeConfig } from "./config.ts";
 import { FakeAgentRuntime } from "./fake-adapter.ts";
-import type { AgentFrame, RuntimeConfig } from "./runtime.ts";
 
-const config: RuntimeConfig = {
+const config: ClaudeRuntimeConfig = {
   claudeConfigDir: "/tmp/fake/config",
   correlationId: "fake-correlation",
+  mode: "new",
   cwd: "/tmp/fake/workspace",
   home: "/tmp/fake/home",
   model: "fake-model",
@@ -18,6 +19,47 @@ const config: RuntimeConfig = {
 };
 
 describe("fake agent runtime", () => {
+  test("prepares a checkpoint only once a session id is known and the turn has ended", async () => {
+    const runtime = new FakeAgentRuntime([
+      {
+        type: "emit",
+        message: { type: "system", subtype: "init", session_id: "ckpt" },
+      },
+      {
+        type: "emit",
+        message: { type: "result", subtype: "success", session_id: "ckpt" },
+      },
+    ]);
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    const run = runtime.start(config, allow);
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "No SDK session has started",
+    });
+    const iterator = run.events()[Symbol.asyncIterator]();
+    await iterator.next();
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "A turn is still running",
+    });
+    await iterator.next();
+    await iterator.next();
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "ready",
+      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.270" },
+    });
+    const resumed = runtime.start(
+      { ...config, mode: "resume", resume: "ckpt" },
+      allow,
+    );
+    expect(await resumed.prepareCheckpoint()).toEqual({
+      status: "ready",
+      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.270" },
+    });
+  });
+
   test("controls init, arbitrary order, usage, and result errors", async () => {
     const runtime = new FakeAgentRuntime([
       {
@@ -39,10 +81,12 @@ describe("fake agent runtime", () => {
         },
       },
     ]);
-    const run = runtime.start(config, async () => ({
-      behavior: "deny",
-      message: "unused",
-    }));
+    const run = runtime.start(config, {
+      onPermission: async () => ({
+        behavior: "deny",
+        message: "unused",
+      }),
+    });
     run.send({ message: "start", uuid: "input-1" });
     run.finishInput();
     const frames = [];
@@ -70,12 +114,14 @@ describe("fake agent runtime", () => {
     ]);
     let active = 0;
     let maxActive = 0;
-    const run = runtime.start(config, async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await Bun.sleep(10);
-      active -= 1;
-      return { behavior: "allow" };
+    const run = runtime.start(config, {
+      onPermission: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Bun.sleep(10);
+        active -= 1;
+        return { behavior: "allow" };
+      },
     });
     for await (const _frame of run) {
       throw new Error("Permission-only fake should not emit frames");
@@ -92,9 +138,11 @@ describe("fake agent runtime", () => {
         message: { type: "assistant", message: { content: [] } },
       },
     ]);
-    const interrupted = interruptRuntime.start(config, async () => ({
-      behavior: "allow",
-    }));
+    const interrupted = interruptRuntime.start(config, {
+      onPermission: async () => ({
+        behavior: "allow",
+      }),
+    });
     await interrupted.interrupt();
     const interruptedFrames = [];
     for await (const frame of interrupted) interruptedFrames.push(frame);
@@ -102,9 +150,11 @@ describe("fake agent runtime", () => {
       "interrupted",
     );
 
-    const aborted = interruptRuntime.start(config, async () => ({
-      behavior: "allow",
-    }));
+    const aborted = interruptRuntime.start(config, {
+      onPermission: async () => ({
+        behavior: "allow",
+      }),
+    });
     aborted.abort();
     await expect(async () => {
       for await (const _frame of aborted) void _frame;
@@ -112,7 +162,7 @@ describe("fake agent runtime", () => {
 
     const failure = new FakeAgentRuntime([
       { type: "error", error: new Error("injected fake failure") },
-    ]).start(config, async () => ({ behavior: "allow" }));
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
     await expect(async () => {
       for await (const _frame of failure) void _frame;
     }).toThrow("injected fake failure");
@@ -121,7 +171,7 @@ describe("fake agent runtime", () => {
   test("aborts delay and pending permission waits immediately", async () => {
     const delayed = new FakeAgentRuntime([
       { type: "delay", delayMs: 10_000 },
-    ]).start(config, async () => ({ behavior: "allow" }));
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
     const delayedConsume = (async () => {
       for await (const _frame of delayed) void _frame;
     })();
@@ -145,12 +195,14 @@ describe("fake agent runtime", () => {
           },
         ],
       },
-    ]).start(config, async ({ signal }) => {
-      permissionStarted?.();
-      await new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-      return { behavior: "deny", message: "aborted" };
+    ]).start(config, {
+      onPermission: async ({ signal }) => {
+        permissionStarted?.();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { behavior: "deny", message: "aborted" };
+      },
     });
     const pendingConsume = (async () => {
       for await (const _frame of pending) void _frame;
@@ -163,7 +215,7 @@ describe("fake agent runtime", () => {
   test("interrupts delay and pending permission waits immediately", async () => {
     const delayed = new FakeAgentRuntime([
       { type: "delay", delayMs: 10_000 },
-    ]).start(config, async () => ({ behavior: "allow" }));
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
     const delayedFrames: AgentFrame[] = [];
     const delayedConsume = (async () => {
       for await (const frame of delayed) delayedFrames.push(frame);
@@ -191,12 +243,14 @@ describe("fake agent runtime", () => {
           },
         ],
       },
-    ]).start(config, async ({ signal }) => {
-      permissionStarted?.();
-      await new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-      return { behavior: "deny", message: "interrupted" };
+    ]).start(config, {
+      onPermission: async ({ signal }) => {
+        permissionStarted?.();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { behavior: "deny", message: "interrupted" };
+      },
     });
     const pendingFrames: AgentFrame[] = [];
     const pendingConsume = (async () => {

@@ -23,7 +23,9 @@
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
 | `apps/api` | Hono `/v1` 골격, API 키 인증, strict zod 검증·에러 응답, 키 발급 CLI |
-| `apps/worker` | Claude Agent SDK 0.3.270 adapter, 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
+| `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다 |
+| `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
+| `apps/worker` | runtime-core·Claude adapter·contracts만 조립하는 워커 진입점. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
 | `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration |
 
@@ -43,8 +45,8 @@ bun run check
 워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
 
 ```bash
-bun run --cwd apps/worker test:unit
-bun run --cwd apps/worker test:direct-local
+bun run --cwd packages/adapters/runtimes/claude test:unit
+bun run --cwd packages/adapters/runtimes/claude test:direct-local
 bun test spikes/94s-91/src/litellm-transport.test.ts
 ```
 
@@ -96,6 +98,6 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 ## SDK와 LiteLLM 방향
 
-워커는 `apps/worker/src/sdk-adapter.ts` 경계 안에서만 `@anthropic-ai/claude-agent-sdk`를 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 설정·인증·버전·모델 alias와 검증 조건은 [설계서 §9](docs/DESIGN.md#9-dockerfile)에 둔다.
+`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 설정·인증·버전·모델 alias와 검증 조건은 [설계서 §9](docs/DESIGN.md#9-dockerfile)에 둔다.
 
 검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 94S-91 transport gate는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 아직 워커 턴 루프나 배포 검증을 대신하지 않는다.

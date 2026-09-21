@@ -1,14 +1,22 @@
-import { frameFromNativeMessage } from "./mapper.ts";
 import type {
   AgentFrame,
   AgentInput,
   AgentRun,
   AgentRuntime,
+  CheckpointPreparation,
   NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
-  RuntimeConfig,
-} from "./runtime.ts";
+  RuntimeCapabilities,
+  RuntimeHooks,
+} from "@agent-platform/runtime-core";
+
+import {
+  CLAUDE_AGENT_SDK_VERSION,
+  CLAUDE_RUNTIME_CAPABILITIES,
+  type ClaudeRuntimeConfig,
+} from "./config.ts";
+import { frameFromNativeMessage } from "./mapper.ts";
 
 export type FakeStep =
   | { delayMs: number; type: "delay" }
@@ -16,17 +24,21 @@ export type FakeStep =
   | { error: Error; type: "error" }
   | { requests: Omit<PermissionRequest, "signal">[]; type: "permissions" };
 
-export class FakeAgentRuntime implements AgentRuntime {
+export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
+  readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
   readonly inputs: AgentInput[] = [];
   readonly permissionDecisions: PermissionDecision[] = [];
 
   constructor(private readonly steps: FakeStep[]) {}
 
-  start(
-    config: RuntimeConfig,
-    onPermission: (request: PermissionRequest) => Promise<PermissionDecision>,
-  ): AgentRun {
-    return new FakeRun(this, config.correlationId, this.steps, onPermission);
+  start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
+    return new FakeRun(
+      this,
+      config.correlationId,
+      this.steps,
+      hooks.onPermission,
+      config.resume,
+    );
   }
 }
 
@@ -35,6 +47,8 @@ class FakeRun implements AgentRun {
   private readonly interruptController = new AbortController();
   private closed = false;
   private interrupted = false;
+  private sessionId: string | undefined;
+  private streaming = false;
 
   constructor(
     private readonly runtime: FakeAgentRuntime,
@@ -43,7 +57,10 @@ class FakeRun implements AgentRun {
     private readonly onPermission: (
       request: PermissionRequest,
     ) => Promise<PermissionDecision>,
-  ) {}
+    resume?: string,
+  ) {
+    this.sessionId = resume;
+  }
 
   send(input: AgentInput): void {
     if (this.closed) throw new Error("Input stream is closed");
@@ -69,8 +86,30 @@ class FakeRun implements AgentRun {
     this.abortController.abort();
   }
 
+  async prepareCheckpoint(): Promise<CheckpointPreparation> {
+    if (this.streaming) {
+      return { status: "rejected", reason: "A turn is still running" };
+    }
+    if (this.sessionId === undefined) {
+      return { status: "rejected", reason: "No SDK session has started" };
+    }
+    return {
+      status: "ready",
+      checkpoint: {
+        engine: "claude",
+        resume: this.sessionId,
+        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
+      },
+    };
+  }
+
+  events(): AsyncIterable<AgentFrame> {
+    return this;
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
     let cursor = 0;
+    this.streaming = true;
     const controlSignal = AbortSignal.any([
       this.abortController.signal,
       this.interruptController.signal,
@@ -100,6 +139,10 @@ class FakeRun implements AgentRun {
           );
           this.runtime.permissionDecisions.push(...decisions);
         } else {
+          if (typeof step.message.session_id === "string") {
+            this.sessionId = step.message.session_id;
+          }
+          this.streaming = step.message.type !== "result";
           yield frameFromNativeMessage(
             step.message,
             this.correlationId,
@@ -127,6 +170,7 @@ class FakeRun implements AgentRun {
       }
       cursor += 1;
     }
+    this.streaming = false;
   }
 }
 

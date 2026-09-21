@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import type { AgentFrame } from "@agent-platform/runtime-core";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -10,8 +11,7 @@ import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
 } from "@agent-platform/testkit/workspace";
-import type { AgentFrame } from "./runtime.ts";
-import { ClaudeSdkRuntime } from "./sdk-adapter.ts";
+import { ClaudeSdkRuntime } from "./runtime.ts";
 
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
@@ -46,6 +46,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       appendSystemPrompt: "APPEND_SENTINEL_94S_18",
       claudeConfigDir: home,
       correlationId: "actual-local",
+      mode: "new" as const,
       cwd: workspace,
       home,
       maxTurns: 4,
@@ -58,10 +59,12 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       settingSources: ["project"] as ["project"],
       tools: [],
     };
-    const run = runtime.start(runtimeConfig, async () => ({
-      behavior: "deny",
-      message: "No tools expected",
-    }));
+    const run = runtime.start(runtimeConfig, {
+      onPermission: async () => ({
+        behavior: "deny",
+        message: "No tools expected",
+      }),
+    });
 
     let firstResult: (() => void) | undefined;
     const firstResultSeen = new Promise<void>((resolve) => {
@@ -113,6 +116,14 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     const sessionId = [...sessionIds][0];
     if (sessionId === undefined)
       throw new Error("SDK session ID was not emitted");
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "ready",
+      checkpoint: {
+        engine: "claude",
+        resume: sessionId,
+        sdkVersion: "0.3.270",
+      },
+    });
     const init = frames.find(
       (frame) =>
         frame.envelope.message.type === "system" &&
@@ -125,8 +136,18 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     ).toBe(true);
 
     const resumed = runtime.start(
-      { ...runtimeConfig, correlationId: "actual-resume", resume: sessionId },
-      async () => ({ behavior: "deny", message: "No tools expected" }),
+      {
+        ...runtimeConfig,
+        correlationId: "actual-resume",
+        mode: "resume",
+        resume: sessionId,
+      },
+      {
+        onPermission: async () => ({
+          behavior: "deny",
+          message: "No tools expected",
+        }),
+      },
     );
     resumed.send({
       message: "after process restart",
@@ -172,6 +193,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       {
         claudeConfigDir: home,
         correlationId: "actual-permission",
+        mode: "new",
         cwd: workspace,
         home,
         maxTurns: 2,
@@ -184,12 +206,14 @@ describe("actual Claude SDK adapter with local Messages API", () => {
         settingSources: ["project"],
         tools: ["Bash"],
       },
-      async (request) => {
-        permissionRequests.push({
-          requestId: request.requestId,
-          toolUseId: request.toolUseId,
-        });
-        return { behavior: "deny", message: "Permission denied by host" };
+      {
+        onPermission: async (request) => {
+          permissionRequests.push({
+            requestId: request.requestId,
+            toolUseId: request.toolUseId,
+          });
+          return { behavior: "deny", message: "Permission denied by host" };
+        },
       },
     );
     const frames: AgentFrame[] = [];
@@ -236,6 +260,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       {
         claudeConfigDir: home,
         correlationId: "actual-interrupt",
+        mode: "new",
         cwd: workspace,
         home,
         model: "claude-sonnet-4-5",
@@ -247,7 +272,12 @@ describe("actual Claude SDK adapter with local Messages API", () => {
         settingSources: [],
         tools: [],
       },
-      async () => ({ behavior: "deny", message: "No tools expected" }),
+      {
+        onPermission: async () => ({
+          behavior: "deny",
+          message: "No tools expected",
+        }),
+      },
     );
     const frames: AgentFrame[] = [];
     const consume = (async () => {
@@ -293,6 +323,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       {
         claudeConfigDir: home,
         correlationId: "actual-abort",
+        mode: "new",
         cwd: workspace,
         home,
         model: "claude-sonnet-4-5",
@@ -304,7 +335,12 @@ describe("actual Claude SDK adapter with local Messages API", () => {
         settingSources: [],
         tools: [],
       },
-      async () => ({ behavior: "deny", message: "No tools expected" }),
+      {
+        onPermission: async () => ({
+          behavior: "deny",
+          message: "No tools expected",
+        }),
+      },
     );
     const consume = (async () => {
       for await (const _frame of run) void _frame;

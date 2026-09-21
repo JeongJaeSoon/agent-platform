@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-
+import type { ClaudeRuntimeConfig } from "./config.ts";
 import {
   publicProfile,
   runtimeEnvironment,
   validateRuntimeConfig,
 } from "./profile.ts";
-import type { RuntimeConfig } from "./runtime.ts";
 
-const baseConfig: RuntimeConfig = {
+const baseConfig: ClaudeRuntimeConfig = {
   claudeConfigDir: "/tenant/config",
   correlationId: "corr-1",
+  mode: "new",
   cwd: "/tenant/workspace",
   home: "/tenant/home",
   model: "primary",

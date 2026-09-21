@@ -632,8 +632,10 @@ agent-platform/
 
 ```
 apps/api ──────┐
-apps/worker ───┼──▶ packages/{contracts, db, queue, storage, observability}
-apps/reconciler┘
+apps/reconciler┴──▶ packages/{contracts, db, queue, storage, observability}
+apps/worker ──────▶ packages/{runtime-core, adapters/runtimes/claude, contracts}
+packages/adapters/runtimes/claude ──▶ packages/{runtime-core, contracts} + @anthropic-ai/claude-agent-sdk
+packages/runtime-core ──▶ packages/contracts
 ```
 
 - `packages/contracts`가 계약의 유일한 출처. API 응답, SSE 이벤트, 큐 메시지 페이로드가 전부 여기 zod 스키마로 정의되고 API와 워커가 같은 타입으로 파싱한다
