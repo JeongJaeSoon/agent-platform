@@ -76,14 +76,20 @@ function testFiles(directory: string): Promise<string[]> {
   return typescriptFiles(directory, (name) => name.endsWith(".test.ts"));
 }
 
-const importPattern = /(?:from|import)\s*\(?\s*"([^"]+)"/g;
+// Static imports, re-exports and import() calls, whichever quote they use.
+const importPattern =
+  /(?:from|import)\s*\(?\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)/g;
+
+function specifierOf(match: RegExpMatchArray): string {
+  return match[1] ?? match[2] ?? match[3] ?? "";
+}
 
 async function packageImports(directory: string): Promise<Set<string>> {
   const found = new Set<string>();
   for (const file of await sourceFiles(join(directory, "src"))) {
     const source = await readFile(file, "utf8");
     for (const match of source.matchAll(importPattern)) {
-      const specifier = match[1] ?? "";
+      const specifier = specifierOf(match);
       if (specifier.startsWith(".") || specifier.startsWith("node:")) continue;
       if (specifier === "bun") continue;
       found.add(
@@ -112,7 +118,7 @@ export async function escapingRelativeImports(
   for (const file of await sourceFiles(join(directory, "src"))) {
     const source = await readFile(file, "utf8");
     for (const match of source.matchAll(importPattern)) {
-      const specifier = match[1] ?? "";
+      const specifier = specifierOf(match);
       if (!specifier.startsWith(".")) continue;
       const target = resolve(dirname(file), specifier);
       if (relative(directory, target).startsWith(".."))
@@ -137,9 +143,15 @@ describe("architecture", () => {
       await mkdir(join(fixture, "src"), { recursive: true });
       await writeFile(
         join(fixture, "src", "leak.ts"),
-        'import { pool } from "../../db/src/pool.ts";\nexport const p = pool;\n',
+        [
+          'import { pool } from "../../db/src/pool.ts";',
+          "export * from '../../queue/src/index.ts';",
+          "export const lazy = () => import(`../../storage/src/index.ts`);",
+          'import { ok } from "./sibling.ts";',
+          "export const p = pool;",
+        ].join("\n"),
       );
-      expect(await escapingRelativeImports(fixture)).toHaveLength(1);
+      expect(await escapingRelativeImports(fixture)).toHaveLength(3);
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }

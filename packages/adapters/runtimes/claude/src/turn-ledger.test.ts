@@ -12,27 +12,68 @@ const running = {
 };
 
 describe("turn ledger", () => {
-  test("keeps rejecting until every queued input has produced a result", () => {
+  test("keeps rejecting until a result has consumed every queued uuid", () => {
     const ledger = new TurnLedger();
     expect(ledger.prepareCheckpoint()).toEqual({
       status: "rejected",
       reason: "No SDK session has started",
     });
-    ledger.queued();
-    ledger.queued();
+    ledger.queued("a");
+    ledger.queued("b");
     ledger.observe({ type: "system", subtype: "init", session_id: "s1" });
-    ledger.observe({ type: "result", session_id: "s1" });
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
     expect(ledger.prepareCheckpoint()).toEqual(running);
     ledger.observe({ type: "assistant" });
     expect(ledger.prepareCheckpoint()).toEqual(running);
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "b",
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("one result can settle several sends folded into a single turn", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.queued("b");
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "b",
+      user_message_uuids: ["a", "b"],
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a result without uuid attribution settles everything queued", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.queued("b");
     ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("informational frames after a result do not reopen an idle turn", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
+    ledger.observe({ type: "tool_use_summary" });
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
   test("a resumed run is checkpointable until new input is queued", () => {
     const ledger = new TurnLedger("s1");
     expect(ledger.prepareCheckpoint()).toEqual(ready);
-    ledger.queued();
+    ledger.queued("a");
     expect(ledger.prepareCheckpoint()).toEqual(running);
   });
 

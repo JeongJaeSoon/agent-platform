@@ -64,7 +64,7 @@ class FakeRun implements AgentRun {
   send(input: AgentInput): void {
     if (this.closed) throw new Error("Input stream is closed");
     this.runtime.inputs.push(input);
-    this.ledger.queued();
+    this.ledger.queued(input.uuid);
   }
 
   finishInput(): void {

@@ -27,7 +27,12 @@ describe("fake agent runtime", () => {
       },
       {
         type: "emit",
-        message: { type: "result", subtype: "success", session_id: "ckpt" },
+        message: {
+          type: "result",
+          subtype: "success",
+          session_id: "ckpt",
+          user_message_uuid: "go",
+        },
       },
     ]);
     const allow = {
@@ -38,6 +43,7 @@ describe("fake agent runtime", () => {
       status: "rejected",
       reason: "No SDK session has started",
     });
+    run.send({ message: "go", uuid: "go" });
     const iterator = run.events()[Symbol.asyncIterator]();
     await iterator.next();
     expect(await run.prepareCheckpoint()).toEqual({
@@ -66,14 +72,10 @@ describe("fake agent runtime", () => {
   });
 
   test("rejects a checkpoint while a second queued input is still outstanding", async () => {
-    const result = {
-      type: "result",
-      subtype: "success",
-      session_id: "two",
-    };
+    const result = { type: "result", subtype: "success", session_id: "two" };
     const runtime = new FakeAgentRuntime([
-      { type: "emit", message: result },
-      { type: "emit", message: result },
+      { type: "emit", message: { ...result, user_message_uuid: "1" } },
+      { type: "emit", message: { ...result, user_message_uuid: "2" } },
     ]);
     const run = runtime.start(config, {
       onPermission: async () => ({ behavior: "allow" }),
