@@ -29,6 +29,13 @@
       "when": 1789975685236,
       "tag": "0003_lethal_blue_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790013597168,
+      "tag": "0004_calm_blue_shield",
+      "breakpoints": true
     }
   ]
 }

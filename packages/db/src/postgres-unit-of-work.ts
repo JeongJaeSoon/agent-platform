@@ -4,17 +4,25 @@ import {
   createSessionResponseSchema,
   executionObservationSchema,
   type ListSessionsQuery,
+  type ListTurnsQuery,
+  type PostSessionMessageResponse,
+  postSessionMessageResponseSchema,
   sessionIdSchema,
+  type TurnDetail,
+  type TurnSummary,
+  turnStatusSchema,
 } from "@agent-platform/contracts";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
+  AppendMessageInput,
+  AppendMessageResult,
   SessionDetailRecord,
   SessionReader,
   SessionRecord,
   SessionUnitOfWork,
 } from "@agent-platform/platform";
-import { and, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -29,36 +37,111 @@ import {
 } from "./schema.ts";
 
 const CREATE_SESSION = "create_session";
+const APPEND_MESSAGE = "append_message";
 const SESSIONS_RESOURCE = "sessions";
+
+type IdempotencyScope = {
+  principal: string;
+  operation: string;
+  resource: string;
+  key: string;
+};
+
+// ponytail: an advisory lock serializes same-key races; SELECT FOR UPDATE
+// cannot lock a row that does not exist yet. Always taken before any row
+// lock so every transaction acquires locks in the same order.
+async function lockIdempotencyScope(tx: Database, scope: IdempotencyScope) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, scope.operation, scope.resource, scope.key])}))`,
+  );
+}
+
+async function findIdempotent(tx: Database, scope: IdempotencyScope) {
+  const [existing] = await tx
+    .select({
+      payloadHash: idempotencyKeys.payloadHash,
+      result: receipts.result,
+    })
+    .from(idempotencyKeys)
+    .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
+    .where(
+      and(
+        eq(idempotencyKeys.principal, scope.principal),
+        eq(idempotencyKeys.operation, scope.operation),
+        eq(idempotencyKeys.resource, scope.resource),
+        eq(idempotencyKeys.key, scope.key),
+      ),
+    )
+    .limit(1);
+  return existing;
+}
+
+async function recordAcceptance(
+  tx: Database,
+  scope: IdempotencyScope,
+  payloadHash: string,
+  receipt: {
+    id: string;
+    targetRef: { session_id: string; turn_id: string; request_id: null };
+    result: unknown;
+  },
+) {
+  await tx.insert(receipts).values({
+    id: receipt.id,
+    ownerId: scope.principal,
+    operation: scope.operation,
+    targetRef: receipt.targetRef,
+    result: receipt.result,
+  });
+  await tx.insert(idempotencyKeys).values({
+    principal: scope.principal,
+    operation: scope.operation,
+    resource: scope.resource,
+    key: scope.key,
+    payloadHash,
+    receiptId: receipt.id,
+  });
+}
+
+async function insertQueuedTurn(
+  tx: Database,
+  input: { sessionId: string; sequence: number; message: string },
+) {
+  // now() is the transaction start, which can precede a competing append
+  // that won the session lock first; clock_timestamp() keeps created_at
+  // ordered like sequence.
+  const [turn] = await tx
+    .insert(turns)
+    .values({
+      sessionId: input.sessionId,
+      sequence: input.sequence,
+      message: input.message,
+      status: "queued",
+      createdAt: sql`clock_timestamp()`,
+    })
+    .returning({ id: turns.id });
+  if (!turn) throw new Error("Failed to insert turn");
+  await enqueueWithin(tx, {
+    sessionId: input.sessionId,
+    turnId: turn.id,
+    payload: { message: input.message },
+  });
+}
 
 export function createPostgresSessionUnitOfWork(
   db: Database,
 ): SessionUnitOfWork {
   return {
     acceptInputAtomic(input: AcceptSessionInput): Promise<AcceptSessionResult> {
-      const principal = input.principal.ownerId;
+      const scope: IdempotencyScope = {
+        principal: input.principal.ownerId,
+        operation: CREATE_SESSION,
+        resource: SESSIONS_RESOURCE,
+        key: input.idempotencyKey,
+      };
       return db.transaction(async (tx) => {
-        // ponytail: an advisory lock serializes same-key races; SELECT FOR
-        // UPDATE cannot lock a row that does not exist yet.
-        await tx.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([principal, CREATE_SESSION, SESSIONS_RESOURCE, input.idempotencyKey])}))`,
-        );
-        const [existing] = await tx
-          .select({
-            payloadHash: idempotencyKeys.payloadHash,
-            result: receipts.result,
-          })
-          .from(idempotencyKeys)
-          .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
-          .where(
-            and(
-              eq(idempotencyKeys.principal, principal),
-              eq(idempotencyKeys.operation, CREATE_SESSION),
-              eq(idempotencyKeys.resource, SESSIONS_RESOURCE),
-              eq(idempotencyKeys.key, input.idempotencyKey),
-            ),
-          )
-          .limit(1);
+        await lockIdempotencyScope(tx, scope);
+        const existing = await findIdempotent(tx, scope);
         if (existing) {
           if (existing.payloadHash !== input.payloadHash) {
             return { outcome: "conflict" };
@@ -75,26 +158,16 @@ export function createPostgresSessionUnitOfWork(
         const sessionId = randomUUID();
         await tx.insert(sessions).values({
           id: sessionId,
-          ownerId: principal,
+          ownerId: scope.principal,
           repoUrl: input.repository.url,
           branch: input.repository.branch,
           profileId: input.profileId,
           repositoryId: input.repository.id,
         });
-        const [turn] = await tx
-          .insert(turns)
-          .values({
-            sessionId,
-            sequence: 1,
-            message: input.message,
-            status: "queued",
-          })
-          .returning({ id: turns.id });
-        if (!turn) throw new Error("Failed to insert turn");
-        await enqueueWithin(tx, {
+        await insertQueuedTurn(tx, {
           sessionId,
-          turnId: turn.id,
-          payload: { message: input.message },
+          sequence: 1,
+          message: input.message,
         });
 
         const receiptId = randomUUID();
@@ -105,20 +178,90 @@ export function createPostgresSessionUnitOfWork(
           receipt_status: "accepted",
           status: "queued",
         };
-        await tx.insert(receipts).values({
+        await recordAcceptance(tx, scope, input.payloadHash, {
           id: receiptId,
-          ownerId: principal,
-          operation: CREATE_SESSION,
           targetRef: { session_id: sessionId, turn_id: "1", request_id: null },
           result: response,
         });
-        await tx.insert(idempotencyKeys).values({
-          principal,
-          operation: CREATE_SESSION,
-          resource: SESSIONS_RESOURCE,
-          key: input.idempotencyKey,
-          payloadHash: input.payloadHash,
-          receiptId,
+        return { outcome: "accepted", response };
+      });
+    },
+
+    appendInputAtomic(input: AppendMessageInput): Promise<AppendMessageResult> {
+      // uuid columns compare case-insensitively but the idempotency resource
+      // is text: normalise so "ABC…" and "abc…" share one scope (codex P2).
+      const sessionId = input.sessionId.toLowerCase();
+      const scope: IdempotencyScope = {
+        principal: input.principal.ownerId,
+        operation: APPEND_MESSAGE,
+        resource: sessionId,
+        key: input.idempotencyKey,
+      };
+      return db.transaction(async (tx) => {
+        await lockIdempotencyScope(tx, scope);
+        const existing = await findIdempotent(tx, scope);
+        if (existing) {
+          if (existing.payloadHash !== input.payloadHash) {
+            return { outcome: "conflict" };
+          }
+          return {
+            outcome: "replayed",
+            response: postSessionMessageResponseSchema.parse(existing.result),
+          };
+        }
+
+        // The session row lock serializes every append to one session, so
+        // max(sequence)+1 below cannot be handed out twice or leave a gap.
+        const [session] = await tx
+          .select({ admissionState: sessions.admissionState })
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, sessionId),
+              eq(sessions.ownerId, scope.principal),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!session) {
+          return { outcome: "not_found" };
+        }
+        if (session.admissionState !== "active") {
+          return {
+            outcome: "rejected",
+            admissionState: session.admissionState,
+          };
+        }
+        const [last] = await tx
+          .select({ sequence: max(turns.sequence) })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId));
+        const sequence = (last?.sequence ?? 0) + 1;
+        await insertQueuedTurn(tx, {
+          sessionId: sessionId,
+          sequence,
+          message: input.message,
+        });
+        await tx
+          .update(sessions)
+          .set({ updatedAt: new Date() })
+          .where(eq(sessions.id, sessionId));
+
+        const receiptId = randomUUID();
+        const turnId = String(sequence);
+        const response: PostSessionMessageResponse = {
+          turn_id: turnId,
+          receipt_id: receiptId,
+          receipt_status: "accepted",
+        };
+        await recordAcceptance(tx, scope, input.payloadHash, {
+          id: receiptId,
+          targetRef: {
+            session_id: sessionId,
+            turn_id: turnId,
+            request_id: null,
+          },
+          result: response,
         });
         return { outcome: "accepted", response };
       });
@@ -159,9 +302,103 @@ export class InvalidCursorError extends Error {
   }
 }
 
+// Turns page in FIFO order; the cursor is the last sequence on the page.
+type TurnCursor = { sequence: number };
+const TURN_ID = /^[1-9]\d{0,9}$/;
+// turns.sequence is a PostgreSQL integer; anything above cannot exist and
+// must not reach the query, where it would fail with 22003 (codex P2).
+const SEQUENCE_MAX = 2_147_483_647;
+
+function encodeTurnCursor(cursor: TurnCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeTurnCursor(value: string): TurnCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString());
+    if (
+      Number.isInteger(parsed.sequence) &&
+      parsed.sequence >= 1 &&
+      parsed.sequence <= SEQUENCE_MAX
+    ) {
+      return { sequence: parsed.sequence };
+    }
+  } catch {}
+  throw new InvalidCursorError();
+}
+
+// Public turn_id is the 1-based sequence; anything else is not found.
+function parseTurnId(turnId: string): number | null {
+  if (!TURN_ID.test(turnId)) return null;
+  const sequence = Number(turnId);
+  return sequence <= SEQUENCE_MAX ? sequence : null;
+}
+
 type SessionRow = typeof sessions.$inferSelect;
+type TurnRow = typeof turns.$inferSelect;
+
+// result_json holds the SDK result message: its `result` and `usage` when
+// present, otherwise the whole document is the result.
+function resultParts(resultJson: unknown): {
+  result: unknown;
+  usage: unknown;
+} {
+  if (resultJson && typeof resultJson === "object") {
+    const record = resultJson as Record<string, unknown>;
+    return {
+      result: "result" in record ? record.result : resultJson,
+      usage: record.usage ?? null,
+    };
+  }
+  return { result: resultJson ?? null, usage: null };
+}
+
+function summarizeTurn(
+  row: TurnRow,
+  checkpointRevision: number | null,
+): TurnSummary {
+  return {
+    turn_id: String(row.sequence),
+    session_id: row.sessionId,
+    status: turnStatusSchema.parse(row.status),
+    message: row.message,
+    terminal_reason: row.terminalReason,
+    checkpoint_revision: checkpointRevision,
+    created_at: row.createdAt.toISOString(),
+    started_at: row.startedAt?.toISOString() ?? null,
+    ended_at: row.endedAt?.toISOString() ?? null,
+  };
+}
 
 export function createPostgresSessionReader(db: Database): SessionReader {
+  async function ownedSession(ownerId: string, sessionId: string) {
+    const [row] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async function checkpointRevisions(turnIds: number[]) {
+    if (turnIds.length === 0) return new Map<number, number>();
+    const rows = await db
+      .select({
+        turnId: checkpoints.turnId,
+        revision: max(checkpoints.revision),
+      })
+      .from(checkpoints)
+      .where(inArray(checkpoints.turnId, turnIds))
+      .groupBy(checkpoints.turnId);
+    return new Map(
+      rows.flatMap((row) =>
+        row.turnId === null || row.revision === null
+          ? []
+          : [[row.turnId, row.revision] as const],
+      ),
+    );
+  }
+
   async function summarize(rows: SessionRow[]): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
@@ -318,6 +555,64 @@ export function createPostgresSessionReader(db: Database): SessionReader {
             checkpoint?.sequence == null ? null : String(checkpoint.sequence),
           checkpoint_pending_reason: null,
         },
+      };
+    },
+
+    async listTurns(ownerId: string, sessionId: string, query: ListTurnsQuery) {
+      const cursor = query.cursor ? decodeTurnCursor(query.cursor) : null;
+      if (!(await ownedSession(ownerId, sessionId))) return null;
+      const rows = await db
+        .select()
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, sessionId),
+            cursor ? gt(turns.sequence, cursor.sequence) : undefined,
+          ),
+        )
+        .orderBy(asc(turns.sequence))
+        .limit(query.limit + 1);
+      const page = rows.slice(0, query.limit);
+      const last = page[page.length - 1];
+      const revisions = await checkpointRevisions(page.map((row) => row.id));
+      return {
+        items: page.map((row) =>
+          summarizeTurn(row, revisions.get(row.id) ?? null),
+        ),
+        next_cursor:
+          rows.length > query.limit && last
+            ? encodeTurnCursor({ sequence: last.sequence })
+            : null,
+      };
+    },
+
+    async getTurn(
+      ownerId: string,
+      sessionId: string,
+      turnId: string,
+    ): Promise<TurnDetail | null> {
+      const sequence = parseTurnId(turnId);
+      if (sequence === null) return null;
+      const session = await ownedSession(ownerId, sessionId);
+      if (!session) return null;
+      const [row] = await db
+        .select()
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        )
+        .limit(1);
+      if (!row) return null;
+      const revisions = await checkpointRevisions([row.id]);
+      const parts = resultParts(row.resultJson);
+      return {
+        ...summarizeTurn(row, revisions.get(row.id) ?? null),
+        result: parts.result,
+        usage: parts.usage,
+        // Per-attempt lease_epoch/execution_generation are not persisted
+        // until the attempts table lands (94S-121); synthesising them from
+        // the session's current values would rewrite history after a resume.
+        attempts: [],
       };
     },
   };

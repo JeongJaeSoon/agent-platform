@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { apiErrorResponseSchema } from "@agent-platform/contracts";
+import { InvalidCursorError } from "@agent-platform/db";
 import {
   createSessionService,
   ownerScopedPolicy,
@@ -29,11 +30,16 @@ function app(overrides: Partial<SessionUnitOfWork & SessionReader> = {}) {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
       },
+      appendInputAtomic: async () => {
+        throw new Error("not reached");
+      },
       ...overrides,
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
       getSession: async () => null,
+      listTurns: async () => null,
+      getTurn: async () => null,
       ...overrides,
     },
   });
@@ -191,5 +197,173 @@ describe("GET /v1/sessions validation", () => {
       headers: { "X-Owner-Id": "owner-a" },
     });
     expect(response.status).toBe(404);
+  });
+});
+
+const sessionId = "019a0000-0000-7000-8000-000000000001";
+const messagesPath = `/v1/sessions/${sessionId}/messages`;
+
+function postMessage(
+  body: unknown,
+  overrides: Partial<SessionUnitOfWork & SessionReader> = {},
+  headers: Record<string, string> = {},
+  path = messagesPath,
+) {
+  return app(overrides).request(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Owner-Id": "owner-a",
+      "Idempotency-Key": "key-1",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("POST /v1/sessions/{id}/messages validation", () => {
+  const accepted = {
+    turn_id: "2",
+    receipt_id: crypto.randomUUID(),
+    receipt_status: "accepted",
+  } as const;
+
+  test("answers 202 with the acceptance and defaults mode to enqueue", async () => {
+    const response = await postMessage(
+      { message: "Apply the proposed fix." },
+      {
+        appendInputAtomic: async (input) => {
+          expect(input).toMatchObject({
+            principal: { ownerId: "owner-a" },
+            sessionId,
+            idempotencyKey: "key-1",
+            message: "Apply the proposed fix.",
+          });
+          return { outcome: "accepted", response: accepted };
+        },
+      },
+    );
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual(accepted);
+  });
+
+  test("requires Idempotency-Key and rejects unknown mode or extra fields", async () => {
+    const missing = await postMessage(
+      { message: "hi" },
+      {},
+      { "Idempotency-Key": "" },
+    );
+    expect(missing.status).toBe(400);
+    expect((await postMessage({ message: "hi", mode: "steer" })).status).toBe(
+      400,
+    );
+    expect((await postMessage({ message: "hi", extra: 1 })).status).toBe(400);
+    expect((await postMessage({ message: "" })).status).toBe(400);
+    expect((await postMessage({ message: "x".repeat(33 * 1024) })).status).toBe(
+      413,
+    );
+  });
+
+  test("treats a malformed session id and an unknown session as 404", async () => {
+    const malformed = await postMessage(
+      { message: "hi" },
+      {},
+      {},
+      "/v1/sessions/not-a-uuid/messages",
+    );
+    expect(malformed.status).toBe(404);
+    const unknown = await postMessage(
+      { message: "hi" },
+      { appendInputAtomic: async () => ({ outcome: "not_found" }) },
+    );
+    expect(unknown.status).toBe(404);
+    expect(await errorCode(unknown)).toBe("NOT_FOUND");
+  });
+
+  test("maps admission states to 409 codes", async () => {
+    const cases = [
+      ["pausing", "SESSION_PAUSED"],
+      ["paused", "SESSION_PAUSED"],
+      ["resuming", "SESSION_RESUMING"],
+      ["stopping", "SESSION_STOPPED"],
+      ["stopped", "SESSION_STOPPED"],
+      ["recovery_required", "RECOVERY_REQUIRED"],
+      ["closed", "SESSION_CLOSED"],
+    ] as const;
+    for (const [admissionState, code] of cases) {
+      const response = await postMessage(
+        { message: "hi" },
+        {
+          appendInputAtomic: async () => ({
+            outcome: "rejected",
+            admissionState,
+          }),
+        },
+      );
+      expect(response.status, admissionState).toBe(409);
+      expect(await errorCode(response), admissionState).toBe(code);
+    }
+    const conflict = await postMessage(
+      { message: "hi" },
+      { appendInputAtomic: async () => ({ outcome: "conflict" }) },
+    );
+    expect(conflict.status).toBe(409);
+    expect(await errorCode(conflict)).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  test("maps storage connection failures to a retryable 503", async () => {
+    const response = await postMessage(
+      { message: "hi" },
+      {
+        appendInputAtomic: async () => {
+          throw new Error("query failed", {
+            cause: Object.assign(new Error("down"), { code: "08006" }),
+          });
+        },
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(await errorCode(response)).toBe("BACKEND_UNAVAILABLE");
+  });
+});
+
+describe("GET /v1/sessions/{id}/turns validation", () => {
+  const headers = { "X-Owner-Id": "owner-a" };
+
+  test("answers 404 for a foreign session, 400 for a bad limit or cursor", async () => {
+    expect(
+      (await app().request(`/v1/sessions/${sessionId}/turns`, { headers }))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await app().request(`/v1/sessions/${sessionId}/turns?limit=0`, {
+          headers,
+        })
+      ).status,
+    ).toBe(400);
+    const badCursor = await app({
+      listTurns: async () => {
+        throw new InvalidCursorError();
+      },
+    }).request(`/v1/sessions/${sessionId}/turns?cursor=nope`, { headers });
+    expect(badCursor.status).toBe(400);
+  });
+
+  test("answers 404 for a turn the reader does not return", async () => {
+    expect(
+      (
+        await app().request(`/v1/sessions/${sessionId}/turns/1`, {
+          headers,
+        })
+      ).status,
+    ).toBe(404);
+    const foreign = await app().request(`/v1/sessions/${sessionId}/turns/1`, {
+      headers: { "X-Owner-Id": "owner-b" },
+    });
+    expect(foreign.status).toBe(404);
+    expect(
+      apiErrorResponseSchema.parse(await foreign.json()).error.details,
+    ).toBeNull();
   });
 });

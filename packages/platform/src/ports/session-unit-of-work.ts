@@ -1,8 +1,13 @@
 import type {
+  AdmissionState,
   CreateSessionResponse,
   ListSessionsQuery,
+  ListTurnsQuery,
+  PostSessionMessageResponse,
   SessionDetail,
   SessionSummary,
+  TurnDetail,
+  TurnSummary,
 } from "@agent-platform/contracts";
 import type { Principal } from "../authorization/policy.ts";
 
@@ -21,6 +26,20 @@ export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" };
 
+export type AppendMessageInput = {
+  principal: Principal;
+  sessionId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+  message: string;
+};
+
+export type AppendMessageResult =
+  | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
+  | { outcome: "conflict" | "not_found" }
+  // The session exists but its admission state does not take new input.
+  | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> };
+
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {
   profile_id: string | null;
@@ -31,8 +50,12 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
 
 export interface SessionUnitOfWork {
   acceptInputAtomic(input: AcceptSessionInput): Promise<AcceptSessionResult>;
+  appendInputAtomic(input: AppendMessageInput): Promise<AppendMessageResult>;
 }
-export type InputAcceptance = Pick<SessionUnitOfWork, "acceptInputAtomic">;
+export type InputAcceptance = Pick<
+  SessionUnitOfWork,
+  "acceptInputAtomic" | "appendInputAtomic"
+>;
 
 export interface SessionReader {
   listSessions(
@@ -43,4 +66,16 @@ export interface SessionReader {
     ownerId: string,
     sessionId: string,
   ): Promise<SessionDetailRecord | null>;
+  // null when the session is not visible to the owner.
+  listTurns(
+    ownerId: string,
+    sessionId: string,
+    query: ListTurnsQuery,
+  ): Promise<{ items: TurnSummary[]; next_cursor: string | null } | null>;
+  // null when the session or the turn is not visible to the owner.
+  getTurn(
+    ownerId: string,
+    sessionId: string,
+    turnId: string,
+  ): Promise<TurnDetail | null>;
 }

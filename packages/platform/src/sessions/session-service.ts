@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
 import type {
+  AdmissionState,
   ApiErrorCode,
   CreateSessionRequest,
   CreateSessionResponse,
   ListSessionsQuery,
   ListSessionsResponse,
+  ListTurnsQuery,
+  ListTurnsResponse,
+  PostSessionMessageRequest,
+  PostSessionMessageResponse,
   SessionDetail,
   SessionRuntime,
+  TurnDetail,
 } from "@agent-platform/contracts";
 import type {
   AuthorizationPolicy,
@@ -46,6 +52,30 @@ function canonicalize(value: unknown): unknown {
 function own<T>(record: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
+
+// api.md: pausing/paused, resuming and closed each have their own code;
+// stopped requires an explicit resume; recovery_required blocks all input.
+const ADMISSION_REJECTIONS: Record<
+  Exclude<AdmissionState, "active">,
+  { code: ApiErrorCode; message: string }
+> = {
+  pausing: { code: "SESSION_PAUSED", message: "Session is pausing" },
+  paused: { code: "SESSION_PAUSED", message: "Session is paused" },
+  resuming: { code: "SESSION_RESUMING", message: "Session is resuming" },
+  stopping: {
+    code: "SESSION_STOPPED",
+    message: "Session is stopping; resume it before sending messages",
+  },
+  stopped: {
+    code: "SESSION_STOPPED",
+    message: "Session is stopped; resume it before sending messages",
+  },
+  recovery_required: {
+    code: "RECOVERY_REQUIRED",
+    message: "Session requires an operator recovery decision",
+  },
+  closed: { code: "SESSION_CLOSED", message: "Session is closed" },
+};
 
 export function payloadHash(payload: unknown): string {
   return createHash("sha256")
@@ -115,6 +145,36 @@ export function createSessionService(deps: {
       }
     },
 
+    async appendMessage(
+      actor: Principal,
+      sessionId: string,
+      input: { idempotencyKey: string; body: PostSessionMessageRequest },
+    ): Promise<PostSessionMessageResponse> {
+      requireAuthorized(actor, "sessions:write", actor.ownerId);
+      const result = await inputs.appendInputAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        message: input.body.message,
+      });
+      switch (result.outcome) {
+        case "conflict":
+          throw new SessionServiceError(
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency-Key was already used with a different payload",
+          );
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "rejected": {
+          const rejection = ADMISSION_REJECTIONS[result.admissionState];
+          throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        default:
+          return result.response;
+      }
+    },
+
     async listSessions(
       actor: Principal,
       query: ListSessionsQuery,
@@ -141,6 +201,32 @@ export function createSessionService(deps: {
       }
       const { profile_id, ...detail } = record;
       return { ...detail, runtime: runtimeFor(profile_id) };
+    },
+
+    async listTurns(
+      actor: Principal,
+      sessionId: string,
+      query: ListTurnsQuery,
+    ): Promise<ListTurnsResponse> {
+      requireAuthorized(actor, "sessions:read", actor.ownerId);
+      const page = await reader.listTurns(actor.ownerId, sessionId, query);
+      if (!page) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return page;
+    },
+
+    async getTurn(
+      actor: Principal,
+      sessionId: string,
+      turnId: string,
+    ): Promise<TurnDetail> {
+      requireAuthorized(actor, "sessions:read", actor.ownerId);
+      const turn = await reader.getTurn(actor.ownerId, sessionId, turnId);
+      if (!turn) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return turn;
     },
   };
 }

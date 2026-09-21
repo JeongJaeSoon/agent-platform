@@ -12,9 +12,6 @@ import {
 const NOT_YET_IMPLEMENTED = [
   "GET /healthz",
   "GET /readyz",
-  "POST /v1/sessions/{id}/messages",
-  "GET /v1/sessions/{id}/turns",
-  "GET /v1/sessions/{id}/turns/{turn_id}",
   "GET /v1/sessions/{id}/events",
   "GET /v1/sessions/{id}/pending-requests",
   "POST /v1/sessions/{id}/answers",
@@ -65,6 +62,7 @@ function openApiRoutes(): Set<string> {
 // Declared but not yet produced by any handler.
 const DECLARED_ONLY_ERRORS: Record<string, number[]> = {
   "POST /v1/sessions": [429],
+  "POST /v1/sessions/{id}/messages": [429],
 };
 
 test("every Hono handler is declared in the OpenAPI route table", () => {
