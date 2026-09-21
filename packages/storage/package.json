@@ -11,5 +11,8 @@
     "benchmark:localstack": "bun run src/benchmark.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test src"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*"
   }
 }

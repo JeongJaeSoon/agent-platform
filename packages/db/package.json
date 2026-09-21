@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./migrate": "./src/migrate.ts"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
@@ -19,6 +22,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5",
-    "drizzle-kit": "0.31.4"
+    "drizzle-kit": "0.31.4",
+    "@agent-platform/testkit": "workspace:*"
   }
 }
