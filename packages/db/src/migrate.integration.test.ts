@@ -3,11 +3,14 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import {
+  createTempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
 import { Pool } from "pg";
 import { migrateDatabase } from "./migrate.ts";
 
-const databaseUrl = process.env.QUEUE_DATABASE_URL;
-const integrationTest = databaseUrl ? test : test.skip;
+const integrationTest = testDatabaseUrl() ? test : test.skip;
 
 function captureLogger() {
   const sink = new MemoryLogSink();
@@ -17,15 +20,11 @@ function captureLogger() {
 integrationTest(
   "adopts a raw M0 database and upgrades it through Drizzle",
   async () => {
-    const adminUrl = new URL(databaseUrl ?? "");
-    adminUrl.pathname = "/postgres";
-    const databaseName = `m0_upgrade_${randomUUID().replaceAll("-", "_")}`;
-    const quotedDatabase = `"${databaseName}"`;
-    const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
-    await admin.query(`CREATE DATABASE ${quotedDatabase}`);
-
-    const testUrl = new URL(databaseUrl ?? "");
-    testUrl.pathname = `/${databaseName}`;
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "m0_upgrade",
+    });
+    const testUrl = new URL(database.url);
     const legacy = new Pool({ connectionString: testUrl.toString(), max: 1 });
     try {
       const migration = await readFile(
@@ -124,8 +123,7 @@ integrationTest(
       }
     } finally {
       if (!legacy.ended) await legacy.end();
-      await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
-      await admin.end();
+      await database.drop();
     }
   },
   30_000,
@@ -134,15 +132,11 @@ integrationTest(
 integrationTest(
   "adopts a database initialized with all raw migrations",
   async () => {
-    const adminUrl = new URL(databaseUrl ?? "");
-    adminUrl.pathname = "/postgres";
-    const databaseName = `m0_initdb_${randomUUID().replaceAll("-", "_")}`;
-    const quotedDatabase = `"${databaseName}"`;
-    const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
-    await admin.query(`CREATE DATABASE ${quotedDatabase}`);
-
-    const testUrl = new URL(databaseUrl ?? "");
-    testUrl.pathname = `/${databaseName}`;
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "m0_initdb",
+    });
+    const testUrl = new URL(database.url);
     const legacy = new Pool({ connectionString: testUrl.toString(), max: 1 });
     try {
       // The compose initdb mounts stop at 0003: adoptLegacyM0Schema only
@@ -186,8 +180,7 @@ integrationTest(
       }
     } finally {
       if (!legacy.ended) await legacy.end();
-      await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
-      await admin.end();
+      await database.drop();
     }
   },
   30_000,
@@ -196,15 +189,11 @@ integrationTest(
 integrationTest(
   "applies every migration to a fresh database and reports a no-op on rerun",
   async () => {
-    const adminUrl = new URL(databaseUrl ?? "");
-    adminUrl.pathname = "/postgres";
-    const databaseName = `fresh_${randomUUID().replaceAll("-", "_")}`;
-    const quotedDatabase = `"${databaseName}"`;
-    const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
-    await admin.query(`CREATE DATABASE ${quotedDatabase}`);
-
-    const testUrl = new URL(databaseUrl ?? "");
-    testUrl.pathname = `/${databaseName}`;
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "fresh",
+    });
+    const testUrl = new URL(database.url);
     try {
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
@@ -216,8 +205,7 @@ integrationTest(
         "db.migrate.noop",
       ]);
     } finally {
-      await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
-      await admin.end();
+      await database.drop();
     }
   },
   30_000,

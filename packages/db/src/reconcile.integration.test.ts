@@ -6,9 +6,13 @@ import {
   expect,
   test,
 } from "bun:test";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { claim, reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -20,26 +24,19 @@ import {
   workers,
 } from "./schema.ts";
 
-const databaseUrl = process.env.QUEUE_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = testDatabaseUrl() ? describe : describe.skip;
 
 integration("orphan reconciliation on PostgreSQL", () => {
+  let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   const sessionIds: string[] = [];
   const podIds: string[] = [];
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: databaseUrl, max: 12 });
+    database = await createTempDatabase({ prefix: "reconcile_it" });
+    pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-    const schemaState = await pool.query<{ sessions: string | null }>(
-      "SELECT to_regclass('public.sessions') AS sessions",
-    );
-    if (schemaState.rows[0]?.sessions === null) {
-      await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../migrations`,
-      });
-    }
   });
 
   afterEach(async () => {
@@ -61,7 +58,11 @@ integration("orphan reconciliation on PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await pool.end();
+    try {
+      await pool.end();
+    } finally {
+      await database.drop();
+    }
   });
 
   async function seedOrphan(now: Date) {

@@ -1,0 +1,292 @@
+/**
+ * Local stand-in for the Anthropic Messages API. Speaks both the streaming
+ * (SSE) and non-streaming shapes so the Claude Agent SDK, LiteLLM and plain
+ * fetch callers can all be pointed at it without a paid model call.
+ */
+
+export type AnthropicRequest = {
+  messages?: unknown[];
+  model?: string;
+  stream?: boolean;
+  system?: unknown;
+  tools?: unknown[];
+} & Record<string, unknown>;
+
+export type FakeBlock =
+  | { text: string; type: "text" }
+  | {
+      id: string;
+      input: Record<string, unknown>;
+      name: string;
+      type: "tool_use";
+    };
+
+export type FakeReply = {
+  content: FakeBlock[];
+  stopReason: "end_turn" | "tool_use";
+};
+
+export type RecordedRequest = {
+  body: AnthropicRequest;
+  headers: Record<string, string>;
+  path: string;
+  signal: AbortSignal;
+};
+
+export type FakeFailure = {
+  message?: string;
+  status: number;
+  type?: string;
+};
+
+export type ReplyResolver = (
+  request: RecordedRequest,
+  index: number,
+) => FakeReply | Response | Promise<FakeReply | Response>;
+
+/**
+ * A single reply repeats for every request; an array is consumed in order and
+ * its last entry repeats once exhausted; a function decides per request.
+ */
+export type ReplyScript =
+  | FakeReply
+  | Response
+  | ReadonlyArray<FakeReply | Response>
+  | ReplyResolver;
+
+export type FakeAnthropicOptions = {
+  /** Inject an Anthropic-style error response instead of the scripted reply. */
+  failWith?:
+    | FakeFailure
+    | ((request: RecordedRequest, index: number) => FakeFailure | undefined);
+  /** Delay before every response, applied before `failWith` and the reply. */
+  latencyMs?: number;
+};
+
+export type FakeAnthropicServer = {
+  requests: RecordedRequest[];
+  stop(): void;
+  url: string;
+};
+
+const defaultModel = "claude-sonnet-4-5";
+
+export function startFakeAnthropicServer(
+  replies: ReplyScript,
+  options: FakeAnthropicOptions = {},
+): FakeAnthropicServer {
+  const requests: RecordedRequest[] = [];
+  const resolve = toResolver(replies);
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url);
+      if (request.method !== "POST" || !url.pathname.endsWith("/messages")) {
+        return new Response("not found", { status: 404 });
+      }
+      const recorded: RecordedRequest = {
+        body: (await request.json()) as AnthropicRequest,
+        headers: Object.fromEntries(request.headers.entries()),
+        path: `${url.pathname}${url.search}`,
+        signal: request.signal,
+      };
+      requests.push(recorded);
+      const index = requests.length - 1;
+      if (options.latencyMs !== undefined && options.latencyMs > 0) {
+        await Bun.sleep(options.latencyMs);
+      }
+      const failure =
+        typeof options.failWith === "function"
+          ? options.failWith(recorded, index)
+          : options.failWith;
+      if (failure !== undefined) return errorResponse(failure);
+      const reply = await resolve(recorded, index);
+      if (reply instanceof Response) return reusable(reply);
+      return anthropicResponse(
+        recorded.body.model ?? defaultModel,
+        reply,
+        recorded.body.stream === true,
+      );
+    },
+  });
+  return {
+    requests,
+    stop: () => server.stop(true),
+    url: `http://127.0.0.1:${server.port}`,
+  };
+}
+
+export function textReply(text: string): FakeReply {
+  return { content: [{ type: "text", text }], stopReason: "end_turn" };
+}
+
+export function toolReply(
+  name: string,
+  input: Record<string, unknown>,
+  id = `toolu_${crypto.randomUUID()}`,
+): FakeReply {
+  return toolsReply([{ id, input, name }]);
+}
+
+export function toolsReply(
+  tools: Array<{ id: string; input: Record<string, unknown>; name: string }>,
+): FakeReply {
+  return {
+    content: tools.map(({ id, input, name }) => ({
+      type: "tool_use" as const,
+      id,
+      input,
+      name,
+    })),
+    stopReason: "tool_use",
+  };
+}
+
+export function serverError(status = 500, message = "Internal server error") {
+  return { message, status, type: "api_error" } satisfies FakeFailure;
+}
+
+export function overloadedError(message = "Overloaded") {
+  return {
+    message,
+    status: 529,
+    type: "overloaded_error",
+  } satisfies FakeFailure;
+}
+
+export function quotaError(message = "Rate limit exceeded") {
+  return {
+    message,
+    status: 429,
+    type: "rate_limit_error",
+  } satisfies FakeFailure;
+}
+
+export function errorResponse(failure: FakeFailure): Response {
+  return Response.json(
+    {
+      type: "error",
+      error: {
+        type: failure.type ?? "api_error",
+        message: failure.message ?? `HTTP ${failure.status}`,
+      },
+    },
+    {
+      status: failure.status,
+      headers: { "request-id": `req_${crypto.randomUUID()}` },
+    },
+  );
+}
+
+// A scripted Response may be served more than once, so hand out a copy and
+// keep the original body unread.
+function reusable(response: Response): Response {
+  const copy = response.clone();
+  return new Response(copy.body, {
+    headers: copy.headers,
+    status: copy.status,
+    statusText: copy.statusText,
+  });
+}
+
+function toResolver(replies: ReplyScript): ReplyResolver {
+  if (typeof replies === "function") return replies;
+  if (Array.isArray(replies)) {
+    const script = replies as ReadonlyArray<FakeReply | Response>;
+    if (script.length === 0) {
+      throw new Error("Fake Anthropic reply script must not be empty");
+    }
+    return (_request, index) =>
+      script[Math.min(index, script.length - 1)] as FakeReply | Response;
+  }
+  return () => replies as FakeReply | Response;
+}
+
+function anthropicResponse(
+  model: string,
+  reply: FakeReply,
+  stream: boolean,
+): Response {
+  const message = {
+    id: `msg_${crypto.randomUUID()}`,
+    type: "message",
+    role: "assistant",
+    model,
+    content: reply.content,
+    stop_reason: reply.stopReason,
+    stop_sequence: null,
+    usage: { input_tokens: 1, output_tokens: 4 },
+  };
+  const requestId = `req_${crypto.randomUUID()}`;
+  if (!stream) {
+    return Response.json(message, { headers: { "request-id": requestId } });
+  }
+
+  const events: Array<Record<string, unknown>> = [
+    {
+      type: "message_start",
+      message: { ...message, content: [], stop_reason: null },
+    },
+  ];
+  for (const [index, block] of reply.content.entries()) {
+    if (block.type === "text") {
+      events.push(
+        {
+          type: "content_block_start",
+          index,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index,
+          delta: { type: "text_delta", text: block.text },
+        },
+      );
+    } else {
+      events.push(
+        {
+          type: "content_block_start",
+          index,
+          content_block: {
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: {},
+          },
+        },
+        {
+          type: "content_block_delta",
+          index,
+          delta: {
+            type: "input_json_delta",
+            partial_json: JSON.stringify(block.input),
+          },
+        },
+      );
+    }
+    events.push({ type: "content_block_stop", index });
+  }
+  events.push(
+    {
+      type: "message_delta",
+      delta: { stop_reason: reply.stopReason, stop_sequence: null },
+      usage: { output_tokens: 4 },
+    },
+    { type: "message_stop" },
+  );
+  return new Response(
+    events
+      .map(
+        (event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+      )
+      .join(""),
+    {
+      headers: {
+        "cache-control": "no-cache",
+        "content-type": "text/event-stream",
+        "request-id": requestId,
+      },
+    },
+  );
+}

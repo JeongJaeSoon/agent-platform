@@ -46,6 +46,7 @@ jobs:
       QUEUE_DATABASE_URL: postgresql://postgres:dev@127.0.0.1:5432/sessions
       S3_BUCKET: claude-sessions
       SESSION_STORE_LOCALSTACK_TEST: "1"
+      STORAGE_LOCALSTACK_TEST: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
