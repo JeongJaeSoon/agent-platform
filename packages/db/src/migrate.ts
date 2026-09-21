@@ -1,4 +1,8 @@
 import { join } from "node:path";
+import {
+  createLogger,
+  type StructuredLogger,
+} from "@agent-platform/observability";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -16,17 +20,58 @@ const expectedLegacyTables = [
   "workers",
 ] as const;
 
-export async function migrateDatabase(databaseUrl: string): Promise<void> {
+export interface MigrationSummary {
+  /** Journal rows written for a legacy M0 schema that predates Drizzle. */
+  readonly adopted: number;
+  /** Migrations newly applied by Drizzle in this run. */
+  readonly applied: number;
+  /** Journal rows after the run. */
+  readonly total: number;
+}
+
+export interface MigrateDatabaseOptions {
+  readonly logger?: StructuredLogger;
+}
+
+export async function migrateDatabase(
+  databaseUrl: string,
+  options: MigrateDatabaseOptions = {},
+): Promise<MigrationSummary> {
+  const logger = options.logger ?? createLogger();
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   try {
-    await adoptLegacyM0Schema(pool);
+    const adopted = await adoptLegacyM0Schema(pool);
+    const before = await countJournal(pool);
     await migrate(drizzle(pool), { migrationsFolder });
+    const total = await countJournal(pool);
+    const summary: MigrationSummary = {
+      adopted,
+      applied: total - before,
+      total,
+    };
+    const outcome =
+      adopted > 0 ? "adopted" : summary.applied > 0 ? "applied" : "noop";
+    logger.info(`db.migrate.${outcome}`, { ...summary });
+    return summary;
   } finally {
     await pool.end();
   }
 }
 
-async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
+async function countJournal(pool: Pool): Promise<number> {
+  const journal = await pool.query<{ exists: boolean }>(
+    "SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS exists",
+  );
+  if (!journal.rows[0]?.exists) {
+    return 0;
+  }
+  const count = await pool.query<{ count: string }>(
+    'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
+  );
+  return Number(count.rows[0]?.count ?? 0);
+}
+
+async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
   const state = await pool.query<{
     claim_token: boolean;
     migration_journal: string | null;
@@ -48,7 +93,7 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   `);
   const current = state.rows[0];
   if (!current || current.sessions === null || current.migration_journal) {
-    return;
+    return 0;
   }
 
   const tables = await pool.query<{ table_name: string }>(`
@@ -104,6 +149,7 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
       );
     }
     await client.query("COMMIT");
+    return applied.length;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
