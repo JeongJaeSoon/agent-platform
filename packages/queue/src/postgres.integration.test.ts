@@ -1,38 +1,34 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@agent-platform/db";
 import {
-  events,
   queueMessages,
   release,
   sessions,
   unassignedSessions,
 } from "@agent-platform/db";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { PostgresQueue } from "./postgres.ts";
 
-const databaseUrl = process.env.QUEUE_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = testDatabaseUrl() ? describe : describe.skip;
 
 integration("PostgresQueue on PostgreSQL", () => {
+  let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let queue: PostgresQueue;
   let sessionId: string;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: databaseUrl, max: 12 });
+    database = await createTempDatabase({ prefix: "queue_it" });
+    pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-    const schemaState = await pool.query<{ sessions: string | null }>(
-      "SELECT to_regclass('public.sessions') AS sessions",
-    );
-    if (schemaState.rows[0]?.sessions === null) {
-      await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../../db/migrations`,
-      });
-    }
     queue = new PostgresQueue(db);
     sessionId = crypto.randomUUID();
     await db.insert(sessions).values({
@@ -44,15 +40,8 @@ integration("PostgresQueue on PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await db.delete(events).where(eq(events.sessionId, sessionId));
-    await db
-      .delete(queueMessages)
-      .where(eq(queueMessages.sessionId, sessionId));
-    await db
-      .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, sessionId));
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
     await pool.end();
+    await database.drop();
   });
 
   test("uses concurrent SKIP LOCKED claims without duplicates", async () => {
