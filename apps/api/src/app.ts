@@ -9,11 +9,12 @@ import {
 } from "@agent-platform/observability";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { z } from "zod";
+import type { z } from "zod/v4";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 export interface ApiVariables {
   ownerId: string;
+  requestId: string;
 }
 
 export type ApiEnvironment = {
@@ -52,7 +53,15 @@ function errorResponse(
   message: string,
 ): Response {
   return context.json(
-    apiErrorResponseSchema.parse({ error: { code, message } }),
+    apiErrorResponseSchema.parse({
+      error: {
+        code,
+        message,
+        retryable: status === 429 || status === 503,
+        request_id: context.get("requestId") ?? crypto.randomUUID(),
+        details: null,
+      },
+    }),
     status,
   );
 }
@@ -65,11 +74,11 @@ export async function parseJsonBody<T extends z.ZodType>(
   try {
     body = await context.req.json();
   } catch {
-    throw new ApiHttpError(400, "bad_request", "Invalid JSON body");
+    throw new ApiHttpError(400, "BAD_REQUEST", "Invalid JSON body");
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    throw new ApiHttpError(400, "bad_request", "Request body is invalid");
+    throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
   }
   return parsed.data;
 }
@@ -97,6 +106,10 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const logger = options.logger ?? createLogger();
   const app = new Hono<ApiEnvironment>({ strict: false });
   const v1 = new Hono<ApiEnvironment>({ strict: false });
+  app.use("*", async (context, next) => {
+    context.set("requestId", crypto.randomUUID());
+    await next();
+  });
 
   if (authMode === "none") {
     logger.warn("API authentication is disabled", { auth_mode: "none" });
@@ -121,7 +134,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       return errorResponse(
         context,
         401,
-        "unauthorized",
+        "UNAUTHORIZED",
         "Authentication is required",
       );
     }
@@ -140,7 +153,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   app.route("/v1", v1);
 
   app.notFound((context) =>
-    errorResponse(context, 404, "not_found", "Resource not found"),
+    errorResponse(context, 404, "NOT_FOUND", "Resource not found"),
   );
   app.onError((error, context) => {
     if (error instanceof ApiHttpError) {
@@ -154,7 +167,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     return errorResponse(
       context,
       500,
-      "internal_error",
+      "INTERNAL_ERROR",
       "Internal server error",
     );
   });

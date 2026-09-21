@@ -20,7 +20,7 @@
         "drizzle-orm": "0.44.5",
         "hono": "4.13.7",
         "pg": "8.16.3",
-        "zod": "^3.24.2",
+        "zod": "^3.25.76",
       },
       "devDependencies": {
         "@electric-sql/pglite": "0.3.10",
@@ -44,8 +44,8 @@
       "name": "@agent-platform/worker",
       "version": "0.0.0",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "@agent-platform/contracts": "workspace:*",
+        "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "zod": "4.6.5",
       },
     },
@@ -53,7 +53,7 @@
       "name": "@agent-platform/contracts",
       "version": "0.0.0",
       "dependencies": {
-        "zod": "^3.24.2",
+        "zod": "^3.25.76",
       },
     },
     "packages/db": {
@@ -97,6 +97,22 @@
     },
   },
   "packages": {
+    "@agent-platform/api": ["@agent-platform/api@workspace:apps/api"],
+
+    "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
+
+    "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
+
+    "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
+
+    "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
+
+    "@agent-platform/reconciler": ["@agent-platform/reconciler@workspace:apps/reconciler"],
+
+    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
+
+    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
+
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.3.270", "", { "optionalDependencies": { "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.270", "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.270", "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.270", "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.270", "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.270", "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.270", "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.270", "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.270" }, "peerDependencies": { "@anthropic-ai/sdk": ">=0.93.0", "@modelcontextprotocol/sdk": "^1.29.0", "zod": "^4.0.0" } }, "sha512-sSfcm5Nhb+WHeBCxqeHRRQMUKPmFTL+zgv5xcRUVaFMLttfNEbn3IZJE+fLJJmy4h3J8zdc5sXdSa1JxyB8ppQ=="],
 
     "@anthropic-ai/claude-agent-sdk-darwin-arm64": ["@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.270", "", { "os": "darwin", "cpu": "arm64" }, "sha512-nk7BP+i559rheYz9DIwAfevd4DulQXP0mXPP+MeO2fGuIGFmzhE/c0JRm9YswXv5HdaYJvSzjGIB7dVA01NehA=="],
@@ -172,22 +188,6 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.2.4", "", { "os": "win32", "cpu": "arm64" }, "sha512-NXnfTeKHDFUWfxAefa57DiGmu9VyKi0cDqFpdI+1hJWQjGJhJutHPX0b5m+eXvTKOaf+brU+P0JrQAZMb5yYaQ=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.2.4", "", { "os": "win32", "cpu": "x64" }, "sha512-3Y4V4zVRarVh/B/eSHczR4LYoSVyv3Dfuvm3cWs5w/HScccS0+Wt/lHOcDTRYeHjQmMYVC3rIRWqyN2EI52+zg=="],
-
-    "@agent-platform/api": ["@agent-platform/api@workspace:apps/api"],
-
-    "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
-
-    "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
-
-    "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
-
-    "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
-
-    "@agent-platform/reconciler": ["@agent-platform/reconciler@workspace:apps/reconciler"],
-
-    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
-
-    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 

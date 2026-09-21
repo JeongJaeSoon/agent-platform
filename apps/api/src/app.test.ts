@@ -26,12 +26,16 @@ describe("API authentication", () => {
         headers: { "X-Owner-Id": "forged-owner" },
       });
       expect(response.status).toBe(401);
-      expect(apiErrorResponseSchema.parse(await response.json())).toEqual({
-        error: {
-          code: "unauthorized",
-          message: "Authentication is required",
+      expect(apiErrorResponseSchema.parse(await response.json())).toMatchObject(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication is required",
+            retryable: false,
+            details: null,
+          },
         },
-      });
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.AUTH_MODE;

@@ -169,7 +169,7 @@ export async function requeueOrphan(
 }
 
 const TERMINAL_TURN_STATUSES = new Set<string>([
-  "done",
+  "completed",
   "failed",
   "interrupted",
 ] satisfies TurnStatus[]);

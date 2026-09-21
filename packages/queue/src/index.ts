@@ -1,8 +1,8 @@
 import type {
   OpaqueCursor,
   PostSessionAnswerRequest,
+  SessionEvent,
   SessionMessage,
-  SseEvent,
 } from "@agent-platform/contracts";
 
 export type QueuePayload = SessionMessage | PostSessionAnswerRequest;
@@ -24,7 +24,7 @@ export type QueueDelivery = {
 
 export type PublishInput = {
   sessionId: string;
-  event: SseEvent["event"];
+  event: SessionEvent["event"];
   data: unknown;
 };
 
@@ -52,8 +52,8 @@ export interface QueueBackend {
     consumerId: string,
     visibilityTimeoutMs?: number,
   ): Promise<QueueDelivery | null>;
-  publish(input: PublishInput): Promise<SseEvent>;
-  subscribe(input: SubscribeInput): AsyncIterable<SseEvent>;
+  publish(input: PublishInput): Promise<SessionEvent>;
+  subscribe(input: SubscribeInput): AsyncIterable<SessionEvent>;
   lease(command: LeaseCommand): Promise<LeaseResult>;
 }
 
