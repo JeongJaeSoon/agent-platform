@@ -17,7 +17,7 @@
 
 | 경로 | 구현된 기반 |
 |---|---|
-| `packages/contracts` | Zod API·이벤트·큐 계약 |
+| `packages/contracts` | Zod 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`shared`(ID·error)로 분리. `docs/openapi.json`은 `bun run --cwd packages/contracts openapi:generate`로 생성하며 테스트가 drift를 검출 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
 | `packages/queue` | PostgreSQL durable queue·이벤트·lease, Redis placeholder |
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
