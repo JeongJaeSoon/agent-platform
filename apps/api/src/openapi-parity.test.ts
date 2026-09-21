@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { buildOpenApiDocument } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
-import { createApiApp, rootRouteErrors } from "./app.ts";
+import { createApiApp, probeRouteErrors, rootRouteErrors } from "./app.ts";
+import {
+  receiptRouteErrors,
+  registerReceiptRoutes,
+} from "./routes/receipts.ts";
 import {
   registerSessionRoutes,
   sessionRouteErrors,
@@ -10,8 +14,6 @@ import {
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
 const NOT_YET_IMPLEMENTED = [
-  "GET /healthz",
-  "GET /readyz",
   "GET /v1/sessions/{id}/events",
   "GET /v1/sessions/{id}/pending-requests",
   "POST /v1/sessions/{id}/answers",
@@ -20,14 +22,15 @@ const NOT_YET_IMPLEMENTED = [
   "POST /v1/sessions/{id}/terminate",
   "POST /v1/sessions/{id}/resume",
   "POST /v1/sessions/{id}/recovery-decisions",
-  "GET /v1/receipts/{id}",
 ];
 
 function honoRoutes(): Set<string> {
   const app = createApiApp({
     authMode: "none",
-    registerRoutes: (router) =>
-      registerSessionRoutes(router, {} as SessionService),
+    registerRoutes: (router) => {
+      registerSessionRoutes(router, {} as SessionService);
+      registerReceiptRoutes(router, {} as SessionService);
+    },
   });
   return new Set(
     app.routes
@@ -76,7 +79,11 @@ test("each handler's error statuses match its OpenAPI operation", () => {
   const declared = openApiOperations();
   for (const route of honoRoutes()) {
     const implemented =
-      route === "GET /v1" ? rootRouteErrors : sessionRouteErrors[route];
+      route === "GET /v1"
+        ? rootRouteErrors
+        : (probeRouteErrors[route] ??
+          receiptRouteErrors[route] ??
+          sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     const expected = [
       ...(implemented ?? []),

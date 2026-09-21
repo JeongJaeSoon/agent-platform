@@ -7,6 +7,8 @@ import {
   type ListTurnsQuery,
   type PostSessionMessageResponse,
   postSessionMessageResponseSchema,
+  type Receipt,
+  receiptSchema,
   sessionIdSchema,
   type TurnDetail,
   type TurnSummary,
@@ -614,6 +616,35 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         // the session's current values would rewrite history after a resume.
         attempts: [],
       };
+    },
+
+    async getReceipt(
+      ownerId: string,
+      receiptId: string,
+    ): Promise<Receipt | null> {
+      const [row] = await db
+        .select()
+        .from(receipts)
+        .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
+        .limit(1);
+      if (!row) return null;
+      const target = (row.targetRef ?? {}) as Partial<Receipt["target_ref"]>;
+      // operation/error are stored untyped; a row this reader cannot
+      // represent is a bug in the writer, so let the parse throw.
+      return receiptSchema.parse({
+        id: row.id,
+        operation: row.operation,
+        target_ref: {
+          session_id: target.session_id,
+          turn_id: target.turn_id ?? null,
+          request_id: target.request_id ?? null,
+        },
+        status: row.status,
+        result: row.result ?? null,
+        error: row.error ?? null,
+        created_at: row.createdAt.toISOString(),
+        updated_at: row.updatedAt.toISOString(),
+      });
     },
   };
 }

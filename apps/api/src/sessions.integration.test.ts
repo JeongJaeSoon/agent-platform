@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   ADMISSION_STATE_VALUES,
   createSessionResponseSchema,
+  getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
   listSessionsResponseSchema,
   listTurnsResponseSchema,
   postSessionMessageResponseSchema,
+  readyResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
@@ -29,6 +31,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
+import { createReadinessProbe } from "./readiness.ts";
+import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
@@ -78,7 +82,14 @@ integration("sessions API on PostgreSQL", () => {
     });
     app = createApiApp({
       authMode: "none",
-      registerRoutes: (router) => registerSessionRoutes(router, service),
+      registerRoutes: (router) => {
+        registerSessionRoutes(router, service);
+        registerReceiptRoutes(router, service);
+      },
+      readiness: createReadinessProbe({
+        db: pool,
+        requiredEnv: ["QUEUE_DATABASE_URL"],
+      }),
     });
   });
 
@@ -219,6 +230,65 @@ integration("sessions API on PostgreSQL", () => {
           .where(eq(receipts.ownerId, owner))
       )[0]?.n,
     ).toBe(1);
+  });
+
+  test("serves the create and append receipts to their owner only", async () => {
+    const created = createSessionResponseSchema.parse(
+      await (await create("receipt-1")).json(),
+    );
+    const appended = postSessionMessageResponseSchema.parse(
+      await (await append(created.session_id, "receipt-msg-1")).json(),
+    );
+    for (const [receiptId, operation, turnId] of [
+      [created.receipt_id, "create_session", "1"],
+      [appended.receipt_id, "append_message", "2"],
+    ] as const) {
+      const response = await app.request(`/v1/receipts/${receiptId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(response.status).toBe(200);
+      const receipt = getReceiptResponseSchema.parse(await response.json());
+      expect(receipt).toMatchObject({
+        id: receiptId,
+        operation,
+        status: "accepted",
+        target_ref: {
+          session_id: created.session_id,
+          turn_id: turnId,
+          request_id: null,
+        },
+        error: null,
+      });
+      expect(receipt.created_at).toBe(receipt.updated_at);
+    }
+    expect(
+      getReceiptResponseSchema.parse(
+        await (
+          await app.request(`/v1/receipts/${created.receipt_id}`, {
+            headers: { "X-Owner-Id": owner },
+          })
+        ).json(),
+      ).result,
+    ).toEqual(created);
+
+    const foreign = await app.request(`/v1/receipts/${created.receipt_id}`, {
+      headers: { "X-Owner-Id": stranger },
+    });
+    expect(foreign.status).toBe(404);
+    expect((await foreign.json()).error.details).toBeNull();
+    const unknown = await app.request(`/v1/receipts/${crypto.randomUUID()}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  test("readiness passes against the migrated database without touching any backend", async () => {
+    const response = await app.request("/readyz");
+    expect(response.status).toBe(200);
+    expect(readyResponseSchema.parse(await response.json()).status).toBe(
+      "ready",
+    );
+    expect((await app.request("/healthz")).status).toBe(200);
   });
 
   test("10 concurrent creates with one key produce one session, turn and receipt", async () => {

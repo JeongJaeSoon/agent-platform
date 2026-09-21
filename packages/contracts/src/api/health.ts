@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 export const healthResponseSchema = z.object({ status: z.literal("ok") });
-export const readyResponseSchema = z.object({ status: z.literal("ready") });
+// Each readiness check the API performs; a 503 names the failing one in
+// error.details.check.
+export const READINESS_CHECK_VALUES = ["database", "schema", "config"] as const;
+export const readinessCheckSchema = z.enum(READINESS_CHECK_VALUES);
+export const readyResponseSchema = z.object({
+  status: z.literal("ready"),
+  checks: z.record(readinessCheckSchema, z.literal("ok")),
+});
 export const apiRootResponseSchema = z
   .object({
     status: z.literal("ok"),
@@ -10,5 +17,6 @@ export const apiRootResponseSchema = z
   .strict();
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
+export type ReadinessCheck = z.infer<typeof readinessCheckSchema>;
 export type ReadyResponse = z.infer<typeof readyResponseSchema>;
 export type ApiRootResponse = z.infer<typeof apiRootResponseSchema>;

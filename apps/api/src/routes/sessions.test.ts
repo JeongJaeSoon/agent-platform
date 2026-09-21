@@ -40,6 +40,7 @@ function app(overrides: Partial<SessionUnitOfWork & SessionReader> = {}) {
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,
+      getReceipt: async () => null,
       ...overrides,
     },
   });
