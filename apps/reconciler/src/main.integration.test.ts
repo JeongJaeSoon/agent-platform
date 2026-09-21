@@ -46,7 +46,12 @@ integration("reconciler process on PostgreSQL", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "resume after crash", status: "queued" })
+      .values({
+        sessionId,
+        sequence: 1,
+        message: "resume after crash",
+        status: "queued",
+      })
       .returning({ id: turns.id });
     await db.insert(queueMessages).values({
       sessionId,

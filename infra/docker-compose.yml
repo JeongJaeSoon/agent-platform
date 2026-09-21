@@ -14,6 +14,7 @@ services:
       - ../packages/db/migrations/0000_gifted_morg.sql:/docker-entrypoint-initdb.d/0000_m0.sql:ro
       - ../packages/db/migrations/0001_giant_sphinx.sql:/docker-entrypoint-initdb.d/0001_m0.sql:ro
       - ../packages/db/migrations/0002_thin_victor_mancha.sql:/docker-entrypoint-initdb.d/0002_m0.sql:ro
+      - ../packages/db/migrations/0003_lethal_blue_blade.sql:/docker-entrypoint-initdb.d/0003_m0.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

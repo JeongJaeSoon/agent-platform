@@ -69,21 +69,32 @@ export const sessions = pgTable(
   ],
 );
 
-export const turns = pgTable("turns", {
-  id: bigserial({ mode: "number" }).primaryKey(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => sessions.id),
-  message: text().notNull(),
-  status: text().notNull(),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-  resultJson: jsonb("result_json"),
-  attemptId: text("attempt_id"),
-  deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
-  terminalReason: text("terminal_reason"),
-  outcomeUnknown: boolean("outcome_unknown").notNull().default(false),
-});
+export const turns = pgTable(
+  "turns",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    // Public turn_id: 1-based position within the session, not the global id.
+    sequence: integer().notNull(),
+    message: text().notNull(),
+    status: text().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    resultJson: jsonb("result_json"),
+    attemptId: text("attempt_id"),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    terminalReason: text("terminal_reason"),
+    outcomeUnknown: boolean("outcome_unknown").notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex("turns_session_sequence_uniq").on(
+      table.sessionId,
+      table.sequence,
+    ),
+  ],
+);
 
 export const pullRequests = pgTable(
   "pull_requests",

@@ -32,10 +32,12 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
     migration_journal: string | null;
     receipts: string | null;
     sessions: string | null;
+    turn_sequence: string | null;
   }>(`
     SELECT
       to_regclass('public.sessions')::text AS sessions,
       to_regclass('public.events_attempt_sequence_uniq')::text AS receipts,
+      to_regclass('public.turns_session_sequence_uniq')::text AS turn_sequence,
       to_regclass('drizzle.__drizzle_migrations')::text AS migration_journal,
       EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -62,15 +64,22 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   }
 
   const migrations = readMigrationFiles({ migrationsFolder });
-  // 0002 is detected by its last statement so a partially applied raw init
-  // is not recorded as complete.
-  if (current.receipts !== null && !current.claim_token) {
+  // 0002/0003 are detected by their last statement so a partially applied
+  // raw init is not recorded as complete.
+  const applied0002 = current.receipts !== null;
+  const applied0003 = current.turn_sequence !== null;
+  if ((applied0002 && !current.claim_token) || (applied0003 && !applied0002)) {
     throw new Error(
-      "Refusing to adopt legacy schema with migration 0002 applied before 0001",
+      "Refusing to adopt legacy schema with migrations applied out of order",
     );
   }
-  const appliedCount =
-    current.receipts !== null ? 3 : current.claim_token ? 2 : 1;
+  const appliedCount = applied0003
+    ? 4
+    : applied0002
+      ? 3
+      : current.claim_token
+        ? 2
+        : 1;
   if (migrations.length < appliedCount) {
     throw new Error(
       `Legacy schema requires ${appliedCount} migration files, found ${migrations.length}`,
