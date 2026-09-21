@@ -11,9 +11,10 @@
   },
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/observability": "workspace:*",
+    "@agent-platform/platform": "workspace:*",
     "drizzle-orm": "0.44.5",
-    "pg": "8.16.3",
-    "@agent-platform/platform": "workspace:*"
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.10",

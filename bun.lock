@@ -62,6 +62,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
         "@agent-platform/platform": "workspace:*",
         "drizzle-orm": "0.44.5",
         "pg": "8.16.3",

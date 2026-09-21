@@ -2,11 +2,17 @@ import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createLogger, MemoryLogSink } from "@agent-platform/observability";
 import { Pool } from "pg";
 import { migrateDatabase } from "./migrate.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integrationTest = databaseUrl ? test : test.skip;
+
+function captureLogger() {
+  const sink = new MemoryLogSink();
+  return { logger: createLogger({ sinks: [sink] }), sink };
+}
 
 integrationTest(
   "adopts a raw M0 database and upgrades it through Drizzle",
@@ -45,8 +51,29 @@ integrationTest(
       );
       await legacy.end();
 
-      await migrateDatabase(testUrl.toString());
-      await migrateDatabase(testUrl.toString());
+      const { logger, sink } = captureLogger();
+      const first = await migrateDatabase(testUrl.toString(), { logger });
+      const second = await migrateDatabase(testUrl.toString(), { logger });
+      expect(first).toEqual({ adopted: 1, applied: 3, total: 4 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(
+        sink.records.map(({ level, message, fields }) => ({
+          level,
+          message,
+          fields,
+        })),
+      ).toEqual([
+        {
+          level: "info",
+          message: "db.migrate.adopted",
+          fields: { adopted: 1, applied: 3, total: 4 },
+        },
+        {
+          level: "info",
+          message: "db.migrate.noop",
+          fields: { adopted: 0, applied: 0, total: 4 },
+        },
+      ]);
 
       const verified = new Pool({
         connectionString: testUrl.toString(),
@@ -133,8 +160,15 @@ integrationTest(
       }
       await legacy.end();
 
-      await migrateDatabase(testUrl.toString());
-      await migrateDatabase(testUrl.toString());
+      const { logger, sink } = captureLogger();
+      const first = await migrateDatabase(testUrl.toString(), { logger });
+      const second = await migrateDatabase(testUrl.toString(), { logger });
+      expect(first).toEqual({ adopted: 4, applied: 0, total: 4 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(sink.records.map(({ message }) => message)).toEqual([
+        "db.migrate.adopted",
+        "db.migrate.noop",
+      ]);
 
       const verified = new Pool({
         connectionString: testUrl.toString(),
@@ -150,6 +184,36 @@ integrationTest(
       }
     } finally {
       if (!legacy.ended) await legacy.end();
+      await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
+      await admin.end();
+    }
+  },
+  30_000,
+);
+
+integrationTest(
+  "applies every migration to a fresh database and reports a no-op on rerun",
+  async () => {
+    const adminUrl = new URL(databaseUrl ?? "");
+    adminUrl.pathname = "/postgres";
+    const databaseName = `fresh_${randomUUID().replaceAll("-", "_")}`;
+    const quotedDatabase = `"${databaseName}"`;
+    const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+    await admin.query(`CREATE DATABASE ${quotedDatabase}`);
+
+    const testUrl = new URL(databaseUrl ?? "");
+    testUrl.pathname = `/${databaseName}`;
+    try {
+      const { logger, sink } = captureLogger();
+      const first = await migrateDatabase(testUrl.toString(), { logger });
+      const second = await migrateDatabase(testUrl.toString(), { logger });
+      expect(first).toEqual({ adopted: 0, applied: 4, total: 4 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 4 });
+      expect(sink.records.map(({ message }) => message)).toEqual([
+        "db.migrate.applied",
+        "db.migrate.noop",
+      ]);
+    } finally {
       await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
       await admin.end();
     }
