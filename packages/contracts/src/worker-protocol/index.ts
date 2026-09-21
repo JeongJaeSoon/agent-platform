@@ -1,11 +1,11 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import { postSessionAnswerRequestSchema } from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
 import {
   attemptStateSchema,
   sessionRuntimeSchema,
-  turnStatusSchema,
+  terminalTurnStatusSchema,
 } from "../api/session.ts";
 import {
   attemptIdSchema,
@@ -107,7 +107,11 @@ export const appendEventsResponseSchema = z.object({
   cursor: opaqueCursorSchema,
 });
 
-export const pendingControlRequestSchema = workerScopeSchema.strict();
+// Answers are redelivered until the worker advances answers_after, so a crash
+// between applying an answer and the next poll replays the same sequence.
+export const pendingControlRequestSchema = workerScopeSchema
+  .extend({ answers_after: z.number().int().nonnegative() })
+  .strict();
 export const controlIntentSchema = z.object({
   control_id: z.string().min(1),
   kind: z.enum(["interrupt", "pause", "terminate"]),
@@ -116,7 +120,12 @@ export const controlIntentSchema = z.object({
 });
 export const pendingControlResponseSchema = z.object({
   control: controlIntentSchema.nullable(),
-  answers: z.array(postSessionAnswerRequestSchema),
+  answers: z.array(
+    z.object({
+      sequence: z.number().int().positive(),
+      answer: postSessionAnswerRequestSchema,
+    }),
+  ),
 });
 
 export const finalizeRequestSchema = workerScopeSchema
@@ -124,12 +133,7 @@ export const finalizeRequestSchema = workerScopeSchema
     turn_id: turnIdSchema,
     finalize_key: z.string().min(1),
     terminal: z.object({
-      status: turnStatusSchema.extract([
-        "completed",
-        "failed",
-        "interrupted",
-        "outcome_unknown",
-      ]),
+      status: terminalTurnStatusSchema.exclude(["cancelled"]),
       reason: z.string().min(1).nullable(),
       result: z.unknown().nullable(),
       usage: z.unknown().nullable(),
@@ -139,7 +143,7 @@ export const finalizeRequestSchema = workerScopeSchema
   .strict();
 export const finalizeResponseSchema = z.object({
   turn_id: turnIdSchema,
-  status: turnStatusSchema,
+  status: terminalTurnStatusSchema,
   checkpoint_revision: revisionSchema.nullable(),
 });
 

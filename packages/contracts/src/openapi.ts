@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import {
   apiRootResponseSchema,
@@ -30,7 +30,12 @@ import {
   terminateSessionRequestSchema,
   turnSummarySchema,
 } from "./api/index.ts";
-import { apiErrorResponseSchema } from "./shared/index.ts";
+import {
+  apiErrorResponseSchema,
+  receiptIdParamsSchema,
+  sessionIdParamsSchema,
+  turnIdParamsSchema,
+} from "./shared/index.ts";
 
 export const OPENAPI_VERSION = "0.1.0-alpha";
 
@@ -283,13 +288,25 @@ function queryParameters(schema: JsonSchema) {
   }));
 }
 
+const pathParamSchemas: Record<string, z.ZodObject> = {
+  "/v1/sessions/{id}": sessionIdParamsSchema,
+  "/v1/sessions/{id}/turns/{turn_id}": turnIdParamsSchema,
+  "/v1/receipts/{id}": receiptIdParamsSchema,
+};
+
 function pathParameters(path: string) {
-  return [...path.matchAll(/\{(\w+)\}/g)].map(([, name]) => ({
-    name,
-    in: "path",
-    required: true,
-    schema: { type: "string" },
-  }));
+  const names = [...path.matchAll(/\{(\w+)\}/g)].map(([, name]) => name);
+  if (names.length === 0) return [];
+  const schema =
+    pathParamSchemas[path] ?? pathParamSchemas["/v1/sessions/{id}"];
+  const properties = (
+    z.toJSONSchema(schema as z.ZodType, { io: "input" }) as JsonSchema
+  ).properties as Record<string, JsonSchema>;
+  return names.map((name) => {
+    const property = properties[name as string];
+    if (!property) throw new Error(`No params schema for ${name} in ${path}`);
+    return { name, in: "path", required: true, schema: property };
+  });
 }
 
 export function buildOpenApiDocument() {
@@ -305,7 +322,7 @@ export function buildOpenApiDocument() {
     const generated = z.toJSONSchema(registry, {
       io,
       uri: (id) => `#/components/schemas/${id}`,
-      unrepresentable: "any",
+      unrepresentable: "throw",
     }).schemas as Record<string, JsonSchema>;
     for (const [id, generatedSchema] of Object.entries(generated)) {
       const { $schema: _schema, $id: _id, ...schema } = generatedSchema;

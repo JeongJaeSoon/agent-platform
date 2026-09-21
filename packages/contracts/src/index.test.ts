@@ -10,6 +10,7 @@ import {
   createSessionRequestSchema,
   createSessionResponseSchema,
   finalizeRequestSchema,
+  finalizeResponseSchema,
   getSessionResponseSchema,
   heartbeatRequestSchema,
   listSessionsQuerySchema,
@@ -17,6 +18,7 @@ import {
   opaqueCursorSchema,
   PERMISSION_MODE_VALUES,
   pendingControlRequestSchema,
+  pendingControlResponseSchema,
   pendingRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionMessageRequestSchema,
@@ -144,6 +146,13 @@ describe("session contracts", () => {
         mode: "steer",
       }).success,
     ).toBe(false);
+    // 32 KiB is a byte limit: 12k Hangul characters are 36 KB of UTF-8.
+    expect(
+      sessionMessageSchema.safeParse({ message: "가".repeat(12_000) }).success,
+    ).toBe(false);
+    expect(
+      sessionMessageSchema.safeParse({ message: "a".repeat(32_768) }).success,
+    ).toBe(true);
     expect(unassignedSessionSignalSchema.parse(undefined)).toBeUndefined();
     expect(
       unassignedSessionSignalSchema.safeParse({ session_id: "leaks" }).success,
@@ -214,6 +223,7 @@ describe("answers, pending requests and control", () => {
         request_id: "perm_01",
         kind: "permission",
         decision: "deny",
+        reason: "Not in this repository",
       }).kind,
     ).toBe("permission");
     expect(
@@ -393,7 +403,32 @@ describe("worker protocol", () => {
       heartbeatRequestSchema.safeParse({ ...scope, attempt_state: "running" })
         .success,
     ).toBe(true);
-    expect(pendingControlRequestSchema.safeParse(scope).success).toBe(true);
+    expect(
+      pendingControlRequestSchema.safeParse({ ...scope, answers_after: 0 })
+        .success,
+    ).toBe(true);
+    expect(
+      pendingControlResponseSchema.parse({
+        control: null,
+        answers: [
+          {
+            sequence: 1,
+            answer: {
+              request_id: "perm_01",
+              kind: "permission",
+              decision: "allow",
+            },
+          },
+        ],
+      }).answers[0]?.sequence,
+    ).toBe(1);
+    expect(
+      finalizeResponseSchema.safeParse({
+        turn_id: "1",
+        status: "running",
+        checkpoint_revision: null,
+      }).success,
+    ).toBe(false);
     expect(
       releaseRequestSchema.safeParse({ ...scope, reason: "drain" }).success,
     ).toBe(true);

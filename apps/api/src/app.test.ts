@@ -133,9 +133,24 @@ describe("API validation and errors", () => {
       body: JSON.stringify({ message: "hello", unexpected: true }),
     });
     expect(response.status).toBe(400);
+    expect(response.headers.get("X-Request-Id")).toHaveLength(36);
     expect(
       apiErrorResponseSchema.safeParse(await response.json()).success,
     ).toBe(true);
+
+    const oversized = await app.request("/v1/echo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(65 * 1024),
+        "X-Owner-Id": "local-owner",
+      },
+      body: JSON.stringify({ message: "hello" }),
+    });
+    expect(oversized.status).toBe(413);
+    expect(
+      apiErrorResponseSchema.parse(await oversized.json()).error.code,
+    ).toBe("PAYLOAD_TOO_LARGE");
   });
 
   test("returns a stable 500 without exposing an error or stack", async () => {

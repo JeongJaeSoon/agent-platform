@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import { requestIdSchema } from "../shared/index.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
@@ -8,6 +8,7 @@ export const permissionAnswerSchema = z
     request_id: requestIdSchema,
     kind: z.literal("permission"),
     decision: z.enum(["allow", "deny"]),
+    reason: z.string().min(1).optional(),
   })
   .strict();
 

@@ -1,14 +1,15 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import {
   attemptIdSchema,
   opaqueCursorSchema,
   requestIdSchema,
+  requiredUnknownSchema,
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
-import { sessionStatusSchema } from "./session.ts";
+import { admissionStateSchema, sessionStatusSchema } from "./session.ts";
 
 export const SESSION_EVENT_NAMES = [
   "system",
@@ -22,9 +23,6 @@ export const SESSION_EVENT_NAMES = [
 ] as const;
 export const SSE_SCHEMA_VERSION = 1;
 
-const requiredUnknownSchema = z
-  .unknown()
-  .refine((value) => value !== undefined, "Required");
 const assistantMessagePayloadSchema = z.object({
   type: z.literal("assistant"),
   message: requiredUnknownSchema,
@@ -71,7 +69,10 @@ export const sessionEventVariants = {
   }),
   status: z.object({
     event: z.literal("status"),
-    data: z.looseObject({ phase: sessionStatusSchema }),
+    data: z.looseObject({
+      phase: sessionStatusSchema,
+      admission_state: admissionStateSchema.optional(),
+    }),
   }),
   error: z.object({
     event: z.literal("error"),

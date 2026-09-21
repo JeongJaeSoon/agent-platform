@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import {
   attemptIdSchema,
@@ -52,7 +52,6 @@ export const turnSummarySchema = z.object({
 export const turnDetailSchema = turnSummarySchema.extend({
   result: z.unknown().nullable(),
   usage: z.unknown().nullable(),
-  outcome_unknown: z.boolean(),
   attempts: z.array(attemptSummarySchema),
 });
 export const listTurnsQuerySchema = paginationQuerySchema;

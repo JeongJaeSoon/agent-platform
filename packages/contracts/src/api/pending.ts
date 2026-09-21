@@ -1,15 +1,12 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import {
   attemptIdSchema,
   requestIdSchema,
+  requiredUnknownSchema,
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
-
-const requiredUnknownSchema = z
-  .unknown()
-  .refine((value) => value !== undefined, "Required");
 
 export const pendingQuestionOptionSchema = z.object({
   option_id: z.string().min(1),

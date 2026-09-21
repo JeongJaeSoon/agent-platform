@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const sessionIdSchema = z.uuid();
 export const turnIdSchema = z.string().min(1);
@@ -11,6 +11,10 @@ export const revisionSchema = z.number().int().nonnegative();
 export const epochSchema = z.number().int().nonnegative();
 export const opaqueCursorSchema = z.string().min(1);
 export const idempotencyKeySchema = z.string().min(1).max(255);
+// `unknown` accepts undefined; use this where the key must be present.
+export const requiredUnknownSchema = z
+  .unknown()
+  .refine((value) => value !== undefined, "Required");
 
 export const sessionIdParamsSchema = z.object({ id: sessionIdSchema });
 export const turnIdParamsSchema = sessionIdParamsSchema.extend({

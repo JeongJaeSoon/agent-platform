@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import { revisionSchema, turnIdSchema } from "../shared/index.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
@@ -24,34 +24,28 @@ export const terminateSessionRequestSchema = pauseSessionRequestSchema;
 export const resumeSessionRequestSchema = z
   .object({ expected_revision: revisionSchema })
   .strict();
-export const recoveryDecisionRequestSchema = z
-  .object({
-    expected_revision: revisionSchema,
-    decision: recoveryDecisionSchema,
-    target_turn_id: turnIdSchema.optional(),
-    evidence_ref: z.string().min(1).optional(),
-    reason: z.string().min(1),
-  })
-  .strict()
-  .superRefine((request, context) => {
-    if (request.decision !== "close" && request.target_turn_id === undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "abandon and confirm_completed target a turn",
-        path: ["target_turn_id"],
-      });
-    }
-    if (
-      request.decision === "confirm_completed" &&
-      request.evidence_ref === undefined
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "confirm_completed requires verified evidence",
-        path: ["evidence_ref"],
-      });
-    }
-  });
+const recoveryDecisionBase = {
+  expected_revision: revisionSchema,
+  reason: z.string().min(1),
+};
+export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
+  z
+    .object({
+      ...recoveryDecisionBase,
+      decision: z.literal("abandon"),
+      target_turn_id: turnIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...recoveryDecisionBase,
+      decision: z.literal("confirm_completed"),
+      target_turn_id: turnIdSchema,
+      evidence_ref: z.string().min(1),
+    })
+    .strict(),
+  z.object({ ...recoveryDecisionBase, decision: z.literal("close") }).strict(),
+]);
 export const controlAcceptedResponseSchema = receiptAcceptedResponseSchema;
 export const recoveryDecisionResultSchema = z.object({
   resulting_admission_state: admissionStateSchema,

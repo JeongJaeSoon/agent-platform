@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 import {
   pageSchema,
@@ -33,6 +33,13 @@ export const TURN_STATUS_VALUES = [
   "queued",
   "running",
   "needs_input",
+  "completed",
+  "failed",
+  "interrupted",
+  "cancelled",
+  "outcome_unknown",
+] as const;
+export const TERMINAL_TURN_STATUS_VALUES = [
   "completed",
   "failed",
   "interrupted",
@@ -75,6 +82,7 @@ export const PERMISSION_MODE_VALUES = [
 export const sessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
 export const admissionStateSchema = z.enum(ADMISSION_STATE_VALUES);
 export const turnStatusSchema = z.enum(TURN_STATUS_VALUES);
+export const terminalTurnStatusSchema = z.enum(TERMINAL_TURN_STATUS_VALUES);
 export const attemptStateSchema = z.enum(ATTEMPT_STATE_VALUES);
 export const executionStateSchema = z.enum(EXECUTION_STATE_VALUES);
 export const runtimeKindSchema = z.enum(RUNTIME_KIND_VALUES);
@@ -127,7 +135,14 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
 
 export const MESSAGE_MAX_BYTES = 32 * 1024;
 export const REQUEST_BODY_MAX_BYTES = 64 * 1024;
-export const messageTextSchema = z.string().min(1).max(MESSAGE_MAX_BYTES);
+export const messageTextSchema = z
+  .string()
+  .min(1)
+  .max(MESSAGE_MAX_BYTES)
+  .refine(
+    (text) => new TextEncoder().encode(text).length <= MESSAGE_MAX_BYTES,
+    `Message exceeds ${MESSAGE_MAX_BYTES} UTF-8 bytes`,
+  );
 
 export const createSessionRequestSchema = z
   .object({
@@ -152,6 +167,7 @@ export const getSessionResponseSchema = sessionDetailSchema;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type AdmissionState = z.infer<typeof admissionStateSchema>;
 export type TurnStatus = z.infer<typeof turnStatusSchema>;
+export type TerminalTurnStatus = z.infer<typeof terminalTurnStatusSchema>;
 export type AttemptState = z.infer<typeof attemptStateSchema>;
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 export type RuntimeKind = z.infer<typeof runtimeKindSchema>;

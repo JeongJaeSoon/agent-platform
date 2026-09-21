@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const API_ERROR_CODE_VALUES = [
   "BAD_REQUEST",

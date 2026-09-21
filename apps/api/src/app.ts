@@ -2,6 +2,7 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  REQUEST_BODY_MAX_BYTES,
 } from "@agent-platform/contracts";
 import {
   createLogger,
@@ -9,7 +10,7 @@ import {
 } from "@agent-platform/observability";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { z } from "zod/v4";
+import type { z } from "zod";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 export interface ApiVariables {
@@ -58,7 +59,7 @@ function errorResponse(
         code,
         message,
         retryable: status === 429 || status === 503,
-        request_id: context.get("requestId") ?? crypto.randomUUID(),
+        request_id: context.get("requestId"),
         details: null,
       },
     }),
@@ -70,6 +71,10 @@ export async function parseJsonBody<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
 ): Promise<z.infer<T>> {
+  const contentLength = Number(context.req.header("Content-Length") ?? 0);
+  if (contentLength > REQUEST_BODY_MAX_BYTES) {
+    throw new ApiHttpError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
+  }
   let body: unknown;
   try {
     body = await context.req.json();
@@ -107,8 +112,10 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const app = new Hono<ApiEnvironment>({ strict: false });
   const v1 = new Hono<ApiEnvironment>({ strict: false });
   app.use("*", async (context, next) => {
-    context.set("requestId", crypto.randomUUID());
-    await next();
+    const requestId = crypto.randomUUID();
+    context.set("requestId", requestId);
+    context.header("X-Request-Id", requestId);
+    await logger.withContext({ request_id: requestId }, next);
   });
 
   if (authMode === "none") {
