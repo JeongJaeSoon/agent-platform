@@ -91,6 +91,38 @@ describe("API authentication", () => {
     expect(rejected.status).toBe(401);
   });
 
+  test("answers 503 when the key lookup cannot reach storage", async () => {
+    const { logger, sink } = loggerWithMemory();
+    const keyStore: ApiKeyStore = {
+      async findOwner() {
+        // Shape of a DrizzleQueryError wrapping a pg connection failure.
+        throw new Error("Failed query", {
+          cause: Object.assign(new Error("connect ECONNREFUSED"), {
+            code: "ECONNREFUSED",
+          }),
+        });
+      },
+    };
+    const app = createApiApp({ authMode: "api-key", keyStore, logger });
+    const response = await app.request("/v1", {
+      headers: { Authorization: "Bearer csp_any" },
+    });
+    expect(response.status).toBe(503);
+    expect(apiErrorResponseSchema.parse(await response.json())).toMatchObject({
+      error: {
+        code: "BACKEND_UNAVAILABLE",
+        retryable: true,
+      },
+    });
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "Storage unavailable during API request",
+      }),
+    );
+    expect(sink.records.some((record) => record.level === "error")).toBe(false);
+  });
+
   test("trusts X-Owner-Id only in explicit local mode and warns", async () => {
     const { logger, sink } = loggerWithMemory();
     const app = createApiApp({ authMode: "none", logger });

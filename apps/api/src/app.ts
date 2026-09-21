@@ -43,6 +43,32 @@ export class ApiHttpError extends Error {
   }
 }
 
+// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs and
+// node socket errors; the cause of a DrizzleQueryError carries the code.
+export function isStorageUnavailable(error: unknown): boolean {
+  const cause = error instanceof Error && error.cause ? error.cause : error;
+  const code = (cause as { code?: unknown })?.code;
+  return (
+    typeof code === "string" &&
+    (code.startsWith("08") ||
+      code.startsWith("57P") ||
+      code.startsWith("ECONN"))
+  );
+}
+
+export function storageUnavailableError(): ApiHttpError {
+  return new ApiHttpError(
+    503,
+    "BACKEND_UNAVAILABLE",
+    "Storage is unavailable, retry later",
+    true,
+  );
+}
+
+// Errors the auth middleware can produce on every /v1 route; the OpenAPI
+// parity test holds the root operation to this.
+export const rootRouteErrors = [401, 503];
+
 const missingKeyStore: ApiKeyStore = {
   async findOwner() {
     return null;
@@ -186,6 +212,22 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.code,
         error.message,
         error.retryable,
+      );
+    }
+    // The key lookup in the auth middleware runs before any route, so a
+    // database outage must map to 503 here, not only inside the handlers.
+    if (isStorageUnavailable(error)) {
+      const unavailable = storageUnavailableError();
+      logger.warn("Storage unavailable during API request", {
+        method: context.req.method,
+        path: context.req.path,
+      });
+      return errorResponse(
+        context,
+        unavailable.status,
+        unavailable.code,
+        unavailable.message,
+        unavailable.retryable,
       );
     }
     logger.error("Unhandled API request error", {

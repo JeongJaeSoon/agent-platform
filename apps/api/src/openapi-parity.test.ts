@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { buildOpenApiDocument } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
-import { createApiApp } from "./app.ts";
+import { createApiApp, rootRouteErrors } from "./app.ts";
 import {
   registerSessionRoutes,
   sessionRouteErrors,
@@ -77,8 +77,8 @@ test("every Hono handler is declared in the OpenAPI route table", () => {
 test("each handler's error statuses match its OpenAPI operation", () => {
   const declared = openApiOperations();
   for (const route of honoRoutes()) {
-    if (route === "GET /v1") continue;
-    const implemented = sessionRouteErrors[route];
+    const implemented =
+      route === "GET /v1" ? rootRouteErrors : sessionRouteErrors[route];
     expect(implemented, `${route} has no error status table`).toBeDefined();
     const expected = [
       ...(implemented ?? []),

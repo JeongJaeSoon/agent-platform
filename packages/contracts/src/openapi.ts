@@ -113,7 +113,7 @@ const routes: Route[] = [
     summary: "Authenticated principal",
     scope: "read",
     success: { status: 200, schema: "ApiRootResponse" },
-    errors: [401],
+    errors: [401, 503],
   },
   {
     method: "post",
