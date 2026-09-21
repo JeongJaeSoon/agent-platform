@@ -43,6 +43,61 @@ export class ApiHttpError extends Error {
   }
 }
 
+const SOCKET_ERROR_CODES = new Set([
+  "ETIMEDOUT",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+]);
+
+// pg raises these without a code when a socket drops or a timeout fires
+// (pg/lib/client.js, pg-pool/index.js).
+const PG_CONNECTION_MESSAGES =
+  /^(Connection terminated|timeout expired|Query read timeout)/;
+
+// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs,
+// node socket errors, and pg's code-less connection failures. Walks the
+// cause chain because Drizzle and pg-pool both wrap the original error.
+export function isStorageUnavailable(error: unknown): boolean {
+  for (let depth = 0, current = error; depth < 5; depth += 1) {
+    const code = (current as { code?: unknown })?.code;
+    if (
+      typeof code === "string" &&
+      (code.startsWith("08") ||
+        code.startsWith("57P") ||
+        code.startsWith("ECONN") ||
+        SOCKET_ERROR_CODES.has(code))
+    ) {
+      return true;
+    }
+    if (
+      current instanceof Error &&
+      PG_CONNECTION_MESSAGES.test(current.message)
+    ) {
+      return true;
+    }
+    if (!(current instanceof Error) || !current.cause) {
+      return false;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+
+export function storageUnavailableError(): ApiHttpError {
+  return new ApiHttpError(
+    503,
+    "BACKEND_UNAVAILABLE",
+    "Storage is unavailable, retry later",
+    true,
+  );
+}
+
+// Errors the auth middleware can produce on every /v1 route; the OpenAPI
+// parity test holds the root operation to this.
+export const rootRouteErrors = [401, 503];
+
 const missingKeyStore: ApiKeyStore = {
   async findOwner() {
     return null;
@@ -186,6 +241,22 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.code,
         error.message,
         error.retryable,
+      );
+    }
+    // The key lookup in the auth middleware runs before any route, so a
+    // database outage must map to 503 here, not only inside the handlers.
+    if (isStorageUnavailable(error)) {
+      const unavailable = storageUnavailableError();
+      logger.warn("Storage unavailable during API request", {
+        method: context.req.method,
+        path: context.req.path,
+      });
+      return errorResponse(
+        context,
+        unavailable.status,
+        unavailable.code,
+        unavailable.message,
+        unavailable.retryable,
       );
     }
     logger.error("Unhandled API request error", {
