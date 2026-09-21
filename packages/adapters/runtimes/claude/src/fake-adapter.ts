@@ -96,80 +96,85 @@ class FakeRun implements AgentRun {
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
     this.ledger.claimConsumer();
-    let cursor = 0;
-    const controlSignal = AbortSignal.any([
-      this.abortController.signal,
-      this.interruptController.signal,
-    ]);
-    for (const step of this.steps) {
-      if (this.abortController.signal.aborted) throw abortError();
-      if (this.interrupted) {
-        yield interruptedFrame(this.correlationId, `fake:${cursor}`);
-        return;
-      }
-      try {
-        if (step.type === "delay") {
-          await raceAbort(Bun.sleep(step.delayMs), controlSignal);
-        } else if (step.type === "error") {
-          throw step.error;
-        } else if (step.type === "permissions") {
-          const decisions = await raceAbort(
-            Promise.all(
-              step.requests.map((request) =>
-                this.onPermission({
-                  ...request,
-                  signal: controlSignal,
-                }),
-              ),
-            ),
-            controlSignal,
-          );
-          this.runtime.permissionDecisions.push(...decisions);
-        } else {
-          this.ledger.observe(step.message);
-          yield frameFromNativeMessage(
-            step.message,
-            this.correlationId,
-            `fake:${cursor}`,
-          );
-        }
-      } catch (error) {
-        if (this.abortController.signal.aborted) throw error;
+    try {
+      let cursor = 0;
+      const controlSignal = AbortSignal.any([
+        this.abortController.signal,
+        this.interruptController.signal,
+      ]);
+      for (const step of this.steps) {
+        if (this.abortController.signal.aborted) throw abortError();
         if (this.interrupted) {
-          yield interruptedFrame(
-            this.correlationId,
-            `fake:${cursor}:interrupted`,
-          );
+          yield this.interruptedFrame(`fake:${cursor}`);
           return;
         }
-        throw error;
+        try {
+          if (step.type === "delay") {
+            await raceAbort(Bun.sleep(step.delayMs), controlSignal);
+          } else if (step.type === "error") {
+            throw step.error;
+          } else if (step.type === "permissions") {
+            const decisions = await raceAbort(
+              Promise.all(
+                step.requests.map((request) =>
+                  this.onPermission({
+                    ...request,
+                    signal: controlSignal,
+                  }),
+                ),
+              ),
+              controlSignal,
+            );
+            this.runtime.permissionDecisions.push(...decisions);
+          } else {
+            this.ledger.observe(step.message);
+            yield frameFromNativeMessage(
+              step.message,
+              this.correlationId,
+              `fake:${cursor}`,
+            );
+          }
+        } catch (error) {
+          if (this.abortController.signal.aborted) throw error;
+          if (this.interrupted) {
+            yield this.interruptedFrame(`fake:${cursor}:interrupted`);
+            return;
+          }
+          throw error;
+        }
+        if (this.abortController.signal.aborted) throw abortError();
+        if (this.interrupted) {
+          yield this.interruptedFrame(`fake:${cursor}:interrupted`);
+          return;
+        }
+        cursor += 1;
       }
-      if (this.abortController.signal.aborted) throw abortError();
-      if (this.interrupted) {
-        yield interruptedFrame(
-          this.correlationId,
-          `fake:${cursor}:interrupted`,
-        );
-        return;
-      }
-      cursor += 1;
+    } finally {
+      this.ledger.streamEnded();
     }
-    this.ledger.streamEnded();
+  }
+
+  private interruptedFrame(cursor: string): AgentFrame {
+    const message = interruptedMessage(this.ledger.pendingUuids());
+    this.ledger.observe(message);
+    return frameFromNativeMessage(message, this.correlationId, cursor);
   }
 }
 
-function interruptedFrame(correlationId: string, cursor: string): AgentFrame {
-  return frameFromNativeMessage(
-    {
-      type: "result",
-      subtype: "error_during_execution",
-      session_id: "fake-session",
-      is_error: true,
-      terminal_reason: "interrupted",
-    },
-    correlationId,
-    cursor,
-  );
+// An interrupt drops every queued input, so the terminal frame attributes all
+// of them the way the SDK attributes a batch: last uuid plus the full list.
+function interruptedMessage(pending: string[]): NativeSdkMessage {
+  const last = pending.at(-1);
+  return {
+    type: "result",
+    subtype: "error_during_execution",
+    session_id: "fake-session",
+    is_error: true,
+    terminal_reason: "interrupted",
+    ...(last === undefined
+      ? {}
+      : { user_message_uuid: last, user_message_uuids: pending }),
+  };
 }
 
 async function raceAbort<T>(

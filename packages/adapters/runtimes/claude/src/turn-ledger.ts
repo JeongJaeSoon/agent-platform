@@ -37,6 +37,11 @@ export class TurnLedger {
     this.pending.add(uuid);
   }
 
+  /** Inputs no result has settled yet, in send order. */
+  pendingUuids(): string[] {
+    return [...this.pending];
+  }
+
   /** Undo queued() when the input never reached the engine. */
   release(uuid: string): void {
     this.pending.delete(uuid);

@@ -105,13 +105,20 @@ export class ClaudeSdkRun implements AgentRun {
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
     this.ledger.claimConsumer();
-    let cursor = 0;
-    for await (const message of this.sdkQuery) {
-      const native = message as SDKMessage as unknown as NativeSdkMessage;
-      this.ledger.observe(native);
-      yield frameFromNativeMessage(native, this.correlationId, `sdk:${cursor}`);
-      cursor += 1;
+    try {
+      let cursor = 0;
+      for await (const message of this.sdkQuery) {
+        const native = message as SDKMessage as unknown as NativeSdkMessage;
+        this.ledger.observe(native);
+        yield frameFromNativeMessage(
+          native,
+          this.correlationId,
+          `sdk:${cursor}`,
+        );
+        cursor += 1;
+      }
+    } finally {
+      this.ledger.streamEnded();
     }
-    this.ledger.streamEnded();
   }
 }

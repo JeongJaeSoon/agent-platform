@@ -92,6 +92,39 @@ describe("fake agent runtime", () => {
     expect((await run.prepareCheckpoint()).status).toBe("ready");
   });
 
+  test("an interrupt settles the queued inputs so a checkpoint becomes possible", async () => {
+    const run = new FakeAgentRuntime([
+      { type: "delay", delayMs: 10_000 },
+    ]).start(
+      { ...config, mode: "resume", resume: "ckpt" },
+      { onPermission: async () => ({ behavior: "allow" }) },
+    );
+    run.send({ message: "one", uuid: "u1" });
+    run.send({ message: "two", uuid: "u2" });
+    expect((await run.prepareCheckpoint()).status).toBe("rejected");
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    await Bun.sleep(5);
+    expect(await run.interrupt()).toEqual({ stillQueued: [] });
+    await consume;
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.envelope.message.terminal_reason).toBe("interrupted");
+    expect(frames[0]?.envelope.message.user_message_uuids).toEqual([
+      "u1",
+      "u2",
+    ]);
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "ready",
+      checkpoint: {
+        engine: "claude",
+        resume: "fake-session",
+        sdkVersion: "0.3.270",
+      },
+    });
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {
