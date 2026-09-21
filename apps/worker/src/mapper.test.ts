@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sseEventSchema } from "@agent-platform/contracts";
+import { sessionEventSchema } from "@agent-platform/contracts";
 
 import { frameFromNativeMessage, pendingRequestEvent } from "./mapper.ts";
 
@@ -29,7 +29,7 @@ describe("native SDK message mapping", () => {
     expect(JSON.stringify(frame)).toContain("parent-tool-id");
     expect(JSON.stringify(frame)).toContain("tool-id");
     for (const item of frame.events) {
-      expect(sseEventSchema.parse(item)).toEqual(item);
+      expect(sessionEventSchema.parse(item)).toEqual(item);
     }
   });
 

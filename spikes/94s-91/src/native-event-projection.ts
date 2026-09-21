@@ -1,8 +1,8 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
-  type SseEvent,
-  sseEventSchema,
-} from "../../../packages/contracts/src/event";
+  type SessionEvent,
+  sessionEventSchema,
+} from "../../../packages/contracts/src/api/event";
 
 export type PendingRequestProjection = {
   input: unknown;
@@ -15,7 +15,7 @@ export type PendingRequestProjection = {
 export function projectSdkMessage(
   message: SDKMessage,
   cursor: string,
-): SseEvent[] {
+): SessionEvent[] {
   if (message.type === "assistant") {
     if (message.error !== undefined) {
       return [
@@ -74,7 +74,7 @@ export function projectSdkMessage(
 export function projectPendingRequest(
   pending: PendingRequestProjection,
   cursor: string,
-): SseEvent {
+): SessionEvent {
   return parseEvent(cursor, "question", {
     input: pending.input,
     kind: pending.kind,
@@ -87,14 +87,14 @@ export function projectPendingRequest(
 export function projectStatus(
   status: "queued" | "running" | "needs_input" | "idle" | "stopped" | "failed",
   cursor: string,
-): SseEvent {
-  return parseEvent(cursor, "status", { status });
+): SessionEvent {
+  return parseEvent(cursor, "status", { phase: status });
 }
 
 function parseEvent(
   id: string,
-  event: SseEvent["event"],
+  event: SessionEvent["event"],
   data: unknown,
-): SseEvent {
-  return sseEventSchema.parse({ id, event, data });
+): SessionEvent {
+  return sessionEventSchema.parse({ id, event, data });
 }

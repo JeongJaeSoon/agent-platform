@@ -1,4 +1,7 @@
-import { type SseEvent, sseEventSchema } from "@agent-platform/contracts";
+import {
+  type SessionEvent,
+  sessionEventSchema,
+} from "@agent-platform/contracts";
 
 import {
   type AgentFrame,
@@ -41,7 +44,7 @@ export function sanitizeNativeMessage(
 export function projectPublicEvents(
   envelope: NativeEnvelope,
   cursor: string,
-): SseEvent[] {
+): SessionEvent[] {
   const message = envelope.message;
   if (message.type === "assistant") {
     if (typeof message.error === "string") {
@@ -137,7 +140,7 @@ export function pendingRequestEvent(
     toolUseId: string;
   },
   cursor: string,
-): SseEvent {
+): SessionEvent {
   return event(cursor, "question", {
     request_id: request.requestId,
     tool_use_id: request.toolUseId,
@@ -149,10 +152,10 @@ export function pendingRequestEvent(
 
 function event(
   id: string,
-  eventName: SseEvent["event"],
+  eventName: SessionEvent["event"],
   data: unknown,
-): SseEvent {
-  return sseEventSchema.parse({ id, event: eventName, data });
+): SessionEvent {
+  return sessionEventSchema.parse({ id, event: eventName, data });
 }
 
 function sanitizeValue(value: unknown, key?: string): unknown {

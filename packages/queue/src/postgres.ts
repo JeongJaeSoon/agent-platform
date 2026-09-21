@@ -1,7 +1,7 @@
 import {
   postSessionAnswerRequestSchema,
+  sessionEventSchema,
   sessionMessageSchema,
-  sseEventSchema,
 } from "@agent-platform/contracts";
 import {
   type Database,
@@ -203,7 +203,7 @@ export class PostgresQueue implements QueueBackend {
   }
 
   async publish(input: PublishInput) {
-    const validated = sseEventSchema.parse({
+    const validated = sessionEventSchema.parse({
       id: "ev_0",
       event: input.event,
       data: input.data,
@@ -222,7 +222,7 @@ export class PostgresQueue implements QueueBackend {
     await this.#db.execute(
       sql`SELECT pg_notify('session_events', ${input.sessionId})`,
     );
-    return sseEventSchema.parse({
+    return sessionEventSchema.parse({
       id: encodeCursor(inserted.id),
       event: inserted.type,
       data: inserted.payload,
@@ -243,7 +243,7 @@ export class PostgresQueue implements QueueBackend {
         .limit(100);
       for (const row of rows) {
         lastId = row.id;
-        yield sseEventSchema.parse({
+        yield sessionEventSchema.parse({
           id: encodeCursor(row.id),
           event: row.type,
           data: row.payload,

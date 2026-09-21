@@ -26,12 +26,16 @@ describe("API authentication", () => {
         headers: { "X-Owner-Id": "forged-owner" },
       });
       expect(response.status).toBe(401);
-      expect(apiErrorResponseSchema.parse(await response.json())).toEqual({
-        error: {
-          code: "unauthorized",
-          message: "Authentication is required",
+      expect(apiErrorResponseSchema.parse(await response.json())).toMatchObject(
+        {
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication is required",
+            retryable: false,
+            details: null,
+          },
         },
-      });
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.AUTH_MODE;
@@ -129,9 +133,23 @@ describe("API validation and errors", () => {
       body: JSON.stringify({ message: "hello", unexpected: true }),
     });
     expect(response.status).toBe(400);
+    expect(response.headers.get("X-Request-Id")).toHaveLength(36);
     expect(
       apiErrorResponseSchema.safeParse(await response.json()).success,
     ).toBe(true);
+
+    const oversized = await app.request("/v1/echo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "local-owner",
+      },
+      body: JSON.stringify({ message: "x".repeat(65 * 1024) }),
+    });
+    expect(oversized.status).toBe(413);
+    expect(
+      apiErrorResponseSchema.parse(await oversized.json()).error.code,
+    ).toBe("PAYLOAD_TOO_LARGE");
   });
 
   test("returns a stable 500 without exposing an error or stack", async () => {

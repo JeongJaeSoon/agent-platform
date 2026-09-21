@@ -2,6 +2,7 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  REQUEST_BODY_MAX_BYTES,
 } from "@agent-platform/contracts";
 import {
   createLogger,
@@ -14,6 +15,7 @@ import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 export interface ApiVariables {
   ownerId: string;
+  requestId: string;
 }
 
 export type ApiEnvironment = {
@@ -34,6 +36,7 @@ export class ApiHttpError extends Error {
     readonly status: ContentfulStatusCode,
     readonly code: ApiErrorCode,
     message: string,
+    readonly retryable = false,
   ) {
     super(message);
   }
@@ -50,9 +53,18 @@ function errorResponse(
   status: ContentfulStatusCode,
   code: ApiErrorCode,
   message: string,
+  retryable = false,
 ): Response {
   return context.json(
-    apiErrorResponseSchema.parse({ error: { code, message } }),
+    apiErrorResponseSchema.parse({
+      error: {
+        code,
+        message,
+        retryable,
+        request_id: context.get("requestId"),
+        details: null,
+      },
+    }),
     status,
   );
 }
@@ -61,15 +73,20 @@ export async function parseJsonBody<T extends z.ZodType>(
   context: Context<ApiEnvironment>,
   schema: T,
 ): Promise<z.infer<T>> {
+  // Measure the bytes actually received; Content-Length can be absent or lie.
+  const raw = await context.req.arrayBuffer();
+  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+    throw new ApiHttpError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
+  }
   let body: unknown;
   try {
-    body = await context.req.json();
+    body = JSON.parse(new TextDecoder().decode(raw));
   } catch {
-    throw new ApiHttpError(400, "bad_request", "Invalid JSON body");
+    throw new ApiHttpError(400, "BAD_REQUEST", "Invalid JSON body");
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    throw new ApiHttpError(400, "bad_request", "Request body is invalid");
+    throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
   }
   return parsed.data;
 }
@@ -97,6 +114,12 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const logger = options.logger ?? createLogger();
   const app = new Hono<ApiEnvironment>({ strict: false });
   const v1 = new Hono<ApiEnvironment>({ strict: false });
+  app.use("*", async (context, next) => {
+    const requestId = crypto.randomUUID();
+    context.set("requestId", requestId);
+    context.header("X-Request-Id", requestId);
+    await logger.withContext({ request_id: requestId }, next);
+  });
 
   if (authMode === "none") {
     logger.warn("API authentication is disabled", { auth_mode: "none" });
@@ -121,7 +144,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       return errorResponse(
         context,
         401,
-        "unauthorized",
+        "UNAUTHORIZED",
         "Authentication is required",
       );
     }
@@ -140,11 +163,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   app.route("/v1", v1);
 
   app.notFound((context) =>
-    errorResponse(context, 404, "not_found", "Resource not found"),
+    errorResponse(context, 404, "NOT_FOUND", "Resource not found"),
   );
   app.onError((error, context) => {
     if (error instanceof ApiHttpError) {
-      return errorResponse(context, error.status, error.code, error.message);
+      return errorResponse(
+        context,
+        error.status,
+        error.code,
+        error.message,
+        error.retryable,
+      );
     }
     logger.error("Unhandled API request error", {
       error_name: error instanceof Error ? error.name : "UnknownError",
@@ -154,7 +183,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     return errorResponse(
       context,
       500,
-      "internal_error",
+      "INTERNAL_ERROR",
       "Internal server error",
     );
   });

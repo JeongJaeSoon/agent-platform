@@ -75,7 +75,7 @@ integration("PostgresQueue on PostgreSQL", () => {
     const published = await queue.publish({
       sessionId,
       event: "status",
-      data: { status: "running" },
+      data: { phase: "running" },
     });
     const controller = new AbortController();
     for await (const event of queue.subscribe({

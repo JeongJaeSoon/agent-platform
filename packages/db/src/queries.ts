@@ -168,10 +168,13 @@ export async function requeueOrphan(
   });
 }
 
+// outcome_unknown is deliberately not terminal: its input must stay blocked
+// until an operator recovery decision.
 const TERMINAL_TURN_STATUSES = new Set<string>([
-  "done",
+  "completed",
   "failed",
   "interrupted",
+  "cancelled",
 ] satisfies TurnStatus[]);
 
 export type ReconciledOrphan = {

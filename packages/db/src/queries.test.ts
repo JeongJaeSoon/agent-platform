@@ -275,7 +275,7 @@ describe("session queries", () => {
     });
     const [turn] = await db
       .insert(turns)
-      .values({ sessionId, message: "done", status: "done" })
+      .values({ sessionId, message: "done", status: "completed" })
       .returning({ id: turns.id });
     const [message] = await db
       .insert(queueMessages)
@@ -324,11 +324,13 @@ describe("session queries", () => {
     const createdTurns = await db
       .insert(turns)
       .values([
-        { sessionId, message: "checkpoint", status: "done" },
+        { sessionId, message: "checkpoint", status: "completed" },
         { sessionId, message: "stopped", status: "interrupted" },
       ])
       .returning({ id: turns.id, status: turns.status });
-    const checkpointTurn = createdTurns.find(({ status }) => status === "done");
+    const checkpointTurn = createdTurns.find(
+      ({ status }) => status === "completed",
+    );
     const interruptedTurn = createdTurns.find(
       ({ status }) => status === "interrupted",
     );

@@ -106,17 +106,17 @@ describe("PostgresQueue", () => {
     const first = await queue.publish({
       sessionId,
       event: "status",
-      data: { status: "queued" },
+      data: { phase: "queued" },
     });
     await queue.publish({
       sessionId,
       event: "status",
-      data: { status: "running" },
+      data: { phase: "running" },
     });
     await queue.publish({
       sessionId,
       event: "status",
-      data: { status: "idle" },
+      data: { phase: "idle" },
     });
     const controller = new AbortController();
     const replayed = [];
@@ -134,8 +134,8 @@ describe("PostgresQueue", () => {
     expect(first.id).toStartWith("ev_");
     expect(first.id).not.toContain("-0");
     expect(replayed.map(({ data }) => data)).toEqual([
-      { status: "running" },
-      { status: "idle" },
+      { phase: "running" },
+      { phase: "idle" },
     ]);
   });
 

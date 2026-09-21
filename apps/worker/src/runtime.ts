@@ -1,4 +1,4 @@
-import type { SseEvent } from "@agent-platform/contracts";
+import type { SessionEvent } from "@agent-platform/contracts";
 
 export const CLAUDE_AGENT_SDK_VERSION = "0.3.270";
 
@@ -35,7 +35,7 @@ export type NativeEnvelope = {
 
 export type AgentFrame = {
   envelope: NativeEnvelope;
-  events: SseEvent[];
+  events: SessionEvent[];
 };
 
 export type RuntimePlugin = { path: string; type: "local" };
