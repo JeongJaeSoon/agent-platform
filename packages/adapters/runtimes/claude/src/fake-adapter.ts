@@ -47,7 +47,9 @@ class FakeRun implements AgentRun {
   private readonly interruptController = new AbortController();
   private readonly ledger: TurnLedger;
   private closed = false;
-  private interrupted = false;
+  // First accepted terminal action wins: an interrupt that already returned
+  // its receipt still yields its terminal result even if abort() follows.
+  private terminal: "aborted" | "interrupted" | undefined;
 
   constructor(
     private readonly runtime: FakeAgentRuntime,
@@ -72,18 +74,19 @@ class FakeRun implements AgentRun {
   }
 
   async interrupt(): Promise<{ stillQueued: string[] }> {
-    this.interrupted = true;
+    this.terminal ??= "interrupted";
     this.interruptController.abort();
     return { stillQueued: [] };
   }
 
   abort(): void {
+    this.terminal ??= "aborted";
     this.abortController.abort();
   }
 
   close(): void {
     this.closed = true;
-    this.abortController.abort();
+    this.abort();
   }
 
   async prepareCheckpoint(): Promise<CheckpointPreparation> {
@@ -103,8 +106,8 @@ class FakeRun implements AgentRun {
         this.interruptController.signal,
       ]);
       for (const step of this.steps) {
-        if (this.abortController.signal.aborted) throw abortError();
-        if (this.interrupted) {
+        if (this.terminal === "aborted") throw abortError();
+        if (this.terminal === "interrupted") {
           yield this.interruptedFrame(`fake:${cursor}`);
           return;
         }
@@ -135,15 +138,14 @@ class FakeRun implements AgentRun {
             );
           }
         } catch (error) {
-          if (this.abortController.signal.aborted) throw error;
-          if (this.interrupted) {
+          if (this.terminal === "interrupted") {
             yield this.interruptedFrame(`fake:${cursor}:interrupted`);
             return;
           }
           throw error;
         }
-        if (this.abortController.signal.aborted) throw abortError();
-        if (this.interrupted) {
+        if (this.terminal === "aborted") throw abortError();
+        if (this.terminal === "interrupted") {
           yield this.interruptedFrame(`fake:${cursor}:interrupted`);
           return;
         }

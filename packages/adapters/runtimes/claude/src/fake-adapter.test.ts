@@ -125,6 +125,40 @@ describe("fake agent runtime", () => {
     });
   });
 
+  test("the first accepted terminal action wins between interrupt and abort", async () => {
+    const start = () =>
+      new FakeAgentRuntime([{ type: "delay", delayMs: 10_000 }]).start(
+        { ...config, mode: "resume", resume: "ckpt" },
+        { onPermission: async () => ({ behavior: "allow" }) },
+      );
+
+    const interruptedFirst = start();
+    interruptedFirst.send({ message: "one", uuid: "u1" });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of interruptedFirst) frames.push(frame);
+    })();
+    await Bun.sleep(5);
+    await interruptedFirst.interrupt();
+    interruptedFirst.abort();
+    await consume;
+    expect(
+      frames.map((frame) => frame.envelope.message.terminal_reason),
+    ).toEqual(["interrupted"]);
+    expect((await interruptedFirst.prepareCheckpoint()).status).toBe("ready");
+
+    const abortedFirst = start();
+    abortedFirst.send({ message: "one", uuid: "u1" });
+    const consumeAborted = (async () => {
+      for await (const _frame of abortedFirst) void _frame;
+    })();
+    await Bun.sleep(5);
+    abortedFirst.abort();
+    await abortedFirst.interrupt();
+    await expect(consumeAborted).rejects.toMatchObject({ name: "AbortError" });
+    expect((await abortedFirst.prepareCheckpoint()).status).toBe("rejected");
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {
