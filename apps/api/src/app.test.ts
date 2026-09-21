@@ -127,6 +127,10 @@ describe("API authentication", () => {
     ["pg socket drop", new Error("Connection terminated unexpectedly")],
     ["pg connect timeout", new Error("timeout expired")],
     [
+      "pg-pool acquisition timeout on a saturated pool",
+      new Error("timeout exceeded when trying to connect"),
+    ],
+    [
       "pg-pool timeout wrapping a socket error",
       new Error("Connection terminated due to connection timeout", {
         cause: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),

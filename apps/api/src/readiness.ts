@@ -1,9 +1,12 @@
 import type { ReadinessCheck } from "@agent-platform/contracts";
 import {
-  APPLIED_MIGRATION_HEAD_SQL,
+  APPLIED_MIGRATIONS_SQL,
   expectedMigrationHead,
+  expectedMigrations,
+  type MigrationEntry,
   type MigrationHead,
 } from "@agent-platform/db";
+import type { StructuredLogger } from "@agent-platform/observability";
 import { Pool } from "pg";
 
 export type ReadinessResult =
@@ -24,15 +27,38 @@ export interface QueryRunner {
 // fires later.
 export function createProbePool(
   connectionString: string,
+  logger: StructuredLogger,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Pool {
-  return new Pool({
-    connectionString,
-    max: 1,
-    connectionTimeoutMillis: timeoutMs,
-    statement_timeout: timeoutMs,
-    query_timeout: timeoutMs * 2,
+  return watchIdleErrors(
+    new Pool({
+      connectionString,
+      max: 1,
+      connectionTimeoutMillis: timeoutMs,
+      statement_timeout: timeoutMs,
+      query_timeout: timeoutMs * 2,
+    }),
+    logger,
+    "probe",
+  );
+}
+
+// pg-pool emits "error" for an idle client whose backend went away; with no
+// listener that is an uncaught exception and the process dies on a database
+// restart instead of answering 503 until it is back.
+export function watchIdleErrors(
+  pool: Pool,
+  logger: StructuredLogger,
+  name: string,
+): Pool {
+  pool.on("error", (error) => {
+    logger.warn("Idle database connection dropped", {
+      pool: name,
+      error_name: error.name,
+      code: (error as { code?: string }).code ?? null,
+    });
   });
+  return pool;
 }
 
 export interface CreateReadinessProbeOptions {
@@ -40,7 +66,7 @@ export interface CreateReadinessProbeOptions {
   // Variable names that must be set and non-empty.
   readonly requiredEnv: readonly string[];
   readonly environment?: Record<string, string | undefined>;
-  readonly expectedHead?: MigrationHead;
+  readonly expected?: { head: MigrationHead; migrations: MigrationEntry[] };
   // Last-resort bound for each database step when the runner has no
   // timeouts of its own (see createProbePool); it abandons the promise, so
   // the runner itself must free the connection.
@@ -61,6 +87,27 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+function migrationDrift(
+  expected: MigrationEntry[],
+  applied: { when: string; hash: string }[],
+): string | null {
+  const length = Math.max(expected.length, applied.length);
+  for (let index = 0; index < length; index += 1) {
+    const want = expected[index];
+    const have = applied[index];
+    if (!want) {
+      return `database has ${applied.length - expected.length} unknown migration(s) after ${have?.when}`;
+    }
+    if (!have) {
+      return `database is missing migration ${want.when}`;
+    }
+    if (have.when !== String(want.when) || have.hash !== want.hash) {
+      return `migration ${index} differs (expected ${want.when}/${want.hash.slice(0, 12)}, database ${have.when}/${have.hash.slice(0, 12)})`;
+    }
+  }
+  return null;
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -72,35 +119,40 @@ export function createReadinessProbe(
 ): ReadinessProbe {
   const environment = options.environment ?? process.env;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const expected = options.expectedHead ?? expectedMigrationHead();
+  const expected = options.expected ?? {
+    head: expectedMigrationHead(),
+    migrations: expectedMigrations(),
+  };
   return async () => {
     try {
       await withTimeout(options.db.query("SELECT 1"), timeoutMs);
     } catch (error) {
       return { ready: false, check: "database", reason: describe(error) };
     }
-    let head: { applied?: unknown; hash?: unknown } | undefined;
+    let applied: { when: string; hash: string }[];
     try {
       const result = await withTimeout(
-        options.db.query(APPLIED_MIGRATION_HEAD_SQL),
+        options.db.query(APPLIED_MIGRATIONS_SQL),
         timeoutMs,
       );
-      head = result.rows[0];
+      applied = result.rows.map((row) => ({
+        when: String(row.when),
+        hash: String(row.hash),
+      }));
     } catch (error) {
       // 42P01 (relation missing) lands here too: no journal table means the
       // database was never migrated.
       return { ready: false, check: "schema", reason: describe(error) };
     }
-    // Same timestamp with a different hash means the SQL behind the journal
-    // row is not the SQL this build shipped: treat it as a different schema.
-    if (
-      head?.applied !== String(expected.when) ||
-      head.hash !== expected.hash
-    ) {
+    // The whole chain, not only its head: a missing or rewritten earlier
+    // migration leaves the head intact while the schema differs from the one
+    // this build's SQL produces.
+    const drift = migrationDrift(expected.migrations, applied);
+    if (drift) {
       return {
         ready: false,
         check: "schema",
-        reason: `expected migration ${expected.tag} (${expected.when}, ${expected.hash.slice(0, 12)}), database has ${head ? `${head.applied} (${String(head.hash).slice(0, 12)})` : "none"}`,
+        reason: `expected migrations up to ${expected.head.tag}: ${drift}`,
       };
     }
     const missing = options.requiredEnv.filter(

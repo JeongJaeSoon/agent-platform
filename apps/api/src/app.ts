@@ -57,10 +57,10 @@ const SOCKET_ERROR_CODES = new Set([
   "EAI_AGAIN",
 ]);
 
-// pg raises these without a code when a socket drops or a timeout fires
-// (pg/lib/client.js, pg-pool/index.js).
+// pg raises these without a code when a socket drops, a timeout fires, or a
+// saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
 const PG_CONNECTION_MESSAGES =
-  /^(Connection terminated|timeout expired|Query read timeout)/;
+  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect)/;
 
 // Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs,
 // node socket errors, and pg's code-less connection failures. Walks the

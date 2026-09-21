@@ -22,6 +22,7 @@ import {
   turns,
   unassignedSessions,
 } from "@agent-platform/db";
+import { createLogger } from "@agent-platform/observability";
 import {
   createSessionService,
   ownerScopedPolicy,
@@ -81,7 +82,7 @@ integration("sessions API on PostgreSQL", () => {
         },
       },
     });
-    probePool = createProbePool(databaseUrl ?? "", 500);
+    probePool = createProbePool(databaseUrl ?? "", createLogger(), 500);
     app = createApiApp({
       authMode: "none",
       registerRoutes: (router) => {
@@ -303,6 +304,20 @@ integration("sessions API on PostgreSQL", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.waitingCount).toBe(0);
+  });
+
+  test("survives the backend of an idle probe connection being terminated", async () => {
+    expect((await app.request("/readyz")).status).toBe(200);
+    expect(probePool.idleCount).toBe(1);
+    const pid = (
+      await probePool.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+    ).rows[0]?.pid;
+    // From another connection, kill the backend the idle probe client holds.
+    await pool.query("SELECT pg_terminate_backend($1)", [pid]);
+    await Bun.sleep(100);
+    // pg-pool has emitted "error" for the idle client by now; the process is
+    // still here and the next probe simply reconnects.
+    expect((await app.request("/readyz")).status).toBe(200);
   });
 
   test("10 concurrent creates with one key produce one session, turn and receipt", async () => {

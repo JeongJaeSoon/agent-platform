@@ -88,6 +88,33 @@ describe("readiness probe", () => {
     expect(
       await createReadinessProbe({ db: rewritten, requiredEnv, environment })(),
     ).toMatchObject({ ready: false, check: "schema" });
+
+    // The head alone is not enough: an earlier migration missing or rewritten
+    // must fail too.
+    const gap = await database(true);
+    await gap.query(
+      'DELETE FROM "drizzle"."__drizzle_migrations" WHERE created_at = (SELECT min(created_at) FROM "drizzle"."__drizzle_migrations")',
+    );
+    const gapResult = await createReadinessProbe({
+      db: gap,
+      requiredEnv,
+      environment,
+    })();
+    expect(gapResult).toMatchObject({ ready: false, check: "schema" });
+    const middle = await database(true);
+    await middle.query(
+      'UPDATE "drizzle"."__drizzle_migrations" SET hash = \'deadbeef\' WHERE created_at = (SELECT min(created_at) FROM "drizzle"."__drizzle_migrations")',
+    );
+    expect(
+      await createReadinessProbe({ db: middle, requiredEnv, environment })(),
+    ).toMatchObject({ ready: false, check: "schema" });
+    const extra = await database(true);
+    await extra.query(
+      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (\'future\', 9999999999999)',
+    );
+    expect(
+      await createReadinessProbe({ db: extra, requiredEnv, environment })(),
+    ).toMatchObject({ ready: false, check: "schema" });
   });
 
   test("fails the config check when a required variable is missing or blank", async () => {

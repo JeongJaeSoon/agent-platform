@@ -14,7 +14,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import { createProbePool, createReadinessProbe } from "./readiness.ts";
+import {
+  createProbePool,
+  createReadinessProbe,
+  watchIdleErrors,
+} from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -43,10 +47,11 @@ if (isCatalogEmpty(catalog)) {
 
 // A bounded connect keeps /readyz (and every request) from hanging on a
 // black-holed database host instead of answering 503.
-const pool = new Pool({
-  connectionString: databaseUrl,
-  connectionTimeoutMillis: 5_000,
-});
+const pool = watchIdleErrors(
+  new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 }),
+  logger,
+  "api",
+);
 const db = drizzle(pool, { schema });
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
@@ -63,7 +68,7 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
   },
   readiness: createReadinessProbe({
-    db: createProbePool(databaseUrl),
+    db: createProbePool(databaseUrl, logger),
     // AUTH_MODE unset still fails closed (every /v1 call is 401), which is a
     // misconfiguration, not a serving instance.
     requiredEnv: ["DATABASE_URL", "AUTH_MODE"],
