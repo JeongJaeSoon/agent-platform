@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { ClaudeSdkRun, InputStream } from "./run.ts";
 import {
   buildSdkOptions,
   ClaudeSdkRuntime,
@@ -23,6 +24,23 @@ const config: ClaudeRuntimeConfig = {
   settingSources: ["project"],
   tools: ["Read"],
 };
+
+describe("Claude SDK run", () => {
+  test("a send rejected by a closed input stream leaves the checkpoint state untouched", async () => {
+    const run = new ClaudeSdkRun(
+      "closed",
+      new InputStream(),
+      { interrupt: async () => undefined, close: () => undefined } as never,
+      new AbortController(),
+      "resume-1",
+    );
+    run.finishInput();
+    expect(() => run.send({ message: "late", uuid: "late" })).toThrow(
+      "Input stream is closed",
+    );
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+  });
+});
 
 describe("Claude SDK adapter options", () => {
   test("uses explicit Claude Code defaults without auto-allowing tools", () => {

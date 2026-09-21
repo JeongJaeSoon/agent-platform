@@ -11,12 +11,14 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
  * yet, and whether frames are mid-turn. A checkpoint taken while anything is
  * outstanding would point at a transcript the SDK has not flushed.
  *
- * The SDK may fold several queued sends into one turn, so a result settles
- * every uuid it lists in `user_message_uuids` (or `user_message_uuid`), not
- * just one input. A result that attributes no uuid (delivery failures, zeroed
- * or session-scoped errors) settles nothing: the ledger fails closed rather
- * than guess which input the transcript now holds. Informational frames after
- * a result do not reopen the turn unless input is still pending.
+ * The SDK may fold several queued sends into one turn. A result names the
+ * batch's last input in `user_message_uuid` and up to 64 members in
+ * `user_message_uuids`, so the ledger keeps send order and settles every
+ * pending input queued up to and including that last uuid, plus any listed
+ * one. A result that attributes no uuid (delivery failures, zeroed or
+ * session-scoped errors) settles nothing: the ledger fails closed rather than
+ * guess which input the transcript now holds. Informational frames after a
+ * result do not reopen the turn unless input is still pending.
  */
 export class TurnLedger {
   private consumed = false;
@@ -35,6 +37,11 @@ export class TurnLedger {
     this.pending.add(uuid);
   }
 
+  /** Undo queued() when the input never reached the engine. */
+  release(uuid: string): void {
+    this.pending.delete(uuid);
+  }
+
   observe(message: NativeSdkMessage): void {
     if (typeof message.session_id === "string") {
       this.sessionId = message.session_id;
@@ -44,6 +51,13 @@ export class TurnLedger {
       return;
     }
     this.streaming = false;
+    const last = message.user_message_uuid;
+    if (typeof last === "string" && this.pending.has(last)) {
+      for (const uuid of [...this.pending]) {
+        this.pending.delete(uuid);
+        if (uuid === last) break;
+      }
+    }
     for (const uuid of consumedUuids(message)) this.pending.delete(uuid);
   }
 

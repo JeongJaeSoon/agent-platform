@@ -50,6 +50,33 @@ describe("turn ledger", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
+  test("settles every input queued before the batch's last uuid, past the 64-entry cap", () => {
+    const ledger = new TurnLedger("s1");
+    const uuids = Array.from({ length: 70 }, (_, i) => `u${i}`);
+    for (const uuid of uuids) ledger.queued(uuid);
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "u64",
+      user_message_uuids: uuids.slice(1, 65),
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(running);
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "u69",
+      user_message_uuids: uuids.slice(65),
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("release() drops an input that never reached the engine", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.release("a");
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
   test("a result without uuid attribution settles nothing", () => {
     const ledger = new TurnLedger("s1");
     ledger.queued("a");
