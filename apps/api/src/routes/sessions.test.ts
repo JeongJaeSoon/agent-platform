@@ -160,6 +160,14 @@ describe("POST /v1/sessions validation", () => {
       },
     }).request("/v1/sessions", { headers: { "X-Owner-Id": "owner-a" } });
     expect(list.status).toBe(503);
+    const saturated = await app({
+      listSessions: async () => {
+        throw Object.assign(new Error("too many connections"), {
+          code: "53300",
+        });
+      },
+    }).request("/v1/sessions", { headers: { "X-Owner-Id": "owner-a" } });
+    expect(saturated.status).toBe(503);
   });
 
   test("answers 413 for an oversized body and for an oversized message", async () => {

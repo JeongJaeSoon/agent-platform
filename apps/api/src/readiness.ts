@@ -87,17 +87,14 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+// The packaged migrations must be an exact prefix of the applied ones.
 function migrationDrift(
   expected: MigrationEntry[],
   applied: { when: string; hash: string }[],
 ): string | null {
-  const length = Math.max(expected.length, applied.length);
-  for (let index = 0; index < length; index += 1) {
-    const want = expected[index];
+  for (let index = 0; index < expected.length; index += 1) {
+    const want = expected[index] as MigrationEntry;
     const have = applied[index];
-    if (!want) {
-      return `database has ${applied.length - expected.length} unknown migration(s) after ${have?.when}`;
-    }
     if (!have) {
       return `database is missing migration ${want.when}`;
     }
@@ -146,7 +143,10 @@ export function createReadinessProbe(
     }
     // The whole chain, not only its head: a missing or rewritten earlier
     // migration leaves the head intact while the schema differs from the one
-    // this build's SQL produces.
+    // this build's SQL produces. Rows after this build's last migration are
+    // fine: DESIGN.md §11.5 applies migrations in a Job before the rollout,
+    // so the previous build must stay ready on a database that is one step
+    // ahead, and only rollback-compatible changes ship.
     const drift = migrationDrift(expected.migrations, applied);
     if (drift) {
       return {

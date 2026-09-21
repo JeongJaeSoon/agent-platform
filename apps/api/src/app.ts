@@ -62,15 +62,17 @@ const SOCKET_ERROR_CODES = new Set([
 const PG_CONNECTION_MESSAGES =
   /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect)/;
 
-// Postgres connection (08xxx) / operator-intervention (57Pxx) SQLSTATEs,
-// node socket errors, and pg's code-less connection failures. Walks the
-// cause chain because Drizzle and pg-pool both wrap the original error.
+// Postgres connection (08xxx), insufficient-resources (53xxx: too many
+// connections, disk full) and operator-intervention (57Pxx) SQLSTATEs, node
+// socket errors, and pg's code-less connection failures. Walks the cause
+// chain because Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
     const code = (current as { code?: unknown })?.code;
     if (
       typeof code === "string" &&
       (code.startsWith("08") ||
+        code.startsWith("53") ||
         code.startsWith("57P") ||
         code.startsWith("ECONN") ||
         SOCKET_ERROR_CODES.has(code))

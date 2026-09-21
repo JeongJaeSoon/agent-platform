@@ -140,6 +140,10 @@ describe("API authentication", () => {
       "SQLSTATE 57P01",
       Object.assign(new Error("terminating"), { code: "57P01" }),
     ],
+    [
+      "SQLSTATE 53300 too many connections",
+      Object.assign(new Error("too many connections"), { code: "53300" }),
+    ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {
       async findOwner() {

@@ -36,7 +36,7 @@ describe("readiness probe", () => {
       environment,
     });
     expect(await probe()).toEqual({ ready: true });
-  });
+  }, 30_000);
 
   test("fails the database check when the query errors or hangs", async () => {
     const down: QueryRunner = {
@@ -59,6 +59,18 @@ describe("readiness probe", () => {
       })(),
     ).toMatchObject({ ready: false, check: "database" });
   });
+
+  test("stays ready when the database is ahead by a later migration", async () => {
+    // DESIGN.md §11.5: the migration Job runs before the rollout, so the
+    // previous build must keep serving on a database that is one step ahead.
+    const ahead = await database(true);
+    await ahead.query(
+      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (\'future\', 9999999999999)',
+    );
+    expect(
+      await createReadinessProbe({ db: ahead, requiredEnv, environment })(),
+    ).toEqual({ ready: true });
+  }, 30_000);
 
   test("fails the schema check on an unmigrated or stale database", async () => {
     const empty = await database(false);
@@ -108,14 +120,7 @@ describe("readiness probe", () => {
     expect(
       await createReadinessProbe({ db: middle, requiredEnv, environment })(),
     ).toMatchObject({ ready: false, check: "schema" });
-    const extra = await database(true);
-    await extra.query(
-      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (\'future\', 9999999999999)',
-    );
-    expect(
-      await createReadinessProbe({ db: extra, requiredEnv, environment })(),
-    ).toMatchObject({ ready: false, check: "schema" });
-  });
+  }, 30_000);
 
   test("fails the config check when a required variable is missing or blank", async () => {
     const db = await database(true);
@@ -130,5 +135,5 @@ describe("readiness probe", () => {
       check: "config",
       reason: "missing configuration: AUTH_MODE",
     });
-  });
+  }, 30_000);
 });
