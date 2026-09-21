@@ -6,7 +6,7 @@
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test:unit": "bun test src/profile.test.ts src/fake-adapter.test.ts src/runtime.test.ts src/mapper.test.ts",
+    "test:unit": "bun test src/profile.test.ts src/fake-adapter.test.ts src/runtime.test.ts src/mapper.test.ts src/turn-ledger.test.ts",
     "test:direct-local": "bun test src/runtime.integration.test.ts"
   },
   "dependencies": {

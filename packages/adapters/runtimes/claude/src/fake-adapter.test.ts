@@ -65,6 +65,43 @@ describe("fake agent runtime", () => {
     });
   });
 
+  test("rejects a checkpoint while a second queued input is still outstanding", async () => {
+    const result = {
+      type: "result",
+      subtype: "success",
+      session_id: "two",
+    };
+    const runtime = new FakeAgentRuntime([
+      { type: "emit", message: result },
+      { type: "emit", message: result },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    run.send({ message: "one", uuid: "1" });
+    run.send({ message: "two", uuid: "2" });
+    const iterator = run.events()[Symbol.asyncIterator]();
+    await iterator.next();
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "A turn is still running",
+    });
+    await iterator.next();
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+  });
+
+  test("refuses a second event consumer", async () => {
+    const run = new FakeAgentRuntime([]).start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    await run.events()[Symbol.asyncIterator]().next();
+    await expect(
+      (async () => {
+        for await (const _frame of run) void _frame;
+      })(),
+    ).rejects.toThrow("AgentRun events can only be consumed once");
+  });
+
   test("controls init, arbitrary order, usage, and result errors", async () => {
     const runtime = new FakeAgentRuntime([
       {

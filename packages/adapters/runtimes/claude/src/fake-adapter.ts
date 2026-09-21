@@ -12,11 +12,11 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import {
-  CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_RUNTIME_CAPABILITIES,
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
+import { TurnLedger } from "./turn-ledger.ts";
 
 export type FakeStep =
   | { delayMs: number; type: "delay" }
@@ -45,10 +45,9 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
 class FakeRun implements AgentRun {
   private readonly abortController = new AbortController();
   private readonly interruptController = new AbortController();
+  private readonly ledger: TurnLedger;
   private closed = false;
   private interrupted = false;
-  private sessionId: string | undefined;
-  private streaming = false;
 
   constructor(
     private readonly runtime: FakeAgentRuntime,
@@ -59,13 +58,13 @@ class FakeRun implements AgentRun {
     ) => Promise<PermissionDecision>,
     resume?: string,
   ) {
-    this.sessionId = resume;
+    this.ledger = new TurnLedger(resume);
   }
 
   send(input: AgentInput): void {
     if (this.closed) throw new Error("Input stream is closed");
     this.runtime.inputs.push(input);
-    this.streaming = true;
+    this.ledger.queued();
   }
 
   finishInput(): void {
@@ -88,20 +87,7 @@ class FakeRun implements AgentRun {
   }
 
   async prepareCheckpoint(): Promise<CheckpointPreparation> {
-    if (this.streaming) {
-      return { status: "rejected", reason: "A turn is still running" };
-    }
-    if (this.sessionId === undefined) {
-      return { status: "rejected", reason: "No SDK session has started" };
-    }
-    return {
-      status: "ready",
-      checkpoint: {
-        engine: "claude",
-        resume: this.sessionId,
-        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
-      },
-    };
+    return this.ledger.prepareCheckpoint();
   }
 
   events(): AsyncIterable<AgentFrame> {
@@ -109,6 +95,7 @@ class FakeRun implements AgentRun {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
+    this.ledger.claimConsumer();
     let cursor = 0;
     const controlSignal = AbortSignal.any([
       this.abortController.signal,
@@ -139,10 +126,7 @@ class FakeRun implements AgentRun {
           );
           this.runtime.permissionDecisions.push(...decisions);
         } else {
-          if (typeof step.message.session_id === "string") {
-            this.sessionId = step.message.session_id;
-          }
-          this.streaming = step.message.type !== "result";
+          this.ledger.observe(step.message);
           yield frameFromNativeMessage(
             step.message,
             this.correlationId,
@@ -170,7 +154,7 @@ class FakeRun implements AgentRun {
       }
       cursor += 1;
     }
-    this.streaming = false;
+    this.ledger.streamEnded();
   }
 }
 

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const testkit = "@agent-platform/testkit";
@@ -68,7 +76,7 @@ function testFiles(directory: string): Promise<string[]> {
   return typescriptFiles(directory, (name) => name.endsWith(".test.ts"));
 }
 
-const importPattern = /from\s+"([^"]+)"/g;
+const importPattern = /(?:from|import)\s*\(?\s*"([^"]+)"/g;
 
 async function packageImports(directory: string): Promise<Set<string>> {
   const found = new Set<string>();
@@ -97,7 +105,46 @@ function declaredDependencies(manifest: Manifest): Set<string> {
   ]);
 }
 
+export async function escapingRelativeImports(
+  directory: string,
+): Promise<string[]> {
+  const offenders: string[] = [];
+  for (const file of await sourceFiles(join(directory, "src"))) {
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(importPattern)) {
+      const specifier = match[1] ?? "";
+      if (!specifier.startsWith(".")) continue;
+      const target = resolve(dirname(file), specifier);
+      if (relative(directory, target).startsWith(".."))
+        offenders.push(`${relative(root, file)} -> ${specifier}`);
+    }
+  }
+  return offenders;
+}
+
 describe("architecture", () => {
+  test("no source file reaches outside its own package through a relative import", async () => {
+    const offenders: string[] = [];
+    for (const directory of await workspacePackages()) {
+      offenders.push(...(await escapingRelativeImports(directory)));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the relative-import check catches a path that escapes the package", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      await mkdir(join(fixture, "src"), { recursive: true });
+      await writeFile(
+        join(fixture, "src", "leak.ts"),
+        'import { pool } from "../../db/src/pool.ts";\nexport const p = pool;\n',
+      );
+      expect(await escapingRelativeImports(fixture)).toHaveLength(1);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   test("workspace globs include every nested package directory", async () => {
     const names = (await workspacePackages()).map((d) => relative(root, d));
     expect(names).toContain(runtimeCore);

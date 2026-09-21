@@ -11,8 +11,8 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
+import { TurnLedger } from "./turn-ledger.ts";
 
 export class InputStream implements AsyncIterable<SDKUserMessage> {
   private readonly queued: SDKUserMessage[] = [];
@@ -55,10 +55,7 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
 }
 
 export class ClaudeSdkRun implements AgentRun {
-  private sessionId: string | undefined;
-  // True from send() until the turn's `result` frame; a checkpoint taken in
-  // that window would miss the transcript the SDK has not flushed.
-  private streaming = false;
+  private readonly ledger: TurnLedger;
 
   constructor(
     private readonly correlationId: string,
@@ -67,12 +64,12 @@ export class ClaudeSdkRun implements AgentRun {
     private readonly abortController: AbortController,
     resume?: string,
   ) {
-    this.sessionId = resume;
+    this.ledger = new TurnLedger(resume);
   }
 
   send(input: AgentInput): void {
     this.input.push(input);
-    this.streaming = true;
+    this.ledger.queued();
   }
 
   finishInput(): void {
@@ -94,20 +91,7 @@ export class ClaudeSdkRun implements AgentRun {
   }
 
   async prepareCheckpoint(): Promise<CheckpointPreparation> {
-    if (this.streaming) {
-      return { status: "rejected", reason: "A turn is still running" };
-    }
-    if (this.sessionId === undefined) {
-      return { status: "rejected", reason: "No SDK session has started" };
-    }
-    return {
-      status: "ready",
-      checkpoint: {
-        engine: "claude",
-        resume: this.sessionId,
-        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
-      },
-    };
+    return this.ledger.prepareCheckpoint();
   }
 
   events(): AsyncIterable<AgentFrame> {
@@ -115,20 +99,14 @@ export class ClaudeSdkRun implements AgentRun {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentFrame> {
+    this.ledger.claimConsumer();
     let cursor = 0;
     for await (const message of this.sdkQuery) {
       const native = message as SDKMessage as unknown as NativeSdkMessage;
-      this.observe(native);
+      this.ledger.observe(native);
       yield frameFromNativeMessage(native, this.correlationId, `sdk:${cursor}`);
       cursor += 1;
     }
-    this.streaming = false;
-  }
-
-  private observe(message: NativeSdkMessage): void {
-    if (typeof message.session_id === "string") {
-      this.sessionId = message.session_id;
-    }
-    this.streaming = message.type !== "result";
+    this.ledger.streamEnded();
   }
 }

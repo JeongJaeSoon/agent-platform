@@ -22,7 +22,9 @@ export type AgentFrame = {
 
 /**
  * Handle for one engine execution. It may serve several turns; it is not the
- * durable Turn row the platform stores.
+ * durable Turn row the platform stores. Frames are a single-consumer stream:
+ * iterating `events()` (or the run itself) a second time throws, so the host
+ * fans out to observers instead of subscribing twice.
  */
 export interface AgentRun extends AsyncIterable<AgentFrame> {
   abort(): void;
