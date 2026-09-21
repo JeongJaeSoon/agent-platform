@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  type AttemptSummary,
   type CreateSessionResponse,
   createSessionResponseSchema,
   executionObservationSchema,
@@ -338,42 +337,6 @@ function parseTurnId(turnId: string): number | null {
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
 
-const TERMINAL_STATES = new Set([
-  "completed",
-  "failed",
-  "interrupted",
-  "cancelled",
-]);
-
-// attempts are not stored yet (94S-121); project the turn's own attempt so
-// the contract shape holds until the attempts table exists.
-function attemptsFor(
-  row: TurnRow,
-  session: { leaseEpoch: number },
-  executionGeneration: number | null,
-): AttemptSummary[] {
-  if (!row.attemptId) return [];
-  const state =
-    row.status === "outcome_unknown"
-      ? "lost"
-      : TERMINAL_STATES.has(row.status)
-        ? "exited"
-        : row.status === "queued"
-          ? "allocated"
-          : "running";
-  return [
-    {
-      attempt_id: row.attemptId,
-      state,
-      lease_epoch: session.leaseEpoch,
-      execution_generation: executionGeneration ?? 0,
-      started_at:
-        (row.deliveryStartedAt ?? row.startedAt)?.toISOString() ?? null,
-      ended_at: row.endedAt?.toISOString() ?? null,
-    },
-  ];
-}
-
 // result_json holds the SDK result message: its `result` and `usage` when
 // present, otherwise the whole document is the result.
 function resultParts(resultJson: unknown): {
@@ -410,7 +373,7 @@ function summarizeTurn(
 export function createPostgresSessionReader(db: Database): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
-      .select({ id: sessions.id, leaseEpoch: sessions.leaseEpoch })
+      .select({ id: sessions.id })
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
       .limit(1);
@@ -640,21 +603,16 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         )
         .limit(1);
       if (!row) return null;
-      const [revisions, [execution]] = await Promise.all([
-        checkpointRevisions([row.id]),
-        db
-          .select({ generation: executions.generation })
-          .from(executions)
-          .where(eq(executions.sessionId, sessionId))
-          .orderBy(desc(executions.generation))
-          .limit(1),
-      ]);
+      const revisions = await checkpointRevisions([row.id]);
       const parts = resultParts(row.resultJson);
       return {
         ...summarizeTurn(row, revisions.get(row.id) ?? null),
         result: parts.result,
         usage: parts.usage,
-        attempts: attemptsFor(row, session, execution?.generation ?? null),
+        // Per-attempt lease_epoch/execution_generation are not persisted
+        // until the attempts table lands (94S-121); synthesising them from
+        // the session's current values would rewrite history after a resume.
+        attempts: [],
       };
     },
   };

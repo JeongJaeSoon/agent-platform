@@ -596,16 +596,8 @@ integration("sessions API on PostgreSQL", () => {
       ended_at: endedAt.toISOString(),
       result: "Fixed the failing test.",
       usage: { input_tokens: 10, output_tokens: 20 },
-      attempts: [
-        {
-          attempt_id: "attempt-1",
-          state: "exited",
-          lease_epoch: 0,
-          execution_generation: 0,
-          started_at: startedAt.toISOString(),
-          ended_at: endedAt.toISOString(),
-        },
-      ],
+      // attempts stay empty until they are persisted per attempt (94S-121).
+      attempts: [],
     });
     const queued = getTurnResponseSchema.parse(
       await (
