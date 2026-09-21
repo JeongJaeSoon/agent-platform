@@ -1,4 +1,8 @@
-import { SESSION_STATUS_VALUES } from "@agent-platform/contracts";
+import {
+  ADMISSION_STATE_VALUES,
+  RECEIPT_STATUS_VALUES,
+  SESSION_STATUS_VALUES,
+} from "@agent-platform/contracts";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -6,6 +10,7 @@ import {
   boolean,
   customType,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -23,6 +28,8 @@ const bytea = customType<{ data: Uint8Array }>({
 });
 
 export const sessionStatus = pgEnum("session_status", SESSION_STATUS_VALUES);
+export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
+export const receiptStatus = pgEnum("receipt_status", RECEIPT_STATUS_VALUES);
 
 export const sessions = pgTable(
   "sessions",
@@ -33,6 +40,18 @@ export const sessions = pgTable(
     repoUrl: text("repo_url").notNull(),
     branch: text().notNull(),
     status: sessionStatus().notNull().default("queued"),
+    admissionState: admissionState("admission_state")
+      .notNull()
+      .default("active"),
+    revision: integer().notNull().default(0),
+    leaseEpoch: integer("lease_epoch").notNull().default(0),
+    executionId: text("execution_id"),
+    profileId: text("profile_id"),
+    repositoryId: text("repository_id"),
+    checkpointRevision: integer("checkpoint_revision"),
+    checkpointCommittedAt: timestamp("checkpoint_committed_at", {
+      withTimezone: true,
+    }),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
@@ -60,6 +79,10 @@ export const turns = pgTable("turns", {
   startedAt: timestamp("started_at", { withTimezone: true }),
   endedAt: timestamp("ended_at", { withTimezone: true }),
   resultJson: jsonb("result_json"),
+  attemptId: text("attempt_id"),
+  deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+  terminalReason: text("terminal_reason"),
+  outcomeUnknown: boolean("outcome_unknown").notNull().default(false),
 });
 
 export const pullRequests = pgTable(
@@ -80,11 +103,20 @@ export const events = pgTable(
       .references(() => sessions.id),
     type: text().notNull(),
     payload: jsonb().notNull(),
+    turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
+    attemptId: text("attempt_id"),
+    sourceSequence: integer("source_sequence"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("events_session_id_idx").on(table.sessionId, table.id)],
+  (table) => [
+    index("events_session_id_idx").on(table.sessionId, table.id),
+    uniqueIndex("events_attempt_sequence_uniq")
+      .on(table.attemptId, table.sourceSequence)
+      .where(sql`${table.attemptId} IS NOT NULL`),
+  ],
 );
 
 export const queueMessages = pgTable(
@@ -120,7 +152,126 @@ export const unassignedSessions = pgTable("unassigned_sessions", {
   signaledAt: timestamp("signaled_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  partition: text().notNull().default("default"),
 });
+
+export const receipts = pgTable(
+  "receipts",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    operation: text().notNull(),
+    targetRef: jsonb("target_ref").notNull(),
+    status: receiptStatus().notNull().default("accepted"),
+    result: jsonb(),
+    error: jsonb(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+  ],
+);
+
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    principal: text().notNull(),
+    operation: text().notNull(),
+    resource: text().notNull(),
+    key: text().notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.principal, table.operation, table.resource, table.key],
+    }),
+  ],
+);
+
+export const pendingRequests = pgTable(
+  "pending_requests",
+  {
+    requestId: text("request_id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    turnId: bigint("turn_id", { mode: "number" })
+      .notNull()
+      .references(() => turns.id),
+    attemptId: text("attempt_id").notNull(),
+    kind: text().notNull(),
+    payload: jsonb().notNull(),
+    inputHash: text("input_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("pending_requests_unresolved_session_idx")
+      .on(table.sessionId)
+      .where(sql`${table.resolvedAt} IS NULL`),
+  ],
+);
+
+export const checkpoints = pgTable(
+  "checkpoints",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    revision: integer().notNull(),
+    manifestRef: text("manifest_ref").notNull(),
+    manifestSha256: text("manifest_sha256").notNull(),
+    turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
+    committedAt: timestamp("committed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
+);
+
+export const executions = pgTable(
+  "executions",
+  {
+    id: text().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    backend: text().notNull(),
+    providerRef: text("provider_ref"),
+    launchOperationId: text("launch_operation_id"),
+    generation: integer().notNull(),
+    desiredState: text("desired_state").notNull(),
+    observedState: text("observed_state").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("executions_launch_operation_id_uniq")
+      .on(table.launchOperationId)
+      .where(sql`${table.launchOperationId} IS NOT NULL`),
+    index("executions_session_generation_idx").on(
+      table.sessionId,
+      table.generation,
+    ),
+  ],
+);
 
 export const workers = pgTable("workers", {
   podId: text("pod_id").primaryKey(),

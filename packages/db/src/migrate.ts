@@ -30,10 +30,12 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   const state = await pool.query<{
     claim_token: boolean;
     migration_journal: string | null;
+    receipts: string | null;
     sessions: string | null;
   }>(`
     SELECT
       to_regclass('public.sessions')::text AS sessions,
+      to_regclass('public.receipts')::text AS receipts,
       to_regclass('drizzle.__drizzle_migrations')::text AS migration_journal,
       EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -60,12 +62,19 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   }
 
   const migrations = readMigrationFiles({ migrationsFolder });
-  if (migrations.length !== 2) {
+  if (current.receipts !== null && !current.claim_token) {
     throw new Error(
-      "Legacy M0 schema adoption supports exactly migrations 0000 and 0001",
+      "Refusing to adopt legacy schema with migration 0002 applied before 0001",
     );
   }
-  const applied = current.claim_token ? migrations : migrations.slice(0, 1);
+  const appliedCount =
+    current.receipts !== null ? 3 : current.claim_token ? 2 : 1;
+  if (migrations.length < appliedCount) {
+    throw new Error(
+      `Legacy schema requires ${appliedCount} migration files, found ${migrations.length}`,
+    );
+  }
+  const applied = migrations.slice(0, appliedCount);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

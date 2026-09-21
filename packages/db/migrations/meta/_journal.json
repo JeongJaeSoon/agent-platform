@@ -15,6 +15,13 @@
       "when": 1789350514043,
       "tag": "0001_giant_sphinx",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789972994398,
+      "tag": "0002_thin_victor_mancha",
+      "breakpoints": true
     }
   ]
 }
