@@ -27,6 +27,22 @@ integrationTest(
         "utf8",
       );
       await legacy.query(migration);
+      const sessionId = randomUUID();
+      const turn = await legacy.query<{ id: string }>(
+        `
+          INSERT INTO sessions (id, owner_id, repo_url, branch, status)
+          VALUES ($1, 'owner', 'https://example.invalid/repo.git', 'main', 'stopped')
+          RETURNING id
+        `,
+        [sessionId],
+      );
+      await legacy.query(
+        `
+          INSERT INTO turns (session_id, message, status)
+          VALUES ($1, 'legacy message', 'done')
+        `,
+        [turn.rows[0]?.id],
+      );
       await legacy.end();
 
       await migrateDatabase(testUrl.toString());
@@ -45,11 +61,86 @@ integrationTest(
               AND column_name = 'claim_token'
           ) AS claim_token
         `);
+        const session = await verified.query<{ admission_state: string }>(
+          "SELECT admission_state FROM sessions WHERE id = $1",
+          [sessionId],
+        );
+        const turnStatus = await verified.query<{ status: string }>(
+          "SELECT status FROM turns WHERE session_id = $1",
+          [sessionId],
+        );
+        const tables = await verified.query<{ table_name: string }>(`
+          SELECT table_name
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name IN ('receipts', 'pending_requests', 'checkpoints', 'executions')
+          ORDER BY table_name
+        `);
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
         expect(column.rows[0]?.claim_token).toBe(true);
-        expect(journal.rows[0]?.count).toBe("2");
+        expect(session.rows[0]?.admission_state).toBe("stopped");
+        expect(turnStatus.rows[0]?.status).toBe("completed");
+        expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
+          "checkpoints",
+          "executions",
+          "pending_requests",
+          "receipts",
+        ]);
+        expect(journal.rows[0]?.count).toBe("3");
+      } finally {
+        await verified.end();
+      }
+    } finally {
+      if (!legacy.ended) await legacy.end();
+      await admin.query(`DROP DATABASE IF EXISTS ${quotedDatabase}`);
+      await admin.end();
+    }
+  },
+  30_000,
+);
+
+integrationTest(
+  "adopts a database initialized with all raw migrations",
+  async () => {
+    const adminUrl = new URL(databaseUrl ?? "");
+    adminUrl.pathname = "/postgres";
+    const databaseName = `m0_initdb_${randomUUID().replaceAll("-", "_")}`;
+    const quotedDatabase = `"${databaseName}"`;
+    const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+    await admin.query(`CREATE DATABASE ${quotedDatabase}`);
+
+    const testUrl = new URL(databaseUrl ?? "");
+    testUrl.pathname = `/${databaseName}`;
+    const legacy = new Pool({ connectionString: testUrl.toString(), max: 1 });
+    try {
+      for (const filename of [
+        "0000_gifted_morg.sql",
+        "0001_giant_sphinx.sql",
+        "0002_thin_victor_mancha.sql",
+      ]) {
+        await legacy.query(
+          await readFile(
+            join(import.meta.dir, `../migrations/${filename}`),
+            "utf8",
+          ),
+        );
+      }
+      await legacy.end();
+
+      await migrateDatabase(testUrl.toString());
+      await migrateDatabase(testUrl.toString());
+
+      const verified = new Pool({
+        connectionString: testUrl.toString(),
+        max: 1,
+      });
+      try {
+        const journal = await verified.query<{ count: string }>(
+          'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
+        );
+        expect(journal.rows[0]?.count).toBe("3");
       } finally {
         await verified.end();
       }
