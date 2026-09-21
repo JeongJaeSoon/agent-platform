@@ -114,7 +114,7 @@ export const events = pgTable(
   (table) => [
     index("events_session_id_idx").on(table.sessionId, table.id),
     uniqueIndex("events_attempt_sequence_uniq")
-      .on(table.attemptId, table.sourceSequence)
+      .on(table.sessionId, table.attemptId, table.sourceSequence)
       .where(sql`${table.attemptId} IS NOT NULL`),
   ],
 );

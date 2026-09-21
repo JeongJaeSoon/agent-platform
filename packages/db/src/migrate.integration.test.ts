@@ -30,8 +30,8 @@ integrationTest(
       const sessionId = randomUUID();
       const turn = await legacy.query<{ id: string }>(
         `
-          INSERT INTO sessions (id, owner_id, repo_url, branch)
-          VALUES ($1, 'owner', 'https://example.invalid/repo.git', 'main')
+          INSERT INTO sessions (id, owner_id, repo_url, branch, status)
+          VALUES ($1, 'owner', 'https://example.invalid/repo.git', 'main', 'stopped')
           RETURNING id
         `,
         [sessionId],
@@ -61,8 +61,8 @@ integrationTest(
               AND column_name = 'claim_token'
           ) AS claim_token
         `);
-        const session = await verified.query<{ id: string }>(
-          "SELECT id FROM sessions WHERE id = $1",
+        const session = await verified.query<{ admission_state: string }>(
+          "SELECT admission_state FROM sessions WHERE id = $1",
           [sessionId],
         );
         const turnStatus = await verified.query<{ status: string }>(
@@ -80,7 +80,7 @@ integrationTest(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
         expect(column.rows[0]?.claim_token).toBe(true);
-        expect(session.rows).toHaveLength(1);
+        expect(session.rows[0]?.admission_state).toBe("stopped");
         expect(turnStatus.rows[0]?.status).toBe("completed");
         expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
           "checkpoints",

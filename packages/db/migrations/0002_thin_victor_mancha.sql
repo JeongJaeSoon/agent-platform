@@ -88,8 +88,10 @@ CREATE INDEX "executions_session_generation_idx" ON "executions" USING btree ("s
 CREATE INDEX "pending_requests_unresolved_session_idx" ON "pending_requests" USING btree ("session_id") WHERE "pending_requests"."resolved_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "receipts_owner_created_at_idx" ON "receipts" USING btree ("owner_id","created_at");--> statement-breakpoint
 ALTER TABLE "events" ADD CONSTRAINT "events_turn_id_turns_id_fk" FOREIGN KEY ("turn_id") REFERENCES "public"."turns"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "events_attempt_sequence_uniq" ON "events" USING btree ("attempt_id","source_sequence") WHERE "events"."attempt_id" IS NOT NULL;
+CREATE UNIQUE INDEX "events_attempt_sequence_uniq" ON "events" USING btree ("session_id","attempt_id","source_sequence") WHERE "events"."attempt_id" IS NOT NULL;
 --> statement-breakpoint
 UPDATE "turns" SET "status" = 'completed' WHERE "status" = 'done';
 --> statement-breakpoint
 UPDATE "events" SET "payload" = ("payload" - 'status') || jsonb_build_object('phase', "payload"->'status') WHERE "type" = 'status' AND "payload" ? 'status' AND NOT ("payload" ? 'phase');
+--> statement-breakpoint
+UPDATE "sessions" SET "admission_state" = 'stopped' WHERE "status" = 'stopped';

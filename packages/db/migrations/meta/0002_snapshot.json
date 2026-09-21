@@ -1,5 +1,5 @@
 {
-  "id": "1fd720a4-533d-4c8d-8cd0-c02c30fd44b1",
+  "id": "21cf0e2c-221d-4251-aa97-1d5c491876ec",
   "prevId": "e22d710a-cb00-43be-8199-3837d99b7a17",
   "version": "7",
   "dialect": "postgresql",
@@ -213,6 +213,12 @@
         "events_attempt_sequence_uniq": {
           "name": "events_attempt_sequence_uniq",
           "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "attempt_id",
               "isExpression": false,

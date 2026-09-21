@@ -35,7 +35,7 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   }>(`
     SELECT
       to_regclass('public.sessions')::text AS sessions,
-      to_regclass('public.receipts')::text AS receipts,
+      to_regclass('public.events_attempt_sequence_uniq')::text AS receipts,
       to_regclass('drizzle.__drizzle_migrations')::text AS migration_journal,
       EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -62,6 +62,8 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<void> {
   }
 
   const migrations = readMigrationFiles({ migrationsFolder });
+  // 0002 is detected by its last statement so a partially applied raw init
+  // is not recorded as complete.
   if (current.receipts !== null && !current.claim_token) {
     throw new Error(
       "Refusing to adopt legacy schema with migration 0002 applied before 0001",

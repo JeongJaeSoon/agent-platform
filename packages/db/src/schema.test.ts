@@ -139,6 +139,33 @@ describe("database schema", () => {
     expect(checkpointError).toBeDefined();
   });
 
+  test("dedups worker events per session attempt", async () => {
+    const { db } = await migratedDatabase();
+    const sessionIds = [crypto.randomUUID(), crypto.randomUUID()];
+    for (const id of sessionIds) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: "owner",
+        repoUrl: "https://example.invalid/repo.git",
+        branch: `session/${id}`,
+      });
+    }
+    const event = (sessionId: string) => ({
+      sessionId,
+      type: "status",
+      payload: { phase: "running" },
+      attemptId: "a1",
+      sourceSequence: 0,
+    });
+    await db.insert(events).values(sessionIds.map(event));
+    await expect(
+      db
+        .insert(events)
+        .values(event(sessionIds[0] as string))
+        .execute(),
+    ).rejects.toThrow();
+  });
+
   test("keeps event ids monotonic within a session", async () => {
     const { db } = await migratedDatabase();
     const sessionId = crypto.randomUUID();
