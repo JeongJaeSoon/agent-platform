@@ -315,12 +315,12 @@ integration("workspace disk pressure", () => {
         "dd if=/dev/zero of=/workspace/under bs=1M count=16",
       ),
     ).toBe(0);
-    // `dd` exits non-zero the moment the write hits ENOSPC.
+    // The pipeline's status is grep's, so exit 0 means `dd` really said it.
     expect(
       await runAgainstVolume(
-        "dd if=/dev/zero of=/workspace/over bs=1M count=256",
+        "dd if=/dev/zero of=/workspace/over bs=1M count=256 2>&1 | grep -q 'No space left on device'",
       ),
-    ).not.toBe(0);
+    ).toBe(0);
     // And the ceiling is the configured one, not the host's free space.
     expect(
       await runAgainstVolume(
