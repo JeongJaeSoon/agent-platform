@@ -1113,4 +1113,143 @@ describe("WorkerHost outcomes a drain must not hide", () => {
     expect(gateway.calls).toContain("release");
     expect(lines.map((line) => line.event)).toContain("worker.release.failed");
   }, 10_000);
+
+  test("a lease lost while the shutdown waits is not released, and is reported lost", async () => {
+    let failPoll!: () => void;
+    const pollFails = new Promise<void>((resolve) => {
+      failPoll = resolve;
+    });
+    class LatePoll extends FakeWorkerGateway {
+      override async nextInput(): Promise<never> {
+        this.calls.push("nextInput");
+        await pollFails;
+        throw new WorkerGatewayRequestError(
+          409,
+          "LEASE_EXPIRED",
+          "the lease ran out during the shutdown",
+          false,
+        );
+      }
+    }
+    const gateway = new LatePoll();
+    const engines: EngineExitWatch = {
+      async exited() {
+        // The shutdown is past its first ownership check by now.
+        failPoll();
+        await Bun.sleep(10);
+        return true;
+      },
+      running: [],
+      kill() {},
+    };
+    const { host } = harness([{ type: "await-input" }], {
+      engines,
+      gateway,
+      timeouts: { drainTimeoutMs: 20 },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("nextInput"), "the poll");
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(gateway.releases).toEqual([]);
+  });
+
+  test("an input that arrives as the lease is lost is never sent to the engine", async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    // The poll's answer and the beat that finds the lease gone land together.
+    class LateInput extends FakeWorkerGateway {
+      override async nextInput(
+        request: Parameters<FakeWorkerGateway["nextInput"]>[0],
+      ) {
+        const answer = await super.nextInput(request);
+        await gate;
+        return answer;
+      }
+      override async heartbeat(
+        request: Parameters<FakeWorkerGateway["heartbeat"]>[0],
+      ) {
+        await gate;
+        this.heartbeatFailure = "LEASE_EXPIRED";
+        return super.heartbeat(request);
+      }
+    }
+    const gateway = new LateInput();
+    const { host, runtime } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      { gateway, timeouts: { heartbeatIntervalMs: 20 } },
+    );
+    gateway.enqueue("delivered to an attempt that no longer owns it");
+    const loop = host.runLoop();
+    await waitFor(
+      () => gateway.calls.includes("nextInput"),
+      "the poll to be out",
+    );
+    await Bun.sleep(60);
+    open();
+
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(runtime.inputs).toEqual([]);
+  });
+
+  test("a claim still unanswered when the stop grace runs out is given up", async () => {
+    class SilentClaim extends FakeWorkerGateway {
+      override bootstrapClaim(): Promise<never> {
+        this.calls.push("bootstrapClaim");
+        return new Promise(() => {});
+      }
+    }
+    const gateway = new SilentClaim();
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      timeouts: { requestTimeoutMs: 60_000, stopGraceMs: 2_500 },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("bootstrapClaim"), "the claim");
+    const began = Date.now();
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    // The grace less the reserve the release would have needed.
+    expect(Date.now() - began).toBeLessThan(1_500);
+    expect(summary.outcome).toBe("unclaimed");
+  }, 10_000);
+
+  test("a claim that answers after the stop, within the grace, is released", async () => {
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    class SlowClaim extends FakeWorkerGateway {
+      override async bootstrapClaim(
+        request: Parameters<FakeWorkerGateway["bootstrapClaim"]>[0],
+      ) {
+        await answered;
+        return super.bootstrapClaim(request);
+      }
+    }
+    const gateway = new SlowClaim();
+    const { host, runtime } = harness([{ type: "await-input" }], {
+      gateway,
+      timeouts: { stopGraceMs: 2_500 },
+    });
+    const loop = host.runLoop();
+    await Bun.sleep(5);
+
+    host.drain("received SIGTERM");
+    answer();
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(gateway.releases).toHaveLength(1);
+    expect(runtime.inputs).toEqual([]);
+  });
 });
