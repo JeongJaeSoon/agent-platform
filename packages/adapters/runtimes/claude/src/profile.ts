@@ -76,11 +76,17 @@ export function validateRuntimeConfig(
  * child's environment rather than merging it, so they have to be carried
  * across by hand. Each is forwarded only when the host sets it: an uppercase
  * twin the host never had would change which value the engine prefers.
+ *
+ * `NODE_EXTRA_CA_CERTS` travels with them: it is a path to a public CA
+ * bundle, not a secret, and it is how a TLS-terminating egress or a private
+ * Messages endpoint becomes trusted by the engine — nothing else here can
+ * name a certificate.
  */
 const HOST_PROXY_VARIABLES = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
   "NO_PROXY",
+  "NODE_EXTRA_CA_CERTS",
   "http_proxy",
   "https_proxy",
   "no_proxy",
