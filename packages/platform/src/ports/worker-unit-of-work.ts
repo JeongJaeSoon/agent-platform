@@ -91,7 +91,13 @@ export type DeliveredInput = {
   deliveryStartedAt: Date;
 };
 export type NextInputResult =
-  | { outcome: "ok"; input: DeliveredInput | null; leaseExpiresAt: Date }
+  | {
+      outcome: "ok";
+      input: DeliveredInput | null;
+      leaseExpiresAt: Date;
+      /** Set when the attempt is draining: nothing new is coming, so stop polling. */
+      draining?: true;
+    }
   | FenceRejection;
 
 export type HeartbeatInput = {

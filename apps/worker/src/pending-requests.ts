@@ -12,7 +12,10 @@ import type {
   WorkerGatewayClient,
 } from "@agent-platform/runtime-core";
 
-import { isOwnershipLost } from "./gateway-client.ts";
+import {
+  isOwnershipLost,
+  WorkerGatewayRequestError,
+} from "./gateway-client.ts";
 
 /** The tool the engine uses to put a question to the person, not to use a capability. */
 export const QUESTION_TOOL = "AskUserQuestion";
@@ -37,6 +40,8 @@ type Pending = {
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const NO_ANSWER_PATH =
+  "This control plane cannot deliver answers yet (pending-control, 94S-127)";
 
 /**
  * The turn's pending-request map. Each `canUseTool` callback is published as a
@@ -52,6 +57,12 @@ export class PendingRequestRegistry {
   private readonly pending = new Map<string, Pending>();
   private answersAfter = 0;
   private polling: Promise<void> | undefined;
+  /**
+   * The gateway has no pending-control route. Until 94S-127 serves one,
+   * nothing can ever answer, and holding the engine for the full timeout
+   * would only keep the lease busy before the same denial.
+   */
+  private unanswerable = false;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -63,6 +74,7 @@ export class PendingRequestRegistry {
 
   /** Registers one callback and resolves with the decision the SDK gets back. */
   async request(request: PermissionRequest): Promise<PermissionDecision> {
+    if (this.unanswerable) return { behavior: "deny", message: NO_ANSWER_PATH };
     const questions = questionsOf(request);
     const kind = questions === null ? "permission" : "question";
     const decision = new Promise<PermissionDecision>((resolve) => {
@@ -151,8 +163,15 @@ export class PendingRequestRegistry {
           this.cancelAll("This worker no longer owns the session");
           return;
         }
-        // Anything else — including the route not existing until 94S-127
-        // serves it — leaves the request waiting for its own expiry.
+        if (
+          error instanceof WorkerGatewayRequestError &&
+          error.status === 404
+        ) {
+          this.unanswerable = true;
+          this.cancelAll(NO_ANSWER_PATH);
+          return;
+        }
+        // Anything else leaves the request waiting for its own expiry.
       }
       if (this.pending.size > 0) await sleep(interval);
     }

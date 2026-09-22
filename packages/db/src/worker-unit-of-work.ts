@@ -680,7 +680,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
-        if (!head) return { outcome: "ok", input: null, leaseExpiresAt };
+        const none = {
+          outcome: "ok" as const,
+          input: null,
+          leaseExpiresAt,
+          ...(draining ? { draining: true as const } : {}),
+        };
+        if (!head) return none;
         const { message, turn } = head;
 
         // The head was delivered to an earlier attempt and never finalized:
@@ -689,12 +695,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const redelivery =
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
-        if (turn.status !== "queued" && !redelivery) {
-          return { outcome: "ok", input: null, leaseExpiresAt };
-        }
-        if (draining && !redelivery) {
-          return { outcome: "ok", input: null, leaseExpiresAt };
-        }
+        if (turn.status !== "queued" && !redelivery) return none;
+        if (draining && !redelivery) return none;
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
