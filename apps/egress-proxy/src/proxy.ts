@@ -118,6 +118,20 @@ export type UpstreamDialer = (options: {
   socket: NonNullable<Parameters<typeof Bun.connect<undefined>>[0]>["socket"];
 }) => Promise<Socket<undefined>>;
 
+/**
+ * One dialled address. Until `adopt` names it the tunnel's upstream, its
+ * handlers touch nothing on the client: what the upstream sends first is
+ * held here, and a hold past the cap only pauses this socket. The client's
+ * queues and stall timer belong to the attempt that won, and to it alone.
+ */
+type UpstreamAttempt = {
+  socket: Socket<undefined>;
+  /** Wires the attempt into the client and delivers what it held. */
+  adopt(): void;
+  /** Discards what it held and closes it; the client never hears of it. */
+  abandon(): void;
+};
+
 type ClientState = {
   buffer: Uint8Array;
   /** The upstream is done; end the client once its queue has drained. */
@@ -409,7 +423,7 @@ export async function startEgressProxy(
     // answer (dual stack, round robin) is a reason to try the next one, not
     // to fail the request.
     const candidates = decision.addresses.slice(0, MAX_CONNECT_ATTEMPTS);
-    let upstream: Socket<undefined> | null = null;
+    let upstream: UpstreamAttempt | null = null;
     let lastError = "no address to connect to";
     for (const address of candidates) {
       const budget = Math.min(connectTimeoutMs, left());
@@ -417,7 +431,7 @@ export async function startEgressProxy(
         lastError = `dispatch deadline of ${dispatchTimeoutMs}ms exceeded`;
         break;
       }
-      let attempt: Socket<undefined>;
+      let attempt: UpstreamAttempt;
       try {
         attempt = await connectUpstream(socket, address, request.port, budget);
       } catch (error) {
@@ -432,7 +446,7 @@ export async function startEgressProxy(
         continue;
       }
       if (closed()) {
-        attempt.end();
+        attempt.abandon();
         return;
       }
       logger.info("Egress allowed", {
@@ -449,7 +463,7 @@ export async function startEgressProxy(
       reply(socket, 502, `upstream connection failed: ${lastError}`);
       return;
     }
-    state.upstream = upstream;
+    state.upstream = upstream.socket;
     if (request.kind === "connect") {
       // The client only starts its handshake once it has the 200, and the
       // tunnel only starts carrying bytes once that handshake names the
@@ -459,6 +473,9 @@ export async function startEgressProxy(
       state.tunnelHost = request.host;
       state.hello = new Uint8Array(MAX_CLIENT_HELLO_BYTES);
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      // Adopted after the 200: an upstream that spoke first is delivered
+      // behind the status line, never in front of it.
+      upstream.adopt();
       state.helloTimer = setTimeout(() => {
         if (socket.data.phase !== "inspecting") return;
         logger.warn(
@@ -476,13 +493,14 @@ export async function startEgressProxy(
       return;
     }
     state.phase = "piping";
+    upstream.adopt();
     push(
-      upstream,
+      upstream.socket,
       state.toUpstream,
       new TextEncoder().encode(request.head),
       maxBuffered,
     );
-    releaseEarly(socket, upstream);
+    releaseEarly(socket, upstream.socket);
   }
 
   /** Hands the client's early bytes to the upstream once it may have them. */
@@ -581,31 +599,54 @@ export async function startEgressProxy(
     address: string,
     port: number,
     timeoutMs: number,
-  ): Promise<Socket<undefined>> {
+  ): Promise<UpstreamAttempt> {
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
     // and the handlers still have to be able to clean up.
     //
-    // An attempt we gave up on can still open afterwards. By then another
-    // address may be carrying the tunnel, so the abandoned one must touch
-    // nothing: its own close would otherwise end a healthy client.
-    let abandoned = false;
+    // An attempt we gave up on can still open afterwards, and one that
+    // opened can speak before the dial reports back. By then another address
+    // may be carrying the tunnel, so nothing here reaches the client until
+    // `adopt`: bytes are held, a close or error is remembered, and a hold
+    // past the cap pauses this socket alone. The connect deadline bounds how
+    // long any of it can sit.
+    let phase: "pending" | "adopted" | "abandoned" = "pending";
+    const held: Queue = { bytes: 0, chunks: [] };
+    let closedEarly = false;
+    let failedEarly: Error | null = null;
+    const onClose = (): void => {
+      // The upstream closing is how a forwarded response ends — but the
+      // tail of that response may still be queued for a slow client.
+      if (client.data.toClient.chunks.length > 0) {
+        client.data.closeWhenDrained = true;
+        return;
+      }
+      client.end();
+    };
+    const onError = (error: Error): void => {
+      logger.warn("Upstream connection failed", { error: error.message });
+      client.end();
+    };
     const pending = dial({
       hostname: address,
       port,
       socket: {
         close() {
-          if (abandoned) return;
-          // The upstream closing is how a forwarded response ends — but the
-          // tail of that response may still be queued for a slow client.
-          if (client.data.toClient.chunks.length > 0) {
-            client.data.closeWhenDrained = true;
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            closedEarly = true;
             return;
           }
-          client.end();
+          onClose();
         },
         data(socket, chunk) {
-          if (abandoned) return;
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            held.chunks.push(chunk);
+            held.bytes += chunk.byteLength;
+            if (held.bytes > maxBuffered) reader(socket).pause();
+            return;
+          }
           if (!push(client, client.data.toClient, chunk, maxBuffered)) {
             stall(
               client,
@@ -615,7 +656,7 @@ export async function startEgressProxy(
           }
         },
         drain(socket) {
-          if (abandoned) return;
+          if (phase !== "adopted") return;
           // The upstream became writable, so what drains is what it is owed.
           flush(socket, client.data.toUpstream);
           if (client.data.toUpstream.chunks.length > 0) return;
@@ -623,10 +664,41 @@ export async function startEgressProxy(
           unstall(client);
         },
         error(_socket, error) {
-          if (abandoned) return;
-          logger.warn("Upstream connection failed", { error: error.message });
-          client.end();
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            failedEarly = error;
+            return;
+          }
+          onError(error);
         },
+      },
+    });
+    const attempt = (socket: Socket<undefined>): UpstreamAttempt => ({
+      socket,
+      adopt() {
+        if (phase !== "pending") return;
+        phase = "adopted";
+        let keepingUp = true;
+        for (const chunk of held.chunks.splice(0)) {
+          keepingUp = push(client, client.data.toClient, chunk, maxBuffered);
+        }
+        held.bytes = 0;
+        if (keepingUp) reader(socket).resume();
+        else
+          stall(
+            client,
+            socket,
+            "Dropping a connection whose client fell behind",
+          );
+        if (failedEarly !== null) onError(failedEarly);
+        else if (closedEarly) onClose();
+      },
+      abandon() {
+        if (phase !== "pending") return;
+        phase = "abandoned";
+        held.chunks.length = 0;
+        held.bytes = 0;
+        socket.end();
       },
     });
     // Bun.connect has no deadline of its own; a black-holed address would
@@ -636,7 +708,9 @@ export async function startEgressProxy(
       timer = setTimeout(() => {
         // The connect may still succeed after we gave up on it; close it
         // rather than leak a socket nobody is reading.
-        abandoned = true;
+        phase = "abandoned";
+        held.chunks.length = 0;
+        held.bytes = 0;
         pending.then((late) => late.end()).catch(() => undefined);
         reject(
           new Error(
@@ -648,7 +722,7 @@ export async function startEgressProxy(
     });
     // Without the clear, every short-lived request leaves a live timer and
     // its closure registered for the full deadline.
-    return Promise.race([pending, deadline]).finally(() => {
+    return Promise.race([pending.then(attempt), deadline]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
     });
   }
