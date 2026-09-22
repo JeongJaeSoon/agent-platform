@@ -139,6 +139,12 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
         "CHECKPOINT_UNAVAILABLE",
         `Checkpoint rejected: ${result.reason}`,
       );
+    case "events_incomplete":
+      throw new WorkerGatewayError(
+        409,
+        "REVISION_CONFLICT",
+        `Events are durable through source_sequence ${result.acceptedThrough}, not final_source_sequence; append the tail from ${result.acceptedThrough + 1} before finalizing`,
+      );
     case "finalized":
     case "replayed":
       return {
@@ -505,6 +511,7 @@ export function createWorkerGateway(deps: {
         now: now(),
         turnId: request.turn_id,
         finalizeKey: request.finalize_key,
+        finalSourceSequence: request.final_source_sequence,
         terminal: request.terminal,
         checkpoint: request.checkpoint,
       };

@@ -14,6 +14,7 @@ export type WorkerEnvironment = {
   WORKER_EXECUTION_GENERATION?: string | undefined;
   WORKER_EXECUTION_ID?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
+  WORKER_STOP_GRACE_SEC?: string | undefined;
 
   WORKER_CLAUDE_CONFIG_DIR?: string | undefined;
   WORKER_MODEL?: string | undefined;
@@ -40,7 +41,10 @@ export type WorkerTimeouts = {
   answerPollIntervalMs: number;
   /** Give up claiming a session and exit cleanly (DESIGN §6.2). */
   claimTimeoutMs: number;
-  /** Budget for a turn to finish on its own once SIGTERM arrived. */
+  /**
+   * Budget for a turn to finish on its own once SIGTERM arrived. Never more
+   * than the launcher's stop grace leaves after the shutdown that follows.
+   */
   drainTimeoutMs: number;
   heartbeatIntervalMs: number;
   /** Release the session and exit after this long with no input. */
@@ -49,6 +53,11 @@ export type WorkerTimeouts = {
   /** A pending permission or question denied once nobody has answered it. */
   questionTimeoutMs: number;
   requestTimeoutMs: number;
+  /**
+   * Time between SIGTERM and SIGKILL, when the launcher says (LocalDocker
+   * does). Every shutdown wait fits inside it; unknown means unbounded.
+   */
+  stopGraceMs?: number;
 };
 
 export type WorkerRuntimeSettings = {
@@ -89,6 +98,10 @@ export function workerConfigFromEnv(
     environment.WORKER_RUNTIME_AUTH_VALUE,
     "WORKER_RUNTIME_AUTH_VALUE",
   );
+  const stopGraceMs =
+    environment.WORKER_STOP_GRACE_SEC === undefined
+      ? undefined
+      : seconds(environment.WORKER_STOP_GRACE_SEC, 0, "WORKER_STOP_GRACE_SEC");
   return {
     bootstrapNonce: required(
       environment.WORKER_BOOTSTRAP_NONCE,
@@ -137,10 +150,13 @@ export function workerConfigFromEnv(
         60,
         "WORKER_CLAIM_TIMEOUT_SEC",
       ),
-      drainTimeoutMs: seconds(
-        environment.WORKER_DRAIN_TIMEOUT_SEC,
-        100,
-        "WORKER_DRAIN_TIMEOUT_SEC",
+      drainTimeoutMs: drainBudget(
+        seconds(
+          environment.WORKER_DRAIN_TIMEOUT_SEC,
+          100,
+          "WORKER_DRAIN_TIMEOUT_SEC",
+        ),
+        stopGraceMs,
       ),
       heartbeatIntervalMs: seconds(
         environment.WORKER_HEARTBEAT_INTERVAL_SEC,
@@ -167,6 +183,7 @@ export function workerConfigFromEnv(
         30,
         "WORKER_REQUEST_TIMEOUT_SEC",
       ),
+      ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
     },
   };
 }
@@ -222,6 +239,19 @@ function url(value: string, name: string): string {
   } catch {
     throw new Error(`${name} ${value} is not a URL`);
   }
+}
+
+/**
+ * What a drain may spend once the rest of the shutdown is paid for: the
+ * interrupt grace, the engine exit grace and the release after them. A grace
+ * too short for any of that leaves no drain at all — the turn in flight is
+ * interrupted at once and left for the recovery path to retry.
+ */
+export const SHUTDOWN_RESERVE_MS = 12_000;
+
+function drainBudget(configured: number, stopGraceMs: number | undefined) {
+  if (stopGraceMs === undefined) return configured;
+  return Math.min(configured, Math.max(0, stopGraceMs - SHUTDOWN_RESERVE_MS));
 }
 
 function seconds(

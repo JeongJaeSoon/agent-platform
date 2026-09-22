@@ -200,6 +200,7 @@ describe("WorkerGateway", () => {
         ...scope,
         turn_id: "1",
         finalize_key: "f",
+        final_source_sequence: 0,
         terminal: {
           status: "completed",
           reason: null,
@@ -270,6 +271,7 @@ describe("WorkerGateway", () => {
         ...scope,
         turn_id: "1",
         finalize_key: "f",
+        final_source_sequence: 0,
         terminal: {
           status: "completed",
           reason: null,

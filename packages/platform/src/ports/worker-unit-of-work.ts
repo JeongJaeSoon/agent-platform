@@ -131,6 +131,7 @@ export type FinalizeInput = {
   now: Date;
   turnId: string;
   finalizeKey: string;
+  finalSourceSequence: number;
   terminal: FinalizeRequest["terminal"];
   checkpoint: CheckpointRef | null;
 };
@@ -145,6 +146,9 @@ export type FinalizeResult =
   // The turn already reached a terminal state under a different key or body.
   | { outcome: "finalize_conflict" }
   | { outcome: "checkpoint_rejected"; reason: string }
+  // The stream is not durable through final_source_sequence (or holds more
+  // than the worker claims); acceptedThrough says what is actually stored.
+  | { outcome: "events_incomplete"; acceptedThrough: number }
   | FenceRejection;
 
 export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };

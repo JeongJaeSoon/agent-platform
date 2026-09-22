@@ -32,6 +32,8 @@ export class Heartbeat {
   private running: Promise<void> | undefined;
   private stopped = false;
   private wake: (() => void) | undefined;
+  /** A beat asked for while one was in flight; the loop owes it next. */
+  private owed = false;
 
   constructor(options: HeartbeatOptions) {
     this.options = options;
@@ -46,9 +48,14 @@ export class Heartbeat {
     this.running ??= this.loop();
   }
 
-  /** Beats at once instead of waiting out the interval; no-op mid-beat. */
+  /**
+   * Beats at once instead of waiting out the interval. Asked mid-beat, the
+   * next beat follows that one directly: the beat already on the wire may
+   * carry the state from before the change this call is announcing.
+   */
   beatNow(): void {
-    this.wake?.();
+    if (this.wake !== undefined) this.wake();
+    else this.owed = true;
   }
 
   async stop(): Promise<void> {
@@ -59,7 +66,8 @@ export class Heartbeat {
 
   private async loop(): Promise<void> {
     while (!this.stopped && !this.lost) {
-      await this.pause(this.options.intervalMs);
+      if (!this.owed) await this.pause(this.options.intervalMs);
+      this.owed = false;
       if (this.stopped || this.lost) return;
       await this.beat();
     }
