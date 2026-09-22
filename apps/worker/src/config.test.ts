@@ -12,9 +12,7 @@ const launched: WorkerEnvironment = {
   WORKER_EXECUTION_GENERATION: "3",
   WORKER_EXECUTION_ID: "exec-42",
   WORKER_GATEWAY_URL: "http://control-host:8080/",
-  WORKER_MODEL: "claude-sonnet-4-5",
-  WORKER_RUNTIME_ENDPOINT: "http://litellm:4000",
-  WORKER_RUNTIME_AUTH_VALUE: "placeholder-local",
+  WORKER_WORKSPACE_DIR: "/workspace",
   AWS_ACCESS_KEY_ID: "test",
   AWS_ENDPOINT_URL: "http://localstack:4566",
   AWS_REGION: "ap-northeast-1",
@@ -35,16 +33,7 @@ describe("workerConfigFromEnv", () => {
     });
     expect(config.runtime.home).toBe("/home/worker");
     expect(config.runtime.claudeConfigDir).toBe("/home/worker/.claude");
-    // Must match EXECUTION_DOCKER_WORKSPACE_DIR's default until the claim
-    // carries the workspace descriptor (94S-206).
     expect(config.runtime.cwd).toBe("/workspace");
-    expect(config.runtime.profile).toEqual({
-      kind: "litellm",
-      endpoint: "http://litellm:4000",
-      auth: { kind: "api_key", value: "placeholder-local" },
-    });
-    expect(config.runtime.tools).toEqual([]);
-    expect(config.runtime.permissionMode).toBe("default");
   });
 
   test("keeps the design's default timers", () => {
@@ -78,33 +67,12 @@ describe("workerConfigFromEnv", () => {
     });
   });
 
-  test("parses the tool allowlist and the permission mode", () => {
-    const config = workerConfigFromEnv({
-      ...launched,
-      WORKER_TOOLS: " Read, Bash ,",
-      WORKER_PERMISSION_MODE: "plan",
-    });
-
-    expect(config.runtime.tools).toEqual(["Read", "Bash"]);
-    expect(config.runtime.permissionMode).toBe("plan");
-  });
-
-  test("supports a bearer profile for a LiteLLM gateway", () => {
-    const config = workerConfigFromEnv({
-      ...launched,
-      WORKER_RUNTIME_AUTH_KIND: "bearer",
-    });
-
-    expect(config.runtime.profile.auth.kind).toBe("bearer");
-  });
-
   test.each([
     ["HOME", { HOME: undefined }],
     ["WORKER_GATEWAY_URL", { WORKER_GATEWAY_URL: undefined }],
     ["WORKER_BOOTSTRAP_NONCE", { WORKER_BOOTSTRAP_NONCE: undefined }],
     ["WORKER_EXECUTION_ID", { WORKER_EXECUTION_ID: undefined }],
-    ["WORKER_MODEL", { WORKER_MODEL: undefined }],
-    ["WORKER_RUNTIME_ENDPOINT", { WORKER_RUNTIME_ENDPOINT: undefined }],
+    ["WORKER_WORKSPACE_DIR", { WORKER_WORKSPACE_DIR: undefined }],
     ["S3_BUCKET", { S3_BUCKET: undefined }],
     ["WORKER_OBJECT_PREFIX", { WORKER_OBJECT_PREFIX: undefined }],
   ])("refuses to start without %s", (name, missing) => {
@@ -118,20 +86,7 @@ describe("workerConfigFromEnv", () => {
       workerConfigFromEnv({ ...launched, WORKER_GATEWAY_URL: "not-a-url" }),
     ).toThrow("WORKER_GATEWAY_URL not-a-url is not a URL");
     expect(() =>
-      workerConfigFromEnv({ ...launched, WORKER_PERMISSION_MODE: "yolo" }),
-    ).toThrow("WORKER_PERMISSION_MODE yolo is not supported");
-    expect(() =>
       workerConfigFromEnv({ ...launched, QUESTION_TIMEOUT_SEC: "0" }),
     ).toThrow("QUESTION_TIMEOUT_SEC must be a positive number of seconds");
-  });
-
-  test("refuses a profile whose auth kind the engine cannot use", () => {
-    expect(() =>
-      workerConfigFromEnv({
-        ...launched,
-        WORKER_RUNTIME_KIND: "anthropic",
-        WORKER_RUNTIME_AUTH_KIND: "bearer",
-      }),
-    ).toThrow("must be api_key for anthropic");
   });
 });

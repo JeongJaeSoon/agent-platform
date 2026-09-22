@@ -77,6 +77,23 @@ describe("HttpWorkerGatewayClient", () => {
           version: "0.3.270",
           profile_id: "p",
         },
+        runtime_config: {
+          model: "claude-sonnet-4-5",
+          tools: [],
+          permission_mode: "default",
+          provider: {
+            kind: "litellm",
+            endpoint: "http://litellm:4000",
+            auth: { kind: "api_key", value: "placeholder" },
+          },
+        },
+        workspace: {
+          repository: {
+            id: "sample-app",
+            url: "https://git.example.test/sample.git",
+            branch: "main",
+          },
+        },
         restore: null,
       }),
     );

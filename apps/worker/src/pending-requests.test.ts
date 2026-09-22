@@ -174,6 +174,50 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
+  test.each([
+    [
+      "names a question nobody asked",
+      [{ question_id: "q9", selected_option_ids: ["q9o0"] }],
+      "No question q9",
+    ],
+    [
+      "names an option the question does not offer",
+      [{ question_id: "q0", selected_option_ids: ["q0o7"] }],
+      "no option q0o7",
+    ],
+    [
+      "picks two options of a single-select question",
+      [{ question_id: "q0", selected_option_ids: ["q0o0", "q0o1"] }],
+      "takes one option",
+    ],
+    [
+      "answers one question twice",
+      [
+        { question_id: "q0", selected_option_ids: ["q0o0"] },
+        { question_id: "q0", selected_option_ids: ["q0o1"] },
+      ],
+      "answered twice",
+    ],
+    ["leaves the question unanswered", [], "q0 was not answered"],
+  ] as const)("denies an answer that %s", async (_label, answers, message) => {
+    const harness = registry();
+    const decision = harness.registry.request(question("req-bad"));
+    harness.answer({
+      request_id: "req-bad",
+      kind: "question",
+      answers: answers.map((answer) => ({
+        ...answer,
+        selected_option_ids: [...answer.selected_option_ids],
+      })),
+    });
+
+    const settled = await decision;
+    expect(settled.behavior).toBe("deny");
+    expect(settled.behavior === "deny" ? settled.message : "").toContain(
+      message,
+    );
+  });
+
   test("holds several requests independently and answers them out of order", async () => {
     const harness = registry();
     const first = harness.registry.request(permission("req-1"));
