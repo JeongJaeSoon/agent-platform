@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import type { Socket, TCPSocketListener } from "bun";
 import type { ProxyLogger } from "./logger.ts";
 import { createProxyLogger } from "./logger.ts";
@@ -6,13 +7,21 @@ import {
   decideEgress,
   type EgressPolicy,
   type EgressResolver,
+  normalizeHost,
 } from "./policy.ts";
 import { type ProxyRequest, parseRequestHead } from "./request.ts";
+import { MAX_CLIENT_HELLO_BYTES, parseClientHelloSni } from "./tls.ts";
 
 /**
  * A forward proxy that speaks exactly two things: `CONNECT host:port` for
  * TLS, and absolute-form HTTP for the plaintext gateway. Everything else is
  * refused, because everything else is a way to be surprised.
+ *
+ * A CONNECT tunnel carries TLS and nothing else: the first bytes the client
+ * sends through it must be a ClientHello whose server name is the authority
+ * the proxy judged. On a shared CDN edge the authority alone binds nothing —
+ * the same address serves every name behind it — so the name in the
+ * handshake is what the allowlist is really held to.
  *
  * It is the only member of the worker network that can route off it, so the
  * allowlist it enforces is the whole of a worker's reachable world — and one
@@ -33,6 +42,12 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPATCH_TIMEOUT_MS = 20_000;
 const DEFAULT_HEAD_TIMEOUT_MS = 15_000;
 /**
+ * How long a CONNECT client has, after `200`, to finish its ClientHello.
+ * Past its request head nothing else reaps a connection, so a client that
+ * takes the tunnel and never speaks would otherwise hold its slot for good.
+ */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
+/**
  * How long a peer may leave a queue over its cap before the pair is dropped.
  * Pausing the fast side answers a peer that is merely slow; this answers one
  * that has stopped reading altogether, which nothing else reaps once the
@@ -50,6 +65,8 @@ export type EgressProxyOptions = {
   dispatchTimeoutMs?: number;
   /** How long a client may take to finish its request head. */
   headTimeoutMs?: number;
+  /** How long a CONNECT client may take to finish its TLS ClientHello. */
+  handshakeTimeoutMs?: number;
   hostname?: string;
   logger?: ProxyLogger;
   /** Bytes a slow peer may leave queued before the proxy stops reading. */
@@ -108,11 +125,19 @@ type ClientState = {
   dispatching: boolean;
   /** The client went away mid-dispatch; free its slot once that finishes. */
   releaseDeferred: boolean;
-  /** Read from the client while the upstream connection was still opening. */
+  /**
+   * Read from the client before the tunnel was open: while the upstream
+   * connection was still opening, and then while the ClientHello was being
+   * judged. Nothing here reaches the upstream until that verdict.
+   */
   early: Uint8Array[];
   earlyBytes: number;
   headTimer: ReturnType<typeof setTimeout> | undefined;
-  phase: "head" | "connecting" | "piping" | "closed";
+  /** Armed while a CONNECT client owes us its ClientHello. */
+  helloTimer: ReturnType<typeof setTimeout> | undefined;
+  phase: "head" | "connecting" | "inspecting" | "piping" | "closed";
+  /** The CONNECT authority the ClientHello's server name is held to. */
+  tunnelHost: string | null;
   remote: string;
   /** Armed while a queue sits over its cap; a peer that never drains dies. */
   stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -137,6 +162,8 @@ export async function startEgressProxy(
   const dispatchTimeoutMs =
     options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
   const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
+  const handshakeTimeoutMs =
+    options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxPerClient =
     options.maxConnectionsPerClient ?? DEFAULT_MAX_CONNECTIONS_PER_CLIENT;
@@ -185,6 +212,7 @@ export async function startEgressProxy(
           early: [],
           earlyBytes: 0,
           headTimer: undefined,
+          helloTimer: undefined,
           phase: "head",
           releaseDeferred: false,
           remote,
@@ -192,6 +220,7 @@ export async function startEgressProxy(
           stallTimer: undefined,
           toClient: { bytes: 0, chunks: [] },
           toUpstream: { bytes: 0, chunks: [] },
+          tunnelHost: null,
           upstream: null,
         };
         open += 1;
@@ -238,6 +267,12 @@ export async function startEgressProxy(
         return;
       }
       state.early.push(chunk);
+      return;
+    }
+    if (state.phase === "inspecting") {
+      state.earlyBytes += chunk.byteLength;
+      state.early.push(chunk);
+      inspectTunnel(socket);
       return;
     }
     if (state.phase === "piping") {
@@ -399,17 +434,44 @@ export async function startEgressProxy(
       return;
     }
     state.upstream = upstream;
-    state.phase = "piping";
     if (request.kind === "connect") {
+      // The client only starts its handshake once it has the 200, and the
+      // tunnel only starts carrying bytes once that handshake names the
+      // authority we judged. Bytes pipelined behind the CONNECT are already
+      // in `early` and go through the same gate.
+      state.phase = "inspecting";
+      state.tunnelHost = request.host;
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-    } else {
-      push(
-        upstream,
-        state.toUpstream,
-        new TextEncoder().encode(request.head),
-        maxBuffered,
-      );
+      state.helloTimer = setTimeout(() => {
+        if (socket.data.phase !== "inspecting") return;
+        logger.warn(
+          "Dropping a tunnel whose client never finished its ClientHello",
+          {
+            host: request.host,
+            port: request.port,
+          },
+        );
+        drop(socket);
+      }, handshakeTimeoutMs);
+      inspectTunnel(socket);
+      return;
     }
+    state.phase = "piping";
+    push(
+      upstream,
+      state.toUpstream,
+      new TextEncoder().encode(request.head),
+      maxBuffered,
+    );
+    releaseEarly(socket, upstream);
+  }
+
+  /** Hands the client's early bytes to the upstream once it may have them. */
+  function releaseEarly(
+    socket: Socket<ClientState>,
+    upstream: Socket<undefined>,
+  ): void {
+    const state = socket.data;
     state.earlyBytes = 0;
     // Every early chunk was already accepted from the client, so all of them
     // are queued whatever the cap says; only the reading stops.
@@ -420,6 +482,58 @@ export async function startEgressProxy(
     if (!keepingUp) {
       stall(socket, socket, "Dropping a connection whose upstream fell behind");
     }
+  }
+
+  /**
+   * The gate on a CONNECT tunnel: the client's first bytes have to be a
+   * ClientHello for the authority it asked for. Every other outcome is a
+   * drop, including a hello that never finishes — a check that lets the
+   * unparseable through is a check that can be routed around.
+   */
+  function inspectTunnel(socket: Socket<ClientState>): void {
+    const state = socket.data;
+    const upstream = state.upstream;
+    const host = state.tunnelHost;
+    if (upstream === null || host === null) return;
+    const verdict = parseClientHelloSni(concatAll(state.early));
+    const refuse = (reason: string): void => {
+      logger.warn("Dropping a tunnel whose ClientHello failed the gate", {
+        host,
+        reason,
+      });
+      drop(socket);
+    };
+    if (verdict.kind === "incomplete") {
+      if (state.earlyBytes > MAX_CLIENT_HELLO_BYTES) {
+        refuse(`no ClientHello within ${MAX_CLIENT_HELLO_BYTES} bytes`);
+      }
+      return;
+    }
+    if (verdict.kind === "reject") {
+      refuse(verdict.reason);
+      return;
+    }
+    // A TLS client does not send a server name for an IP literal (RFC 6066
+    // §3), and an allowlist entry that is an address already pins the
+    // address itself; there is nothing further for the name to bind. One
+    // that does send a name is asking for something we did not judge.
+    if (isIP(host) !== 0) {
+      if (verdict.kind === "sni") {
+        refuse(`server name ${verdict.host} sent to the address ${host}`);
+        return;
+      }
+    } else if (verdict.kind === "no-sni") {
+      refuse("ClientHello carries no server name");
+      return;
+    } else if (normalizeHost(verdict.host) !== host) {
+      refuse(
+        `server name ${verdict.host} is not the CONNECT authority ${host}`,
+      );
+      return;
+    }
+    clearHelloTimer(state);
+    state.phase = "piping";
+    releaseEarly(socket, upstream);
   }
 
   function connectUpstream(
@@ -571,6 +685,12 @@ export async function startEgressProxy(
     state.stallTimer = undefined;
   }
 
+  function clearHelloTimer(state: ClientState): void {
+    if (state.helloTimer === undefined) return;
+    clearTimeout(state.helloTimer);
+    state.helloTimer = undefined;
+  }
+
   function clearHeadTimer(state: ClientState): void {
     if (state.headTimer === undefined) return;
     clearTimeout(state.headTimer);
@@ -579,6 +699,7 @@ export async function startEgressProxy(
 
   function release(socket: Socket<ClientState>): void {
     clearHeadTimer(socket.data);
+    clearHelloTimer(socket.data);
     clearStallTimer(socket.data);
     if (!socket.data.counted) return;
     if (socket.data.dispatching) {
@@ -696,6 +817,19 @@ function flush(target: Socket<unknown>, queue: Queue): void {
     }
     queue.chunks.shift();
   }
+}
+
+function concatAll(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 1) return chunks[0] ?? new Uint8Array(0);
+  let total = 0;
+  for (const chunk of chunks) total += chunk.byteLength;
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
 }
 
 function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
