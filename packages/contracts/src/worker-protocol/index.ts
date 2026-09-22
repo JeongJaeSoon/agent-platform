@@ -224,6 +224,11 @@ export const finalizeRequestSchema = workerScopeSchema
   .extend({
     turn_id: turnIdSchema,
     finalize_key: z.string().min(1),
+    // The last source_sequence this attempt produced before the terminal.
+    // The turn only closes once the stream is durable through it, so a
+    // finalize can never overtake its own event tail (94S-218). Zero means
+    // the attempt has written no events yet.
+    final_source_sequence: z.number().int().nonnegative().max(INT4_MAX),
     terminal: z.object({
       status: terminalTurnStatusSchema.exclude(["cancelled"]),
       reason: z.string().min(1).nullable(),

@@ -7,6 +7,7 @@ import type { NativeSdkMessage } from "@agent-platform/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
+import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import {
@@ -64,7 +65,9 @@ function harness(
   steps: FakeStep[],
   overrides: {
     checkpoints?: WorkerCheckpointPort;
+    engines?: EngineExitWatch;
     gateway?: FakeWorkerGateway;
+    logger?: WorkerLogger;
     timeouts?: Partial<WorkerTimeouts>;
   } = {},
 ) {
@@ -95,9 +98,10 @@ function harness(
     checkpoints: overrides.checkpoints ?? unwiredCheckpoints,
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
-    logger: silent,
+    logger: overrides.logger ?? silent,
     runtimes,
     timeouts: { ...timeouts, ...overrides.timeouts },
+    ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
   });
   return { gateway, host, runtime };
 }
@@ -411,6 +415,114 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.calls.lastIndexOf("appendEvents")).toBeLessThan(
       gateway.calls.lastIndexOf("heartbeat"),
     );
+  });
+
+  test("waits for the engine process to exit, and kills one that lingers", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "LEASE_EXPIRED";
+    const trail: string[] = [];
+    const recording: WorkerLogger = {
+      info: (event) => trail.push(event),
+      warn: (event) => trail.push(event),
+      error: (event) => trail.push(event),
+    };
+    let alive = true;
+    const engines: EngineExitWatch = {
+      async exited() {
+        trail.push(`exited? ${!alive}`);
+        return !alive;
+      },
+      get running() {
+        return alive ? [4242] : [];
+      },
+      kill() {
+        trail.push("kill");
+        alive = false;
+      },
+    };
+    const { host } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      {
+        engines,
+        gateway,
+        logger: recording,
+        timeouts: { heartbeatIntervalMs: 5 },
+      },
+    );
+    gateway.enqueue("a turn that will outlive its lease");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(trail.slice(trail.indexOf("worker.stopping"))).toEqual([
+      "worker.stopping",
+      "exited? false",
+      "worker.engine.lingering",
+      "kill",
+      "exited? true",
+      "worker.engine.killed",
+      "worker.ownership.lost",
+    ]);
+    expect(gateway.finalized).toEqual([]);
+  });
+
+  test("cuts shutdown waits to what the stop grace has left", async () => {
+    const gateway = new FakeWorkerGateway();
+    const waits: number[] = [];
+    const engines: EngineExitWatch = {
+      async exited(timeoutMs) {
+        waits.push(timeoutMs);
+        return true;
+      },
+      running: [],
+      kill() {},
+    };
+    const { host } = harness([{ type: "await-input" }], {
+      engines,
+      gateway,
+      timeouts: {
+        drainTimeoutMs: 0,
+        idleTimeoutMs: 60_000,
+        stopGraceMs: 2_500,
+      },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("nextInput"), "the first poll");
+    host.drain("received SIGTERM");
+
+    await loop;
+
+    // 2.5 s of grace, 2 s of it kept for the release: nowhere near the 5 s
+    // an engine gets when nothing is counting down.
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeLessThanOrEqual(500);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("takes no new checkpoint when an idle worker is told to stop", async () => {
+    const gateway = new FakeWorkerGateway();
+    let captures = 0;
+    const checkpoints: WorkerCheckpointPort = {
+      restorePlan: async () => ({ mode: "new" }),
+      capture: async () => {
+        captures += 1;
+        return null;
+      },
+    };
+    const { host } = harness([{ type: "await-input" }], {
+      checkpoints,
+      gateway,
+      timeouts: { idleTimeoutMs: 60_000 },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("nextInput"), "the first poll");
+    host.drain("received SIGTERM");
+
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(captures).toBe(0);
+    expect(gateway.releases).toHaveLength(1);
   });
 
   test("drains on request: finishes the turn in flight, then releases", async () => {

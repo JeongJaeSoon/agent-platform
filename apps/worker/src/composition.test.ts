@@ -3,6 +3,7 @@ import { CLAUDE_AGENT_SDK_VERSION } from "@agent-platform/runtime-claude";
 
 import { claudeRuntimeRegistry } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
+import { EngineProcesses } from "./engine-processes.ts";
 
 const config: WorkerConfig = {
   bootstrapNonce: "wln_test",
@@ -36,7 +37,10 @@ const config: WorkerConfig = {
 
 describe("claudeRuntimeRegistry", () => {
   test("serves a session created for the engine this image ships", () => {
-    const launcher = claudeRuntimeRegistry(config).launcherFor({
+    const launcher = claudeRuntimeRegistry(
+      config,
+      new EngineProcesses(),
+    ).launcherFor({
       kind: "claude_agent_sdk",
       version: CLAUDE_AGENT_SDK_VERSION,
       profile_id: "default",
@@ -47,7 +51,7 @@ describe("claudeRuntimeRegistry", () => {
 
   test("refuses a session that asks for another engine", () => {
     expect(() =>
-      claudeRuntimeRegistry(config).launcherFor({
+      claudeRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "codex_app_server",
         version: "1.0.0",
         profile_id: "default",
@@ -59,7 +63,7 @@ describe("claudeRuntimeRegistry", () => {
     // A transcript is only replayable on the build that wrote it, so a
     // version this image cannot provide is refused rather than approximated.
     expect(() =>
-      claudeRuntimeRegistry(config).launcherFor({
+      claudeRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "claude_agent_sdk",
         version: "0.0.1",
         profile_id: "default",

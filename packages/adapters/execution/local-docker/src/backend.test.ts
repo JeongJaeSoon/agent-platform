@@ -472,6 +472,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
         `${ENV.objectRegion}=ap-northeast-1`,
         `${ENV.objectSecretAccessKey}=test-secret-value`,
+        `${ENV.stopGrace}=3`,
       ].sort(),
     );
     expect(body.Labels).toEqual({

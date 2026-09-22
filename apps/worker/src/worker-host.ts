@@ -19,6 +19,7 @@ import type {
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
+import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import {
   isOwnershipLost,
@@ -75,6 +76,8 @@ export type WorkerHostOptions = {
   logger?: WorkerLogger;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
+  /** Absent for engines that spawn no process, like the fake. */
+  engines?: EngineExitWatch;
 };
 
 /** `failed` winds down like a drain; only the reported outcome differs. */
@@ -98,6 +101,10 @@ const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
 /** How long an interrupted engine gets to produce its terminal frame. */
 const INTERRUPT_GRACE_MS = 5_000;
+/** How long a closed engine gets to exit, and a killed one after that. */
+const ENGINE_EXIT_GRACE_MS = 5_000;
+/** Kept back from the stop grace for the release call. */
+const RELEASE_RESERVE_MS = 2_000;
 
 /**
  * The worker process: one session, one attempt, however many turns the lease
@@ -126,6 +133,7 @@ export class WorkerHost {
   private readonly abandoned: Promise<void>;
   private announceAbandon: () => void = () => {};
   private abandonedNow = false;
+  private stoppedAt: number | undefined;
   private turn: Turn | undefined;
 
   constructor(options: WorkerHostOptions) {
@@ -271,7 +279,11 @@ export class WorkerHost {
   private stop(stop: Stop): void {
     if (this.stopping !== undefined) return;
     this.stopping = stop;
-    if (stop.kind !== "lost") this.attemptState = "draining";
+    if (stop.kind !== "lost") {
+      this.attemptState = "draining";
+      // The launcher's SIGKILL clock starts with its SIGTERM, not a lease loss.
+      this.stoppedAt ??= this.now().getTime();
+    }
     this.logger.info("worker.stopping", {
       kind: stop.kind,
       reason: stop.reason,
@@ -420,6 +432,9 @@ export class WorkerHost {
       (this.publisher?.idle() ?? Promise.resolve()).then(() => true),
     );
     if (flushed === undefined || this.ownerLost) return;
+    // Read after the flush: everything numbered so far is stored, and the
+    // gateway refuses to close the turn short of it.
+    const finalSourceSequence = this.publisher?.published ?? 0;
     const checkpoint = await this.capture(run);
     const finalized = await this.untilAbandoned(
       this.withRetry(
@@ -428,6 +443,7 @@ export class WorkerHost {
             ...this.scope,
             turn_id: input.turn_id,
             finalize_key: `${this.scope.attempt_id}:${input.turn_id}`,
+            final_source_sequence: finalSourceSequence,
             terminal: {
               status: settlement.status,
               reason: settlement.reason,
@@ -556,21 +572,19 @@ export class WorkerHost {
             reason: describe(error),
           });
         });
-        await settledWithin(this.turn.settled, INTERRUPT_GRACE_MS);
+        await settledWithin(
+          this.turn.settled,
+          this.withinGrace(INTERRUPT_GRACE_MS),
+        );
       }
     }
-    if (run !== undefined && stop.kind !== "lost") {
-      // The last safe boundary this process will ever have.
-      await this.capture(run).catch((error) => {
-        this.logger.warn("worker.checkpoint.failed", {
-          reason: describe(error),
-        });
-      });
-    }
+    // No checkpoint is taken here. One only becomes durable riding a turn's
+    // finalize, and a turn given up on the way out is not finalized; an idle
+    // worker leaves the last committed checkpoint as the one to resume from.
+    // A session-level checkpoint commit would change that, and alpha has none.
     run?.close();
-    // The stream ending is how this process learns the engine and its child
-    // process are actually gone, rather than assuming close() was enough.
     await this.pumping;
+    await this.confirmEngineExit();
     await this.heartbeat?.stop();
     if (stop.kind === "lost") {
       // No durable write survives owner loss: not the event tail, not the
@@ -603,6 +617,40 @@ export class WorkerHost {
       .catch((error) =>
         this.logger.warn("worker.release.failed", { reason: describe(error) }),
       );
+  }
+
+  /**
+   * The stream ending says the engine stopped talking, not that its process
+   * is gone. Only the observed exit says that, so a straggler past the grace
+   * period is killed rather than left running behind this process.
+   */
+  private async confirmEngineExit(): Promise<void> {
+    const engines = this.options.engines;
+    if (engines === undefined) return;
+    if (await engines.exited(this.withinGrace(ENGINE_EXIT_GRACE_MS))) {
+      this.logger.info("worker.engine.exited", {});
+      return;
+    }
+    const lingering = engines.running;
+    this.logger.error("worker.engine.lingering", { pids: lingering });
+    engines.kill();
+    const killed = await engines.exited(this.withinGrace(ENGINE_EXIT_GRACE_MS));
+    this.logger[killed ? "warn" : "error"]("worker.engine.killed", {
+      pids: lingering,
+      exited: killed,
+    });
+  }
+
+  /**
+   * A shutdown wait, cut to what the launcher's stop grace still allows so
+   * the release at the end is not the part the SIGKILL takes away.
+   */
+  private withinGrace(ms: number): number {
+    const grace = this.options.timeouts.stopGraceMs;
+    if (grace === undefined || this.stoppedAt === undefined) return ms;
+    const left =
+      this.stoppedAt + grace - RELEASE_RESERVE_MS - this.now().getTime();
+    return Math.max(0, Math.min(ms, left));
   }
 
   /** Resolves with the value, or undefined once the turn has to be given up. */
