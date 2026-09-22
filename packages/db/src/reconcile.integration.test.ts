@@ -490,11 +490,10 @@ integration("expired lease reconciliation on PostgreSQL", () => {
   test("a heartbeat that lands first keeps the lease; an attempt already released is only closed", async () => {
     const alive = await bound("alive");
     advance(LEASE_TTL_MS / 2);
-    const hb = await gateway.heartbeat(alive.principal, {
+    await gateway.heartbeat(alive.principal, {
       ...alive.scope,
       attempt_state: "running",
     });
-    console.log("DIAG-HB", JSON.stringify(hb));
     // Past the original lease, inside the extended one — with a margin on
     // both sides, since a claim measures its lease from the row lock, not
     // from the injected clock, and the sweep compares strictly.
@@ -503,16 +502,6 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       .select({ leaseExpiresAt: attempts.leaseExpiresAt })
       .from(attempts)
       .where(eq(attempts.id, alive.claimed.attempt_id));
-    console.log(
-      "DIAG",
-      JSON.stringify({
-        clock,
-        claimed: alive.claimed.lease_expires_at,
-        beat,
-        offset: new Date().getTimezoneOffset(),
-        now: new Date(),
-      }),
-    );
     expect(beat?.leaseExpiresAt.getTime()).toBeGreaterThan(clock.getTime());
     expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
 

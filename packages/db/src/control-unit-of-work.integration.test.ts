@@ -279,14 +279,17 @@ integration("session terminate on PostgreSQL", () => {
     expect(queue).toEqual([{ turnId: running.id }]);
     expect(await receiptRow(appended.response.receipt_id)).toMatchObject({
       status: "failed",
-      result: null,
       error: { code: "SESSION_STOPPED" },
+      // The acceptance response stays so the same-key retry still replays.
+      result: { receipt_id: appended.response.receipt_id },
     });
     const [pending] = await db
       .select({ resolvedAt: pendingRequests.resolvedAt })
       .from(pendingRequests)
       .where(eq(pendingRequests.sessionId, session.session_id));
-    expect(pending?.resolvedAt).toEqual(clock);
+    expect(pending?.resolvedAt?.getTime()).toBeGreaterThanOrEqual(
+      clock.getTime(),
+    );
     const [execution] = await db
       .select({ desiredState: executions.desiredState })
       .from(executions)

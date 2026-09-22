@@ -155,7 +155,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         resource: sessionId,
         key: input.idempotencyKey,
       };
-      const { now } = input;
+      const startedAt = Date.now();
       return db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
@@ -189,6 +189,13 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           .limit(1)
           .for("update");
         if (!session) return { outcome: "not_found" };
+        // Waiting for the session lock is real time; an append that held it
+        // committed rows stamped after the caller read its clock, and this
+        // transaction's stamps must not fall before them. Same rule as the
+        // gateway paths: caller clock plus the wait, so injected clocks hold.
+        const now = new Date(
+          input.now.getTime() + Math.max(0, Date.now() - startedAt),
+        );
         if (session.admissionState === "closed") {
           return { outcome: "rejected", admissionState: "closed" };
         }
@@ -234,7 +241,9 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 code: "SESSION_STOPPED",
                 message: "input cancelled by terminate before it ran",
               },
-              result: null,
+              // `result` keeps the acceptance response on purpose: a retry
+              // of the original request with its idempotency key replays
+              // from it (findIdempotent); the receipt read reports the failure.
               updatedAt: now,
             })
             .where(
