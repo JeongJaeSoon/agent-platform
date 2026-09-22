@@ -680,7 +680,7 @@ export class WorkerHost {
         });
         await settledWithin(
           this.turn.settled,
-          this.withinGrace(INTERRUPT_GRACE_MS),
+          this.shutdownWait(INTERRUPT_GRACE_MS),
         );
       }
     }
@@ -692,7 +692,10 @@ export class WorkerHost {
     // Bounded for the same reason: a wedged engine may never end its stream,
     // and the exit check below is what deals with that.
     if (this.pumping !== undefined) {
-      await settledWithin(this.pumping, this.withinGrace(ENGINE_EXIT_GRACE_MS));
+      await settledWithin(
+        this.pumping,
+        this.shutdownWait(ENGINE_EXIT_GRACE_MS),
+      );
     }
     await this.confirmEngineExit();
     if (this.heartbeat !== undefined) {
@@ -761,7 +764,7 @@ export class WorkerHost {
   private async confirmEngineExit(): Promise<void> {
     const engines = this.options.engines;
     if (engines === undefined) return;
-    if (await engines.exited(this.withinGrace(ENGINE_EXIT_GRACE_MS))) {
+    if (await engines.exited(this.shutdownWait(ENGINE_EXIT_GRACE_MS))) {
       this.logger.info("worker.engine.exited", {});
       return;
     }
@@ -773,6 +776,15 @@ export class WorkerHost {
       pids: lingering,
       exited: killed,
     });
+  }
+
+  /**
+   * How long the engine gets to wind down by itself. None once the lease is
+   * gone: another attempt may already own the workspace, and whatever the
+   * engine does meanwhile is unfenced, so it is killed rather than waited on.
+   */
+  private shutdownWait(ms: number): number {
+    return this.ownerLost ? 0 : this.withinGrace(ms);
   }
 
   /**

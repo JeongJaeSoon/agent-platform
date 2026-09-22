@@ -517,6 +517,38 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.finalized).toEqual([]);
   });
 
+  test("kills the engine at once when the lease is lost, with no grace", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "LEASE_EXPIRED";
+    const waits: number[] = [];
+    let alive = true;
+    const engines: EngineExitWatch = {
+      async exited(timeoutMs) {
+        waits.push(timeoutMs);
+        return !alive;
+      },
+      get running() {
+        return alive ? [4242] : [];
+      },
+      kill() {
+        alive = false;
+      },
+    };
+    const { host } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      { engines, gateway, timeouts: { heartbeatIntervalMs: 5 } },
+    );
+    gateway.enqueue("a turn that will outlive its lease");
+    const started = Date.now();
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(waits[0]).toBe(0);
+    // Not the interrupt grace, the stream grace and the exit grace in turn.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   test("cuts shutdown waits to what the stop grace has left", async () => {
     const gateway = new FakeWorkerGateway();
     const waits: number[] = [];
