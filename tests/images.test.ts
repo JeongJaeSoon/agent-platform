@@ -67,9 +67,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const workflow = read(".github/workflows/images.yml");
     expect(workflow).toContain("app: [api, worker, scheduler]");
     expect(workflow).toContain('tags: ["v*"]');
-    expect(workflow).toContain('if [ "$' + '{GITHUB_REF_TYPE}" = tag ]');
-    expect(workflow).toContain(
-      "push: $" + "{{ steps.meta.outputs.push == 'true' }}",
-    );
+    // The PR-facing job never pushes and never holds package write; only
+    // the tag-gated job does.
+    const [buildJob, publishJob] = workflow.split("\n  publish:\n");
+    expect(buildJob).toContain("push: false");
+    expect(buildJob).not.toContain("packages: write");
+    expect(publishJob).toContain("if: github.ref_type == 'tag'");
+    expect(publishJob).toContain("packages: write");
+    expect(publishJob).toContain("push: true");
   });
 });
