@@ -28,6 +28,13 @@ export type GitWorkspaceBundleVerifierOptions = {
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 
 /**
+ * Stricter than `git check-ref-format`: full `refs/` names, path components
+ * of the characters git bundles actually produce, no component starting with
+ * a dot or a dash and none ending in `.lock`.
+ */
+const SAFE_REF_NAME = /^refs(\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?<!\.lock))+$/;
+
+/**
  * The git-backed `WorkspaceBundleVerifier`: proves the bundle's pack really
  * holds the commit it claims, which is the one thing bytes alone cannot show.
  *
@@ -71,6 +78,15 @@ export function createGitWorkspaceBundleVerifier(
       const ref = offer.refs[0];
       if (ref === undefined) {
         return { status: "unusable", reason: "git bundle offers no ref" };
+      }
+      // The ref name goes into a refspec and, if git objects to it, into
+      // stderr. Only a name git itself would accept gets that far, so a
+      // bundle cannot choose what the failure below looks like.
+      if (!SAFE_REF_NAME.test(ref) || ref.includes("..")) {
+        return {
+          status: "unusable",
+          reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
+        };
       }
       const directory = await mkdtemp(
         join(options.tempRoot ?? tmpdir(), "bundle-verify-"),

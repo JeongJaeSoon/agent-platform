@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -223,6 +230,96 @@ describe("git workspace bundle verifier", () => {
       }
       await rm(alternate, { force: true, recursive: true });
     }
+  });
+
+  test("a ref name git would refuse never reaches a refspec or stderr", async () => {
+    const text = new TextDecoder("latin1").decode(bundle.bytes);
+    const headerEnd = text.indexOf("\n\n");
+    const header = text
+      .slice(0, headerEnd)
+      .replace(bundle.ref, "refs/heads/permission denied");
+    const bytes = new Uint8Array(
+      Buffer.concat([
+        Buffer.from(header, "latin1"),
+        bundle.bytes.subarray(headerEnd),
+      ]),
+    );
+    const calls: string[][] = [];
+    const gitRunner: GitCommandRunner = async (args) => {
+      calls.push([...args]);
+      return { exitCode: 0, stderr: "", stdout: "" };
+    };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    const verdict = await verifier.verify({
+      bytes,
+      commit: bundle.commit,
+      key: "k",
+    });
+    expect(verdict).toEqual({
+      status: "unusable",
+      reason:
+        'git bundle ref name is not one git would accept: "refs/heads/permission denied"',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("a filtered bundle is refused before git and by git alike", async () => {
+    const source = await mkdtemp(join(tempRoot, "filtered-"));
+    const env = {
+      GIT_AUTHOR_EMAIL: "t@example.invalid",
+      GIT_AUTHOR_NAME: "t",
+      GIT_COMMITTER_EMAIL: "t@example.invalid",
+      GIT_COMMITTER_NAME: "t",
+    };
+    const run = async (...args: string[]) => {
+      const result = await defaultGitRunner(args, { cwd: source, env });
+      expect(result.exitCode).toBe(0);
+      return result.stdout.trim();
+    };
+    await run("init", "--quiet", "--initial-branch=main", ".");
+    await writeFile(join(source, "file.txt"), "x\n");
+    await run("add", "file.txt");
+    await run("commit", "--quiet", "-m", "c");
+    const commit = await run("rev-parse", "HEAD");
+    const path = join(source, "filtered.bundle");
+    await run(
+      "bundle",
+      "create",
+      "--version=3",
+      path,
+      "--filter=blob:none",
+      "main",
+    );
+    const bytes = new Uint8Array(await readFile(path));
+    await rm(source, { force: true, recursive: true });
+
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+    expect(await verifier.verify({ bytes, commit, key: "k" })).toEqual({
+      status: "unusable",
+      reason:
+        "git bundle is filtered (filter=blob:none) and omits objects a restore needs",
+    });
+    // The gate exists for older or differently configured gits; this one
+    // refuses the same pack on its own, which is what the gate stands in for.
+    const repository = await mkdtemp(join(tempRoot, "repo-"));
+    await defaultGitRunner(["init", "--quiet", "--bare", "."], {
+      cwd: repository,
+      env: {},
+    });
+    await writeFile(join(repository, "f.bundle"), bytes);
+    const fetch = await defaultGitRunner(
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "f.bundle",
+        "refs/heads/main:refs/verify/tip",
+      ],
+      { cwd: repository, env: {} },
+    );
+    await rm(repository, { force: true, recursive: true });
+    expect(fetch.exitCode).not.toBe(0);
+    expect(fetch.stderr).toContain("did not send all necessary objects");
   });
 
   test("a git that outlives the timeout is killed and reported as unusable", async () => {
