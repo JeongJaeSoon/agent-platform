@@ -120,23 +120,45 @@ function paletteOf(
   return palette;
 }
 
+/** The arguments of a leading `min(...)`, split at depth 1. Empty otherwise. */
+function topLevelArguments(value: string): string[] {
+  const match = /^\s*min\(([\s\S]*)\)\s*$/.exec(value);
+  if (!match?.[1]) return [];
+  const args: string[] = [];
+  let depth = 0;
+  let buffer = "";
+  for (const character of match[1]) {
+    if (character === "(") depth += 1;
+    if (character === ")") depth -= 1;
+    if (character === "," && depth === 0) {
+      args.push(buffer.trim());
+      buffer = "";
+      continue;
+    }
+    buffer += character;
+  }
+  args.push(buffer.trim());
+  return args;
+}
+
 describe("tokens.css", () => {
   test("본문 색이 앉을 수 있는 모든 바탕에서 AA를 넘는다", () => {
     // 12px 상태 문구까지 포함하므로 large-text 예외(3:1)는 쓰지 않는다.
     const AA = 4.5;
+    const TONES = [
+      "neutral",
+      "progress",
+      "attention",
+      "caution",
+      "danger",
+      "unknown",
+      "positive",
+    ];
     const SURFACES = [
       "--ap-color-canvas",
       "--ap-color-surface",
       "--ap-color-surface-sunken",
-      ...[
-        "neutral",
-        "progress",
-        "attention",
-        "caution",
-        "danger",
-        "unknown",
-        "positive",
-      ].map((tone) => `--ap-tone-${tone}-bg`),
+      ...TONES.map((tone) => `--ap-tone-${tone}-bg`),
     ];
     const light = paletteOf(
       (d) => d.selector === ":root" && d.atRules.length === 0,
@@ -178,10 +200,20 @@ describe("tokens.css", () => {
 
     for (const [theme, palette] of themes) {
       expect(palette.size).toBeGreaterThan(0);
-      for (const [texts, surfaces] of [
+      const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
         [RAIL_TEXT, ["--ap-color-rail"]],
-      ] as [string[], string[]][]) {
+        // A status label draws its own tone on its own background — the pair
+        // the whole StatusLabel vocabulary rests on.
+        ...TONES.map(
+          (tone) =>
+            [[`--ap-tone-${tone}-fg`], [`--ap-tone-${tone}-bg`]] as [
+              string[],
+              string[],
+            ],
+        ),
+      ];
+      for (const [texts, surfaces] of pairs) {
         for (const text of texts) {
           const fg = colourOf(theme, palette, text);
           for (const surface of surfaces) {
@@ -270,11 +302,14 @@ describe("styles.css", () => {
       // `100%` is the container; `vw` includes the scrollbar and is what
       // pushed the dialog sideways once already. A `+` inside the cap means
       // it grows past the container, so it is not a cap.
-      const cappedToContainer =
-        /^\s*min\(/.test(d.value) &&
-        d.value.includes("100%") &&
-        !/\bvw\b/.test(d.value) &&
-        !/100%\s*\+/.test(d.value);
+      // A real cap: one argument of `min()` is the container itself, `100%`
+      // or `calc(100% - x)`. `100vw` includes the scrollbar — the value that
+      // scrolled this package sideways once — and `1100%` merely contains the
+      // same characters.
+      const cappedToContainer = topLevelArguments(d.value).some(
+        (argument) =>
+          argument === "100%" || /^calc\(\s*100%\s*-/.test(argument),
+      );
       const value = cappedToContainer
         ? ""
         : (/^\s*clamp\((.*)$/.exec(d.value)?.[1]?.split(",")[0] ?? d.value);
@@ -308,18 +343,19 @@ describe("styles.css", () => {
       ".ap-state__description",
       ".ap-state__code",
     ];
-    const declared = new Map<string, Set<string>>();
+    const wrapping = new Map<string, string>();
     for (const declaration of styleDeclarations) {
       if (declaration.atRules.length > 0) continue;
+      if (declaration.property !== "overflow-wrap") continue;
       for (const selector of declaration.selector.split(",")) {
-        const key = selector.trim();
-        const properties = declared.get(key) ?? new Set<string>();
-        properties.add(declaration.property);
-        declared.set(key, properties);
+        wrapping.set(selector.trim(), declaration.value);
       }
     }
+    // The value, not just the property: `overflow-wrap: normal` declares
+    // nothing and would otherwise pass.
     const missing = SERVER_TEXT.filter(
-      (selector) => !declared.get(selector)?.has("overflow-wrap"),
+      (selector) =>
+        !["anywhere", "break-word"].includes(wrapping.get(selector) ?? ""),
     );
     expect(missing).toEqual([]);
   });

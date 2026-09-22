@@ -88,7 +88,7 @@ describe("패키지 경계", () => {
       // Forms with no `type` to look for: a dynamic import, a bare
       // side-effect import, and a re-export. Each pulls zod in at runtime.
       const RUNTIME_FORMS: [RegExp, string][] = [
-        [/\bimport\s*\(\s*["']@agent-platform\/contracts["']/, "dynamic"],
+        [/\bimport\s*\(\s*["'`]@agent-platform\/contracts["'`]/, "dynamic"],
         [/\bimport\s+["']@agent-platform\/contracts["']/, "side effect"],
         [
           /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@agent-platform\/contracts["']/,

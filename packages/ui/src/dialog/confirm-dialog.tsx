@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { JSX, ReactNode } from "react";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "../lib/cn.ts";
 
@@ -60,16 +60,25 @@ export function ConfirmDialog({
    * recognise our own content by it. The attribute is already there.
    */
   const instanceId = useId();
+  // Mounted already open (`{open && <ConfirmDialog …>}`): the listener below
+  // is installed too late to have seen the opener, but nothing has moved focus
+  // yet at this point either. A lazy initialiser, so a render React abandons
+  // leaves nothing behind.
+  const [openerAtMount] = useState<HTMLElement | null>(() =>
+    open && typeof document !== "undefined"
+      ? (document.activeElement as HTMLElement | null)
+      : null,
+  );
   const openerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const remember = (event: FocusEvent): void => {
       const target = event.target as HTMLElement | null;
-      if (
-        !target?.closest ||
-        target.closest(`[data-ap-dialog="${instanceId}"]`)
-      ) {
-        return;
-      }
+      if (!target?.closest) return;
+      const own = document.querySelector(`[data-ap-dialog="${instanceId}"]`);
+      // While this one is open, nothing inside any dialog is an opener — not
+      // its own controls, and not a dialog opened on top of it, which lives in
+      // its own portal rather than inside this content.
+      if (own && target.closest("[data-ap-dialog]")) return;
       openerRef.current = target;
     };
     document.addEventListener("focusin", remember);
@@ -90,7 +99,7 @@ export function ConfirmDialog({
           data-tone={tone}
           data-busy={busy || undefined}
           onCloseAutoFocus={(event) => {
-            const opener = openerRef.current;
+            const opener = openerRef.current ?? openerAtMount;
             // Gone from the page — the screen that owned it was torn down with
             // the dialog. Nothing to return to, so leave Radix's fallback.
             if (!opener?.isConnected) return;
