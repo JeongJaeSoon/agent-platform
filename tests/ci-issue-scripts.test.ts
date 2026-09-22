@@ -109,7 +109,10 @@ describe("upsert-ci-issue.sh", () => {
         ],
         {
           "label create": "",
-          "issue list": ["", "12"],
+          "issue list": [
+            "[]",
+            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+          ],
           "issue create": "https://github.com/octo/repo/issues/12",
         },
       );
@@ -143,7 +146,8 @@ describe("upsert-ci-issue.sh", () => {
         ],
         {
           "label create": "",
-          "issue list": "12",
+          "issue list":
+            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
           "issue comment 12": "",
         },
       );
@@ -166,7 +170,10 @@ describe("upsert-ci-issue.sh", () => {
         ["ci-missing-push-run", "CI: main tip has no push run", body.path],
         {
           "label create": "",
-          "issue list": ["", "7"],
+          "issue list": [
+            "[]",
+            '[{"number":7,"title":"CI: main tip has no push run"}]',
+          ],
           "issue create": "https://github.com/octo/repo/issues/7",
         },
       );
@@ -194,7 +201,10 @@ describe("upsert-ci-issue.sh", () => {
         ],
         {
           "label create": "",
-          "issue list": ["", "12"],
+          "issue list": [
+            "[]",
+            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+          ],
           "issue create": "https://github.com/octo/repo/issues/13",
           "issue close 13": "",
           "issue comment 12": "",
@@ -219,20 +229,20 @@ describe("upsert-ci-issue.sh", () => {
   const closedList =
     "issue list --repo octo/repo --label ci-missing-push-run --state closed";
 
-  test("with --skip-if-closed, a closed issue of the same title is an acknowledgement", async () => {
+  test("with --by-title, a closed issue of the same title is an acknowledgement", async () => {
     const body = await bodyFile();
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "--skip-if-closed",
+          "--by-title",
           "ci-missing-push-run",
           "CI: main tip 70139eb has no push run",
           body.path,
         ],
         {
           "label create": "",
-          [openList]: "",
+          [openList]: "[]",
           [closedList]:
             '[{"number":39,"title":"CI: main tip 70139eb has no push run"},{"number":40,"title":"CI: main tip 70139eb has no push run"},{"number":50,"title":"CI: main tip 1111111 has no push run"}]',
         },
@@ -253,20 +263,23 @@ describe("upsert-ci-issue.sh", () => {
     }
   });
 
-  test("with --skip-if-closed, no matching closed title still creates the issue", async () => {
+  test("with --by-title, no matching closed title still creates the issue", async () => {
     const body = await bodyFile();
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "--skip-if-closed",
+          "--by-title",
           "ci-missing-push-run",
           "CI: main tip abcdef0 has no push run",
           body.path,
         ],
         {
           "label create": "",
-          [openList]: ["", "41"],
+          [openList]: [
+            "[]",
+            '[{"number":41,"title":"CI: main tip abcdef0 has no push run"}]',
+          ],
           // A closed issue for another commit must not count.
           [closedList]:
             '[{"number":50,"title":"CI: main tip 1111111 has no push run"}]',
@@ -283,7 +296,44 @@ describe("upsert-ci-issue.sh", () => {
     }
   });
 
-  test("without --skip-if-closed, closed issues are never consulted", async () => {
+  test("with --by-title, an open issue for another commit is not appended to", async () => {
+    const body = await bodyFile();
+    try {
+      const outcome = await run(
+        "upsert-ci-issue.sh",
+        [
+          "--by-title",
+          "ci-missing-push-run",
+          "CI: main tip abcdef0 has no push run",
+          body.path,
+        ],
+        {
+          "label create": "",
+          [openList]: [
+            '[{"number":41,"title":"CI: main tip 1111111 has no push run"}]',
+            '[{"number":41,"title":"CI: main tip 1111111 has no push run"},{"number":42,"title":"CI: main tip abcdef0 has no push run"}]',
+          ],
+          [closedList]: "[]",
+          "issue create": "https://github.com/octo/repo/issues/42",
+        },
+      );
+
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stdout).toBe(
+        "created https://github.com/octo/repo/issues/42\n",
+      );
+      expect(
+        outcome.calls.some((call) => call.startsWith("issue comment")),
+      ).toBe(false);
+      expect(outcome.calls.some((call) => call.startsWith("issue close"))).toBe(
+        false,
+      );
+    } finally {
+      await body.dispose();
+    }
+  });
+
+  test("without --by-title, closed issues are never consulted", async () => {
     const body = await bodyFile();
     try {
       const outcome = await run(
@@ -295,7 +345,10 @@ describe("upsert-ci-issue.sh", () => {
         ],
         {
           "label create": "",
-          "issue list": ["", "12"],
+          "issue list": [
+            "[]",
+            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+          ],
           "issue create": "https://github.com/octo/repo/issues/12",
         },
       );
@@ -365,6 +418,23 @@ describe("check-main-push-run.sh", () => {
     expect(window).toMatch(
       /since=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z&per_page=100/,
     );
+    expect(window).toContain("--paginate");
+  });
+
+  test("a failed lookup exits 2, distinct from missing, after the verdicts it did reach", async () => {
+    // No reply is mapped for the second commit's runs query, so the fake gh
+    // fails it the way a real API error would.
+    const outcome = await run("check-main-push-run.sh", [], {
+      "api repos/octo/repo/commits?sha=main&since=": [
+        `${oldCommit("bbbbbbb222")}\\n${oldCommit("aaaaaaa111")}`,
+      ],
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "1",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("present bbbbbbb\n");
+    expect(outcome.stderr).toContain("GitHub API call failed");
   });
 
   test("an empty window is not an error", async () => {

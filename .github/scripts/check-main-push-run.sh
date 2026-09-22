@@ -14,7 +14,9 @@
 # seen twice is reported once.
 #
 # Prints one line per commit, `<verdict> <short-sha>`, where the verdict is
-# `present`, `missing` or `too-recent`. Exits 1 when any commit is missing.
+# `present`, `missing` or `too-recent`. Exits 1 when any commit is missing and
+# 2 when GitHub could not be asked, so a caller can tell "found a gap" from
+# "could not look" — the lines already printed are then a partial answer.
 #
 # usage: check-main-push-run.sh [sha]
 #   sha  a single commit to judge instead of the window (fixture runs)
@@ -48,14 +50,22 @@ print(int((datetime.now(timezone.utc) - committed).total_seconds() // 60))
 PY
 }
 
+api_failed() {
+  echo "GitHub API call failed: $1" >&2
+  exit 2
+}
+
 if [ "$#" -ge 1 ] && [ -n "$1" ]; then
-  commits=$(gh api "repos/${GH_REPO}/commits/$1" --jq '"\(.sha) \(.commit.committer.date)"')
+  commits=$(gh api "repos/${GH_REPO}/commits/$1" --jq '"\(.sha) \(.commit.committer.date)"') \
+    || api_failed "commits/$1"
 else
   since=$(python3 -c "
 from datetime import datetime, timedelta, timezone
 print((datetime.now(timezone.utc) - timedelta(hours=${lookback})).strftime('%Y-%m-%dT%H:%M:%SZ'))")
-  commits=$(gh api "repos/${GH_REPO}/commits?sha=main&since=${since}&per_page=100" \
-    --jq '.[] | "\(.sha) \(.commit.committer.date)"')
+  # --paginate: a busy window can hold more than one page of commits.
+  commits=$(gh api "repos/${GH_REPO}/commits?sha=main&since=${since}&per_page=100" --paginate \
+    --jq '.[] | "\(.sha) \(.commit.committer.date)"') \
+    || api_failed "commits since ${since}"
 fi
 
 status=0
@@ -69,7 +79,7 @@ while read -r sha committed_at; do
   fi
 
   runs=$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?event=push&head_sha=${sha}&per_page=1" \
-    --jq '.total_count')
+    --jq '.total_count') || api_failed "runs for ${short}"
   if [ "$runs" -gt 0 ]; then
     echo "present ${short}"
   else

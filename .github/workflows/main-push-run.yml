@@ -35,11 +35,15 @@ jobs:
       - env:
           SHA: ${{ github.event.inputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        # The script's exit 1 means "something is missing", not an error; every
-        # verdict line is echoed, and each missing commit gets its own issue.
+        # The script's exit 1 means "something is missing", not an error; any
+        # other non-zero exit is a failed lookup and fails this run (a partial
+        # list of verdicts is not an answer). Each missing commit gets its own
+        # issue.
         run: |
-          verdicts=$(.github/scripts/check-main-push-run.sh "$SHA") || true
+          rc=0
+          verdicts=$(.github/scripts/check-main-push-run.sh "$SHA") || rc=$?
           echo "$verdicts"
+          [ "$rc" -le 1 ] || exit "$rc"
           [ -n "$verdicts" ] || { echo "no verdict at all" >&2; exit 1; }
           while read -r verdict short; do
             [ "$verdict" = missing ] || continue
@@ -49,9 +53,10 @@ jobs:
               echo
               echo "Without that run the commit never ran \`spikes\`, and \`check\`/\`integration\` only ran on the PR head, not on the merge commit. Re-run by hand with \`gh workflow run CI --ref main\` and close this issue. A closed issue for this commit is not reopened; another commit gets its own."
             } >body.md
-            # The title carries the commit so that closing the issue acknowledges
-            # this gap only: the commit cannot grow a push run after the fact, and
-            # the next scheduled check must not reopen what a person closed.
-            .github/scripts/upsert-ci-issue.sh --skip-if-closed ci-missing-push-run \
+            # One issue per commit (--by-title, the title carries the SHA): the
+            # commit cannot grow a push run after the fact, so closing its issue
+            # acknowledges that gap only, and the next scheduled check neither
+            # reopens it nor appends another commit's gap to it.
+            .github/scripts/upsert-ci-issue.sh --by-title ci-missing-push-run \
               "CI: main commit ${short} has no push run" body.md
           done <<<"$verdicts"

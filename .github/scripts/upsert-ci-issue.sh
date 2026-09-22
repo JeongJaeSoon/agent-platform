@@ -11,23 +11,25 @@
 # after the fact: whichever created issue is not the oldest open one under the
 # label is closed as a duplicate and its body lands on the oldest instead.
 #
-# usage: upsert-ci-issue.sh [--skip-if-closed] <label> <title> <body-file>
-#   --skip-if-closed  a closed issue with this exact title counts as
-#                     acknowledged: print `acknowledged` and do nothing. For
-#                     signals whose title names the thing (a commit) so that
-#                     closing the issue means "seen, not coming back".
+# usage: upsert-ci-issue.sh [--by-title] <label> <title> <body-file>
+#   --by-title  the signal's identity is the label AND the exact title, not the
+#               label alone: only an open issue with this title is appended
+#               to, and a closed one with this title counts as acknowledged
+#               (print `acknowledged`, do nothing). For signals whose title
+#               names the thing (a commit), so that closing one means "seen,
+#               not coming back" and two things get two issues.
 # env:   GH_REPO (owner/name), GH_TOKEN with issues:write
 
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 [--skip-if-closed] <label> <title> <body-file>" >&2
+  echo "usage: $0 [--by-title] <label> <title> <body-file>" >&2
   exit 2
 }
 
-skip_if_closed=0
-if [ "${1:-}" = "--skip-if-closed" ]; then
-  skip_if_closed=1
+by_title=0
+if [ "${1:-}" = "--by-title" ]; then
+  by_title=1
   shift
 fi
 [ "$#" -eq 3 ] || usage
@@ -47,10 +49,22 @@ body=$3
 gh label create "$label" --force --color D93F0B \
   --description "Opened by CI; closed by a person once the signal is understood" >/dev/null
 
-oldest_open() {
-  gh issue list --repo "$GH_REPO" --label "$label" --state open \
-    --limit 100 --json number --jq '[.[].number] | min // empty'
+# `gh --jq` takes a bare expression and no `--arg`; the exact-title match goes
+# through jq itself so the title never has to be escaped into a filter.
+matching() {
+  local state=$1 pick=$2
+  if [ "$by_title" -eq 1 ]; then
+    gh issue list --repo "$GH_REPO" --label "$label" --state "$state" \
+      --limit 100 --json number,title \
+      | jq -r --arg title "$title" "[.[] | select(.title == \$title) | .number] | ${pick} // empty"
+  else
+    gh issue list --repo "$GH_REPO" --label "$label" --state "$state" \
+      --limit 100 --json number,title \
+      | jq -r "[.[].number] | ${pick} // empty"
+  fi
 }
+
+oldest_open() { matching open min; }
 
 number=$(oldest_open)
 if [ -n "$number" ]; then
@@ -59,12 +73,8 @@ if [ -n "$number" ]; then
   exit 0
 fi
 
-if [ "$skip_if_closed" -eq 1 ]; then
-  # `gh --jq` takes a bare expression and no `--arg`; the exact-title match
-  # goes through jq itself so the title never has to be escaped into a filter.
-  closed=$(gh issue list --repo "$GH_REPO" --label "$label" --state closed \
-    --limit 100 --json number,title \
-    | jq -r --arg title "$title" '[.[] | select(.title == $title) | .number] | max // empty')
+if [ "$by_title" -eq 1 ]; then
+  closed=$(matching closed max)
   if [ -n "$closed" ]; then
     echo "acknowledged #${closed}"
     exit 0
