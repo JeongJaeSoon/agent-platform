@@ -455,6 +455,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(body.Env.sort()).toEqual(
       [
         `${ENV.home}=/home/worker`,
+        `${ENV.workspaceDir}=/workspace`,
         `${ENV.bootstrapNonce}=nonce-abc`,
         `${ENV.executionGeneration}=1`,
         `${ENV.executionId}=${intent.executionId}`,

@@ -175,6 +175,14 @@ integration(
             [PROFILE_ID]: {
               runtime_kind: "claude_agent_sdk",
               runtime_version: "0.3.270",
+              model: "claude-sonnet-5",
+              tools: ["Read", "Edit", "Bash"],
+              permission_mode: "default",
+              provider: {
+                kind: "litellm",
+                endpoint: "https://litellm.invalid",
+                auth: { kind: "api_key", value: "catalog-provider-key" },
+              },
             },
           },
           repositories: {},

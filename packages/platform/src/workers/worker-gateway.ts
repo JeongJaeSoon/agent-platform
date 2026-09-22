@@ -15,6 +15,7 @@ import type {
   NextInputResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RuntimeConfig,
   SessionRuntime,
   WorkerScope,
 } from "@agent-platform/contracts";
@@ -175,7 +176,17 @@ export function createWorkerGateway(deps: {
   // through a queue slot. It waits for a host that knows the profile.
   const runnableProfiles = Object.keys(catalog.profiles);
 
-  function runtimeFor(profileId: string | null): SessionRuntime {
+  // Resolved at claim time, on purpose: the catalog is where an operator
+  // rotates a provider credential, and the next claim (a new generation, or
+  // a replay) is when the worker should see it. Everything else under a
+  // profile id is meant to stay put — a session's checkpoint fingerprint
+  // and transcript were made with that model and those tools, so a changed
+  // setting is a new profile id, not an edit. What the session was created
+  // against — its repository — comes from the row (WorkerBinding.repository).
+  function resolveProfile(profileId: string | null): {
+    runtime: SessionRuntime;
+    runtime_config: RuntimeConfig;
+  } {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
@@ -186,9 +197,17 @@ export function createWorkerGateway(deps: {
       );
     }
     return {
-      kind: profile.runtime_kind,
-      version: profile.runtime_version,
-      profile_id: profileId,
+      runtime: {
+        kind: profile.runtime_kind,
+        version: profile.runtime_version,
+        profile_id: profileId,
+      },
+      runtime_config: {
+        model: profile.model,
+        tools: profile.tools,
+        permission_mode: profile.permission_mode,
+        provider: profile.provider,
+      },
     };
   }
 
@@ -363,7 +382,8 @@ export function createWorkerGateway(deps: {
             auth_revision: binding.authRevision,
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
-            runtime: runtimeFor(binding.profileId),
+            ...resolveProfile(binding.profileId),
+            workspace: { repository: binding.repository },
             restore: binding.restore,
           };
         }

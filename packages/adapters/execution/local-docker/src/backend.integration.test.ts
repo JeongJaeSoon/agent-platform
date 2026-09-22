@@ -168,6 +168,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     ).toEqual(
       [
         `${ENV.home}=/home/worker`,
+        `${ENV.workspaceDir}=/workspace`,
         `${ENV.bootstrapNonce}=${await intent.issueBootstrapNonce()}`,
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,

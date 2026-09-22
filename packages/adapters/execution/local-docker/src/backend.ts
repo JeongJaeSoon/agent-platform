@@ -61,6 +61,12 @@ export const ENV = {
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
   /**
+   * Where the session volume is mounted. Placement is this backend's
+   * knowledge, not the session's, so it travels with the launch rather than
+   * in the claim response that names the repository (94S-206).
+   */
+  workspaceDir: "WORKER_WORKSPACE_DIR",
+  /**
    * Both spellings, because tools are split on which one they read. They are
    * a convenience, not the control: the worker network has no route off
    * itself, so a client that ignores them reaches nothing at all.
@@ -1055,6 +1061,7 @@ export function workerEnvironmentFor(
     `${ENV.executionId}=${intent.executionId}`,
     `${ENV.gatewayUrl}=${config.gatewayUrl}`,
     `${ENV.home}=${config.homeDir}`,
+    `${ENV.workspaceDir}=${config.workspaceDir}`,
     `${ENV.httpProxy}=${config.egressProxyUrl}`,
     `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
     `${ENV.httpsProxy}=${config.egressProxyUrl}`,

@@ -395,6 +395,11 @@ async function bindingOf(
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
     profileId: session.profileId,
+    repository: {
+      id: session.repositoryId,
+      url: session.repoUrl,
+      branch: session.branch,
+    },
     restore: await latestCheckpoint(tx, session.id),
   };
 }
