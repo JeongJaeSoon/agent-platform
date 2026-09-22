@@ -1,7 +1,13 @@
 # Claude Code 세션 컨트롤 플레인 설계안
 
+> **보관본이다. 현재 설계 정본이 아니다.** rename 이전 프로젝트의 계획이며 티켓 번호도
+> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`
+> (`architecture.md`·`module-design.md`·`delivery-plan.md`)이고 티켓은 Linear P-94S-5
+> (94S-108~147)다. 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
+> 남겨 둔 이유는 SDK·저장소 gate의 조사 근거와 결정 이력이다.
+
 > 상태: v0.5 방향성 반영 · G1 v0.4/M0 완료 이력 유지 · G2 SDK 재검증 대기
-> 작성일: 2026-09-12 · 개정: 2026-09-15
+> 작성일: 2026-09-12 · 개정: 2026-09-15 · 보관: 2026-09-22
 > 범위: HTTP API로 Claude Code 세션을 생성·재개·관찰하고, Kubernetes 위에서 세션 워커를 수평 확장하는 시스템
 > 배포 대상: AWS EKS
 

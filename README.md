@@ -1,15 +1,15 @@
 # Agent Platform (코드명 Kollegium) — 세션 컨트롤 플레인
 
-> 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 통합 설계 정본은 Obsidian `Private/Project/agent-platform`이며, 이 README 이하와 [docs/DESIGN.md](docs/DESIGN.md)는 rename 이전 구현 범위의 기록이다.
+> 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 통합 설계 정본은 Obsidian `Private/Project/agent-platform`이고, 이 README는 저장소의 현재 구현 범위를 따라간다. [docs/DESIGN.md](docs/DESIGN.md)는 rename 이전 설계의 보관본이며 지금의 계약·티켓 번호와 일치하지 않는다.
 
 공식 TypeScript Claude Agent SDK로 세션을 제어하고, HTTP API·큐·이벤트·격리·영속화를 제공하는 플랫폼이다.
 
-현재는 **G1 설계 확정, M0 기반 레이어, G2 SDK·저장소 gate, API 골격과 SDK adapter까지**다. API 키 인증과 `/v1` base path, 고정 SDK의 streaming·interrupt·abort·resume 경계는 구현됐지만 세션 endpoint와 워커 턴 처리 루프는 아직 구현하지 않았다. 전체 앱이나 Kubernetes가 동작한다고 해석하지 않는다.
+현재는 **D0 계약 정렬, D1 접수·조회 API, D2 실행 기반(Worker Gateway·스케줄러·로컬 Docker backend·CheckpointService·egress 격리)까지**다. 세션 생성·목록·상세·메시지·turn·receipt endpoint와 Gateway 내부 protocol은 구현됐지만 **둘을 잇는 워커 턴 처리 루프([94S-122](https://linear.app/94soon/issue/94S-122)), checkpoint 결선([94S-201](https://linear.app/94soon/issue/94S-201)), 앱 이미지([94S-125](https://linear.app/94soon/issue/94S-125))가 없어 HTTP→세션→turn→checkpoint→재개의 세로 경로는 아직 닫히지 않았다.** 전체 앱이나 Kubernetes가 동작한다고 해석하지 않는다.
 
 ## 정본과 다음 단계
 
-- 작업 순서·상태·인수 조건: [Linear 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)의 native blocked-by 관계
-- 구조·runtime 계약·검증 계획: [설계서](docs/DESIGN.md)
+- 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다
+- 구조·runtime 계약·검증 계획: Obsidian `Private/Project/agent-platform`의 `architecture.md`·`module-design.md`·`delivery-plan.md`. [docs/DESIGN.md](docs/DESIGN.md)는 보관본이다
 - 완료된 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92)
 - process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](spikes/94s-91/README.md), [`spikes/94s-92`](spikes/94s-92/README.md)에 둔다.
 - 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195), 조사 초안과 Codex 리뷰 원문은 [`docs/references`](docs/references/README.md)에 둔다. alpha D0~D4 실행 계층은 바꾸지 않고 그 위에 올린다.
@@ -23,17 +23,18 @@
 | `packages/queue` | PostgreSQL durable queue·이벤트·lease, Redis placeholder |
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
-| `apps/api` | Hono `/v1` 골격, API 키 인증, strict zod 검증·에러 응답, 키 발급 CLI |
+| `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |
+| `apps/api` | Hono `/v1` 골격, API 키 인증, strict zod 검증·에러 응답, 키 발급 CLI. `/internal`에 Worker Gateway 라우트를 얹는다 |
 | `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다 |
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
-| `apps/worker` | runtime-core·Claude adapter·contracts만 조립하는 워커 진입점. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
+| `apps/worker` | 아직 진입점이 아니라 runtime-core·Claude adapter의 재수출뿐이다. 턴 처리 루프는 94S-122에서 온다. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 bare Bun 이미지에 자기 디렉터리만 마운트해 기동한다 |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps`·`worker` profile은 아직 없는 이미지 정의를 가리키므로 기동하지 않는다(94S-125) |
 
-immutable checkpoint manifest와 authoritative pointer, typed pending requests, SDK 기반 resume은 후속 확장이다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
+immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`에 있으나 어떤 composition root도 이를 만들지 않는다 — Gateway는 checkpoint를 실은 finalize를 계속 거절한다(94S-201). typed pending requests와 SDK 기반 resume은 D3다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
 ## 현재 실행 가능한 검증
 
@@ -143,7 +144,7 @@ AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 세션 HTTP endpoint, 이미지 빌드 workflow는 후속 티켓 범위다.
+Compose의 `apps`·`worker` profile은 아직 없는 이미지 정의를 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122), 이미지 빌드 workflow(94S-125)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
 
 ## CI에서 실행되는 것
 
