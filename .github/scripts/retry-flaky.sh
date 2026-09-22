@@ -50,8 +50,18 @@ trap stop HUP INT TERM
 # defers a trap until a *foreground* command returns, so the command goes to the
 # background and the script blocks in `wait`, which a signal does interrupt.
 run_attempt() {
+  # Nothing left to run once the job is going away, and the caller reads
+  # `cancelled` regardless of what this returns.
+  [ "$cancelled" -eq 0 ] || return 143
+
   "$@" &
   child=$!
+  # Bash can run a pending trap between the fork above and the assignment, which
+  # would leave `stop` with no pid to forward to and this wrapper sitting in
+  # `wait` for the whole run. Re-check now that the pid is published.
+  if [ "$cancelled" -ne 0 ]; then
+    kill -TERM "$child" 2>/dev/null
+  fi
 
   local result=0
   while :; do

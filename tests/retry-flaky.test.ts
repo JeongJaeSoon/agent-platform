@@ -188,7 +188,13 @@ describe("retry-flaky.sh", () => {
         },
       );
 
-      while (!(await Bun.file(marker).exists())) {
+      // Waiting on existence alone would race the redirection that creates the
+      // file against the write that fills it.
+      while (
+        (await Bun.file(marker)
+          .text()
+          .catch(() => "")) !== "x\n"
+      ) {
         await Bun.sleep(20);
       }
       const started = Date.now();
@@ -205,6 +211,51 @@ describe("retry-flaky.sh", () => {
       expect(stdout).not.toContain("; retrying");
       expect(await readFile(marker, "utf8")).toBe("x\n");
       expect(await readFile(summaryPath, "utf8")).toContain("interrupted");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  test("stops on SIGINT even though the child ignores it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "retry-flaky-int-"));
+    const marker = join(directory, "attempts");
+    const summaryPath = join(directory, "summary.md");
+    try {
+      // A background job in a non-interactive shell ignores inherited SIGINT, so
+      // the child survives it. The wrapper's own trap is what has to act.
+      const wrapper = Bun.spawn(
+        [
+          script,
+          "2",
+          "wrapper-int",
+          "bash",
+          "-c",
+          `echo x >> "${marker}"; exec sleep 20`,
+        ],
+        {
+          env: { ...Bun.env, GITHUB_STEP_SUMMARY: summaryPath },
+          stdout: "pipe",
+        },
+      );
+
+      while (
+        (await Bun.file(marker)
+          .text()
+          .catch(() => "")) !== "x\n"
+      ) {
+        await Bun.sleep(20);
+      }
+      const started = Date.now();
+      wrapper.kill("SIGINT");
+
+      const exitCode = await wrapper.exited;
+      const elapsed = Date.now() - started;
+      const stdout = await new Response(wrapper.stdout).text();
+
+      expect(exitCode).toBe(143);
+      expect(elapsed).toBeLessThan(8_000);
+      expect(stdout).toContain("::error title=spike cancelled::");
+      expect(stdout).not.toContain("; retrying");
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
