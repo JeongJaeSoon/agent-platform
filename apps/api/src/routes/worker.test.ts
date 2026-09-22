@@ -296,6 +296,7 @@ describe("/internal/worker", () => {
           ...scope(binding, "1"),
           turn_id: "1",
           finalize_key: "fin-1",
+          final_source_sequence: 2,
           terminal: {
             status: "completed",
             reason: null,
@@ -418,6 +419,7 @@ describe("/internal/worker", () => {
           ...scope(binding),
           turn_id: "1",
           finalize_key: "f",
+          final_source_sequence: 0,
           terminal: {
             status: "completed",
             reason: null,

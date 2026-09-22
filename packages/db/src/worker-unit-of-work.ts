@@ -260,11 +260,14 @@ async function probeFinalize(
   if (!turn || turn.attemptId !== fence.attemptId) {
     return { state: "settled", result: { outcome: "turn_not_found" } };
   }
-  // The checkpoint is part of what finalize commits, so a retry that changes
-  // it is a different request wearing the same key.
+  // The checkpoint and the event tail are part of what finalize commits, so a
+  // retry that changes either is a different request wearing the same key —
+  // and a replay must not let a different tail past the gate that only runs
+  // on the first commit.
   const terminalHash = payloadHash({
     terminal: input.terminal,
     checkpoint: input.checkpoint,
+    final_source_sequence: input.finalSourceSequence,
   });
   if (OPEN_TURN_STATUSES.includes(turn.status)) {
     return { state: "open", turn, terminalHash };
@@ -677,7 +680,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
-        if (!head) return { outcome: "ok", input: null, leaseExpiresAt };
+        const none = {
+          outcome: "ok" as const,
+          input: null,
+          leaseExpiresAt,
+          ...(draining ? { draining: true as const } : {}),
+        };
+        if (!head) return none;
         const { message, turn } = head;
 
         // The head was delivered to an earlier attempt and never finalized:
@@ -686,12 +695,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const redelivery =
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
-        if (turn.status !== "queued" && !redelivery) {
-          return { outcome: "ok", input: null, leaseExpiresAt };
-        }
-        if (draining && !redelivery) {
-          return { outcome: "ok", input: null, leaseExpiresAt };
-        }
+        if (turn.status !== "queued" && !redelivery) return none;
+        if (draining && !redelivery) return none;
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
@@ -969,6 +974,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const { turn, terminalHash } = probe;
         if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
+        }
+        // Appends take the same session lock, so this read cannot race one:
+        // either the tail landed before this transaction or it arrives after
+        // a refusal and the worker finalizes again.
+        const durable = await contiguousThrough(tx, fence);
+        if (durable !== input.finalSourceSequence) {
+          return { outcome: "events_incomplete", acceptedThrough: durable };
         }
 
         let checkpointRevision: number | null = null;

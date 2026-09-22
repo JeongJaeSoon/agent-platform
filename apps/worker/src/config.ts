@@ -1,0 +1,204 @@
+import {
+  objectStoreConfigFromEnv,
+  type WorkerObjectStoreConfig,
+  type WorkerObjectStoreEnvironment,
+} from "./object-store.ts";
+
+/**
+ * Everything the worker reads from its environment. The first block is what
+ * `LocalDockerBackend` injects (`backend.ts` `ENV`), object store included;
+ * the rest is timers, which no launcher sets today. What the engine runs —
+ * model, tools, permission mode, provider — is not here: the claim carries
+ * it, resolved by the server from the session's profile.
+ */
+export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
+  HOME?: string | undefined;
+  WORKER_BOOTSTRAP_NONCE?: string | undefined;
+  WORKER_EXECUTION_GENERATION?: string | undefined;
+  WORKER_EXECUTION_ID?: string | undefined;
+  WORKER_GATEWAY_URL?: string | undefined;
+  WORKER_STOP_GRACE_SEC?: string | undefined;
+  WORKER_WORKSPACE_DIR?: string | undefined;
+
+  WORKER_CLAUDE_CONFIG_DIR?: string | undefined;
+
+  WORKER_ANSWER_POLL_SEC?: string | undefined;
+  WORKER_CLAIM_TIMEOUT_SEC?: string | undefined;
+  WORKER_DRAIN_TIMEOUT_SEC?: string | undefined;
+  WORKER_HEARTBEAT_INTERVAL_SEC?: string | undefined;
+  WORKER_IDLE_TIMEOUT_SEC?: string | undefined;
+  WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
+  WORKER_REQUEST_TIMEOUT_SEC?: string | undefined;
+  QUESTION_TIMEOUT_SEC?: string | undefined;
+};
+
+export type WorkerTimeouts = {
+  /** How often a waiting approval asks the gateway for its answer. */
+  answerPollIntervalMs: number;
+  /** Give up claiming a session and exit cleanly (DESIGN §6.2). */
+  claimTimeoutMs: number;
+  /**
+   * Budget for a turn to finish on its own once SIGTERM arrived. Never more
+   * than the launcher's stop grace leaves after the shutdown that follows.
+   */
+  drainTimeoutMs: number;
+  heartbeatIntervalMs: number;
+  /** Release the session and exit after this long with no input. */
+  idleTimeoutMs: number;
+  nextInputWaitMs: number;
+  /** A pending permission or question denied once nobody has answered it. */
+  questionTimeoutMs: number;
+  requestTimeoutMs: number;
+  /**
+   * Time between SIGTERM and SIGKILL, when the launcher says (LocalDocker
+   * does). Every shutdown wait fits inside it; unknown means unbounded.
+   */
+  stopGraceMs?: number;
+};
+
+/** Where the engine runs; what it runs comes with the claim. */
+export type WorkerRuntimeSettings = {
+  claudeConfigDir: string;
+  cwd: string;
+  home: string;
+};
+
+export type WorkerConfig = {
+  bootstrapNonce: string;
+  executionGeneration: number;
+  executionId: string;
+  gatewayUrl: string;
+  objectStore: WorkerObjectStoreConfig;
+  runtime: WorkerRuntimeSettings;
+  timeouts: WorkerTimeouts;
+};
+
+export function workerConfigFromEnv(
+  environment: WorkerEnvironment,
+): WorkerConfig {
+  const home = required(environment.HOME, "HOME");
+  const stopGraceMs =
+    environment.WORKER_STOP_GRACE_SEC === undefined
+      ? undefined
+      : seconds(environment.WORKER_STOP_GRACE_SEC, 0, "WORKER_STOP_GRACE_SEC");
+  return {
+    bootstrapNonce: required(
+      environment.WORKER_BOOTSTRAP_NONCE,
+      "WORKER_BOOTSTRAP_NONCE",
+    ),
+    executionGeneration: nonNegativeInteger(
+      required(
+        environment.WORKER_EXECUTION_GENERATION,
+        "WORKER_EXECUTION_GENERATION",
+      ),
+      "WORKER_EXECUTION_GENERATION",
+    ),
+    executionId: required(
+      environment.WORKER_EXECUTION_ID,
+      "WORKER_EXECUTION_ID",
+    ),
+    gatewayUrl: url(
+      required(environment.WORKER_GATEWAY_URL, "WORKER_GATEWAY_URL"),
+      "WORKER_GATEWAY_URL",
+    ),
+    objectStore: objectStoreConfigFromEnv(environment),
+    runtime: {
+      claudeConfigDir:
+        environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
+      cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
+      home,
+    },
+    timeouts: {
+      answerPollIntervalMs: seconds(
+        environment.WORKER_ANSWER_POLL_SEC,
+        1,
+        "WORKER_ANSWER_POLL_SEC",
+      ),
+      claimTimeoutMs: seconds(
+        environment.WORKER_CLAIM_TIMEOUT_SEC,
+        60,
+        "WORKER_CLAIM_TIMEOUT_SEC",
+      ),
+      drainTimeoutMs: drainBudget(
+        seconds(
+          environment.WORKER_DRAIN_TIMEOUT_SEC,
+          100,
+          "WORKER_DRAIN_TIMEOUT_SEC",
+        ),
+        stopGraceMs,
+      ),
+      heartbeatIntervalMs: seconds(
+        environment.WORKER_HEARTBEAT_INTERVAL_SEC,
+        10,
+        "WORKER_HEARTBEAT_INTERVAL_SEC",
+      ),
+      idleTimeoutMs: seconds(
+        environment.WORKER_IDLE_TIMEOUT_SEC,
+        1800,
+        "WORKER_IDLE_TIMEOUT_SEC",
+      ),
+      nextInputWaitMs: seconds(
+        environment.WORKER_NEXT_INPUT_WAIT_SEC,
+        20,
+        "WORKER_NEXT_INPUT_WAIT_SEC",
+      ),
+      questionTimeoutMs: seconds(
+        environment.QUESTION_TIMEOUT_SEC,
+        1800,
+        "QUESTION_TIMEOUT_SEC",
+      ),
+      requestTimeoutMs: seconds(
+        environment.WORKER_REQUEST_TIMEOUT_SEC,
+        30,
+        "WORKER_REQUEST_TIMEOUT_SEC",
+      ),
+      ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
+    },
+  };
+}
+
+function required(value: string | undefined, name: string): string {
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function url(value: string, name: string): string {
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    throw new Error(`${name} ${value} is not a URL`);
+  }
+}
+
+/**
+ * What a drain may spend once the rest of the shutdown is paid for: the
+ * interrupt grace, the engine exit grace and the release after them. A grace
+ * too short for any of that leaves no drain at all — the turn in flight is
+ * interrupted at once and left for the recovery path to retry.
+ */
+export const SHUTDOWN_RESERVE_MS = 12_000;
+
+function drainBudget(configured: number, stopGraceMs: number | undefined) {
+  if (stopGraceMs === undefined) return configured;
+  return Math.min(configured, Math.max(0, stopGraceMs - SHUTDOWN_RESERVE_MS));
+}
+
+function seconds(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number of seconds`);
+  }
+  return Math.round(parsed * 1000);
+}
+
+function nonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}

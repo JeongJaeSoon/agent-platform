@@ -374,6 +374,23 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
+  test("the worker keeps its process layout: entry, composition, host, transport, heartbeat", async () => {
+    // The composition root is a named file rather than a habit: it is what
+    // keeps the turn loop from reaching for a database pool of its own.
+    const missing: string[] = [];
+    for (const name of [
+      "main.ts",
+      "composition.ts",
+      "worker-host.ts",
+      "gateway-client.ts",
+      "heartbeat.ts",
+    ]) {
+      if (!(await Bun.file(join(root, worker, "src", name)).exists()))
+        missing.push(name);
+    }
+    expect(missing).toEqual([]);
+  });
+
   test("the worker imports runtime-core, the Claude adapter, contracts and storage only", async () => {
     const allowed = new Set([
       "@agent-platform/contracts",

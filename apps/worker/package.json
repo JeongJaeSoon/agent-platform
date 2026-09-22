@@ -6,13 +6,17 @@
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test:unit": "bun test src && bun run --cwd ../../packages/adapters/runtimes/claude test:unit",
-    "test:direct-local": "bun run --cwd ../../packages/adapters/runtimes/claude test:direct-local"
+    "start": "bun run src/main.ts",
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts' && bun run --cwd ../../packages/adapters/runtimes/claude test:unit",
+    "test:direct-local": "bun test src/worker-host.integration.test.ts && bun run --cwd ../../packages/adapters/runtimes/claude test:direct-local"
   },
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/runtime-claude": "workspace:*",
     "@agent-platform/runtime-core": "workspace:*",
     "@agent-platform/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*"
   }
 }

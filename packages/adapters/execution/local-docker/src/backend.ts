@@ -89,6 +89,11 @@ export const ENV = {
   objectPrefix: "WORKER_OBJECT_PREFIX",
   objectRegion: "AWS_REGION",
   objectSecretAccessKey: "AWS_SECRET_ACCESS_KEY",
+  /**
+   * The seconds `terminate` gives between SIGTERM and SIGKILL, so the worker
+   * sizes its drain to what it will actually get.
+   */
+  stopGrace: "WORKER_STOP_GRACE_SEC",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -136,6 +141,9 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // in place. Making it stale forces the replacement through
     // `ensureWorkspaceVolume`, which is what reports the mismatch.
     quotaStampOf(config.workspaceQuota),
+    // The worker plans its drain from the grace it was started with; stopped
+    // with a shorter one, the SIGKILL lands mid-finalize.
+    config.stopTimeoutSeconds,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -1076,6 +1084,7 @@ export function workerEnvironmentFor(
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
+    `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
   ];
 }
 

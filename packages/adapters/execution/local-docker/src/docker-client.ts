@@ -352,11 +352,15 @@ export class DockerClient {
     timeoutSeconds: number,
   ): Promise<void> {
     const encoded = encodeURIComponent(idOrName);
+    // The daemon answers a stop only once the container is gone, which a
+    // draining worker may take the whole grace for; the usual deadline would
+    // cut that short and report a healthy daemon as stalled.
     await this.request(
       "POST",
       `/containers/${encoded}/stop?t=${timeoutSeconds}`,
       undefined,
       [204, 304, 404],
+      timeoutSeconds * 1_000 + this.timeoutMs,
     );
     // `v=true` takes the container's *anonymous* volumes with it — the ones
     // Docker materializes for every `VOLUME` an image declares. Named volumes
@@ -375,6 +379,7 @@ export class DockerClient {
     path: string,
     body?: unknown,
     accept: number[] = [200, 201, 204],
+    timeoutMs: number = this.timeoutMs,
   ): Promise<Response> {
     const url =
       this.endpoint.kind === "unix"
@@ -384,7 +389,7 @@ export class DockerClient {
       method,
       // Every call is bounded: a stalled daemon must fail the pass, not hang
       // the one-shot scheduler and every launch queued behind it.
-      signal: AbortSignal.timeout(this.timeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
       ...(body === undefined
         ? {}
         : {
@@ -400,7 +405,7 @@ export class DockerClient {
       response = await fetch(url, init);
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
-        throw new DockerTimeoutError(method, path, this.timeoutMs);
+        throw new DockerTimeoutError(method, path, timeoutMs);
       }
       throw error;
     }

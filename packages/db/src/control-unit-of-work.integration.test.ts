@@ -361,6 +361,8 @@ integration("session terminate on PostgreSQL", () => {
           ...scopeOf(claimed, "1"),
           turn_id: "1",
           finalize_key: "fin",
+          // No events were appended in these tests.
+          final_source_sequence: 0,
           terminal: {
             status: "completed",
             reason: null,
@@ -419,6 +421,8 @@ integration("session terminate on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      // No events were appended in these tests.
+      final_source_sequence: 0,
       terminal: {
         status: "completed",
         reason: null,
@@ -683,6 +687,8 @@ integration("session terminate on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      // No events were appended in these tests.
+      final_source_sequence: 0,
       terminal: {
         status: "outcome_unknown",
         reason: "sdk crashed mid tool call",

@@ -472,6 +472,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
         `${ENV.objectRegion}=ap-northeast-1`,
         `${ENV.objectSecretAccessKey}=test-secret-value`,
+        `${ENV.stopGrace}=3`,
       ].sort(),
     );
     expect(body.Labels).toEqual({
@@ -616,6 +617,21 @@ describe("LocalDockerBackend.ensureExecution", () => {
     body.Labels[LABELS.isolation] = isolationStampFor({
       ...configFor(docker.host),
       network: "ap-workers-2",
+    });
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+  });
+
+  test("a container started with another stop grace is replaced", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = isolationStampFor({
+      ...configFor(docker.host),
+      stopTimeoutSeconds: configFor(docker.host).stopTimeoutSeconds + 90,
     });
     const stale = docker.add(containerNameFor(intent, "test-a"), body);
 
