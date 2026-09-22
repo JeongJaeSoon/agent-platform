@@ -218,19 +218,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # Two passes: first refuse if any target tag already names a different
-      # digest (a rerun of the same tag on the same digest is fine), then
-      # retag all three. A conflict on the second image would otherwise leave
-      # the first promoted and the set inconsistent.
+      # digest (a rerun of the same tag on the same digests is fine and
+      # completes a set an earlier run left half-tagged), then retag all
+      # three. The lookup fails closed: only a confirmed "not found" counts as
+      # absent; any other lookup failure (auth, rate limit, 5xx) aborts before
+      # a single tag moves. Tags are still applied per repository, so a
+      # failure between repositories leaves the set half-promoted until the
+      # rerun; the set-level commit point (a release manifest consumers
+      # resolve through) is D5, and until then the published-digests artifact
+      # of a green run is that record.
       - name: Promote staged digests to version tags
         run: |
           set -euo pipefail
           test "$(ls staged/*.json | wc -l)" -eq 3
           version="${GITHUB_REF_NAME}"
           short="sha-${GITHUB_SHA::12}"
+          lookup() {
+            # Prints the digest the tag names, nothing when the registry
+            # confirms it does not exist; any other failure exits non-zero.
+            local ref="$1" out err status
+            set +e
+            out="$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' 2>/tmp/lookup.err)"
+            status=$?
+            set -e
+            err="$(cat /tmp/lookup.err)"
+            if [ "$status" -eq 0 ]; then
+              printf '%s' "$out" | tr -d '"'
+              return 0
+            fi
+            case "$err" in
+              *"not found"*|*MANIFEST_UNKNOWN*|*NAME_UNKNOWN*) return 0 ;;
+            esac
+            echo "::error::could not look up ${ref}: ${err}" >&2
+            return 1
+          }
           for file in staged/*.json; do
             name="$(jq -r .image "$file")"; digest="$(jq -r .digest "$file")"
+            test -n "$digest"
             for tag in "$version" "$short"; do
-              existing="$(docker buildx imagetools inspect "${name}:${tag}" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)"
+              existing="$(lookup "${name}:${tag}")"
               if [ -n "$existing" ] && [ "$existing" != "$digest" ]; then
                 echo "::error::${name}:${tag} already names ${existing}, refusing to move it to ${digest}"
                 exit 1

@@ -94,6 +94,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     ).not.toContain('GITHUB_REF_NAME}"');
     expect(promoteJob).toContain("docker buildx imagetools create");
     expect(promoteJob).toContain("refusing to move it");
+    // A lookup that fails for any reason but "not found" must abort, not
+    // read as "tag absent".
+    expect(promoteJob).toContain("could not look up");
+    expect(promoteJob).not.toMatch(/imagetools inspect[^\n]*\|\| true/);
     expect(publishJob).toContain("packages: write");
     expect(publishJob).toContain("push: true");
     expect(publishJob).toContain("environment: release");
