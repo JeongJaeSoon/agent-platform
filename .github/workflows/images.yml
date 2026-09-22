@@ -1,0 +1,136 @@
+name: Images
+
+# Builds the three app images (apps/*/Dockerfile) on every pull request and
+# main push, smokes the worker's bundled Claude Code executable, and records
+# every digest as an artifact. Only a tag push publishes to ghcr.io: the
+# digests from that run are what a release manifest pins (Obsidian
+# deployment.md § 배포·승격·롤백). Registry CD beyond the push is D5.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Only the tag path pushes; a PR run never needs to write packages.
+  packages: write
+
+concurrency:
+  group: images-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # Lower-cased in the metadata step: ghcr rejects upper-case repository paths.
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  build:
+    # Pinned rather than ubuntu-latest for the same reason as ci.yml.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, worker, scheduler]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - id: meta
+        name: Image name and tags
+        env:
+          APP: ${{ matrix.app }}
+          PREFIX: ${{ env.IMAGE_PREFIX }}
+        run: |
+          name="${REGISTRY}/$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')-${APP}"
+          echo "name=${name}" >>"$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            echo "tags=${name}:${GITHUB_REF_NAME},${name}:sha-${GITHUB_SHA::12}" >>"$GITHUB_OUTPUT"
+            echo "push=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "tags=${name}:sha-${GITHUB_SHA::12}" >>"$GITHUB_OUTPUT"
+            echo "push=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.meta.outputs.push == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `load` puts the image in the runner's daemon for the smoke below;
+      # `push` is decided per event. Both at once is fine for buildx.
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          push: ${{ steps.meta.outputs.push == 'true' }}
+          provenance: false
+          cache-from: type=gha,scope=images-${{ matrix.app }}
+          cache-to: type=gha,scope=images-${{ matrix.app }},mode=max
+
+      - name: Smoke
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+        run: |
+          image="${NAME}:sha-${GITHUB_SHA::12}"
+          case "$APP" in
+            worker)
+              # The ticket's check: the bundled executable resolves and is the
+              # version the SDK pin promises. Also non-root and git present.
+              version="$(docker run --rm "$image" claude --version)"
+              echo "claude --version: $version"
+              echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
+              docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
+              ;;
+            api)
+              docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && bun --version'
+              ;;
+            scheduler)
+              docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'
+              ;;
+          esac
+
+      # One JSON per image. `digest` is the registry manifest digest and is
+      # only set when the image was pushed; the image id (config digest) is
+      # there on every run so a PR can still be compared to main.
+      - name: Record digests
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+          PUSHED: ${{ steps.meta.outputs.push }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+        run: |
+          base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP}/Dockerfile")"
+          mkdir -p digests
+          jq -n \
+            --arg app "$APP" --arg name "$NAME" --arg base "$base" \
+            --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
+            --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
+            --argjson pushed "$PUSHED" \
+            '{app: $app, image: $name, base: $base, pushed: $pushed,
+              digest: (if $digest == "" then null else $digest end),
+              imageId: $imageId, commit: $sha, ref: $ref}' \
+            | tee "digests/${APP}.json"
+          {
+            echo "### ${APP}"
+            echo
+            echo '```json'
+            cat "digests/${APP}.json"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest-${{ matrix.app }}
+          path: digests/${{ matrix.app }}.json
+          if-no-files-found: error

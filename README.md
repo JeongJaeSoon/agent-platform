@@ -32,7 +32,8 @@
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 bare Bun 이미지에 자기 디렉터리만 마운트해 기동한다 |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps`·`worker` profile은 아직 없는 이미지 정의를 가리키므로 기동하지 않는다(94S-125) |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
+| `apps/*/Dockerfile` | api(+reconciler)·worker·scheduler 이미지. base는 `oven/bun:1.3.10` digest pin, `bun install --frozen-lockfile --production` multi-stage. `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`에 있으나 어떤 composition root도 이를 만들지 않는다 — Gateway는 checkpoint를 실은 finalize를 계속 거절한다(94S-201). typed pending requests와 SDK 기반 resume은 D3다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
@@ -144,9 +145,34 @@ AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-Compose의 `apps`·`worker` profile은 아직 없는 이미지 정의를 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122), 이미지 빌드 workflow(94S-125)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
+### 이미지와 Compose `apps` profile
+
+세 앱 이미지는 `apps/{api,worker,scheduler}/Dockerfile`이 정의한다. 셋 다 저장소 루트를 context로 `oven/bun:1.3.10`의 multi-arch index digest 하나를 base로 pin하고(`tests/images.test.ts`가 세 파일의 digest 일치를 검사), `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사한다.
+
+| 이미지 | 내용 | 실행 주체 |
+|---|---|---|
+| `agent-platform-api` | `apps/api` 서버 + `apps/reconciler` one-shot. `--filter`로 두 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). uid 1000 | `bun run apps/api/src/server.ts` (reconciler는 `bun run apps/reconciler/src/main.ts`) |
+| `agent-platform-worker` | SDK 0.3.270과 번들 Claude Code 2.1.270, git, non-root(uid 1000), `/workspace`를 1000 소유로 미리 생성(LocalDockerBackend의 volume 계약). 빌드 시 `resolvePinnedClaudeExecutable()`로 executable 경로를 확정해 `/usr/local/bin/claude`로 걸고 `claude --version`을 실행한다 | 94S-122 전까지는 `apps/worker/src/index.ts`(재수출뿐이라 즉시 종료) — Dockerfile `CMD` 주석 참고 |
+| `agent-platform-scheduler` | `apps/scheduler` one-shot. Docker socket을 mount하는 유일한 서비스이며 root로 실행한다(socket 소유자는 어차피 daemon host의 root와 같고, socket gid는 daemon마다 달라 고정 uid가 이식성을 깎기만 한다) | compose에서는 `sh` 루프가 `SCHEDULER_INTERVAL_SEC`(기본 5초)마다 한 pass를 실행. 앱 자체는 one-shot 계약을 유지한다 |
+
+```bash
+docker compose -f infra/docker-compose.yml --profile worker build          # WORKER_IMAGE(agent-platform-worker:dev)
+docker compose -f infra/docker-compose.yml --profile worker run --rm worker claude --version
+docker compose -f infra/docker-compose.yml --profile apps up -d --build      # migrate → api(/readyz healthcheck) → scheduler 루프
+curl -s http://127.0.0.1:3000/readyz
+```
+
+`apps` profile의 값은 전부 기본값이 있어 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)과 `gitea:3000`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다. object store endpoint는 아직 allowlist에 없다(94S-244).
+
+같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`·`EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`를 설치마다 다르게 준다. compose의 worker 네트워크 이름은 `EXECUTION_DOCKER_NETWORK`를 따른다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
+
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag push에서만 `ghcr.io/<owner>/agent-platform-<app>`으로 push하며 그때의 registry digest가 release manifest의 기준이다. registry CD는 D5다.
+
+`FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
 
 ## CI에서 실행되는 것
+
+`.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([§ 이미지와 Compose `apps` profile](#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
 `.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 먼저 `check`를 실행하고, 성공하면 `integration`을 돌린다. 기본 검사 실패·취소 시에는 무거운 서비스 컨테이너를 시작하지 않는다. 성공한 변경의 테스트 범위는 그대로지만, 실패한 변경에서는 통합 진단 결과를 얻으려면 먼저 `check`를 고쳐야 한다. 성공 경로의 대기 시간은 `check` 실행 시간만큼 늘어날 수 있다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
 

@@ -78,7 +78,9 @@ services:
     command: ["bun", "run", "/app/src/main.ts"]
     environment:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-host.docker.internal:3000,gitea:3000}
+      # api:3000 is the compose-run API (`apps` profile); host.docker.internal
+      # stays for an API started on the host with `bun run --cwd apps/api start`.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000}
       EGRESS_PROXY_PORT: "3128"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -96,17 +98,36 @@ services:
       retries: 12
       start_period: 5s
 
-  # The three app profiles below name image definitions the repository does
-  # not have yet; they arrive with 94S-125. Until then only the default profile
-  # (postgres, migrate, localstack, gitea, egress-proxy) starts.
+  # `apps` profile: the sessions API and the scheduler, built from
+  # apps/*/Dockerfile. `docker compose --profile apps up -d --build`.
+  # Every value below has a working default so the profile starts without a
+  # ../.env; one is read when present and never written (README rule).
   api:
     build:
       context: ..
-      dockerfile: Dockerfile.api
+      dockerfile: apps/api/Dockerfile
+    image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
     ports:
       - "3000:3000"
-    env_file: ../.env
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      AUTH_MODE: ${AUTH_MODE:-none}
+      HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "3000"
+      # SESSION_CATALOG_JSON is deliberately not defaulted: the API parses an
+      # empty string as JSON and refuses to start. Put it in ../.env when
+      # sessions should be creatable; unset, POST /v1/sessions answers 422.
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/readyz'); if (!r.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -117,38 +138,73 @@ services:
       gitea:
         condition: service_healthy
 
+  # Not a long-running service: workers are launched per session by the
+  # scheduler through the Docker socket, which is why this one has no
+  # depends_on and no network of its own. The entry exists so
+  # `docker compose --profile worker build` produces the image WORKER_IMAGE
+  # names, and `docker compose --profile worker run --rm worker claude
+  # --version` inspects it. Its default command exits at once until 94S-122.
   worker:
     build:
       context: ..
-      dockerfile: Dockerfile.worker
+      dockerfile: apps/worker/Dockerfile
+    image: ${WORKER_IMAGE:-agent-platform-worker:dev}
     profiles: ["worker"]
-    env_file: ../.env
-    environment:
-      POD_ID: ${POD_ID:-local-worker}
-    mem_limit: ${WORKER_MEM_LIMIT:-2g}
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
-      gitea:
-        condition: service_healthy
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+      - /home/bun:uid=1000,gid=1000
 
   # Renamed from local-scaler when the app became apps/scheduler (94S-123).
+  # apps/scheduler is one pass per process (cron/Job shape); the loop that
+  # makes a locally accepted session actually grow a worker lives here, in
+  # compose, so the app keeps its one-shot contract. The interval is also the
+  # backoff after a failed pass (exit 1), and the restart policy covers the
+  # loop shell itself dying.
   scheduler:
     build:
       context: ..
-      dockerfile: Dockerfile.scheduler
+      dockerfile: apps/scheduler/Dockerfile
+    image: ${SCHEDULER_IMAGE:-agent-platform-scheduler:dev}
     profiles: ["apps"]
-    env_file: ../.env
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          bun run apps/scheduler/src/main.ts || echo "scheduler pass failed (exit $?)" >&2
+          sleep "${SCHEDULER_INTERVAL_SEC:-5}"
+        done
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # Workers reach the API only through the proxy; `api` resolves on the
+      # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).
+      WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
+      WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
+      EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
+      EXECUTION_DOCKER_NETWORK: ${EXECUTION_DOCKER_NETWORK:-agent-platform-worker}
+      EXECUTION_DOCKER_NETWORK_ALLOWLIST: ${EXECUTION_DOCKER_NETWORK_ALLOWLIST:-agent-platform-worker}
+      EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
+      EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       migrate:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      egress-proxy:
         condition: service_healthy
 
 networks:
