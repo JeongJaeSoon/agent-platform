@@ -80,7 +80,20 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const [buildJob, publishJob] = workflow.split("\n  publish:\n");
     expect(buildJob).toContain("push: false");
     expect(buildJob).not.toContain("packages: write");
-    expect(publishJob).toContain("if: github.ref_type == 'tag'");
+    // `workflow_dispatch` may name any ref, tags included, so the event is
+    // part of the gate, and only a v* tag qualifies.
+    expect(publishJob).not.toContain("github.ref_type == 'tag'");
+    expect(publishJob).toContain(
+      "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+    );
+    // Version tags appear only in `promote`, after every staged digest
+    // passed its smoke; a rerun on a different digest is refused.
+    const promoteJob = publishJob.slice(publishJob.indexOf("\n  promote:\n"));
+    expect(
+      publishJob.slice(0, publishJob.indexOf("\n  promote:\n")),
+    ).not.toContain('GITHUB_REF_NAME}"');
+    expect(promoteJob).toContain("docker buildx imagetools create");
+    expect(promoteJob).toContain("refusing to move it");
     expect(publishJob).toContain("packages: write");
     expect(publishJob).toContain("push: true");
     expect(publishJob).toContain("environment: release");
