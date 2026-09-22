@@ -1,3 +1,4 @@
+import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createPostgresSessionReader,
@@ -15,14 +16,10 @@ import {
   rejectUnverifiedCheckpoints,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import {
-  createProbePool,
-  createReadinessProbe,
-  watchIdleErrors,
-} from "./readiness.ts";
+import { createApiPool, createProbePool } from "./pool.ts";
+import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -50,13 +47,7 @@ if (isCatalogEmpty(catalog)) {
   });
 }
 
-// A bounded connect keeps /readyz (and every request) from hanging on a
-// black-holed database host instead of answering 503.
-const pool = watchIdleErrors(
-  new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 }),
-  logger,
-  "api",
-);
+const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
@@ -94,11 +85,36 @@ const app = createApiApp({
     db: createProbePool(databaseUrl, logger),
     // AUTH_MODE unset still fails closed (every /v1 call is 401), which is a
     // misconfiguration, not a serving instance.
-    requiredEnv: ["DATABASE_URL", "AUTH_MODE"],
+    // app.ts treats anything but "none" as api-key mode, so a typo would
+    // silently run authenticated; only the two spellings we document count.
+    requiredEnv: [
+      "DATABASE_URL",
+      { name: "AUTH_MODE", allowed: ["none", "api-key"] },
+    ],
   }),
 });
 
+// Bun resets a connection that has been idle for 10 seconds (default), and a
+// reset carries no status, no request id and no retry hint. A /v1 request runs
+// several database stages in sequence (key lookup, pool wait, BEGIN,
+// statements, ROLLBACK), each bounded by its own pool timeout but together
+// longer than 10 seconds. The app drives the clock through setIdleTimeout:
+// off around database work, on while it ingests a body, so the database
+// timeouts bound the former and slow senders are still cut off during the
+// latter. An absolute per-request deadline is 94S-205.
 export default {
   port: Number(process.env.PORT ?? 3000),
-  fetch: app.fetch,
+  // Bun's own cap (default 128 MiB) applies before any handler runs and
+  // answers without the API's error envelope, so it sits above the contract
+  // limit: the app produces the documented 413 up to twice the limit, and
+  // only a grossly oversized upload is cut at the transport.
+  maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
+  fetch(
+    request: Request,
+    server: { timeout(r: Request, seconds: number): void },
+  ): Response | Promise<Response> {
+    return app.fetch(request, {
+      setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
+    });
+  },
 };

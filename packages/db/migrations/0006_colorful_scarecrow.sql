@@ -1,1 +1,0 @@
-CREATE INDEX "worker_credentials_live_idx" ON "worker_credentials" USING btree ("attempt_id") WHERE "worker_credentials"."revoked_at" IS NULL;

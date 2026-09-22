@@ -439,7 +439,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         admission_state: row.admissionState,
         status: row.status,
         profile_id: row.profileId,
-        repository_id: row.repositoryId ?? row.repoUrl,
+        repository_id: row.repositoryId,
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,

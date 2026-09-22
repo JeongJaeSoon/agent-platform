@@ -22,9 +22,22 @@ export interface ApiVariables {
   requestId: string;
 }
 
+export interface ApiBindings {
+  // Sets the server's idle clock for this request, in seconds; 0 stops it.
+  // The app stops it before database work so a response that waits on the
+  // pool's timeouts is not reset mid-flight, and re-arms it while it ingests
+  // a body so a slow sender is still cut off.
+  setIdleTimeout?: (seconds: number) => void;
+}
+
 export type ApiEnvironment = {
+  Bindings: ApiBindings;
   Variables: ApiVariables;
 };
+
+const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+// Bun's default; what a connection gets while bytes are still expected.
+export const BODY_IDLE_TIMEOUT_SECONDS = 10;
 
 export type ApiRouter = Hono<ApiEnvironment>;
 
@@ -63,12 +76,13 @@ const SOCKET_ERROR_CODES = new Set([
 // pg raises these without a code when a socket drops, a timeout fires, or a
 // saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
 const PG_CONNECTION_MESSAGES =
-  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect)/;
+  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect|Client has encountered a connection error|Client was closed and is not queryable)/;
 
 // Postgres connection (08xxx), insufficient-resources (53xxx: too many
-// connections, disk full) and operator-intervention (57Pxx) SQLSTATEs, node
-// socket errors, and pg's code-less connection failures. Walks the cause
-// chain because Drizzle and pg-pool both wrap the original error.
+// connections, disk full) and operator-intervention (57xxx: admin shutdown,
+// and 57014 for a statement_timeout cancel) SQLSTATEs, node socket errors,
+// and pg's code-less connection failures. Walks the cause chain because
+// Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
     const code = (current as { code?: unknown })?.code;
@@ -76,7 +90,7 @@ export function isStorageUnavailable(error: unknown): boolean {
       typeof code === "string" &&
       (code.startsWith("08") ||
         code.startsWith("53") ||
-        code.startsWith("57P") ||
+        code.startsWith("57") ||
         code.startsWith("ECONN") ||
         SOCKET_ERROR_CODES.has(code))
     ) {
@@ -243,6 +257,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   });
 
   v1.use("*", async (context, next) => {
+    const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
+    // Authenticate before touching the body, so an unauthenticated sender
+    // cannot hold a connection open by dripping bytes; the key lookup is
+    // database work, so the idle clock is off for it.
+    setIdleTimeout(0);
     let ownerId: string | null = null;
     if (authMode === "none") {
       ownerId = context.req.header("X-Owner-Id")?.trim() || null;
@@ -266,6 +285,23 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       );
     }
     context.set("ownerId", ownerId);
+
+    // Ingest and bound the body under the idle clock, then hand the request
+    // to the route with the clock off for its database work. Hono caches the
+    // body, so parseJsonBody reads the same bytes.
+    if (!BODYLESS_METHODS.has(context.req.method)) {
+      setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
+      const raw = await context.req.arrayBuffer();
+      if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+        return errorResponse(
+          context,
+          413,
+          "PAYLOAD_TOO_LARGE",
+          "Request body too large",
+        );
+      }
+      setIdleTimeout(0);
+    }
     await next();
   });
 

@@ -47,6 +47,20 @@ export function validateRuntimeConfig(
   if (!policy.models.includes(config.model)) {
     throw new Error("Runtime model is not approved");
   }
+  if (
+    config.mode === "resume" &&
+    config.localTranscriptResume !== true &&
+    config.sessionStore?.revisionScoped !== true
+  ) {
+    // Two ways to get this wrong, and they look identical from here: handing
+    // over the live mirror, which holds whatever was written after the
+    // checkpoint being resumed, or handing over nothing at all, which leaves
+    // the engine replaying the container's local disk. Either is a different
+    // conversation than the one that was committed. A store bound to a
+    // restore plan declares `revisionScoped` (94S-203); a genuinely local
+    // resume has to say so out loud.
+    throw new Error("Resume needs a revision-scoped transcript mirror");
+  }
   if (config.permissionMode === undefined) return config;
   if (config.permissionMode === "default") return config;
   if (["acceptEdits", "dontAsk", "plan"].includes(config.permissionMode)) {

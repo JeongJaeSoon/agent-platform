@@ -1,5 +1,5 @@
 {
-  "id": "9af3ed71-7726-4575-bd9a-95112936c2cd",
+  "id": "94bb2912-1eaa-4608-9c79-9d080caad5fa",
   "prevId": "fde670a8-0a19-4031-a6be-a6ee33a73d09",
   "version": "7",
   "dialect": "postgresql",
@@ -50,124 +50,6 @@
           "columns": ["key_hash"]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.attempts": {
-      "name": "attempts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "execution_id": {
-          "name": "execution_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lease_epoch": {
-          "name": "lease_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "execution_generation": {
-          "name": "execution_generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "auth_revision": {
-          "name": "auth_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_heartbeat_at": {
-          "name": "last_heartbeat_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_reason": {
-          "name": "end_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "attempts_session_started_idx": {
-          "name": "attempts_session_started_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "started_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "attempts_session_id_sessions_id_fk": {
-          "name": "attempts_session_id_sessions_id_fk",
-          "tableFrom": "attempts",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -413,6 +295,12 @@
         },
         "launch_operation_id": {
           "name": "launch_operation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bootstrap_nonce": {
+          "name": "bootstrap_nonce",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1000,20 +888,6 @@
           "notNull": true,
           "default": 0
         },
-        "execution_generation": {
-          "name": "execution_generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "auth_revision": {
-          "name": "auth_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "execution_id": {
           "name": "execution_id",
           "type": "text",
@@ -1267,169 +1141,6 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worker_credentials": {
-      "name": "worker_credentials",
-      "schema": "",
-      "columns": {
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "attempt_id": {
-          "name": "attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "worker_credentials_attempt_id_attempts_id_fk": {
-          "name": "worker_credentials_attempt_id_attempts_id_fk",
-          "tableFrom": "worker_credentials",
-          "tableTo": "attempts",
-          "columnsFrom": ["attempt_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worker_launches": {
-      "name": "worker_launches",
-      "schema": "",
-      "columns": {
-        "execution_id": {
-          "name": "execution_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "generation": {
-          "name": "generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "partition": {
-          "name": "partition",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'default'"
-        },
-        "backend": {
-          "name": "backend",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nonce_hash": {
-          "name": "nonce_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nonce_expires_at": {
-          "name": "nonce_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_attempt_id": {
-          "name": "claimed_attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slot_reserved_at": {
-          "name": "slot_reserved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "slot_released_at": {
-          "name": "slot_released_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worker_launches_open_slot_idx": {
-          "name": "worker_launches_open_slot_idx",
-          "columns": [
-            {
-              "expression": "partition",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"worker_launches\".\"slot_released_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worker_launches_claimed_attempt_id_attempts_id_fk": {
-          "name": "worker_launches_claimed_attempt_id_attempts_id_fk",
-          "tableFrom": "worker_launches",
-          "tableTo": "attempts",
-          "columnsFrom": ["claimed_attempt_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "worker_launches_nonce_hash_unique": {
-          "name": "worker_launches_nonce_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": ["nonce_hash"]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

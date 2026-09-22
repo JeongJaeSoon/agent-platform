@@ -5,7 +5,12 @@ import {
   postSessionMessageRequestSchema,
 } from "@agent-platform/contracts";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { createApiApp, jsonWithSchema, parseJsonBody } from "./app.ts";
+import {
+  BODY_IDLE_TIMEOUT_SECONDS,
+  createApiApp,
+  jsonWithSchema,
+  parseJsonBody,
+} from "./app.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 function loggerWithMemory(): {
@@ -17,6 +22,67 @@ function loggerWithMemory(): {
 }
 
 describe("API authentication", () => {
+  test("stops the idle clock for database work and re-arms it only while an authenticated body is read", async () => {
+    let bodyRead = false;
+    const app = createApiApp({
+      authMode: "none",
+      logger: loggerWithMemory().logger,
+      registerRoutes: (router) => {
+        router.get("/echo", (context) => context.json({ ok: true }));
+        router.post("/echo", async (context) => {
+          bodyRead = true;
+          return context.json({
+            bytes: (await context.req.arrayBuffer()).byteLength,
+          });
+        });
+      },
+    });
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+    const post = (body: string, headers: Record<string, string> = {}) =>
+      app.request(
+        "/v1/echo",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers },
+          body,
+        },
+        env,
+      );
+
+    // GET: off for the key lookup and the route, never re-armed.
+    const ok = await app.request(
+      "/v1/echo",
+      { headers: { "X-Owner-Id": "local-owner" } },
+      env,
+    );
+    expect(ok.status).toBe(200);
+    expect(calls).toEqual([0]);
+
+    // POST: off for auth, back on while the body streams in, off again for
+    // the route; the route sees the same bytes.
+    calls.length = 0;
+    const accepted = await post("{}", { "X-Owner-Id": "local-owner" });
+    expect(await accepted.json()).toEqual({ bytes: 2 });
+    expect(calls).toEqual([0, BODY_IDLE_TIMEOUT_SECONDS, 0]);
+
+    // Unauthenticated POST: 401 without reading the body, so a dripping
+    // sender is never waited on.
+    calls.length = 0;
+    bodyRead = false;
+    expect((await post("{}")).status).toBe(401);
+    expect(calls).toEqual([0]);
+    expect(bodyRead).toBe(false);
+
+    // Oversized: rejected with the clock still armed.
+    calls.length = 0;
+    const oversized = await post("x".repeat(65 * 1024), {
+      "X-Owner-Id": "local-owner",
+    });
+    expect(oversized.status).toBe(413);
+    expect(calls).toEqual([0, BODY_IDLE_TIMEOUT_SECONDS]);
+  });
+
   test("fails closed when AUTH_MODE is missing and ignores X-Owner-Id", async () => {
     const previous = process.env.AUTH_MODE;
     delete process.env.AUTH_MODE;
@@ -143,6 +209,23 @@ describe("API authentication", () => {
     [
       "SQLSTATE 53300 too many connections",
       Object.assign(new Error("too many connections"), { code: "53300" }),
+    ],
+    [
+      "SQLSTATE 57014 statement_timeout cancel",
+      Object.assign(new Error("canceling statement due to statement timeout"), {
+        code: "57014",
+      }),
+    ],
+    ["pg client query_timeout", new Error("Query read timeout")],
+    [
+      "statement queued behind an evicted client",
+      new Error(
+        "Client has encountered a connection error and is not queryable",
+      ),
+    ],
+    [
+      "statement queued behind a closed client",
+      new Error("Client was closed and is not queryable"),
     ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {

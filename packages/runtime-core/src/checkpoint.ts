@@ -5,6 +5,16 @@ export type RuntimeCheckpoint = {
   sdkVersion: string;
 };
 
+/**
+ * Why a run refuses to be checkpointed right now. The host stores the code as
+ * the session's pending reason, so it has to be stable and machine-readable;
+ * `detail` carries the human wording.
+ */
+export type CheckpointBlockReason =
+  | "mirror_error"
+  | "no_engine_session"
+  | "turn_in_flight";
+
 export type CheckpointPreparation =
   | { checkpoint: RuntimeCheckpoint; status: "ready" }
-  | { reason: string; status: "rejected" };
+  | { detail: string; reason: CheckpointBlockReason; status: "rejected" };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { AgentFrame } from "@agent-platform/runtime-core";
+import type { AgentFrame, TranscriptKey } from "@agent-platform/runtime-core";
+import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -12,6 +13,7 @@ import {
   type IsolatedWorkspace,
 } from "@agent-platform/testkit/workspace";
 import { ClaudeSdkRuntime } from "./runtime.ts";
+import { ClaudeSessionStore } from "./session-store.ts";
 
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
@@ -139,6 +141,9 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       {
         ...runtimeConfig,
         correlationId: "actual-resume",
+        // This run has no checkpoint behind it: the resume handle points at the
+        // transcript the first run just wrote to this container's own disk.
+        localTranscriptResume: true,
         mode: "resume",
         resume: sessionId,
       },
@@ -362,6 +367,119 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     await waitFor(() => exitedPids.length === 1, 5_000);
   }, 30_000);
 });
+
+describe("transcript mirror against the actual SDK", () => {
+  test("mirrors every local transcript entry to the session store", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-124-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(`mirrored-turn-${index + 1}`),
+    );
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = new ClaudeSessionStore({
+      objects,
+      prefix: "sessions/direct-local/mirror",
+    });
+    const mirrored: TranscriptKey[] = [];
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const run = runtime.start(
+      {
+        claudeConfigDir: home,
+        correlationId: "actual-mirror",
+        mode: "new",
+        cwd: workspace,
+        home,
+        maxTurns: 2,
+        model: "claude-sonnet-4-5",
+        profile: {
+          kind: "anthropic",
+          endpoint: server.url,
+          auth: { kind: "api_key", value: "placeholder-local" },
+        },
+        sessionStore: {
+          append: async (key, entries) => {
+            mirrored.push(key);
+            await mirror.append(key, entries);
+          },
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+        settingSources: ["project"],
+        tools: [],
+      },
+      {
+        onPermission: async () => ({
+          behavior: "deny",
+          message: "No tools expected",
+        }),
+      },
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "mirror this turn", uuid: crypto.randomUUID() });
+    run.finishInput();
+    await withTimeout(consume, 20_000, "Mirrored adapter did not settle");
+
+    expect(
+      frames.some(
+        (frame) =>
+          frame.envelope.message.type === "system" &&
+          frame.envelope.message.subtype === "mirror_error",
+      ),
+    ).toBe(false);
+    const rootKey = mirrored.find((key) => key.subpath === undefined);
+    if (rootKey === undefined) throw new Error("The SDK mirrored nothing");
+
+    const local = await readTranscript(home, workspace, rootKey.sessionId);
+    const stored = (await mirror.load(rootKey)) ?? [];
+    expect(Object.keys(byUuid(local)).length).toBeGreaterThan(0);
+    expect(byUuid(stored)).toEqual(byUuid(local));
+    // A checkpoint is only meaningful because the pinned revision restores to
+    // exactly those bytes, whatever the mirror does next.
+    const revision = await mirror.captureRevision(rootKey);
+    if (revision === null) throw new Error("expected a revision");
+    expect(byUuid(await mirror.loadRevision(revision))).toEqual(byUuid(local));
+    expect(await run.prepareCheckpoint()).toMatchObject({ status: "ready" });
+  }, 40_000);
+});
+
+/**
+ * Where the CLI writes a session's JSONL: `<config dir>/projects/<sanitized
+ * cwd>/<session id>.jsonl`. Spelled out here rather than imported, because the
+ * adapter package does not depend on the storage package.
+ */
+async function readTranscript(
+  claudeHome: string,
+  cwd: string,
+  sessionId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const path = join(
+    claudeHome,
+    "projects",
+    cwd.replaceAll(/[^a-zA-Z0-9]/g, "-"),
+    `${sessionId}.jsonl`,
+  );
+  return (await Bun.file(path).text())
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** Entries keyed by uuid; entries without one are not mirror-deduplicated. */
+function byUuid(
+  entries: ReadonlyArray<Record<string, unknown>>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    entries
+      .filter((entry) => typeof entry.uuid === "string")
+      .map((entry) => [entry.uuid as string, entry]),
+  );
+}
 
 async function waitFor(
   predicate: () => boolean,

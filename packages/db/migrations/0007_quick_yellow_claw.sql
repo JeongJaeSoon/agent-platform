@@ -1,1 +1,0 @@
-CREATE INDEX "queue_messages_head_idx" ON "queue_messages" USING btree ("session_id","kind","id");

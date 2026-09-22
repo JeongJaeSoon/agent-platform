@@ -41,14 +41,16 @@ describe("fake agent runtime", () => {
     const run = runtime.start(config, allow);
     expect(await run.prepareCheckpoint()).toEqual({
       status: "rejected",
-      reason: "No SDK session has started",
+      reason: "no_engine_session",
+      detail: "No SDK session has started",
     });
     run.send({ message: "go", uuid: "go" });
     const iterator = run.events()[Symbol.asyncIterator]();
     await iterator.next();
     expect(await run.prepareCheckpoint()).toEqual({
       status: "rejected",
-      reason: "A turn is still running",
+      reason: "turn_in_flight",
+      detail: "A turn is still running",
     });
     await iterator.next();
     await iterator.next();
@@ -67,7 +69,8 @@ describe("fake agent runtime", () => {
     resumed.send({ message: "queued", uuid: "queued-1" });
     expect(await resumed.prepareCheckpoint()).toEqual({
       status: "rejected",
-      reason: "A turn is still running",
+      reason: "turn_in_flight",
+      detail: "A turn is still running",
     });
   });
 
@@ -86,7 +89,8 @@ describe("fake agent runtime", () => {
     await iterator.next();
     expect(await run.prepareCheckpoint()).toEqual({
       status: "rejected",
-      reason: "A turn is still running",
+      reason: "turn_in_flight",
+      detail: "A turn is still running",
     });
     await iterator.next();
     expect((await run.prepareCheckpoint()).status).toBe("ready");

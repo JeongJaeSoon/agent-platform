@@ -1,0 +1,16 @@
+{
+  "name": "@agent-platform/execution-local-docker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test:unit": "bun test src/backend.test.ts src/config.test.ts src/docker-client.test.ts",
+    "test:docker": "DOCKER_BACKEND_TEST=1 bun test src/backend.integration.test.ts"
+  },
+  "dependencies": {
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/platform": "workspace:*"
+  }
+}

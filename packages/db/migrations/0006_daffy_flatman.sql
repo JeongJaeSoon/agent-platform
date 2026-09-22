@@ -41,4 +41,6 @@ ALTER TABLE "attempts" ADD CONSTRAINT "attempts_session_id_sessions_id_fk" FOREI
 ALTER TABLE "worker_credentials" ADD CONSTRAINT "worker_credentials_attempt_id_attempts_id_fk" FOREIGN KEY ("attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker_launches" ADD CONSTRAINT "worker_launches_claimed_attempt_id_attempts_id_fk" FOREIGN KEY ("claimed_attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "attempts_session_started_idx" ON "attempts" USING btree ("session_id","started_at");--> statement-breakpoint
-CREATE INDEX "worker_launches_open_slot_idx" ON "worker_launches" USING btree ("partition") WHERE "worker_launches"."slot_released_at" IS NULL;
+CREATE INDEX "worker_credentials_live_idx" ON "worker_credentials" USING btree ("attempt_id") WHERE "worker_credentials"."revoked_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "worker_launches_open_slot_idx" ON "worker_launches" USING btree ("partition") WHERE "worker_launches"."slot_released_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "queue_messages_head_idx" ON "queue_messages" USING btree ("session_id","kind","id");

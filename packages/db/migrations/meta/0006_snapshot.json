@@ -1,6 +1,6 @@
 {
-  "id": "e4d58327-4e39-49a8-a46c-a426ab20a6e2",
-  "prevId": "9af3ed71-7726-4575-bd9a-95112936c2cd",
+  "id": "30f75151-9206-49fa-80b0-4bb3f87bca15",
+  "prevId": "94bb2912-1eaa-4608-9c79-9d080caad5fa",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -417,6 +417,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "bootstrap_nonce": {
+          "name": "bootstrap_nonce",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "generation": {
           "name": "generation",
           "type": "integer",
@@ -812,6 +818,33 @@
           ],
           "isUnique": false,
           "where": "\"queue_messages\".\"claimed_by\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "queue_messages_head_idx": {
+          "name": "queue_messages_head_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

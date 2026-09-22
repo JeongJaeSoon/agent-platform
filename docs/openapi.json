@@ -609,8 +609,15 @@
             "additionalProperties": false
           },
           "repository_id": {
-            "type": "string",
-            "minLength": 1
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [
@@ -731,8 +738,15 @@
             "additionalProperties": false
           },
           "repository_id": {
-            "type": "string",
-            "minLength": 1
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [

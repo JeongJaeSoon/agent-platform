@@ -565,7 +565,7 @@ let pendingRequests: Map<string, PendingRequest>;
 
 ## 8. 모노레포 구성
 
-다음 트리는 **목표 레이아웃**이다. 현재 존재하는 것은 `packages/*` 다섯 개, M0 compose와 `ci.yml` 등이며 `apps/*`, Dockerfile, `infra/kind`, `infra/k8s`, `images.yml`, E2E는 후속 구현 대상이다. 아래 Dockerfile 위치도 목표이며 현 compose의 root placeholder 경로는 이미지 구현 티켓에서 함께 수정한다.
+다음 트리는 **목표 레이아웃**이다. `packages/*`, `apps/*`(api·worker·reconciler·scheduler), M0 compose와 `ci.yml`은 이미 있고 Dockerfile, `infra/kind`, `infra/k8s`, `images.yml`, E2E는 후속 구현 대상이다. 아래 Dockerfile 위치도 목표이며 현 compose의 root placeholder 경로는 이미지 구현 티켓에서 함께 수정한다.
 
 Bun workspaces 기반 단일 저장소. API·워커·reconciler가 같은 타입과 DB 클라이언트를 공유하므로 모노레포가 맞다.
 
@@ -623,10 +623,15 @@ agent-platform/
 │   └── kind/                    # kind 클러스터 설정 + KEDA 설치 스크립트
 ├── docs/
 │   └── DESIGN.md                # 이 문서
-└── .github/workflows/
-    ├── ci.yml                   # bun run check, e2e
-    └── images.yml               # apps/*/Dockerfile 빌드·푸시
+└── .github/
+    ├── actions/bun-setup/       # bun 버전 고정 + ~/.bun/install/cache
+    ├── scripts/retry-flaky.sh   # spike suite 1회 재시도, 재시도를 annotation·summary에 기록
+    └── workflows/
+        ├── ci.yml               # check / integration / spikes 3 job, 후속으로 e2e
+        └── images.yml           # apps/*/Dockerfile 빌드·푸시
 ```
+
+`ci.yml`은 opt-in 변수를 켜지 않는 `check`(typecheck·Biome·외부 의존이 없는 테스트), 변수를 켜고 같은 스위트를 skip 0으로 다시 도는 `integration`(Postgres·LocalStack·Docker), 조사 harness 전용 `spikes`(머지를 막지 않음)로 나눈다. opt-in 변수는 그것을 읽는 코드가 들어오는 PR에서 함께 켠다. job별 변수와 한계는 README § CI에서 실행되는 것에 있다.
 
 ### 8.1 의존 방향
 
