@@ -654,27 +654,59 @@ describe("LocalDockerBackend.inspect", () => {
     });
   });
 
-  test("a stale container whose workspace cannot be reused is not condemned", async () => {
-    // The volume an implicit `Mounts` create left behind on the old contract.
-    // Reporting the container stale here would have the scheduler tear it
-    // down, and the replacement would then be refused at volume creation —
-    // one destroyed worker, no way back. Throwing keeps it running.
+  test("a stale container is reported without the workspace being read", async () => {
+    // Whether the replacement can be built is `assertReplaceable`'s question,
+    // asked by the scheduler before it tears anything down. Answering it here
+    // too would make an observation throw on a workspace nobody is replacing.
     const intent = intentFor();
     const body = await createBodyOf(intent);
     body.Labels[LABELS.isolation] = "1";
     docker.add(containerNameFor(intent, "test-a"), body);
     docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
 
-    await expect(backend.inspect(intent)).rejects.toThrow(
+    expect((await backend.inspect(intent)).stale).toBe(true);
+  });
+
+  test("a stale container that already exited reports its exit code", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    const container = docker.add(containerNameFor(intent, "test-a"), body);
+    container.status = "exited";
+    container.exitCode = 0;
+
+    expect(await backend.inspect(intent)).toMatchObject({
+      exitCode: 0,
+      stale: true,
+      state: "terminated",
+    });
+  });
+
+  test("a replacement is refused while the workspace cannot be reused", async () => {
+    // The volume an implicit `Mounts` create left behind on the old contract.
+    // The scheduler asks this before the teardown, so the refusal is what
+    // keeps the running worker alive.
+    const intent = intentFor();
+    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
       "was created under quota <none>",
     );
   });
 
-  test("a stale container whose workspace is already right is still stale", async () => {
+  test("a replacement is refused while the image is not on the daemon", async () => {
+    // A tag that was removed or repointed between the launch and the upgrade:
+    // the create would fail, and by then the old worker would be gone.
     const intent = intentFor();
-    const body = await createBodyOf(intent);
-    body.Labels[LABELS.isolation] = "1";
-    docker.add(containerNameFor(intent, "test-a"), body);
+    docker.images.delete("worker:test");
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "is not on this daemon",
+    );
+  });
+
+  test("a replacement with both an image and a usable workspace is allowed", async () => {
+    const intent = intentFor();
     docker.addVolume(
       legacyWorkspaceName(intent.sessionId, "test-a"),
       {
@@ -686,24 +718,11 @@ describe("LocalDockerBackend.inspect", () => {
       { size: String(QUOTA_BYTES) },
     );
 
-    expect((await backend.inspect(intent)).stale).toBe(true);
+    expect(await backend.assertReplaceable(intent)).toBeUndefined();
   });
 
-  test("a stale container that already exited is condemned without a volume check", async () => {
-    // Nothing to protect: the worker is gone either way, and the launch path
-    // is where the volume gets its verdict.
-    const intent = intentFor();
-    const body = await createBodyOf(intent);
-    body.Labels[LABELS.isolation] = "1";
-    const container = docker.add(containerNameFor(intent, "test-a"), body);
-    container.status = "exited";
-    container.exitCode = 0;
-    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
-
-    expect(await backend.inspect(intent)).toMatchObject({
-      stale: true,
-      state: "terminated",
-    });
+  test("a replacement for a session with no workspace yet is allowed", async () => {
+    expect(await backend.assertReplaceable(intentFor())).toBeUndefined();
   });
 
   test("a container on the current contract is not stale", async () => {

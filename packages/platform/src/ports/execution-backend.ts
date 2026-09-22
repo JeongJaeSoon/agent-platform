@@ -109,6 +109,14 @@ export interface ExecutionBackend {
   /** Stops and removes the resource only when its generation matches. */
   terminate(ref: ExecutionRef): Promise<TerminateExecutionResult>;
   /**
+   * Refuses unless this intent could be created right now. Replacing a
+   * resource destroys the running one first, so the scheduler asks before
+   * the teardown rather than discovering at create time that there is
+   * nothing to replace it with. Optional: a backend with nothing to check
+   * ahead of time leaves it out.
+   */
+  assertReplaceable?(intent: LaunchIntent): Promise<void>;
+  /**
    * Workspaces this backend created and still holds. Optional as a pair: a
    * backend whose workspaces are reclaimed by the platform underneath it
    * leaves both out, and the scheduler then runs no workspace GC at all.

@@ -505,15 +505,6 @@ export class LocalDockerBackend implements ExecutionBackend {
       );
     }
     const state = stateOf(container.State.Status);
-    // A stale verdict is a demolition order: the scheduler terminates this
-    // container and launches a replacement. Say so only once the replacement
-    // is known to be launchable, because a workspace the new container cannot
-    // be given would leave the session with neither worker — the old one gone,
-    // the new one refused at volume creation, and nothing to retry into.
-    if (verdict === "stale" && state !== "terminated") {
-      const sessionId = container.Config.Labels?.[LABELS.sessionId];
-      if (sessionId) await this.assertWorkspaceReplaceable(sessionId);
-    }
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
       found: true,
@@ -522,6 +513,22 @@ export class LocalDockerBackend implements ExecutionBackend {
       state,
       ...(verdict === "current" ? {} : { stale: true }),
     };
+  }
+
+  /**
+   * Whether a replacement for this intent could be created, asked without
+   * changing anything. A stale verdict is a demolition order: the container
+   * is destroyed and then re-created, and everything the create can refuse
+   * on — an image this daemon does not have, one that declares its own
+   * `VOLUME`, a workspace `ensureWorkspaceVolume` would reject — would leave
+   * the session with neither worker, the old one gone and nothing to retry
+   * into. Nothing is pinned here and `ensureExecution` resolves the image
+   * again, so this narrows the window rather than closing it; that is as
+   * much as a question asked before a teardown can do.
+   */
+  async assertReplaceable(intent: LaunchIntent): Promise<void> {
+    await this.inspectedImage(intent.image);
+    await this.assertWorkspaceReplaceable(intent.sessionId);
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
@@ -629,13 +636,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     return name;
   }
 
-  /**
-   * Whether the session's existing workspace could be handed to a new
-   * container, asked without changing anything. The stale-replacement path
-   * destroys a running container before it re-creates one, so it has to know
-   * the answer *before* the teardown: a volume that `ensureWorkspaceVolume`
-   * would reject leaves that session with no worker and no way back to one.
-   */
+  /** The workspace half of `assertReplaceable`, read-only like all of it. */
   private async assertWorkspaceReplaceable(sessionId: string): Promise<void> {
     const volume = await this.findWorkspaceVolume(sessionId);
     // Nothing there is the easy case: the replacement creates it.

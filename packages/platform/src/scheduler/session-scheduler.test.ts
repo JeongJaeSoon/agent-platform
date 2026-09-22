@@ -222,6 +222,7 @@ class FakeBackend implements ExecutionBackend {
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
+  readonly assertReplaceableCalls: LaunchIntent[] = [];
   failEnsureFor = new Set<string>();
   /** Session ids whose container dies right after start (bad image). */
   exitOnStartFor = new Set<string>();
@@ -230,6 +231,8 @@ class FakeBackend implements ExecutionBackend {
   failTerminateFor = new Set<string>();
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
+  /** Session ids whose replacement the provider says it could not create. */
+  refuseReplacementFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
   duringInspect: ((ref: ExecutionRef) => void) | null = null;
   /** Volume name -> the session label on it, null when it carries none. */
@@ -299,6 +302,13 @@ class FakeBackend implements ExecutionBackend {
       providerRef: `ctr-${intent.executionId}`,
       state: exited ? "terminated" : "running",
     };
+  }
+
+  async assertReplaceable(intent: LaunchIntent): Promise<void> {
+    this.assertReplaceableCalls.push(intent);
+    if (this.refuseReplacementFor.has(intent.sessionId)) {
+      throw new Error("Image worker:test is not on this daemon");
+    }
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
@@ -506,6 +516,37 @@ describe("runScheduler", () => {
     const after = await run();
     expect(after.replaced).toHaveLength(0);
     expect(after.reensured).toHaveLength(0);
+  });
+
+  test("a stale resource whose replacement cannot be built is left running", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+
+    // The upgrade marks it stale, but the image it would be rebuilt from is
+    // gone. Tearing it down here would leave the session with no worker and
+    // nothing to retry into, so the stale one keeps running.
+    backend.staleFor.add(`${intent.executionId}#1`);
+    backend.refuseReplacementFor.add(intent.sessionId);
+    const summary = await run();
+
+    expect(summary.reconcileFailed).toEqual([ref]);
+    expect(summary.replaced).toHaveLength(0);
+    expect(backend.terminateCalls).toHaveLength(0);
+    expect(backend.containers.size).toBe(1);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(
+      records.some((r) => r.message.includes("Replacement would not launch")),
+    ).toBe(true);
+
+    // The image comes back and the same pass replaces it.
+    backend.refuseReplacementFor.clear();
+    const after = await run();
+    expect(after.replaced).toEqual([ref]);
+    expect(after.reensured).toEqual([ref]);
   });
 
   test("a stale resource the provider will not terminate keeps its slot", async () => {

@@ -433,6 +433,26 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reason: ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
+    const stored = storedIntentOf(execution);
+    // Replacement is a teardown followed by a create, and only the create can
+    // fail on what the provider knows. Asked here that costs a pass; asked
+    // after the terminate it costs the worker. A claimed resource is not
+    // re-created at all, and a row with no intent cannot be, so neither has
+    // anything to protect.
+    if (backend.assertReplaceable && stored !== null && !execution.claimed) {
+      try {
+        await backend.assertReplaceable(intentOf(stored));
+      } catch (error) {
+        summary.reconcileFailed.push(ref);
+        logger.error("Replacement would not launch; resource left running", {
+          ...fieldsOf(ref),
+          error: messageOf(error),
+          reason,
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+    }
     let outcome: TerminateExecutionResult;
     try {
       outcome = await backend.terminate(ref);
