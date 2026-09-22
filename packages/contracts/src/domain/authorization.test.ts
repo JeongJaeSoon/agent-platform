@@ -386,6 +386,20 @@ describe("Grant", () => {
     expect(
       grantCovers(grant, { ...request, workspaceId: SESSION_ID }, NOW),
     ).toBe(false);
+    // Nor can the row name another workspace as what it covers: that plus a
+    // request carrying the same foreign references would match across the
+    // boundary while every field agreed with every other.
+    for (const field of ["resource", "audience"] as const) {
+      expect(
+        grantSchema.safeParse({
+          ...grant,
+          actions: ["workspace.read"],
+          resource: { kind: "workspace", id: WORKSPACE_ID },
+          audience: { kind: "workspace", id: WORKSPACE_ID },
+          [field]: { kind: "workspace", id: SESSION_ID },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   test("revocation and expiry both take effect at the instant they name", () => {
@@ -447,6 +461,32 @@ describe("actor provenance", () => {
       agent_id: null,
     });
     expect(actor.actor_user_id).toBe(USER_ID);
+    // A user principal acts as itself in every context, so a receipt saying
+    // it acted as someone else is audit that contradicts the request.
+    expect(
+      receiptActorSchema.safeParse({
+        principal: { kind: "user", id: USER_ID },
+        actor_user_id: USER_ID,
+        agent_id: null,
+      }).success,
+    ).toBe(true);
+    for (const actorUserId of [null, SESSION_ID]) {
+      expect(
+        receiptActorSchema.safeParse({
+          principal: { kind: "user", id: USER_ID },
+          actor_user_id: actorUserId,
+          agent_id: null,
+        }).success,
+      ).toBe(false);
+    }
+    // An installation acts for a human who is named separately, or for none.
+    expect(
+      receiptActorSchema.safeParse({
+        principal: { kind: "installation", id: INSTALLATION_ID },
+        actor_user_id: USER_ID,
+        agent_id: null,
+      }).success,
+    ).toBe(true);
     expect(
       receiptActorSchema.safeParse({
         principal: { kind: "api_key", id: "key_1" },

@@ -264,6 +264,15 @@ describe("MemoryRecord", () => {
       revoked_at: null,
     };
     expect(sessionLinkSchema.safeParse(link).success).toBe(true);
+    // `(installation_id, surface_ref)` is a reserved natural key, so one
+    // conversation gets one spelling — a hand-concatenated ref would reserve
+    // a second key for the same thread and open a second session on it.
+    expect(
+      sessionLinkSchema.safeParse({
+        ...link,
+        surface_ref: `${link.channel_id}:${link.thread_id}x`,
+      }).success,
+    ).toBe(false);
     for (const field of ["release_id", "profile_id"] as const) {
       expect(
         sessionLinkSchema.safeParse({ ...link, [field]: null }).success,

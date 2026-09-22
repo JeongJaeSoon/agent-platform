@@ -132,6 +132,17 @@ describe("ChatInboundEnvelope", () => {
     ).toBe(false);
   });
 
+  test("the service principal is the installation the event authenticated as", () => {
+    // The binder matches grants on it, so an event authenticated for A must
+    // not be able to ask for B's grants.
+    expect(
+      chatInboundEnvelopeSchema.safeParse({
+        ...inbound,
+        servicePrincipal: { kind: "service", id: "install_other" },
+      }).success,
+    ).toBe(false);
+  });
+
   test("an adapter cannot smuggle authority in beside the actor", () => {
     expect(
       chatInboundEnvelopeSchema.safeParse({ ...inbound, ownerId: "owner_1" })

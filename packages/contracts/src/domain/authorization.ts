@@ -191,6 +191,14 @@ export const authorizationContextSchema = z
     // agree with each other, which is what stops a hand-built context from
     // authorizing against another tenant's partition.
     if (ctx_.principal.kind === "installation") {
+      // What this cannot reach: whether `owner_scope` and `workspace_id` are
+      // the ones the authenticated installation actually belongs to. Unlike a
+      // user — whose partition IS its workspace, so the two must agree — an
+      // installation's owner is a separate service owner, and no relation
+      // between the three is checkable from the context alone. Closing it
+      // means carrying the whole principal here instead of a ref, which is a
+      // different contract from the one this card fixed; 94S-152 owns it.
+      //
       // What authenticated is also what acts for the human, so a context
       // claiming installation A must not match grants naming service B.
       if (ctx_.service_principal?.id !== ctx_.principal.id) {
@@ -472,6 +480,20 @@ export const grantSchema = z
         });
       }
     }
+    // A grant stored under workspace A must not name workspace B as what it
+    // covers: `grantCovers` compares the request's workspace against
+    // `workspace_id`, so an inconsistent row plus a request carrying those
+    // same B references would otherwise match across the boundary.
+    for (const field of ["resource", "audience"] as const) {
+      const ref = grant[field];
+      if (ref.kind === "workspace" && ref.id !== grant.workspace_id) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: "a grant cannot name another workspace",
+        });
+      }
+    }
   });
 
 export type Grant = z.infer<typeof grantSchema>;
@@ -580,7 +602,22 @@ export const receiptActorSchema = z
     actor_user_id: userIdSchema.nullable(),
     agent_id: agentIdSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((actor, ctx) => {
+    // A receipt is the audit record. A user principal acting as itself is
+    // what the context already enforces; a receipt saying otherwise would be
+    // provenance that contradicts the request it describes.
+    if (
+      actor.principal.kind === "user" &&
+      actor.actor_user_id !== actor.principal.id
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["actor_user_id"],
+        message: "a user principal acts as itself",
+      });
+    }
+  });
 
 /** The `turns.actor_id` column: the human whose input started the turn. */
 export const turnActorIdSchema = userIdSchema.nullable();

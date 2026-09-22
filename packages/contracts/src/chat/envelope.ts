@@ -1,11 +1,7 @@
 import { z } from "zod";
 
 import { messageTextSchema } from "../api/index.ts";
-import {
-  actorRefSchema,
-  humanActorSchema,
-  serviceActorSchema,
-} from "../domain/index.ts";
+import { humanActorSchema, serviceActorSchema } from "../domain/index.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -66,7 +62,18 @@ export const chatInboundEnvelopeSchema = z
     target: z.object({ sessionId: sessionIdSchema }).strict().nullable(),
     metadata: z.record(z.string(), z.unknown()),
   })
-  .strict();
+  .strict()
+  .superRefine((envelope, ctx) => {
+    // The binder matches grants on the service principal, so an envelope
+    // authenticated for installation A must not be able to ask for B's.
+    if (envelope.servicePrincipal.id !== envelope.installationId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["servicePrincipal"],
+        message: "must be the installation the event was authenticated for",
+      });
+    }
+  });
 
 /** What a binder resolved: which session this conversation is, and under which release. */
 export const scopedSessionBindingSchema = z
@@ -117,8 +124,8 @@ export const chatOutboundEnvelopeSchema = z
     deliveryId: opaqueIdSchema,
     sourceEventId: surfaceEventIdSchema,
     scope: scopedSessionBindingSchema,
-    /** Who the delivery is attributed to — the app on outbound, not a human. */
-    actor: actorRefSchema,
+    /** Who the delivery is attributed to — the app, never a human. */
+    actor: serviceActorSchema,
     audience: chatAudienceSchema,
     category: chatOutboundCategorySchema,
     content: chatContentSchema,

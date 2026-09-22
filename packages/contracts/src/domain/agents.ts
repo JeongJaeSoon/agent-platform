@@ -117,12 +117,21 @@ export const effectiveToolsSchema = z
 //
 // It errs wide on purpose: a false positive is a parse error the author fixes
 // by renaming or by storing a reference, a false negative is a live key in an
-// immutable row. `auth` is the exception — it names a credential only as the
-// whole key (`profile.auth = {kind, value}`), while `auth_kind` and
-// `auth_endpoint` describe one without holding it.
+// immutable row.
+//
+// `auth`, `env` and `headers` are rejected as whole keys rather than by word.
+// They are containers of resolved values — `mcpServers.notion.env.NOTION_API`
+// is a live credential under a name no word list can recognise — and a release
+// snapshot has no business holding a resolved environment at all: the runtime
+// resolves it at launch from `env_ref`. `auth_kind` and `header_order` name
+// one of these without holding it, which is why the match is on the whole key.
+//
+// What this cannot see: a credential under a name that says nothing, at the
+// top level (`notion: "live-value"`). The guard is structural — whoever builds
+// the release is still the one responsible for not putting it there.
 const CREDENTIAL_WORD =
   /^(key|keys|token|tokens|secret|secrets|password|passphrase|credential|credentials)$/i;
-const CREDENTIAL_KEY = /^(auth|authorization)$/i;
+const CREDENTIAL_KEY = /^(auth|authorization|env|environment|headers)$/i;
 
 // `signingSecret` → [signing, Secret]; `client_secret` → [client, secret].
 function keyWords(key: string): string[] {

@@ -265,6 +265,16 @@ describe("agent, version and release", () => {
         runtime_config_snapshot: { headers: [{ authorization: "Bearer x" }] },
       }).success,
     ).toBe(false);
+    // A resolved MCP environment hides live values behind names no word list
+    // can recognise, so the container itself has no place in a release.
+    expect(
+      agentReleaseSchema.safeParse({
+        ...release,
+        runtime_config_snapshot: {
+          mcpServers: { notion: { env: { NOTION_API: "live-value" } } },
+        },
+      }).success,
+    ).toBe(false);
     // The names that actually appear in a runtime profile are compound.
     for (const key of [
       "api_key",

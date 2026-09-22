@@ -153,6 +153,20 @@ export const sessionLinkSchema = z
     // both pins. A live link missing either one would be admitted here and
     // then fail every bind, so it is not a state worth storing. Only a revoked
     // link may have lost them.
+    // `(installation_id, surface_ref)` is a reserved natural key, so one
+    // conversation must have exactly one spelling. A writer that concatenated
+    // the ids itself would otherwise reserve a second key for the same thread
+    // and open a second session on it.
+    if (link.channel_id !== null && link.thread_id !== null) {
+      const canonical = formatSurfaceRef(link.channel_id, link.thread_id);
+      if (link.surface_ref !== canonical) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["surface_ref"],
+          message: "must be formatSurfaceRef(channel_id, thread_id)",
+        });
+      }
+    }
     if (link.revoked_at !== null) return;
     for (const field of ["release_id", "profile_id"] as const) {
       if (link[field] === null) {
