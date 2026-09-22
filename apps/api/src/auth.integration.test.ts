@@ -10,6 +10,7 @@ import {
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   memberships,
@@ -68,6 +69,7 @@ integration("auth API on PostgreSQL", () => {
     const sessions = createSessionService({
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog: {
         profiles: {
