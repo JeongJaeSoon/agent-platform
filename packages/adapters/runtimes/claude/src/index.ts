@@ -1,4 +1,5 @@
 export * from "./checkpoint-codec.ts";
+export * from "./component-identity.ts";
 export * from "./config.ts";
 export * from "./fake-adapter.ts";
 export * from "./mapper.ts";

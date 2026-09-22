@@ -9,6 +9,7 @@ import {
   encodeCheckpointManifest,
   validateCompatibility,
 } from "./checkpoint-codec.ts";
+import { UnidentifiedComponentError } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { digestParts } from "./transcript-digest.ts";
 
@@ -59,6 +60,7 @@ function manifest(
 const config: Pick<
   ClaudeRuntimeConfig,
   | "appendSystemPrompt"
+  | "identities"
   | "mcpServers"
   | "model"
   | "permissionMode"
@@ -72,6 +74,7 @@ const config: Pick<
     kind: "anthropic",
     endpoint: "https://api.anthropic.test",
     auth: { kind: "api_key", value: "secret-one" },
+    principal: { ownerScope: "owner-a" },
   },
   tools: ["Bash", "Read"],
 };
@@ -229,6 +232,7 @@ describe("Claude profile fingerprint", () => {
       profile: {
         ...config.profile,
         auth: { kind: "api_key" as const, value: "secret-two" },
+        principal: { ownerScope: "owner-a" },
       },
     };
 
@@ -290,28 +294,202 @@ describe("Claude profile fingerprint", () => {
     expect(
       claudeProfileFingerprint({
         ...config,
+        identities: { plugins: { "/plugins/review": "review@1.0.0" } },
         plugins: [{ path: "/plugins/review", type: "local" }],
       }),
     ).not.toBe(claudeProfileFingerprint(config));
   });
 
-  test("survives an in-process MCP server the SDK accepts", () => {
-    // `createSdkMcpServer` hands back a live object graph with cycles in it;
-    // hashing it verbatim throws, which would stop the session checkpointing.
-    class McpServer {
-      self: unknown;
-      constructor(readonly name: string) {
-        this.self = this;
-      }
+  test("changes when a plugin at the same path declares a new identity", () => {
+    // The path is all the SDK sees, and the same path can hold different
+    // code tomorrow; the declared identity is what stands in for its contents.
+    const plugins = [{ path: "/plugins/review", type: "local" as const }];
+    const v1 = {
+      ...config,
+      identities: { plugins: { "/plugins/review": "review@1.0.0" } },
+      plugins,
+    };
+    const v2 = {
+      ...config,
+      identities: { plugins: { "/plugins/review": "review@1.1.0" } },
+      plugins,
+    };
+
+    expect(claudeProfileFingerprint(v2)).not.toBe(claudeProfileFingerprint(v1));
+  });
+
+  test("refuses a plugin with no declared identity", () => {
+    const unnamed = {
+      ...config,
+      plugins: [{ path: "/plugins/review", type: "local" as const }],
+    };
+
+    expect(() => claudeProfileFingerprint(unnamed)).toThrow(
+      UnidentifiedComponentError,
+    );
+    expect(() => claudeProfileFingerprint(unnamed)).toThrow(
+      /Plugin "\/plugins\/review" has no identity/,
+    );
+  });
+
+  test("changes when the principal changes on the same endpoint", () => {
+    // Two tenants on one shared LiteLLM endpoint differ only in credential,
+    // which the digest ignores on purpose; the principal is what tells them
+    // apart so one cannot resume the other's checkpoint.
+    const tenantA = {
+      ...config,
+      profile: {
+        kind: "litellm" as const,
+        endpoint: "https://litellm.test",
+        auth: { kind: "bearer" as const, value: "token-a" },
+        principal: { ownerScope: "owner-a" },
+      },
+    };
+    const tenantB = {
+      ...tenantA,
+      profile: {
+        ...tenantA.profile,
+        auth: { kind: "bearer" as const, value: "token-b" },
+        principal: { ownerScope: "owner-b" },
+      },
+    };
+    const tenantARotated = {
+      ...tenantA,
+      profile: {
+        ...tenantA.profile,
+        auth: { kind: "bearer" as const, value: "token-a-rotated" },
+      },
+    };
+
+    expect(claudeProfileFingerprint(tenantB)).not.toBe(
+      claudeProfileFingerprint(tenantA),
+    );
+    expect(claudeProfileFingerprint(tenantARotated)).toBe(
+      claudeProfileFingerprint(tenantA),
+    );
+  });
+
+  test("ignores a rotated MCP header value but not a new header", () => {
+    const http = (headers: Record<string, string>) => ({
+      ...config,
+      mcpServers: {
+        notion: { type: "http", url: "https://mcp.notion.test", headers },
+      },
+    });
+
+    expect(
+      claudeProfileFingerprint(http({ Authorization: "Bearer new" })),
+    ).toBe(claudeProfileFingerprint(http({ Authorization: "Bearer old" })));
+    expect(
+      claudeProfileFingerprint(
+        http({ Authorization: "Bearer old", "X-Workspace": "w1" }),
+      ),
+    ).not.toBe(claudeProfileFingerprint(http({ Authorization: "Bearer old" })));
+  });
+
+  test("ignores a rotated stdio environment value but not a new variable", () => {
+    const stdio = (env: Record<string, string>) => ({
+      ...config,
+      mcpServers: { github: { command: "github-mcp", env } },
+    });
+
+    expect(claudeProfileFingerprint(stdio({ GITHUB_TOKEN: "ghp_new" }))).toBe(
+      claudeProfileFingerprint(stdio({ GITHUB_TOKEN: "ghp_old" })),
+    );
+    expect(
+      claudeProfileFingerprint(
+        stdio({ GITHUB_TOKEN: "ghp_old", GITHUB_HOST: "ghe.test" }),
+      ),
+    ).not.toBe(claudeProfileFingerprint(stdio({ GITHUB_TOKEN: "ghp_old" })));
+  });
+
+  test("still changes when a serializable MCP server is repointed", () => {
+    const url = (url: string) => ({
+      ...config,
+      mcpServers: {
+        notion: { type: "http", url, headers: { Authorization: "Bearer t" } },
+      },
+    });
+
+    expect(claudeProfileFingerprint(url("https://mcp.other.test"))).not.toBe(
+      claudeProfileFingerprint(url("https://mcp.notion.test")),
+    );
+  });
+
+  // `createSdkMcpServer` hands back a live object graph with cycles in it;
+  // hashing it verbatim throws, which would stop the session checkpointing.
+  class McpServer {
+    self: unknown;
+    constructor(readonly name: string) {
+      this.self = this;
     }
-    const inProcess = {
+  }
+
+  test("hashes an in-process MCP server by its declared identity", () => {
+    const inProcess = (identity: string) => ({
+      ...config,
+      identities: { mcpServers: { review: identity } },
+      mcpServers: {
+        review: { type: "sdk", name: "review", instance: new McpServer("r") },
+      },
+    });
+
+    expect(claudeProfileFingerprint(inProcess("review@1"))).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(claudeProfileFingerprint(inProcess("review@1"))).toBe(
+      claudeProfileFingerprint(inProcess("review@1")),
+    );
+    expect(claudeProfileFingerprint(inProcess("review@1"))).not.toBe(
+      claudeProfileFingerprint(config),
+    );
+    expect(claudeProfileFingerprint(inProcess("review@2"))).not.toBe(
+      claudeProfileFingerprint(inProcess("review@1")),
+    );
+  });
+
+  test("tells two tenants' in-process servers of one class apart by identity", () => {
+    // Same class, same registry name, different tenant state inside: the
+    // class name alone called these compatible (94S-209).
+    const tenant = (identity: string) => ({
+      ...config,
+      identities: { mcpServers: { review: identity } },
+      mcpServers: { review: new McpServer("review") },
+    });
+
+    expect(claudeProfileFingerprint(tenant("review:owner-b"))).not.toBe(
+      claudeProfileFingerprint(tenant("review:owner-a")),
+    );
+  });
+
+  test("refuses an in-process MCP server with no declared identity", () => {
+    const unnamed = {
       ...config,
       mcpServers: { review: new McpServer("review") },
     };
 
-    expect(claudeProfileFingerprint(inProcess)).toMatch(/^[0-9a-f]{64}$/);
-    expect(claudeProfileFingerprint(inProcess)).not.toBe(
-      claudeProfileFingerprint(config),
+    let thrown: unknown;
+    try {
+      claudeProfileFingerprint(unnamed);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnidentifiedComponentError);
+    const error = thrown as UnidentifiedComponentError;
+    expect(error.reason).toBe("unidentified_component");
+    expect(error.component).toBe("mcp_server");
+    expect(error.name).toBe("review");
+    expect(error.detail).toMatch(/MCP server "review" is not plain data/);
+  });
+
+  test("treats a function inside an otherwise plain MCP config as opaque", () => {
+    const withCallback = {
+      ...config,
+      mcpServers: { hooks: { command: "x", onStart: () => undefined } },
+    };
+
+    expect(() => claudeProfileFingerprint(withCallback)).toThrow(
+      UnidentifiedComponentError,
     );
   });
 

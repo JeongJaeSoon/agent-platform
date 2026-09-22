@@ -14,6 +14,7 @@ const config: ClaudeRuntimeConfig = {
     kind: "anthropic",
     endpoint: "http://127.0.0.1:4000",
     auth: { kind: "api_key", value: "placeholder" },
+    principal: { ownerScope: "owner-a" },
   },
   tools: ["Read"],
 };

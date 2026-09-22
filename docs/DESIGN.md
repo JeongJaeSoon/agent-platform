@@ -332,6 +332,13 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 3. `checkpoint_id`, owner ID, workspace git SHA, root/subagent transcript revision과 object hash, SDK·Claude Code version, 설정 profile version과 secret을 제외한 fingerprint를 담은 immutable manifest를 쓴다.
 4. Postgres의 authoritative checkpoint pointer를 같은 DB transaction에서 `owner_id`, 현재 `pod_id`, previous checkpoint revision 조건으로 CAS해 새 manifest로 전진시킨다. 94S-93은 이를 위한 최소 schema/API를 추가한다.
 
+**fingerprint의 principal과 component identity 규칙 (94S-209, 2026-09-23).** 3번의 "secret을 제외한 fingerprint"는 그대로 두되, 무엇을 넣고 빼는지를 다음 규칙으로 고정한다.
+
+- **principal.** `RuntimeProfile.principal.ownerScope` — 세션이 속한 owner 파티션(`AuthorizationContext.owner_scope`)을 필수로 싣고 fingerprint가 해시한다. 호출 순간의 주체(`PrincipalRef`)가 아니라 파티션인 이유: 같은 workspace의 다른 사용자가 같은 세션을 재개하는 것은 정당하고, 같은 endpoint를 다른 파티션이 각자 자격 증명으로 쓰는 것은 같은 checkpoint가 아니기 때문이다. 자격 증명 값은 계속 지문 밖이므로 로테이션은 digest를 바꾸지 않는다. 리포에 tenant 모델이 없어 이 티켓이 정한 최소 형태이며, 값의 출처(claim 응답이 owner를 싣는 것)는 별도 티켓이다.
+- **직렬화 가능한 MCP 서버(stdio/sse/http).** 구성을 통째로 해시하되 `headers`·`env`는 **키 이름 집합만** 해시한다. 값만 바뀐 것은 로테이션이고, 키가 늘거나 줄면 도구 표면이 바뀐 것이다. `url`·`command`·`args`는 값까지 해시한다 — 같은 이름을 다른 곳으로 돌리면 다른 checkpoint다.
+- **in-process MCP 서버(`{type:"sdk", instance}`)와 local plugin.** 값으로 해시할 수 없으므로 호출자가 `identities.mcpServers[name]`·`identities.plugins[path]`로 명시한 identity(버전·콘텐츠 digest 등)를 대신 해시한다. identity가 없으면 `validateRuntimeConfig`가 new·resume 모두 **시작 전에** `UnidentifiedComponentError`(`reason: "unidentified_component"`, component·name 포함)로 거절한다. 시작하지 못한 run은 checkpoint를 만들지 않으므로 별도 `CheckpointBlockReason`은 두지 않는다.
+- **digest 변경 정책.** 이 규칙은 모든 digest를 바꾼다. 적용 시점(2026-09-23)에 워커 루프가 아직 머지되지 않아 운영 checkpoint가 없으므로 재계산 경로 없이 fail-closed다. 앞으로 fingerprint 입력을 바꿀 때는 그 시점의 checkpoint를 어떻게 다룰지(재계산 또는 fail-closed)를 같은 PR에서 정한다.
+
 1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
 
 G2는 현재 `pod_id`와 previous revision의 CAS까지만 요구한다. 94S-44는 G4에서 checkpoint 외 전체 write에 claim epoch fencing을 확장하며, G2가 이를 구현 완료했다고 주장하지 않는다.
