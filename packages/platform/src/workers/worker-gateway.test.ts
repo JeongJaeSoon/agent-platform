@@ -176,6 +176,9 @@ describe("WorkerGateway", () => {
 
   test("finalize consults the checkpoint verifier before the transaction", async () => {
     let committed = 0;
+    // The verifier has to be able to prove the manifest belongs to *this*
+    // attempt, so it gets the whole fence and the turn, not just the session.
+    const asked: unknown[] = [];
     const instance = createWorkerGateway({
       work: work({
         async finalizeAtomic() {
@@ -185,7 +188,8 @@ describe("WorkerGateway", () => {
       }),
       catalog: { profiles: {}, repositories: {} },
       checkpoints: {
-        async verify() {
+        async verify(input) {
+          asked.push(input);
           return { status: "rejected", reason: "sha mismatch" };
         },
       },
@@ -210,6 +214,24 @@ describe("WorkerGateway", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
     expect(committed).toBe(0);
+    expect(asked).toEqual([
+      {
+        fence: {
+          sessionId: scope.session_id,
+          attemptId: scope.attempt_id,
+          leaseEpoch: scope.lease_epoch,
+          executionGeneration: scope.execution_generation,
+          authRevision: scope.auth_revision,
+        },
+        turnId: "1",
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "ref",
+          manifest_sha256: "0".repeat(64),
+        },
+        at: expect.any(Date),
+      },
+    ]);
   });
 
   test("a committed finalize replays without asking the verifier again", async () => {

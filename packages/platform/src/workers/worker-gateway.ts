@@ -496,8 +496,10 @@ export function createWorkerGateway(deps: {
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       if (request.checkpoint) {
         const verdict = await checkpoints.verify({
-          sessionId: request.session_id,
+          fence,
+          turnId: request.turn_id,
           checkpoint: request.checkpoint,
+          at: attempt.now,
         });
         if (verdict.status === "rejected") {
           throw new WorkerGatewayError(

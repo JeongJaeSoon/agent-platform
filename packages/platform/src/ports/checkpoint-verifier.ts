@@ -1,16 +1,24 @@
 import type { CheckpointRef } from "@agent-platform/contracts";
+import type { WorkerFence } from "./worker-unit-of-work.ts";
 
 export type CheckpointVerdict =
   | { status: "verified" }
   | { status: "rejected"; reason: string };
 
 // finalize refuses to promote a checkpoint pointer the verifier has not
-// accepted; the D2 checkpoint ticket (94S-124) supplies the storage-backed
-// implementation that reads the manifest and compares its hash.
+// accepted. The whole fence is passed, not just the session: reading the
+// manifest proves it exists, not that *this* attempt wrote it, and promoting
+// another attempt's orphan manifest is exactly what the epoch is for. 94S-201
+// wires the storage-backed implementation and decides how its pointer CAS and
+// this turn's commit coordinate.
 export interface CheckpointVerifier {
   verify(input: {
-    sessionId: string;
+    fence: WorkerFence;
+    turnId: string;
     checkpoint: CheckpointRef;
+    // The gateway's clock at the call, so a verifier that judges freshness
+    // uses the same one the fence is judged against.
+    at: Date;
   }): Promise<CheckpointVerdict>;
 }
 
