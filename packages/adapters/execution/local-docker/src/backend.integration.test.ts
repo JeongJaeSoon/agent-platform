@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { LaunchIntent } from "@agent-platform/platform";
 import {
-  containerNameFor,
   ENV,
   LABELS,
   LocalDockerBackend,
@@ -83,11 +82,6 @@ integration("LocalDockerBackend against a real daemon", () => {
     workspaceQuota: { mode: "off" },
   });
   const backend = new LocalDockerBackend(backendConfig(), client);
-  const created: LaunchIntent[] = [];
-  const track = (intent: LaunchIntent) => {
-    created.push(intent);
-    return intent;
-  };
 
   beforeAll(async () => {
     await client.version();
@@ -99,26 +93,47 @@ integration("LocalDockerBackend against a real daemon", () => {
   }, 120_000);
 
   afterAll(async () => {
-    for (const intent of created) {
-      for (const generation of [1, 2, 3]) {
-        await client
-          .stopAndRemoveContainer(
-            containerNameFor({ ...intent, generation }, installationId),
-            1,
-          )
-          .catch(() => undefined);
-      }
-      for (const volume of await client
-        .listVolumes([`${LABELS.sessionId}=${intent.sessionId}`])
-        .catch(() => [])) {
-        await fetchDocker(`/volumes/${volume.Name}?force=true`, "DELETE").catch(
-          () => undefined,
-        );
-      }
+    // Everything the backend makes carries the installation label, so one
+    // listing finds exactly what exists — no probing generations that were
+    // never created. Stops run in parallel: each one waits out the 1s stop
+    // timeout because busybox's `sleep` ignores SIGTERM, and in series that
+    // alone used to eat bun's 5s hook budget.
+    const owned = [`${LABELS.installation}=${installationId}`];
+    const t0 = performance.now();
+    // A failed listing is itself a cleanup failure, not an empty daemon:
+    // it goes into `failed` instead of quietly skipping everything it owned.
+    const [containers, volumes] = await Promise.allSettled([
+      client.listContainers(owned),
+      client.listVolumes(owned),
+    ]);
+    const stops = await Promise.allSettled(
+      (containers.status === "fulfilled" ? containers.value : []).map((c) =>
+        client.stopAndRemoveContainer(c.Id, 1),
+      ),
+    );
+    const removes = await Promise.allSettled(
+      (volumes.status === "fulfilled" ? volumes.value : []).map((v) =>
+        client.removeVolume(v.Name),
+      ),
+    );
+    const network = await Promise.allSettled([
+      client.removeNetwork(workerNetwork),
+    ]);
+    const failed = [
+      containers,
+      volumes,
+      ...stops,
+      ...removes,
+      ...network,
+    ].filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    // Leftovers are a daemon hygiene problem, not a contract violation:
+    // report them and let the suite's verdict stand.
+    if (failed.length > 0) {
+      console.warn(
+        `[backend.integration] ${failed.length} cleanup step(s) failed after ${Math.round(performance.now() - t0)}ms; leftovers carry ${owned[0]}`,
+        failed.map((r) => String(r.reason)),
+      );
     }
-    await client.removeNetwork(workerNetwork).catch(() => undefined);
-    // Bun's default hook timeout is 5s, and this tears down a container per
-    // generation per test — each with a stop that waits on the process.
   }, 120_000);
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
@@ -135,7 +150,7 @@ integration("LocalDockerBackend against a real daemon", () => {
   }
 
   test("ensure twice → one container; docker inspect shows the isolation contract", async () => {
-    const intent = track(intentFor());
+    const intent = intentFor();
     const first = await backend.ensureExecution(intent);
     const second = await backend.ensureExecution(intent);
     expect(first.created).toBe(true);
@@ -217,7 +232,7 @@ integration("LocalDockerBackend against a real daemon", () => {
   }, 60_000);
 
   test("a removed container is re-created from the same intent", async () => {
-    const intent = track(intentFor());
+    const intent = intentFor();
     const first = await backend.ensureExecution(intent);
     await client.stopAndRemoveContainer(first.providerRef, 1);
     expect((await backend.inspect(intent)).found).toBe(false);
@@ -233,11 +248,11 @@ integration("LocalDockerBackend against a real daemon", () => {
 
   test("terminate touches only the matching generation", async () => {
     const base = intentFor();
-    const gen1 = track({
+    const gen1 = {
       ...base,
       generation: 1,
       operationId: `${base.operationId}-1`,
-    });
+    };
     const gen2 = {
       ...base,
       generation: 2,
@@ -278,7 +293,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       },
       client,
     );
-    const intent = track(intentFor());
+    const intent = intentFor();
     await probe.ensureExecution(intent);
     await Bun.sleep(1_500);
     const observed = await probe.inspect(intent);
@@ -292,7 +307,7 @@ integration("LocalDockerBackend against a real daemon", () => {
   }, 30_000);
 
   test("listManaged sees every container this backend made", async () => {
-    const intent = track(intentFor());
+    const intent = intentFor();
     const result = await backend.ensureExecution(intent);
     const managed = await backend.listManaged();
     expect(managed).toContainEqual({
