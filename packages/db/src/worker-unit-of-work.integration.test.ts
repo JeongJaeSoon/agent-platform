@@ -985,6 +985,130 @@ integration("worker gateway on PostgreSQL", () => {
     advance(400);
   });
 
+  test("a checkpoint verification that outlives the lease commits nothing", async () => {
+    const { session, claimed } = await claimAndDeliver(partitionFor("slow"));
+    // The verifier is a network call. If it returns after the lease is gone,
+    // the fence has to judge the commit by the clock at commit time.
+    const slow = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: {
+        async verify() {
+          advance(LEASE_TTL_MS + 1);
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: LEASE_TTL_MS,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+    expect(
+      await failure(
+        slow.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, "1"),
+          turn_id: "1",
+          finalize_key: "slow-1",
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: {
+            revision: 1,
+            manifest_ref: "s3://bucket/m.json",
+            manifest_sha256: "a".repeat(64),
+          },
+        }),
+      ),
+    ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+    const [turn] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(turn?.status).toBe("running");
+    const [stored] = await db
+      .select({ committed: count() })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, session.session_id));
+    expect(stored?.committed).toBe(0);
+  });
+
+  test("a session whose profile this host does not know is not claimed", async () => {
+    const partition = partitionFor("profile");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    const stranger = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: LEASE_TTL_MS,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+    // Running it on a guessed runtime would be worse than waiting.
+    expect(
+      await failure(
+        stranger.bootstrapClaim(bootstrap, {
+          execution_id: l.executionId,
+          execution_generation: l.generation,
+          credential: { kind: "launch_nonce", nonce: l.nonce },
+        }),
+      ),
+    ).toEqual({ status: 404, code: "NOT_FOUND" });
+    const waiting = await db
+      .select()
+      .from(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    expect(waiting).toHaveLength(1);
+    // A host that knows the profile takes it.
+    expect((await claim(l)).session_id).toBe(session.session_id);
+  });
+
+  test("an exit observation racing the last heartbeats never deadlocks", async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const partition = partitionFor(`race${round}`);
+      await queuedSession(partition);
+      const l = await launch(partition);
+      const claimed = await claim(l);
+      const beats = [0, 1, 2].map(() =>
+        gateway
+          .heartbeat(principalOf(claimed), {
+            ...scopeOf(claimed),
+            attempt_state: "running",
+          })
+          .catch((error: unknown) => error),
+      );
+      const settled = await Promise.all([
+        gateway.confirmExecutionGone(l.executionId),
+        ...beats,
+      ]);
+      for (const outcome of settled) {
+        // A heartbeat losing to the exit is expected; a lock-order deadlock
+        // (SQLSTATE 40P01) is not.
+        expect(String((outcome as { code?: string })?.code ?? "")).not.toBe(
+          "40P01",
+        );
+      }
+    }
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

@@ -45,7 +45,15 @@ beforeEach(async () => {
   clock = new Date("2026-09-22T00:00:00.000Z");
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: { profiles: {}, repositories: {} },
+    catalog: {
+      profiles: {
+        "claude-coding-v1": {
+          runtime_kind: "claude_agent_sdk",
+          runtime_version: "0.3.270",
+        },
+      },
+      repositories: {},
+    },
     checkpoints: acceptAllCheckpoints,
     options: {
       leaseTtlMs: LEASE_TTL_MS,

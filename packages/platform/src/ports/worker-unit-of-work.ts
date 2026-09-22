@@ -41,6 +41,9 @@ export type WorkerBinding = {
 };
 
 export type ClaimInput = {
+  // Only a session whose profile appears here may be bound: a host that does
+  // not know the profile cannot pick the runtime to start.
+  runnableProfiles: string[];
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;

@@ -167,12 +167,26 @@ export function createWorkerGateway(deps: {
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
+  // Only sessions this host can actually run are claimable. Letting a
+  // session whose profile left the catalog start anyway would hand it a
+  // guessed runtime, and the worker would run the wrong agent or crash-loop
+  // through a queue slot. It waits for a host that knows the profile.
+  const runnableProfiles = Object.keys(catalog.profiles);
+
   function runtimeFor(profileId: string | null): SessionRuntime {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
+    if (!profile || !profileId) {
+      throw new WorkerGatewayError(
+        409,
+        "BACKEND_UNAVAILABLE",
+        "The session's runtime profile is not in this host's catalog",
+        true,
+      );
+    }
     return {
-      kind: profile?.runtime_kind ?? "claude_agent_sdk",
-      version: profile?.runtime_version ?? "unknown",
-      profile_id: profileId ?? "unknown",
+      kind: profile.runtime_kind,
+      version: profile.runtime_version,
+      profile_id: profileId,
     };
   }
 
@@ -289,6 +303,7 @@ export function createWorkerGateway(deps: {
       const at = now();
       const sessionToken = generateSessionToken();
       const result = await work.claimAtomic({
+        runnableProfiles,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -464,7 +479,12 @@ export function createWorkerGateway(deps: {
           );
         }
       }
-      return finalizeAnswer(await work.finalizeAtomic(attempt));
+      // Verification is a network call that can outlast the lease, so the
+      // fence is judged against the clock at commit time, not the one this
+      // request started with.
+      return finalizeAnswer(
+        await work.finalizeAtomic({ ...attempt, now: now() }),
+      );
     },
 
     async release(

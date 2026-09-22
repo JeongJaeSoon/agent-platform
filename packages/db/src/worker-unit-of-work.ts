@@ -476,6 +476,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               eq(unassignedSessions.partition, launch.partition),
               isNull(sessions.podId),
               eq(sessions.admissionState, "active"),
+              inArray(sessions.profileId, input.runnableProfiles),
             ),
           )
           .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))
@@ -1035,22 +1036,25 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ),
           )
           .returning({ executionId: workerLaunches.executionId });
-        await tx
-          .update(executions)
-          .set({
-            observedState: "terminated",
-            desiredState: "terminated",
-            observedAt: now,
-          })
-          .where(eq(executions.id, executionId));
-        await tx.delete(workers).where(eq(workers.podId, executionId));
-
+        // Every path takes its locks in the same order — launch, session,
+        // attempt, execution — so a heartbeat and an exit observation that
+        // overlap queue up instead of deadlocking each other.
         const [session] = await tx
           .select()
           .from(sessions)
           .where(eq(sessions.executionId, executionId))
           .limit(1)
           .for("update");
+        await tx
+          .update(executions)
+          .set({
+            observedState: "terminated",
+            desiredState: "terminated",
+            observedAt: sql`GREATEST(${executions.observedAt}, ${now})`,
+          })
+          .where(eq(executions.id, executionId));
+        await tx.delete(workers).where(eq(workers.podId, executionId));
+
         if (!session) {
           return { sessionReleased: false, slotReleased: slot.length === 1 };
         }
