@@ -390,7 +390,79 @@ describe("fake agent runtime", () => {
       "interrupted",
     );
   });
+
+  test("await-input holds the script until each turn's input arrives", async () => {
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          type: "result",
+          subtype: "success",
+          session_id: "s",
+          user_message_uuid: "first",
+        },
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          type: "result",
+          subtype: "success",
+          session_id: "s",
+          user_message_uuid: "second",
+        },
+      },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+
+    run.send({ message: "one", uuid: "first" });
+    await within(
+      waitFor(() => frames.length === 1),
+      200,
+    );
+    // Nothing more can be emitted until the second input is sent.
+    await Bun.sleep(10);
+    expect(frames).toHaveLength(1);
+
+    run.send({ message: "two", uuid: "second" });
+    await within(consume, 200);
+    expect(
+      frames.map((frame) => frame.envelope.message.user_message_uuid),
+    ).toEqual(["first", "second"]);
+  });
+
+  test("await-input stops waiting once the input stream is closed", async () => {
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "emit", message: { type: "system", subtype: "done" } },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.finishInput();
+    await within(consume, 200);
+
+    expect(frames).toHaveLength(1);
+  });
 });
+
+async function waitFor(
+  condition: () => boolean,
+  intervalMs = 1,
+): Promise<void> {
+  while (!condition()) await Bun.sleep(intervalMs);
+}
 
 async function within<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([

@@ -1,2 +1,12 @@
 export * from "@agent-platform/runtime-claude";
 export type * from "@agent-platform/runtime-core";
+export * from "./checkpoint.ts";
+export * from "./composition.ts";
+export * from "./config.ts";
+export * from "./event-publisher.ts";
+export * from "./fake-gateway.ts";
+export * from "./gateway-client.ts";
+export * from "./heartbeat.ts";
+export * from "./main.ts";
+export * from "./pending-requests.ts";
+export * from "./worker-host.ts";
