@@ -87,7 +87,11 @@ describe("upsert-ci-issue.sh", () => {
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
-        ["ci-spikes-failure", "CI: spikes failed (non-blocking job)", body.path],
+        [
+          "ci-spikes-failure",
+          "CI: spikes failed (non-blocking job)",
+          body.path,
+        ],
         {
           "label create": "",
           "issue list": "",
@@ -117,7 +121,11 @@ describe("upsert-ci-issue.sh", () => {
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
-        ["ci-spikes-failure", "CI: spikes failed (non-blocking job)", body.path],
+        [
+          "ci-spikes-failure",
+          "CI: spikes failed (non-blocking job)",
+          body.path,
+        ],
         {
           "label create": "",
           "issue list": "12",
