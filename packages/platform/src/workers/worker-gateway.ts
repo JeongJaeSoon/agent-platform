@@ -325,6 +325,13 @@ export function createWorkerGateway(deps: {
           "Unknown turn_id, or the turn is not running on this attempt",
         );
       }
+      if (result.outcome === "turn_finalized") {
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "Turn is already finalized; its event stream is closed",
+        );
+      }
       if (result.outcome === "event_conflict") {
         throw new WorkerGatewayError(
           409,

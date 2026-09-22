@@ -782,6 +782,134 @@ integration("worker gateway on PostgreSQL", () => {
     ).not.toBeNull();
   });
 
+  test("a rejected batch leaves the stream untouched and a closed turn takes no new events", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const base = { ...scopeOf(claimed, "1"), batch_key: "b" };
+    await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(1)],
+    });
+    const changed: WorkerEvent = {
+      event: "status",
+      data: { phase: "idle" },
+      source_sequence: 1,
+      occurred_at: clock.toISOString(),
+    };
+    // A batch that mixes a conflicting replay with a new event must not
+    // store the new one on its way to being rejected.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [changed, event(2)],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    // Two different events under one sequence in a single batch.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [event(3), { ...changed, source_sequence: 3 }],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    // The same sequence moved to another turn is not the same event.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          turn_id: null,
+          events: [event(1)],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    const [afterRejects] = await db
+      .select({ stored: count() })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id));
+    expect(afterRejects?.stored).toBe(1);
+
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    // An exact replay still answers, a new event does not.
+    expect(
+      (
+        await gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [event(1)],
+        })
+      ).accepted_through,
+    ).toBe(1);
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [event(2)],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    const [afterFinalize] = await db
+      .select({ stored: count() })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id));
+    expect(afterFinalize?.stored).toBe(1);
+  });
+
+  test("nothing is acknowledged while sequence 1 is missing", async () => {
+    const { claimed } = await claimAndDeliver();
+    const base = { ...scopeOf(claimed, "1"), batch_key: "b" };
+    // A run that starts past 1 says nothing about the events before it.
+    const ahead = await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(2), event(3)],
+    });
+    expect(ahead.accepted_through).toBe(0);
+    const closed = await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(1)],
+    });
+    expect(closed.accepted_through).toBe(3);
+  });
+
+  test("a replayed claim moves the auth revision so an older token's requests are fenced", async () => {
+    const partition = partitionFor("authrev");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    const second = await claim(l);
+    expect(second.attempt_id).toBe(first.attempt_id);
+    expect(second.auth_revision).toBe(first.auth_revision + 1);
+    // A request authenticated before the rotation carries the old revision.
+    expect(
+      await failure(
+        gateway.heartbeat(
+          {
+            kind: "session",
+            attemptId: first.attempt_id,
+            sessionId: first.session_id,
+          },
+          { ...scopeOf(first), attempt_state: "running" },
+        ),
+      ),
+    ).toEqual({ status: 409, code: "STALE_EPOCH" });
+    const beat = await gateway.heartbeat(principalOf(second), {
+      ...scopeOf(second),
+      attempt_state: "running",
+    });
+    expect(beat.auth_revision).toBe(second.auth_revision);
+  });
+
   test("writes from a superseded epoch are refused with 409 STALE_EPOCH", async () => {
     const { session, claimed } = await claimAndDeliver();
     // A terminate/reconcile elsewhere bumps the session epoch.

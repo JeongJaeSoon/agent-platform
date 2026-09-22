@@ -80,9 +80,12 @@ export const heartbeatResponseSchema = z.object({
 });
 
 const v = sessionEventVariants;
+// Per attempt, source_sequence starts at 1 and increases by one. The gateway
+// acknowledges the unbroken prefix, so a worker that numbers its events any
+// other way is told that nothing is durable yet.
 function sourced<V extends (typeof v)[keyof typeof v]>(variant: V) {
   return variant.extend({
-    source_sequence: z.number().int().nonnegative(),
+    source_sequence: z.number().int().positive(),
     occurred_at: timestampSchema,
   });
 }
@@ -103,6 +106,7 @@ export const appendEventsRequestSchema = workerScopeSchema
   })
   .strict();
 export const appendEventsResponseSchema = z.object({
+  // The attempt's durable prefix: 0 until sequence 1 is stored.
   accepted_through: z.number().int().nonnegative(),
   cursor: opaqueCursorSchema,
 });

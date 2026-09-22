@@ -2,6 +2,7 @@ import {
   type CheckpointRef,
   type TerminalTurnStatus,
   terminalTurnStatusSchema,
+  type WorkerEvent,
 } from "@agent-platform/contracts";
 import {
   type ClaimInput,
@@ -164,16 +165,48 @@ async function acquireFence(
   return { outcome: "ok", session, attempt };
 }
 
-// The worker drops its local buffer up to this number, so it must be the
-// end of the unbroken run this attempt has stored: a batch that arrives
-// while an earlier sequence is still missing acknowledges only up to the
-// gap. A row with no successor ends a run; the first such row ends the
-// first run.
+// Two submissions of one source_sequence are the same event only if every
+// stored field matches: a reused sequence that moved to another turn or
+// another time is a different event wearing the same number.
+function sameEvent(
+  stored: {
+    type: string;
+    payload: unknown;
+    turnId: number | null;
+    occurredAt: Date | null;
+  },
+  event: WorkerEvent,
+  turnRowId: number | null,
+): boolean {
+  return (
+    stored.type === event.event &&
+    stored.turnId === turnRowId &&
+    stored.occurredAt?.getTime() === new Date(event.occurred_at).getTime() &&
+    payloadHash(stored.payload) === payloadHash(event.data)
+  );
+}
+
+// The worker drops its local buffer up to this number, so it must be the end
+// of the unbroken run that starts at sequence 1: a run found further along
+// says nothing about the events before it. A row with no successor ends a
+// run, and the first such row ends the first run.
 async function contiguousThrough(
   tx: Database,
   fence: WorkerFence,
 ): Promise<number> {
   const [row] = await tx
+    .select({
+      first: sql<number | null>`min(${events.sourceSequence})`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.sessionId, fence.sessionId),
+        eq(events.attemptId, fence.attemptId),
+      ),
+    );
+  if (row?.first !== 1) return 0;
+  const [end] = await tx
     .select({
       through: sql<number | null>`min(${events.sourceSequence})`,
     })
@@ -190,7 +223,7 @@ async function contiguousThrough(
         )`,
       ),
     );
-  return row?.through ?? 0;
+  return end?.through ?? 0;
 }
 
 function parseTurnId(turnId: string): number | null {
@@ -330,9 +363,27 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             credentialHash: input.credentialHash,
             credentialExpiresAt: input.credentialExpiresAt,
           });
+          // Revoking the old token does not stop a request that authenticated
+          // before it: the auth revision moves so anything already in flight
+          // fails its fence, and only the new holder can write.
+          const [session] = await tx
+            .update(sessions)
+            .set({
+              authRevision: sql`${sessions.authRevision} + 1`,
+              updatedAt: input.now,
+            })
+            .where(eq(sessions.id, bound.session.id))
+            .returning();
+          if (!session) return { outcome: "invalid_credential" };
+          const [attempt] = await tx
+            .update(attempts)
+            .set({ authRevision: session.authRevision })
+            .where(eq(attempts.id, bound.attempt.id))
+            .returning();
+          if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, bound.session, bound.attempt),
+            binding: await bindingOf(tx, session, attempt),
           };
         }
         // Server-side selection: the worker never names a session. SKIP
@@ -567,14 +618,31 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const fenced = await acquireFence(tx, fence, now);
         if (fenced.outcome !== "ok") return fenced;
 
+        // One batch must not carry two different events under one sequence:
+        // which of them survived would then depend on insert order.
+        const batch = new Map<number, WorkerEvent>();
+        for (const event of input.events) {
+          const twin = batch.get(event.source_sequence);
+          if (
+            twin &&
+            (twin.event !== event.event ||
+              twin.occurred_at !== event.occurred_at ||
+              payloadHash(twin.data) !== payloadHash(event.data))
+          ) {
+            return { outcome: "event_conflict" };
+          }
+          batch.set(event.source_sequence, event);
+        }
+
         let turnRowId: number | null = null;
+        let turnStatus: string | null = null;
         if (input.turnId !== null) {
           const sequence = parseTurnId(input.turnId);
           // Only the turn this attempt is running: the fence alone would let
           // a live worker write history onto a queued or foreign turn.
           const [turn] = sequence
             ? await tx
-                .select({ id: turns.id })
+                .select({ id: turns.id, status: turns.status })
                 .from(turns)
                 .where(
                   and(
@@ -587,14 +655,57 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             : [];
           if (!turn) return { outcome: "turn_not_found" };
           turnRowId = turn.id;
+          turnStatus = turn.status;
         }
 
-        // (session_id, attempt_id, source_sequence) is unique, so a batch
-        // the worker re-sends after a lost response inserts nothing.
-        const inserted = await tx
-          .insert(events)
-          .values(
-            input.events.map((event) => ({
+        // Everything is checked before anything is written: a batch that is
+        // rejected must leave the stream exactly as it was, which an
+        // insert-then-inspect order cannot promise.
+        const existing = await tx
+          .select({
+            type: events.type,
+            payload: events.payload,
+            turnId: events.turnId,
+            occurredAt: events.occurredAt,
+            sourceSequence: events.sourceSequence,
+          })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, fence.sessionId),
+              eq(events.attemptId, fence.attemptId),
+              inArray(events.sourceSequence, [...batch.keys()]),
+            ),
+          );
+        const stored = new Map(
+          existing.map((row) => [row.sourceSequence, row]),
+        );
+        const fresh: WorkerEvent[] = [];
+        for (const [sequence, event] of batch) {
+          const row = stored.get(sequence);
+          if (!row) {
+            fresh.push(event);
+            continue;
+          }
+          // A replay of what is already stored is a no-op; anything else
+          // would leave the worker holding a cursor for data the stream
+          // does not contain.
+          if (!sameEvent(row, event, turnRowId)) {
+            return { outcome: "event_conflict" };
+          }
+        }
+        // A finalized turn's history is closed: only exact replays of what it
+        // already holds are still answered.
+        if (
+          fresh.length > 0 &&
+          turnStatus !== null &&
+          !OPEN_TURN_STATUSES.includes(turnStatus)
+        ) {
+          return { outcome: "turn_finalized" };
+        }
+        if (fresh.length > 0) {
+          await tx.insert(events).values(
+            fresh.map((event) => ({
               sessionId: fence.sessionId,
               type: event.event,
               payload: event.data,
@@ -603,47 +714,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               sourceSequence: event.source_sequence,
               occurredAt: new Date(event.occurred_at),
             })),
-          )
-          .onConflictDoNothing()
-          .returning({ sourceSequence: events.sourceSequence });
-        // A sequence the insert skipped already exists. Saying "accepted"
-        // while the stored event says something else would hand the worker a
-        // cursor for data the stream does not contain.
-        if (inserted.length !== input.events.length) {
-          const kept = new Set(inserted.map((row) => row.sourceSequence));
-          const replayed = input.events.filter(
-            (event) => !kept.has(event.source_sequence),
           );
-          const existing = await tx
-            .select({
-              type: events.type,
-              payload: events.payload,
-              sourceSequence: events.sourceSequence,
-            })
-            .from(events)
-            .where(
-              and(
-                eq(events.sessionId, fence.sessionId),
-                eq(events.attemptId, fence.attemptId),
-                inArray(
-                  events.sourceSequence,
-                  replayed.map((event) => event.source_sequence),
-                ),
-              ),
-            );
-          const stored = new Map(
-            existing.map((row) => [row.sourceSequence, row]),
-          );
-          for (const event of replayed) {
-            const row = stored.get(event.source_sequence);
-            if (
-              !row ||
-              row.type !== event.event ||
-              payloadHash(row.payload) !== payloadHash(event.data)
-            ) {
-              return { outcome: "event_conflict" };
-            }
-          }
         }
         const [latest] = await tx
           .select({ id: max(events.id) })
@@ -688,7 +759,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (!turn || turn.attemptId !== fence.attemptId) {
           return { outcome: "turn_not_found" };
         }
-        const terminalHash = payloadHash(input.terminal);
+        // The checkpoint is part of what finalize commits, so a retry that
+        // changes it is a different request wearing the same key.
+        const terminalHash = payloadHash({
+          terminal: input.terminal,
+          checkpoint: input.checkpoint,
+        });
         const stored = (turn.resultJson ?? {}) as {
           finalize_key?: unknown;
           finalize_hash?: unknown;

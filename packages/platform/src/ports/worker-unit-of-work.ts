@@ -95,6 +95,8 @@ export type CommitEventsResult =
   | { outcome: "turn_not_found" }
   // A source_sequence this attempt already stored, with different content.
   | { outcome: "event_conflict" }
+  // New events for a turn that already reached its terminal.
+  | { outcome: "turn_finalized" }
   | FenceRejection;
 
 export type FinalizeInput = {
