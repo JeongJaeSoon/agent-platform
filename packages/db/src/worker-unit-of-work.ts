@@ -52,6 +52,7 @@ import {
   checkpoints,
   events,
   executions,
+  pendingRequests,
   queueMessages,
   receipts,
   sessions,
@@ -1197,6 +1198,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ),
           )
           .returning({ sequence: turns.sequence });
+        // Requests the gone worker raised can never be answered by it; left
+        // open they would keep the session reporting pending input forever.
+        await tx
+          .update(pendingRequests)
+          .set({ resolvedAt: now })
+          .where(
+            and(
+              eq(pendingRequests.sessionId, session.id),
+              isNull(pendingRequests.resolvedAt),
+            ),
+          );
         for (const turn of unresolved) {
           await tx
             .update(receipts)

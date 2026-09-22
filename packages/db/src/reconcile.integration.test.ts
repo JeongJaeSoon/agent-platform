@@ -27,6 +27,7 @@ import * as schema from "./schema.ts";
 import {
   attempts,
   executions,
+  pendingRequests,
   queueMessages,
   sessions,
   turns,
@@ -477,12 +478,29 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     ]);
     // Still undecided until the execution is confirmed gone.
     const [open] = await db
-      .select({ status: turns.status })
+      .select({ id: turns.id, status: turns.status })
       .from(turns)
       .where(eq(turns.sessionId, b.sessionId));
     expect(open?.status).toBe("running");
+    if (!open) throw new Error("turn missing");
+    // A request the lost worker raised and nobody can answer any more.
+    await db.insert(pendingRequests).values({
+      requestId: `req-${crypto.randomUUID()}`,
+      sessionId: b.sessionId,
+      turnId: open.id,
+      attemptId: b.claimed.attempt_id,
+      kind: "permission",
+      payload: {},
+      inputHash: "h",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
 
     await gateway.confirmExecutionGone(b.executionId);
+    const [request] = await db
+      .select({ resolvedAt: pendingRequests.resolvedAt })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.sessionId, b.sessionId));
+    expect(request?.resolvedAt).not.toBeNull();
     const [turn] = await db
       .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
       .from(turns)

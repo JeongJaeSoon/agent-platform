@@ -1157,6 +1157,23 @@ describe("runScheduler", () => {
     expect(backend.containers.size).toBe(0);
   });
 
+  test("a kill that commits while the first launch is being created takes it down in the same pass", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    backend.duringEnsure = (intent) => {
+      const row = store.executions.get(intent.executionId);
+      if (!row) throw new Error("launch row missing during ensure");
+      row.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.launched).toHaveLength(1);
+    expect(summary.killed).toHaveLength(1);
+    expect(backend.containers.size).toBe(0);
+    const [launch] = [...store.executions.values()];
+    expect(launch?.slotReleased).toBe(true);
+  });
+
   test("a kill that commits while the resource is being re-created takes it down again", async () => {
     const { backend, run, store } = harness();
     store.addUnassigned(1);

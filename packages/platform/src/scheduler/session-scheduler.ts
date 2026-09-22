@@ -464,7 +464,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
    * provider that will not remove it leaves the row as is, so the next pass
    * tries again and the receipt's deadline keeps running.
    */
-  async function kill(execution: ActiveExecution): Promise<void> {
+  async function kill(
+    execution: ExecutionRef & { sessionId: string },
+  ): Promise<void> {
     const ref = refOf(execution);
     let outcome: TerminateExecutionResult;
     try {
@@ -733,6 +735,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         provider_ref: ensured.providerRef,
         session_id: sessionId,
       });
+      if ((await store.desiredStateOf(ref)) === "terminated") {
+        // A terminate that committed between the reservation and the
+        // resource coming up: this row was not in the pass's snapshot, so
+        // nothing else would kill it before the receipt's deadline.
+        await kill({ ...ref, sessionId });
+      }
     } catch (error) {
       // The intent stays committed; step 1 of the next pass retries it.
       summary.failedLaunches.push(ref);
