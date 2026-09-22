@@ -153,8 +153,11 @@ async function dbNow(tx: Database): Promise<Date> {
   return new Date(epochMs);
 }
 
-function fencedAttempt(fence: WorkerFence) {
-  return and(ownedAttempt(fence), gt(attempts.leaseExpiresAt, DB_NOW));
+// `at` is the database time the lease was last judged held at. Re-reading
+// the clock inside the write would let the lease end between the check and
+// the write, turning an ordinary expiry into a zero-row internal error.
+function fencedAttempt(fence: WorkerFence, at: Date) {
+  return and(ownedAttempt(fence), gt(attempts.leaseExpiresAt, at));
 }
 
 function expectFenced(rows: unknown[], what: string) {
@@ -164,15 +167,16 @@ function expectFenced(rows: unknown[], what: string) {
 }
 
 type Fenced =
-  | { outcome: "ok"; session: SessionRow; attempt: AttemptRow }
+  // `at` is the database clock once the row lock was granted.
+  | { outcome: "ok"; session: SessionRow; attempt: AttemptRow; at: Date }
   | FenceRejection;
 
 // The fence is taken once, but the checks that follow it are several round
 // trips and any of them can block on a lock. The lease is therefore judged
 // again just before the first write, so nothing commits — and no work is
 // handed out — under a lease that ended mid-transaction.
-async function leaseHeld(tx: Database, attempt: AttemptRow): Promise<boolean> {
-  return attempt.leaseExpiresAt.getTime() > (await dbNow(tx)).getTime();
+function leaseHeld(attempt: AttemptRow, at: Date): boolean {
+  return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
@@ -189,6 +193,7 @@ async function acquireFence(tx: Database, fence: WorkerFence): Promise<Fenced> {
     .limit(1)
     .for("update");
   if (!row) return { outcome: "stale_epoch" };
+  const at = await dbNow(tx);
   const { session, attempt } = row;
   const epochMatches =
     session.leaseEpoch === fence.leaseEpoch &&
@@ -199,7 +204,7 @@ async function acquireFence(tx: Database, fence: WorkerFence): Promise<Fenced> {
     attempt.authRevision === fence.authRevision &&
     !ENDED_ATTEMPT_STATES.includes(attempt.state);
   if (!epochMatches) return { outcome: "stale_epoch" };
-  if (!(await leaseHeld(tx, attempt))) return { outcome: "lease_expired" };
+  if (!leaseHeld(attempt, at)) return { outcome: "lease_expired" };
   // The token has now been accepted for something, whatever that was: an
   // event on no turn, a poll that found nothing. That closes the one-shot
   // bootstrap replay, which would otherwise hand this binding to whoever
@@ -213,9 +218,10 @@ async function acquireFence(tx: Database, fence: WorkerFence): Promise<Fenced> {
       outcome: "ok",
       session,
       attempt: { ...attempt, state: "starting" },
+      at,
     };
   }
-  return { outcome: "ok", session, attempt };
+  return { outcome: "ok", session, attempt, at };
 }
 
 // Two submissions of one source_sequence are the same event only if every
@@ -684,9 +690,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // Whoever held that row may have held it past this lease. Handing the
         // turn over now would start work on a session this attempt no longer
         // owns, which is the one thing the fence exists to prevent.
-        if (!(await leaseHeld(tx, fenced.attempt))) {
-          return { outcome: "lease_expired" };
-        }
+        const at = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         if (!head) return { outcome: "ok", input: null, leaseExpiresAt };
         const { message, turn } = head;
 
@@ -734,7 +739,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             await tx
               .update(attempts)
               .set({ state: "running" })
-              .where(fencedAttempt(fence))
+              .where(fencedAttempt(fence, at))
               .returning({ id: attempts.id }),
             "attempt",
           );
@@ -770,7 +775,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             state:
               reported > current ? input.attemptState : fenced.attempt.state,
           })
-          .where(fencedAttempt(fence))
+          .where(fencedAttempt(fence, fenced.at))
           .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
         expectFenced(updated, "attempt");
         const [beat] = updated;
@@ -910,7 +915,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "sequence_gap", acceptedThrough: durable };
           }
         }
-        if (fresh.length > 0 && !(await leaseHeld(tx, fenced.attempt))) {
+        if (fresh.length > 0 && !leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
         if (fresh.length > 0) {
@@ -977,7 +982,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
-        if (!(await leaseHeld(tx, fenced.attempt))) {
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
 
