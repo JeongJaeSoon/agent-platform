@@ -209,16 +209,18 @@ export function registerEventRoutes(
               sleep(keepaliveMs, armed.signal),
             ]);
             if (closed.signal.aborted) break;
+            // Re-check before the keepalive write, which may itself block for
+            // a whole interval; the revocation bound is one interval, not two.
+            if (!(await stillAuthenticated())) {
+              closeWith("credential_revoked");
+              break;
+            }
             if (outcome === "tick") {
               if (
                 !(await writeBounded(() => stream.write(": keepalive\n\n")))
               ) {
                 closeWith("write_stalled");
                 stream.abort();
-                break;
-              }
-              if (!(await stillAuthenticated())) {
-                closeWith("credential_revoked");
                 break;
               }
             }

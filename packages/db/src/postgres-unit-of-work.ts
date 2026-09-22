@@ -673,6 +673,19 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     ): Promise<SseEvent[] | null> {
       const after = decodeEventCursor(query.after);
       if (!(await ownedSession(ownerId, sessionId))) return null;
+      // events.id is global, so a well-formed cursor from another session
+      // would silently skip this one's history and a forged future cursor
+      // would stream nothing forever. A nonzero cursor must name a row of
+      // this session; alpha never trims, so a miss is a bad request rather
+      // than 410 CURSOR_EXPIRED.
+      if (after > 0) {
+        const [anchor] = await db
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.sessionId, sessionId), eq(events.id, after)))
+          .limit(1);
+        if (!anchor) throw new InvalidCursorError();
+      }
       // Ordered by row id, which is commit order within one session: every
       // writer (the worker's appendEvents, PostgresQueue.publish) inserts
       // under the session row lock, so a lower id can never become visible

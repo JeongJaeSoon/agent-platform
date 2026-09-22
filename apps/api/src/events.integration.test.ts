@@ -354,7 +354,8 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       if (chunk.value === undefined && !chunk.done) throw new Error("hung");
       done = chunk.done;
     }
-    expect(Date.now() - revokedAt).toBeLessThan(KEEPALIVE_MS * 2);
+    // One interval plus the re-check's own query, never a second interval.
+    expect(Date.now() - revokedAt).toBeLessThan(KEEPALIVE_MS * 1.5);
     expect(
       sink.records.some(
         (record) =>
@@ -378,6 +379,31 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       await Bun.sleep(5);
     }
     expect(handle.activeStreams()).toBe(before);
+  });
+
+  test("a cursor from another session or from the future is 400", async () => {
+    const mine = await createdSession();
+    const other = await createdSession();
+    await appendLikeWorker(mine, 3);
+    await appendLikeWorker(other, 3);
+    const [foreign] = await db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.sessionId, other))
+      .orderBy(asc(events.id))
+      .limit(1);
+    const foreignCursor = `ev_${(foreign?.id ?? 0).toString(36)}`;
+    const crossed = await stream(mine, { "Last-Event-ID": foreignCursor });
+    expect(crossed.status).toBe(400);
+    const future = await stream(mine, {
+      "Last-Event-ID": `ev_${Number.MAX_SAFE_INTEGER.toString(36)}`,
+    });
+    expect(future.status).toBe(400);
+    // The session's own cursor still works, and `ev_0` means "from the start".
+    const own = await stream(mine, { "Last-Event-ID": "ev_0" });
+    expect(own.status).toBe(200);
+    const got = await collect(own, (f) => f.filter((x) => x.id).length >= 3);
+    expect(got.frames.filter((f) => f.id)).toHaveLength(3);
   });
 
   test("another owner gets 404, a bad cursor 400, both as JSON", async () => {
