@@ -25,8 +25,13 @@ export type WorkspaceObservation =
        * finished, a shallow history or a corrupt object store.
        */
       readonly healthy: boolean;
-      /** Uncommitted changes or untracked files. */
-      readonly dirty: boolean;
+      /**
+       * Anything that exists only here: uncommitted changes, untracked
+       * files, or commits, branches and tags that no ref on `origin`
+       * reaches. A clean working tree is not enough to call a checkout
+       * disposable.
+       */
+      readonly localWork: boolean;
     }
   /** Non-empty, but not a git checkout at the root. */
   | { readonly kind: "foreign" };
@@ -41,14 +46,14 @@ export type WorkspacePlan =
   | { readonly action: "clone"; readonly branch: string; readonly url: string }
   /** Same origin, sound: fetch and check the branch out, keep the objects. */
   | { readonly action: "reuse"; readonly branch: string; readonly url: string }
-  /** This session's own leftovers, unsound and nothing to keep: start over. */
+  /** This session's own unsound checkout with nothing to keep: start over. */
   | {
       readonly action: "recreate";
       readonly branch: string;
       readonly reason: string;
       readonly url: string;
     }
-  /** Something is here that must not be silently discarded: stop. */
+  /** Something is here that this policy may not discard: stop and say why. */
   | { readonly action: "refuse"; readonly reason: string };
 
 /**
@@ -56,9 +61,11 @@ export type WorkspacePlan =
  * to a volume an earlier attempt filled must not trust it blindly: a partial
  * clone, another repository or stray files would put the engine on a tree
  * the session never saw. Only a sound checkout of the same origin is kept, a
- * committed checkpoint always wins over whatever is on disk, and anything
- * that looks like work someone might want back is refused rather than
- * deleted.
+ * committed checkpoint always wins over whatever is on disk, and the only
+ * thing ever deleted is this session's own unsound checkout that holds no
+ * local work. Everything else is refused: a checkout of another repository
+ * or a non-git tree is not this policy's to judge, and an explicit recovery
+ * step has to decide what to keep.
  */
 export function planWorkspacePreparation(input: {
   readonly workspace: WorkspaceDescriptor;
@@ -77,32 +84,23 @@ export function planWorkspacePreparation(input: {
         reason: "workspace root holds files that are not a git checkout",
       };
     case "checkout": {
-      if (sameRepository(observed.remoteUrl, url)) {
-        if (observed.healthy) return { action: "reuse", branch, url };
-        if (observed.dirty) {
-          return {
-            action: "refuse",
-            reason: "checkout is unsound but carries uncommitted changes",
-          };
-        }
-        return {
-          action: "recreate",
-          branch,
-          reason: "checkout is incomplete or corrupt",
-          url,
-        };
-      }
-      if (observed.dirty) {
+      if (!sameRepository(observed.remoteUrl, url)) {
         return {
           action: "refuse",
-          reason:
-            "checkout belongs to another repository and carries uncommitted changes",
+          reason: "checkout belongs to another repository",
+        };
+      }
+      if (observed.healthy) return { action: "reuse", branch, url };
+      if (observed.localWork) {
+        return {
+          action: "refuse",
+          reason: "checkout is unsound but holds work that exists nowhere else",
         };
       }
       return {
         action: "recreate",
         branch,
-        reason: "checkout belongs to another repository",
+        reason: "checkout is incomplete or corrupt and holds no local work",
         url,
       };
     }

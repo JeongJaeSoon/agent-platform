@@ -23,7 +23,7 @@ const sound: WorkspaceObservation = {
   remoteUrl: workspace.repository.url,
   branch: "main",
   healthy: true,
-  dirty: false,
+  localWork: false,
 };
 
 function plan(observed: WorkspaceObservation, restore = null) {
@@ -49,7 +49,7 @@ describe("planWorkspacePreparation", () => {
     });
   });
 
-  test("a sound checkout of the same origin is reused, dirty or not, whatever the credentials or .git spelling", () => {
+  test("a sound checkout of the same origin is reused, with local work or not, whatever the credentials or .git spelling", () => {
     const expected: WorkspacePlan = {
       action: "reuse",
       url: workspace.repository.url,
@@ -62,31 +62,23 @@ describe("planWorkspacePreparation", () => {
         branch: "feature",
       }),
     ).toEqual(expected);
-    expect(plan({ ...sound, dirty: true })).toEqual(expected);
+    expect(plan({ ...sound, localWork: true })).toEqual(expected);
   });
 
-  test("this session's own unsound leftovers are recreated, unless they carry changes", () => {
+  test("this session's own unsound checkout is recreated only when nothing exists just here", () => {
     expect(plan({ ...sound, healthy: false })).toMatchObject({
       action: "recreate",
-      reason: "checkout is incomplete or corrupt",
     });
-    expect(plan({ ...sound, healthy: false, dirty: true })).toMatchObject({
+    // Unpushed commits count as local work even with a clean tree.
+    expect(plan({ ...sound, healthy: false, localWork: true })).toMatchObject({
       action: "refuse",
     });
   });
 
-  test("another repository is recreated only when clean; foreign files are always refused", () => {
-    const other = {
-      ...sound,
-      remoteUrl: "https://example.invalid/team/other.git",
-    };
-    expect(plan(other)).toMatchObject({
-      action: "recreate",
-      reason: "checkout belongs to another repository",
-    });
-    expect(plan({ ...other, dirty: true })).toMatchObject({
-      action: "refuse",
-    });
+  test("another repository and foreign files are always refused, never deleted", () => {
+    expect(
+      plan({ ...sound, remoteUrl: "https://example.invalid/team/other.git" }),
+    ).toMatchObject({ action: "refuse" });
     expect(plan({ kind: "foreign" })).toMatchObject({ action: "refuse" });
   });
 
