@@ -28,13 +28,32 @@ export type GitWorkspaceBundleVerifierOptions = {
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 
 /**
- * Stricter than `git check-ref-format`: `HEAD` (what `git bundle create …
- * HEAD` records) or a full `refs/` name whose components use the characters
- * git bundles actually produce, none starting with a dot or a dash, none
- * ending in a dot and none ending in `.lock`.
+ * `git check-ref-format`'s rules, so that any name git itself would write
+ * into a bundle passes and anything git would reject in a refspec never
+ * reaches one: `HEAD`, or a `refs/`-rooted path whose components are
+ * non-empty, do not start with a dot, do not end with a dot or `.lock`, and
+ * contain no control character, space, `~`, `^`, `:`, `?`, `*`, `[`,
+ * backslash, `..` or `@{`. A leading dash is refused as well, so the name
+ * can never read as an option.
  */
-const SAFE_REF_NAME =
-  /^(HEAD|refs(\/[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?(?<!\.lock))+)$/;
+export function gitRefNameAcceptable(ref: string): boolean {
+  if (ref === "HEAD") return true;
+  if (!ref.startsWith("refs/") || ref.endsWith("/")) return false;
+  if (ref.startsWith("-") || ref.includes("..") || ref.includes("@{")) {
+    return false;
+  }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: git's rule
+  if (/[\x00-\x20\x7f~^:?*[\\]/.test(ref)) return false;
+  return ref
+    .split("/")
+    .every(
+      (component) =>
+        component.length > 0 &&
+        !component.startsWith(".") &&
+        !component.endsWith(".") &&
+        !component.endsWith(".lock"),
+    );
+}
 
 /**
  * The git-backed `WorkspaceBundleVerifier`: proves the bundle's pack really
@@ -82,7 +101,7 @@ export function createGitWorkspaceBundleVerifier(
       // The ref name goes into a refspec and, if git objects to it, into
       // stderr. Only a name git itself would accept gets that far, so a
       // bundle cannot choose what the failure below looks like.
-      if (!SAFE_REF_NAME.test(ref) || ref.includes("..")) {
+      if (!gitRefNameAcceptable(ref)) {
         return {
           status: "unusable",
           reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
@@ -183,6 +202,8 @@ const GIT_REFUSALS = [
   "pack signature mismatch",
   "pack version",
   "premature end of pack file",
+  "early eof",
+  "unexpected end of",
   "pack has junk at the end",
   "pack is corrupted",
   "pack has bad object",
@@ -202,7 +223,7 @@ const GIT_REFUSALS = [
   // rev-list: the pinned commit never arrived.
   "bad revision",
   "does not appear to be a git repository",
-  // Belt and braces behind SAFE_REF_NAME: a ref the gate let through and git
+  // Belt and braces behind gitRefNameAcceptable: a ref the gate passed and git
   // still will not fetch is the bundle's doing, not the host's.
   "invalid refspec",
 ];

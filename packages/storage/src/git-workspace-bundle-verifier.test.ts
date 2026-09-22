@@ -252,8 +252,17 @@ describe("git workspace bundle verifier", () => {
       "refs/heads/main.",
       "refs/heads/main.lock",
       "refs/heads/.hidden",
-      "refs/heads/-flag",
       "refs/heads/a..b",
+      "refs/heads/a@{b",
+      "refs/heads/a~b",
+      "refs/heads/a^b",
+      "refs/heads/a:b",
+      "refs/heads/a?b",
+      "refs/heads/a*b",
+      "refs/heads/a[b",
+      "refs/heads/a\\b",
+      "refs/heads/a\u0007b",
+      "refs/heads//b",
       "refs/heads/",
       "main",
     ]) {
@@ -262,7 +271,7 @@ describe("git workspace bundle verifier", () => {
       const header = text.slice(0, headerEnd).replace(bundle.ref, ref);
       const bytes = new Uint8Array(
         Buffer.concat([
-          Buffer.from(header, "latin1"),
+          Buffer.from(header, "utf8"),
           bundle.bytes.subarray(headerEnd),
         ]),
       );
@@ -292,6 +301,9 @@ describe("git workspace bundle verifier", () => {
     for (const ref of [
       "refs/heads/main",
       "refs/heads/feature/x-1.2_y",
+      "refs/heads/feature+foo",
+      "refs/heads/기능/한글",
+      "refs/heads/a@b#c=d,e;f",
       "refs/tags/v1.0.0",
       "HEAD",
     ]) {
@@ -300,7 +312,7 @@ describe("git workspace bundle verifier", () => {
       const header = text.slice(0, headerEnd).replace(bundle.ref, ref);
       const bytes = new Uint8Array(
         Buffer.concat([
-          Buffer.from(header, "latin1"),
+          Buffer.from(header, "utf8"),
           bundle.bytes.subarray(headerEnd),
         ]),
       );
@@ -437,6 +449,30 @@ describe("git workspace bundle verifier", () => {
     if (verdict.status === "unusable") {
       expect(verdict.reason).toContain("git fetch failed");
     }
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("a pack whose object count was raised, with the trailer recomputed, is unusable", async () => {
+    const text = new TextDecoder("latin1").decode(bundle.bytes);
+    const packOffset = text.indexOf("\n\n") + 2;
+    const body = Buffer.from(
+      bundle.bytes.subarray(packOffset, bundle.bytes.byteLength - 20),
+    );
+    body.writeUInt32BE(body.readUInt32BE(8) + 1, 8);
+    const bytes = new Uint8Array(
+      Buffer.concat([
+        bundle.bytes.subarray(0, packOffset),
+        body,
+        createHash("sha1").update(body).digest(),
+      ]),
+    );
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+    const verdict = await verifier.verify({
+      bytes,
+      commit: bundle.commit,
+      key: "k",
+    });
+    expect(verdict.status).toBe("unusable");
     expect(await readdir(tempRoot)).toEqual([]);
   });
 
