@@ -56,6 +56,10 @@ VM을 띄우는 것만으로는 격리되지 않는다. Lima 기본값 두 가�
 
 **남아 있는 위험.** 러너는 ephemeral이 아니다. job 사이에 파일시스템 상태가 남으므로, 한 job이 심어 둔 것이 다음 job에 보인다. 이 저장소는 fork PR이 없는 1인 private 저장소라 현재 위협 모델에서는 감수한다. nftables는 IP 계층만 보므로 공용 인터넷으로 나가는 것은 무엇이든 통과한다 — 유출 경로를 막는 장치가 아니다.
 
+**이 디렉터리가 저장소에 있는 것 자체는 위험이 아니다.** 여기에는 인증정보가 없다 — 등록 토큰은 `gh`가 그때그때 받아 stdin으로만 흐르고 1시간이면 만료된다. 호스트 경로도, LAN 주소도, 머신 이름도 없다. 그리고 지키는 것은 이 설정의 비밀이 아니라 VM 경계다: `.github/runner/`를 읽을 수 있는 사람은 `.github/workflows/`도 고칠 수 있고, 워크플로를 고치는 쪽이 이 러너를 가져가는 훨씬 짧은 길이다. 설정을 저장소 밖에 두면 얻는 것 없이 VM과 CI가 서로 어긋나기만 한다.
+
+**단, private을 전제로 한다.** [GitHub은 public 저장소에 self-hosted 러너를 쓰지 말라고 명시한다](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners#self-hosted-runner-security) — fork가 보낸 코드가 이 머신에서 돌 수 있기 때문이다. **이 저장소를 public으로 바꾸기 전에 `gh variable delete CI_RUNS_ON`으로 GitHub-hosted에 먼저 돌려놓는다.**
+
 <!-- ponytail: ephemeral 러너를 쓰지 않았다. 매 job마다 재등록하려면 VM에 장기 PAT를 두어야 하는데, 지금 막는 위협보다 그 토큰이 더 큰 노출이다. 이 저장소에 다른 기여자가 생기거나 이 러너를 다른 저장소와 공유하는 순간 `--ephemeral` + repo 범위 fine-grained PAT로 올린다. -->
 
 상태가 의심스러우면 VM을 통째로 버린다. 30분이면 재구축된다.
