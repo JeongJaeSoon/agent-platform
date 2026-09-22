@@ -150,7 +150,7 @@ function manifest(
         },
       },
     },
-    version: 1,
+    version: 2,
     workspace: workspace({
       bundle: bundleRef(bundleKeyFor(revision, attempt)),
     }),

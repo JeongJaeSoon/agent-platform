@@ -35,7 +35,7 @@ function manifest(
       root: revision("root/part-1.jsonl"),
       subagents: { "agents/reviewer": revision("sub/part-1.jsonl") },
     },
-    version: 1,
+    version: 2,
     workspace: {
       bundle: {
         bytes: 1024,
@@ -142,6 +142,20 @@ describe("Claude checkpoint codec", () => {
     const { bytes } = encodeCheckpointManifest(manifest());
     const body = JSON.parse(new TextDecoder().decode(bytes));
     body.transcripts.subagents["agents/reviewer"].parts = [];
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
+  test("refuses a version 1 manifest instead of reading it as this shape", () => {
+    // Version 1 pinned a commit with no bundle behind it. Decoding one here
+    // would mean inventing a bundle that was never uploaded, so the version
+    // literal is what rejects it — not a missing-field error further down.
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    body.version = 1;
+    delete body.workspace.bundle;
 
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),

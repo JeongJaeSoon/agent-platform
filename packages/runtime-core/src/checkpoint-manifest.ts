@@ -80,7 +80,14 @@ export type CheckpointManifest = {
   readonly runtime: RuntimeFingerprint;
   readonly sessionId: string;
   readonly transcripts: CheckpointTranscripts;
-  readonly version: 1;
+  /**
+   * Bumped to 2 when `workspace.bundle` became required. Version 1 described a
+   * manifest that pinned a commit nothing could be asked to produce, so the two
+   * shapes cannot both be called 1 — a reader would have to guess which it has.
+   * No version 1 manifest is decoded: nothing outside tests has ever written
+   * one, since the capture path lands in 94S-201/94S-122.
+   */
+  readonly version: 2;
   readonly workspace: CheckpointWorkspace;
 };
 

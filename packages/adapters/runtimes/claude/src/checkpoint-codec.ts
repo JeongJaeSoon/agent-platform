@@ -74,7 +74,7 @@ const manifestSchema = z
         subagents: z.record(z.string().min(1), transcriptRevisionSchema),
       })
       .strict(),
-    version: z.literal(1),
+    version: z.literal(2),
     workspace: z
       .object({
         bundle: objectRefSchema,

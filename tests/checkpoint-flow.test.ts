@@ -359,7 +359,7 @@ async function publish(
     runtime: fingerprint,
     sessionId,
     transcripts: { root, subagents },
-    version: 1,
+    version: 2,
     workspace: {
       bundle: bundleRefFor(revision, attempt),
       gitCommit,
