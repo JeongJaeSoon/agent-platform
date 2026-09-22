@@ -27,7 +27,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
   afterAll(async () => {
     await pool.end();
     await database.drop();
-  });
+  }, 60_000);
 
   test("only one of two overlapping passes gets the pass lock", async () => {
     const store = createPostgresSchedulerStore(db, {

@@ -37,7 +37,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "reconcile_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-  });
+  }, 60_000);
 
   afterEach(async () => {
     if (sessionIds.length > 0) {
@@ -55,7 +55,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
     }
     sessionIds.length = 0;
     podIds.length = 0;
-  });
+  }, 60_000);
 
   afterAll(async () => {
     try {
@@ -63,7 +63,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
     } finally {
       await database.drop();
     }
-  });
+  }, 60_000);
 
   async function seedOrphan(now: Date) {
     const sessionId = crypto.randomUUID();

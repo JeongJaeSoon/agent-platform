@@ -72,12 +72,12 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: { leaseTtlMs: LEASE_TTL_MS, now, sleep: async () => {} },
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await pool.end();
     await database.drop();
-  });
+  }, 60_000);
 
   const briefGateway = (leaseTtlMs: number) =>
     createWorkerGateway({
