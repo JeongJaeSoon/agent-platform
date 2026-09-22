@@ -80,9 +80,15 @@ export function objectStoreConfigFromEnv(
 
 /**
  * The store the worker's checkpoint code gets: S3 under the storage package's
- * request bounds, confined to the session prefix. The S3 client reads
- * `HTTP_PROXY`/`HTTPS_PROXY` on its own, which is how it leaves the internal
- * worker network at all.
+ * request bounds, confined to the session prefix.
+ *
+ * How it leaves the internal worker network: the storage client is a Node
+ * HTTP handler, and under Bun `node:http` honours `HTTP_PROXY`/`HTTPS_PROXY`
+ * itself — measured, not assumed: the egress integration test runs this
+ * exact factory inside the worker network and reaches LocalStack only with
+ * the proxy variables set. Under Node the same handler would ignore them
+ * and need a proxy agent; the worker runs on Bun (delivery plan), so none
+ * is wired. Trigger to revisit: a worker image on another runtime.
  */
 export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
