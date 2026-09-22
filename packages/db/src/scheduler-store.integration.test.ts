@@ -80,6 +80,102 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     );
   }, 60_000);
 
+  /** One reserved launch with a credential issued, ready to be replaced. */
+  async function reservedLaunch() {
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    const sessionId = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: "race",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${sessionId}`,
+    });
+    await db.insert(unassignedSessions).values({ sessionId });
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: new Date(),
+      sessionId,
+      // The reservation test above leaves its ten launches holding slots.
+      slotLimit: 100,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    return { intent, sessionId, store };
+  }
+
+  /** Resolves to "pending" if `promise` has not settled within `ms`. */
+  function settledWithin<T>(promise: Promise<T>, ms: number) {
+    return Promise.race([
+      promise.then(() => "settled" as const),
+      new Promise<"pending">((resolve) =>
+        setTimeout(() => resolve("pending"), ms),
+      ),
+    ]);
+  }
+
+  test("a replacement request waits behind an exit confirmation holding the row and then loses to it", async () => {
+    const { intent, store } = await reservedLaunch();
+    // An exit confirmation in flight: it has the launch row locked and has
+    // released the slot, but has not committed.
+    const confirming = await pool.connect();
+    try {
+      await confirming.query("BEGIN");
+      await confirming.query(
+        "UPDATE worker_launches SET slot_released_at = now() WHERE execution_id = $1",
+        [intent.executionId],
+      );
+      const request = store.requestReplacement(intent, "stale_isolation", 0);
+      expect(await settledWithin(request, 300)).toBe("pending");
+      await confirming.query("COMMIT");
+      // The request re-reads the row once it gets the lock: no slot, no
+      // rebuild, and nothing for the scheduler to tear down.
+      expect(await request).toBeNull();
+    } finally {
+      confirming.release();
+    }
+    const [row] = await db
+      .select({ reason: workerLaunches.replacementReason })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(row?.reason).toBeNull();
+  }, 60_000);
+
+  test("an exit confirmation waits behind a replacement request holding the row and then refuses", async () => {
+    const { intent, sessionId, store } = await reservedLaunch();
+    // A replacement request in flight: reason written, not committed.
+    const requesting = await pool.connect();
+    try {
+      await requesting.query("BEGIN");
+      await requesting.query(
+        "UPDATE worker_launches SET replacement_reason = 'stale_isolation', replacement_count = 1, nonce_hash = NULL WHERE execution_id = $1",
+        [intent.executionId],
+      );
+      const confirm = store.confirmExecutionGone(
+        intent.executionId,
+        new Date(),
+      );
+      expect(await settledWithin(confirm, 300)).toBe("pending");
+      await requesting.query("COMMIT");
+      await confirm;
+    } finally {
+      requesting.release();
+    }
+    // The plan committed first, so the confirmation changed nothing: the
+    // launch still holds its slot and the session is still bound to it.
+    const [launch] = await db
+      .select({ slotReleasedAt: workerLaunches.slotReleasedAt })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(launch?.slotReleasedAt).toBeNull();
+    const [session] = await db
+      .select({ executionId: sessions.executionId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session?.executionId).toBe(intent.executionId);
+  }, 60_000);
+
   test("issueBootstrapNonce writes the deadline on the database clock, not this process's", async () => {
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),

@@ -1114,11 +1114,29 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       const { executionId, now } = input;
       return db.transaction(async (tx) => {
         const [launch] = await tx
-          .select({ partition: workerLaunches.partition })
+          .select({
+            claimedAttemptId: workerLaunches.claimedAttemptId,
+            partition: workerLaunches.partition,
+            replacementReason: workerLaunches.replacementReason,
+          })
           .from(workerLaunches)
           .where(eq(workerLaunches.executionId, executionId))
           .limit(1)
           .for("update");
+        if (
+          launch &&
+          launch.replacementReason !== null &&
+          launch.claimedAttemptId === null
+        ) {
+          // The scheduler has committed to rebuilding this launch from its
+          // intent and may be between the teardown and the create right
+          // now. Its resource being gone is that plan in progress, not an
+          // exit: releasing here would hand the session a new launch under
+          // a new generation, which is exactly what the record exists to
+          // prevent. A claimed launch is never rebuilt, so it stays
+          // confirmable whatever the column says.
+          return { sessionReleased: false, slotReleased: false };
+        }
         // One slot returns per launch, however many times the exit is seen.
         const slot = await tx
           .update(workerLaunches)
