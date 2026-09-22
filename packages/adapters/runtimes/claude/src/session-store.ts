@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type {
   CheckpointObjectStore,
   ObjectRef,
@@ -10,8 +10,10 @@ import type {
 
 import { digestParts } from "./transcript-digest.ts";
 
+/** Give up rather than spin if a slot keeps being taken from under us. */
+const SLOT_ATTEMPTS = 64;
+
 export type ClaudeSessionStoreOptions = {
-  readonly now?: () => number;
   readonly objects: CheckpointObjectStore;
   /** Key namespace; one session's transcripts never share it with another. */
   readonly prefix: string;
@@ -36,7 +38,6 @@ export type ClaudeSessionStoreOptions = {
 export class ClaudeSessionStore implements TranscriptMirror {
   readonly #objects: CheckpointObjectStore;
   readonly #prefix: string;
-  readonly #now: () => number;
   readonly #sequence = new Map<string, number>();
   /**
    * Parts are write-once, so what a part holds never has to be fetched twice.
@@ -58,7 +59,6 @@ export class ClaudeSessionStore implements TranscriptMirror {
   constructor(options: ClaudeSessionStoreOptions) {
     this.#objects = options.objects;
     this.#prefix = options.prefix.replace(/^\/+|\/+$/g, "");
-    this.#now = options.now ?? Date.now;
   }
 
   /**
@@ -87,28 +87,42 @@ export class ClaudeSessionStore implements TranscriptMirror {
     await queued;
   }
 
+  /**
+   * Claims the next slot in the transcript and writes the batch into it.
+   *
+   * The slot number is not chosen, it is won: the create-only write *is* the
+   * compare-and-set. Whoever's PUT lands first owns that index, and everyone
+   * else re-reads the tail and tries the next one. That is what makes the
+   * order deterministic across processes — two workers overlapping during a
+   * lease handoff replay in the order their writes committed, rather than in
+   * whatever order a random key suffix happens to sort. (Which of them should
+   * have been writing at all is a different question, fenced elsewhere: see
+   * 94S-203.)
+   */
   async #write(prefix: string, entries: TranscriptEntry[]): Promise<void> {
     const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
-    const name = `part-${String(await this.#nextTick(prefix)).padStart(13, "0")}-${randomUUID()}.jsonl`;
     const bytes = new TextEncoder().encode(body);
-    // Create-only, because a part is the evidence a committed manifest points
-    // at: once a checkpoint has pinned its digest, an overwrite is corruption
-    // and the store is the only place that can refuse it outright.
-    let outcome: string;
-    try {
-      ({ outcome } = await this.#objects.putImmutable(
-        `${prefix}${name}`,
-        bytes,
-      ));
-    } catch (error) {
-      this.#appendFailures += 1;
-      throw error;
+    for (let attempt = 0; attempt < SLOT_ATTEMPTS; attempt += 1) {
+      const key = `${prefix}part-${String(await this.#nextIndex(prefix)).padStart(10, "0")}.jsonl`;
+      let outcome: string;
+      try {
+        ({ outcome } = await this.#objects.putImmutable(key, bytes));
+      } catch (error) {
+        this.#appendFailures += 1;
+        throw error;
+      }
+      if (outcome === "conflict") {
+        // Somebody else owns this slot. Re-read the tail rather than guessing.
+        this.#sequence.delete(prefix);
+        continue;
+      }
+      // "duplicate" is this exact batch already stored: a retry of a write
+      // that landed. Either way the slot now holds what it should.
+      this.#parts.set(key, Promise.resolve(bytes));
+      return;
     }
-    if (outcome === "conflict") {
-      this.#appendFailures += 1;
-      throw new Error(`Transcript part already exists: ${prefix}${name}`);
-    }
-    this.#parts.set(`${prefix}${name}`, Promise.resolve(bytes));
+    this.#appendFailures += 1;
+    throw new Error(`Transcript slot contention under ${prefix}`);
   }
 
   /**
@@ -181,27 +195,23 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 
   /**
-   * The ordering tick for the next part under `prefix`.
-   *
-   * Parts are read back in lexicographic key order, so the tick has to keep
-   * rising across processes too: a session resumed on a host whose clock lags
-   * the previous one would otherwise write parts that sort *before* the
-   * transcript it is continuing. The first append under a key therefore reads
-   * the stored tail and starts above it, rather than trusting this process's
-   * clock alone.
+   * The slot this process will try next. Remembered so a quiet session does
+   * not list the prefix on every append, and dropped whenever a write loses
+   * the slot, because then the stored tail is the only thing that knows.
    */
-  async #nextTick(prefix: string): Promise<number> {
-    let last = this.#sequence.get(prefix);
-    if (last === undefined) {
-      last = 0;
-      for (const key of await this.#objects.list(prefix)) {
-        if (key.slice(prefix.length).includes("/")) continue;
-        last = Math.max(last, partTick(key) ?? 0);
-      }
+  async #nextIndex(prefix: string): Promise<number> {
+    const remembered = this.#sequence.get(prefix);
+    if (remembered !== undefined) {
+      this.#sequence.set(prefix, remembered + 1);
+      return remembered;
     }
-    const tick = Math.max(this.#now(), last + 1);
-    this.#sequence.set(prefix, tick);
-    return tick;
+    let last = 0;
+    for (const key of await this.#objects.list(prefix)) {
+      if (key.slice(prefix.length).includes("/")) continue;
+      last = Math.max(last, (partIndex(key) ?? 0) + 1);
+    }
+    this.#sequence.set(prefix, last + 1);
+    return last;
   }
 
   /** Parts written directly under the key, excluding any nested subpath. */
@@ -286,8 +296,8 @@ function parseEntries(bytes: Uint8Array): TranscriptEntry[] {
     .map((line) => JSON.parse(line) as TranscriptEntry);
 }
 
-function partTick(key: string): number | undefined {
-  const match = key.match(/\/part-(\d{13})-/);
+function partIndex(key: string): number | undefined {
+  const match = key.match(/\/part-(\d{10})\.jsonl$/);
   return match?.[1] === undefined ? undefined : Number(match[1]);
 }
 

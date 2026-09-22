@@ -169,20 +169,17 @@ describe("Claude session store", () => {
     ).rejects.toThrow(/Unsafe transcript subpath/);
   });
 
-  test("a resumed store appends after the stored tail, not after its own clock", async () => {
+  test("a replacement store appends after the stored tail", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const first = new ClaudeSessionStore({
       objects,
       prefix: "sessions/s1/mirror",
-      now: () => 1_700_000_000_000,
     });
     await first.append(root, [entry("a", "before restart")]);
 
-    // The replacement worker's clock is a day behind the one that wrote first.
     const resumed = new ClaudeSessionStore({
       objects,
       prefix: "sessions/s1/mirror",
-      now: () => 1_699_913_600_000,
     });
     await resumed.append(root, [entry("b", "after restart")]);
 
@@ -192,12 +189,50 @@ describe("Claude session store", () => {
     ]);
   });
 
+  test("two stores writing the same transcript replay in commit order", async () => {
+    // The lease-handoff shape: two independent processes, no shared clock and
+    // no shared sequence, appending to one transcript.
+    for (let run = 0; run < 20; run += 1) {
+      const objects = createMemoryCheckpointObjectStore();
+      const options = { objects, prefix: "sessions/s1/mirror" };
+      const stale = new ClaudeSessionStore(options);
+      const live = new ClaudeSessionStore(options);
+
+      await stale.append(root, [entry("a", "from the old worker")]);
+      await live.append(root, [entry("b", "from the new worker")]);
+
+      expect(await live.load(root)).toEqual([
+        entry("a", "from the old worker"),
+        entry("b", "from the new worker"),
+      ]);
+    }
+  });
+
+  test("two stores racing for the same slot do not lose a batch", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const options = { objects, prefix: "sessions/s1/mirror" };
+    const left = new ClaudeSessionStore(options);
+    const right = new ClaudeSessionStore(options);
+
+    // Both start from an empty listing, so both want slot 0. The create-only
+    // write decides, and the loser takes the next slot rather than vanishing.
+    await Promise.all([
+      left.append(root, [entry("a", "left")]),
+      right.append(root, [entry("b", "right")]),
+    ]);
+
+    const restored = await left.load(root);
+    expect(restored).toHaveLength(2);
+    expect(new Set(restored?.map((item) => item.uuid))).toEqual(
+      new Set(["a", "b"]),
+    );
+  });
+
   test("keeps root and subagent ordering independent", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const mirror = new ClaudeSessionStore({
       objects,
       prefix: "sessions/s1/mirror",
-      now: () => 1_700_000_000_000,
     });
     const subagent = { ...root, subpath: "agents/reviewer" };
 
