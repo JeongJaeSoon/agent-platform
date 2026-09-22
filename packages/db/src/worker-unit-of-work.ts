@@ -41,7 +41,10 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
-import { terminateReceiptResult } from "./control-unit-of-work.ts";
+import {
+  earliestUnknownTurn,
+  terminateReceiptResult,
+} from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -1261,7 +1264,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           })
           .where(eq(sessions.id, session.id));
         // The terminate receipt succeeds only here, on the observed absence;
-        // one that already went `unknown` past its deadline is upgraded.
+        // one that already went `unknown` past its deadline is upgraded. The
+        // turn it names is the earliest still unknown, whether it became so
+        // just now or in an earlier exit the session is still recovering from.
         await tx
           .update(receipts)
           .set({
@@ -1269,10 +1274,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             error: null,
             result: terminateReceiptResult({
               checkpointRevision: session.checkpointRevision,
-              unconfirmedTurnId:
-                unresolved.length > 0
-                  ? String(Math.min(...unresolved.map((t) => t.sequence)))
-                  : null,
+              unconfirmedTurnId: await earliestUnknownTurn(tx, session.id),
             }),
             updatedAt: now,
           })

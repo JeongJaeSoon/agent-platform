@@ -8,7 +8,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@agent-platform/platform";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, min, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -64,6 +64,26 @@ async function findIdempotent(tx: Database, scope: IdempotencyScope) {
  * shape is written by confirmExecutionGoneAtomic, so a reader sees one
  * result whether the kill was immediate or observed later.
  */
+/**
+ * The turn a terminate receipt reports as unconfirmed: the earliest one
+ * whose outcome is unknown, from this exit or from one the session was
+ * already recovering from. Null when every turn has a known outcome.
+ */
+export async function earliestUnknownTurn(
+  tx: Database,
+  sessionId: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ sequence: min(turns.sequence) })
+    .from(turns)
+    .where(
+      and(eq(turns.sessionId, sessionId), eq(turns.status, "outcome_unknown")),
+    );
+  return row?.sequence === null || row?.sequence === undefined
+    ? null
+    : String(row.sequence);
+}
+
 export function terminateReceiptResult(input: {
   checkpointRevision: number | null;
   unconfirmedTurnId: string | null;
@@ -214,6 +234,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 code: "SESSION_STOPPED",
                 message: "input cancelled by terminate before it ran",
               },
+              result: null,
               updatedAt: now,
             })
             .where(
@@ -298,7 +319,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
             ? null
             : terminateReceiptResult({
                 checkpointRevision: session.checkpointRevision,
-                unconfirmedTurnId: null,
+                unconfirmedTurnId: await earliestUnknownTurn(tx, sessionId),
               }),
           // The deadline counts from durable acceptance, not from when the
           // caller read its clock: lock waits inside this transaction must

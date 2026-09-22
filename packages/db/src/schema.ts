@@ -194,6 +194,13 @@ export const receipts = pgTable(
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+    // The terminate deadline sweep runs every scheduler and reconciler pass
+    // and must not read the whole receipt history to find the few open ones.
+    index("receipts_open_terminate_idx")
+      .on(table.createdAt)
+      .where(
+        sql`${table.operation} = 'terminate' AND ${table.status} = 'accepted'`,
+      ),
   ],
 );
 
@@ -319,6 +326,11 @@ export const attempts = pgTable(
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),
+    // The lease-expiry sweep only ever looks at attempts still open, in
+    // expiry order; ended ones accumulate and stay out of the index.
+    index("attempts_open_lease_idx")
+      .on(table.leaseExpiresAt, table.id)
+      .where(sql`${table.state} NOT IN ('exited', 'lost')`),
   ],
 );
 

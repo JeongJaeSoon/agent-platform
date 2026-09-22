@@ -277,9 +277,11 @@ integration("session terminate on PostgreSQL", () => {
       .from(queueMessages)
       .where(eq(queueMessages.sessionId, session.session_id));
     expect(queue).toEqual([{ turnId: running.id }]);
-    expect((await receiptRow(appended.response.receipt_id)).status).toBe(
-      "failed",
-    );
+    expect(await receiptRow(appended.response.receipt_id)).toMatchObject({
+      status: "failed",
+      result: null,
+      error: { code: "SESSION_STOPPED" },
+    });
     const [pending] = await db
       .select({ resolvedAt: pendingRequests.resolvedAt })
       .from(pendingRequests)
@@ -659,8 +661,24 @@ integration("session terminate on PostgreSQL", () => {
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("recovery_required");
     expect(after.executionId).toBeNull();
-    expect((await receiptRow(result.response.receipt_id)).status).toBe(
-      "succeeded",
+    // The turn it is recovering from was unknown before this terminate; the
+    // receipt still names it rather than claiming nothing is unconfirmed.
+    expect(await receiptRow(result.response.receipt_id)).toMatchObject({
+      status: "succeeded",
+      result: { unconfirmed_turn_id: "1" },
+    });
+
+    // Terminating again, now with no execution, completes at once and keeps
+    // naming that turn.
+    const again = await terminate(session, after.revision);
+    if (again.outcome !== "accepted") throw new Error(again.outcome);
+    expect(again.response.receipt_status).toBe("succeeded");
+    expect(await receiptRow(again.response.receipt_id)).toMatchObject({
+      status: "succeeded",
+      result: { unconfirmed_turn_id: "1" },
+    });
+    expect((await sessionRow(session.session_id)).admissionState).toBe(
+      "recovery_required",
     );
   });
 
