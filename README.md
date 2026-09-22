@@ -133,7 +133,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `integration` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1`, `DOCKER_BACKEND_TEST=1` | `bun run test` + `bun test ./apps/api/src/server.integration.ts` | ✅ |
 | `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
-`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack integration test가 **의도적으로 skip된다**. 같은 스위트를 `integration`이 변수를 전부 켠 채 다시 돌려 skip 0으로 만든다. 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 `integration`의 skip 0을 같이 확인한다.
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker integration test가 **의도적으로 skip된다**. 같은 스위트를 `integration`이 변수를 전부 켠 채 다시 돌려 skip 0으로 만든다. 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 `integration`의 skip 0을 같이 확인한다.
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
