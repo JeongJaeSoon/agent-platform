@@ -107,7 +107,9 @@ integration("LocalDockerBackend against a real daemon", () => {
       ).catch(() => undefined);
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
-  });
+    // Bun's default hook timeout is 5s, and this tears down a container per
+    // generation per test — each with a stop that waits on the process.
+  }, 120_000);
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
     const socket = dockerHost.startsWith("unix://")
