@@ -254,11 +254,14 @@ async function probeFinalize(
   if (!turn || turn.attemptId !== fence.attemptId) {
     return { state: "settled", result: { outcome: "turn_not_found" } };
   }
-  // The checkpoint is part of what finalize commits, so a retry that changes
-  // it is a different request wearing the same key.
+  // The checkpoint and the event tail are part of what finalize commits, so a
+  // retry that changes either is a different request wearing the same key —
+  // and a replay must not let a different tail past the gate that only runs
+  // on the first commit.
   const terminalHash = payloadHash({
     terminal: input.terminal,
     checkpoint: input.checkpoint,
+    final_source_sequence: input.finalSourceSequence,
   });
   if (OPEN_TURN_STATUSES.includes(turn.status)) {
     return { state: "open", turn, terminalHash };
