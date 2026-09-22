@@ -288,6 +288,36 @@ describe("egress proxy", () => {
     expect(sunk).toBe(before);
   });
 
+  test("a ClientHello dripped one byte at a time still passes, and the cap still holds", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    for (let at = 0; at < hello.byteLength; at += 1) {
+      talk.sendBytes(hello.subarray(at, at + 1));
+    }
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
+    talk.close();
+
+    // The same drip of a record that never completes is cut at the cap, so
+    // the per-byte work is bounded by 16 KiB and not by the client's patience.
+    const before = sunk;
+    const drip = await connect(proxy.port);
+    drip.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+    await drip.waitFor("200 Connection Established");
+    const never = concatBytes(
+      Uint8Array.from([22, 3, 1, 0x3f, 0xff, 1, 0x00, 0x3f, 0xfb]),
+      new Uint8Array(17 * 1024),
+    );
+    const startedAt = Date.now();
+    for (let at = 0; at < never.byteLength && !drip.isClosed(); at += 64) {
+      drip.sendBytes(never.subarray(at, at + 64));
+    }
+    expect(await waitFor(() => drip.isClosed(), 5_000)).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(sunk).toBe(before);
+  }, 20_000);
+
   test("a ClientHello split across records and segments still passes", async () => {
     const talk = await connect(proxy.port);
     talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
