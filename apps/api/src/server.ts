@@ -20,6 +20,7 @@ import {
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
+import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
   checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
@@ -29,6 +30,7 @@ import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
@@ -129,11 +131,24 @@ function positiveEnv<K extends string>(
 // clock, so a listener that is down only adds latency, never loses events.
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
+const identity = new DatabaseIdentityStore(db);
+const auth = {
+  identity,
+  bootstrap: await bootstrapGateFromEnv(
+    process.env.BOOTSTRAP_TOKEN,
+    identity,
+    logger,
+  ),
+  logger,
+};
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
   keyStore: new DatabaseApiKeyStore(db),
+  identity,
+  registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
   registerRoutes: (router) => {
+    registerAuthRoutes(router, auth);
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerPendingRoutes(router, pendingRequests);

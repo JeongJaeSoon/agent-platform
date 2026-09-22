@@ -30,6 +30,13 @@ import {
   turnSummarySchema,
 } from "./api/index.ts";
 import {
+  authMeResponseSchema,
+  bootstrapRequestSchema,
+  bootstrapResponseSchema,
+  loginRequestSchema,
+  loginResponseSchema,
+} from "./domain/index.ts";
+import {
   apiErrorResponseSchema,
   receiptIdParamsSchema,
   sessionIdParamsSchema,
@@ -50,6 +57,8 @@ const requestComponents = {
   TerminateSessionRequest: terminateSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
+  BootstrapRequest: bootstrapRequestSchema,
+  LoginRequest: loginRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -70,6 +79,9 @@ const responseComponents = {
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
+  BootstrapResponse: bootstrapResponseSchema,
+  LoginResponse: loginResponseSchema,
+  AuthMeResponse: authMeResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
 type ComponentName =
@@ -82,11 +94,23 @@ type Route = {
   operationId: string;
   summary: string;
   scope?: "read" | "write" | "approve" | "control" | "recover";
+  // Who may call: `scope` routes take an API key or a cookie session,
+  // `auth: "session"` routes only a cookie session, `auth: "public"` routes
+  // sit outside the auth middleware (03 §3.2 allowlist). Default: scope
+  // present → both credentials; absent → public probe.
+  auth?: "public" | "session";
+  // Cookie-path mutations carry the CSRF header; bearer calls never do, so it
+  // is documented as optional and enforced only for cookie principals.
+  csrf?: boolean;
   query?: ComponentName;
   body?: ComponentName;
-  success: { status: 200 | 201 | 202; schema: ComponentName; sse?: boolean };
+  success:
+    | { status: 200 | 201 | 202; schema: ComponentName; sse?: boolean }
+    | { status: 204 };
   errors: number[];
   lastEventId?: boolean;
+  // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
+  idempotent?: false;
 };
 
 const CONFLICTS = [400, 401, 404, 409];
@@ -115,6 +139,48 @@ const routes: Route[] = [
     summary: "Authenticated principal",
     scope: "read",
     success: { status: 200, schema: "ApiRootResponse" },
+    errors: [401, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/auth/bootstrap",
+    operationId: "bootstrap",
+    summary: "Create the first owner and default workspace (once)",
+    auth: "public",
+    body: "BootstrapRequest",
+    success: { status: 201, schema: "BootstrapResponse" },
+    errors: [400, 401, 409, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/auth/login",
+    operationId: "login",
+    summary: "Email/password login; sets the session cookie",
+    auth: "public",
+    body: "LoginRequest",
+    success: { status: 200, schema: "LoginResponse" },
+    errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/auth/logout",
+    operationId: "logout",
+    summary: "Revoke the session cookie",
+    auth: "session",
+    csrf: true,
+    success: { status: 204 },
+    errors: [401, 403, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/auth/me",
+    operationId: "getAuthMe",
+    summary: "The authenticated principal, user and workspace",
+    scope: "read",
+    success: { status: 200, schema: "AuthMeResponse" },
     errors: [401, 503],
   },
   {
@@ -275,6 +341,12 @@ const routes: Route[] = [
 
 type JsonSchema = Record<string, unknown>;
 
+function securityFor(route: Route): Array<Record<string, string[]>> {
+  if (route.auth === "public") return [];
+  if (route.auth === "session") return [{ cookieSession: [] }];
+  return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
+}
+
 function ref(name: ComponentName) {
   return { $ref: `#/components/schemas/${name}` };
 }
@@ -344,7 +416,7 @@ export function buildOpenApiDocument() {
       if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
       parameters.push(...queryParameters(querySchema));
     }
-    if (route.method === "post") {
+    if (route.method === "post" && route.idempotent !== false) {
       parameters.push({
         name: "Idempotency-Key",
         in: "header",
@@ -360,13 +432,28 @@ export function buildOpenApiDocument() {
         schema: { type: "string", minLength: 1 },
       });
     }
+    if (route.csrf) {
+      parameters.push({
+        name: "X-Requested-With",
+        in: "header",
+        required: false,
+        description:
+          "Required with a cookie session: the literal `agent-platform-web`.",
+        schema: { type: "string", enum: ["agent-platform-web"] },
+      });
+    }
     const responses: Record<string, unknown> = {
-      [route.success.status]: {
-        description: route.success.sse ? "Event stream" : "Success",
-        content: route.success.sse
-          ? { "text/event-stream": { schema: ref(route.success.schema) } }
-          : jsonContent(route.success.schema),
-      },
+      [route.success.status]:
+        route.success.status === 204
+          ? { description: "No content" }
+          : {
+              description: route.success.sse ? "Event stream" : "Success",
+              content: route.success.sse
+                ? {
+                    "text/event-stream": { schema: ref(route.success.schema) },
+                  }
+                : jsonContent(route.success.schema),
+            },
     };
     for (const status of route.errors) {
       responses[status] = {
@@ -380,7 +467,7 @@ export function buildOpenApiDocument() {
       operationId: route.operationId,
       summary: route.summary,
       ...(route.scope ? { "x-scope": route.scope } : {}),
-      security: route.scope ? [{ bearerApiKey: [] }] : [],
+      security: securityFor(route),
       parameters,
       ...(route.body
         ? {
@@ -405,6 +492,7 @@ export function buildOpenApiDocument() {
     components: {
       securitySchemes: {
         bearerApiKey: { type: "http", scheme: "bearer" },
+        cookieSession: { type: "apiKey", in: "cookie", name: "ap_session" },
       },
       schemas,
     },

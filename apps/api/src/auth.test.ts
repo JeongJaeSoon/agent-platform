@@ -1,0 +1,640 @@
+import { describe, expect, test } from "bun:test";
+import {
+  apiErrorResponseSchema,
+  authMeResponseSchema,
+  bootstrapResponseSchema,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  loginResponseSchema,
+  WEB_SESSION_COOKIE_NAME,
+} from "@agent-platform/contracts";
+import type {
+  BootstrapInput,
+  ResolvedWebSession,
+  UserRow,
+  WorkspaceRow,
+} from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import { createApiApp } from "./app.ts";
+import {
+  bootstrapGateFromEnv,
+  createBootstrapGate,
+  csrfViolation,
+  hashPassword,
+  hashWebSessionToken,
+  type IdentityStore,
+  LoginLockout,
+  legacyApiKeyPrincipal,
+  WEB_SESSION_TTL_MS,
+} from "./auth.ts";
+import { hashApiKey } from "./keys.ts";
+import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+
+// In-memory identity store with the same null/row semantics as the SQL
+// helpers; the integration test covers the real queries.
+class MemoryIdentityStore implements IdentityStore {
+  users: UserRow[] = [];
+  workspaces: WorkspaceRow[] = [];
+  memberships: Array<{
+    workspaceId: string;
+    userId: string;
+    role: "owner" | "member";
+    disabledAt: Date | null;
+  }> = [];
+  sessions: Array<{
+    id: string;
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    revokedAt: Date | null;
+    lastSeenAt: Date | null;
+    renewals: number;
+  }> = [];
+  now = () => Date.now();
+
+  async countUsers() {
+    return this.users.length;
+  }
+  async bootstrap(input: BootstrapInput) {
+    if (this.users.length > 0) {
+      const { BootstrapDoneError } = await import("@agent-platform/db");
+      throw new BootstrapDoneError();
+    }
+    const user: UserRow = {
+      id: input.userId,
+      email: input.email,
+      passwordHash: input.passwordHash,
+      displayName: input.displayName,
+      createdAt: new Date(this.now()),
+      disabledAt: null,
+    };
+    const workspace: WorkspaceRow = {
+      id: input.workspaceId,
+      slug: input.workspaceSlug,
+      name: input.workspaceName,
+      settings: {},
+      createdAt: new Date(this.now()),
+    };
+    this.users.push(user);
+    this.workspaces.push(workspace);
+    this.memberships.push({
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: "owner",
+      disabledAt: null,
+    });
+    return { user, workspace };
+  }
+  async findUserForLogin(email: string) {
+    return (
+      this.users.find((u) => u.email === email && u.disabledAt === null) ?? null
+    );
+  }
+  async findLiveMembership(userId: string) {
+    const row = this.memberships.find(
+      (m) => m.userId === userId && m.disabledAt === null,
+    );
+    return row ? { workspaceId: row.workspaceId, role: row.role } : null;
+  }
+  async findWorkspace(workspaceId: string) {
+    return this.workspaces.find((w) => w.id === workspaceId) ?? null;
+  }
+  async createWebSession(input: {
+    id: string;
+    userId: string;
+    tokenHash: Uint8Array;
+    ttlMs: number;
+    userAgent: string | null;
+  }) {
+    const expiresAt = new Date(this.now() + input.ttlMs);
+    this.sessions.push({
+      id: input.id,
+      userId: input.userId,
+      tokenHash: Buffer.from(input.tokenHash).toString("hex"),
+      expiresAt,
+      revokedAt: null,
+      lastSeenAt: new Date(this.now()),
+      renewals: 0,
+    });
+    return { expiresAt };
+  }
+  async resolveWebSession(
+    tokenHash: Uint8Array,
+  ): Promise<ResolvedWebSession | null> {
+    const hex = Buffer.from(tokenHash).toString("hex");
+    const session = this.sessions.find(
+      (s) =>
+        s.tokenHash === hex &&
+        s.revokedAt === null &&
+        s.expiresAt.getTime() > this.now(),
+    );
+    if (!session) return null;
+    const user = this.users.find(
+      (u) => u.id === session.userId && u.disabledAt === null,
+    );
+    const membership = user ? await this.findLiveMembership(user.id) : null;
+    if (!user || !membership) return null;
+    return {
+      sessionId: session.id,
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      workspaceId: membership.workspaceId,
+      role: membership.role,
+      expiresAt: session.expiresAt,
+    };
+  }
+  async renewWebSession(
+    sessionId: string,
+    ttlMs: number,
+    renewAfterMs: number,
+  ) {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session || session.revokedAt !== null) return;
+    if (
+      session.lastSeenAt === null ||
+      session.lastSeenAt.getTime() < this.now() - renewAfterMs
+    ) {
+      session.expiresAt = new Date(this.now() + ttlMs);
+      session.lastSeenAt = new Date(this.now());
+      session.renewals += 1;
+    }
+  }
+  async revokeWebSession(tokenHash: Uint8Array) {
+    const hex = Buffer.from(tokenHash).toString("hex");
+    for (const session of this.sessions) {
+      if (session.tokenHash === hex && session.revokedAt === null) {
+        session.revokedAt = new Date(this.now());
+      }
+    }
+  }
+}
+
+const BOOTSTRAP_TOKEN = "t".repeat(40);
+const PASSWORD = "correct horse battery staple";
+const WRONG = "not the password at all";
+const API_KEY = "csp_test-key";
+
+function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
+  const identity = new MemoryIdentityStore();
+  const sink = new MemoryLogSink();
+  const logger = new StructuredLogger({ sinks: [sink] });
+  const auth = {
+    identity,
+    bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
+    logger,
+    ...(options.lockout ? { lockout: options.lockout } : {}),
+  };
+  const app = createApiApp({
+    authMode: options.authMode ?? "api-key",
+    logger,
+    identity,
+    keyStore: {
+      async findOwner(hash) {
+        return Buffer.from(hash).equals(Buffer.from(hashApiKey(API_KEY)))
+          ? "key-owner"
+          : null;
+      },
+    },
+    registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+    registerRoutes: (router) => {
+      registerAuthRoutes(router, auth);
+      router.get("/whoami", (context) =>
+        context.json({
+          owner_id: context.get("ownerId"),
+          principal: context.get("principal"),
+        }),
+      );
+      router.post("/mutate", (context) =>
+        context.json({ owner_id: context.get("ownerId") }, 201),
+      );
+    },
+  });
+  const json = (path: string, body: unknown, headers: HeadersInit = {}) =>
+    app.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  const bootstrap = (overrides: Record<string, unknown> = {}) =>
+    json("/v1/auth/bootstrap", {
+      bootstrap_token: BOOTSTRAP_TOKEN,
+      email: "Owner@Example.com",
+      password: PASSWORD,
+      display_name: "Owner",
+      workspace_name: "Acme",
+      workspace_slug: "acme",
+      ...overrides,
+    });
+  const login = (email = "owner@example.com", password = PASSWORD) =>
+    json("/v1/auth/login", { email, password });
+  return { app, identity, sink, json, bootstrap, login };
+}
+
+function cookieOf(response: Response): string {
+  const header = response.headers.get("Set-Cookie");
+  if (!header) throw new Error("no Set-Cookie");
+  return header.split(";")[0] ?? "";
+}
+
+async function errorCode(response: Response): Promise<string> {
+  return apiErrorResponseSchema.parse(await response.json()).error.code;
+}
+
+describe("bootstrap", () => {
+  test("creates the first owner once, then answers 409 BOOTSTRAP_DONE", async () => {
+    const h = harness();
+    const first = await h.bootstrap();
+    expect(first.status).toBe(201);
+    const body = bootstrapResponseSchema.parse(await first.json());
+    expect(body.role).toBe("owner");
+    expect(body.workspace.slug).toBe("acme");
+    expect(h.identity.users[0]?.email).toBe("owner@example.com");
+    expect(h.identity.users[0]?.passwordHash).not.toContain(PASSWORD);
+
+    const second = await h.bootstrap();
+    expect(second.status).toBe(409);
+    expect(await errorCode(second)).toBe("BOOTSTRAP_DONE");
+  });
+
+  test("refuses a missing or wrong token with 401 and keeps the token spendable", async () => {
+    const h = harness();
+    expect((await h.bootstrap({ bootstrap_token: undefined })).status).toBe(
+      401,
+    );
+    expect(
+      (await h.bootstrap({ bootstrap_token: "x".repeat(40) })).status,
+    ).toBe(401);
+    expect(h.identity.users).toHaveLength(0);
+    expect((await h.bootstrap()).status).toBe(201);
+  });
+
+  test("a failed insert releases the token for another try", async () => {
+    const h = harness();
+    const original = h.identity.bootstrap.bind(h.identity);
+    let fail = true;
+    h.identity.bootstrap = async (input) => {
+      if (fail) {
+        fail = false;
+        throw Object.assign(new Error("connection terminated"), {
+          code: "ECONNRESET",
+        });
+      }
+      return original(input);
+    };
+    expect((await h.bootstrap()).status).toBe(503);
+    expect((await h.bootstrap()).status).toBe(201);
+  });
+
+  test("validates the body only after the token", async () => {
+    const h = harness();
+    const bad = await h.bootstrap({ password: "short" });
+    expect(bad.status).toBe(400);
+    // The token was consumed by the failed request? No: consume happens
+    // after the schema check for the rest of the body would be wrong; the
+    // 400 must leave the token usable.
+    expect((await h.bootstrap()).status).toBe(201);
+  });
+
+  test("a generated token is printed once, only while users are 0", async () => {
+    const identity = new MemoryIdentityStore();
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const printed: string[] = [];
+    const print = (line: string) => printed.push(line);
+    const gate = await bootstrapGateFromEnv(undefined, identity, logger, print);
+    expect(printed).toHaveLength(1);
+    const token = printed[0]?.replace("BOOTSTRAP_TOKEN=", "") ?? "";
+    expect(token).toHaveLength(43);
+    expect(JSON.stringify(sink.records)).not.toContain(token);
+    expect(gate.consume(token)).toBe(true);
+    expect(gate.consume(token)).toBe(false);
+
+    identity.users.push({} as UserRow);
+    printed.length = 0;
+    await bootstrapGateFromEnv(undefined, identity, logger, print);
+    expect(printed).toHaveLength(0);
+
+    const given = await bootstrapGateFromEnv("given", identity, logger, print);
+    expect(printed).toHaveLength(0);
+    expect(given.consume("given")).toBe(true);
+  });
+});
+
+describe("login, logout, me", () => {
+  test("sets an HttpOnly Secure SameSite=Lax cookie and stores only the hash", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const response = await h.login("OWNER@example.com");
+    expect(response.status).toBe(200);
+    const body = loginResponseSchema.parse(await response.json());
+    expect(body.role).toBe("owner");
+    expect(body.scopes).toContain("sessions:recover");
+    const cookie = response.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toStartWith(`${WEB_SESSION_COOKIE_NAME}=aps_`);
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/");
+    const token = cookieOf(response).split("=")[1] ?? "";
+    expect(h.identity.sessions[0]?.tokenHash).toBe(
+      Buffer.from(hashWebSessionToken(token)).toString("hex"),
+    );
+    expect(JSON.stringify(h.identity.sessions)).not.toContain(token);
+    expect(
+      h.identity.sessions[0]!.expiresAt.getTime() - Date.now(),
+    ).toBeGreaterThan(WEB_SESSION_TTL_MS - 5_000);
+  });
+
+  test("a wrong password and an unknown email answer the same 401", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const wrong = await h.login("owner@example.com", "not the password");
+    const unknown = await h.login("nobody@example.com", PASSWORD);
+    expect(wrong.status).toBe(401);
+    expect(unknown.status).toBe(401);
+    const a = await wrong.json();
+    const b = await unknown.json();
+    expect(a.error.message).toBe(b.error.message);
+    expect(wrong.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  test("a disabled account or membership cannot log in", async () => {
+    const h = harness();
+    await h.bootstrap();
+    h.identity.memberships[0]!.disabledAt = new Date();
+    expect((await h.login()).status).toBe(401);
+    h.identity.memberships[0]!.disabledAt = null;
+    h.identity.users[0]!.disabledAt = new Date();
+    expect((await h.login()).status).toBe(401);
+  });
+
+  test("me returns the user principal, user and workspace; logout revokes", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(me.status).toBe(200);
+    const body = authMeResponseSchema.parse(await me.json());
+    expect(body.principal.kind).toBe("user");
+    expect(body.user?.email).toBe("owner@example.com");
+    expect(body.workspace?.slug).toBe("acme");
+    expect(body.workspace?.settings.kill_switch).toBe(false);
+
+    const noHeader = await h.app.request("/v1/auth/logout", {
+      method: "POST",
+      headers: { Cookie: cookie },
+    });
+    expect(noHeader.status).toBe(403);
+
+    const logout = await h.app.request("/v1/auth/logout", {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+    });
+    expect(logout.status).toBe(204);
+    expect(logout.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect(h.identity.sessions[0]?.revokedAt).not.toBeNull();
+
+    const after = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(after.status).toBe(401);
+  });
+
+  test("me for an API key has no user and no workspace", async () => {
+    const h = harness();
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+    expect(me.status).toBe(200);
+    const body = authMeResponseSchema.parse(await me.json());
+    expect(body.principal).toEqual(legacyApiKeyPrincipal("key-owner"));
+    expect(body.user).toBeNull();
+    expect(body.workspace).toBeNull();
+
+    const logout = await h.app.request("/v1/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+    expect(logout.status).toBe(403);
+  });
+
+  test("an expired session is refused; an active one slides its expiry", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const session = h.identity.sessions[0]!;
+    const start = Date.now();
+    h.identity.now = () => start + 2 * 60 * 60 * 1000;
+    const later = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(later.status).toBe(200);
+    expect(session.renewals).toBe(1);
+    expect(session.expiresAt.getTime()).toBe(
+      start + 2 * 60 * 60 * 1000 + WEB_SESSION_TTL_MS,
+    );
+    // A second hit inside the renew window writes nothing.
+    await h.app.request("/v1/auth/me", { headers: { Cookie: cookie } });
+    expect(session.renewals).toBe(1);
+
+    h.identity.now = () => session.expiresAt.getTime() + 1;
+    const expired = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(expired.status).toBe(401);
+  });
+});
+
+describe("login lockout", () => {
+  test("the sixth failed attempt inside the window is 429, and success clears it", async () => {
+    let now = 1_000_000;
+    const lockout = new LoginLockout({ now: () => now });
+    const h = harness({ lockout });
+    await h.bootstrap();
+    for (let i = 0; i < 5; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    const sixth = await h.login("owner@example.com", WRONG);
+    expect(sixth.status).toBe(429);
+    expect(await errorCode(sixth)).toBe("RATE_LIMITED");
+    expect(Number(sixth.headers.get("Retry-After"))).toBeGreaterThan(0);
+    // The right password is refused too while locked.
+    expect((await h.login()).status).toBe(429);
+    // Another address is not affected.
+    expect((await h.login("other@example.com", WRONG)).status).toBe(401);
+
+    now += 15 * 60 * 1000 + 1;
+    expect((await h.login()).status).toBe(200);
+    for (let i = 0; i < 5; i += 1) {
+      await h.login("owner@example.com", WRONG);
+    }
+    expect((await h.login()).status).toBe(429);
+  });
+});
+
+describe("principal middleware", () => {
+  test("bearer wins over a cookie, and a bad bearer is not rescued by a valid cookie", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const workspaceId = h.identity.workspaces[0]!.id;
+
+    const cookieOnly = await h.app.request("/v1/whoami", {
+      headers: { Cookie: cookie },
+    });
+    expect(await cookieOnly.json()).toMatchObject({
+      owner_id: workspaceId,
+      principal: { kind: "user", workspace_id: workspaceId, role: "owner" },
+    });
+
+    const bearerOnly = await h.app.request("/v1/whoami", {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+    expect(await bearerOnly.json()).toMatchObject({
+      owner_id: "key-owner",
+      principal: { kind: "api_key", id: "key-owner", workspace_id: null },
+    });
+
+    const both = await h.app.request("/v1/whoami", {
+      headers: { Authorization: `Bearer ${API_KEY}`, Cookie: cookie },
+    });
+    expect(await both.json()).toMatchObject({ owner_id: "key-owner" });
+
+    const badBearer = await h.app.request("/v1/whoami", {
+      headers: { Authorization: "Bearer csp_wrong", Cookie: cookie },
+    });
+    expect(badBearer.status).toBe(401);
+
+    expect((await h.app.request("/v1/whoami")).status).toBe(401);
+    expect(
+      (
+        await h.app.request("/v1/whoami", {
+          headers: { Cookie: `${WEB_SESSION_COOKIE_NAME}=aps_forged` },
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  test("routes outside the public allowlist stay 401 without credentials", async () => {
+    const h = harness();
+    expect((await h.app.request("/v1/auth/me")).status).toBe(401);
+    expect(
+      (await h.app.request("/v1/auth/logout", { method: "POST" })).status,
+    ).toBe(401);
+    expect((await h.app.request("/v1/sessions")).status).toBe(401);
+    // Public routes do not need credentials, and an unknown /v1/auth path is
+    // not public just by prefix.
+    expect((await h.login("x@example.com", "p".repeat(12))).status).toBe(401);
+    expect((await h.app.request("/v1/auth/other")).status).toBe(401);
+  });
+
+  test("AUTH_MODE=none keeps trusting X-Owner-Id and ignores cookies", async () => {
+    const h = harness({ authMode: "none" });
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const header = await h.app.request("/v1/whoami", {
+      headers: { "X-Owner-Id": "local-owner" },
+    });
+    expect(await header.json()).toMatchObject({
+      owner_id: "local-owner",
+      principal: { kind: "api_key", id: "local-owner" },
+    });
+    expect(
+      (await h.app.request("/v1/whoami", { headers: { Cookie: cookie } }))
+        .status,
+    ).toBe(401);
+  });
+});
+
+describe("CSRF", () => {
+  test("a cookie mutation needs the custom header; a bearer mutation does not", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+
+    const noHeader = await h.json("/v1/mutate", {}, { Cookie: cookie });
+    expect(noHeader.status).toBe(403);
+    expect(await errorCode(noHeader)).toBe("FORBIDDEN");
+
+    const withHeader = await h.json(
+      "/v1/mutate",
+      {},
+      { Cookie: cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+    );
+    expect(withHeader.status).toBe(201);
+
+    const bearer = await h.json(
+      "/v1/mutate",
+      {},
+      { Authorization: `Bearer ${API_KEY}` },
+    );
+    expect(bearer.status).toBe(201);
+
+    // Reads never need it.
+    const read = await h.app.request("/v1/whoami", {
+      headers: { Cookie: cookie },
+    });
+    expect(read.status).toBe(200);
+  });
+
+  test("a cross-site or foreign-origin request is refused even with the header", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const base = { Cookie: cookie, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE };
+    expect(
+      (
+        await h.json(
+          "/v1/mutate",
+          {},
+          {
+            ...base,
+            Host: "app.example",
+            Origin: "https://evil.example",
+          },
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await h.json(
+          "/v1/mutate",
+          {},
+          {
+            ...base,
+            Host: "app.example",
+            Origin: "https://app.example",
+          },
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await h.json(
+          "/v1/mutate",
+          {},
+          {
+            ...base,
+            "Sec-Fetch-Site": "cross-site",
+          },
+        )
+      ).status,
+    ).toBe(403);
+  });
+
+  test("csrfViolation is a no-op for non-user principals", () => {
+    const principal = legacyApiKeyPrincipal("o");
+    const context = {
+      req: { method: "POST", header: () => undefined },
+    } as never;
+    expect(csrfViolation(context, principal)).toBeNull();
+  });
+});
+
+test("hashPassword produces argon2id", async () => {
+  expect(await hashPassword("x".repeat(12))).toStartWith("$argon2id$");
+});

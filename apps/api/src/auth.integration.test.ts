@@ -1,0 +1,299 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  authMeResponseSchema,
+  bootstrapResponseSchema,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  createSessionResponseSchema,
+  loginResponseSchema,
+  WEB_SESSION_COOKIE_NAME,
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+  memberships,
+  users,
+  webSessions,
+} from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import {
+  createSessionService,
+  ownerScopedPolicy,
+} from "@agent-platform/platform";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import { eq, sql } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { createApiApp } from "./app.ts";
+import {
+  createBootstrapGate,
+  DatabaseIdentityStore,
+  hashWebSessionToken,
+  LoginLockout,
+} from "./auth.ts";
+import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
+import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerSessionRoutes } from "./routes/sessions.ts";
+
+const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
+
+const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
+const PASSWORD = "an adequately long password";
+const WRONG = "an adequately wrong password";
+
+integration("auth API on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let app: ReturnType<typeof createApiApp>;
+  let apiKey: string;
+  let now = Date.now();
+  const sink = new MemoryLogSink();
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "auth" });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    db = drizzle(pool, { schema });
+    const keys = new DatabaseApiKeyStore(db);
+    apiKey = await issueApiKey(keys, "key-owner");
+    const identity = new DatabaseIdentityStore(db);
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const auth = {
+      identity,
+      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
+      lockout: new LoginLockout({ now: () => now }),
+      logger,
+    };
+    const sessions = createSessionService({
+      authorization: ownerScopedPolicy,
+      inputs: createPostgresSessionUnitOfWork(db),
+      reader: createPostgresSessionReader(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
+          },
+        },
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+          },
+        },
+      },
+    });
+    app = createApiApp({
+      authMode: "api-key",
+      logger,
+      keyStore: keys,
+      identity,
+      registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+      registerRoutes: (router) => {
+        registerAuthRoutes(router, auth);
+        registerSessionRoutes(router, sessions);
+      },
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await database?.drop();
+  });
+
+  const json = (path: string, body: unknown, headers: HeadersInit = {}) =>
+    app.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  const bootstrapBody = {
+    bootstrap_token: BOOTSTRAP_TOKEN,
+    email: "Owner@Example.com",
+    password: PASSWORD,
+    display_name: "Owner",
+    workspace_name: "Acme",
+    workspace_slug: "acme",
+  };
+  const login = (password = PASSWORD) =>
+    json("/v1/auth/login", { email: "owner@example.com", password });
+  const cookieOf = (response: Response) =>
+    (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+  const sessionBody = {
+    profile_id: "claude-coding-v1",
+    repository_id: "sample-app",
+    message: "Inspect the failing unit test and propose a fix.",
+  };
+
+  let cookie = "";
+  let workspaceId = "";
+
+  test("bootstrap creates owner + workspace + membership once; second call is 409", async () => {
+    const first = await json("/v1/auth/bootstrap", bootstrapBody);
+    expect(first.status).toBe(201);
+    const body = bootstrapResponseSchema.parse(await first.json());
+    workspaceId = body.workspace.id;
+    const [user] = await db.select().from(users);
+    expect(user?.email).toBe("owner@example.com");
+    expect(user?.passwordHash).toStartWith("$argon2id$");
+    const [membership] = await db.select().from(memberships);
+    expect(membership).toMatchObject({
+      userId: body.user_id,
+      workspaceId,
+      role: "owner",
+    });
+
+    const second = await json("/v1/auth/bootstrap", bootstrapBody);
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe("BOOTSTRAP_DONE");
+    expect(await db.$count(users)).toBe(1);
+  });
+
+  test("login sets the cookie, stores only the hash, and me reads it back", async () => {
+    const response = await login();
+    expect(response.status).toBe(200);
+    const body = loginResponseSchema.parse(await response.json());
+    expect(body.workspace_id).toBe(workspaceId);
+    const header = response.headers.get("Set-Cookie") ?? "";
+    expect(header).toContain("HttpOnly");
+    expect(header).toContain("Secure");
+    expect(header).toContain("SameSite=Lax");
+    cookie = cookieOf(response);
+    const token = cookie.slice(`${WEB_SESSION_COOKIE_NAME}=`.length);
+    const [row] = await db.select().from(webSessions);
+    expect(Buffer.from(row?.tokenHash ?? [])).toEqual(
+      Buffer.from(hashWebSessionToken(token)),
+    );
+    // Expiry comes from the database clock, ~14 days out.
+    const days =
+      ((row?.expiresAt.getTime() ?? 0) - Date.now()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeGreaterThan(13.9);
+    expect(days).toBeLessThan(14.1);
+
+    const me = await app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(me.status).toBe(200);
+    const view = authMeResponseSchema.parse(await me.json());
+    expect(view.principal).toMatchObject({
+      kind: "user",
+      id: body.user_id,
+      workspace_id: workspaceId,
+      role: "owner",
+    });
+    expect(view.workspace?.slug).toBe("acme");
+    expect(view.user?.email).toBe("owner@example.com");
+  });
+
+  test("wrong password is 401 with the same body as an unknown user", async () => {
+    const wrong = await login(WRONG);
+    const unknown = await json("/v1/auth/login", {
+      email: "ghost@example.com",
+      password: PASSWORD,
+    });
+    expect(wrong.status).toBe(401);
+    expect(unknown.status).toBe(401);
+    expect((await wrong.json()).error.message).toBe(
+      (await unknown.json()).error.message,
+    );
+  });
+
+  test("cookie-only POST /v1/sessions is 403 without the CSRF header, 201 with it; bearer is 201 as before", async () => {
+    const refused = await json("/v1/sessions", sessionBody, {
+      Cookie: cookie,
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    expect(refused.status).toBe(403);
+
+    const allowed = await json("/v1/sessions", sessionBody, {
+      Cookie: cookie,
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    expect(allowed.status).toBe(201);
+    const created = createSessionResponseSchema.parse(await allowed.json());
+    const [row] = await db
+      .select({ ownerId: schema.sessions.ownerId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, created.session_id));
+    // The user's partition is the workspace (contracts authorizationContextFor).
+    expect(row?.ownerId).toBe(workspaceId);
+
+    const bearer = await json("/v1/sessions", sessionBody, {
+      Authorization: `Bearer ${apiKey}`,
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    expect(bearer.status).toBe(201);
+    const foreign = createSessionResponseSchema.parse(await bearer.json());
+
+    // The API key's session list is its own partition; the cookie's list
+    // cannot see it and vice versa.
+    const mine = await app.request("/v1/sessions", {
+      headers: { Cookie: cookie },
+    });
+    const ids = (await mine.json()).items.map((s: { id: string }) => s.id);
+    expect(ids).toContain(created.session_id);
+    expect(ids).not.toContain(foreign.session_id);
+  });
+
+  test("bearer wins over a cookie and a wrong bearer is not rescued", async () => {
+    const both = await app.request("/v1/auth/me", {
+      headers: { Authorization: `Bearer ${apiKey}`, Cookie: cookie },
+    });
+    expect((await both.json()).principal).toMatchObject({
+      kind: "api_key",
+      owner_id: "key-owner",
+    });
+    const wrong = await app.request("/v1/auth/me", {
+      headers: { Authorization: "Bearer csp_nope", Cookie: cookie },
+    });
+    expect(wrong.status).toBe(401);
+  });
+
+  test("sixth failed login in the window is 429", async () => {
+    // Earlier tests recorded 1 failure for owner@example.com; four more.
+    for (let i = 0; i < 4; i += 1) {
+      expect((await login(WRONG)).status).toBe(401);
+    }
+    const sixth = await login(WRONG);
+    expect(sixth.status).toBe(429);
+    expect((await sixth.json()).error.code).toBe("RATE_LIMITED");
+    now += 16 * 60 * 1000;
+    expect((await login()).status).toBe(200);
+  });
+
+  test("an expired row is refused by the database clock; logout revokes", async () => {
+    await db
+      .update(webSessions)
+      .set({ expiresAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(webSessions.tokenHash, hashWebSessionToken(cookie.slice(11))));
+    const expired = await app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
+    expect(expired.status).toBe(401);
+
+    const fresh = cookieOf(await login());
+    const logout = await app.request("/v1/auth/logout", {
+      method: "POST",
+      headers: { Cookie: fresh, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+    });
+    expect(logout.status).toBe(204);
+    const [row] = await db
+      .select({ revokedAt: webSessions.revokedAt })
+      .from(webSessions)
+      .where(eq(webSessions.tokenHash, hashWebSessionToken(fresh.slice(11))));
+    expect(row?.revokedAt).not.toBeNull();
+    expect(
+      (await app.request("/v1/auth/me", { headers: { Cookie: fresh } })).status,
+    ).toBe(401);
+  });
+});

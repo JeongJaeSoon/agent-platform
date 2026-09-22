@@ -5,6 +5,12 @@ import type {
   SessionService,
 } from "@agent-platform/platform";
 import { createApiApp, probeRouteErrors, rootRouteErrors } from "./app.ts";
+import type { BootstrapGate, IdentityStore } from "./auth.ts";
+import {
+  authRouteErrors,
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/auth.ts";
 import { eventRouteErrors, registerEventRoutes } from "./routes/events.ts";
 import { pendingRouteErrors, registerPendingRoutes } from "./routes/pending.ts";
 import {
@@ -24,9 +30,15 @@ const NOT_YET_IMPLEMENTED = [
 ];
 
 function honoRoutes(): Set<string> {
+  const auth = {
+    identity: {} as IdentityStore,
+    bootstrap: {} as BootstrapGate,
+  };
   const app = createApiApp({
     authMode: "none",
+    registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
     registerRoutes: (router) => {
+      registerAuthRoutes(router, auth);
       registerSessionRoutes(router, {} as SessionService);
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
@@ -89,6 +101,7 @@ test("each handler's error statuses match its OpenAPI operation", () => {
       route === "GET /v1"
         ? rootRouteErrors
         : (probeRouteErrors[route] ??
+          authRouteErrors[route] ??
           receiptRouteErrors[route] ??
           eventRouteErrors[route] ??
           pendingRouteErrors[route] ??

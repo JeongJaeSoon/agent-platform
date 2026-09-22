@@ -4,9 +4,11 @@ import {
   apiRootResponseSchema,
   healthResponseSchema,
   PAYLOAD_TOO_LARGE_ISSUE,
+  type Principal,
   REQUEST_BODY_MAX_BYTES,
   readyResponseSchema,
 } from "@agent-platform/contracts";
+import type { ResolvedWebSession } from "@agent-platform/db";
 import {
   createLogger,
   type StructuredLogger,
@@ -14,11 +16,21 @@ import {
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
-import { type ApiKeyStore, hashApiKey } from "./keys.ts";
+import {
+  createAuthenticator,
+  csrfViolation,
+  type IdentityStore,
+  ownerIdOf,
+} from "./auth.ts";
+import type { ApiKeyStore } from "./keys.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 
 export interface ApiVariables {
+  // The alpha partition key; every existing route authorizes on it alone.
   ownerId: string;
+  principal: Principal;
+  // Present on the cookie path only.
+  webSession?: ResolvedWebSession;
   requestId: string;
   // Re-runs the credential check that admitted this request; false once the
   // key is revoked. Long-lived responses (SSE) call it on their clock so a
@@ -48,8 +60,14 @@ export type ApiRouter = Hono<ApiEnvironment>;
 export interface CreateApiAppOptions {
   authMode?: string;
   keyStore?: ApiKeyStore;
+  // Enables the cookie-session path of the /v1 middleware (94S-151).
+  identity?: IdentityStore;
   logger?: StructuredLogger;
   registerRoutes?: (router: ApiRouter) => void;
+  // Mounted under /v1 ahead of the auth middleware: the public allowlist
+  // (bootstrap, login, invite accept). Anything not registered here still
+  // falls through to the authenticated router and answers 401.
+  registerPublicRoutes?: (router: ApiRouter) => void;
   // Mounted under /internal, outside the /v1 API-key middleware; each
   // internal route family brings its own authentication.
   registerInternalRoutes?: (router: ApiRouter) => void;
@@ -203,12 +221,42 @@ export function jsonWithSchema<T extends z.ZodType>(
   return context.json(schema.parse(value), status);
 }
 
-function bearerToken(value: string | undefined): string | null {
-  if (!value) {
+// Read and bound a body under the idle clock; the caller stops the clock
+// afterwards for its database work. Hono caches the body, so parseJsonBody
+// reads the same bytes. Returns the 413 to send, or null.
+async function ingestBody(
+  context: Context<ApiEnvironment>,
+): Promise<Response | null> {
+  if (BODYLESS_METHODS.has(context.req.method)) {
     return null;
   }
-  const match = /^Bearer ([^\s]+)$/.exec(value);
-  return match?.[1] ?? null;
+  const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
+  setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
+  const raw = await context.req.arrayBuffer();
+  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+    return errorResponse(
+      context,
+      413,
+      "PAYLOAD_TOO_LARGE",
+      "Request body too large",
+    );
+  }
+  return null;
+}
+
+// Body under the clock, then the clock off for the handler: what every
+// router outside the /v1 principal middleware does.
+async function ingestThenStopClock(
+  context: Context<ApiEnvironment>,
+  next: () => Promise<void>,
+): Promise<Response | undefined> {
+  const rejected = await ingestBody(context);
+  if (rejected) {
+    return rejected;
+  }
+  (context.env?.setIdleTimeout ?? (() => {}))(0);
+  await next();
+  return undefined;
 }
 
 export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
@@ -260,28 +308,19 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     });
   });
 
+  const authenticator = createAuthenticator({
+    authMode,
+    keyStore,
+    ...(options.identity ? { identity: options.identity } : {}),
+  });
   v1.use("*", async (context, next) => {
     const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
     // Authenticate before touching the body, so an unauthenticated sender
     // cannot hold a connection open by dripping bytes; the key lookup is
     // database work, so the idle clock is off for it.
     setIdleTimeout(0);
-    let ownerId: string | null = null;
-    let reauthenticate = async () => true;
-    if (authMode === "none") {
-      ownerId = context.req.header("X-Owner-Id")?.trim() || null;
-    } else {
-      const token = bearerToken(context.req.header("Authorization"));
-      if (token) {
-        const keyHash = hashApiKey(token);
-        ownerId = await keyStore.findOwner(keyHash);
-        const admitted = ownerId;
-        reauthenticate = async () =>
-          (await keyStore.findOwner(keyHash)) === admitted;
-      }
-    }
-
-    if (!ownerId) {
+    const authenticated = await authenticator.authenticate(context);
+    if (!authenticated) {
       logger.warn("API authentication failed", {
         method: context.req.method,
         path: context.req.path,
@@ -293,22 +332,28 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         "Authentication is required",
       );
     }
-    context.set("ownerId", ownerId);
-    context.set("reauthenticate", reauthenticate);
+    const violation = csrfViolation(context, authenticated.principal);
+    if (violation) {
+      logger.warn("API request refused by CSRF check", {
+        method: context.req.method,
+        path: context.req.path,
+        reason: violation,
+      });
+      return errorResponse(context, 403, "FORBIDDEN", `Refused: ${violation}`);
+    }
+    context.set("principal", authenticated.principal);
+    context.set("ownerId", ownerIdOf(authenticated.principal));
+    context.set("reauthenticate", authenticated.reauthenticate);
+    if (authenticated.webSession) {
+      context.set("webSession", authenticated.webSession);
+    }
 
     // Ingest and bound the body under the idle clock, then hand the request
-    // to the route with the clock off for its database work. Hono caches the
-    // body, so parseJsonBody reads the same bytes.
+    // to the route with the clock off for its database work.
     if (!BODYLESS_METHODS.has(context.req.method)) {
-      setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
-      const raw = await context.req.arrayBuffer();
-      if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
-        return errorResponse(
-          context,
-          413,
-          "PAYLOAD_TOO_LARGE",
-          "Request body too large",
-        );
+      const rejected = await ingestBody(context);
+      if (rejected) {
+        return rejected;
       }
       setIdleTimeout(0);
     }
@@ -323,6 +368,14 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   v1.get("", rootHandler);
   v1.get("/", rootHandler);
   options.registerRoutes?.(v1);
+  if (options.registerPublicRoutes) {
+    const publicV1 = new Hono<ApiEnvironment>({ strict: false });
+    // Same clock discipline as the authenticated router, minus the
+    // principal: these handlers authenticate by what is in the body.
+    publicV1.use("*", ingestThenStopClock);
+    options.registerPublicRoutes(publicV1);
+    app.route("/v1", publicV1);
+  }
   app.route("/v1", v1);
   if (options.registerInternalRoutes) {
     const internal = new Hono<ApiEnvironment>({ strict: false });
@@ -332,23 +385,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // no input would be cut off mid-wait. Each internal family authenticates
     // itself, so the body is read under the clock and the clock is then
     // stopped for the handler.
-    internal.use("*", async (context, next) => {
-      const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
-      if (!BODYLESS_METHODS.has(context.req.method)) {
-        setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
-        const raw = await context.req.arrayBuffer();
-        if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
-          return errorResponse(
-            context,
-            413,
-            "PAYLOAD_TOO_LARGE",
-            "Request body too large",
-          );
-        }
-      }
-      setIdleTimeout(0);
-      await next();
-    });
+    internal.use("*", ingestThenStopClock);
     options.registerInternalRoutes(internal);
     app.route("/internal", internal);
   }
