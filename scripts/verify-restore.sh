@@ -91,14 +91,19 @@ while IFS='|' read -r session revision ref expected is_pointer; do
     if ! jq -e '.version == 2 and .workspace.bundle.key and .transcripts.root.parts' "$manifest" >/dev/null 2>&1; then
       fail "$tag manifest: not a version-2 checkpoint manifest"
       ok=0
+    # The product restore path refuses a manifest sealed for another session or
+    # revision even when every byte checks out, so the verifier must too.
+    elif ! jq -e --arg s "$session" --argjson r "$revision" '.sessionId == $s and .revision == $r' "$manifest" >/dev/null 2>&1; then
+      fail "$tag manifest: sealed for $(jq -r '"\(.sessionId)@\(.revision)"' "$manifest"), not this row"
+      ok=0
     fi
   fi
   if [ "$ok" = 1 ]; then
     # Transcript parts of the root and every subagent, then the bundle.
-    while IFS=' ' read -r key sha; do
-      [ -n "$key" ] || continue
+    # NUL-delimited: an object key may itself contain whitespace.
+    while IFS= read -r -d '' key && IFS= read -r -d '' sha; do
       check_ref "$tag part" "$key" "$sha" "$WORK/part" || ok=0
-    done < <(jq -r '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key) \(.sha256)"' "$manifest")
+    done < <(jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.sha256)\u0000"' "$manifest")
     bundle_key="$(jq -r '.workspace.bundle.key' "$manifest")"
     bundle_sha="$(jq -r '.workspace.bundle.sha256' "$manifest")"
     commit="$(jq -r '.workspace.gitCommit' "$manifest")"
