@@ -103,6 +103,7 @@ const app = createApiApp({
       logger,
       ...positiveEnv("SSE_MAX_STREAMS", "maxStreams"),
       ...positiveEnv("SSE_MAX_STREAMS_PER_OWNER", "maxStreamsPerOwner"),
+      ...positiveEnv("SSE_REPLAY_MAX_BYTES", "batchMaxBytes"),
     });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),

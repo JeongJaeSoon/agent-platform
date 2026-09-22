@@ -1,13 +1,12 @@
 import {
   lastEventIdHeadersSchema,
-  type SseEvent,
   sessionIdParamsSchema,
 } from "@agent-platform/contracts";
 import {
   createLogger,
   type StructuredLogger,
 } from "@agent-platform/observability";
-import type { SessionService } from "@agent-platform/platform";
+import type { EventPage, SessionService } from "@agent-platform/platform";
 import { streamSSE } from "hono/streaming";
 import { ApiHttpError, type ApiRouter } from "../app.ts";
 import type { SessionEventWakeup } from "../events/notifications.ts";
@@ -17,9 +16,12 @@ import { mapped, requireParams } from "./sessions.ts";
 // the same window: a credential check is re-run every half interval and a
 // stream never outlives its last successful check by more than one.
 export const SSE_KEEPALIVE_MS = 15_000;
-// Rows held in memory per connection between writes; also the page size, so
-// a full page means "read again", a short one means "wait for more".
+// Per-connection replay page: at most this many rows and, past the first
+// row, at most this many payload bytes are held in memory between writes.
+// With the admission caps below that bounds replay memory to
+// SSE_MAX_STREAMS × SSE_REPLAY_MAX_BYTES (256 MiB) whatever the history.
 export const SSE_REPLAY_BATCH = 100;
+export const SSE_REPLAY_MAX_BYTES = 1024 * 1024;
 
 // Admission caps: a stream is a resident handle plus a query every
 // keepalive, so a runaway client must not be able to open them without
@@ -37,6 +39,7 @@ export interface EventStreamOptions {
   wakeup: SessionEventWakeup;
   keepaliveMs?: number;
   batchSize?: number;
+  batchMaxBytes?: number;
   maxStreams?: number;
   maxStreamsPerOwner?: number;
   logger?: Pick<StructuredLogger, "info" | "warn">;
@@ -82,6 +85,7 @@ export function registerEventRoutes(
 ): EventStreamHandle {
   const keepaliveMs = options.keepaliveMs ?? SSE_KEEPALIVE_MS;
   const batchSize = options.batchSize ?? SSE_REPLAY_BATCH;
+  const batchMaxBytes = options.batchMaxBytes ?? SSE_REPLAY_MAX_BYTES;
   const maxStreams = options.maxStreams ?? SSE_MAX_STREAMS;
   const maxStreamsPerOwner =
     options.maxStreamsPerOwner ?? SSE_MAX_STREAMS_PER_OWNER;
@@ -116,6 +120,9 @@ export function registerEventRoutes(
 
   router.get("/sessions/:id/events", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
+    // The UUID contract accepts either case; Postgres renders lowercase and
+    // NOTIFY carries that spelling, so the waiter key must match it.
+    const sessionId = params.id.toLowerCase();
     const actor = { ownerId: context.get("ownerId") };
     const reauthenticate = context.get("reauthenticate");
     const after = requireLastEventId(context.req.header("Last-Event-ID"));
@@ -129,9 +136,10 @@ export function registerEventRoutes(
     }
     const read = (cursor: string | undefined) =>
       mapped(() =>
-        service.readEvents(actor, params.id, {
+        service.readEvents(actor, sessionId, {
           ...(cursor === undefined ? {} : { after: cursor }),
           limit: batchSize,
+          maxBytes: batchMaxBytes,
         }),
       );
     // A waiter is armed before every read, this first one included, so a
@@ -143,7 +151,7 @@ export function registerEventRoutes(
       closed.addEventListener("abort", unlink, { once: true });
       return {
         signal: wake.signal,
-        notified: options.wakeup.wait(params.id, wake.signal),
+        notified: options.wakeup.wait(sessionId, wake.signal),
         release() {
           closed.removeEventListener("abort", unlink);
           wake.abort();
@@ -203,7 +211,7 @@ export function registerEventRoutes(
     // The first page is read before the response commits to a stream, so an
     // unknown session, a foreign owner, a bad cursor and a storage outage are
     // still ordinary HTTP errors with the API envelope.
-    let firstPage: SseEvent[];
+    let firstPage: EventPage;
     try {
       firstPage = await read(after);
       if (closed.signal.aborted) {
@@ -253,14 +261,14 @@ export function registerEventRoutes(
         }
       };
       logger.info("SSE stream opened", {
-        session_id: params.id,
+        session_id: sessionId,
         after: after ?? null,
         active_streams: active,
       });
       try {
-        let page: SseEvent[] = firstPage;
+        let page = firstPage;
         while (!closed.signal.aborted) {
-          for (const event of page) {
+          for (const event of page.items) {
             if (closed.signal.aborted) break;
             // The watchdog closes the stream at expiry; this guard keeps a
             // frame from slipping out on the same tick before it does.
@@ -284,11 +292,11 @@ export function registerEventRoutes(
             sent += 1;
           }
           if (closed.signal.aborted) break;
-          // A short page means the high-watermark is reached: wait for a
-          // NOTIFY, bounded by the keepalive so a lost notification costs at
-          // most one interval. A full page means keep replaying; the
-          // high-watermark is simply the last id sent.
-          if (page.length < batchSize) {
+          // No more means the high-watermark is reached: wait for a NOTIFY,
+          // bounded by the keepalive so a lost notification costs at most
+          // one interval. Otherwise keep replaying; the high-watermark is
+          // simply the last id sent.
+          if (!page.more) {
             const outcome = await Promise.race([
               armed.notified.then(() => "notify" as const),
               sleep(keepaliveMs, armed.signal),
@@ -312,7 +320,7 @@ export function registerEventRoutes(
         // Headers are gone, so there is no error envelope to send; the client
         // reconnects with the last id it saw and the read is repeated then.
         logger.warn("SSE stream failed", {
-          session_id: params.id,
+          session_id: sessionId,
           error_name: error instanceof Error ? error.name : "UnknownError",
         });
         closeWith("read_failed");
@@ -321,7 +329,7 @@ export function registerEventRoutes(
         disarmWatchdog();
         release();
         logger.info("SSE stream closed", {
-          session_id: params.id,
+          session_id: sessionId,
           reason: closed.signal.aborted ? String(closed.signal.reason) : "eof",
           events_sent: sent,
           active_streams: active,

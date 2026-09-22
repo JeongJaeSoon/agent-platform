@@ -289,6 +289,34 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     expect(restIds).toEqual(ids.slice(500));
   }, 30_000);
 
+  test("a replay page is cut by payload bytes, never below one row", async () => {
+    const sessionId = await createdSession();
+    // ~30 bytes each in the row, so a 100-byte page holds three; a bound
+    // smaller than one row still yields that row or nothing could be read.
+    await appendLikeWorker(sessionId, 10);
+    const reader = createPostgresSessionReader(db);
+    const page = await reader.readEvents(owner, sessionId, {
+      limit: 100,
+      maxBytes: 100,
+    });
+    expect(page?.more).toBe(true);
+    expect(page?.items.length).toBeGreaterThanOrEqual(1);
+    expect(page?.items.length).toBeLessThan(10);
+    const tiny = await reader.readEvents(owner, sessionId, {
+      limit: 100,
+      maxBytes: 1,
+    });
+    expect(tiny?.items.length).toBe(1);
+    expect(tiny?.more).toBe(true);
+    const all = await reader.readEvents(owner, sessionId, {
+      limit: 100,
+      maxBytes: 1024 * 1024,
+    });
+    expect(all?.items.length).toBe(10);
+    expect(all?.more).toBe(false);
+    expect(all?.items[0]?.data.occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
   test("rows appended during replay arrive in order with no gap", async () => {
     const sessionId = await createdSession();
     await appendLikeWorker(sessionId, 250);

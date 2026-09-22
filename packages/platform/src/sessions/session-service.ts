@@ -13,7 +13,6 @@ import type {
   Receipt,
   SessionDetail,
   SessionRuntime,
-  SseEvent,
   TurnDetail,
 } from "@agent-platform/contracts";
 import type {
@@ -21,6 +20,7 @@ import type {
   Principal,
 } from "../authorization/policy.ts";
 import type {
+  EventPage,
   InputAcceptance,
   ReadEventsQuery,
   SessionReader,
@@ -236,7 +236,7 @@ export function createSessionService(deps: {
       actor: Principal,
       sessionId: string,
       query: ReadEventsQuery,
-    ): Promise<SseEvent[]> {
+    ): Promise<EventPage> {
       requireAuthorized(actor, "sessions:read", actor.ownerId);
       const page = await reader.readEvents(actor.ownerId, sessionId, query);
       if (!page) {

@@ -82,17 +82,26 @@ export interface SessionReader {
   ): Promise<TurnDetail | null>;
   // null when the receipt does not exist or belongs to another owner.
   getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
-  // Events after the cursor in session order, at most `limit`; null when the
-  // session is not visible to the owner. A page shorter than `limit` means
-  // the caller has reached the high-watermark and may wait for more.
+  // Events after the cursor in session order: at most `limit` rows and,
+  // past the first row, at most `maxBytes` of payload, so one page never
+  // holds more memory than that whatever the history looks like. `more` is
+  // false only when the page reached the high-watermark; a page cut short by
+  // either bound says true so the caller keeps replaying instead of waiting.
+  // null when the session is not visible to the owner.
   readEvents(
     ownerId: string,
     sessionId: string,
     query: ReadEventsQuery,
-  ): Promise<SseEvent[] | null>;
+  ): Promise<EventPage | null>;
 }
 
 export type ReadEventsQuery = {
   after?: string;
   limit: number;
+  maxBytes: number;
+};
+
+export type EventPage = {
+  items: SseEvent[];
+  more: boolean;
 };

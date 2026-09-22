@@ -56,11 +56,24 @@ class FakeStore {
       const afterId = query.after
         ? Number.parseInt(query.after.slice(3), 36)
         : 0;
-      const page = this.events
-        .filter((item) => Number.parseInt(item.id.slice(3), 36) > afterId)
-        .slice(0, query.limit);
+      const rest = this.events.filter(
+        (item) => Number.parseInt(item.id.slice(3), 36) > afterId,
+      );
+      const fetched = rest.slice(0, query.limit);
+      // Same cut as the Postgres reader: first row always, then a running
+      // byte total against maxBytes.
+      const items: SseEvent[] = [];
+      let bytes = 0;
+      for (const item of fetched) {
+        bytes += JSON.stringify(item.data.data).length;
+        if (items.length > 0 && bytes > query.maxBytes) break;
+        items.push(item);
+      }
       this.onRead?.(query);
-      return page;
+      return {
+        items,
+        more: fetched.length === query.limit || items.length < fetched.length,
+      };
     };
   }
 }
@@ -102,6 +115,7 @@ function harness(
   options: {
     keepaliveMs?: number;
     batchSize?: number;
+    batchMaxBytes?: number;
     maxStreams?: number;
     maxStreamsPerOwner?: number;
   } = {},
@@ -242,7 +256,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     expect(JSON.parse(second?.data ?? "{}").data).toEqual({
       phase: "running",
     });
-    expect(store.reads[0]).toEqual({ limit: 100 });
+    expect(store.reads[0]).toEqual({ limit: 100, maxBytes: 1024 * 1024 });
     await frames.cancel();
   });
 
@@ -263,6 +277,50 @@ describe("GET /v1/sessions/{id}/events", () => {
       "ev_3",
       "ev_5",
     ]);
+    await frames.cancel();
+  });
+
+  test("a page cut by the byte bound keeps replaying instead of waiting", async () => {
+    const big = (id: number) =>
+      ({
+        ...event(id),
+        data: { ...event(id).data, data: { phase: "x".repeat(400) } },
+      }) as SseEvent;
+    const { app, store, wakeup } = harness({
+      batchSize: 10,
+      batchMaxBytes: 1_000,
+    });
+    // 5 events of ~410 bytes: pages of 2, never a full row-limit page.
+    store.append(big(1), big(2), big(3), big(4), big(5));
+    const response = await open(app);
+    const frames = new FrameReader(response);
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) ids.push((await frames.next())?.id ?? "");
+    expect(ids).toEqual(["ev_1", "ev_2", "ev_3", "ev_4", "ev_5"]);
+    await wakeup.armed();
+    expect(store.reads.map((read) => read.after)).toEqual([
+      undefined,
+      "ev_2",
+      "ev_4",
+    ]);
+    await frames.cancel();
+  });
+
+  test("an uppercase session id still wakes on the lowercase NOTIFY", async () => {
+    const { app, store, wakeup } = harness();
+    store.append(event(1));
+    const response = await app.request(
+      `/v1/sessions/${SESSION.toUpperCase()}/events`,
+      { headers: { "X-Owner-Id": OWNER } },
+    );
+    expect(response.status).toBe(200);
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+    expect(wakeup.waiters[0]?.sessionId).toBe(SESSION);
+    store.append(event(2));
+    wakeup.notify(SESSION);
+    expect((await frames.next())?.id).toBe("ev_2");
     await frames.cancel();
   });
 

@@ -12,7 +12,6 @@ import {
   type ReceiptSessionTarget,
   receiptSchema,
   SSE_SCHEMA_VERSION,
-  type SseEvent,
   sessionIdSchema,
   sseEventSchema,
   type TurnDetail,
@@ -24,6 +23,7 @@ import type {
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
+  EventPage,
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
@@ -378,6 +378,16 @@ function summarizeTurn(
   };
 }
 
+type EventPageRow = {
+  id: string;
+  type: string;
+  payload: unknown;
+  attempt_id: string | null;
+  occurred_ms: string;
+  turn_sequence: number | null;
+  fetched: string;
+};
+
 export function createPostgresSessionReader(db: Database): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
@@ -670,7 +680,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       ownerId: string,
       sessionId: string,
       query: ReadEventsQuery,
-    ): Promise<SseEvent[] | null> {
+    ): Promise<EventPage | null> {
       const after = decodeEventCursor(query.after);
       if (!(await ownedSession(ownerId, sessionId))) return null;
       // events.id is global, so a well-formed cursor from another session
@@ -691,38 +701,58 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       // under the session row lock, so a lower id can never become visible
       // after a higher one and a reader that resumes from the last id it saw
       // misses nothing. A new writer must take the same lock.
-      const rows = await db
-        .select({
-          id: events.id,
-          type: events.type,
-          payload: events.payload,
-          attemptId: events.attemptId,
-          occurredAt: events.occurredAt,
-          createdAt: events.createdAt,
-          turnSequence: turns.sequence,
-        })
-        .from(events)
-        .leftJoin(turns, eq(turns.id, events.turnId))
-        .where(and(eq(events.sessionId, sessionId), gt(events.id, after)))
-        .orderBy(asc(events.id))
-        .limit(query.limit);
-      return rows.map((row) =>
-        sseEventSchema.parse({
-          id: encodeEventCursor(row.id),
-          event: row.type,
-          data: {
-            schema_version: SSE_SCHEMA_VERSION,
-            session_id: sessionId,
-            turn_id:
-              row.turnSequence === null ? null : String(row.turnSequence),
-            attempt_id: row.attemptId,
-            // Rows written outside the worker protocol carry no occurred_at;
-            // the insert time is the closest thing to when it happened.
-            occurred_at: (row.occurredAt ?? row.createdAt).toISOString(),
-            data: row.payload,
-          },
-        }),
-      );
+      //
+      // The byte bound is applied in SQL over a running sum of payload sizes
+      // so that Postgres, not this process, holds whatever falls past it.
+      // The first row always comes through, or an oversized event could
+      // never be read at all.
+      // The Database type is generic over the driver, so execute() cannot
+      // name its row shape; pg hands back bigints and counts as strings and
+      // raw timestamps in a driver-dependent form, hence the epoch column.
+      // Rows written outside the worker protocol carry no occurred_at; the
+      // insert time is the closest thing to when it happened.
+      const result = (await db.execute(sql`
+        SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
+               fetched
+        FROM (
+          SELECT e.id, e.type, e.payload, e.attempt_id,
+                 t.sequence AS turn_sequence,
+                 (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
+                   * 1000)::bigint AS occurred_ms,
+                 sum(pg_column_size(e.payload)) OVER (ORDER BY e.id)
+                   AS running_bytes,
+                 row_number() OVER (ORDER BY e.id) AS position,
+                 count(*) OVER () AS fetched
+          FROM ${events} e
+          LEFT JOIN ${turns} t ON t.id = e.turn_id
+          WHERE e.session_id = ${sessionId} AND e.id > ${after}
+          ORDER BY e.id
+          LIMIT ${query.limit}
+        ) page
+        WHERE position = 1 OR running_bytes <= ${query.maxBytes}
+        ORDER BY id
+      `)) as { rows: EventPageRow[] };
+      const rows = result.rows;
+      const fetched = Number(rows[0]?.fetched ?? 0);
+      return {
+        items: rows.map((row) =>
+          sseEventSchema.parse({
+            id: encodeEventCursor(Number(row.id)),
+            event: row.type,
+            data: {
+              schema_version: SSE_SCHEMA_VERSION,
+              session_id: sessionId,
+              turn_id:
+                row.turn_sequence === null ? null : String(row.turn_sequence),
+              attempt_id: row.attempt_id,
+              occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
+              data: row.payload,
+            },
+          }),
+        ),
+        // Cut by the row limit, or by the byte bound below the row limit.
+        more: fetched === query.limit || rows.length < fetched,
+      };
     },
   };
 }
