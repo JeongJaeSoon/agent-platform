@@ -91,6 +91,13 @@ export type ContainerInspect = {
   };
   HostConfig: Record<string, unknown>;
   Id: string;
+  /**
+   * What the container holds, as the daemon resolved it when the container
+   * was created: a volume mount carries that volume's `Name`. Fixed for the
+   * container's lifetime, and not the same question as which volume the
+   * create asked for.
+   */
+  Mounts: Array<{ Destination: string; Name?: string; Type: string }>;
   Name: string;
   State: {
     ExitCode: number;

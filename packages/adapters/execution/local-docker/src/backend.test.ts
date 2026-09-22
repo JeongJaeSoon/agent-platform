@@ -293,6 +293,13 @@ class FakeDocker {
         },
         HostConfig: container.body.HostConfig,
         Id: container.id,
+        Mounts: container.body.HostConfig.Mounts.filter(
+          (mount) => mount.Type === "volume",
+        ).map((mount) => ({
+          Destination: mount.Target,
+          Name: mount.Source,
+          Type: mount.Type,
+        })),
         Name: `/${container.name}`,
         State: {
           ExitCode: container.exitCode,
@@ -372,6 +379,32 @@ function legacyWorkspaceName(
   installationId: string,
 ): string {
   return workspaceVolumePrefixFor(sessionId, installationId).slice(0, -1);
+}
+
+/** The bounded volume a container's create left behind on the daemon. */
+function seedMountedWorkspace(
+  docker: FakeDocker,
+  body: ContainerCreateBody,
+  sessionId: string,
+): string {
+  const name = mountedWorkspaceOf(body);
+  docker.addVolume(
+    name,
+    {
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+      [LABELS.sessionId]: sessionId,
+      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    },
+    { size: String(QUOTA_BYTES) },
+  );
+  return name;
+}
+
+function mountedWorkspaceOf(body: ContainerCreateBody): string {
+  const mount = body.HostConfig.Mounts.find((one) => one.Type === "volume");
+  if (!mount) throw new Error("the create body mounts no volume");
+  return mount.Source;
 }
 
 /** This session's workspace as the daemon holds it, whatever its suffix. */
@@ -606,13 +639,29 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
   test("a created-but-never-started container is started on the retry", async () => {
     const intent = intentFor();
-    docker.add(
-      containerNameFor(intent, "test-a"),
-      await createBodyOf(intent),
-      "created",
-    );
+    const body = await createBodyOf(intent);
+    seedMountedWorkspace(docker, body, intent.sessionId);
+    docker.add(containerNameFor(intent, "test-a"), body, "created");
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
+  });
+
+  test("a created container is not started on a workspace that lost its ceiling", async () => {
+    // What a create leaves behind when the volume was pruned under it and the
+    // cleanup that should have taken the container away did not manage it:
+    // the unlabelled, unbounded volume Docker conjures out of a mount spec.
+    // Adopting on the contract label alone would start a worker on it.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    docker.addVolume(mountedWorkspaceOf(body), {});
+    docker.add(containerNameFor(intent, "test-a"), body, "created");
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "was created under quota <none>",
+    );
+    // Taken away here, so the next attempt creates one that mounts the
+    // workspace this call made rather than inheriting the unbounded one.
+    expect(docker.containers.size).toBe(0);
   });
 });
 

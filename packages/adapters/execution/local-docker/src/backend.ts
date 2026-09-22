@@ -744,6 +744,38 @@ export class LocalDockerBackend implements ExecutionBackend {
     throw new WorkspaceQuotaError(name, problem);
   }
 
+  /**
+   * What is wrong with the workspace this container holds, or null. A
+   * container's mounts are fixed when it is created, so this is the only way
+   * to learn which volume it will write to: the name it was created against
+   * may carry a different volume by now, or none at all.
+   */
+  private async mountedWorkspaceProblem(
+    intent: LaunchIntent,
+    container: ContainerInspect,
+  ): Promise<{ name: string; reason: string } | null> {
+    const mounted = container.Mounts.find(
+      (mount) => mount.Destination === this.config.workspaceDir,
+    );
+    const name = mounted?.Name;
+    if (name === undefined || name === "") {
+      return {
+        name: container.Name,
+        reason: `nothing is mounted at ${this.config.workspaceDir}`,
+      };
+    }
+    const volume = await this.client.inspectVolume(name);
+    if (volume === null) {
+      return { name, reason: "the container's workspace volume is gone" };
+    }
+    const reason = workspaceVolumeProblem(
+      volume,
+      intent.sessionId,
+      this.config,
+    );
+    return reason === null ? null : { name, reason };
+  }
+
   /** The container under this name has to be this very launch, or hands off. */
   private assertSameLaunch(
     intent: LaunchIntent,
@@ -781,6 +813,21 @@ export class LocalDockerBackend implements ExecutionBackend {
     this.assertSameLaunch(intent, container);
     let state = stateOf(container.State.Status);
     if (state === "pending") {
+      // Created and never started, which is also what a create leaves behind
+      // when its workspace turned out to be unbounded and the cleanup that
+      // should have removed the container did not manage it. Starting it on
+      // the strength of its labels would put a worker on exactly that volume,
+      // so what it holds is read from the container — the volume this call
+      // ensured is a different one by then — and a bad answer takes the
+      // container away instead of starting it.
+      const problem = await this.mountedWorkspaceProblem(intent, container);
+      if (problem !== null) {
+        await this.client.stopAndRemoveContainer(
+          container.Id,
+          this.config.stopTimeoutSeconds,
+        );
+        throw new WorkspaceQuotaError(problem.name, problem.reason);
+      }
       await this.client.startContainer(container.Id);
       const started = await this.client.inspectContainer(container.Id);
       if (started) state = stateOf(started.State.Status);
