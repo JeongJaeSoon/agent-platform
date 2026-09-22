@@ -50,6 +50,13 @@
       "when": 1790048700585,
       "tag": "0006_colorful_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790052903293,
+      "tag": "0007_quick_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

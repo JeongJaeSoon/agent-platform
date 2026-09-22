@@ -184,6 +184,22 @@ async function acquireFence(
   if (attempt.leaseExpiresAt.getTime() <= at.getTime()) {
     return { outcome: "lease_expired" };
   }
+  // The token has now been accepted for something, whatever that was: an
+  // event on no turn, a poll that found nothing. That closes the one-shot
+  // bootstrap replay, which would otherwise hand this binding to whoever
+  // still holds the nonce and fence the working worker out.
+  if (attempt.state === "allocated") {
+    await tx
+      .update(attempts)
+      .set({ state: "starting" })
+      .where(eq(attempts.id, attempt.id));
+    return {
+      outcome: "ok",
+      session,
+      attempt: { ...attempt, state: "starting" },
+      at,
+    };
+  }
   return { outcome: "ok", session, attempt, at };
 }
 

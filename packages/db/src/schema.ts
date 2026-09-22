@@ -158,6 +158,10 @@ export const queueMessages = pgTable(
     index("queue_messages_pick_idx")
       .on(table.sessionId, table.id)
       .where(sql`${table.claimedBy} IS NULL`),
+    // nextInput polls for a session's head every few hundred milliseconds
+    // and looks at claimed rows too, which the partial index above cannot
+    // serve.
+    index("queue_messages_head_idx").on(table.sessionId, table.kind, table.id),
   ],
 );
 

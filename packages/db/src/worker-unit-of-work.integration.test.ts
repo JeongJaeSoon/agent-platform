@@ -1329,6 +1329,35 @@ integration("worker gateway on PostgreSQL", () => {
     expect(next.input?.turn_id).toBe("1");
   });
 
+  test("any accepted call closes the claim replay window, not just the first input", async () => {
+    const partition = partitionFor("used");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const claimed = await claim(l);
+    // An event on no turn is the worker's first sign of life. It leaves the
+    // attempt with no input and no turn, and it still has to count.
+    await gateway.appendEvents(principalOf(claimed), {
+      ...scopeOf(claimed),
+      turn_id: null,
+      batch_key: "b",
+      events: [event(1)],
+    });
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.state).toBe("starting");
+    // Whoever still holds the nonce cannot take the binding from under it.
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    const next = await gateway.nextInput(principalOf(claimed), {
+      ...scopeOf(claimed),
+    });
+    expect(next.input?.turn_id).toBe("1");
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);
