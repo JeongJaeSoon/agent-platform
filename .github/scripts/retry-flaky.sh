@@ -32,6 +32,13 @@ record() {
   fi
 }
 
+# Cancelling a workflow signals the whole process group, so this wrapper is
+# signalled too. That, not the child's exit code, is what tells cancellation
+# apart from a command that merely exits 128-255 on its own.
+cancelled=0
+note_signal() { cancelled=1; }
+trap note_signal HUP INT TERM
+
 attempt=1
 while :; do
   # `if "$@"; then` would lose the exit code: a failed condition with no else
@@ -47,12 +54,19 @@ while :; do
     exit 0
   fi
 
-  # A shell reports a signalled child as 128+signum. Cancelling a workflow, or
-  # Ctrl-C locally, must stop here — restarting the suite would fight the
-  # cancellation.
-  if [ "$status" -ge 128 ]; then
-    echo "::error title=spike cancelled::${label} was terminated by a signal (exit ${status}); not retrying"
-    record "⛔ \`${label}\` — terminated by a signal (exit ${status}), not retried"
+  # Restarting the suite while something is trying to tear the job down would
+  # fight the cancellation. The trap above is the reliable signal; the exit
+  # codes are the narrow fallback for a child that was signalled alone, and are
+  # limited to the ones that mean teardown (SIGHUP/SIGINT/SIGKILL/SIGTERM) so
+  # that a command exiting 200 on its own is still treated as a normal failure.
+  interrupted=$cancelled
+  case "$status" in
+  129 | 130 | 137 | 143) interrupted=1 ;;
+  esac
+
+  if [ "$interrupted" -eq 1 ]; then
+    echo "::error title=spike cancelled::${label} was interrupted (exit ${status}); not retrying"
+    record "⛔ \`${label}\` — interrupted (exit ${status}), not retried"
     exit "$status"
   fi
 

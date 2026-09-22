@@ -144,7 +144,7 @@ jobs:
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
       # continue-on-error leaves the run green, so whoever reads only the run
       # conclusion never learns a spike broke. State the outcome on the summary
-      # page unconditionally.
+      # page on every run that was not cancelled.
       - if: '!cancelled()'
         name: Report spike outcome
         env:

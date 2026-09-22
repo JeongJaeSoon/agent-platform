@@ -134,7 +134,30 @@ describe("retry-flaky.sh", () => {
       expect(await readFile(marker, "utf8")).toBe("1\n");
       expect(outcome.stdout).toContain("::error title=spike cancelled::");
       expect(outcome.stdout).not.toContain("failed (exit 130); retrying");
-      expect(outcome.summary).toContain("terminated by a signal");
+      expect(outcome.summary).toContain("interrupted");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("still retries a command that exits 128-255 on its own", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "retry-flaky-high-exit-"));
+    const marker = join(directory, "attempts");
+    try {
+      // 200 is inside the 128+signum range but nothing was signalled here, so
+      // this is an ordinary failure and must get its retry.
+      const outcome = await run([
+        "2",
+        "high-exit",
+        "bash",
+        "-c",
+        `attempts=$(cat "${marker}" 2>/dev/null || echo 0); echo $((attempts + 1)) > "${marker}"; exit 200`,
+      ]);
+
+      expect(outcome.exitCode).toBe(200);
+      expect(await readFile(marker, "utf8")).toBe("2\n");
+      expect(outcome.stdout).toContain("failed (exit 200); retrying");
+      expect(outcome.stdout).not.toContain("::error title=spike cancelled::");
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
