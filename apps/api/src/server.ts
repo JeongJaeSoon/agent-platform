@@ -61,9 +61,10 @@ const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
-  // Fails closed: until the storage-backed verifier lands (94S-124) a
-  // finalize that carries a checkpoint is refused rather than promoted
-  // unread. Turns without a checkpoint finalize normally.
+  // Fails closed: the storage-backed CheckpointService exists (94S-124) but
+  // nothing binds it to this gateway yet (94S-201), so a finalize that carries
+  // a checkpoint is refused rather than promoted unread. Turns without a
+  // checkpoint finalize normally.
   checkpoints: rejectUnverifiedCheckpoints,
   options: {
     leaseTtlMs:
