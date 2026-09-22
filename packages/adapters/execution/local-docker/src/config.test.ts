@@ -127,7 +127,7 @@ describe("localDockerConfigFromEnv", () => {
     ).toThrow("http://");
   });
 
-  test("object store access is required and the endpoint optional", () => {
+  test("object store access is required and the endpoint an http URL", () => {
     for (const name of [
       "AWS_ACCESS_KEY_ID",
       "AWS_REGION",
@@ -141,8 +141,21 @@ describe("localDockerConfigFromEnv", () => {
         name,
       );
     }
-    const aws = localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" });
-    expect("endpoint" in aws.objectStore).toBe(false);
+    // Real AWS (no endpoint) and https endpoints are refused here, before a
+    // launch intent exists, for the same reason the worker refuses them: the
+    // egress proxy rejects the GREASE ECH in Bun's node:https (94S-254).
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" }),
+    ).toThrow("94S-254");
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: undefined }),
+    ).toThrow("94S-254");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
+      }),
+    ).toThrow("must be an http://");
     expect(() =>
       localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
     ).toThrow("AWS_ENDPOINT_URL");
@@ -151,7 +164,7 @@ describe("localDockerConfigFromEnv", () => {
         ...base,
         AWS_ENDPOINT_URL: "ftp://localstack:4566",
       }),
-    ).toThrow("http(s)://");
+    ).toThrow("http://");
     let message = "";
     try {
       localDockerConfigFromEnv({
