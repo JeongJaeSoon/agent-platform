@@ -1,18 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { localDockerConfigFromEnv } from "./config.ts";
 
-const base = { WORKER_GATEWAY_URL: "http://host.docker.internal:3000" };
+const base = {
+  EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+  WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+};
 
 describe("localDockerConfigFromEnv", () => {
   test("applies the documented defaults", () => {
     expect(localDockerConfigFromEnv(base)).toEqual({
-      allowedNetworks: ["bridge"],
+      allowedNetworks: ["agent-platform-worker"],
       apiVersion: "v1.44",
       dockerHost: "unix:///var/run/docker.sock",
+      egressProxyUrl: "http://egress-proxy:3128",
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
       installationId: "local",
-      network: "bridge",
+      network: "agent-platform-worker",
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 10,
       tmpfsSizeBytes: 256 * 1024 * 1024,
@@ -34,11 +38,32 @@ describe("localDockerConfigFromEnv", () => {
   test("requires the gateway URL and rejects a non-URL", () => {
     expect(() => localDockerConfigFromEnv({})).toThrow("WORKER_GATEWAY_URL");
     expect(() =>
-      localDockerConfigFromEnv({ WORKER_GATEWAY_URL: "not a url" }),
+      localDockerConfigFromEnv({ ...base, WORKER_GATEWAY_URL: "not a url" }),
     ).toThrow("WORKER_GATEWAY_URL");
   });
 
-  test("the network must be on the allowlist and never host", () => {
+  test("requires an http egress proxy URL", () => {
+    expect(() =>
+      localDockerConfigFromEnv({
+        WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+      }),
+    ).toThrow("EXECUTION_EGRESS_PROXY_URL");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_EGRESS_PROXY_URL: "egress-proxy:3128",
+      }),
+    ).toThrow("EXECUTION_EGRESS_PROXY_URL");
+    // A proxy is addressed over http even when it tunnels TLS.
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_EGRESS_PROXY_URL: "https://egress-proxy:3128",
+      }),
+    ).toThrow("http://");
+  });
+
+  test("the network must be on the allowlist", () => {
     expect(() =>
       localDockerConfigFromEnv({
         ...base,
@@ -49,19 +74,26 @@ describe("localDockerConfigFromEnv", () => {
       localDockerConfigFromEnv({
         ...base,
         EXECUTION_DOCKER_NETWORK: "ap-workers",
-        EXECUTION_DOCKER_NETWORK_ALLOWLIST: "bridge, ap-workers",
+        EXECUTION_DOCKER_NETWORK_ALLOWLIST: "ap-workers, ap-workers-2",
       }),
     ).toMatchObject({
-      allowedNetworks: ["bridge", "ap-workers"],
+      allowedNetworks: ["ap-workers", "ap-workers-2"],
       network: "ap-workers",
     });
-    expect(() =>
-      localDockerConfigFromEnv({
-        ...base,
-        EXECUTION_DOCKER_NETWORK: "host",
-        EXECUTION_DOCKER_NETWORK_ALLOWLIST: "host",
-      }),
-    ).toThrow("host");
+  });
+
+  test("a network that can never be internal is refused even if allowlisted", () => {
+    // An allowlist entry only says the operator meant this name; these four
+    // can never satisfy the isolation contract whatever the operator meant.
+    for (const network of ["bridge", "default", "host", "none"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_DOCKER_NETWORK: network,
+          EXECUTION_DOCKER_NETWORK_ALLOWLIST: network,
+        }),
+      ).toThrow("never allowed");
+    }
   });
 
   test("the worker user must not be root", () => {

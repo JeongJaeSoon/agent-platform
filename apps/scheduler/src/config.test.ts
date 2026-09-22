@@ -3,6 +3,7 @@ import { schedulerConfigFromEnv } from "./config.ts";
 
 const base = {
   DATABASE_URL: "postgresql://postgres:dev@127.0.0.1:5432/sessions",
+  EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   EXECUTION_INSTALLATION_ID: "dev-a",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "agent-platform-worker:dev",
@@ -22,6 +23,7 @@ describe("schedulerConfigFromEnv", () => {
       slotLimit: 10,
     });
     expect(config.docker.gatewayUrl).toBe(base.WORKER_GATEWAY_URL);
+    expect(config.docker.egressProxyUrl).toBe(base.EXECUTION_EGRESS_PROXY_URL);
   });
 
   test("falls back to QUEUE_DATABASE_URL and honours explicit limits", () => {

@@ -1,7 +1,8 @@
 /**
  * The slice of the Docker Engine API this backend uses, spoken directly over
- * the daemon socket with Bun's `fetch`. No SDK: the surface is five calls and
- * the request bodies are the audit trail for what a worker container gets.
+ * the daemon socket with Bun's `fetch`. No SDK: the surface is a handful of
+ * calls and the request bodies are the audit trail for what a worker
+ * container gets and what network it is allowed onto.
  */
 
 export const DEFAULT_DOCKER_HOST = "unix:///var/run/docker.sock";
@@ -62,7 +63,6 @@ export type ContainerCreateBody = {
   Env: string[];
   HostConfig: {
     CapDrop: string[];
-    ExtraHosts?: string[];
     Memory: number;
     Mounts: Array<{
       ReadOnly?: boolean;
@@ -97,6 +97,21 @@ export type ContainerInspect = {
     Running: boolean;
     Status: string;
   };
+};
+
+export type NetworkInspect = {
+  Containers: Record<string, { Name: string }> | null;
+  Driver: string;
+  Id: string;
+  Internal: boolean;
+  Name: string;
+};
+
+export type NetworkCreateBody = {
+  Driver?: string;
+  Internal: boolean;
+  Labels?: Record<string, string>;
+  Name: string;
 };
 
 export type ContainerSummary = {
@@ -197,6 +212,33 @@ export class DockerClient {
     );
     if (response.status === 404) return null;
     return response.json();
+  }
+
+  /** 201 with the new id; 409 when a network of that name already exists. */
+  async createNetwork(body: NetworkCreateBody): Promise<{ Id: string }> {
+    return (await this.request("POST", "/networks/create", body, [201])).json();
+  }
+
+  /** null when the network does not exist. */
+  async inspectNetwork(idOrName: string): Promise<NetworkInspect | null> {
+    const response = await this.request(
+      "GET",
+      `/networks/${encodeURIComponent(idOrName)}`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    return response.json();
+  }
+
+  /** Idempotent: a network that is already gone is success. */
+  async removeNetwork(idOrName: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/networks/${encodeURIComponent(idOrName)}`,
+      undefined,
+      [204, 404],
+    );
   }
 
   async listContainers(labels: string[]): Promise<ContainerSummary[]> {

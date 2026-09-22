@@ -36,13 +36,17 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
   const client = new DockerClient(dockerHost);
   const sessionIds: string[] = [];
   const runLabel = `it-${crypto.randomUUID()}`;
+  const workerNetwork = `ap-it-net-${crypto.randomUUID().slice(0, 8)}`;
 
   const environment = () => ({
     ...process.env,
     DATABASE_URL: database.url,
     DOCKER_HOST: dockerHost,
+    EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
     EXECUTION_INSTALLATION_ID: runLabel,
     EXECUTION_DOCKER_COMMAND: "sleep 600",
+    EXECUTION_DOCKER_NETWORK: workerNetwork,
+    EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
     EXECUTION_SLOT_LIMIT: "10",
     WORKER_CPUS: "0.25",
     WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
@@ -55,6 +59,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     await new DockerClient(dockerHost, "v1.44", {
       timeoutMs: 110_000,
     }).pullImage(IMAGE);
+    await client.createNetwork({ Internal: true, Name: workerNetwork });
     database = await createTempDatabase({ prefix: "scheduler_it" });
     pool = new Pool({ connectionString: database.url });
     db = drizzle(pool, { schema });
@@ -96,6 +101,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         } as RequestInit,
       ).catch(() => undefined);
     }
+    await client.removeNetwork(workerNetwork).catch(() => undefined);
     await pool.end();
     await database.drop();
   }, 120_000);

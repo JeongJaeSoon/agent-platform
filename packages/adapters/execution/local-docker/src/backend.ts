@@ -42,10 +42,21 @@ export const ENV = {
   gatewayUrl: "WORKER_GATEWAY_URL",
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
+  /**
+   * Both spellings, because tools are split on which one they read. They are
+   * a convenience, not the control: the worker network has no route off
+   * itself, so a client that ignores them reaches nothing at all.
+   */
+  httpProxy: "HTTP_PROXY",
+  httpProxyLower: "http_proxy",
+  httpsProxy: "HTTPS_PROXY",
+  httpsProxyLower: "https_proxy",
+  noProxy: "NO_PROXY",
+  noProxyLower: "no_proxy",
 } as const;
 
-/** Lets `host.docker.internal` resolve on native Linux daemons too. */
-export const HOST_GATEWAY_EXTRA_HOST = "host.docker.internal:host-gateway";
+/** The worker's own loopback is the only thing worth not proxying. */
+export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -109,6 +120,26 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   capabilities(): ExecutionBackendCapabilities {
     return { suspend: false };
+  }
+
+  /**
+   * Refuses to launch onto a network a worker could route off. The whole
+   * egress policy rests on the worker network being `internal`, so this is
+   * checked against the daemon once per process rather than assumed from a
+   * name in the environment.
+   */
+  async verifyNetworkIsolation(): Promise<void> {
+    const network = await this.client.inspectNetwork(this.config.network);
+    if (network === null) {
+      throw new Error(
+        `Docker network ${this.config.network} does not exist; create it before launching workers`,
+      );
+    }
+    if (!network.Internal) {
+      throw new Error(
+        `Docker network ${this.config.network} is not internal; a worker on it can reach the host and the LAN directly`,
+      );
+    }
   }
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
@@ -273,10 +304,18 @@ export class LocalDockerBackend implements ExecutionBackend {
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=${config.gatewayUrl}`,
         `${ENV.home}=${config.homeDir}`,
+        `${ENV.httpProxy}=${config.egressProxyUrl}`,
+        `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
+        `${ENV.httpsProxy}=${config.egressProxyUrl}`,
+        `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
       ],
       HostConfig: {
         CapDrop: ["ALL"],
-        ExtraHosts: [HOST_GATEWAY_EXTRA_HOST],
+        // No ExtraHosts: `host.docker.internal` would be a route to the
+        // daemon host that bypasses the proxy, and on an internal network it
+        // would not work anyway. The gateway is reached through the proxy.
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {

@@ -9,6 +9,7 @@ import {
   ExecutionConflictError,
   LABELS,
   LocalDockerBackend,
+  NO_PROXY_VALUE,
   stateOf,
   workspaceVolumeFor,
 } from "./backend.ts";
@@ -34,6 +35,8 @@ type FakeContainer = {
  */
 class FakeDocker {
   readonly containers = new Map<string, FakeContainer>();
+  /** name -> whether the network is `internal`. */
+  readonly networks = new Map<string, boolean>([["ap-workers", true]]);
   readonly requests: Array<{ method: string; path: string }> = [];
   private nextId = 1;
   private server: ReturnType<typeof Bun.serve> | undefined;
@@ -121,6 +124,21 @@ class FakeDocker {
         })),
       );
     }
+    const network = path.match(/^\/networks\/([^/]+)$/);
+    if (request.method === "GET" && network) {
+      const name = decodeURIComponent(network[1] ?? "");
+      const internal = this.networks.get(name);
+      if (internal === undefined) {
+        return json({ message: `network ${name} not found` }, 404);
+      }
+      return json({
+        Containers: {},
+        Driver: "bridge",
+        Id: `net-${name}`,
+        Internal: internal,
+        Name: name,
+      });
+    }
     const match = path.match(/^\/containers\/([^/]+)(?:\/(start|stop|json))?$/);
     if (!match) return json({ message: "not found" }, 404);
     const key = decodeURIComponent(match[1] ?? "");
@@ -184,9 +202,10 @@ let backend: LocalDockerBackend;
 
 function configFor(host: string): LocalDockerBackendConfig {
   return {
-    allowedNetworks: ["ap-workers", "bridge"],
+    allowedNetworks: ["ap-workers", "ap-workers-2"],
     apiVersion: "v1.44",
     dockerHost: host,
+    egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId: "test-a",
@@ -226,13 +245,21 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(body.Image).toBe("worker:test");
     expect(body.User).toBe("1000:1000");
     // Exactly the variables the worker contract needs, nothing else leaks in.
-    expect(body.Env.sort()).toEqual([
-      `${ENV.home}=/home/worker`,
-      `${ENV.bootstrapNonce}=nonce-abc`,
-      `${ENV.executionGeneration}=1`,
-      `${ENV.executionId}=${intent.executionId}`,
-      `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
-    ]);
+    expect(body.Env.sort()).toEqual(
+      [
+        `${ENV.home}=/home/worker`,
+        `${ENV.bootstrapNonce}=nonce-abc`,
+        `${ENV.executionGeneration}=1`,
+        `${ENV.executionId}=${intent.executionId}`,
+        `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
+        `${ENV.httpProxy}=http://egress-proxy:3128`,
+        `${ENV.httpProxyLower}=http://egress-proxy:3128`,
+        `${ENV.httpsProxy}=http://egress-proxy:3128`,
+        `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+      ].sort(),
+    );
     expect(body.Labels).toEqual({
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
@@ -243,7 +270,6 @@ describe("LocalDockerBackend.ensureExecution", () => {
     });
     expect(body.HostConfig).toEqual({
       CapDrop: ["ALL"],
-      ExtraHosts: ["host.docker.internal:host-gateway"],
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {
@@ -266,6 +292,8 @@ describe("LocalDockerBackend.ensureExecution", () => {
     // No bind mounts at all: no Docker socket, no host HOME.
     expect(JSON.stringify(body)).not.toContain("docker.sock");
     expect("Binds" in body.HostConfig).toBe(false);
+    // The host-gateway mapping would be a route around the proxy.
+    expect(JSON.stringify(body)).not.toContain("host-gateway");
   });
 
   test("the same intent twice yields one container and reports created=false", async () => {
@@ -570,3 +598,25 @@ async function createBodyOf(
     scratch.stop();
   }
 }
+
+describe("LocalDockerBackend.verifyNetworkIsolation", () => {
+  test("an internal worker network passes", async () => {
+    await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
+  });
+
+  test("a network that does not exist refuses the launch", async () => {
+    docker.networks.delete("ap-workers");
+    await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
+      "does not exist",
+    );
+  });
+
+  test("a routable network refuses the launch", async () => {
+    // The allowlist only vouches for the name; only the daemon knows whether
+    // that network can actually reach the host.
+    docker.networks.set("ap-workers", false);
+    await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
+      "is not internal",
+    );
+  });
+});
