@@ -1,0 +1,35 @@
+# Layered on docker-compose.yml by scripts/restore.sh only:
+#
+#   docker compose -p <new-project> -f infra/docker-compose.yml \
+#     -f infra/docker-compose.restore.yml up -d postgres localstack gitea
+#
+# A restore is a second installation on the same daemon, so everything the
+# base file fixes per host has to move: published ports are re-bound from
+# RESTORE_* variables (loopback only) and the worker network takes a
+# project-scoped name instead of the shared default. `!override` replaces the
+# base list instead of merging into it; it needs compose v2.24+.
+#
+# The postgres init mounts are dropped too. The base file applies the legacy
+# M0 SQL on first start, which would leave tables the restored dump then
+# tries to create; a dump goes into an empty database, and the dump itself
+# carries the drizzle journal that says which migrations it already has.
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:${RESTORE_POSTGRES_PORT:?}:5432"
+    volumes: !override
+      - postgres-data:/var/lib/postgresql/data
+
+  localstack:
+    ports: !override
+      - "127.0.0.1:${RESTORE_LOCALSTACK_PORT:?}:4566"
+
+  gitea:
+    ports: !override
+      - "127.0.0.1:${RESTORE_GITEA_HTTP_PORT:?}:3000"
+      - "127.0.0.1:${RESTORE_GITEA_SSH_PORT:?}:22"
+
+networks:
+  worker:
+    name: ${RESTORE_WORKER_NETWORK:?}
+    internal: true
