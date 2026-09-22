@@ -25,6 +25,14 @@ describe("worker composition surface", () => {
       executionGeneration: 1,
       executionId: "exec-1",
       gatewayUrl: "http://control-host:8080",
+      objectStore: {
+        accessKeyId: "test",
+        bucket: "claude-sessions",
+        endpoint: "http://localstack:4566",
+        region: "ap-northeast-1",
+        scope: "sessions/00000000-0000-4000-8000-000000000001/",
+        secretAccessKey: "test",
+      },
       runtime: {
         claudeConfigDir: "/home/worker/.claude",
         cwd: "/workspace",

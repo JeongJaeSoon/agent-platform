@@ -15,6 +15,12 @@ const launched: WorkerEnvironment = {
   WORKER_MODEL: "claude-sonnet-4-5",
   WORKER_RUNTIME_ENDPOINT: "http://litellm:4000",
   WORKER_RUNTIME_AUTH_VALUE: "placeholder-local",
+  AWS_ACCESS_KEY_ID: "test",
+  AWS_ENDPOINT_URL: "http://localstack:4566",
+  AWS_REGION: "ap-northeast-1",
+  AWS_SECRET_ACCESS_KEY: "test",
+  S3_BUCKET: "claude-sessions",
+  WORKER_OBJECT_PREFIX: "sessions/abc/",
 };
 
 describe("workerConfigFromEnv", () => {
@@ -99,6 +105,8 @@ describe("workerConfigFromEnv", () => {
     ["WORKER_EXECUTION_ID", { WORKER_EXECUTION_ID: undefined }],
     ["WORKER_MODEL", { WORKER_MODEL: undefined }],
     ["WORKER_RUNTIME_ENDPOINT", { WORKER_RUNTIME_ENDPOINT: undefined }],
+    ["S3_BUCKET", { S3_BUCKET: undefined }],
+    ["WORKER_OBJECT_PREFIX", { WORKER_OBJECT_PREFIX: undefined }],
   ])("refuses to start without %s", (name, missing) => {
     expect(() => workerConfigFromEnv({ ...launched, ...missing })).toThrow(
       name,

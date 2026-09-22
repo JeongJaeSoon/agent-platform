@@ -1,5 +1,6 @@
 import type { CheckpointRef } from "@agent-platform/contracts";
 import type {
+  CheckpointObjectStore,
   CheckpointPreparation,
   TranscriptMirror,
 } from "@agent-platform/runtime-core";
@@ -46,3 +47,15 @@ export const unwiredCheckpoints: WorkerCheckpointPort = {
     return null;
   },
 };
+
+/**
+ * The port the composition root hands the host, built on the session-scoped
+ * object store. The store is held but not read yet: the publisher and
+ * restorer that write and read it are 94S-246, and until they land this is
+ * `unwiredCheckpoints`.
+ */
+export function checkpointsOn(
+  _objectStore: CheckpointObjectStore,
+): WorkerCheckpointPort {
+  return unwiredCheckpoints;
+}

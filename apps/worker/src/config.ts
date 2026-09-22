@@ -3,12 +3,18 @@ import type {
   RuntimeProfile,
 } from "@agent-platform/runtime-claude";
 
+import {
+  objectStoreConfigFromEnv,
+  type WorkerObjectStoreConfig,
+  type WorkerObjectStoreEnvironment,
+} from "./object-store.ts";
+
 /**
  * Everything the worker reads from its environment. The first block is what
- * `LocalDockerBackend` injects (`backend.ts` `ENV`); the rest is the runtime
- * profile and the timers, which no launcher sets today.
+ * `LocalDockerBackend` injects (`backend.ts` `ENV`), object store included;
+ * the rest is the runtime profile and the timers, which no launcher sets today.
  */
-export type WorkerEnvironment = {
+export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   HOME?: string | undefined;
   WORKER_BOOTSTRAP_NONCE?: string | undefined;
   WORKER_EXECUTION_GENERATION?: string | undefined;
@@ -75,6 +81,7 @@ export type WorkerConfig = {
   executionGeneration: number;
   executionId: string;
   gatewayUrl: string;
+  objectStore: WorkerObjectStoreConfig;
   runtime: WorkerRuntimeSettings;
   timeouts: WorkerTimeouts;
 };
@@ -122,6 +129,7 @@ export function workerConfigFromEnv(
       required(environment.WORKER_GATEWAY_URL, "WORKER_GATEWAY_URL"),
       "WORKER_GATEWAY_URL",
     ),
+    objectStore: objectStoreConfigFromEnv(environment),
     runtime: {
       claudeConfigDir:
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
