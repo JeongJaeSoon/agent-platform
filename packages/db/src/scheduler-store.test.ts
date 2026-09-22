@@ -272,7 +272,9 @@ describe("PostgresSchedulerStore", () => {
         nonceExpiresAt: null,
         observedState: "pending",
         operationId: intent.operationId,
+        pendingReplacement: null,
         providerRef: null,
+        replacementCount: 0,
         sessionId,
       },
       {
@@ -283,7 +285,9 @@ describe("PostgresSchedulerStore", () => {
         nonceExpiresAt: null,
         observedState: "running",
         operationId: null,
+        pendingReplacement: null,
         providerRef: null,
+        replacementCount: 0,
         sessionId: legacySession,
       },
     ]);
@@ -514,6 +518,141 @@ describe("PostgresSchedulerStore", () => {
     ).toBe(false);
     await store.confirmExecutionGone(intent.executionId, NOW);
     expect(await store.revokeBootstrapNonce(intent, expired)).toBe(false);
+  });
+
+  test("requestReplacement records the intent, counts it, shuts the door, and refuses a launch that moved on", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent, NOW);
+    const launchRow = async () => {
+      const [row] = await db
+        .select({
+          nonceHash: workerLaunches.nonceHash,
+          replacementCount: workerLaunches.replacementCount,
+          replacementReason: workerLaunches.replacementReason,
+        })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      return row;
+    };
+    const active = async () =>
+      (await store.listActiveExecutions("local_docker")).find(
+        (row) => row.executionId === intent.executionId,
+      );
+
+    expect(await active()).toMatchObject({
+      pendingReplacement: null,
+      replacementCount: 0,
+    });
+
+    expect(await store.requestReplacement(intent, "stale_isolation", NOW)).toBe(
+      1,
+    );
+    // The credential the old resource holds matches nothing from here on.
+    expect(await launchRow()).toMatchObject({
+      nonceHash: null,
+      replacementCount: 1,
+      replacementReason: "stale_isolation",
+    });
+    expect(await active()).toMatchObject({
+      pendingReplacement: "stale_isolation",
+      replacementCount: 1,
+    });
+
+    // A second request counts again and carries the latest reason.
+    expect(await store.requestReplacement(intent, "nonce_expired", NOW)).toBe(
+      2,
+    );
+    expect(await active()).toMatchObject({
+      pendingReplacement: "nonce_expired",
+      replacementCount: 2,
+    });
+
+    // Settling clears the reason and keeps the count.
+    await store.settleReplacement(intent);
+    expect(await active()).toMatchObject({
+      pendingReplacement: null,
+      replacementCount: 2,
+    });
+
+    // A stale generation is not this launch.
+    expect(
+      await store.requestReplacement(
+        { ...intent, generation: 9 },
+        "stale_isolation",
+        NOW,
+      ),
+    ).toBeNull();
+    // Neither is one whose slot went back.
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    expect(
+      await store.requestReplacement(intent, "stale_isolation", NOW),
+    ).toBeNull();
+    expect((await launchRow())?.replacementCount).toBe(2);
+
+    // Nor one that bound a worker: its resource is not to be rebuilt.
+    const claimedSession = await insertUnassigned();
+    const other = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId: claimedSession,
+      slotLimit: 10,
+    });
+    if (!other) throw new Error("no intent");
+    const nonce = await store.issueBootstrapNonce(other, NOW);
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: other.generation,
+      executionId: other.executionId,
+      id: "att-replace",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId: claimedSession,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-replace" })
+      .where(eq(workerLaunches.executionId, other.executionId));
+    expect(
+      await store.requestReplacement(other, "stale_isolation", NOW),
+    ).toBeNull();
+    const [kept] = await db
+      .select({ nonceHash: workerLaunches.nonceHash })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, other.executionId));
+    // Refused means untouched: the worker's credential is still there.
+    expect(kept?.nonceHash).toEqual(sha256(nonce));
+  });
+
+  test("the schema refuses a replacement reason it does not know", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    // Drizzle wraps the driver error; the constraint is named in its cause.
+    const failure = await db
+      .update(workerLaunches)
+      .set({ replacementReason: "because" })
+      .where(eq(workerLaunches.executionId, intent.executionId))
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(failure).toBeInstanceOf(Error);
+    expect(String((failure as Error).cause)).toMatch(
+      /worker_launches_replacement_reason_check/,
+    );
   });
 
   test("acquirePassLock hands out the lock once and releases it", async () => {

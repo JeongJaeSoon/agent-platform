@@ -12,6 +12,7 @@ import type {
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  ReplaceReason,
   ReserveLaunchInput,
   SchedulerStore,
   StoredLaunchIntent,
@@ -66,7 +67,9 @@ class MemoryStore implements SchedulerStore {
       nonceExpiresAt: null,
       observedState: "pending",
       operationId: crypto.randomUUID(),
+      pendingReplacement: null,
       providerRef: null,
+      replacementCount: 0,
       sessionId,
       slotReleased: false,
       ...overrides,
@@ -112,6 +115,32 @@ class MemoryStore implements SchedulerStore {
       throw new Error("seeded intent is complete");
     }
     return { ...seeded, operationId: seeded.operationId };
+  }
+
+  async requestReplacement(
+    ref: ExecutionRef,
+    reason: ReplaceReason,
+  ): Promise<number | null> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased
+    ) {
+      return null;
+    }
+    row.pendingReplacement = reason;
+    row.replacementCount += 1;
+    // The door shuts with the record, as in the real store.
+    row.nonce = null;
+    return row.replacementCount;
+  }
+
+  async settleReplacement(ref: ExecutionRef): Promise<void> {
+    const row = this.executions.get(ref.executionId);
+    if (!row || row.generation !== ref.generation) return;
+    row.pendingReplacement = null;
   }
 
   async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
@@ -229,6 +258,8 @@ class FakeBackend implements ExecutionBackend {
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
+  /** Containers whose `stop` succeeds and whose `remove` then fails. */
+  failRemoveFor = new Set<string>();
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
   /** Session ids whose replacement the provider says it could not create. */
@@ -355,6 +386,12 @@ class FakeBackend implements ExecutionBackend {
     this.terminateCalls.push(ref);
     if (this.failTerminateFor.has(nameOf(ref))) {
       throw new Error("docker stop failed");
+    }
+    const stopped = this.containers.get(nameOf(ref));
+    if (stopped && this.failRemoveFor.has(nameOf(ref))) {
+      // Half a teardown: the container is exited and still there.
+      stopped.exited = true;
+      throw new Error("docker rm failed");
     }
     if (this.mismatchTerminateFor.has(nameOf(ref))) {
       return { foundGeneration: 99, outcome: "generation_mismatch" };
@@ -565,6 +602,272 @@ describe("runScheduler", () => {
     expect(summary.replaced).toHaveLength(0);
     expect(backend.containers.size).toBe(1);
     expect(backend.ensureCalls).toHaveLength(1);
+  });
+
+  test("a replacement whose teardown only half happened is finished by the next pass with the same intent", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+    const name = `${intent.executionId}#1`;
+
+    // `stop` goes through, `rm` does not: the container is left exited.
+    backend.staleFor.add(name);
+    backend.failRemoveFor.add(name);
+    const first = await run();
+    expect(first.reconcileFailed).toEqual([ref]);
+    expect(first.replaced).toHaveLength(0);
+    expect(backend.containers.get(name)?.exited).toBe(true);
+    // The intent to rebuild was written before the teardown began.
+    const row = store.executions.get(intent.executionId);
+    expect(row?.pendingReplacement).toBe("stale_isolation");
+    expect(row?.replacementCount).toBe(1);
+    expect(row?.slotReleased).toBe(false);
+    expect(store.confirmedGone).toEqual([]);
+
+    // The next pass sees an exited container. Without the record it would
+    // close the launch and reschedule the session under generation 2.
+    backend.failRemoveFor.clear();
+    const second = await run();
+    expect(second.replaced).toEqual([ref]);
+    expect(second.reensured).toEqual([ref]);
+    expect(second.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    const [again] = backend.ensureCalls.slice(-1);
+    expect(again?.executionId).toBe(intent.executionId);
+    expect(again?.generation).toBe(1);
+    expect(again?.operationId).toBe(intent.operationId);
+    expect(backend.containers.size).toBe(1);
+    expect(backend.containers.get(name)?.exited).toBe(false);
+    expect(store.executions.size).toBe(1);
+    expect(row?.pendingReplacement).toBeNull();
+    expect(row?.replacementCount).toBe(2);
+    expect(row?.observedState).toBe("running");
+
+    // Settled: the next pass leaves the replacement alone.
+    const third = await run();
+    expect(third.replaced).toHaveLength(0);
+    expect(third.reensured).toHaveLength(0);
+    expect(backend.terminateCalls).toHaveLength(2);
+  });
+
+  test("an expired-nonce replacement survives a half teardown and gets a fresh credential", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const name = `${intent.executionId}#1`;
+    const row = store.executions.get(intent.executionId);
+    if (!row?.nonceExpiresAt) throw new Error("no nonce");
+    const oldNonce = backend.containers.get(name)?.nonce;
+    const late = new Date(row.nonceExpiresAt.getTime() + 1);
+    const runLate = () =>
+      runScheduler({
+        backend,
+        image: "worker:test",
+        logger: recordingLogger().logger,
+        now: () => late,
+        resources: RESOURCES,
+        slotLimit: 10,
+        store,
+      });
+
+    backend.failRemoveFor.add(name);
+    const first = await runLate();
+    expect(first.reconcileFailed).toHaveLength(1);
+    expect(row.pendingReplacement).toBe("nonce_expired");
+
+    backend.failRemoveFor.clear();
+    const second = await runLate();
+    expect(second.reensured).toEqual([
+      { executionId: intent.executionId, generation: 1 },
+    ]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.containers.get(name)?.nonce).not.toBe(oldNonce);
+    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(late.getTime());
+    expect(row.pendingReplacement).toBeNull();
+  });
+
+  test("a control host that died between the record and the teardown loses nothing", async () => {
+    const { backend, run, store } = harness();
+    // Recorded, never torn down: the stale container is still running.
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+      replacementCount: 1,
+      pendingReplacement: "stale_isolation",
+    });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    backend.staleFor.add("exec-1#1");
+    const ref = { executionId: "exec-1", generation: 1 };
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([ref]);
+    expect(summary.reensured).toEqual([ref]);
+    expect(store.confirmedGone).toEqual([]);
+    const [again] = backend.ensureCalls.slice(-1);
+    expect(again?.operationId).toBe(row.operationId ?? undefined);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(2);
+  });
+
+  test("a control host that died after the teardown rebuilds instead of closing the launch", async () => {
+    const { backend, run, store } = harness();
+    // Torn down, not rebuilt, not recorded: nothing on the provider, and
+    // the row still says running. Without the record this is "missing" and
+    // would be re-ensured anyway; with the row saying `terminating` it would
+    // be read as reclaimed and closed.
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "terminating",
+      replacementCount: 1,
+      pendingReplacement: "stale_isolation",
+    });
+    const ref = { executionId: "exec-1", generation: 1 };
+
+    const summary = await run();
+    expect(summary.reensured).toEqual([ref]);
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    const [again] = backend.ensureCalls.slice(-1);
+    expect(again?.operationId).toBe(row.operationId ?? undefined);
+    expect(row.pendingReplacement).toBeNull();
+  });
+
+  test("a replacement that landed before the host died is settled, not rebuilt again", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+      replacementCount: 1,
+      pendingReplacement: "stale_isolation",
+    });
+    // Current contract, running: this is the replacement itself.
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+
+    const summary = await run();
+    expect(summary.replaced).toHaveLength(0);
+    expect(summary.reensured).toHaveLength(0);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(1);
+  });
+
+  test("a claimed launch ignores a pending replacement and is closed like any exit", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      claimed: true,
+      executionId: "exec-1",
+      observedState: "running",
+      replacementCount: 1,
+      pendingReplacement: "stale_isolation",
+    });
+    backend.containers.set("exec-1#1", {
+      exited: true,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+
+    const summary = await run();
+    expect(summary.terminatedObserved).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(summary.reensured).toHaveLength(0);
+    expect(store.confirmedGone).toEqual(["exec-1"]);
+    expect(backend.ensureCalls).toEqual([]);
+  });
+
+  test("a launch that keeps needing replacement is left alone at the limit", async () => {
+    const { backend, records, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent || !sessionId) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+    const name = `${intent.executionId}#1`;
+    const row = store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+
+    // Every rebuild dies on start, so every pass finds an exited resource
+    // with a replacement still pending.
+    backend.staleFor.add(name);
+    backend.exitOnStartFor.add(sessionId);
+    const first = await run();
+    expect(first.replaced).toEqual([ref]);
+    expect(first.failedLaunches).toEqual([ref]);
+    expect(row.replacementCount).toBe(1);
+    expect(row.pendingReplacement).toBe("stale_isolation");
+
+    const second = await run();
+    expect(second.replaced).toEqual([ref]);
+    expect(row.replacementCount).toBe(2);
+    const third = await run();
+    expect(third.replaced).toEqual([ref]);
+    expect(row.replacementCount).toBe(3);
+    expect(store.confirmedGone).toEqual([]);
+
+    // DEFAULT_REPLACEMENT_LIMIT rebuilds are spent. Nothing is torn down,
+    // nothing is built, nothing is released: the launch keeps its slot and
+    // the pass keeps failing until someone looks.
+    backend.exitOnStartFor.clear();
+    for (const _ of [1, 2]) {
+      const exhausted = await run();
+      expect(exhausted.replacementsExhausted).toEqual([ref]);
+      expect(exhausted.replaced).toHaveLength(0);
+      expect(exhausted.reensured).toHaveLength(0);
+      expect(exhausted.terminatedObserved).toHaveLength(0);
+      expect(exhausted.launched).toHaveLength(0);
+    }
+    expect(store.confirmedGone).toEqual([]);
+    expect(row.replacementCount).toBe(3);
+    expect(row.slotReleased).toBe(false);
+    expect(backend.containers.get(name)?.exited).toBe(true);
+    expect(backend.terminateCalls).toHaveLength(3);
+    expect(backend.ensureCalls).toHaveLength(4);
+    expect(
+      records.filter((r) => r.message.includes("Replacement limit reached")),
+    ).toHaveLength(2);
+  });
+
+  test("the replacement count survives a settle, so a launch cannot be rebuilt forever", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+      pendingReplacement: null,
+      replacementCount: 3,
+    });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    // Rebuilt three times already, judged stale once more.
+    backend.staleFor.add("exec-1#1");
+
+    const summary = await run();
+    expect(summary.replacementsExhausted).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.containers.get("exec-1#1")?.exited).toBe(false);
   });
 
   test("a created-but-never-started resource is started through the same intent", async () => {

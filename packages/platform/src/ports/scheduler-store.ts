@@ -5,6 +5,9 @@ import type {
   LaunchIntent,
 } from "./execution-backend.ts";
 
+/** Why a resource that exists is torn down and built again. */
+export type ReplaceReason = "nonce_expired" | "stale_isolation";
+
 export type SchedulerDemand = {
   /** Reserved launch slots: rows that have not given their slot back. */
   activeExecutionCount: number;
@@ -56,6 +59,20 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * environment, so it has to be replaced rather than waited on.
    */
   nonceExpiresAt: Date | null;
+  /**
+   * A replacement the scheduler committed to before tearing the resource
+   * down, until the one built from the intent is observed up. It survives a
+   * teardown that only half happened and a control host that died between
+   * the two halves: the next pass finishes it with the same intent instead
+   * of reading the stopped resource as an ordinary exit.
+   */
+  pendingReplacement: ReplaceReason | null;
+  /**
+   * How many replacements this launch has ever been asked for. Never reset,
+   * so a launch whose fresh resource keeps being judged replaceable runs into
+   * the scheduler's limit instead of being rebuilt forever.
+   */
+  replacementCount: number;
 };
 
 /**
@@ -90,6 +107,25 @@ export interface SchedulerStore {
    * loses or wins outright, never both.
    */
   revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean>;
+  /**
+   * Records, before anything is torn down, that this launch is to be rebuilt
+   * from its stored intent, counts the request, and shuts the launch's
+   * bootstrap door in the same write — the resource about to go must not
+   * bind a worker between here and the teardown, and the one built next
+   * gets a credential of its own. Returns the running count, or null when
+   * the launch has bound a worker or given its slot back: there is then
+   * nothing to rebuild, and the caller must not tear down.
+   */
+  requestReplacement(
+    ref: ExecutionRef,
+    reason: ReplaceReason,
+    now: Date,
+  ): Promise<number | null>;
+  /**
+   * The replacement landed: the resource built from the intent is up. Clears
+   * the pending reason and keeps the count.
+   */
+  settleReplacement(ref: ExecutionRef): Promise<void>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,

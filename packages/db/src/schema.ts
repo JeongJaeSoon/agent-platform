@@ -8,6 +8,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -344,6 +345,15 @@ export const workerLaunches = pgTable(
     nonceHash: bytea("nonce_hash").unique(),
     nonceExpiresAt: timestamp("nonce_expires_at", { withTimezone: true }),
     claimedAttemptId: text("claimed_attempt_id").references(() => attempts.id),
+    // Set before the scheduler tears the resource down to rebuild it from
+    // the same intent; cleared once the rebuilt one is observed up. A
+    // teardown that half happens, or a host that dies mid-way, leaves it
+    // set, and that is what keeps the next pass from reading the stopped
+    // resource as an ordinary exit.
+    replacementReason: text("replacement_reason"),
+    // Replacements ever requested for this launch; never reset, so the
+    // scheduler's limit holds across settle-and-request-again cycles.
+    replacementCount: integer("replacement_count").notNull().default(0),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -362,6 +372,14 @@ export const workerLaunches = pgTable(
       .where(
         sql`${table.slotReleasedAt} IS NULL AND ${table.sessionId} IS NOT NULL`,
       ),
+    check(
+      "worker_launches_replacement_reason_check",
+      sql`${table.replacementReason} IS NULL OR ${table.replacementReason} IN ('nonce_expired', 'stale_isolation')`,
+    ),
+    check(
+      "worker_launches_replacement_count_check",
+      sql`${table.replacementCount} >= 0`,
+    ),
   ],
 );
 
