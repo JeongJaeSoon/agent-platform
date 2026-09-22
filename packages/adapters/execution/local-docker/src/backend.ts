@@ -30,10 +30,20 @@ export const LABELS = {
   sessionId: "agent-platform.session-id",
 } as const;
 
+/**
+ * Everything the worker needs for its bootstrap claim
+ * (`bootstrapClaimRequestSchema`): identity, generation, nonce, where to call.
+ * Labels are invisible from inside the container, so these ride on env.
+ */
 export const ENV = {
   bootstrapNonce: "WORKER_BOOTSTRAP_NONCE",
+  executionGeneration: "WORKER_EXECUTION_GENERATION",
+  executionId: "WORKER_EXECUTION_ID",
   gatewayUrl: "WORKER_GATEWAY_URL",
 } as const;
+
+/** Lets `host.docker.internal` resolve on native Linux daemons too. */
+export const HOST_GATEWAY_EXTRA_HOST = "host.docker.internal:host-gateway";
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -209,10 +219,13 @@ export class LocalDockerBackend implements ExecutionBackend {
       ...(config.command ? { Cmd: config.command } : {}),
       Env: [
         `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+        `${ENV.executionGeneration}=${intent.generation}`,
+        `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=${config.gatewayUrl}`,
       ],
       HostConfig: {
         CapDrop: ["ALL"],
+        ExtraHosts: [HOST_GATEWAY_EXTRA_HOST],
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {

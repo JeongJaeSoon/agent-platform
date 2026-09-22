@@ -62,6 +62,7 @@ export type ContainerCreateBody = {
   Env: string[];
   HostConfig: {
     CapDrop: string[];
+    ExtraHosts?: string[];
     Memory: number;
     Mounts: Array<{
       ReadOnly?: boolean;

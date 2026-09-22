@@ -4,6 +4,7 @@ import type {
   ExecutionRef,
   ExecutionResources,
   LaunchIntent,
+  TerminateExecutionResult,
 } from "../ports/execution-backend.ts";
 import type {
   SchedulerStore,
@@ -121,14 +122,28 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         ...observed,
         state: "terminating",
       });
+      let outcome: TerminateExecutionResult;
       try {
-        await backend.terminate(ref);
+        outcome = await backend.terminate(ref);
       } catch (error) {
         logger.error("Reclaiming exited execution resource failed", {
           ...fieldsOf(ref),
           error: messageOf(error),
           session_id: execution.sessionId,
         });
+        continue;
+      }
+      if (outcome.outcome === "generation_mismatch") {
+        // The resource was left untouched, so the slot stays occupied; the
+        // row remains `terminating` and the next pass tries again.
+        logger.error(
+          "Reclaiming exited execution resource hit a generation mismatch",
+          {
+            ...fieldsOf(ref),
+            found_generation: outcome.foundGeneration,
+            session_id: execution.sessionId,
+          },
+        );
         continue;
       }
       await store.recordObservation(ref, observed);
@@ -190,7 +205,14 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       provider_ref: resource.providerRef,
       session_id: resource.sessionId,
     });
-    await backend.terminate(refOf(resource));
+    const outcome = await backend.terminate(refOf(resource));
+    if (outcome.outcome !== "terminated") {
+      logger.warn("Orphan resource was not terminated", {
+        ...fieldsOf(refOf(resource)),
+        outcome: outcome.outcome,
+      });
+      continue;
+    }
     summary.orphansTerminated.push(refOf(resource));
   }
 

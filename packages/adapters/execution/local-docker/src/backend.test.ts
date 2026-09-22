@@ -225,6 +225,8 @@ describe("LocalDockerBackend.ensureExecution", () => {
     // Exactly the two variables the ticket allows, nothing else leaks in.
     expect(body.Env.sort()).toEqual([
       `${ENV.bootstrapNonce}=nonce-abc`,
+      `${ENV.executionGeneration}=1`,
+      `${ENV.executionId}=${intent.executionId}`,
       `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
     ]);
     expect(body.Labels).toEqual({
@@ -237,6 +239,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     });
     expect(body.HostConfig).toEqual({
       CapDrop: ["ALL"],
+      ExtraHosts: ["host.docker.internal:host-gateway"],
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {

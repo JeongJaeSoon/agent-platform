@@ -137,6 +137,7 @@ class FakeBackend implements ExecutionBackend {
   readonly terminateCalls: ExecutionRef[] = [];
   failEnsureFor = new Set<string>();
   failTerminateFor = new Set<string>();
+  mismatchTerminateFor = new Set<string>();
 
   capabilities() {
     return { suspend: false };
@@ -209,6 +210,9 @@ class FakeBackend implements ExecutionBackend {
     this.terminateCalls.push(ref);
     if (this.failTerminateFor.has(nameOf(ref))) {
       throw new Error("docker stop failed");
+    }
+    if (this.mismatchTerminateFor.has(nameOf(ref))) {
+      return { foundGeneration: 99, outcome: "generation_mismatch" };
     }
     const container = this.containers.get(nameOf(ref));
     if (!container) {
@@ -372,6 +376,28 @@ describe("runScheduler", () => {
     expect(second.terminatedObserved).toHaveLength(1);
     expect(backend.containers.has(name)).toBe(false);
     expect([...store.executions.values()][0]?.observedState).toBe("terminated");
+  });
+
+  test("a generation mismatch on reclaim keeps the slot occupied", async () => {
+    const { backend, records, run, store } = harness(1);
+    store.addUnassigned(2);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    container.exited = true;
+    backend.mismatchTerminateFor.add(name);
+
+    const summary = await run();
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(summary.launched).toEqual([]);
+    expect([...store.executions.values()][0]?.observedState).toBe(
+      "terminating",
+    );
+    expect(
+      records.some(
+        (r) => r.level === "error" && r.message.includes("generation mismatch"),
+      ),
+    ).toBe(true);
   });
 
   test("an absent resource after a terminating mark is recorded terminated, not relaunched", async () => {

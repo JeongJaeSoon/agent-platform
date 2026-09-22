@@ -131,7 +131,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     if (!inspected) throw new Error("container vanished");
     expect(inspected.Config.User).toBe("1000:1000");
     // Docker merges the image's own Env (PATH etc.) into the container; only
-    // the two variables the backend adds may be left after removing those.
+    // the variables the backend adds may be left after removing those.
     const imageEnv = new Set(
       (
         (await (
@@ -143,6 +143,8 @@ integration("LocalDockerBackend against a real daemon", () => {
       (inspected.Config.Env ?? []).filter((e) => !imageEnv.has(e)).sort(),
     ).toEqual([
       `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+      `${ENV.executionGeneration}=${intent.generation}`,
+      `${ENV.executionId}=${intent.executionId}`,
       `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
     ]);
     const host = inspected.HostConfig as Record<string, unknown>;
