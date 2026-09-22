@@ -298,6 +298,56 @@ describe("egress proxy", () => {
     }
   }, 20_000);
 
+  test("a client that leaves mid-connect keeps its slot until that settles", async () => {
+    let letResolve: (() => void) | undefined;
+    const gate = new Promise<void>((done) => {
+      letResolve = done;
+    });
+    let resolving = 0;
+    const slow = await startEgressProxy({
+      headTimeoutMs: 20_000,
+      logger: silent,
+      maxConnections: 64,
+      maxConnectionsPerClient: 1,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      resolve: async () => {
+        resolving += 1;
+        await gate;
+        return ["127.0.0.1"];
+      },
+    });
+    try {
+      const first = await connect(slow.port);
+      first.send(
+        request(`GET http://gateway.test:${upstreamPort}/slow HTTP/1.1`),
+      );
+      while (resolving === 0) await Bun.sleep(5);
+
+      // Gone from the client's side, but the outbound attempt it started is
+      // still alive, so the slot it is spending must not come back yet.
+      first.close();
+      await Bun.sleep(50);
+      const second = await connect(slow.port);
+      expect(await second.waitFor("503")).toContain("this client");
+      second.close();
+
+      letResolve?.();
+      const after = await connect(slow.port);
+      after.send(
+        request(`GET http://gateway.test:${upstreamPort}/ok HTTP/1.1`),
+      );
+      expect(await after.waitFor("upstream /ok")).toContain("HTTP/1.1 200");
+      after.close();
+    } finally {
+      letResolve?.();
+      slow.stop();
+    }
+  }, 30_000);
+
   test("a dead address does not fail a destination with a live one", async () => {
     const failover = await startEgressProxy({
       connectTimeoutMs: 2_000,

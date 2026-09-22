@@ -7,7 +7,7 @@ import {
   containerNameFor,
   ENV,
   ExecutionConflictError,
-  ISOLATION_CONTRACT,
+  isolationStampFor,
   LABELS,
   LocalDockerBackend,
   NO_PROXY_VALUE,
@@ -265,7 +265,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
       [LABELS.installation]: "test-a",
-      [LABELS.isolation]: ISOLATION_CONTRACT,
+      [LABELS.isolation]: isolationStampFor(configFor(docker.host)),
       [LABELS.managed]: "true",
       [LABELS.operationId]: "op-1",
       [LABELS.sessionId]: intent.sessionId,
@@ -347,7 +347,39 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).not.toBe(stale.id);
     expect(docker.containers.size).toBe(1);
     const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
-    expect(fresh?.body.Labels[LABELS.isolation]).toBe(ISOLATION_CONTRACT);
+    expect(fresh?.body.Labels[LABELS.isolation]).toBe(
+      isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a container built on other isolation settings is replaced too", async () => {
+    // Same contract version, but the network moved: the label has to notice.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = isolationStampFor({
+      ...configFor(docker.host),
+      network: "ap-workers-2",
+    });
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+  });
+
+  test("a container from a newer contract is left alone, not downgraded", async () => {
+    // A rollback must not tear down what a newer control host built.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "9:0123456789abcdef";
+    const newer = docker.add(containerNameFor(intent, "test-a"), body);
+
+    expect(await backend.ensureExecution(intent)).toMatchObject({
+      created: false,
+      providerRef: newer.id,
+    });
+    expect((await backend.inspect(intent)).stale).toBeUndefined();
   });
 
   test("an older container that is not ours is a conflict, not replaced", async () => {

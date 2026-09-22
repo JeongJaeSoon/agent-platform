@@ -59,6 +59,10 @@ type ClientState = {
   closeWhenDrained: boolean;
   /** Still counted against the connection caps. */
   counted: boolean;
+  /** An outbound attempt for this client is in flight. */
+  dispatching: boolean;
+  /** The client went away mid-dispatch; free its slot once that finishes. */
+  releaseDeferred: boolean;
   /** Read from the client while the upstream connection was still opening. */
   early: Uint8Array[];
   earlyBytes: number;
@@ -122,10 +126,12 @@ export async function startEgressProxy(
           buffer: new Uint8Array(0),
           closeWhenDrained: false,
           counted: true,
+          dispatching: false,
           early: [],
           earlyBytes: 0,
           headTimer: undefined,
           phase: "head",
+          releaseDeferred: false,
           remote,
           toClient: { bytes: 0, chunks: [] },
           toUpstream: { bytes: 0, chunks: [] },
@@ -207,6 +213,20 @@ export async function startEgressProxy(
   }
 
   async function dispatch(
+    socket: Socket<ClientState>,
+    request: ProxyRequest,
+    rest: Uint8Array,
+  ): Promise<void> {
+    socket.data.dispatching = true;
+    try {
+      await runDispatch(socket, request, rest);
+    } finally {
+      socket.data.dispatching = false;
+      if (socket.data.releaseDeferred) release(socket);
+    }
+  }
+
+  async function runDispatch(
     socket: Socket<ClientState>,
     request: ProxyRequest,
     rest: Uint8Array,
@@ -383,6 +403,14 @@ export async function startEgressProxy(
   function release(socket: Socket<ClientState>): void {
     clearHeadTimer(socket.data);
     if (!socket.data.counted) return;
+    if (socket.data.dispatching) {
+      // The outbound attempt outlives the client socket by up to the connect
+      // deadline. Freeing the slot now would let a client that disconnects
+      // immediately open another one per in-flight connect and walk past
+      // both caps while the dead sockets pile up.
+      socket.data.releaseDeferred = true;
+      return;
+    }
     socket.data.counted = false;
     open -= 1;
     const mine = (perClient.get(socket.data.remote) ?? 1) - 1;

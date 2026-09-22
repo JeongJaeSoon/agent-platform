@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ExecutionState } from "@agent-platform/contracts";
 import type {
   EnsureExecutionResult,
@@ -69,7 +70,27 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  * 1: non-root, read-only rootfs, dropped caps, per-session volume, bridge.
  * 2: internal worker network and egress proxy, no host-gateway mapping.
  */
-export const ISOLATION_CONTRACT = "2";
+export const ISOLATION_CONTRACT = 2;
+
+/**
+ * What goes in the label: the contract version and a fingerprint of the
+ * settings that shape the isolation. The version alone would miss a moved
+ * network or a repointed proxy, neither of which needs a code change, and
+ * both of which leave the old container on the old boundary.
+ */
+export function isolationStampFor(config: LocalDockerBackendConfig): string {
+  const shape = JSON.stringify([
+    config.egressProxyUrl,
+    config.homeDir,
+    config.network,
+    NO_PROXY_VALUE,
+    config.tmpfsSizeBytes,
+    config.user,
+    config.workspaceDir,
+  ]);
+  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
+  return `${ISOLATION_CONTRACT}:${digest}`;
+}
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -158,7 +179,7 @@ export class LocalDockerBackend implements ExecutionBackend {
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
     const existing = await this.client.inspectContainer(name);
-    if (existing && isCurrentContract(existing)) {
+    if (existing && isCurrentContract(existing, this.config)) {
       return this.adopt(intent, existing);
     }
     if (existing) {
@@ -209,7 +230,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       observedAt,
       providerRef: container.Id,
       state,
-      ...(isCurrentContract(container) ? {} : { stale: true }),
+      ...(isCurrentContract(container, this.config) ? {} : { stale: true }),
     };
   }
 
@@ -374,7 +395,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
         [LABELS.installation]: config.installationId,
-        [LABELS.isolation]: ISOLATION_CONTRACT,
+        [LABELS.isolation]: isolationStampFor(config),
         [LABELS.managed]: "true",
         [LABELS.operationId]: intent.operationId,
         [LABELS.sessionId]: intent.sessionId,
@@ -384,8 +405,18 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 }
 
-function isCurrentContract(container: ContainerInspect): boolean {
-  return container.Config.Labels?.[LABELS.isolation] === ISOLATION_CONTRACT;
+function isCurrentContract(
+  container: ContainerInspect,
+  config: LocalDockerBackendConfig,
+): boolean {
+  const stamp = container.Config.Labels?.[LABELS.isolation];
+  if (stamp === undefined) return false;
+  const version = Number(stamp.split(":")[0]);
+  if (!Number.isInteger(version) || version < 1) return false;
+  // A newer control host built this one. Its isolation is at least what this
+  // host promises, so a rollback leaves it alone instead of weakening it.
+  if (version > ISOLATION_CONTRACT) return true;
+  return stamp === isolationStampFor(config);
 }
 
 /** Docker container status → the platform's execution state. */
