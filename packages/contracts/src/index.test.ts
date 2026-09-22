@@ -14,6 +14,7 @@ import {
   getSessionResponseSchema,
   heartbeatRequestSchema,
   listSessionsQuerySchema,
+  loggableBootstrapClaim,
   nextInputRequestSchema,
   opaqueCursorSchema,
   PERMISSION_MODE_VALUES,
@@ -520,18 +521,124 @@ describe("worker protocol", () => {
         credential: { kind: "launch_nonce", nonce: "one-time" },
       }).success,
     ).toBe(true);
+    const claim = {
+      ...scope,
+      session_credential: "wsc_token",
+      lease_expires_at: AT,
+      runtime: {
+        kind: "claude_agent_sdk",
+        version: "0.3.270",
+        profile_id: "claude-coding-v1",
+      },
+      runtime_config: {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Edit"],
+        permission_mode: "default",
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: { kind: "bearer", value: "provider-token" },
+        },
+      },
+      workspace: {
+        repository: {
+          id: "sample-app",
+          url: "https://oauth2:repo-token@example.invalid/team/app.git",
+          branch: "main",
+        },
+      },
+      restore: null,
+    };
+    expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    // A claim without the workspace or the resolved profile is not a claim a
+    // worker can act on.
+    const { workspace: _w, ...withoutWorkspace } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutWorkspace).success,
+    ).toBe(false);
+    const { runtime_config: _p, ...withoutProfile } = claim;
+    expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
+      false,
+    );
+    // Legacy rows carry no catalog key but still name a repository.
     expect(
       bootstrapClaimResponseSchema.safeParse({
-        ...scope,
-        session_credential: "short-lived",
-        lease_expires_at: AT,
-        runtime: {
-          kind: "claude_agent_sdk",
-          version: "0.3.270",
-          profile_id: "claude-coding-v1",
-        },
-        restore: null,
+        ...claim,
+        workspace: { repository: { ...claim.workspace.repository, id: null } },
       }).success,
     ).toBe(true);
+    // anthropic takes an API key only; bearer is a litellm affordance.
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        runtime_config: {
+          ...claim.runtime_config,
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: { kind: "bearer", value: "t" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("the loggable claim is an allowlist: no session token, provider credential or repository URL", () => {
+    const claim = bootstrapClaimResponseSchema.parse({
+      ...scope,
+      session_credential: "wsc_token",
+      lease_expires_at: AT,
+      runtime: {
+        kind: "claude_agent_sdk",
+        version: "0.3.270",
+        profile_id: "claude-coding-v1",
+      },
+      runtime_config: {
+        model: "claude-sonnet-5",
+        tools: ["Read"],
+        permission_mode: "acceptEdits",
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: { kind: "api_key", value: "provider-key" },
+        },
+      },
+      workspace: {
+        repository: {
+          id: "sample-app",
+          url: "https://oauth2:repo-token@example.invalid/team/app.git",
+          branch: "main",
+        },
+      },
+      restore: {
+        revision: 4,
+        manifest_ref: "m",
+        manifest_sha256: "a".repeat(64),
+      },
+    });
+    expect(loggableBootstrapClaim(claim)).toEqual({
+      session_id: scope.session_id,
+      attempt_id: scope.attempt_id,
+      lease_epoch: scope.lease_epoch,
+      execution_generation: scope.execution_generation,
+      auth_revision: scope.auth_revision,
+      lease_expires_at: AT,
+      runtime: claim.runtime,
+      model: "claude-sonnet-5",
+      permission_mode: "acceptEdits",
+      provider_kind: "litellm",
+      repository_id: "sample-app",
+      branch: "main",
+      restore_revision: 4,
+    });
+    const line = JSON.stringify(loggableBootstrapClaim(claim));
+    for (const secret of [
+      "wsc_token",
+      "provider-key",
+      "repo-token",
+      "example.invalid",
+    ]) {
+      expect(line).not.toContain(secret);
+    }
   });
 });

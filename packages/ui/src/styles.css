@@ -1,0 +1,582 @@
+/*
+ * Component styles for packages/ui. Every value comes from tokens.css; there
+ * are no literal colours below, and no fixed pixel widths — 360px is the
+ * narrowest supported viewport (02 UX 설계 §6), so widths are fluid or capped
+ * with `min()`.
+ */
+
+@import "./tokens.css";
+
+/*
+ * Widths here are outer widths. Without this, the dialog's padding and border
+ * pushed its 360px cap out to 378px and scrolled the page sideways — a browser
+ * found that, no jsdom test could. `:where()` keeps the specificity at zero so
+ * the host app can still override, and the attribute match scopes it to this
+ * package's own elements.
+ */
+:where([class^="ap-"], [class*=" ap-"]) {
+  box-sizing: border-box;
+}
+
+/* Tone plumbing: a component asks for a tone, the tone resolves to tokens. */
+[data-tone="neutral"] {
+  --ap-tone-fg: var(--ap-tone-neutral-fg);
+  --ap-tone-bg: var(--ap-tone-neutral-bg);
+  --ap-tone-border: var(--ap-tone-neutral-border);
+}
+[data-tone="progress"] {
+  --ap-tone-fg: var(--ap-tone-progress-fg);
+  --ap-tone-bg: var(--ap-tone-progress-bg);
+  --ap-tone-border: var(--ap-tone-progress-border);
+}
+[data-tone="attention"] {
+  --ap-tone-fg: var(--ap-tone-attention-fg);
+  --ap-tone-bg: var(--ap-tone-attention-bg);
+  --ap-tone-border: var(--ap-tone-attention-border);
+}
+[data-tone="caution"] {
+  --ap-tone-fg: var(--ap-tone-caution-fg);
+  --ap-tone-bg: var(--ap-tone-caution-bg);
+  --ap-tone-border: var(--ap-tone-caution-border);
+}
+[data-tone="danger"] {
+  --ap-tone-fg: var(--ap-tone-danger-fg);
+  --ap-tone-bg: var(--ap-tone-danger-bg);
+  --ap-tone-border: var(--ap-tone-danger-border);
+}
+[data-tone="unknown"] {
+  --ap-tone-fg: var(--ap-tone-unknown-fg);
+  --ap-tone-bg: var(--ap-tone-unknown-bg);
+  --ap-tone-border: var(--ap-tone-unknown-border);
+}
+[data-tone="positive"] {
+  --ap-tone-fg: var(--ap-tone-positive-fg);
+  --ap-tone-bg: var(--ap-tone-positive-bg);
+  --ap-tone-border: var(--ap-tone-positive-border);
+}
+
+.ap-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* StatusLabel ------------------------------------------------------------ */
+
+.ap-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ap-space-1);
+  max-width: 100%;
+  padding: var(--ap-space-1) var(--ap-space-2);
+  border: 1px solid var(--ap-tone-border);
+  border-radius: var(--ap-radius-pill);
+  background: var(--ap-tone-bg);
+  color: var(--ap-tone-fg);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-label);
+  font-weight: var(--ap-weight-medium);
+  line-height: var(--ap-leading-tight);
+  /* Korean micro labels must never be uppercased (argo 러너명 왜곡 교훈, §6). */
+  text-transform: none;
+}
+
+.ap-status[data-stale] {
+  border-style: dashed;
+}
+
+.ap-status__icon {
+  flex: none;
+}
+
+.ap-status__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap-status__detail {
+  /* A flex item's floor is its longest word; an unbreakable id (a ULID, a
+     stack frame) would push the row past 360px without these two. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+  font-weight: var(--ap-weight-regular);
+}
+
+.ap-status__stale {
+  /* muted, not a fainter tier: "갱신 지연" is meaning, and a warm grey light
+     enough to read as "faint" lands near 3:1 on the tone backgrounds. The
+     hierarchy comes from size and weight instead. */
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+  font-weight: var(--ap-weight-regular);
+}
+
+.ap-status__spinner,
+.ap-button__spinner {
+  flex: none;
+  width: 0.75em;
+  height: 0.75em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.8;
+}
+
+.ap-status__spinner[data-animated="true"],
+.ap-button__spinner {
+  animation: ap-spin 900ms linear infinite;
+}
+
+@keyframes ap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Receipt ---------------------------------------------------------------- */
+
+.ap-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+  padding: var(--ap-space-4);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-lg);
+  background: var(--ap-color-surface);
+  box-shadow: var(--ap-shadow-sm);
+  font-family: var(--ap-font-sans);
+  color: var(--ap-color-foreground);
+  font-size: var(--ap-text-base);
+  line-height: var(--ap-leading-normal);
+}
+
+.ap-receipt__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ap-space-2);
+}
+
+.ap-receipt__operation {
+  /* An operation this build has no label for is printed raw. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--ap-weight-bold);
+}
+
+.ap-receipt__target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ap-space-1) var(--ap-space-4);
+  margin: 0;
+}
+
+.ap-receipt__field {
+  display: flex;
+  gap: var(--ap-space-1);
+  min-width: 0;
+}
+
+.ap-receipt__field dt {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+}
+
+.ap-receipt__field dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.ap-receipt__id {
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.ap-receipt__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-1);
+  margin: 0;
+  padding: var(--ap-space-2) var(--ap-space-3);
+  border-left: 3px solid var(--ap-tone-danger-border);
+  border-radius: var(--ap-radius-sm);
+  background: var(--ap-tone-danger-bg);
+  color: var(--ap-tone-danger-fg);
+}
+
+.ap-receipt__guidance {
+  font-weight: var(--ap-weight-medium);
+}
+
+.ap-receipt__detail {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.ap-receipt__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ap-space-2);
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+}
+
+.ap-receipt-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ap-space-2);
+  max-width: 100%;
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.ap-receipt-link__dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid var(--ap-tone-border);
+  border-radius: 50%;
+  background: var(--ap-tone-fg);
+}
+
+.ap-receipt-link__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap-receipt-link__status {
+  flex: none;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+
+.ap-receipt-link__id {
+  min-width: 0;
+  color: var(--ap-color-muted-foreground);
+  font-family: var(--ap-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* Empty / Error / Skeleton ----------------------------------------------- */
+
+.ap-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+  padding: var(--ap-space-6) var(--ap-space-4);
+  border-radius: var(--ap-radius-lg);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-base);
+  line-height: var(--ap-leading-normal);
+}
+
+/* Quiet by design: an empty list is not a problem. */
+.ap-state--empty {
+  align-items: center;
+  border: 1px dashed var(--ap-color-border-strong);
+  background: var(--ap-color-surface-sunken);
+  color: var(--ap-color-muted-foreground);
+  text-align: center;
+}
+
+/* Loud on purpose, so it can never be mistaken for the empty state. */
+.ap-state--error {
+  align-items: flex-start;
+  padding: var(--ap-space-4);
+  border: 1px solid var(--ap-tone-danger-border);
+  border-left: 4px solid var(--ap-tone-danger-fg);
+  background: var(--ap-tone-danger-bg);
+  color: var(--ap-tone-danger-fg);
+  text-align: left;
+}
+
+.ap-state__title {
+  display: flex;
+  align-items: center;
+  gap: var(--ap-space-2);
+  margin: 0;
+  font-size: var(--ap-text-lg);
+  font-weight: var(--ap-weight-bold);
+}
+
+.ap-state--empty .ap-state__title {
+  color: var(--ap-color-foreground);
+}
+
+.ap-state__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--ap-tone-danger-fg);
+  color: var(--ap-color-surface);
+  font-size: var(--ap-text-label);
+}
+
+.ap-state__guidance {
+  margin: 0;
+  font-weight: var(--ap-weight-medium);
+}
+
+.ap-state__description {
+  margin: 0;
+  /* The server's own message lands here — a trace id or a URL with no spaces
+     in it must wrap rather than widen the page. */
+  overflow-wrap: anywhere;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+}
+
+.ap-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ap-space-2);
+}
+
+.ap-state__code {
+  overflow-wrap: anywhere;
+  color: var(--ap-color-muted-foreground);
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-xs);
+}
+
+.ap-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+  max-width: 100%;
+}
+
+.ap-skeleton__bar {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  border-radius: var(--ap-radius-sm);
+  background: var(--ap-color-surface-sunken);
+}
+
+.ap-skeleton[data-shape="text"] .ap-skeleton__bar:last-of-type {
+  width: 62%;
+}
+
+.ap-skeleton[data-shape="block"] .ap-skeleton__bar {
+  height: 100%;
+  min-height: 4rem;
+  border-radius: var(--ap-radius-md);
+}
+
+.ap-skeleton[data-shape="circle"] .ap-skeleton__bar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+}
+
+.ap-skeleton[data-animated="true"] .ap-skeleton__bar {
+  animation: ap-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ap-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Dialog ----------------------------------------------------------------- */
+
+.ap-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--ap-color-overlay);
+  animation: ap-fade-in var(--ap-motion-normal) var(--ap-motion-ease);
+}
+
+.ap-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-4);
+  /* Fits 360px: the viewport cap wins before the rem cap does. */
+  /* Percentages, not vw/vh: the dialog is fixed, so these resolve against the
+     viewport *minus* the scrollbar, which `100vw` would include. */
+  width: min(30rem, calc(100% - 2 * var(--ap-space-4)));
+  max-height: calc(100% - 2 * var(--ap-space-4));
+  overflow-y: auto;
+  padding: var(--ap-space-6);
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-lg);
+  background: var(--ap-color-surface);
+  box-shadow: var(--ap-shadow-lg);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-base);
+  line-height: var(--ap-leading-normal);
+  animation: ap-dialog-in var(--ap-motion-normal) var(--ap-motion-ease);
+}
+
+.ap-dialog[data-tone="danger"] {
+  border-top: 4px solid var(--ap-tone-danger-fg);
+}
+
+.ap-dialog__title {
+  margin: 0;
+  font-size: var(--ap-text-xl);
+  font-weight: var(--ap-weight-bold);
+}
+
+.ap-dialog__consequence {
+  margin: 0;
+  color: var(--ap-color-muted-foreground);
+}
+
+.ap-dialog__match {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+
+.ap-dialog__match-label {
+  font-size: var(--ap-text-sm);
+}
+
+.ap-dialog__match-target {
+  padding: var(--ap-space-1) var(--ap-space-2);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-sm);
+  background: var(--ap-color-surface-sunken);
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-sm);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.ap-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ap-space-2);
+}
+
+@keyframes ap-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ap-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + var(--ap-space-2)));
+  }
+}
+
+/* Controls --------------------------------------------------------------- */
+
+.ap-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ap-space-2);
+  padding: var(--ap-space-2) var(--ap-space-4);
+  border: 1px solid var(--ap-color-border-strong);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-label);
+  font-weight: var(--ap-weight-medium);
+  line-height: var(--ap-leading-tight);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--ap-motion-fast) var(--ap-motion-ease);
+}
+
+.ap-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ap-button--primary {
+  border-color: transparent;
+  background: var(--ap-color-accent);
+  color: var(--ap-color-accent-foreground);
+}
+
+.ap-button--primary:hover:not(:disabled) {
+  background: var(--ap-color-accent-hover);
+}
+
+.ap-button--danger {
+  border-color: transparent;
+  background: var(--ap-tone-danger-fg);
+  color: var(--ap-color-surface);
+}
+
+.ap-button--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ap-color-muted-foreground);
+}
+
+.ap-input {
+  width: 100%;
+  padding: var(--ap-space-2) var(--ap-space-3);
+  border: 1px solid var(--ap-color-border-strong);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  font-size: var(--ap-text-base);
+  transition: border-color var(--ap-motion-fast) var(--ap-motion-ease);
+}
+
+.ap-button:focus-visible,
+.ap-input:focus-visible,
+.ap-receipt-link:focus-visible {
+  outline: 2px solid var(--ap-color-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * Stillness on request. Each selector below repeats an animated selector from
+ * above verbatim, and this block is last, so it wins on source order without
+ * `!important`. styles.test.ts fails if a new animation is added without its
+ * twin here, which is what keeps the repetition honest.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .ap-status__spinner[data-animated="true"],
+  .ap-button__spinner,
+  .ap-skeleton[data-animated="true"] .ap-skeleton__bar,
+  .ap-dialog__overlay,
+  .ap-dialog {
+    animation: none;
+  }
+
+  .ap-button,
+  .ap-input {
+    transition: none;
+  }
+}

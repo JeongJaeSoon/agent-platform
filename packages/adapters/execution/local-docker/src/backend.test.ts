@@ -13,11 +13,12 @@ import {
   LocalDockerBackend,
   NO_PROXY_VALUE,
   stateOf,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import {
   type ContainerCreateBody,
+  DockerApiError,
   DockerClient,
   DockerTimeoutError,
 } from "./docker-client.ts";
@@ -30,6 +31,13 @@ type FakeContainer = {
   exitCode: number;
 };
 
+type FakeVolume = {
+  createdAt: string;
+  labels: Record<string, string>;
+  name: string;
+  options: Record<string, string> | null;
+};
+
 /**
  * Just enough of the Engine API to exercise the backend: create/start/
  * inspect/list/stop/delete with Docker's status codes, including the 409 a
@@ -39,7 +47,12 @@ class FakeDocker {
   readonly containers = new Map<string, FakeContainer>();
   /** name -> whether the network is `internal`. */
   readonly networks = new Map<string, boolean>([["ap-workers", true]]);
-  readonly requests: Array<{ method: string; path: string }> = [];
+  readonly requests: Array<{ method: string; path: string; query: string }> =
+    [];
+  /** Image name → the `VOLUME` paths it declares. */
+  readonly images = new Map<string, string[]>([["worker:test", []]]);
+  /** A `docker volume prune` that lands between the check and the create. */
+  pruneVolumesOnCreate = false;
   private nextId = 1;
   private server: ReturnType<typeof Bun.serve> | undefined;
   /** When set, the next create returns 409 without creating anything. */
@@ -48,6 +61,15 @@ class FakeDocker {
   raceWinnerLabels: Record<string, string> = {};
   /** Every create loses the race and leaves nothing behind. */
   conflictEveryCreate = false;
+  readonly volumes = new Map<string, FakeVolume>();
+  /** Off: the storage behind the `local` driver cannot carry a quota. */
+  quotaSupported = true;
+  /** Volumes a removal must report as still mounted, the way 409 does. */
+  readonly volumesInUse = new Set<string>();
+  /** Labels the next create comes back with, as if the name were taken. */
+  createReturnsLabels: Record<string, string> | null = null;
+  /** The next create fails with 400 and quotes the request body back. */
+  echoNextCreate = false;
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -73,6 +95,17 @@ class FakeDocker {
     return container;
   }
 
+  addVolume(
+    name: string,
+    labels: Record<string, string>,
+    options: Record<string, string> | null = null,
+    createdAt = new Date(0).toISOString(),
+  ): FakeVolume {
+    const volume = { createdAt, labels, name, options };
+    this.volumes.set(name, volume);
+    return volume;
+  }
+
   byIdOrName(key: string): FakeContainer | undefined {
     return (
       this.containers.get(key) ??
@@ -83,7 +116,7 @@ class FakeDocker {
   private async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/v1\.\d+/, "");
-    this.requests.push({ method: request.method, path });
+    this.requests.push({ method: request.method, path, query: url.search });
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
@@ -92,8 +125,16 @@ class FakeDocker {
 
     if (request.method === "POST" && path === "/containers/create") {
       const name = url.searchParams.get("name") ?? "";
+      if (this.pruneVolumesOnCreate) this.volumes.clear();
       if (this.conflictEveryCreate) {
         return json({ message: "Conflict. Lost the create race" }, 409);
+      }
+      if (this.echoNextCreate) {
+        this.echoNextCreate = false;
+        return json(
+          { message: `invalid request: ${await request.text()}` },
+          400,
+        );
       }
       if (this.conflictNextCreate && !this.containers.has(name)) {
         // The other launcher won the race: its container exists by the time
@@ -134,6 +175,91 @@ class FakeDocker {
           State: c.status,
         })),
       );
+    }
+    const asVolume = (volume: FakeVolume) => ({
+      CreatedAt: volume.createdAt,
+      Driver: "local",
+      Labels: Object.keys(volume.labels).length === 0 ? null : volume.labels,
+      Mountpoint: `/var/lib/docker/volumes/${volume.name}/_data`,
+      Name: volume.name,
+      Options: volume.options,
+    });
+    if (request.method === "POST" && path === "/volumes/create") {
+      const body = (await request.json()) as {
+        DriverOpts?: Record<string, string>;
+        Labels?: Record<string, string>;
+        Name: string;
+      };
+      const existing =
+        this.volumes.get(body.Name) ??
+        (this.createReturnsLabels === null
+          ? undefined
+          : this.addVolume(body.Name, this.createReturnsLabels));
+      // Docker's create is not create-or-fail: an existing name comes back
+      // 201 with the volume as it already is, options and labels untouched.
+      if (existing) return json(asVolume(existing), 201);
+      if (body.DriverOpts?.size !== undefined && !this.quotaSupported) {
+        return json(
+          {
+            message: `create ${body.Name}: quota size requested but no quota support`,
+          },
+          400,
+        );
+      }
+      return json(
+        asVolume(
+          this.addVolume(
+            body.Name,
+            body.Labels ?? {},
+            body.DriverOpts ?? null,
+            new Date().toISOString(),
+          ),
+        ),
+        201,
+      );
+    }
+    if (request.method === "GET" && path === "/volumes") {
+      const filters = JSON.parse(url.searchParams.get("filters") ?? "{}") as {
+        label?: string[];
+      };
+      const wanted = (filters.label ?? []).map(
+        (l) => l.split("=") as [string, string],
+      );
+      const matching = [...this.volumes.values()].filter((v) =>
+        wanted.every(([k, value]) => v.labels[k] === value),
+      );
+      return json({ Volumes: matching.map(asVolume), Warnings: null });
+    }
+    const volume = path.match(/^\/volumes\/([^/]+)$/);
+    if (volume) {
+      const name = decodeURIComponent(volume[1] ?? "");
+      const found = this.volumes.get(name);
+      if (!found) return json({ message: `no such volume: ${name}` }, 404);
+      if (request.method === "GET") return json(asVolume(found));
+      if (request.method === "DELETE") {
+        if (this.volumesInUse.has(name)) {
+          return json({ message: `volume ${name} is in use` }, 409);
+        }
+        this.volumes.delete(name);
+        return new Response(null, { status: 204 });
+      }
+    }
+    const image = path.match(/^\/images\/(.+)\/json$/);
+    if (request.method === "GET" && image) {
+      const name = decodeURIComponent(image[1] ?? "");
+      const declared = this.images.get(name);
+      if (declared === undefined) {
+        return json({ message: `No such image: ${name}` }, 404);
+      }
+      return json({
+        Config: {
+          Volumes:
+            declared.length === 0
+              ? null
+              : Object.fromEntries(declared.map((v) => [v, {}])),
+        },
+        Id: `sha256:${name.replace(/[^a-z0-9]/g, "")}`,
+      });
     }
     const network = path.match(/^\/networks\/([^/]+)$/);
     if (request.method === "GET" && network) {
@@ -177,6 +303,13 @@ class FakeDocker {
         },
         HostConfig: container.body.HostConfig,
         Id: container.id,
+        Mounts: container.body.HostConfig.Mounts.filter(
+          (mount) => mount.Type === "volume",
+        ).map((mount) => ({
+          Destination: mount.Target,
+          Name: mount.Source,
+          Type: mount.Type,
+        })),
         Name: `/${container.name}`,
         State: {
           ExitCode: container.exitCode,
@@ -214,6 +347,8 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
   };
 }
 
+const QUOTA_BYTES = 4 * 1024 * 1024 * 1024;
+
 let docker: FakeDocker;
 let backend: LocalDockerBackend;
 
@@ -227,11 +362,20 @@ function configFor(host: string): LocalDockerBackendConfig {
     homeDir: "/home/worker",
     installationId: "test-a",
     network: "ap-workers",
+    objectStore: {
+      accessKeyId: "AKIATEST",
+      bucket: "claude-sessions",
+      endpoint: "http://localstack:4566",
+      region: "ap-northeast-1",
+      secretAccessKey: "test-secret-value",
+    },
     requestTimeoutMs: 5_000,
     stopTimeoutSeconds: 3,
     tmpfsSizeBytes: 64 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    workspaceGcMinAgeMs: 0,
+    workspaceQuota: { mode: "enforced", sizeBytes: QUOTA_BYTES },
   };
 }
 
@@ -245,6 +389,50 @@ beforeEach(() => {
 afterEach(() => {
   docker.stop();
 });
+
+/** The name a workspace had before names became single-use. */
+function legacyWorkspaceName(
+  sessionId: string,
+  installationId: string,
+): string {
+  return workspaceVolumePrefixFor(sessionId, installationId).slice(0, -1);
+}
+
+/** The bounded volume a container's create left behind on the daemon. */
+function seedMountedWorkspace(
+  docker: FakeDocker,
+  body: ContainerCreateBody,
+  sessionId: string,
+): string {
+  const name = mountedWorkspaceOf(body);
+  docker.addVolume(
+    name,
+    {
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+      [LABELS.sessionId]: sessionId,
+      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    },
+    { size: String(QUOTA_BYTES) },
+  );
+  return name;
+}
+
+function mountedWorkspaceOf(body: ContainerCreateBody): string {
+  const mount = body.HostConfig.Mounts.find((one) => one.Type === "volume");
+  if (!mount) throw new Error("the create body mounts no volume");
+  return mount.Source;
+}
+
+/** This session's workspace as the daemon holds it, whatever its suffix. */
+function workspaceNameOf(
+  docker: FakeDocker,
+  sessionId: string,
+  installationId: string,
+): string | undefined {
+  const prefix = workspaceVolumePrefixFor(sessionId, installationId);
+  return [...docker.volumes.keys()].find((name) => name.startsWith(prefix));
+}
 
 describe("LocalDockerBackend.ensureExecution", () => {
   test("creates and starts a container whose config matches the isolation contract", async () => {
@@ -260,12 +448,14 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).toBe(container.id);
 
     const { body } = container;
-    expect(body.Image).toBe("worker:test");
+    // The id the inspect resolved, not the tag it was asked for.
+    expect(body.Image).toBe("sha256:workertest");
     expect(body.User).toBe("1000:1000");
     // Exactly the variables the worker contract needs, nothing else leaks in.
     expect(body.Env.sort()).toEqual(
       [
         `${ENV.home}=/home/worker`,
+        `${ENV.workspaceDir}=/workspace`,
         `${ENV.bootstrapNonce}=nonce-abc`,
         `${ENV.executionGeneration}=1`,
         `${ENV.executionId}=${intent.executionId}`,
@@ -276,6 +466,12 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
         `${ENV.noProxy}=${NO_PROXY_VALUE}`,
         `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+        `${ENV.objectAccessKeyId}=AKIATEST`,
+        `${ENV.objectBucket}=claude-sessions`,
+        `${ENV.objectEndpoint}=http://localstack:4566`,
+        `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
+        `${ENV.objectRegion}=ap-northeast-1`,
+        `${ENV.objectSecretAccessKey}=test-secret-value`,
       ].sort(),
     );
     expect(body.Labels).toEqual({
@@ -292,7 +488,11 @@ describe("LocalDockerBackend.ensureExecution", () => {
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {
-          Source: workspaceVolumeFor(intent.sessionId, "test-a"),
+          Source: expect.stringMatching(
+            new RegExp(
+              `^${workspaceVolumePrefixFor(intent.sessionId, "test-a")}`,
+            ),
+          ),
           Target: "/workspace",
           Type: "volume",
         },
@@ -463,13 +663,29 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
   test("a created-but-never-started container is started on the retry", async () => {
     const intent = intentFor();
-    docker.add(
-      containerNameFor(intent, "test-a"),
-      await createBodyOf(intent),
-      "created",
-    );
+    const body = await createBodyOf(intent);
+    seedMountedWorkspace(docker, body, intent.sessionId);
+    docker.add(containerNameFor(intent, "test-a"), body, "created");
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
+  });
+
+  test("a created container is not started on a workspace that lost its ceiling", async () => {
+    // What a create leaves behind when the volume was pruned under it and the
+    // cleanup that should have taken the container away did not manage it:
+    // the unlabelled, unbounded volume Docker conjures out of a mount spec.
+    // Adopting on the contract label alone would start a worker on it.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    docker.addVolume(mountedWorkspaceOf(body), {});
+    docker.add(containerNameFor(intent, "test-a"), body, "created");
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "was created under quota <none>",
+    );
+    // Taken away here, so the next attempt creates one that mounts the
+    // workspace this call made rather than inheriting the unbounded one.
+    expect(docker.containers.size).toBe(0);
   });
 });
 
@@ -511,10 +727,196 @@ describe("LocalDockerBackend.inspect", () => {
     });
   });
 
+  test("a stale container is reported without the workspace being read", async () => {
+    // Whether the replacement can be built is `assertReplaceable`'s question,
+    // asked by the scheduler before it tears anything down. Answering it here
+    // too would make an observation throw on a workspace nobody is replacing.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
+
+    expect((await backend.inspect(intent)).stale).toBe(true);
+  });
+
+  test("a stale container that already exited reports its exit code", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    const container = docker.add(containerNameFor(intent, "test-a"), body);
+    container.status = "exited";
+    container.exitCode = 0;
+
+    expect(await backend.inspect(intent)).toMatchObject({
+      exitCode: 0,
+      stale: true,
+      state: "terminated",
+    });
+  });
+
+  test("a replacement is refused while the workspace cannot be reused", async () => {
+    // The volume an implicit `Mounts` create left behind on the old contract.
+    // The scheduler asks this before the teardown, so the refusal is what
+    // keeps the running worker alive.
+    const intent = intentFor();
+    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "was created under quota <none>",
+    );
+  });
+
+  test("a replacement is refused while the image is not on the daemon", async () => {
+    // A tag that was removed or repointed between the launch and the upgrade:
+    // the create would fail, and by then the old worker would be gone.
+    const intent = intentFor();
+    docker.images.delete("worker:test");
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "is not on this daemon",
+    );
+  });
+
+  test("a replacement with both an image and a usable workspace is allowed", async () => {
+    const intent = intentFor();
+    docker.addVolume(
+      legacyWorkspaceName(intent.sessionId, "test-a"),
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+
+    expect(await backend.assertReplaceable(intent)).toBeUndefined();
+  });
+
+  test("a replacement for a session with no workspace yet is allowed", async () => {
+    expect(await backend.assertReplaceable(intentFor())).toBeUndefined();
+  });
+
+  test("a workspace that vanishes during the replacement is not made anew", async () => {
+    // `docker volume prune` between the teardown and the create: for that
+    // moment no container mounts the volume. Creating a fresh one would look
+    // like a launch and read as a session that lost everything it had.
+    const intent = intentFor();
+    const workspace = legacyWorkspaceName(intent.sessionId, "test-a");
+    docker.addVolume(
+      workspace,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await backend.assertReplaceable(intent);
+    docker.volumes.delete(workspace);
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "would start the session on an empty tree",
+    );
+    expect(docker.containers.size).toBe(0);
+    expect(docker.volumes.size).toBe(0);
+  });
+
+  test("a replacement onto the workspace it was checked against launches", async () => {
+    const intent = intentFor();
+    docker.addVolume(
+      legacyWorkspaceName(intent.sessionId, "test-a"),
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await backend.assertReplaceable(intent);
+
+    expect(await backend.ensureExecution(intent)).toMatchObject({
+      created: true,
+      state: "running",
+    });
+  });
+
   test("a container on the current contract is not stale", async () => {
     const intent = intentFor();
     docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));
     expect((await backend.inspect(intent)).stale).toBeUndefined();
+  });
+
+  test("an image that declares its own VOLUME refuses the launch", async () => {
+    // Docker gives each declared path a writable anonymous volume: outside
+    // the quota, outside the labels, and left behind at termination.
+    docker.images.set("worker:test", ["/var/cache", "/data"]);
+
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "declares VOLUME /data, /var/cache",
+    );
+    expect(docker.containers.size).toBe(0);
+    // Refused before anything was created for it.
+    expect(docker.volumes.size).toBe(0);
+  });
+
+  test("the image declaring the workspace path itself is fine", async () => {
+    // That target is mounted from the named volume we made, so nothing
+    // anonymous comes of it.
+    docker.images.set("worker:test", ["/workspace"]);
+
+    await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
+      created: true,
+    });
+  });
+
+  test("the container is created from the image id that was inspected", async () => {
+    // A tag can be repointed between the two calls; the id cannot.
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+
+    const created = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(created?.body.Image).toBe("sha256:workertest");
+  });
+
+  test("a workspace pruned between the check and the create is not started", async () => {
+    // Docker conjures a replacement for the mount — unlabelled, unbounded —
+    // and the container would come up on it. Nothing has run in it yet, so it
+    // is removed rather than started.
+    docker.pruneVolumesOnCreate = true;
+
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "disappeared between the check and the container",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("an image the daemon does not have refuses the launch", async () => {
+    // Passing the reference through would let a pull that lands between this
+    // 404 and the create launch an image nothing looked at — and an image
+    // declaring a VOLUME brings a writable volume no ceiling covers.
+    docker.images.delete("worker:test");
+
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "is not on this daemon",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("terminate takes the container's anonymous volumes with it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.requests.length = 0;
+
+    await backend.terminate(intent);
+
+    const removal = docker.requests.find((r) => r.method === "DELETE");
+    // Named volumes are untouched by `v`, so the workspace still outlives it.
+    expect(removal?.query).toContain("v=true");
+    expect(workspaceNameOf(docker, intent.sessionId, "test-a")).toBeDefined();
   });
 
   test("status mapping covers every Docker state", () => {
@@ -605,7 +1007,7 @@ describe("two installations sharing one daemon", () => {
     );
     const theirBody = docker.containers.get(containerNameFor(intent, "test-b"));
     expect(theirBody?.body.HostConfig.Mounts[0]?.Source).toBe(
-      workspaceVolumeFor(intent.sessionId, "test-b"),
+      workspaceNameOf(docker, intent.sessionId, "test-b"),
     );
     expect(await other.inspect(intent)).toMatchObject({ found: true });
 
@@ -725,11 +1127,11 @@ describe("names", () => {
     expect(
       containerNameFor({ executionId: "exec-1", generation: 2 }, "test-a"),
     ).toBe("ap-worker-test-a-exec-1-g2");
-    expect(workspaceVolumeFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1");
+    expect(workspaceVolumePrefixFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1-");
     expect(() =>
       containerNameFor({ executionId: "../x", generation: 1 }, "test-a"),
     ).toThrow();
-    expect(() => workspaceVolumeFor("a b", "test-a")).toThrow();
+    expect(() => workspaceVolumePrefixFor("a b", "test-a")).toThrow();
   });
 });
 
@@ -770,5 +1172,343 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
       "is not internal",
     );
+  });
+
+  test("the isolation stamp tracks where objects go and which key, never the secret", () => {
+    const base = configFor("tcp://127.0.0.1:1");
+    const stamp = isolationStampFor(base);
+    expect(stamp.startsWith("4:")).toBe(true);
+    expect(stamp).not.toContain(base.objectStore.secretAccessKey);
+    // A secret rotated under the same key id is not a new boundary: the
+    // container keeps running, and the operator replaces it deliberately.
+    expect(
+      isolationStampFor({
+        ...base,
+        objectStore: { ...base.objectStore, secretAccessKey: "rotated" },
+      }),
+    ).toBe(stamp);
+    for (const change of [
+      { accessKeyId: "AKIAOTHER" },
+      { bucket: "other-bucket" },
+      { endpoint: "http://s3.other:4566" },
+      { region: "us-east-1" },
+    ]) {
+      expect(
+        isolationStampFor({
+          ...base,
+          objectStore: { ...base.objectStore, ...change },
+        }),
+      ).not.toBe(stamp);
+    }
+    const { endpoint: _dropped, ...aws } = base.objectStore;
+    expect(isolationStampFor({ ...base, objectStore: aws })).not.toBe(stamp);
+  });
+
+  test("a daemon reply that quotes the create body reaches the caller without the secrets", async () => {
+    docker.echoNextCreate = true;
+    let caught: unknown;
+    try {
+      await backend.ensureExecution(
+        intentFor({ issueBootstrapNonce: async () => "nonce-secret-xyz" }),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(DockerApiError);
+    const error = caught as DockerApiError;
+    expect(error.status).toBe(400);
+    // The daemon really did echo the body, so the redaction is not vacuous.
+    expect(error.message).toContain(`${ENV.objectBucket}=claude-sessions`);
+    expect(error.message).toContain(`${ENV.objectSecretAccessKey}=[redacted]`);
+    expect(error.message).toContain(`${ENV.bootstrapNonce}=[redacted]`);
+    for (const text of [error.message, error.body, JSON.stringify(error)]) {
+      expect(text).not.toContain("test-secret-value");
+      expect(text).not.toContain("nonce-secret-xyz");
+    }
+  });
+});
+
+describe("LocalDockerBackend workspace volumes", () => {
+  /** A workspace under the name sessions derived before names were single-use. */
+  const legacyName = legacyWorkspaceName(intentFor().sessionId, "test-a");
+  /** One this host made: found by its labels, whatever the suffix says. */
+  const ourName = `${workspaceVolumePrefixFor(intentFor().sessionId, "test-a")}0f1e2d3c`;
+
+  function backendWith(
+    overrides: Partial<LocalDockerBackendConfig>,
+  ): LocalDockerBackend {
+    return new LocalDockerBackend({ ...configFor(docker.host), ...overrides });
+  }
+
+  test("the volume is created, labelled and bounded before the container", async () => {
+    await backend.ensureExecution(intentFor());
+    const volume = docker.volumes.get(
+      workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
+    );
+    expect(volume?.options).toEqual({ size: String(QUOTA_BYTES) });
+    expect(volume?.labels).toEqual({
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+      [LABELS.sessionId]: intentFor().sessionId,
+      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    });
+    // Naming a volume in `Mounts` is enough for Docker to conjure an
+    // unlabelled, unbounded one, so the order is the whole point.
+    const paths = docker.requests.map((r) => r.path);
+    expect(paths.indexOf("/volumes/create")).toBeLessThan(
+      paths.indexOf("/containers/create"),
+    );
+  });
+
+  test("an unlabelled volume from before the quota refuses the launch", async () => {
+    // Exactly what an implicit `Mounts` create leaves behind: no labels, no
+    // size, and no way to put one on it now.
+    docker.addVolume(legacyName, {});
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "was created under quota <none>",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a volume created under another ceiling refuses the launch", async () => {
+    docker.addVolume(
+      ourName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intentFor().sessionId,
+        [LABELS.workspaceQuota]: "enforced:123",
+      },
+      { size: "123" },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "was created under quota enforced:123",
+    );
+  });
+
+  test("a volume labelled ours but without the driver option refuses the launch", async () => {
+    docker.addVolume(ourName, {
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+      [LABELS.sessionId]: intentFor().sessionId,
+      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    });
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "driver option size=<none>",
+    );
+  });
+
+  test("another installation's volume under our name refuses the launch", async () => {
+    docker.addVolume(legacyName, {
+      [LABELS.installation]: "test-b",
+      [LABELS.managed]: "true",
+      [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+    });
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "belongs to installation test-b",
+    );
+  });
+
+  test("the right ceiling on the wrong session's volume refuses the launch", async () => {
+    // Mounting it would hand this session someone else's working tree, and
+    // GC reads the same label, so the mislabelled volume would also outlive
+    // the session it actually belongs to.
+    docker.addVolume(
+      legacyName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: "some-other-session",
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "is not this session's workspace",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a volume that is not managed refuses the launch", async () => {
+    docker.addVolume(
+      legacyName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.sessionId]: intentFor().sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "managed=<none>",
+    );
+  });
+
+  test("with the quota off the volume is created without a size", async () => {
+    const off = backendWith({ workspaceQuota: { mode: "off" } });
+    await off.ensureExecution(intentFor());
+    const volume = docker.volumes.get(
+      workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
+    );
+    expect(volume?.options).toBeNull();
+    expect(volume?.labels[LABELS.workspaceQuota]).toBe("off");
+  });
+
+  test("turning the quota on over an opted-out volume refuses the launch", async () => {
+    await backendWith({ workspaceQuota: { mode: "off" } }).ensureExecution(
+      intentFor(),
+    );
+    docker.containers.clear();
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "was created under quota off",
+    );
+  });
+});
+
+describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
+  const probePrefix = "ap-quota-probe-test-a-";
+  const probesLeft = () =>
+    [...docker.volumes.keys()].filter((name) => name.startsWith(probePrefix));
+
+  test("a quota-capable daemon passes and keeps no probe volume", async () => {
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(probesLeft()).toEqual([]);
+  });
+
+  test("a daemon with no quota support refuses to start, naming the opt-out", async () => {
+    docker.quotaSupported = false;
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "EXECUTION_WORKSPACE_QUOTA=off",
+    );
+  });
+
+  test("a probe volume left by an earlier run cannot make the probe pass", async () => {
+    // The leftover goes first — by its labels, since the new probe takes a
+    // name of its own — so the daemon still has to answer the create.
+    docker.quotaSupported = false;
+    docker.addVolume(
+      `${probePrefix}aaaaaaaa`,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.quotaProbe]: "true",
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "cannot put a size quota",
+    );
+    expect(probesLeft()).toEqual([]);
+  });
+
+  test("a volume that is not a probe is not this host's to remove", async () => {
+    // The preflight is not a licence to delete a stranger's data on a shared
+    // daemon, so what it cleans up is only what its own labels claim.
+    docker.addVolume("someone-elses-data", { "com.example.owner": "them" });
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(docker.volumes.has("someone-elses-data")).toBe(true);
+  });
+
+  test("another installation's probe is not this one's to remove", async () => {
+    const theirs = "ap-quota-probe-test-b-bbbbbbbb";
+    docker.addVolume(theirs, {
+      [LABELS.installation]: "test-b",
+      [LABELS.quotaProbe]: "true",
+    });
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(docker.volumes.has(theirs)).toBe(true);
+  });
+
+  test("a create that answers with someone else's volume proves nothing", async () => {
+    // Whatever name the probe picks, the reply is what says whose volume it
+    // is: an existing name comes back as the volume it already was.
+    docker.createReturnsLabels = { "com.example.owner": "them" };
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "is not this host's quota probe",
+    );
+    // And it is still there: the probe does not clear up after a stranger.
+    expect(docker.volumes.size).toBe(1);
+  });
+
+  test("the probe volume carries no managed label for GC to trip over", async () => {
+    // Nothing to assert after the fact — it is removed — so the record of
+    // what was asked for is the request the daemon saw.
+    await backend.verifyWorkspaceQuota();
+    const created = docker.requests.filter((r) => r.path === "/volumes/create");
+    expect(created).toHaveLength(1);
+    expect(docker.volumes.size).toBe(0);
+    // And it is invisible to the reaper, which lists by the managed label.
+    expect(await backend.listWorkspaces()).toEqual([]);
+  });
+
+  test("the opt-out asks the daemon nothing", async () => {
+    const off = new LocalDockerBackend({
+      ...configFor(docker.host),
+      workspaceQuota: { mode: "off" },
+    });
+    await expect(off.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(docker.requests).toHaveLength(0);
+  });
+});
+
+describe("LocalDockerBackend workspace GC", () => {
+  const ours = {
+    [LABELS.installation]: "test-a",
+    [LABELS.managed]: "true",
+    [LABELS.sessionId]: "session-1",
+  };
+
+  test("lists only this installation's managed volumes", async () => {
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    docker.addVolume("ap-ws-test-b-session-2", {
+      ...ours,
+      [LABELS.installation]: "test-b",
+    });
+    docker.addVolume("someone-elses", {});
+    const listed = await backend.listWorkspaces();
+    expect(listed.map((w) => w.id)).toEqual(["ap-ws-test-a-session-1"]);
+    expect(listed[0]?.sessionId).toBe("session-1");
+  });
+
+  test("a volume younger than the minimum age is not a candidate", async () => {
+    const young = new LocalDockerBackend({
+      ...configFor(docker.host),
+      workspaceGcMinAgeMs: 60_000,
+    });
+    docker.addVolume("ap-ws-test-a-old", ours);
+    docker.addVolume("ap-ws-test-a-new", ours, null, new Date().toISOString());
+    expect((await young.listWorkspaces()).map((w) => w.id)).toEqual([
+      "ap-ws-test-a-old",
+    ]);
+  });
+
+  test("a volume with no session label is reported, not judged by its name", async () => {
+    docker.addVolume("ap-ws-test-a-session-9", {
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+    });
+    expect((await backend.listWorkspaces())[0]?.sessionId).toBeNull();
+  });
+
+  test("removing reports removed, absent, in use and not ours", async () => {
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    expect(await backend.removeWorkspace("ap-ws-test-a-session-1")).toEqual({
+      outcome: "removed",
+    });
+    expect(await backend.removeWorkspace("ap-ws-test-a-gone")).toEqual({
+      outcome: "absent",
+    });
+    docker.addVolume("ap-ws-test-a-session-2", ours);
+    docker.volumesInUse.add("ap-ws-test-a-session-2");
+    expect(await backend.removeWorkspace("ap-ws-test-a-session-2")).toEqual({
+      outcome: "in_use",
+    });
+    docker.addVolume("ap-ws-test-b-session-3", {
+      ...ours,
+      [LABELS.installation]: "test-b",
+    });
+    expect(await backend.removeWorkspace("ap-ws-test-b-session-3")).toEqual({
+      outcome: "not_ours",
+    });
+    expect(docker.volumes.has("ap-ws-test-b-session-3")).toBe(true);
   });
 });

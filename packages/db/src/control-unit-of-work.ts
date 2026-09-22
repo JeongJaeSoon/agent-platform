@@ -9,6 +9,7 @@ import type {
   TerminateSessionResult,
 } from "@agent-platform/platform";
 import { and, eq, inArray, isNull, lte, min, sql } from "drizzle-orm";
+import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -110,7 +111,9 @@ export async function expireOverdueTerminations(
   const overdueWhere = and(
     eq(receipts.operation, TERMINATE),
     eq(receipts.status, "accepted"),
-    lte(receipts.createdAt, new Date(input.now.getTime() - input.deadlineMs)),
+    // The receipt was stamped by the database clock, so the deadline is
+    // measured on it too; `now` only stamps the update.
+    lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
   );
   if (input.dryRun) {
     const rows = await db
@@ -133,10 +136,7 @@ export async function expireOverdueTerminations(
       and(
         eq(receipts.operation, TERMINATE),
         eq(receipts.status, "accepted"),
-        lte(
-          receipts.createdAt,
-          new Date(input.now.getTime() - input.deadlineMs),
-        ),
+        lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
       ),
     )
     .returning({ id: receipts.id });

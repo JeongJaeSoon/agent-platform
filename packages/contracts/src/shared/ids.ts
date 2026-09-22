@@ -19,6 +19,33 @@ export const requiredUnknownSchema = z
   .unknown()
   .refine((value) => value !== undefined, "Required");
 
+// Interface track identifiers (I0). Rows the platform creates are uuids;
+// `opaqueIdSchema` covers identifiers minted elsewhere — API key ids, owner
+// partitions, external surface ids — which are not uuids.
+export const OPAQUE_ID_MAX_LENGTH = 128;
+export const opaqueIdSchema = z.string().min(1).max(OPAQUE_ID_MAX_LENGTH);
+/**
+ * The alpha owner partition. `owner_id` is an unconstrained `text` column and
+ * `findOwner()` accepts any non-empty string, so capping it here would lock
+ * out a tenant that already exists — a contract may not be narrower than the
+ * data it is describing.
+ */
+export const ownerScopeSchema = z.string().min(1);
+export const workspaceIdSchema = z.uuid();
+export const userIdSchema = z.uuid();
+export const inviteIdSchema = z.uuid();
+export const grantIdSchema = z.uuid();
+export const agentIdSchema = z.uuid();
+export const agentVersionIdSchema = z.uuid();
+// Derived: sha256 over the canonical release tuple, not a generated uuid
+// (03 §4.1 `deriveReleaseId`).
+export const agentReleaseIdSchema = opaqueIdSchema;
+export const surfaceBindingIdSchema = z.uuid();
+export const sessionLinkIdSchema = z.uuid();
+export const installationIdSchema = z.uuid();
+export const memoryIdSchema = z.uuid();
+export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
 export const sessionIdParamsSchema = z.object({ id: sessionIdSchema });
 export const turnIdParamsSchema = sessionIdParamsSchema.extend({
   turn_id: turnIdSchema,

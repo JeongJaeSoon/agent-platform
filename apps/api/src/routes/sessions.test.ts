@@ -4,6 +4,7 @@ import { InvalidCursorError } from "@agent-platform/db";
 import {
   createSessionService,
   ownerScopedPolicy,
+  type SessionCatalog,
   type SessionControl,
   type SessionReader,
   type SessionUnitOfWork,
@@ -11,17 +12,25 @@ import {
 import { createApiApp } from "../app.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
-const catalog = {
+const catalog: SessionCatalog = {
   profiles: {
     "claude-coding-v1": {
       runtime_kind: "claude_agent_sdk",
       runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: { kind: "api_key", value: "catalog-provider-key" },
+      },
     },
   },
   repositories: {
     "sample-app": { url: "https://example.invalid/app.git", branch: "main" },
   },
-} as const;
+};
 
 function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},

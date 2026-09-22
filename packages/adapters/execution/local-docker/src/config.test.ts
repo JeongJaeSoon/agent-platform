@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { localDockerConfigFromEnv } from "./config.ts";
 
 const base = {
+  AWS_ACCESS_KEY_ID: "test",
+  AWS_ENDPOINT_URL: "http://localstack:4566",
+  AWS_REGION: "ap-northeast-1",
+  AWS_SECRET_ACCESS_KEY: "test",
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+  S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
 };
 
@@ -17,12 +22,71 @@ describe("localDockerConfigFromEnv", () => {
       homeDir: "/home/worker",
       installationId: "local",
       network: "agent-platform-worker",
+      objectStore: {
+        accessKeyId: "test",
+        bucket: "claude-sessions",
+        endpoint: "http://localstack:4566",
+        region: "ap-northeast-1",
+        secretAccessKey: "test",
+      },
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 10,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",
       workspaceDir: "/workspace",
+      workspaceGcMinAgeMs: 3_600_000,
+      workspaceQuota: { mode: "enforced", sizeBytes: 4096 * 1024 * 1024 },
     });
+  });
+
+  test("the workspace quota is on unless it is turned off by name", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA: "off",
+      }).workspaceQuota,
+    ).toEqual({ mode: "off" });
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA_MB: "512",
+      }).workspaceQuota,
+    ).toEqual({ mode: "enforced", sizeBytes: 512 * 1024 * 1024 });
+  });
+
+  test("a value that is neither on nor off is a typo, not an opt-out", () => {
+    // "false", "0" and "no" all have to fail loudly: read as an opt-out they
+    // would silently remove the ceiling the operator thinks they set.
+    for (const value of ["false", "0", "no", "OFF"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_WORKSPACE_QUOTA: value,
+        }),
+      ).toThrow('must be "on" or "off"');
+    }
+  });
+
+  test("a quota of zero is refused, a GC age of zero is not", () => {
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, EXECUTION_WORKSPACE_QUOTA_MB: "0" }),
+    ).toThrow("EXECUTION_WORKSPACE_QUOTA_MB must be a positive integer");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "-1",
+      }),
+    ).toThrow(
+      "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC must be a non-negative integer",
+    );
+    // Zero says "reclaim as soon as the session is finished with it", which
+    // is what the tests that want a deterministic pass ask for.
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
+      }).workspaceGcMinAgeMs,
+    ).toBe(0);
   });
 
   test("an entrypoint override is split on whitespace and omitted when empty", () => {
@@ -61,6 +125,64 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_EGRESS_PROXY_URL: "https://egress-proxy:3128",
       }),
     ).toThrow("http://");
+  });
+
+  test("object store access is required and the endpoint optional", () => {
+    for (const name of [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_REGION",
+      "AWS_SECRET_ACCESS_KEY",
+      "S3_BUCKET",
+    ] as const) {
+      expect(() =>
+        localDockerConfigFromEnv({ ...base, [name]: undefined }),
+      ).toThrow(name);
+      expect(() => localDockerConfigFromEnv({ ...base, [name]: " " })).toThrow(
+        name,
+      );
+    }
+    const aws = localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" });
+    expect("endpoint" in aws.objectStore).toBe(false);
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
+    ).toThrow("AWS_ENDPOINT_URL");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "ftp://localstack:4566",
+      }),
+    ).toThrow("http(s)://");
+    let message = "";
+    try {
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "http://user:hunter2@localstack:4566",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("credentials");
+    expect(message).not.toContain("hunter2");
+  });
+
+  test("a refused object store value is named, never quoted", () => {
+    // These land in scheduler logs; the check is by name so the message
+    // can be logged as is. The key id is the one that could be quoted
+    // harmlessly, and it is still not.
+    for (const [name, value] of [
+      ["AWS_SECRET_ACCESS_KEY", "sk with space"],
+      ["AWS_ACCESS_KEY_ID", "AKIA=oops"],
+      ["S3_BUCKET", "my bucket"],
+    ] as const) {
+      let message = "";
+      try {
+        localDockerConfigFromEnv({ ...base, [name]: value });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain(name);
+      expect(message).not.toContain(value);
+    }
   });
 
   test("the network must be on the allowlist", () => {

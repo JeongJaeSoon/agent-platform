@@ -1,7 +1,21 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
-import type { LaunchIntent } from "@agent-platform/platform";
-import { LocalDockerBackend, workspaceVolumeFor } from "./backend.ts";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  type LaunchIntent,
+  sessionObjectPrefix,
+} from "@agent-platform/platform";
+import {
+  createLocalstackBucket,
+  type LocalstackBucket,
+} from "@agent-platform/testkit";
+import {
+  ENV,
+  LABELS,
+  LocalDockerBackend,
+  workerEnvironmentFor,
+} from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
 
@@ -20,11 +34,12 @@ const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
-const PROXY_SOURCE = resolve(
-  import.meta.dir,
-  "../../../../..",
-  "apps/egress-proxy",
-);
+/** The same tag CI runs as a service, so the pull is a cache hit there. */
+const LOCALSTACK_IMAGE =
+  process.env.LOCALSTACK_TEST_IMAGE ?? "localstack/localstack:3";
+const REPOSITORY = resolve(import.meta.dir, "../../../../..");
+const PROXY_SOURCE = join(REPOSITORY, "apps/egress-proxy");
+const OBJECT_REGION = "ap-northeast-1";
 const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
 
 async function defaultDockerHost(): Promise<string> {
@@ -48,42 +63,60 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const deniedName = `ap-it-denied-${suffix}`;
   const proxyName = `ap-it-proxy-${suffix}`;
   const proxyUrl = `http://${proxyName}:3128`;
+  const localstackName = `ap-it-localstack-${suffix}`;
   const created: string[] = [];
   const volumes: string[] = [];
+  let bucket: LocalstackBucket;
+  let probeDir: string;
 
-  const backend = new LocalDockerBackend(
-    {
-      allowedNetworks: [workerNetwork],
-      apiVersion: "v1.44",
-      command: ["sleep", "600"],
-      dockerHost,
-      egressProxyUrl: proxyUrl,
-      gatewayUrl: `http://${allowedName}:8080`,
-      homeDir: "/home/worker",
-      installationId,
-      network: workerNetwork,
-      requestTimeoutMs: 60_000,
-      stopTimeoutSeconds: 1,
-      tmpfsSizeBytes: 16 * 1024 * 1024,
-      user: "1000:1000",
-      workspaceDir: "/workspace",
-    } satisfies LocalDockerBackendConfig,
-    client,
-  );
+  // Built once the bucket exists, since its name is part of the config.
+  let backend: LocalDockerBackend;
+  const configFor = (bucketName: string): LocalDockerBackendConfig => ({
+    allowedNetworks: [workerNetwork],
+    apiVersion: "v1.44",
+    command: ["sleep", "600"],
+    dockerHost,
+    egressProxyUrl: proxyUrl,
+    gatewayUrl: `http://${allowedName}:8080`,
+    homeDir: "/home/worker",
+    installationId,
+    network: workerNetwork,
+    objectStore: {
+      accessKeyId: "test",
+      bucket: bucketName,
+      endpoint: `http://${localstackName}:4566`,
+      region: OBJECT_REGION,
+      secretAccessKey: "test",
+    },
+    requestTimeoutMs: 60_000,
+    stopTimeoutSeconds: 1,
+    tmpfsSizeBytes: 16 * 1024 * 1024,
+    user: "1000:1000",
+    workspaceDir: "/workspace",
+    workspaceGcMinAgeMs: 0,
+    // Neither Docker Desktop nor a stock Linux runner puts its storage on a
+    // quota-capable filesystem; the quota itself is covered by
+    // workspace.integration.test.ts, which probes for one first.
+    workspaceQuota: { mode: "off" },
+  });
 
   beforeAll(async () => {
     await client.version();
-    for (const image of [IMAGE, PROXY_IMAGE]) {
+    for (const image of [IMAGE, PROXY_IMAGE, LOCALSTACK_IMAGE]) {
       await client.pullImage(image);
     }
     await client.createNetwork({ Internal: true, Name: workerNetwork });
     await client.createNetwork({ Internal: false, Name: outerNetwork });
     await startServer(allowedName, "allowed-upstream");
     await startServer(deniedName, "denied-upstream", true);
+    await startLocalstack();
     await startProxy();
+    probeDir = await mkdtemp(join(tmpdir(), "ap-object-probe-"));
   }, 300_000);
 
   afterAll(async () => {
+    await bucket?.destroy().catch(() => undefined);
+    if (probeDir) await rm(probeDir, { recursive: true, force: true });
     for (const name of created) {
       await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
     }
@@ -135,7 +168,10 @@ integration("worker egress is confined to the proxy allowlist", () => {
   }
 
   /** The host port Docker picked for a published container port. */
-  async function publishedPortOf(name: string): Promise<string> {
+  async function publishedPortOf(
+    name: string,
+    containerPort = "8080/tcp",
+  ): Promise<string> {
     const inspected = (await (
       await raw("GET", `/containers/${name}/json`)
     ).json()) as {
@@ -143,9 +179,105 @@ integration("worker egress is confined to the proxy allowlist", () => {
         Ports: Record<string, Array<{ HostPort: string }> | null>;
       };
     };
-    const port = inspected.NetworkSettings.Ports["8080/tcp"]?.[0]?.HostPort;
+    const port = inspected.NetworkSettings.Ports[containerPort]?.[0]?.HostPort;
     if (!port) throw new Error(`${name} published no host port`);
     return port;
+  }
+
+  /**
+   * Runs the worker's own object-store module on the worker network with
+   * exactly the env the backend would put in a worker container. The
+   * repository is mounted read-only into a stock Bun image the way the
+   * proxy is, so this is the production factory — bounded S3 client, prefix
+   * guard and all — not a re-implementation of it.
+   */
+  async function objectProbe(
+    environment: string[],
+  ): Promise<{ exitCode: number; output: string }> {
+    const name = `ap-it-object-probe-${crypto.randomUUID().slice(0, 8)}`;
+    const script = join(probeDir, `${name}.ts`);
+    await writeFile(script, OBJECT_PROBE);
+    await raw("POST", `/containers/create?name=${name}`, {
+      Cmd: ["bun", "run", "/probe/probe.ts"],
+      Env: environment,
+      HostConfig: {
+        Binds: [`${REPOSITORY}:/app:ro`, `${script}:/probe/probe.ts:ro`],
+        NetworkMode: workerNetwork,
+        // Bun writes its cache under HOME; the worker's HOME is a tmpfs.
+        Tmpfs: { "/home/worker": "rw,size=16m" },
+      },
+      Image: PROXY_IMAGE,
+      Tty: true,
+      WorkingDir: "/app",
+    });
+    try {
+      await client.startContainer(name);
+      const waited = (await (
+        await raw("POST", `/containers/${name}/wait`)
+      ).json()) as { StatusCode: number };
+      return { exitCode: waited.StatusCode, output: await logsOf(name) };
+    } finally {
+      await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
+    }
+  }
+
+  function workerEnv(sessionId: string): string[] {
+    return workerEnvironmentFor(
+      configFor(bucket.bucket),
+      { executionId: `exec-${suffix}`, generation: 1, sessionId },
+      `wln-${suffix}`,
+    );
+  }
+
+  /**
+   * The object store, on the outer network like every other upstream and
+   * published to the host so the test can make the bucket and look inside
+   * it. Workers only ever see it through the proxy.
+   */
+  async function startLocalstack(): Promise<void> {
+    created.push(localstackName);
+    const response = await raw(
+      "POST",
+      `/containers/create?name=${localstackName}`,
+      {
+        Env: ["SERVICES=s3", "EAGER_SERVICE_LOADING=1"],
+        ExposedPorts: { "4566/tcp": {} },
+        HostConfig: {
+          NetworkMode: outerNetwork,
+          PortBindings: {
+            "4566/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }],
+          },
+        },
+        Image: LOCALSTACK_IMAGE,
+      },
+    );
+    expect(response.status).toBe(201);
+    await client.startContainer(localstackName);
+    const port = await publishedPortOf(localstackName, "4566/tcp");
+    const endpoint = `http://127.0.0.1:${port}`;
+    const deadline = Date.now() + 120_000;
+    for (;;) {
+      const health = await fetch(`${endpoint}/_localstack/health`, {
+        signal: AbortSignal.timeout(5_000),
+      }).catch(() => null);
+      if (health?.ok) break;
+      if (Date.now() > deadline) {
+        throw new Error(
+          `LocalStack never came up; logs were:\n${await logsOf(localstackName)}`,
+        );
+      }
+      await Bun.sleep(1_000);
+    }
+    bucket = await createLocalstackBucket({
+      env: {
+        accessKeyId: "test",
+        endpoint,
+        region: OBJECT_REGION,
+        secretAccessKey: "test",
+      },
+      prefix: "egress-it",
+    });
+    backend = new LocalDockerBackend(configFor(bucket.bucket), client);
   }
 
   async function startProxy(): Promise<void> {
@@ -153,7 +285,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     const response = await raw("POST", `/containers/create?name=${proxyName}`, {
       Cmd: ["bun", "run", "/app/src/main.ts"],
       Env: [
-        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080`,
+        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566`,
         "EGRESS_PROXY_PORT=3128",
       ],
       HostConfig: {
@@ -337,6 +469,53 @@ integration("worker egress is confined to the proxy allowlist", () => {
     expect((await connect("169.254.169.254:80")).output).toContain("403");
   }, 240_000);
 
+  test("through the proxy the worker's object store reaches its session prefix and nothing else", async () => {
+    const sessionId = crypto.randomUUID();
+    const result = await objectProbe(workerEnv(sessionId));
+    expect(result.output).toContain("PROBE ");
+    expect(result.exitCode).toBe(0);
+    const report = JSON.parse(
+      result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
+    ) as Record<string, unknown>;
+    expect(report).toEqual({
+      conflict: "conflict",
+      duplicate: "duplicate",
+      foreignGet: "ObjectScopeError",
+      foreignList: "ObjectScopeError",
+      foreignPut: "ObjectScopeError",
+      get: '{"revision":0}',
+      head: 14,
+      list: [
+        `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
+      ],
+      put: "ok",
+      putImmutable: "created",
+    });
+    // What the probe wrote is really in the bucket, under the session.
+    const stored = await bucket.s3.send(
+      new (await import("@aws-sdk/client-s3")).ListObjectsV2Command({
+        Bucket: bucket.bucket,
+        Prefix: sessionObjectPrefix(sessionId),
+      }),
+    );
+    expect((stored.Contents ?? []).map((o) => o.Key).sort()).toEqual([
+      `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
+      `${sessionObjectPrefix(sessionId)}transcript/part-0`,
+    ]);
+  }, 300_000);
+
+  test("without the proxy variables the same object store reaches nothing", async () => {
+    // A refusal by the wrapper looks nothing like this: the request leaves
+    // the process and dies on the internal network, so the first call fails
+    // with a network error and the probe exits non-zero before "PROBE".
+    const environment = workerEnv(crypto.randomUUID()).filter(
+      (entry) => !/^(https?_proxy|HTTPS?_PROXY)=/.test(entry),
+    );
+    const result = await objectProbe(environment);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).not.toContain("PROBE ");
+  }, 300_000);
+
   test("a worker container launched by the backend gets the proxy variables", async () => {
     const intent: LaunchIntent = {
       executionId: `exec-${suffix}`,
@@ -349,10 +528,58 @@ integration("worker egress is confined to the proxy allowlist", () => {
     };
     const launched = await backend.ensureExecution(intent);
     created.push(launched.providerRef);
-    volumes.push(workspaceVolumeFor(intent.sessionId, installationId));
+    for (const volume of await client.listVolumes([
+      `${LABELS.sessionId}=${intent.sessionId}`,
+    ])) {
+      volumes.push(volume.Name);
+    }
     const inspected = await client.inspectContainer(launched.providerRef);
     expect(inspected?.Config.Env ?? []).toContain(`HTTP_PROXY=${proxyUrl}`);
     expect(inspected?.Config.Env ?? []).toContain(`http_proxy=${proxyUrl}`);
+    expect(inspected?.Config.Env ?? []).toContain(
+      `${ENV.objectEndpoint}=http://${localstackName}:4566`,
+    );
+    expect(inspected?.Config.Env ?? []).toContain(
+      `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
+    );
     expect(JSON.stringify(inspected?.HostConfig)).not.toContain("host-gateway");
   }, 180_000);
 });
+
+/**
+ * Everything the worker's store must do, from inside the container, reported
+ * as one JSON line. Written to a file at run time so no probe script lives
+ * in the source tree; it imports the module under test from the mounted
+ * repository, which is what makes this the real factory.
+ */
+const OBJECT_PROBE = `
+const { createWorkerObjectStore, objectStoreConfigFromEnv } = await import(
+  "/app/apps/worker/src/object-store.ts"
+);
+const store = createWorkerObjectStore(objectStoreConfigFromEnv(process.env));
+const prefix = process.env.WORKER_OBJECT_PREFIX;
+const key = prefix + "checkpoints/0000000000/a1/manifest.json";
+const encode = (text) => new TextEncoder().encode(text);
+const refusal = async (run) => {
+  try {
+    await run();
+    return "allowed";
+  } catch (error) {
+    return error.name;
+  }
+};
+const report = {};
+report.putImmutable = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
+report.duplicate = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
+report.conflict = (await store.putImmutable(key, encode('{"revision":1}'))).outcome;
+await store.put(prefix + "transcript/part-0", encode("part"));
+report.put = "ok";
+report.get = new TextDecoder().decode(await store.get(key));
+report.head = (await store.head(key))?.bytes;
+report.list = await store.list(prefix + "checkpoints/");
+const foreign = "sessions/" + crypto.randomUUID() + "/checkpoints/0000000000/a1/manifest.json";
+report.foreignGet = await refusal(() => store.get(foreign));
+report.foreignPut = await refusal(() => store.put(foreign, encode("x")));
+report.foreignList = await refusal(() => store.list("sessions/"));
+console.log("PROBE " + JSON.stringify(report));
+`;

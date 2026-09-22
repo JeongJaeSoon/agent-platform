@@ -132,6 +132,71 @@ describe("runtime profiles", () => {
     expect(environment.HOST_PRIVATE_VALUE).toBeUndefined();
   });
 
+  test("forwards the host's egress proxy variables and nothing else", () => {
+    // On the worker network the proxy is the only route to the Messages
+    // endpoint (94S-199); the engine only learns it through these.
+    const environment = runtimeEnvironment(baseConfig, {
+      ALL_PROXY: "socks5://must-not-pass",
+      ANTHROPIC_API_KEY: "host-key-must-not-pass",
+      ANTHROPIC_BASE_URL: "https://host.example.com",
+      HTTP_PROXY: "http://egress-proxy:3128",
+      HTTPS_PROXY: "http://egress-proxy:3128",
+      NODE_EXTRA_CA_CERTS: "/etc/egress/ca.pem",
+      NODE_OPTIONS: "--must-not-pass",
+      NODE_TLS_REJECT_UNAUTHORIZED: "0",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+      PATH: "/bin",
+      SSL_CERT_FILE: "/must/not/pass",
+      http_proxy: "http://egress-proxy:3128",
+      https_proxy: "http://egress-proxy:3128",
+      no_proxy: "localhost,127.0.0.1,::1",
+    });
+    expect(environment).toEqual({
+      ANTHROPIC_API_KEY: "placeholder-direct",
+      ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      CLAUDE_CONFIG_DIR: "/tenant/config",
+      HOME: "/tenant/home",
+      HTTP_PROXY: "http://egress-proxy:3128",
+      HTTPS_PROXY: "http://egress-proxy:3128",
+      LANG: "en_US.UTF-8",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+      PATH: "/bin",
+      TMPDIR: expect.any(String),
+      http_proxy: "http://egress-proxy:3128",
+      https_proxy: "http://egress-proxy:3128",
+      no_proxy: "localhost,127.0.0.1,::1",
+    });
+  });
+
+  test("trusts an extra CA bundle only when the config names one", () => {
+    // The host's bundle would make whoever holds that CA able to impersonate
+    // the Messages endpoint; trust is a composition decision, not ambient.
+    const host = { NODE_EXTRA_CA_CERTS: "/host/ca.pem", PATH: "/bin" };
+    expect("NODE_EXTRA_CA_CERTS" in runtimeEnvironment(baseConfig, host)).toBe(
+      false,
+    );
+    expect(
+      runtimeEnvironment(
+        { ...baseConfig, trustedCaBundle: "/etc/egress/ca.pem" },
+        host,
+      ).NODE_EXTRA_CA_CERTS,
+    ).toBe("/etc/egress/ca.pem");
+  });
+
+  test("forwards each proxy variable only when the host sets it", () => {
+    // A lowercase-only host must not grow uppercase twins the engine would
+    // then read with a different precedence than the host intended.
+    const environment = runtimeEnvironment(baseConfig, {
+      PATH: "/bin",
+      https_proxy: "http://egress-proxy:3128",
+    });
+    expect(environment.https_proxy).toBe("http://egress-proxy:3128");
+    expect("HTTPS_PROXY" in environment).toBe(false);
+    expect("HTTP_PROXY" in environment).toBe(false);
+    expect("NO_PROXY" in environment).toBe(false);
+  });
+
   test("uses the profile-specific LiteLLM authentication transport", () => {
     const bearer = runtimeEnvironment({
       ...baseConfig,

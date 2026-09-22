@@ -28,6 +28,7 @@ export {
   type S3ClientLike,
   type S3RequestBounds,
 } from "./s3.ts";
+export * from "./scoped-objects.ts";
 
 export const DEFAULT_TRANSCRIPT_CHUNK_BYTES = 5 * 1024 * 1024;
 const META_VERSION = 1;
@@ -179,10 +180,11 @@ export function storageConfigFromEnv(
 /**
  * The one place this package builds an S3 client, so the bounds it runs under
  * are the ones in {@link S3_REQUEST_BOUNDS}. `bounds` exists for tests that
- * cannot wait out the shipped values.
+ * cannot wait out the shipped values. Only the `s3` settings are read, so a
+ * caller with no git configuration (the worker) can build one too.
  */
 export function createStorageS3Client(
-  config: StorageConfig,
+  config: Pick<StorageConfig, "s3">,
   bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
 ): S3Client {
   const s3Config: S3ClientConfig = {

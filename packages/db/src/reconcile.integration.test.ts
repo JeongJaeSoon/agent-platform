@@ -37,7 +37,12 @@ import {
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-const LEASE_TTL_MS = 2_000;
+// Leases end on the database clock (94S-211), so these tests wait for real
+// time to pass; short enough to keep the file quick, long enough that a
+// slow round trip does not cross a boundary on its own.
+const LEASE_TTL_MS = 600;
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 integration("orphan reconciliation on PostgreSQL", () => {
   let database: TempDatabase;
@@ -265,10 +270,8 @@ integration("expired lease reconciliation on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let gateway: WorkerGateway;
-  let clock = new Date("2026-09-23T00:00:00.000Z");
-  const advance = (ms: number) => {
-    clock = new Date(clock.getTime() + ms);
-  };
+  // Audit stamps only: expiry is judged on the database clock.
+  const clock = new Date("2026-09-23T00:00:00.000Z");
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "lease_it" });
@@ -281,6 +284,14 @@ integration("expired lease reconciliation on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -381,7 +392,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
 
   test("lease expired before delivery: the worker is fenced, the kill requested, and the input runs again once the execution is confirmed gone", async () => {
     const b = await bound("before");
-    advance(LEASE_TTL_MS * 2);
+    await sleep(LEASE_TTL_MS * 2);
 
     const dry = await reconcileExpiredLeases(db, { now: clock, dryRun: true });
     expect(dry).toEqual([
@@ -459,7 +470,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     const b = await bound("after");
     const next = await gateway.nextInput(b.principal, b.scope);
     expect(next.input?.turn_id).toBe("1");
-    advance(LEASE_TTL_MS * 2);
+    await sleep(LEASE_TTL_MS * 2);
 
     expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
       expect.objectContaining({ action: "fenced", sessionId: b.sessionId }),
@@ -489,25 +500,18 @@ integration("expired lease reconciliation on PostgreSQL", () => {
 
   test("a heartbeat that lands first keeps the lease; an attempt already released is only closed", async () => {
     const alive = await bound("alive");
-    advance(LEASE_TTL_MS / 2);
+    await sleep(LEASE_TTL_MS / 2);
     await gateway.heartbeat(alive.principal, {
       ...alive.scope,
       attempt_state: "running",
     });
-    // Past the original lease, inside the extended one — with a margin on
-    // both sides, since a claim measures its lease from the row lock, not
-    // from the injected clock, and the sweep compares strictly.
-    advance((LEASE_TTL_MS * 3) / 4);
-    const [beat] = await db
-      .select({ leaseExpiresAt: attempts.leaseExpiresAt })
-      .from(attempts)
-      .where(eq(attempts.id, alive.claimed.attempt_id));
-    expect(beat?.leaseExpiresAt.getTime()).toBeGreaterThan(clock.getTime());
+    // Past the original lease, inside the extended one.
+    await sleep((LEASE_TTL_MS * 2) / 3);
     expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
 
     const gone = await bound("released");
     await gateway.release(gone.principal, { ...gone.scope, reason: "idle" });
-    advance(LEASE_TTL_MS * 2);
+    await sleep(LEASE_TTL_MS * 2);
     // release already moved the epoch and ended the attempt: nothing to do
     // for it (the still-bound session from above expires here instead).
     expect(await reconcileExpiredLeases(db, { now: clock })).not.toContainEqual(

@@ -45,6 +45,7 @@ import {
   earliestUnknownTurn,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -131,8 +132,11 @@ function ownedAttempt(fence: WorkerFence) {
   );
 }
 
-function fencedAttempt(fence: WorkerFence, now: Date) {
-  return and(ownedAttempt(fence), gt(attempts.leaseExpiresAt, now));
+// `at` is the database time the lease was last judged held at. Re-reading
+// the clock inside the write would let the lease end between the check and
+// the write, turning an ordinary expiry into a zero-row internal error.
+function fencedAttempt(fence: WorkerFence, at: Date) {
+  return and(ownedAttempt(fence), gt(attempts.leaseExpiresAt, at));
 }
 
 function expectFenced(rows: unknown[], what: string) {
@@ -142,21 +146,9 @@ function expectFenced(rows: unknown[], what: string) {
 }
 
 type Fenced =
-  // `at` is the caller's clock plus however long the row lock took.
+  // `at` is the database clock once the row lock was granted.
   | { outcome: "ok"; session: SessionRow; attempt: AttemptRow; at: Date }
   | FenceRejection;
-
-function shift(at: Date, by: number): Date {
-  return by === 0 ? at : new Date(at.getTime() + by);
-}
-
-// Everything between the caller reading its clock and the point this is
-// called — waiting for a pool connection, BEGIN, a row lock — is real time
-// the lease kept burning. It is added to the caller's clock rather than read
-// from the database so an injected clock still governs the test suite.
-function since(now: Date, startedAt: number): Date {
-  return shift(now, Math.max(0, Date.now() - startedAt));
-}
 
 // The fence is taken once, but the checks that follow it are several round
 // trips and any of them can block on a lock. The lease is therefore judged
@@ -169,12 +161,7 @@ function leaseHeld(attempt: AttemptRow, at: Date): boolean {
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
-async function acquireFence(
-  tx: Database,
-  fence: WorkerFence,
-  now: Date,
-  startedAt: number,
-): Promise<Fenced> {
+async function acquireFence(tx: Database, fence: WorkerFence): Promise<Fenced> {
   const [row] = await tx
     .select({ session: sessions, attempt: attempts })
     .from(sessions)
@@ -184,8 +171,8 @@ async function acquireFence(
     )
     .limit(1)
     .for("update");
-  const at = since(now, startedAt);
   if (!row) return { outcome: "stale_epoch" };
+  const at = await dbNow(tx);
   const { session, attempt } = row;
   const epochMatches =
     session.leaseEpoch === fence.leaseEpoch &&
@@ -196,9 +183,7 @@ async function acquireFence(
     attempt.authRevision === fence.authRevision &&
     !ENDED_ATTEMPT_STATES.includes(attempt.state);
   if (!epochMatches) return { outcome: "stale_epoch" };
-  if (attempt.leaseExpiresAt.getTime() <= at.getTime()) {
-    return { outcome: "lease_expired" };
-  }
+  if (!leaseHeld(attempt, at)) return { outcome: "lease_expired" };
   // The token has now been accepted for something, whatever that was: an
   // event on no turn, a poll that found nothing. That closes the one-shot
   // bootstrap replay, which would otherwise hand this binding to whoever
@@ -389,21 +374,23 @@ async function bindingOf(
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
     profileId: session.profileId,
+    repository: {
+      id: session.repositoryId,
+      url: session.repoUrl,
+      branch: session.branch,
+    },
     restore: await latestCheckpoint(tx, session.id),
   };
 }
 
 async function issueCredential(
   tx: Database,
-  input: Pick<
-    ClaimInput,
-    "attemptId" | "credentialHash" | "credentialExpiresAt"
-  >,
+  input: Pick<ClaimInput, "attemptId" | "credentialHash" | "credentialTtlMs">,
 ) {
   await tx.insert(workerCredentials).values({
     tokenHash: input.credentialHash,
     attemptId: input.attemptId,
-    expiresAt: input.credentialExpiresAt,
+    expiresAt: fromDbNow(input.credentialTtlMs),
   });
 }
 
@@ -431,7 +418,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           sessionId: input.sessionId,
           backend: input.backend,
           nonceHash: input.nonceHash,
-          nonceExpiresAt: input.nonceExpiresAt,
+          nonceExpiresAt: fromDbNow(input.nonceTtlMs),
         })
         .onConflictDoNothing({ target: workerLaunches.executionId })
         .returning({ executionId: workerLaunches.executionId });
@@ -439,7 +426,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
-      const startedAt = Date.now();
       return db.transaction(async (tx) => {
         const [launch] = await tx
           .select()
@@ -447,16 +433,18 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(workerLaunches.nonceHash, input.nonceHash))
           .limit(1)
           .for("update");
-        // Waiting for the pool and for this row is real time. The lease and
-        // the token are measured from here rather than from the clock the
-        // request arrived with, so a claim that waited out its own TTL does
+        // The lease and the token start on the database clock once this row
+        // is locked, so a claim that waited out its own TTL on the lock does
         // not answer "claimed" with a binding that is already dead. Audit
         // stamps keep the caller's clock: they record the request, not the
         // ownership window.
-        const waited = Math.max(0, Date.now() - startedAt);
-        const at = shift(input.now, waited);
-        const leaseExpiresAt = shift(input.leaseExpiresAt, waited);
-        const credentialExpiresAt = shift(input.credentialExpiresAt, waited);
+        const leaseExpiresAt = fromDbNow(input.leaseTtlMs);
+        const credentialTtlMs = input.credentialTtlMs;
+        // The nonce deadline was written on the database clock, so it is
+        // judged there too, once the row lock is held: a claim that waited
+        // out the nonce window on the lock is refused, whatever this
+        // replica's clock says.
+        const at = await dbNow(tx);
         if (
           !launch ||
           launch.executionId !== input.executionId ||
@@ -508,7 +496,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           await issueCredential(tx, {
             attemptId: bound.attempt.id,
             credentialHash: input.credentialHash,
-            credentialExpiresAt,
+            credentialTtlMs,
           });
           // Revoking the old token does not stop a request that authenticated
           // before it: the auth revision moves so anything already in flight
@@ -615,7 +603,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               observedAt: input.now,
             },
           });
-        await issueCredential(tx, { ...input, credentialExpiresAt });
+        await issueCredential(tx, input);
         await tx
           .update(workerLaunches)
           .set({ claimedAttemptId: attempt.id })
@@ -632,7 +620,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
 
     async resolveCredential(
       tokenHash: Uint8Array,
-      now: Date,
     ): Promise<ResolvedCredential> {
       const [session] = await db
         .select({
@@ -648,7 +635,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           and(
             eq(workerCredentials.tokenHash, tokenHash),
             isNull(workerCredentials.revokedAt),
-            gt(workerCredentials.expiresAt, now),
+            gt(workerCredentials.expiresAt, DB_NOW),
             notInArray(attempts.state, ENDED_ATTEMPT_STATES),
           ),
         )
@@ -663,10 +650,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     nextInputAtomic(input: NextInputInput): Promise<NextInputResult> {
-      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const leaseExpiresAt = fenced.attempt.leaseExpiresAt;
         // A draining attempt is on its way out. Handing it a queued turn
@@ -691,7 +677,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // Whoever held that row may have held it past this lease. Handing the
         // turn over now would start work on a session this attempt no longer
         // owns, which is the one thing the fence exists to prevent.
-        const at = since(now, startedAt);
+        const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         if (!head) return { outcome: "ok", input: null, leaseExpiresAt };
         const { message, turn } = head;
@@ -759,10 +745,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {
-      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
         const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
@@ -772,7 +757,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const updated = await tx
           .update(attempts)
           .set({
-            leaseExpiresAt: sql`GREATEST(${attempts.leaseExpiresAt}, ${input.leaseExpiresAt})`,
+            leaseExpiresAt: sql`GREATEST(${attempts.leaseExpiresAt}, ${fromDbNow(input.leaseTtlMs)})`,
             lastHeartbeatAt: sql`GREATEST(${attempts.lastHeartbeatAt}, ${now})`,
             state:
               reported > current ? input.attemptState : fenced.attempt.state,
@@ -781,6 +766,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
         expectFenced(updated, "attempt");
         const [beat] = updated;
+        if (!beat) throw new Error("Fenced attempt write returned no row");
         await tx
           .update(executions)
           .set({
@@ -791,7 +777,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         await tx
           .update(workerCredentials)
           .set({
-            expiresAt: sql`GREATEST(${workerCredentials.expiresAt}, ${input.credentialExpiresAt})`,
+            expiresAt: sql`GREATEST(${workerCredentials.expiresAt}, ${fromDbNow(input.credentialTtlMs)})`,
           })
           .where(
             and(
@@ -809,17 +795,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           });
         return {
           outcome: "ok",
-          leaseExpiresAt: beat?.leaseExpiresAt ?? input.leaseExpiresAt,
+          leaseExpiresAt: beat.leaseExpiresAt,
           authRevision: fenced.session.authRevision,
         };
       });
     },
 
     commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult> {
-      const startedAt = Date.now();
-      const { fence, now } = input;
+      const { fence } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
 
         // One batch must not carry two different events under one sequence:
@@ -917,10 +902,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "sequence_gap", acceptedThrough: durable };
           }
         }
-        if (
-          fresh.length > 0 &&
-          !leaseHeld(fenced.attempt, since(now, startedAt))
-        ) {
+        if (fresh.length > 0 && !leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
         if (fresh.length > 0) {
@@ -962,15 +944,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     // there turns a settled turn into an unknown outcome. Nothing is written
     // here, and an open turn still goes through the fenced commit below.
     peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult> {
-      const startedAt = Date.now();
-      const { fence, now } = input;
+      const { fence } = input;
       return db.transaction(async (tx) => {
         const probe = await probeFinalize(tx, fence, input, false);
         if (probe.state !== "open") return probe.result;
         // Only a settled turn is readable without the fence. An open one
         // belongs to whoever holds the lease, and saying "open" to anyone
         // else would have the gateway verify a checkpoint on their behalf.
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         // Waiting for that lock is exactly when a competing finalize commits,
         // so the turn is read again before this one is called open.
         const settled = await probeFinalize(tx, fence, input, false);
@@ -980,16 +961,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult> {
-      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
 
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
-        if (!leaseHeld(fenced.attempt, since(now, startedAt))) {
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
 
@@ -1105,13 +1085,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     releaseAtomic(input: ReleaseInput): Promise<ReleaseResult> {
-      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
         // An expired lease on the current epoch may still release: the
         // worker is giving the binding up, which only advances the fence.
         // A superseded epoch cannot; that binding is not its to release.
-        const fenced = await acquireFence(tx, fence, now, startedAt);
+        const fenced = await acquireFence(tx, fence);
         if (fenced.outcome === "stale_epoch") return { released: false };
         const [attempt] = await tx
           .update(attempts)

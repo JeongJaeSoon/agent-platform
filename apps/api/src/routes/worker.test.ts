@@ -50,6 +50,14 @@ beforeEach(async () => {
         "claude-coding-v1": {
           runtime_kind: "claude_agent_sdk",
           runtime_version: "0.3.270",
+          model: "claude-sonnet-5",
+          tools: ["Read", "Edit", "Bash"],
+          permission_mode: "default",
+          provider: {
+            kind: "litellm",
+            endpoint: "https://litellm.invalid",
+            auth: { kind: "api_key", value: "catalog-provider-key" },
+          },
         },
       },
       repositories: {},
@@ -214,6 +222,14 @@ describe("/internal/worker", () => {
     const seeded = await seedSession();
     const { binding } = await claimed();
     const token = binding.session_credential;
+    expect(binding.workspace.repository).toEqual({
+      id: "sample-app",
+      url: "https://example.invalid/app.git",
+      branch: "main",
+    });
+    expect(binding.runtime_config.provider.auth.value).toBe(
+      "catalog-provider-key",
+    );
 
     const next = nextInputResponseSchema.parse(
       await (await post("next-input", token, scope(binding))).json(),
@@ -227,6 +243,8 @@ describe("/internal/worker", () => {
     expect(turn?.deliveryStartedAt?.toISOString()).toBe(clock.toISOString());
 
     clock = new Date(clock.getTime() + 400);
+    // PGlite runs in this process, so its clock is Date.now().
+    const floor = Date.now();
     const beat = heartbeatResponseSchema.parse(
       await (
         await post("heartbeat", token, {
@@ -235,9 +253,9 @@ describe("/internal/worker", () => {
         })
       ).json(),
     );
-    expect(beat.lease_expires_at).toBe(
-      new Date(clock.getTime() + LEASE_TTL_MS).toISOString(),
-    );
+    const extended = new Date(beat.lease_expires_at).getTime();
+    expect(extended).toBeGreaterThanOrEqual(floor + LEASE_TTL_MS);
+    expect(extended).toBeLessThanOrEqual(Date.now() + LEASE_TTL_MS);
 
     const batch = {
       ...scope(binding, "1"),
@@ -329,7 +347,8 @@ describe("/internal/worker", () => {
   test("heartbeat after the TTL is 409 LEASE_EXPIRED", async () => {
     await seedSession();
     const { binding } = await claimed();
-    clock = new Date(clock.getTime() + LEASE_TTL_MS + 1);
+    // The lease runs on the database clock, so only real time ends it.
+    await new Promise((resolve) => setTimeout(resolve, LEASE_TTL_MS + 50));
     expect(
       await errorOf(
         await post("heartbeat", binding.session_credential, {

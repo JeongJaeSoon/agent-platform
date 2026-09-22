@@ -1,24 +1,30 @@
 import { createHash } from "node:crypto";
 import type { ExecutionState } from "@agent-platform/contracts";
-import type {
-  EnsureExecutionResult,
-  ExecutionBackend,
-  ExecutionBackendCapabilities,
-  ExecutionObservation,
-  ExecutionRef,
-  LaunchIntent,
-  ManagedExecution,
-  TerminateExecutionResult,
+import {
+  type EnsureExecutionResult,
+  type ExecutionBackend,
+  type ExecutionBackendCapabilities,
+  type ExecutionObservation,
+  type ExecutionRef,
+  type LaunchIntent,
+  type ManagedExecution,
+  type ManagedWorkspace,
+  sessionObjectPrefix,
+  type TerminateExecutionResult,
+  type WorkspaceRemovalResult,
 } from "@agent-platform/platform";
 import {
   type LocalDockerBackendConfig,
   validateLocalDockerConfig,
+  type WorkspaceQuota,
 } from "./config.ts";
 import {
   type ContainerCreateBody,
   type ContainerInspect,
   DockerApiError,
   DockerClient,
+  type ImageInspect,
+  type VolumeInspect,
 } from "./docker-client.ts";
 
 export const LABELS = {
@@ -31,6 +37,15 @@ export const LABELS = {
   managed: "agent-platform.managed",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
+  /**
+   * On the preflight's throwaway volume. Deliberately *not* `managed`: GC
+   * judges by that label, and a probe has no session for it to match, so
+   * labelling it managed would hand the reaper something it can only ever
+   * leave alone. This label is what makes the probe ours to delete.
+   */
+  quotaProbe: "agent-platform.quota-probe",
+  /** On the workspace volume: which ceiling it was created under. */
+  workspaceQuota: "agent-platform.workspace-quota",
 } as const;
 
 /**
@@ -46,6 +61,12 @@ export const ENV = {
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
   /**
+   * Where the session volume is mounted. Placement is this backend's
+   * knowledge, not the session's, so it travels with the launch rather than
+   * in the claim response that names the repository (94S-206).
+   */
+  workspaceDir: "WORKER_WORKSPACE_DIR",
+  /**
    * Both spellings, because tools are split on which one they read. They are
    * a convenience, not the control: the worker network has no route off
    * itself, so a client that ignores them reaches nothing at all.
@@ -56,6 +77,18 @@ export const ENV = {
   httpsProxyLower: "https_proxy",
   noProxy: "NO_PROXY",
   noProxyLower: "no_proxy",
+  /**
+   * Object store access (94S-244): the same names the control host reads
+   * (`storageConfigFromEnv`), so one env file serves both, plus the prefix
+   * this session owns. The worker confines itself to that prefix; the
+   * credential itself is bucket-wide (see `WorkerObjectStoreAccess`).
+   */
+  objectAccessKeyId: "AWS_ACCESS_KEY_ID",
+  objectBucket: "S3_BUCKET",
+  objectEndpoint: "AWS_ENDPOINT_URL",
+  objectPrefix: "WORKER_OBJECT_PREFIX",
+  objectRegion: "AWS_REGION",
+  objectSecretAccessKey: "AWS_SECRET_ACCESS_KEY",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -69,8 +102,10 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  *
  * 1: non-root, read-only rootfs, dropped caps, per-session volume, bridge.
  * 2: internal worker network and egress proxy, no host-gateway mapping.
+ * 3: object store access and the session prefix are part of the boundary.
+ * 4: the workspace volume is created explicitly, under a byte quota.
  */
-export const ISOLATION_CONTRACT = 2;
+export const ISOLATION_CONTRACT = 4;
 
 /**
  * What goes in the label: the contract version and a fingerprint of the
@@ -87,6 +122,20 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     config.tmpfsSizeBytes,
     config.user,
     config.workspaceDir,
+    // Where the worker's objects go is part of its boundary: a container
+    // still pointed at the old bucket or endpoint would keep writing there.
+    // The access key id is in so a rotation retires containers holding the
+    // old one; the secret is not, because a digest of it has no business on
+    // a label and the key id already changes with it.
+    config.objectStore.accessKeyId,
+    config.objectStore.bucket,
+    config.objectStore.endpoint ?? null,
+    config.objectStore.region,
+    // A container adopted across a quota change would keep mounting the
+    // volume it was created with, whose ceiling cannot be raised or lowered
+    // in place. Making it stale forces the replacement through
+    // `ensureWorkspaceVolume`, which is what reports the mismatch.
+    quotaStampOf(config.workspaceQuota),
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -94,6 +143,10 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
+/** The preflight probe's volume; see `LABELS.quotaProbe` for its labels. */
+const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
+/** Docker's own wording when the volume driver cannot honour `size`. */
+const NO_QUOTA_SUPPORT = "no quota support";
 // Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*
 const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
@@ -115,14 +168,104 @@ export function containerNameFor(
   return `${CONTAINER_NAME_PREFIX}${installationId}-${ref.executionId}-g${ref.generation}`;
 }
 
-export function workspaceVolumeFor(
+/**
+ * The prefix every one of this session's workspace volumes carries.
+ *
+ * A workspace is found by its labels rather than by a name derived from the
+ * session, because the `local` driver does not put a ceiling back on a name
+ * it has already seen. Measured on xfs+prjquota (Docker 27.5.1): the first
+ * create of a name bounds the volume at the requested 64 MiB, and the same
+ * name removed and created again answers 201 with `Options.size` unchanged
+ * while `df` inside a container reports the whole 8 GiB filesystem. The
+ * daemon keeps the project id it assigned to that path and never tags the
+ * new directory with it, so `size` is metadata with nothing behind it and
+ * no API call can tell the two apart. A name is therefore used once.
+ */
+export function workspaceVolumePrefixFor(
   sessionId: string,
   installationId: string,
 ): string {
   if (!SAFE_NAME.test(sessionId)) {
     throw new Error(`Session id ${sessionId} cannot be used as a volume name`);
   }
-  return `${VOLUME_PREFIX}${installationId}-${sessionId}`;
+  return `${VOLUME_PREFIX}${installationId}-${sessionId}-`;
+}
+
+/** What the volume's quota label holds, and part of the isolation stamp. */
+export function quotaStampOf(quota: WorkspaceQuota): string {
+  return quota.mode === "off" ? "off" : `enforced:${quota.sizeBytes}`;
+}
+
+/**
+ * The volume under this session's workspace name is not the one this host
+ * would create — wrong ceiling, wrong owner, or wrong session. Reported
+ * rather than fixed: the volume carries a session's working tree across
+ * generations, a quota cannot be changed on an existing volume, and deleting
+ * it to re-create it would throw that tree away. So the launch stops and
+ * says which volume and what is wrong with it.
+ */
+export class WorkspaceQuotaError extends Error {
+  constructor(
+    readonly volume: string,
+    readonly reason: string,
+  ) {
+    super(`Workspace volume ${volume} ${reason}`);
+    this.name = "WorkspaceQuotaError";
+  }
+}
+
+/**
+ * The preflight's own name is taken by something it did not create. Deleting
+ * it would destroy a volume this host has no claim on, and reusing it would
+ * let a volume made elsewhere stand in for the proof the daemon owes.
+ */
+export class QuotaProbeNameTakenError extends Error {
+  constructor(readonly volume: string) {
+    super(
+      `Volume ${volume} is not this host's quota probe. The preflight needs that name and will not remove a volume it did not create; rename or remove it deliberately.`,
+    );
+    this.name = "QuotaProbeNameTakenError";
+  }
+}
+
+/**
+ * The image declares a `VOLUME` of its own. Docker materializes one anonymous
+ * volume per declared path on every container built from it: writable, no
+ * ceiling, none of our labels. That is a hole straight through the workspace
+ * quota, so the image is refused rather than launched around.
+ */
+export class ImageVolumeError extends Error {
+  constructor(
+    readonly image: string,
+    readonly paths: string[],
+  ) {
+    super(
+      `Image ${image} declares VOLUME ${paths.join(", ")}. Docker would give each one an ` +
+        "unbounded, unlabelled anonymous volume that no quota covers and no GC reclaims. " +
+        "Build the worker image without those declarations.",
+    );
+    this.name = "ImageVolumeError";
+  }
+}
+
+/** The daemon's storage cannot carry a quota (no xfs `prjquota` behind it). */
+export class WorkspaceQuotaUnsupportedError extends Error {
+  constructor(cause: string) {
+    super(
+      `This Docker daemon cannot put a size quota on a local volume (${cause}). ` +
+        "An unbounded workspace lets one worker fill the daemon's disk and take " +
+        "every other session on it down, so nothing is launched. Move the daemon's " +
+        "storage onto xfs with prjquota, or opt out deliberately with " +
+        "EXECUTION_WORKSPACE_QUOTA=off.",
+    );
+    this.name = "WorkspaceQuotaUnsupportedError";
+  }
+}
+
+function isQuotaUnsupported(error: unknown): boolean {
+  return (
+    error instanceof DockerApiError && error.body.includes(NO_QUOTA_SUPPORT)
+  );
 }
 
 export class ExecutionConflictError extends Error {
@@ -159,6 +302,18 @@ export class LocalDockerBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
   private readonly client: DockerClient;
   private readonly config: LocalDockerBackendConfig;
+  /**
+   * The workspace `assertReplaceable` found, per session. Replacement takes
+   * the old container away before it creates the new one, and for that
+   * moment nothing mounts the volume — long enough for a `docker volume
+   * prune` to take it. Creating a fresh one then would start the worker on
+   * an empty tree and call it a launch, so what was validated is remembered
+   * and its absence is an error instead. In memory on purpose: the only
+   * reader is the `ensureExecution` that follows in the same pass, and a
+   * session whose workspace is genuinely gone should be judged from scratch
+   * by the next process rather than from a note this one left.
+   */
+  private readonly replacementWorkspaces = new Map<string, string>();
 
   constructor(config: LocalDockerBackendConfig, client?: DockerClient) {
     this.config = validateLocalDockerConfig(config);
@@ -193,8 +348,123 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
   }
 
+  /**
+   * Refuses to launch onto a daemon that would give the workspace no
+   * ceiling. The `local` driver only honours `size` when the storage behind
+   * it can carry a project quota, and it says so at create time — so the
+   * cheapest honest check is to create one and throw it away. Checked once
+   * per process, beside `verifyNetworkIsolation`.
+   */
+  async verifyWorkspaceQuota(): Promise<void> {
+    const quota = this.config.workspaceQuota;
+    if (quota.mode === "off") return;
+    const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}-${crypto.randomUUID().slice(0, 8)}`;
+    const labels = {
+      [LABELS.installation]: this.config.installationId,
+      [LABELS.quotaProbe]: "true",
+    };
+    // A probe under a name the daemon has already quota'd proves nothing —
+    // see `workspaceVolumePrefixFor` — so each one takes a fresh name, and
+    // what an interrupted probe left behind is cleaned up by its labels
+    // instead. Failing to remove one is not worth refusing the launch over:
+    // the volume is empty, and the probe below still has to pass.
+    for (const stray of await this.client.listVolumes([
+      `${LABELS.quotaProbe}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+    ])) {
+      await this.client.removeVolume(stray.Name).catch(() => undefined);
+    }
+    let volume: VolumeInspect;
+    try {
+      volume = await this.client.createVolume({
+        Driver: "local",
+        DriverOpts: { size: String(quota.sizeBytes) },
+        Labels: labels,
+        Name: name,
+      });
+    } catch (error) {
+      if (isQuotaUnsupported(error)) {
+        throw new WorkspaceQuotaUnsupportedError(messageOf(error));
+      }
+      throw error;
+    }
+    // Checked before the removal below, not inside it: a create onto a name
+    // something else already holds answers with *that* volume, and deleting
+    // it on the way out would destroy data this host has no claim on.
+    if (
+      volume.Labels?.[LABELS.quotaProbe] !== "true" ||
+      volume.Labels?.[LABELS.installation] !== this.config.installationId
+    ) {
+      throw new QuotaProbeNameTakenError(name);
+    }
+    try {
+      if (Number(volume.Options?.size) !== quota.sizeBytes) {
+        throw new WorkspaceQuotaUnsupportedError(
+          `the daemon accepted size=${quota.sizeBytes} but recorded ${volume.Options?.size ?? "no size option"}`,
+        );
+      }
+    } finally {
+      await this.client.removeVolume(name).catch(() => undefined);
+    }
+  }
+
+  async listWorkspaces(): Promise<ManagedWorkspace[]> {
+    const volumes = await this.client.listVolumes([
+      `${LABELS.managed}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+    ]);
+    const youngerThan = Date.now() - this.config.workspaceGcMinAgeMs;
+    const workspaces: ManagedWorkspace[] = [];
+    for (const volume of volumes) {
+      const createdAt = volume.CreatedAt ? new Date(volume.CreatedAt) : null;
+      // The age gate is what keeps a launch in flight — volume created,
+      // container not yet — from being reaped between the two calls. A
+      // volume the daemon will not date cannot pass a gate it cannot be
+      // measured against, so it is left alone.
+      if (createdAt === null || Number.isNaN(createdAt.getTime())) continue;
+      if (createdAt.getTime() > youngerThan) continue;
+      workspaces.push({
+        createdAt,
+        id: volume.Name,
+        sessionId: volume.Labels?.[LABELS.sessionId] ?? null,
+      });
+    }
+    return workspaces;
+  }
+
+  async removeWorkspace(id: string): Promise<WorkspaceRemovalResult> {
+    // Re-checked against the daemon rather than trusted from the listing:
+    // between the two calls the volume may have been remade for a new
+    // session, and the id alone carries no proof of ownership.
+    const volume = await this.client.inspectVolume(id);
+    if (volume === null) return { outcome: "absent" };
+    const labels = volume.Labels ?? {};
+    if (
+      labels[LABELS.managed] !== "true" ||
+      labels[LABELS.installation] !== this.config.installationId
+    ) {
+      return { outcome: "not_ours" };
+    }
+    try {
+      await this.client.removeVolume(id);
+    } catch (error) {
+      // A container still holds it: the session it belongs to came back, or
+      // a teardown is still in flight. Either way, not ours to force.
+      if (error instanceof DockerApiError && error.status === 409) {
+        return { outcome: "in_use" };
+      }
+      throw error;
+    }
+    return { outcome: "removed" };
+  }
+
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
+    // A tag is mutable: the image inspected here and the image a later create
+    // resolves need not be the same one. Creating from the id that was
+    // actually inspected closes that window.
+    const image = await this.inspectedImage(intent.image);
+    const volume = await this.ensureWorkspaceVolume(intent.sessionId);
     // Two passes at most. The second is the one that follows a lost create
     // race, and it judges the winner by the same rules — a container that
     // appeared out of a race is not more trustworthy than one that was
@@ -220,19 +490,25 @@ export class LocalDockerBackend implements ExecutionBackend {
           this.config.stopTimeoutSeconds,
         );
       }
+      const body = await this.createBody(intent, image, volume);
       try {
         // The credential is minted here and nowhere else: it lives in this
         // one request body, reaches the container as an env var, and is only
         // ever stored as a hash. Adopting an existing container skips this,
         // so a worker that is already running keeps the nonce it was given.
-        await this.client.createContainer(name, await this.createBody(intent));
+        await this.client.createContainer(name, body);
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
-          throw error;
+          throw withoutSecrets(error, body);
         }
         continue;
       }
+      // The volume was checked before the create; a prune in between would
+      // have had Docker silently conjure an unlabelled, unbounded one for the
+      // mount. Nothing has run in the container yet, so this is the last
+      // moment the container can still be thrown away instead of bounded.
+      await this.assertWorkspaceStillBounded(name, intent.sessionId, volume);
       await this.client.startContainer(name);
       const started = await this.client.inspectContainer(name);
       return {
@@ -276,6 +552,25 @@ export class LocalDockerBackend implements ExecutionBackend {
       state,
       ...(verdict === "current" ? {} : { stale: true }),
     };
+  }
+
+  /**
+   * Whether a replacement for this intent could be created, asked without
+   * changing anything. A stale verdict is a demolition order: the container
+   * is destroyed and then re-created, and everything the create can refuse
+   * on — an image this daemon does not have, one that declares its own
+   * `VOLUME`, a workspace `ensureWorkspaceVolume` would reject — would leave
+   * the session with neither worker, the old one gone and nothing to retry
+   * into. Nothing is pinned here and `ensureExecution` resolves the image
+   * again, so this narrows the window rather than closing it; that is as
+   * much as a question asked before a teardown can do.
+   */
+  async assertReplaceable(intent: LaunchIntent): Promise<void> {
+    await this.inspectedImage(intent.image);
+    const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
+    if (workspace !== null) {
+      this.replacementWorkspaces.set(intent.sessionId, workspace);
+    }
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
@@ -332,6 +627,214 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { outcome: "terminated", providerRef: container.Id };
   }
 
+  /**
+   * The per-session workspace, created explicitly so it can carry both a
+   * quota and the labels GC judges by.
+   *
+   * `POST /volumes/create` is not a create-or-fail: a name that already
+   * exists comes back 201 with the *existing* volume, its original driver
+   * options and labels intact and the ones just asked for silently dropped.
+   * So the reply is the thing to check, not the status code.
+   */
+  private async ensureWorkspaceVolume(sessionId: string): Promise<string> {
+    const { config } = this;
+    const quota = config.workspaceQuota;
+    const stamp = quotaStampOf(quota);
+    // The session's own workspace, if it has one: resume must come back to
+    // the tree it left, and only the labels say which volume that is.
+    const existing = await this.findWorkspaceVolume(sessionId);
+    if (existing !== null) {
+      const problem = workspaceVolumeProblem(existing, sessionId, config);
+      if (problem !== null)
+        throw new WorkspaceQuotaError(existing.Name, problem);
+      this.replacementWorkspaces.delete(sessionId);
+      return existing.Name;
+    }
+    const promised = this.replacementWorkspaces.get(sessionId);
+    if (promised !== undefined) {
+      // Between the teardown and here, the workspace this replacement was
+      // approved against stopped existing. A new one would look like a
+      // successful launch and read as a session that lost its work.
+      throw new WorkspaceQuotaError(
+        promised,
+        "the workspace this replacement was checked against is gone; a new one would start the session on an empty tree",
+      );
+    }
+    const name = `${workspaceVolumePrefixFor(sessionId, config.installationId)}${crypto.randomUUID().slice(0, 8)}`;
+    let volume: VolumeInspect;
+    try {
+      volume = await this.client.createVolume({
+        Driver: "local",
+        ...(quota.mode === "enforced"
+          ? { DriverOpts: { size: String(quota.sizeBytes) } }
+          : {}),
+        Labels: {
+          [LABELS.installation]: config.installationId,
+          [LABELS.managed]: "true",
+          [LABELS.sessionId]: sessionId,
+          [LABELS.workspaceQuota]: stamp,
+        },
+        Name: name,
+      });
+    } catch (error) {
+      // Preflight should have caught this; a daemon can lose the capability
+      // under a running control host, so the launch has to fail too.
+      if (isQuotaUnsupported(error)) {
+        throw new WorkspaceQuotaUnsupportedError(messageOf(error));
+      }
+      throw error;
+    }
+    const problem = workspaceVolumeProblem(volume, sessionId, config);
+    if (problem !== null) throw new WorkspaceQuotaError(name, problem);
+    return name;
+  }
+
+  /**
+   * The workspace half of `assertReplaceable`, read-only like all of it.
+   * Answers with the volume the replacement must come back to, or null when
+   * the session has none and the replacement is free to make one.
+   */
+  private async assertWorkspaceReplaceable(
+    sessionId: string,
+  ): Promise<string | null> {
+    const volume = await this.findWorkspaceVolume(sessionId);
+    if (volume === null) return null;
+    const problem = workspaceVolumeProblem(volume, sessionId, this.config);
+    if (problem !== null) throw new WorkspaceQuotaError(volume.Name, problem);
+    return volume.Name;
+  }
+
+  /**
+   * This session's workspace volume, by the labels that name it. Two of them
+   * is not a case to pick a winner in: each may hold a different half of the
+   * session's work, and mounting one would bury the other. Reported instead,
+   * which leaves both on disk for an operator to compare.
+   */
+  private async findWorkspaceVolume(
+    sessionId: string,
+  ): Promise<VolumeInspect | null> {
+    const found = await this.client.listVolumes([
+      `${LABELS.managed}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+      `${LABELS.sessionId}=${sessionId}`,
+    ]);
+    if (found.length === 0) {
+      // Before names became single-use, a workspace was whatever sat under
+      // the session's derived name — including the unlabelled volume Docker
+      // conjures out of a mount spec. Those are still looked for, because
+      // creating a fresh one beside such a volume would hand the session an
+      // empty tree and bury the one it had. What is wrong with it is left to
+      // `workspaceVolumeProblem`, which rejects it for the ceiling it cannot
+      // prove; migrating it is 94S-225.
+      return await this.client.inspectVolume(
+        `${VOLUME_PREFIX}${this.config.installationId}-${sessionId}`,
+      );
+    }
+    if (found.length > 1) {
+      // Reported, not resolved: choosing between two workspaces needs to
+      // know which one a worker actually wrote to, which nothing here can
+      // tell. Worth resolving if a launch race is ever seen to produce it.
+      throw new WorkspaceQuotaError(
+        found
+          .map((volume) => volume.Name)
+          .sort()
+          .join(", "),
+        `session ${sessionId} has ${found.length} workspace volumes; only one can be mounted`,
+      );
+    }
+    return found[0] ?? null;
+  }
+
+  /**
+   * The image to launch, named by its id, once it is known to declare no
+   * volumes of its own. The read-only rootfs and the bounded mounts are the
+   * whole of what a worker may write to — unless its image declares a
+   * `VOLUME`, which Docker honours by attaching a writable anonymous volume
+   * outside all of it. An image the daemon does not have is refused rather
+   * than passed through: a pull landing between that 404 and the create
+   * would launch an image nothing has looked at, and nothing else in the
+   * launch would notice the anonymous volume it brought. Nothing here pulls,
+   * so a missing image could not have launched anyway.
+   */
+  private async inspectedImage(reference: string): Promise<string> {
+    let inspected: ImageInspect | null;
+    try {
+      inspected = await this.client.inspectImage(reference);
+    } catch (error) {
+      if (error instanceof DockerApiError && error.status === 404) {
+        inspected = null;
+      } else {
+        throw error;
+      }
+    }
+    if (inspected === null) {
+      throw new Error(
+        `Image ${reference} is not on this daemon; it cannot be inspected for declared volumes`,
+      );
+    }
+    const declared = Object.keys(inspected.Config.Volumes ?? {});
+    // The workspace path is ours; the image declaring it changes nothing,
+    // because the mount spec names a volume for exactly that target.
+    const extra = declared.filter((path) => path !== this.config.workspaceDir);
+    if (extra.length > 0) throw new ImageVolumeError(reference, extra.sort());
+    return inspected.Id || reference;
+  }
+
+  /**
+   * The workspace this container was created against is still the bounded one
+   * it was checked as. Between the check and the create, a `docker volume
+   * prune` removes it and the create silently conjures a replacement with no
+   * labels and no ceiling; the container is removed rather than started.
+   */
+  private async assertWorkspaceStillBounded(
+    container: string,
+    sessionId: string,
+    name: string,
+  ): Promise<void> {
+    const volume = await this.client.inspectVolume(name);
+    const problem =
+      volume === null
+        ? "disappeared between the check and the container"
+        : workspaceVolumeProblem(volume, sessionId, this.config);
+    if (problem === null) return;
+    await this.client
+      .stopAndRemoveContainer(container, this.config.stopTimeoutSeconds)
+      .catch(() => undefined);
+    throw new WorkspaceQuotaError(name, problem);
+  }
+
+  /**
+   * What is wrong with the workspace this container holds, or null. A
+   * container's mounts are fixed when it is created, so this is the only way
+   * to learn which volume it will write to: the name it was created against
+   * may carry a different volume by now, or none at all.
+   */
+  private async mountedWorkspaceProblem(
+    intent: LaunchIntent,
+    container: ContainerInspect,
+  ): Promise<{ name: string; reason: string } | null> {
+    const mounted = container.Mounts.find(
+      (mount) => mount.Destination === this.config.workspaceDir,
+    );
+    const name = mounted?.Name;
+    if (name === undefined || name === "") {
+      return {
+        name: container.Name,
+        reason: `nothing is mounted at ${this.config.workspaceDir}`,
+      };
+    }
+    const volume = await this.client.inspectVolume(name);
+    if (volume === null) {
+      return { name, reason: "the container's workspace volume is gone" };
+    }
+    const reason = workspaceVolumeProblem(
+      volume,
+      intent.sessionId,
+      this.config,
+    );
+    return reason === null ? null : { name, reason };
+  }
+
   /** The container under this name has to be this very launch, or hands off. */
   private assertSameLaunch(
     intent: LaunchIntent,
@@ -369,6 +872,21 @@ export class LocalDockerBackend implements ExecutionBackend {
     this.assertSameLaunch(intent, container);
     let state = stateOf(container.State.Status);
     if (state === "pending") {
+      // Created and never started, which is also what a create leaves behind
+      // when its workspace turned out to be unbounded and the cleanup that
+      // should have removed the container did not manage it. Starting it on
+      // the strength of its labels would put a worker on exactly that volume,
+      // so what it holds is read from the container — the volume this call
+      // ensured is a different one by then — and a bad answer takes the
+      // container away instead of starting it.
+      const problem = await this.mountedWorkspaceProblem(intent, container);
+      if (problem !== null) {
+        await this.client.stopAndRemoveContainer(
+          container.Id,
+          this.config.stopTimeoutSeconds,
+        );
+        throw new WorkspaceQuotaError(problem.name, problem.reason);
+      }
       await this.client.startContainer(container.Id);
       const started = await this.client.inspectContainer(container.Id);
       if (started) state = stateOf(started.State.Status);
@@ -376,7 +894,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { created: false, providerRef: container.Id, state };
   }
 
-  private async createBody(intent: LaunchIntent): Promise<ContainerCreateBody> {
+  private async createBody(
+    intent: LaunchIntent,
+    image: string,
+    workspace: string,
+  ): Promise<ContainerCreateBody> {
     const { config } = this;
     // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
     // says every worker is bounded, so refuse anything that would drop one.
@@ -399,19 +921,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     const bootstrapNonce = await intent.issueBootstrapNonce();
     return {
       ...(config.command ? { Cmd: config.command } : {}),
-      Env: [
-        `${ENV.bootstrapNonce}=${bootstrapNonce}`,
-        `${ENV.executionGeneration}=${intent.generation}`,
-        `${ENV.executionId}=${intent.executionId}`,
-        `${ENV.gatewayUrl}=${config.gatewayUrl}`,
-        `${ENV.home}=${config.homeDir}`,
-        `${ENV.httpProxy}=${config.egressProxyUrl}`,
-        `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
-        `${ENV.httpsProxy}=${config.egressProxyUrl}`,
-        `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
-        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
-        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
-      ],
+      Env: workerEnvironmentFor(config, intent, bootstrapNonce),
       HostConfig: {
         CapDrop: ["ALL"],
         // No ExtraHosts: `host.docker.internal` would be a route to the
@@ -420,7 +930,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {
-            Source: workspaceVolumeFor(intent.sessionId, config.installationId),
+            Source: workspace,
             Target: config.workspaceDir,
             Type: "volume",
           },
@@ -436,7 +946,7 @@ export class LocalDockerBackend implements ExecutionBackend {
           [config.homeDir]: tmpfsOptions,
         },
       },
-      Image: intent.image,
+      Image: image,
       Labels: {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
@@ -449,6 +959,124 @@ export class LocalDockerBackend implements ExecutionBackend {
       User: config.user,
     };
   }
+}
+
+/**
+ * What is wrong with an existing volume for `sessionId`, or null when it is
+ * exactly the one this host would create. Shared by the launch path and the
+ * pre-teardown check so the two can never disagree about what is acceptable.
+ */
+function workspaceVolumeProblem(
+  volume: VolumeInspect,
+  sessionId: string,
+  config: LocalDockerBackendConfig,
+): string | null {
+  const labels = volume.Labels ?? {};
+  const owner = labels[LABELS.installation];
+  const quota = config.workspaceQuota;
+  const stamp = quotaStampOf(quota);
+  // Only a volume that names a *different* owner is an ownership problem.
+  // One that names none is the volume Docker used to conjure out of a mount
+  // spec, and what is wrong with it is the missing ceiling, reported below.
+  if (owner !== undefined && owner !== config.installationId) {
+    return `belongs to installation ${owner}, not ${config.installationId}`;
+  }
+  if (labels[LABELS.workspaceQuota] !== stamp) {
+    // Either it predates the quota (implicitly created, unlabelled and
+    // unbounded) or it was created under a different ceiling.
+    return (
+      `was created under quota ${labels[LABELS.workspaceQuota] ?? "<none>"}, not ${stamp}; ` +
+      "a volume's quota cannot be changed in place, so this session keeps whatever " +
+      "worker it still has until the volume is retired deliberately (docker volume rm, " +
+      "once its workspace is no longer needed) or the previous setting is restored"
+    );
+  }
+  const size = volume.Options?.size;
+  if (
+    quota.mode === "enforced"
+      ? Number(size) !== quota.sizeBytes
+      : size !== undefined
+  ) {
+    return `carries the quota label ${stamp} but driver option size=${size ?? "<none>"}`;
+  }
+  // The ceiling is right, which says nothing about whose workspace this is.
+  // A volume that carries the stamp but not the identity was made by hand or
+  // for another session; mounting it would hand a session someone else's
+  // working tree, and GC judges by these same labels, so one that is missing
+  // them would never be reclaimed either.
+  if (
+    owner !== config.installationId ||
+    labels[LABELS.managed] !== "true" ||
+    labels[LABELS.sessionId] !== sessionId
+  ) {
+    return (
+      `is not this session's workspace (managed=${labels[LABELS.managed] ?? "<none>"}, ` +
+      `installation=${owner ?? "<none>"}, session=${labels[LABELS.sessionId] ?? "<none>"})`
+    );
+  }
+  return null;
+}
+
+/**
+ * A daemon error carries the daemon's whole reply in its message, and a
+ * reply to a refused create can quote the request. The scheduler logs that
+ * message, so the two values in the body that must never reach a log — the
+ * bootstrap nonce and the secret access key — are blanked out of it first.
+ */
+function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
+  if (!(error instanceof Error)) return error;
+  const secrets = body.Env.filter(
+    (entry) =>
+      entry.startsWith(`${ENV.bootstrapNonce}=`) ||
+      entry.startsWith(`${ENV.objectSecretAccessKey}=`),
+  ).map((entry) => entry.slice(entry.indexOf("=") + 1));
+  for (const secret of secrets) {
+    if (secret.length === 0) continue;
+    error.message = error.message.split(secret).join("[redacted]");
+    if (error instanceof DockerApiError) {
+      // `body` is a readonly field in the type, not in the object.
+      Object.assign(error, {
+        body: error.body.split(secret).join("[redacted]"),
+      });
+    }
+  }
+  return error;
+}
+
+/**
+ * The whole of what a worker container is told. Exported so the integration
+ * test can hand exactly this to a probe that runs the worker's object-store
+ * module. Nothing here is logged: the nonce and the secret access key live
+ * in this one request body and in the daemon's own inspect output.
+ */
+export function workerEnvironmentFor(
+  config: LocalDockerBackendConfig,
+  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId">,
+  bootstrapNonce: string,
+): string[] {
+  const { objectStore } = config;
+  return [
+    `${ENV.bootstrapNonce}=${bootstrapNonce}`,
+    `${ENV.executionGeneration}=${intent.generation}`,
+    `${ENV.executionId}=${intent.executionId}`,
+    `${ENV.gatewayUrl}=${config.gatewayUrl}`,
+    `${ENV.home}=${config.homeDir}`,
+    `${ENV.workspaceDir}=${config.workspaceDir}`,
+    `${ENV.httpProxy}=${config.egressProxyUrl}`,
+    `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
+    `${ENV.httpsProxy}=${config.egressProxyUrl}`,
+    `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
+    `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+    `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+    `${ENV.objectAccessKeyId}=${objectStore.accessKeyId}`,
+    `${ENV.objectBucket}=${objectStore.bucket}`,
+    ...(objectStore.endpoint === undefined
+      ? []
+      : [`${ENV.objectEndpoint}=${objectStore.endpoint}`]),
+    `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
+    `${ENV.objectRegion}=${objectStore.region}`,
+    `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
+  ];
 }
 
 /**
@@ -466,6 +1094,10 @@ function contractVerdictOf(
   if (!Number.isInteger(version) || version < 1) return "stale";
   if (version > ISOLATION_CONTRACT) return "newer";
   return stamp === isolationStampFor(config) ? "current" : "stale";
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Docker container status → the platform's execution state. */

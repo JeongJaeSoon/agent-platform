@@ -55,6 +55,14 @@ integration("session terminate on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -447,12 +455,11 @@ integration("session terminate on PostgreSQL", () => {
     const result = await terminate(session, before.revision);
     if (result.outcome !== "accepted") throw new Error(result.outcome);
 
-    // The receipt is stamped by the database clock, so the sweep is judged
-    // against wall time here, not the injected lease clock.
-    const accepted = (await receiptRow(result.response.receipt_id)).createdAt;
+    // The receipt is stamped and judged by the database clock, so the
+    // deadline itself is what the test moves, not a clock.
     await store().markOverdueTerminations({
-      now: new Date(accepted.getTime() + 29_000),
-      deadlineMs: 30_000,
+      now: new Date(),
+      deadlineMs: 60_000,
     });
     let receipt = await receiptRow(result.response.receipt_id);
     expect(receipt.status).toBe("accepted");
@@ -460,8 +467,8 @@ integration("session terminate on PostgreSQL", () => {
     // at least this one.
     expect(
       await store().markOverdueTerminations({
-        now: new Date(accepted.getTime() + 30_001),
-        deadlineMs: 30_000,
+        now: new Date(),
+        deadlineMs: 0,
       }),
     ).toBeGreaterThanOrEqual(1);
     receipt = await receiptRow(result.response.receipt_id);

@@ -356,6 +356,79 @@ describe("WorkerGateway", () => {
     expect(seen).toEqual([hashWorkerToken("wsc_x")]);
   });
 
+  test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
+    const binding = {
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 0,
+      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "gone-from-catalog",
+        url: "https://example.invalid/team/app.git",
+        branch: "release",
+      },
+      restore: null,
+    };
+    const profile = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: { kind: "api_key" as const, value: "provider-key" },
+      },
+    };
+    const instance = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      // No repositories at all: the descriptor never consults the catalog.
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { leaseTtlMs: 30_000 },
+    });
+    const request = {
+      execution_id: "e",
+      execution_generation: 1,
+      credential: { kind: "launch_nonce" as const, nonce: "n" },
+    };
+    const claimed = await instance.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(claimed.workspace).toEqual({ repository: binding.repository });
+    expect(claimed.runtime).toEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+      profile_id: "claude-coding-v1",
+    });
+    expect(claimed.runtime_config).toEqual({
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan",
+      provider: profile.provider,
+    });
+    // A profile the catalog lost between the row's binding and this replay
+    // is refused rather than answered with a guess.
+    const stranger = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "replayed", binding }),
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { leaseTtlMs: 30_000 },
+    });
+    await expect(
+      stranger.bootstrapClaim({ kind: "bootstrap" }, request),
+    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+  });
+
   test("bootstrapClaim refuses workload_identity and non-bootstrap principals", async () => {
     const { instance } = gateway({});
     await expect(

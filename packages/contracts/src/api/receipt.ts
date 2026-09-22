@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import {
+  receiptActorSchema,
+  resourceRefSchema,
+} from "../domain/authorization.ts";
+import {
   apiErrorCodeSchema,
   receiptIdSchema,
   requestIdSchema,
@@ -8,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  workspaceIdSchema,
 } from "../shared/index.ts";
 
 export const RECEIPT_STATUS_VALUES = [
@@ -29,11 +34,33 @@ export const RECEIPT_OPERATION_VALUES = [
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
 export const receiptOperationSchema = z.enum(RECEIPT_OPERATION_VALUES);
-export const receiptTargetSchema = z.object({
-  session_id: sessionIdSchema,
-  turn_id: turnIdSchema.nullable(),
-  request_id: requestIdSchema.nullable(),
-});
+// The alpha shape, unchanged: every session operation still answers with
+// exactly these three fields.
+// Strict on both sides, so a target can only ever be one of the two: a value
+// carrying both shapes would otherwise match the session branch and have its
+// resource fields silently stripped. It also matches what the generated
+// OpenAPI already promised (`additionalProperties: false`).
+export const receiptSessionTargetSchema = z
+  .object({
+    session_id: sessionIdSchema,
+    turn_id: turnIdSchema.nullable(),
+    request_id: requestIdSchema.nullable(),
+  })
+  .strict();
+// Mutations outside a session — invites, agents, releases, dispatches, memory,
+// routines — name their resource instead (Codex B03). Each route adds its own
+// `operation` value in its own ticket; the vocabulary here stays session-only
+// until one does.
+export const receiptResourceTargetSchema = z
+  .object({
+    resource: resourceRefSchema,
+    workspace_id: workspaceIdSchema.nullable(),
+  })
+  .strict();
+export const receiptTargetSchema = z.union([
+  receiptSessionTargetSchema,
+  receiptResourceTargetSchema,
+]);
 export const receiptErrorSchema = z.object({
   code: apiErrorCodeSchema,
   message: z.string().min(1),
@@ -42,6 +69,9 @@ export const receiptSchema = z.object({
   id: receiptIdSchema,
   operation: receiptOperationSchema,
   target_ref: receiptTargetSchema,
+  // Who asked for this. Optional until 94S-150 adds the column; alpha rows
+  // written before it have no actor to report (Codex B19).
+  actor: receiptActorSchema.optional(),
   status: receiptStatusSchema,
   result: z.unknown().nullable(),
   error: receiptErrorSchema.nullable(),
@@ -67,6 +97,8 @@ export const terminateReceiptResultSchema = z.object({
 
 export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 export type ReceiptOperation = z.infer<typeof receiptOperationSchema>;
+export type ReceiptSessionTarget = z.infer<typeof receiptSessionTargetSchema>;
+export type ReceiptResourceTarget = z.infer<typeof receiptResourceTargetSchema>;
 export type ReceiptTarget = z.infer<typeof receiptTargetSchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
 export type GetReceiptResponse = z.infer<typeof getReceiptResponseSchema>;

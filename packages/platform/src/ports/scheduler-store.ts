@@ -63,6 +63,12 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * environment, so it has to be replaced rather than waited on.
    */
   nonceExpiresAt: Date | null;
+  /**
+   * `nonceExpiresAt` judged on the storage clock as the rows were listed.
+   * The scheduler's own clock never decides this: a replica running ahead
+   * would replace a resource whose credential is still good.
+   */
+  nonceExpired: boolean;
 };
 
 /**
@@ -88,7 +94,7 @@ export interface SchedulerStore {
    * the plaintext. Refuses a launch that already bound a worker or gave its
    * slot back, so a credential is never issued for a binding that exists.
    */
-  issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string>;
+  issueBootstrapNonce(ref: ExecutionRef): Promise<string>;
   /**
    * Shuts this launch's bootstrap door for good and says whether it was still
    * open: true only when the launch was unclaimed, still held its slot, and
@@ -96,7 +102,7 @@ export interface SchedulerStore {
    * safe to tear the resource down — a claim that commits either side of it
    * loses or wins outright, never both.
    */
-  revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean>;
+  revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,
@@ -137,4 +143,16 @@ export interface SchedulerStore {
     now: Date;
     deadlineMs: number;
   }): Promise<number>;
+
+  /**
+   * The subset of `sessionIds` whose workspace must be kept: a session row
+   * that has not reached a terminal admission state — a paused or
+   * recovery-required session is resumed into the same workspace — or one
+   * whose launch still holds its slot. An id with no row at all is not
+   * retained: nothing can come back to it.
+   *
+   * Ids the store cannot judge come back retained, so a workspace labelled
+   * with something that is not a session id is left alone rather than reaped.
+   */
+  filterRetainedSessions(sessionIds: string[]): Promise<string[]>;
 }

@@ -7,10 +7,13 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test:unit": "bun test src/backend.test.ts src/config.test.ts src/docker-client.test.ts",
-    "test:docker": "DOCKER_BACKEND_TEST=1 bun test src/backend.integration.test.ts src/egress.integration.test.ts"
+    "test:docker": "DOCKER_BACKEND_TEST=1 bun test src/backend.integration.test.ts src/egress.integration.test.ts src/workspace.integration.test.ts"
   },
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*"
   }
 }

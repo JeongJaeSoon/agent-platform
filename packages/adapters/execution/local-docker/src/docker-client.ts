@@ -91,6 +91,13 @@ export type ContainerInspect = {
   };
   HostConfig: Record<string, unknown>;
   Id: string;
+  /**
+   * What the container holds, as the daemon resolved it when the container
+   * was created: a volume mount carries that volume's `Name`. Fixed for the
+   * container's lifetime, and not the same question as which volume the
+   * create asked for.
+   */
+  Mounts: Array<{ Destination: string; Name?: string; Type: string }>;
   Name: string;
   State: {
     ExitCode: number;
@@ -121,6 +128,33 @@ export type ContainerSummary = {
   Labels: Record<string, string> | null;
   Names: string[];
   State: string;
+};
+
+export type ImageInspect = {
+  Config: {
+    /** Declared `VOLUME` paths, as a set with empty values. */
+    Volumes?: Record<string, unknown> | null;
+  };
+  /** `sha256:…`; the only name for an image that cannot be repointed. */
+  Id: string;
+};
+
+export type VolumeInspect = {
+  /** RFC 3339; absent on daemons older than the field. */
+  CreatedAt?: string;
+  Driver: string;
+  Labels: Record<string, string> | null;
+  Mountpoint: string;
+  Name: string;
+  /** The driver options the volume was *created* with, not the ones asked for. */
+  Options: Record<string, string> | null;
+};
+
+export type VolumeCreateBody = {
+  Driver: string;
+  DriverOpts?: Record<string, string>;
+  Labels: Record<string, string>;
+  Name: string;
 };
 
 /**
@@ -216,6 +250,22 @@ export class DockerClient {
     return response.json();
   }
 
+  /**
+   * The image as the daemon has it, or null when it is not pulled yet.
+   * `Config.Volumes` is the interesting part: every path in it becomes a
+   * writable anonymous volume on any container built from the image.
+   */
+  async inspectImage(name: string): Promise<ImageInspect | null> {
+    const response = await this.request(
+      "GET",
+      `/images/${encodeURIComponent(name)}/json`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    return response.json();
+  }
+
   /** 201 with the new id; 409 when a network of that name already exists. */
   async createNetwork(body: NetworkCreateBody): Promise<{ Id: string }> {
     return (await this.request("POST", "/networks/create", body, [201])).json();
@@ -243,6 +293,50 @@ export class DockerClient {
     );
   }
 
+  /**
+   * 201 — but *not* necessarily with the volume that was asked for. A name
+   * that already exists comes back as the existing volume with its original
+   * driver options and labels, and no error. The caller has to compare the
+   * returned `Options`/`Labels` against what it wanted; "the create
+   * succeeded" says nothing about whether a quota is in force.
+   */
+  async createVolume(body: VolumeCreateBody): Promise<VolumeInspect> {
+    return (await this.request("POST", "/volumes/create", body, [201])).json();
+  }
+
+  /** null when the volume does not exist. */
+  async inspectVolume(name: string): Promise<VolumeInspect | null> {
+    const response = await this.request(
+      "GET",
+      `/volumes/${encodeURIComponent(name)}`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    return response.json();
+  }
+
+  async listVolumes(labels: string[]): Promise<VolumeInspect[]> {
+    const filters = encodeURIComponent(JSON.stringify({ label: labels }));
+    const response = await this.request("GET", `/volumes?filters=${filters}`);
+    const body: { Volumes: VolumeInspect[] | null } = await response.json();
+    return body.Volumes ?? [];
+  }
+
+  /**
+   * Idempotent on absence (404 is success). 409 means a container still has
+   * it mounted and is left to the caller as a `DockerApiError`: forcing a
+   * removal out from under a running worker is never what we want.
+   */
+  async removeVolume(name: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/volumes/${encodeURIComponent(name)}`,
+      undefined,
+      [204, 404],
+    );
+  }
+
   async listContainers(labels: string[]): Promise<ContainerSummary[]> {
     const filters = encodeURIComponent(JSON.stringify({ label: labels }));
     const response = await this.request(
@@ -264,9 +358,13 @@ export class DockerClient {
       undefined,
       [204, 304, 404],
     );
+    // `v=true` takes the container's *anonymous* volumes with it — the ones
+    // Docker materializes for every `VOLUME` an image declares. Named volumes
+    // are untouched by it, so the session workspace still outlives this call
+    // and is reclaimed by GC instead.
     await this.request(
       "DELETE",
-      `/containers/${encoded}?force=true`,
+      `/containers/${encoded}?force=true&v=true`,
       undefined,
       [204, 404],
     );

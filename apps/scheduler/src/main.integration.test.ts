@@ -5,7 +5,7 @@ import {
   containerNameFor,
   DockerClient,
   LABELS,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { inArray } from "drizzle-orm";
@@ -40,6 +40,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
 
   const environment = () => ({
     ...process.env,
+    AWS_ACCESS_KEY_ID: "test",
+    AWS_ENDPOINT_URL: "http://localstack:4566",
+    AWS_REGION: "ap-northeast-1",
+    AWS_SECRET_ACCESS_KEY: "test",
     DATABASE_URL: database.url,
     DOCKER_HOST: dockerHost,
     EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
@@ -48,6 +52,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     EXECUTION_DOCKER_NETWORK: workerNetwork,
     EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
     EXECUTION_SLOT_LIMIT: "10",
+    // The runner's data root is on ext4, so the daemon cannot carry a
+    // volume quota; the quota itself is covered by workspace.integration.test.ts.
+    EXECUTION_WORKSPACE_QUOTA: "off",
+    S3_BUCKET: "claude-sessions",
     WORKER_CPUS: "0.25",
     WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
     WORKER_IMAGE: IMAGE,
@@ -93,13 +101,14 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         .catch(() => undefined);
     }
     for (const sessionId of sessionIds) {
-      await fetch(
-        `http://docker/v1.44/volumes/${workspaceVolumeFor(sessionId, runLabel)}?force=true`,
-        {
+      for (const volume of await client
+        .listVolumes([`${LABELS.sessionId}=${sessionId}`])
+        .catch(() => [])) {
+        await fetch(`http://docker/v1.44/volumes/${volume.Name}?force=true`, {
           method: "DELETE",
           unix: dockerHost.replace("unix://", ""),
-        } as RequestInit,
-      ).catch(() => undefined);
+        } as RequestInit).catch(() => undefined);
+      }
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
     await pool.end();
@@ -143,5 +152,43 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       const key = `${container.Labels?.[LABELS.executionId]}#${container.Labels?.[LABELS.generation]}`;
       expect(rowKeys.has(key)).toBe(true);
     }
+  }, 180_000);
+
+  test("a refused quota preflight still reclaims the workspaces it can", async () => {
+    // The probe needs disk, so the daemon that fails it is often the one that
+    // is full — the moment reclaiming finished sessions matters most. This
+    // daemon fails the probe for a different reason (no project quota behind
+    // its storage), which exercises the same path: refuse to admit work, but
+    // not before the pass has had its chance to free disk.
+    const closedSession = crypto.randomUUID();
+    sessionIds.push(closedSession);
+    await db.insert(sessions).values({
+      id: closedSession,
+      ownerId: runLabel,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${closedSession}`,
+      admissionState: "closed",
+    });
+    const name = `${workspaceVolumePrefixFor(closedSession, runLabel)}7a6b5c4d`;
+    await client.createVolume({
+      Driver: "local",
+      Labels: {
+        [LABELS.installation]: runLabel,
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: closedSession,
+        [LABELS.workspaceQuota]: "off",
+      },
+      Name: name,
+    });
+
+    await expect(
+      main({
+        ...environment(),
+        EXECUTION_WORKSPACE_QUOTA: "on",
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
+      }),
+    ).rejects.toThrow("cannot put a size quota");
+
+    expect(await client.inspectVolume(name)).toBeNull();
   }, 180_000);
 });

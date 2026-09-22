@@ -4,6 +4,18 @@ import {
   DEFAULT_DOCKER_REQUEST_TIMEOUT_MS,
 } from "./docker-client.ts";
 
+/**
+ * `enforced` puts a byte ceiling on the per-session workspace volume through
+ * the `local` driver's `size` option, which only holds on a daemon whose
+ * storage sits on a quota-capable filesystem (xfs with `prjquota`). `off` is
+ * the deliberate opt-out for daemons that cannot: it is never the fallback a
+ * missing capability drops into, because an unbounded workspace lets one
+ * worker fill the host out from under every other session on the daemon.
+ */
+export type WorkspaceQuota =
+  | { mode: "enforced"; sizeBytes: number }
+  | { mode: "off" };
+
 export type LocalDockerBackendConfig = {
   /** Only networks in this list may be used; the empty list means none. */
   allowedNetworks: string[];
@@ -28,6 +40,14 @@ export type LocalDockerBackendConfig = {
    */
   installationId: string;
   network: string;
+  /**
+   * Where the worker mirrors transcripts and publishes checkpoints. Handed
+   * to the container as the same `S3_BUCKET`/`AWS_*` variables the control
+   * host reads, plus the session prefix the backend computes per launch.
+   * The endpoint must be on the egress proxy's allowlist or the worker
+   * cannot reach it (`infra/docker-compose.yml`).
+   */
+  objectStore: WorkerObjectStoreAccess;
   /** Deadline for each Docker Engine API call. */
   requestTimeoutMs: number;
   /** Seconds between SIGTERM and SIGKILL on terminate. */
@@ -37,10 +57,37 @@ export type LocalDockerBackendConfig = {
   user: string;
   /** Mount point of the per-session volume. */
   workspaceDir: string;
+  /**
+   * How long a workspace volume must have existed before GC will consider
+   * it. A volume is created before the container that mounts it and before
+   * anything records the session, so a young orphan is more likely a launch
+   * in flight than one to reclaim.
+   */
+  workspaceGcMinAgeMs: number;
+  workspaceQuota: WorkspaceQuota;
+};
+
+export type WorkerObjectStoreAccess = {
+  accessKeyId: string;
+  bucket: string;
+  /** Absent for real AWS; set for LocalStack or another S3-compatible endpoint. */
+  endpoint?: string;
+  region: string;
+  /**
+   * Bucket-wide today: nothing short of an STS session policy can narrow a
+   * credential to one session's prefix, and no deployment here has an
+   * identity provider to mint one. The worker confines itself with a prefix
+   * guard instead (`scopedCheckpointObjectStore`).
+   */
+  secretAccessKey: string;
 };
 
 /** Shaped like the process environment so it can be passed straight through. */
 export type LocalDockerBackendEnvironment = {
+  AWS_ACCESS_KEY_ID?: string | undefined;
+  AWS_ENDPOINT_URL?: string | undefined;
+  AWS_REGION?: string | undefined;
+  AWS_SECRET_ACCESS_KEY?: string | undefined;
   DOCKER_API_VERSION?: string | undefined;
   DOCKER_HOST?: string | undefined;
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
@@ -55,6 +102,11 @@ export type LocalDockerBackendEnvironment = {
   EXECUTION_DOCKER_TMPFS_SIZE_MB?: string | undefined;
   EXECUTION_DOCKER_USER?: string | undefined;
   EXECUTION_DOCKER_WORKSPACE_DIR?: string | undefined;
+  EXECUTION_WORKSPACE_GC_MIN_AGE_SEC?: string | undefined;
+  /** `on` (default) or `off`; anything else is a typo, not an opt-out. */
+  EXECUTION_WORKSPACE_QUOTA?: string | undefined;
+  EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
+  S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
   [key: string]: string | undefined;
 };
@@ -101,6 +153,7 @@ export function localDockerConfigFromEnv(
     installationId:
       environment.EXECUTION_INSTALLATION_ID ?? DEFAULT_INSTALLATION_ID,
     network,
+    objectStore: objectStoreAccessFromEnv(environment),
     requestTimeoutMs:
       environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
         ? DEFAULT_DOCKER_REQUEST_TIMEOUT_MS
@@ -121,7 +174,68 @@ export function localDockerConfigFromEnv(
       1024,
     user: environment.EXECUTION_DOCKER_USER ?? DEFAULT_WORKER_USER,
     workspaceDir: environment.EXECUTION_DOCKER_WORKSPACE_DIR ?? "/workspace",
+    // Zero is a real setting — reclaim as soon as the session is finished —
+    // so this one is not a `positiveInteger`.
+    workspaceGcMinAgeMs:
+      nonNegativeInteger(
+        environment.EXECUTION_WORKSPACE_GC_MIN_AGE_SEC ??
+          String(DEFAULT_WORKSPACE_GC_MIN_AGE_SEC),
+        "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC",
+      ) * 1_000,
+    workspaceQuota: workspaceQuotaFromEnv(environment),
   });
+}
+
+export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
+export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
+
+function workspaceQuotaFromEnv(
+  environment: LocalDockerBackendEnvironment,
+): WorkspaceQuota {
+  const mode = environment.EXECUTION_WORKSPACE_QUOTA ?? "on";
+  if (mode === "off") return { mode: "off" };
+  if (mode !== "on") {
+    // A misspelt value must not read as an opt-out, and must not read as
+    // "enforced" either — either way the operator did not get what they typed.
+    throw new Error(
+      `EXECUTION_WORKSPACE_QUOTA ${mode} must be "on" or "off"; "off" is the explicit opt-out`,
+    );
+  }
+  return {
+    mode: "enforced",
+    sizeBytes:
+      positiveInteger(
+        environment.EXECUTION_WORKSPACE_QUOTA_MB ??
+          String(DEFAULT_WORKSPACE_QUOTA_MB),
+        "EXECUTION_WORKSPACE_QUOTA_MB",
+      ) *
+      1024 *
+      1024,
+  };
+}
+
+function objectStoreAccessFromEnv(
+  environment: LocalDockerBackendEnvironment,
+): WorkerObjectStoreAccess {
+  const endpoint = environment.AWS_ENDPOINT_URL?.trim();
+  return {
+    accessKeyId: requiredValue(
+      environment.AWS_ACCESS_KEY_ID,
+      "AWS_ACCESS_KEY_ID",
+    ),
+    bucket: requiredValue(environment.S3_BUCKET, "S3_BUCKET"),
+    ...(endpoint ? { endpoint } : {}),
+    region: requiredValue(environment.AWS_REGION, "AWS_REGION"),
+    secretAccessKey: requiredValue(
+      environment.AWS_SECRET_ACCESS_KEY,
+      "AWS_SECRET_ACCESS_KEY",
+    ),
+  };
+}
+
+function requiredValue(value: string | undefined, name: string): string {
+  if (!value || value.trim() === "") throw new Error(`${name} is required`);
+  return value;
 }
 
 /** The invariants the ticket lists for a worker container, checked once. */
@@ -183,7 +297,59 @@ export function validateLocalDockerConfig(
       `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must be an http:// URL`,
     );
   }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    (!Number.isInteger(config.workspaceQuota.sizeBytes) ||
+      config.workspaceQuota.sizeBytes < 1)
+  ) {
+    throw new Error(
+      `Workspace quota ${config.workspaceQuota.sizeBytes} is not a positive byte limit`,
+    );
+  }
+  if (
+    !Number.isInteger(config.workspaceGcMinAgeMs) ||
+    config.workspaceGcMinAgeMs < 0
+  ) {
+    throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
+  }
+  const { objectStore } = config;
+  if (objectStore.endpoint !== undefined) {
+    let endpoint: URL;
+    try {
+      endpoint = new URL(objectStore.endpoint);
+    } catch {
+      throw new Error(`AWS_ENDPOINT_URL ${objectStore.endpoint} is not a URL`);
+    }
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http(s):// URL`,
+      );
+    }
+    // The URL is quoted in messages and labels; a credential in it would be too.
+    if (endpoint.username !== "" || endpoint.password !== "") {
+      throw new Error("AWS_ENDPOINT_URL must not carry credentials");
+    }
+  }
+  // Names only in these messages, never the values: they end up in logs.
+  for (const [name, value] of [
+    ["AWS_ACCESS_KEY_ID", objectStore.accessKeyId],
+    ["AWS_REGION", objectStore.region],
+    ["AWS_SECRET_ACCESS_KEY", objectStore.secretAccessKey],
+    ["S3_BUCKET", objectStore.bucket],
+  ] as const) {
+    if (value.trim() === "" || /[\s=]/.test(value)) {
+      throw new Error(`${name} must be a single non-empty token`);
+    }
+  }
   return config;
+}
+
+function nonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function positiveInteger(value: string, name: string): number {

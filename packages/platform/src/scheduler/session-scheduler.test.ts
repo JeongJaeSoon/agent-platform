@@ -6,7 +6,9 @@ import type {
   ExecutionRef,
   LaunchIntent,
   ManagedExecution,
+  ManagedWorkspace,
   TerminateExecutionResult,
+  WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
@@ -14,7 +16,11 @@ import type {
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
-import { runScheduler, type SchedulerLogger } from "./session-scheduler.ts";
+import {
+  reclaimWorkspaces,
+  runScheduler,
+  type SchedulerLogger,
+} from "./session-scheduler.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 const NONCE_TTL_MS = 10 * 60 * 1000;
@@ -59,6 +65,7 @@ class MemoryStore implements SchedulerStore {
       generation: 1,
       nonce: null,
       nonceExpiresAt: null,
+      nonceExpired: false,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       providerRef: null,
@@ -109,7 +116,7 @@ class MemoryStore implements SchedulerStore {
     return { ...seeded, operationId: seeded.operationId };
   }
 
-  async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+  async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -120,11 +127,11 @@ class MemoryStore implements SchedulerStore {
       throw new Error(`no credential for ${ref.executionId}`);
     }
     row.nonce = `nonce-${crypto.randomUUID()}`;
-    row.nonceExpiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+    row.nonceExpiresAt = new Date(Date.now() + NONCE_TTL_MS);
     return row.nonce;
   }
 
-  async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+  async revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -132,7 +139,7 @@ class MemoryStore implements SchedulerStore {
       row.claimed ||
       row.slotReleased ||
       row.nonceExpiresAt === null ||
-      row.nonceExpiresAt.getTime() > now.getTime()
+      row.nonceExpiresAt.getTime() > Date.now()
     ) {
       return false;
     }
@@ -180,9 +187,14 @@ class MemoryStore implements SchedulerStore {
     if (this.failList) throw new Error("database down");
     // Copies, like a query result: what the caller carries is a snapshot and
     // stays behind whatever the rows do while the pass runs.
+    // The store, not the scheduler, judges expiry — on its own clock.
     return this.live()
       .filter((e) => e.backend === backend)
-      .map((e) => ({ ...e }));
+      .map((e) => ({
+        ...e,
+        nonceExpired:
+          e.nonceExpiresAt !== null && e.nonceExpiresAt.getTime() <= Date.now(),
+      }));
   }
 
   async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {
@@ -205,6 +217,18 @@ class MemoryStore implements SchedulerStore {
     if (!row) throw new Error(`unknown execution ${ref.executionId}`);
     row.observedState = observation.state;
     row.providerRef = observation.providerRef;
+  }
+
+  /** Sessions whose workspace must survive; everything else is reclaimable. */
+  readonly retainedSessions = new Set<string>();
+  /** What GC asked about, in order, so the ordering can be asserted. */
+  readonly retainedQueries: string[][] = [];
+  failRetained = false;
+
+  async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+    this.retainedQueries.push([...sessionIds]);
+    if (this.failRetained) throw new Error("database down");
+    return sessionIds.filter((id) => this.retainedSessions.has(id));
   }
 }
 
@@ -233,6 +257,7 @@ class FakeBackend implements ExecutionBackend {
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
+  readonly assertReplaceableCalls: LaunchIntent[] = [];
   failEnsureFor = new Set<string>();
   /** Session ids whose container dies right after start (bad image). */
   exitOnStartFor = new Set<string>();
@@ -241,8 +266,39 @@ class FakeBackend implements ExecutionBackend {
   failTerminateFor = new Set<string>();
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
+  /** Session ids whose replacement the provider says it could not create. */
+  refuseReplacementFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
   duringInspect: ((ref: ExecutionRef) => void) | null = null;
+  /** Volume name -> the session label on it, null when it carries none. */
+  readonly workspaces = new Map<string, string | null>();
+  readonly workspacesInUse = new Set<string>();
+  failListWorkspaces = false;
+  failRemoveWorkspaceFor = new Set<string>();
+  listWorkspaces?: () => Promise<ManagedWorkspace[]>;
+  removeWorkspace?: (id: string) => Promise<WorkspaceRemovalResult>;
+
+  /** `workspaceGc: false` is a backend that does not own its workspaces. */
+  constructor(options: { workspaceGc?: boolean } = {}) {
+    if (options.workspaceGc === false) return;
+    this.listWorkspaces = async () => {
+      if (this.failListWorkspaces) throw new Error("daemon unreachable");
+      return [...this.workspaces.entries()].map(([id, sessionId]) => ({
+        createdAt: new Date(0),
+        id,
+        sessionId,
+      }));
+    };
+    this.removeWorkspace = async (id) => {
+      if (this.failRemoveWorkspaceFor.has(id)) {
+        throw new Error("volume remove failed");
+      }
+      if (this.workspacesInUse.has(id)) return { outcome: "in_use" };
+      if (!this.workspaces.has(id)) return { outcome: "absent" };
+      this.workspaces.delete(id);
+      return { outcome: "removed" };
+    };
+  }
 
   capabilities() {
     return { suspend: false };
@@ -281,6 +337,13 @@ class FakeBackend implements ExecutionBackend {
       providerRef: `ctr-${intent.executionId}`,
       state: exited ? "terminated" : "running",
     };
+  }
+
+  async assertReplaceable(intent: LaunchIntent): Promise<void> {
+    this.assertReplaceableCalls.push(intent);
+    if (this.refuseReplacementFor.has(intent.sessionId)) {
+      throw new Error("Image worker:test is not on this daemon");
+    }
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
@@ -360,9 +423,9 @@ function recordingLogger() {
   return { logger, records };
 }
 
-function harness(slotLimit = 10) {
+function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
   const store = new MemoryStore();
-  const backend = new FakeBackend();
+  const backend = new FakeBackend(options);
   const { logger, records } = recordingLogger();
   const run = () =>
     runScheduler({
@@ -373,7 +436,8 @@ function harness(slotLimit = 10) {
       slotLimit,
       store,
     });
-  return { backend, records, run, store };
+  const reclaim = () => reclaimWorkspaces({ backend, logger, store });
+  return { backend, reclaim, records, run, store };
 }
 
 describe("runScheduler", () => {
@@ -487,6 +551,37 @@ describe("runScheduler", () => {
     const after = await run();
     expect(after.replaced).toHaveLength(0);
     expect(after.reensured).toHaveLength(0);
+  });
+
+  test("a stale resource whose replacement cannot be built is left running", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+
+    // The upgrade marks it stale, but the image it would be rebuilt from is
+    // gone. Tearing it down here would leave the session with no worker and
+    // nothing to retry into, so the stale one keeps running.
+    backend.staleFor.add(`${intent.executionId}#1`);
+    backend.refuseReplacementFor.add(intent.sessionId);
+    const summary = await run();
+
+    expect(summary.reconcileFailed).toEqual([ref]);
+    expect(summary.replaced).toHaveLength(0);
+    expect(backend.terminateCalls).toHaveLength(0);
+    expect(backend.containers.size).toBe(1);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(
+      records.some((r) => r.message.includes("Replacement would not launch")),
+    ).toBe(true);
+
+    // The image comes back and the same pass replaces it.
+    backend.refuseReplacementFor.clear();
+    const after = await run();
+    expect(after.replaced).toEqual([ref]);
+    expect(after.reensured).toEqual([ref]);
   });
 
   test("a stale resource the provider will not terminate keeps its slot", async () => {
@@ -1124,5 +1219,190 @@ describe("runScheduler", () => {
         }),
       ).rejects.toThrow("slotLimit");
     }
+  });
+});
+
+describe("reclaimWorkspaces", () => {
+  test("frees finished workspaces without starting or replacing anything", async () => {
+    // The caller has just been refused admission. A pass with no free slots
+    // would still re-ensure the missing container below and replace the stale
+    // one; this must do neither.
+    const { backend, reclaim, store } = harness();
+    store.addUnassigned(2);
+    await harness().run();
+    const [live] = store.addUnassigned(1);
+    if (live === undefined) throw new Error("fixture has no session");
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: new Date(),
+      sessionId: live,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    backend.ensureCalls.length = 0;
+    backend.workspaces.set("ap-ws-done", "session-done");
+    backend.workspaces.set("ap-ws-live", live);
+    store.retainedSessions.add(live);
+
+    const summary = await reclaim();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
+    expect(backend.workspaces.has("ap-ws-live")).toBe(true);
+    // Nothing was launched, adopted or torn down.
+    expect(backend.ensureCalls).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(summary.launched).toEqual([]);
+    expect(summary.reensured).toEqual([]);
+    expect(summary.replaced).toEqual([]);
+  });
+
+  test("a held lock skips it, as it does a whole pass", async () => {
+    const { backend, reclaim, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    await store.acquirePassLock();
+
+    const summary = await reclaim();
+
+    expect(summary.skipped).toBe(true);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
+  });
+
+  test("a failed scan is reported, not swallowed", async () => {
+    const { backend, reclaim } = harness();
+    backend.failListWorkspaces = true;
+
+    expect((await reclaim()).workspaceScanFailed).toBe(true);
+  });
+});
+
+describe("runScheduler workspace GC", () => {
+  test("reclaims a finished session's workspace and keeps a live one's", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-live", "session-live");
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.retainedSessions.add("session-live");
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
+    expect([...backend.workspaces.keys()]).toEqual(["ap-ws-live"]);
+  });
+
+  test("asks the daemon before the database, never the other way round", async () => {
+    // A session created between the two calls has to land in the retained
+    // set. Listing after the query would make its brand-new workspace look
+    // unowned by the time it was seen.
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-1", "session-1");
+    const order: string[] = [];
+    const listed = backend.listWorkspaces;
+    if (!listed) throw new Error("fixture has no workspace GC");
+    backend.listWorkspaces = async () => {
+      order.push("list");
+      return listed();
+    };
+    const filter = store.filterRetainedSessions.bind(store);
+    store.filterRetainedSessions = async (ids) => {
+      order.push("query");
+      return filter(ids);
+    };
+
+    await run();
+
+    expect(order).toEqual(["list", "query"]);
+  });
+
+  test("a workspace with no session label is left alone and reported", async () => {
+    const { backend, records, run, store } = harness();
+    backend.workspaces.set("ap-ws-unlabelled", null);
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspacesUnresolved).toEqual([]);
+    expect(backend.workspaces.has("ap-ws-unlabelled")).toBe(true);
+    // Never asked about: nothing here can turn it into a session id.
+    expect(store.retainedQueries).toEqual([]);
+    expect(records.some((r) => r.message.includes("carries no session"))).toBe(
+      true,
+    );
+  });
+
+  test("a mounted workspace stays and is counted unresolved", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-busy", "session-busy");
+    backend.workspacesInUse.add("ap-ws-busy");
+    void store;
+
+    const summary = await run();
+
+    expect(summary.workspacesUnresolved).toEqual(["ap-ws-busy"]);
+    expect(backend.workspaces.has("ap-ws-busy")).toBe(true);
+  });
+
+  test("a removal that throws leaves the rest of GC running", async () => {
+    const { backend, run } = harness();
+    backend.workspaces.set("ap-ws-a", "session-a");
+    backend.workspaces.set("ap-ws-b", "session-b");
+    backend.failRemoveWorkspaceFor.add("ap-ws-a");
+
+    const summary = await run();
+
+    // A removal that threw is a fault, not a decision to leave it.
+    expect(summary.workspacesFailed).toEqual(["ap-ws-a"]);
+    expect(summary.workspacesUnresolved).toEqual([]);
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-b"]);
+  });
+
+  test("a daemon that will not list reclaims nothing and does not fail the pass", async () => {
+    const { backend, run, store } = harness();
+    backend.failListWorkspaces = true;
+    store.addUnassigned(1);
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspaceScanFailed).toBe(true);
+    // The launches still happened; GC is the last step for exactly this reason.
+    expect(summary.launched).toHaveLength(1);
+  });
+
+  test("a database that will not answer reclaims nothing", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.failRetained = true;
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspaceScanFailed).toBe(true);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
+  });
+
+  test("a backend that does not own its workspaces runs no GC", async () => {
+    const { backend, run, store } = harness(10, { workspaceGc: false });
+    expect(backend.listWorkspaces).toBeUndefined();
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(store.retainedQueries).toEqual([]);
+  });
+
+  test("a workspace whose volume is already gone counts as reclaimed", async () => {
+    // The scheduler asks for a removal it cannot know has already happened;
+    // `absent` is the same end state, not a failure to report.
+    const { backend, run } = harness();
+    backend.workspaces.set("ap-ws-gone", "session-gone");
+    backend.workspaces.delete("ap-ws-gone");
+    const listed = backend.listWorkspaces;
+    if (!listed) throw new Error("fixture has no workspace GC");
+    backend.listWorkspaces = async () => [
+      { createdAt: new Date(0), id: "ap-ws-gone", sessionId: "session-gone" },
+    ];
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-gone"]);
   });
 });

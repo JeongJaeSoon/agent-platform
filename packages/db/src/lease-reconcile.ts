@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, lt, notInArray } from "drizzle-orm";
+import { DB_NOW, dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -27,6 +28,9 @@ export type ReconciledLease = {
 };
 
 /**
+ * Expiry is judged on the database clock, like every fence in the gateway;
+ * `now` only stamps the audit columns of what this pass ended.
+ *
  * architecture.md § lease 만료와 실행 결과 판정, row "execution 종료 미확인":
  * an attempt whose lease ran out loses the session — its epoch is discarded
  * so nothing it still sends can commit, and its execution is asked to go —
@@ -60,7 +64,7 @@ export async function reconcileExpiredLeases(
     .where(
       and(
         notInArray(attempts.state, ENDED_ATTEMPT_STATES),
-        lt(attempts.leaseExpiresAt, now),
+        lt(attempts.leaseExpiresAt, DB_NOW),
       ),
     )
     .orderBy(asc(attempts.leaseExpiresAt), asc(attempts.id))
@@ -88,9 +92,12 @@ export async function reconcileExpiredLeases(
         .limit(1)
         .for("update");
       if (!session || !attempt) return null;
+      // Read after the locks: a heartbeat that held the attempt row may
+      // have just extended the lease past this instant.
+      const at = await dbNow(tx);
       const live =
         !ENDED_ATTEMPT_STATES.includes(attempt.state) &&
-        attempt.leaseExpiresAt.getTime() < now.getTime();
+        attempt.leaseExpiresAt.getTime() < at.getTime();
       if (!live) return null;
       const owns =
         session.executionId === attempt.executionId &&
