@@ -550,6 +550,7 @@ describe("worker protocol", () => {
           branch: "main",
         },
       },
+      principal: { owner_scope: "owner_1" },
       restore: null,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
@@ -613,6 +614,7 @@ describe("worker protocol", () => {
           branch: "main",
         },
       },
+      principal: { owner_scope: "owner_1" },
       restore: {
         revision: 4,
         manifest_ref: "m",
@@ -632,6 +634,7 @@ describe("worker protocol", () => {
       provider_kind: "litellm",
       repository_id: "sample-app",
       branch: "main",
+      owner_scope: "owner_1",
       restore_revision: 4,
     });
     const line = JSON.stringify(loggableBootstrapClaim(claim));

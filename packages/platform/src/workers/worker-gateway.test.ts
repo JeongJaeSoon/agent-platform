@@ -367,6 +367,7 @@ describe("WorkerGateway", () => {
       authRevision: 0,
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
       profileId: "claude-coding-v1",
+      ownerScope: "owner-a",
       repository: {
         id: "gone-from-catalog",
         url: "https://example.invalid/team/app.git",
@@ -405,6 +406,9 @@ describe("WorkerGateway", () => {
       request,
     );
     expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The row's owner partition, not anything from the shared catalog: it is
+    // the checkpoint principal the worker hashes (94S-209 / 94S-261).
+    expect(claimed.principal).toEqual({ owner_scope: "owner-a" });
     expect(claimed.runtime).toEqual({
       kind: "claude_agent_sdk",
       version: "0.3.270",
