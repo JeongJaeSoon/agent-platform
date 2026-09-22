@@ -198,6 +198,12 @@ jobs:
   promote:
     needs: publish
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # One promotion at a time across the whole repository: two v* tags on the
+    # same commit share the sha-<12> tag, and the check-then-write below is
+    # only safe when no other promotion runs between the check and the write.
+    concurrency:
+      group: images-promote
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release

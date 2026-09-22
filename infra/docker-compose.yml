@@ -239,6 +239,8 @@ services:
       EXECUTION_DOCKER_NETWORK_ALLOWLIST: ${EXECUTION_DOCKER_NETWORK_ALLOWLIST:-agent-platform-worker}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
       EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      WORKER_CPUS: ${WORKER_CPUS:-1}
+      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
       # Object store the scheduler hands each worker (94S-244): the compose
       # LocalStack, same values the localstack service is started with.
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}

@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const apps = ["api", "scheduler", "worker"] as const;
+const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const basePins = Object.fromEntries(
@@ -66,6 +67,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(schedulerBlock).toContain("find /tmp/scheduler-last-ok -newermt");
   });
 
+  test("env example names the variables the scheduler actually reads", () => {
+    const example = read(EXAMPLE_ENV_PATH);
+    expect(example).not.toContain("WORKER_MEM_LIMIT");
+    expect(example).toContain("WORKER_MEMORY_MB=");
+    expect(compose).toContain("WORKER_MEMORY_MB: $" + "{WORKER_MEMORY_MB:-2048}");
+  });
+
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
@@ -100,6 +108,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // A single-manifest source must be retagged as is, not wrapped in an
     // index whose digest differs from the staged one.
     expect(promoteJob).toContain("imagetools create --prefer-index=false");
+    // Promotions serialize repository-wide; the tag check is not atomic.
+    expect(promoteJob).toContain("group: images-promote");
+    expect(promoteJob).toContain("cancel-in-progress: false");
     // A lookup that fails for any reason but "not found" must abort, not
     // read as "tag absent".
     expect(promoteJob).toContain("could not look up");
