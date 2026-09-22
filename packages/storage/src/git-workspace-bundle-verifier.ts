@@ -106,12 +106,19 @@ export function createGitWorkspaceBundleVerifier(
         }
         // fsck on the way in rejects malformed objects; the connectivity check
         // fetch runs by default rejects a tip the pack does not deliver.
+        // Maintenance is off because fetch otherwise detaches
+        // `git maintenance run --auto`, which outlives this call and can
+        // recreate the repository after it has been removed.
         const fetch = await git(
           [
             "-c",
             "fetch.fsckObjects=true",
             "-c",
             "transfer.fsckObjects=true",
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
             "fetch",
             "--quiet",
             "--no-tags",

@@ -207,6 +207,8 @@ describe("git workspace bundle verifier", () => {
     await writeFile(join(alternate, "other.bundle"), other.bytes);
     const unbundle = await defaultGitRunner(
       [
+        "-c",
+        "maintenance.auto=false",
         "fetch",
         "--quiet",
         "--no-tags",
@@ -320,6 +322,8 @@ describe("git workspace bundle verifier", () => {
     await writeFile(join(repository, "f.bundle"), bytes);
     const fetch = await defaultGitRunner(
       [
+        "-c",
+        "maintenance.auto=false",
         "fetch",
         "--quiet",
         "--no-tags",
