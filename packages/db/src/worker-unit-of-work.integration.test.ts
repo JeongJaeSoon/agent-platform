@@ -99,12 +99,13 @@ integration("worker gateway on PostgreSQL", () => {
       options: { leaseTtlMs, now: () => clock, sleep: async () => {} },
     });
 
-  async function launch(partition: string) {
+  async function launch(partition: string, sessionId?: string) {
     const executionId = `exec-${crypto.randomUUID()}`;
     const registered = await gateway.registerLaunch({
       executionId,
       generation: 1,
       partition,
+      ...(sessionId === undefined ? {} : { sessionId }),
       backend: "local_docker",
     });
     if (registered.nonce === null) throw new Error("launch already registered");
@@ -1445,6 +1446,44 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed),
     });
     expect(next.input?.turn_id).toBe("1");
+  });
+
+  test("a launch reserved for one session claims that session, not the queue head", async () => {
+    const partition = partitionFor("pinned");
+    const first = await queuedSession(partition, "oldest");
+    const second = await queuedSession(partition, "newest");
+    // The backend that started this execution gave it the second session's
+    // workspace; taking the older head would run one session's input in
+    // another one's directory.
+    const claimed = await claim(await launch(partition, second.session_id));
+    expect(claimed.session_id).toBe(second.session_id);
+    const next = await gateway.nextInput(principalOf(claimed), {
+      ...scopeOf(claimed),
+    });
+    expect(next.input?.message).toBe("newest");
+    // The session it passed over is still waiting for its own launch.
+    const waiting = await db
+      .select()
+      .from(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, first.session_id));
+    expect(waiting).toHaveLength(1);
+  });
+
+  test("a launch reserved for a session that is already bound claims nothing", async () => {
+    const partition = partitionFor("taken");
+    const session = await queuedSession(partition);
+    const other = await queuedSession(partition);
+    await claim(await launch(partition, session.session_id));
+    // Another execution for the same session must wait rather than fall
+    // through to whatever else happens to be queued.
+    expect(
+      await failure(claim(await launch(partition, session.session_id))),
+    ).toEqual({ status: 404, code: "NOT_FOUND" });
+    const waiting = await db
+      .select()
+      .from(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, other.session_id));
+    expect(waiting).toHaveLength(1);
   });
 
   test("two finalizes of the same turn in flight agree on one result", async () => {

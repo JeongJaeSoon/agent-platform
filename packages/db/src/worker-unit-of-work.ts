@@ -424,6 +424,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           executionId: input.executionId,
           generation: input.generation,
           partition: input.partition,
+          sessionId: input.sessionId,
           backend: input.backend,
           nonceHash: input.nonceHash,
           nonceExpiresAt: input.nonceExpiresAt,
@@ -527,9 +528,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             binding: await bindingOf(tx, session, attempt),
           };
         }
-        // Server-side selection: the worker never names a session. SKIP
-        // LOCKED lets concurrent claims in one partition pick different
-        // heads instead of serialising on the oldest signal.
+        // Server-side selection: the worker never names a session. It is
+        // either the one the launch reserved or the partition's head; SKIP
+        // LOCKED lets concurrent claims in one partition pick different heads
+        // instead of serialising on the oldest signal.
         const [candidate] = await tx
           .select({ sessionId: unassignedSessions.sessionId })
           .from(unassignedSessions)
@@ -540,6 +542,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               isNull(sessions.podId),
               eq(sessions.admissionState, "active"),
               inArray(sessions.profileId, input.runnableProfiles),
+              ...(launch.sessionId === null
+                ? []
+                : [eq(sessions.id, launch.sessionId)]),
             ),
           )
           .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))

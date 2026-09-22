@@ -249,6 +249,10 @@ export function createWorkerGateway(deps: {
       executionId: string;
       generation: number;
       partition?: string;
+      // Pins the claim to one session. A backend that gives the container a
+      // session's workspace must set it; a pool of interchangeable workers
+      // leaves it out and the server picks from the partition.
+      sessionId?: string;
       backend: ExecutionBackend;
       nonce?: string;
       // `nonce` is null when this execution was already registered: the
@@ -271,6 +275,7 @@ export function createWorkerGateway(deps: {
         executionId: input.executionId,
         generation: input.generation,
         partition: input.partition ?? "default",
+        sessionId: input.sessionId ?? null,
         backend: backend.data,
         nonceHash: hashWorkerToken(nonce),
         nonceExpiresAt: new Date(now().getTime() + nonceTtlMs),

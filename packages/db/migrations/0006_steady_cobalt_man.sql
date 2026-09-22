@@ -25,6 +25,7 @@ CREATE TABLE "worker_launches" (
 	"execution_id" text PRIMARY KEY NOT NULL,
 	"generation" integer NOT NULL,
 	"partition" text DEFAULT 'default' NOT NULL,
+	"session_id" uuid,
 	"backend" text NOT NULL,
 	"nonce_hash" "bytea" NOT NULL,
 	"nonce_expires_at" timestamp with time zone NOT NULL,
@@ -39,6 +40,7 @@ ALTER TABLE "sessions" ADD COLUMN "execution_generation" integer DEFAULT 0 NOT N
 ALTER TABLE "sessions" ADD COLUMN "auth_revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "attempts" ADD CONSTRAINT "attempts_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker_credentials" ADD CONSTRAINT "worker_credentials_attempt_id_attempts_id_fk" FOREIGN KEY ("attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worker_launches" ADD CONSTRAINT "worker_launches_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker_launches" ADD CONSTRAINT "worker_launches_claimed_attempt_id_attempts_id_fk" FOREIGN KEY ("claimed_attempt_id") REFERENCES "public"."attempts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "attempts_session_started_idx" ON "attempts" USING btree ("session_id","started_at");--> statement-breakpoint
 CREATE INDEX "worker_credentials_live_idx" ON "worker_credentials" USING btree ("attempt_id") WHERE "worker_credentials"."revoked_at" IS NULL;--> statement-breakpoint

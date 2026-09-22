@@ -25,6 +25,8 @@ export type RegisterLaunchInput = {
   executionId: string;
   generation: number;
   partition: string;
+  // The session this launch was started for, when the caller reserved one.
+  sessionId: string | null;
   backend: ExecutionBackend;
   nonceHash: Uint8Array;
   nonceExpiresAt: Date;

@@ -333,6 +333,11 @@ export const workerLaunches = pgTable(
     executionId: text("execution_id").primaryKey(),
     generation: integer().notNull(),
     partition: text().notNull().default("default"),
+    // Set when the launch was started for one particular session, which is
+    // what a backend that mounts a session's workspace into the container
+    // does. The claim is then pinned to it instead of taking the partition's
+    // head, so an execution built for B can never run A.
+    sessionId: uuid("session_id").references(() => sessions.id),
     backend: text().notNull(),
     nonceHash: bytea("nonce_hash").notNull().unique(),
     nonceExpiresAt: timestamp("nonce_expires_at", {

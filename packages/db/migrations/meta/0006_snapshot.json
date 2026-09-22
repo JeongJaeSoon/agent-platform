@@ -1,5 +1,5 @@
 {
-  "id": "30f75151-9206-49fa-80b0-4bb3f87bca15",
+  "id": "2e9c7d7e-fc98-41a0-8524-1534c724ed4e",
   "prevId": "94bb2912-1eaa-4608-9c79-9d080caad5fa",
   "version": "7",
   "dialect": "postgresql",
@@ -1398,6 +1398,12 @@
           "notNull": true,
           "default": "'default'"
         },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "backend": {
           "name": "backend",
           "type": "text",
@@ -1462,6 +1468,15 @@
         }
       },
       "foreignKeys": {
+        "worker_launches_session_id_sessions_id_fk": {
+          "name": "worker_launches_session_id_sessions_id_fk",
+          "tableFrom": "worker_launches",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "worker_launches_claimed_attempt_id_attempts_id_fk": {
           "name": "worker_launches_claimed_attempt_id_attempts_id_fk",
           "tableFrom": "worker_launches",
