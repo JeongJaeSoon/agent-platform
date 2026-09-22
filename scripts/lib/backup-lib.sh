@@ -117,12 +117,16 @@ schema_check() {
 }
 
 # True when the compose project already owns any container, volume or network.
-# Restore never reuses one: an existing project means existing data.
+# Restore never reuses one: an existing project means existing data. A daemon
+# that cannot be asked is a failure, not an empty project.
 project_has_resources() {
-  local project="$1"
-  [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=${project}")" ] && return 0
-  [ -n "$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")" ] && return 0
-  [ -n "$(docker network ls -q --filter "label=com.docker.compose.project=${project}")" ] && return 0
+  local project="$1" found
+  found="$(docker ps -aq --filter "label=com.docker.compose.project=${project}")" || die "docker ps failed; cannot tell whether project '$project' exists"
+  [ -z "$found" ] || return 0
+  found="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")" || die "docker volume ls failed; cannot tell whether project '$project' exists"
+  [ -z "$found" ] || return 0
+  found="$(docker network ls -q --filter "label=com.docker.compose.project=${project}")" || die "docker network ls failed; cannot tell whether project '$project' exists"
+  [ -z "$found" ] || return 0
   return 1
 }
 

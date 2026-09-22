@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$PROJECT" ] || usage
-require_tools docker jq git
+require_tools docker jq git bun
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -55,9 +55,10 @@ fail() {
   printf 'FAIL %s\n' "$*"
 }
 
-# One pinned object: exists and hashes to what the manifest says.
+# One pinned object: exists, hashes to what the manifest says and, when the
+# manifest states a size, is that many bytes.
 check_ref() {
-  local label="$1" key="$2" expected="$3" out="$4"
+  local label="$1" key="$2" expected="$3" out="$4" bytes="${5:-}"
   # Presence is the fetch's exit status: a zero-byte object (an empty untracked
   # file, bytes: 0) is a valid artifact and still gets hashed.
   if ! fetch_object "$key" > "$out"; then
@@ -68,6 +69,10 @@ check_ref() {
   actual="$(sha256_file "$out")"
   if [ "$actual" != "$expected" ]; then
     fail "$label: sha256 $actual != $expected ($key)"
+    return 1
+  fi
+  if [ -n "$bytes" ] && [ "$(wc -c < "$out" | tr -d ' ')" != "$bytes" ]; then
+    fail "$label: $(wc -c < "$out" | tr -d ' ') bytes, manifest says $bytes ($key)"
     return 1
   fi
   return 0
@@ -101,8 +106,10 @@ while IFS='|' read -r session revision ref expected is_pointer; do
   fi
   check_ref "$tag manifest" "$ref" "$expected" "$manifest" || ok=0
   if [ "$ok" = 1 ]; then
-    if ! jq -e '.version == 2 and .workspace.bundle.key and .transcripts.root.parts' "$manifest" >/dev/null 2>&1; then
-      fail "$tag manifest: not a version-2 checkpoint manifest"
+    # The production codec decides what a manifest is: schema, digest
+    # formats and each transcript revision's part-list digest.
+    if ! decode_error="$(bun run "$REPO_ROOT/scripts/lib/decode-manifest.ts" "$manifest" 2>&1)"; then
+      fail "$tag manifest: codec rejected it: ${decode_error}"
       ok=0
     # The product restore path refuses a manifest sealed for another session or
     # revision even when every byte checks out, so the verifier must too.
@@ -114,13 +121,14 @@ while IFS='|' read -r session revision ref expected is_pointer; do
   if [ "$ok" = 1 ]; then
     # Transcript parts of the root and every subagent, then the bundle.
     # NUL-delimited: an object key may itself contain whitespace.
-    while IFS= read -r -d '' key && IFS= read -r -d '' sha; do
-      check_ref "$tag part" "$key" "$sha" "$WORK/part" || ok=0
-    done < <(jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.sha256)\u0000"' "$manifest")
+    while IFS= read -r -d '' key && IFS= read -r -d '' sha && IFS= read -r -d '' bytes; do
+      check_ref "$tag part" "$key" "$sha" "$WORK/part" "$bytes" || ok=0
+    done < <(jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest")
     bundle_key="$(jq -r '.workspace.bundle.key' "$manifest")"
     bundle_sha="$(jq -r '.workspace.bundle.sha256' "$manifest")"
+    bundle_bytes="$(jq -r '.workspace.bundle.bytes' "$manifest")"
     commit="$(jq -r '.workspace.gitCommit' "$manifest")"
-    if check_ref "$tag bundle" "$bundle_key" "$bundle_sha" "$WORK/bundle"; then
+    if check_ref "$tag bundle" "$bundle_key" "$bundle_sha" "$WORK/bundle" "$bundle_bytes"; then
       if ! git -C "$WORK/verify.git" bundle verify "$WORK/bundle" >/dev/null 2>&1; then
         fail "$tag bundle: git bundle verify rejected $bundle_key"
         ok=0

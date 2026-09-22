@@ -124,7 +124,9 @@ for repo in /data/git/repositories/*/*.git; do
   fi
 done
 on_disk="$(cut -d' ' -f1 "$stage/gitea/bundled-repos" "$stage/gitea/empty-repos" | grep -v '\.wiki$' | sort)"
-in_db="$(sqlite3 "$stage/gitea/gitea.db" "SELECT owner_name || '/' || lower_name FROM repository ORDER BY 1")"
+# Gitea keeps the owner's display casing in owner_name but lowercases the
+# directory, so both sides are compared lowercased.
+in_db="$(sqlite3 "$stage/gitea/gitea.db" "SELECT lower(owner_name) || '/' || lower_name FROM repository ORDER BY 1")"
 if [ "$on_disk" != "$in_db" ]; then
   echo "gitea database and repository directories disagree (a repository changed during the backup?):" >&2
   echo "database: $in_db" >&2
