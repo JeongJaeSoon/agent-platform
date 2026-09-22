@@ -43,6 +43,13 @@
       "when": 1790040338531,
       "tag": "0005_cute_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790048700585,
+      "tag": "0006_colorful_scarecrow",
+      "breakpoints": true
     }
   ]
 }

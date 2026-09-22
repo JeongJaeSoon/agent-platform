@@ -1227,6 +1227,55 @@ integration("worker gateway on PostgreSQL", () => {
     expect(next.input?.turn_id).toBe("1");
   });
 
+  test("a request that waits out its lease on the row lock is refused", async () => {
+    const partition = partitionFor("lockwait");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const brief = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: { leaseTtlMs: 150, now: () => clock, sleep: async () => {} },
+    });
+    const claimed = await brief.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT 1 FROM attempts WHERE id = $1 FOR UPDATE", [
+        claimed.attempt_id,
+      ]);
+      // The heartbeat blocks on the row lock until after its lease ends, so
+      // the clock it started with must not resurrect it.
+      const blocked = failure(
+        brief.heartbeat(principalOf(claimed), {
+          ...scopeOf(claimed),
+          attempt_state: "running",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await blocker.query("COMMIT");
+      expect(await blocked).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+    } finally {
+      blocker.release();
+    }
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

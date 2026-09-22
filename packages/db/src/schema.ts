@@ -348,17 +348,27 @@ export const workerLaunches = pgTable(
 );
 
 // Session credential handed out by bootstrapClaim; only its hash is stored.
-export const workerCredentials = pgTable("worker_credentials", {
-  tokenHash: bytea("token_hash").primaryKey(),
-  attemptId: text("attempt_id")
-    .notNull()
-    .references(() => attempts.id),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const workerCredentials = pgTable(
+  "worker_credentials",
+  {
+    tokenHash: bytea("token_hash").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Every heartbeat extends the attempt's live credential, and revoked
+    // rows are kept as history, so that lookup needs its own index.
+    index("worker_credentials_live_idx")
+      .on(table.attemptId)
+      .where(sql`${table.revokedAt} IS NULL`),
+  ],
+);
 
 export const workers = pgTable("workers", {
   podId: text("pod_id").primaryKey(),
