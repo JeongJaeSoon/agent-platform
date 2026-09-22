@@ -12,13 +12,15 @@ export const localstackEnabled =
 /**
  * Without these a request LocalStack accepts and then never answers waits
  * forever: the AWS SDK's default node handler sets no timeouts, and its retry
- * policy only fires on an error that, in that state, never arrives. One such
- * request inside a `Promise.all` fan-out is what bun reports as a bare
- * `timed out after 30000ms`.
+ * policy only fires on an error that, in that state, never arrives.
  *
  * `throwOnRequestTimeout` is not optional here. With `requestTimeout` alone,
  * @smithy/node-http-handler 4.12.1 logs `a request has exceeded the configured
  * timeout` and keeps waiting — the await still never settles.
+ *
+ * These bound the request only. They stop at the response headers and do not
+ * reach the body stream read afterwards, which is where this suite actually
+ * hung; that read is bounded in `s3-session-store.ts`.
  */
 export const s3RequestBounds = {
   connectionTimeout: 2_000,

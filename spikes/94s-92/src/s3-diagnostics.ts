@@ -1,10 +1,14 @@
 /**
  * In-flight accounting for the spike's S3 traffic.
  *
- * A stalled S3 request is invisible in this suite: the AWS SDK client is built
- * with no request or connection timeout, so a request the peer never answers
- * never settles and never retries. All bun reports is `timed out after
- * 30000ms` with no indication of which await was stuck. This module names it.
+ * bun reports a stuck suite as a bare `timed out after 30000ms` with no
+ * indication of which await was stuck. This module names it, and the naming is
+ * what identified the flake: the stuck steps reported `pending=0`, which ruled
+ * out `send` and pointed at the response body read that happens after it.
+ *
+ * The accounting therefore covers `send` only. A hang while consuming a
+ * response body is deliberately outside it — that is the distinction that made
+ * the reports readable.
  */
 
 type PendingCall = {

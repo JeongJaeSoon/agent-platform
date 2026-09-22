@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "bun run typecheck && bun run test:unit && bun run test:localstack",
-    "test:unit": "bun test src/s3-session-store.test.ts src/checkpoint-contract.test.ts src/s3-timeouts.test.ts",
+    "test:unit": "bun test src/s3-session-store.test.ts src/checkpoint-contract.test.ts src/s3-timeouts.test.ts src/body-stall.test.ts",
     "test:localstack": "bun test src/localstack.test.ts src/actual-sdk.test.ts",
     "typecheck": "tsc --noEmit"
   },

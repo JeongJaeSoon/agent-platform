@@ -7,8 +7,10 @@ import { createLocalstackClient } from "./localstack.ts";
  * The failure this pins down is not a slow peer but a silent one: a peer that
  * completes the TCP handshake, reads the request and never answers. The AWS
  * SDK's default node handler has no request or connection timeout, so such a
- * call never settles and never retries, and every await above it stops. In CI
- * that surfaced only as `timed out after 30000ms` in `actual-sdk.test.ts`.
+ * call never settles and never retries, and every await above it stops.
+ *
+ * This is the request half of the problem. A body that stops mid-stream is the
+ * other half, and `body-stall.test.ts` pins that one down.
  */
 describe("LocalStack S3 client request bounds", () => {
   let server: Server;
