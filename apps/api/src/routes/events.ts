@@ -166,39 +166,48 @@ export function registerEventRoutes(
     // read can span several pool timeouts and a write can sit on
     // backpressure, and neither may stretch the revocation window. A
     // verification is good for one keepalive from the moment it started;
-    // the next one starts halfway through and has the remaining half to
-    // answer, so the stream is never more than one keepalive past a check
-    // that would have said no. Nothing is written past `verifiedUntil`, and
-    // a check that has not answered by then closes the stream. The first
+    // the next one starts halfway through and has the other half to answer,
+    // so the stream is never more than one keepalive past a check that
+    // would have said no. Nothing is written past `verifiedUntil`: a frame
+    // that finds it expired waits for the in-flight check (or runs one)
+    // instead of closing, because on a busy event loop the timer itself can
+    // fire late and a late timer is not a revoked key. The first
     // verification is the middleware's, before the first read.
     let onRevoked: (() => void) | undefined;
     let verifiedUntil = Date.now() + keepaliveMs;
+    let inflight: Promise<boolean> | undefined;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const verify = async (): Promise<boolean> => {
+      const startedAt = Date.now();
+      let bound: ReturnType<typeof setTimeout> | undefined;
+      let verdict: boolean;
+      try {
+        verdict = await Promise.race([
+          reauthenticate(),
+          new Promise<boolean>((resolve) => {
+            bound = setTimeout(() => resolve(false), keepaliveMs / 2);
+          }),
+        ]);
+      } catch {
+        verdict = false;
+      } finally {
+        clearTimeout(bound);
+      }
+      if (verdict) verifiedUntil = startedAt + keepaliveMs;
+      return verdict;
+    };
     const armWatchdog = () => {
       watchdog = setTimeout(
         async () => {
-          const startedAt = Date.now();
-          let verdict: boolean;
-          try {
-            verdict = await Promise.race([
-              reauthenticate(),
-              new Promise<boolean>((resolve) =>
-                setTimeout(
-                  () => resolve(false),
-                  Math.max(0, verifiedUntil - Date.now()),
-                ),
-              ),
-            ]);
-          } catch {
-            verdict = false;
-          }
+          inflight = verify();
+          const verdict = await inflight;
+          inflight = undefined;
           if (closed.signal.aborted) return;
           if (!verdict) {
             closeWith("credential_revoked");
             onRevoked?.();
             return;
           }
-          verifiedUntil = startedAt + keepaliveMs;
           armWatchdog();
         },
         Math.max(0, verifiedUntil - Date.now() - keepaliveMs / 2),
@@ -270,11 +279,15 @@ export function registerEventRoutes(
         while (!closed.signal.aborted) {
           for (const event of page.items) {
             if (closed.signal.aborted) break;
-            // The watchdog closes the stream at expiry; this guard keeps a
-            // frame from slipping out on the same tick before it does.
+            // The watchdog closes the stream on a "no"; this guard keeps a
+            // frame from going out while the answer is still pending.
             if (Date.now() > verifiedUntil) {
-              closeWith("credential_revoked");
-              break;
+              const verdict = await (inflight ?? verify());
+              if (closed.signal.aborted) break;
+              if (!verdict || Date.now() > verifiedUntil) {
+                closeWith("credential_revoked");
+                break;
+              }
             }
             const written = await writeBounded(() =>
               stream.writeSSE({

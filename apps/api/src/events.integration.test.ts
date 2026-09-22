@@ -9,6 +9,7 @@ import {
   apiKeys,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  eventPageQuery,
   events,
   idempotencyKeys,
   queueMessages,
@@ -316,6 +317,32 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     expect(all?.more).toBe(false);
     expect(all?.items[0]?.data.occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
+
+  test("a page over a long history scans only `limit` candidate rows", async () => {
+    const sessionId = await createdSession();
+    for (let i = 0; i < 50; i += 1) await appendLikeWorker(sessionId, 100);
+    const explained = (await db.execute(
+      sql`EXPLAIN (ANALYZE, FORMAT JSON) ${eventPageQuery(sessionId, 0, 100, 1024 * 1024)}`,
+    )) as { rows: { "QUERY PLAN": unknown }[] };
+    // Every Limit node in the plan must have produced at most `limit` rows;
+    // the window functions then only see that candidate set.
+    const limits: number[] = [];
+    const walk = (node: unknown) => {
+      if (typeof node !== "object" || node === null) return;
+      const plan = node as {
+        "Node Type"?: string;
+        "Actual Rows"?: number;
+        Plans?: unknown[];
+      };
+      if (plan["Node Type"] === "Limit") limits.push(plan["Actual Rows"] ?? 0);
+      for (const child of plan.Plans ?? []) walk(child);
+    };
+    const [root] = explained.rows;
+    const top = root?.["QUERY PLAN"] as { Plan?: unknown }[] | undefined;
+    walk(top?.[0]?.Plan);
+    expect(limits.length).toBeGreaterThan(0);
+    for (const rows of limits) expect(rows).toBeLessThanOrEqual(100);
+  }, 30_000);
 
   test("rows appended during replay arrive in order with no gap", async () => {
     const sessionId = await createdSession();

@@ -747,6 +747,26 @@ describe("GET /v1/sessions/{id}/events", () => {
     expect(lookups).toBe(2);
   });
 
+  test("a watchdog timer starved past expiry does not close a valid stream", async () => {
+    const { app, store, wakeup } = harness({ keepaliveMs: 100 });
+    store.append(event(1));
+    const response = await open(app);
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+    // Block the event loop for three keepalives: the half-interval check
+    // fires late, after `verifiedUntil`. The key is still valid, so the
+    // late check must refresh the window rather than count as a revocation.
+    const until = Date.now() + 300;
+    while (Date.now() < until) {
+      /* busy */
+    }
+    store.append(event(2));
+    wakeup.notify();
+    expect((await frames.next())?.id).toBe("ev_2");
+    await frames.cancel();
+  });
+
   test("admission caps per owner and per process answer 429 before any read", async () => {
     const { app, store, handle } = harness({
       maxStreams: 3,

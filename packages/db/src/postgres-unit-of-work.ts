@@ -378,6 +378,41 @@ function summarizeTurn(
   };
 }
 
+// Exported so a test can EXPLAIN it: the work per page must stay bounded
+// by `limit` however long the session history is.
+export function eventPageQuery(
+  sessionId: string,
+  after: number,
+  limit: number,
+  maxBytes: number,
+) {
+  return sql`
+    SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
+           fetched
+    FROM (
+      SELECT c.id, c.type, c.payload, c.attempt_id, c.turn_sequence,
+             c.occurred_ms,
+             sum(pg_column_size(c.payload)) OVER (ORDER BY c.id)
+               AS running_bytes,
+             row_number() OVER (ORDER BY c.id) AS position,
+             count(*) OVER () AS fetched
+      FROM (
+        SELECT e.id, e.type, e.payload, e.attempt_id,
+               t.sequence AS turn_sequence,
+               (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
+                 * 1000)::bigint AS occurred_ms
+        FROM ${events} e
+        LEFT JOIN ${turns} t ON t.id = e.turn_id
+        WHERE e.session_id = ${sessionId} AND e.id > ${after}
+        ORDER BY e.id
+        LIMIT ${limit}
+      ) c
+    ) page
+    WHERE position = 1 OR running_bytes <= ${maxBytes}
+    ORDER BY id
+  `;
+}
+
 type EventPageRow = {
   id: string;
   type: string;
@@ -704,34 +739,18 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       //
       // The byte bound is applied in SQL over a running sum of payload sizes
       // so that Postgres, not this process, holds whatever falls past it.
-      // The first row always comes through, or an oversized event could
-      // never be read at all.
+      // The candidate set is cut to `limit` rows first, because window
+      // functions run before LIMIT and would otherwise size the whole
+      // remaining history on every page. The first row always comes
+      // through, or an oversized event could never be read at all.
       // The Database type is generic over the driver, so execute() cannot
       // name its row shape; pg hands back bigints and counts as strings and
       // raw timestamps in a driver-dependent form, hence the epoch column.
       // Rows written outside the worker protocol carry no occurred_at; the
       // insert time is the closest thing to when it happened.
-      const result = (await db.execute(sql`
-        SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
-               fetched
-        FROM (
-          SELECT e.id, e.type, e.payload, e.attempt_id,
-                 t.sequence AS turn_sequence,
-                 (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
-                   * 1000)::bigint AS occurred_ms,
-                 sum(pg_column_size(e.payload)) OVER (ORDER BY e.id)
-                   AS running_bytes,
-                 row_number() OVER (ORDER BY e.id) AS position,
-                 count(*) OVER () AS fetched
-          FROM ${events} e
-          LEFT JOIN ${turns} t ON t.id = e.turn_id
-          WHERE e.session_id = ${sessionId} AND e.id > ${after}
-          ORDER BY e.id
-          LIMIT ${query.limit}
-        ) page
-        WHERE position = 1 OR running_bytes <= ${query.maxBytes}
-        ORDER BY id
-      `)) as { rows: EventPageRow[] };
+      const result = (await db.execute(
+        eventPageQuery(sessionId, after, query.limit, query.maxBytes),
+      )) as { rows: EventPageRow[] };
       const rows = result.rows;
       const fetched = Number(rows[0]?.fetched ?? 0);
       return {
