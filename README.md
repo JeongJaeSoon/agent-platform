@@ -73,7 +73,7 @@ HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
-scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(선택)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 다섯 값이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(http 필수 — 94S-254 전까지, 아래 egress 절)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 값들이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -92,12 +92,15 @@ worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: t
 
 차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway, gitea, 그리고 워커의 object store인 localstack)다. compose의 localstack은 이 때문에 S3만 켠다 — 허용된 port 위의 서비스는 전부 워커가 부를 수 있는 서비스다. 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
-**이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 두 가지가 남아 있다.
+CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
-1. 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다.
-2. CONNECT 터널의 실제 TLS SNI는 검사하지 않는다. proxy는 요청자가 제시한 hostname만 대조하고 터널을 연 뒤에는 바이트를 그대로 흘리므로, allowlist에 있는 CDN hostname으로 CONNECT한 뒤 같은 edge IP의 다른 SNI를 쓰는 경로가 남는다.
+이 관문의 한계:
 
-둘 다 후속 티켓이다. 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이 둘이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
+* 검사 대상은 평문으로 보이는 **바깥** ClientHello의 SNI다. TLS를 종단하지 않으므로 그 안의 HTTP `Host`·경로·본문, 허용된 서비스가 다시 중계하는 곳은 보지 못한다. domain fronting을 CDN 쪽에서 막는 것은 별개의 통제다.
+* IP literal allowlist는 `IP:port` 접근 권한이지 hostname 보장이 아니다. 공유 CDN edge 주소를 IP로 allowlist에 올리지 않는다.
+* **Bun 1.3의 `fetch`·`node:https`는 GREASE ECH를 보내므로 이 proxy로 CONNECT하면 거부된다**(Bun `node:tls`·`Bun.connect({tls})`, Node, curl, 그리고 worker의 SDK가 spawn하는 Claude Code 바이너리는 보내지 않는다 — 2026-09-23 실측). 따라서 worker 안에서 Bun의 HTTP 클라이언트로 https upstream을 부르는 코드는 현재 지원하지 않는다. compose의 object store(localstack)는 http absolute-form이라 무관하지만, https S3 endpoint는 ECH를 보내지 않는 transport와 worker 네트워크 안 실제 PUT/GET 검증이 있기 전까지 지원 범위 밖이고, 그때까지 워커의 `objectStoreConfigFromEnv`와 scheduler의 `localDockerConfigFromEnv`는 `AWS_ENDPOINT_URL`이 없거나 http가 아니면 시작 단계에서 거부한다(94S-254) — launch intent가 예약되기 전에 실패하도록 두 곳이 같은 규칙을 본다. 런타임·클라이언트 버전을 올리면 다시 측정한다.
+
+**이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 하나가 남아 있다: 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다(94S-216). 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이것이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
 
 scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
 
@@ -137,7 +140,7 @@ docker network inspect agent-platform-worker \
   --format '{{.Name}} internal={{.Internal}}'
 ```
 
-실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 internal 네트워크·바깥 네트워크·upstream 두 개·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`로 확인하며 인터넷을 쓰지 않는다. scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
 
 ```bash
 DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
