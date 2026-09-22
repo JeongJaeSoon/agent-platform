@@ -405,13 +405,17 @@ describe("PostgresSchedulerStore", () => {
       gone,
     ]);
 
-    // Paused and recovery_required sessions are resumed into the same
-    // working tree, so their workspace has to outlive the container.
-    expect(new Set(retained)).toEqual(new Set([active, paused, recovery]));
+    // Everything but `closed` is resumed into the same working tree, so the
+    // workspace has to outlive the container. `stopped` is the one that looks
+    // terminal and is not: resume takes only an expected revision, so it comes
+    // back on the same session id and the same volume name.
+    expect(new Set(retained)).toEqual(
+      new Set([active, paused, recovery, stopped]),
+    );
   });
 
   test("a finished session still holding a live execution keeps its workspace", async () => {
-    // Stop is recorded before the container is torn down; reclaiming the
+    // Close is recorded before the container is torn down; reclaiming the
     // volume in that window would pull it out from under a running worker.
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
@@ -423,7 +427,7 @@ describe("PostgresSchedulerStore", () => {
     if (!intent) throw new Error("reservation refused");
     await db
       .update(sessions)
-      .set({ admissionState: "stopped" })
+      .set({ admissionState: "closed" })
       .where(eq(sessions.id, sessionId));
 
     expect(await store.filterRetainedSessions([sessionId])).toEqual([
@@ -437,6 +441,33 @@ describe("PostgresSchedulerStore", () => {
       state: "terminated",
     });
     expect(await store.filterRetainedSessions([sessionId])).toEqual([]);
+  });
+
+  test("a stopped session keeps its workspace once its container is gone", async () => {
+    // The regression this guards: `stopped` reads as terminal but is the
+    // state an explicit resume comes back from, into this very volume.
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({ admissionState: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+
+    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+      sessionId,
+    ]);
   });
 
   test("an id that is not a session id is retained rather than judged", async () => {

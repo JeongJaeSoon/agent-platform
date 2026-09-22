@@ -48,13 +48,17 @@ const DESIRED_RUNNING = "running";
 const OBSERVED_TERMINATED = "terminated";
 
 /**
- * The two admission states a session never comes back from. Every other
- * state — `paused`, `recovery_required`, `stopping` — is resumed or
- * investigated into the same workspace, so the workspace has to survive it.
+ * The one admission state a session never comes back from. Everything else,
+ * `stopped` included, is resumed into the *same* workspace — the API's resume
+ * takes only an expected revision, so the session id, and with it the volume
+ * name, is unchanged. Reclaiming a stopped session's workspace would hand the
+ * resume an empty working tree. A stopped session therefore keeps its disk
+ * until it is closed; expiring those deliberately needs a claim serialized
+ * with resume, which is 94S-225.
  */
 const FINAL_ADMISSION_STATES: Array<
   (typeof sessions.admissionState.enumValues)[number]
-> = ["stopped", "closed"];
+> = ["closed"];
 
 /** `sessions.id` is a uuid column; anything else cannot be asked about. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
