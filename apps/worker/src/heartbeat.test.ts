@@ -135,6 +135,34 @@ describe("Heartbeat", () => {
     await beat.stop();
   });
 
+  test("beats before a lease shorter than the interval runs out", async () => {
+    const beats: HeartbeatRequest[] = [];
+    const lost: string[] = [];
+    const instance = new Heartbeat({
+      gateway: {
+        heartbeat: async (request) => {
+          beats.push(request);
+          return {
+            lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+            auth_revision: scope.auth_revision,
+            control_pending: false,
+          };
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 10_000,
+      leaseExpiresAt: new Date(Date.now() + 50),
+      onLost: (reason) => lost.push(reason),
+    });
+    instance.start();
+    await Bun.sleep(150);
+    await instance.stop();
+
+    expect(beats.length).toBeGreaterThan(0);
+    expect(lost).toEqual([]);
+  });
+
   test("owes a beat asked for while one is in flight", async () => {
     let state: "running" | "draining" = "running";
     let release: () => void = () => {};

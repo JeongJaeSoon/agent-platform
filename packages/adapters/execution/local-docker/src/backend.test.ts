@@ -626,6 +626,21 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).not.toBe(stale.id);
   });
 
+  test("a container started with another stop grace is replaced", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = isolationStampFor({
+      ...configFor(docker.host),
+      stopTimeoutSeconds: configFor(docker.host).stopTimeoutSeconds + 90,
+    });
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+  });
+
   test("a container from a newer contract is refused, never adopted or replaced", async () => {
     // A rollback can neither trust a boundary it cannot read nor swap it for
     // a weaker one, so it refuses and leaves the container standing.

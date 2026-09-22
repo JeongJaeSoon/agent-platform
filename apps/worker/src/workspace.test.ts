@@ -283,6 +283,21 @@ describe("GitWorkspace", () => {
     expect(await Bun.file(join(root, ".env")).text()).toBe("only copy\n");
   });
 
+  test("keeps an unsound checkout whose only work is a detached commit", async () => {
+    await prepare(descriptor());
+    git(["checkout", "--quiet", "--detach"], root);
+    await writeFile(join(root, "WORK.md"), "only here\n");
+    git(["add", "WORK.md"], root);
+    git(["commit", "--quiet", "-m", "detached"], root);
+    await writeFile(
+      join(root, ".git", "shallow"),
+      `${git(["rev-parse", "HEAD~1"], root)}\n`,
+    );
+
+    await expect(prepare(descriptor())).rejects.toThrow("refused");
+    expect(await Bun.file(join(root, "WORK.md")).text()).toBe("only here\n");
+  });
+
   test("brings the origin's new commits into a reused checkout", async () => {
     await prepare(descriptor());
     const seed = join(scratch, "seed");

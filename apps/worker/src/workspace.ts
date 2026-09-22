@@ -164,6 +164,8 @@ export class GitWorkspace implements WorkspacePreparer {
       git([
         "rev-list",
         "--max-count=1",
+        // A detached HEAD's commits are on no branch.
+        "HEAD",
         "--branches",
         "--tags",
         "--not",

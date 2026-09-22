@@ -66,11 +66,21 @@ export class Heartbeat {
 
   private async loop(): Promise<void> {
     while (!this.stopped && !this.lost) {
-      if (!this.owed) await this.pause(this.options.intervalMs);
+      // Never sleeps past the lease: a lease granted with less left than
+      // the interval (a slow answer, a long interval) must still be beaten
+      // in time, and one that runs out between beats noticed when it does.
+      if (!this.owed) {
+        await this.pause(Math.min(this.options.intervalMs, this.leaseLeftMs()));
+      }
       this.owed = false;
       if (this.stopped || this.lost) return;
       await this.beat();
     }
+  }
+
+  private leaseLeftMs(): number {
+    const now = (this.options.now ?? (() => new Date()))();
+    return Math.max(0, this.lease.getTime() - now.getTime());
   }
 
   private async beat(): Promise<void> {
@@ -120,13 +130,9 @@ export class Heartbeat {
     request: Promise<T>,
   ): Promise<T | undefined> {
     request.catch(() => {});
-    const now = (this.options.now ?? (() => new Date()))();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<undefined>((resolve) => {
-      timer = setTimeout(
-        () => resolve(undefined),
-        Math.max(0, this.lease.getTime() - now.getTime()),
-      );
+      timer = setTimeout(() => resolve(undefined), this.leaseLeftMs());
     });
     try {
       return await Promise.race([request, expired]);
