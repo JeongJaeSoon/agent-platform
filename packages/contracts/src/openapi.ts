@@ -183,7 +183,7 @@ const routes: Route[] = [
     success: { status: 200, schema: "SseEvent", sse: true },
     // 410 CURSOR_EXPIRED is declared for clients but never produced in alpha:
     // events are not trimmed (api.md § 이벤트).
-    errors: [400, 401, 404, 410, 503],
+    errors: [400, 401, 404, 410, 429, 503],
   },
   {
     method: "get",

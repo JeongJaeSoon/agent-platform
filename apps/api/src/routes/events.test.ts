@@ -98,7 +98,14 @@ class FakeWakeup implements SessionEventWakeup {
   }
 }
 
-function harness(options: { keepaliveMs?: number; batchSize?: number } = {}) {
+function harness(
+  options: {
+    keepaliveMs?: number;
+    batchSize?: number;
+    maxStreams?: number;
+    maxStreamsPerOwner?: number;
+  } = {},
+) {
   const store = new FakeStore();
   const wakeup = new FakeWakeup();
   const service = createSessionService({
@@ -483,7 +490,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     await response.body?.cancel().catch(() => {});
   });
 
-  test("a key revoked during the initial read never sends a frame", async () => {
+  test("a key revoked while the initial read is blocked gets 401, not a stream", async () => {
     const store = new FakeStore();
     const wakeup = new FakeWakeup();
     store.append(event(1), event(2));
@@ -534,13 +541,118 @@ describe("GET /v1/sessions/{id}/events", () => {
     });
     const pending = open(app, { Authorization: "Bearer csp_test" });
     for (let i = 0; i < 100 && !releaseRead; i += 1) await Bun.sleep(5);
-    await Bun.sleep(30);
     valid = false;
+    // Past one keepalive the watchdog has seen the revocation even though
+    // the read is still pending; releasing it afterwards must not stream.
+    await Bun.sleep(60);
     releaseRead?.();
+    // The watchdog fired while the read was blocked, so the response never
+    // becomes a stream: it is the same 401 the middleware would have sent.
     const response = await pending;
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
+  });
+
+  test("a revoked key closes a stream whose read never returns", async () => {
+    const store = new FakeStore();
+    const wakeup = new FakeWakeup();
+    store.append(event(1));
+    let valid = true;
+    let releaseRead: (() => void) | undefined;
+    const service = createSessionService({
+      authorization: ownerScopedPolicy,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: async (ownerId, sessionId, query) => {
+          if (query.after === "ev_1") {
+            // The live read hangs on "the pool" past the revocation window.
+            await new Promise<void>((resolve) => {
+              releaseRead = resolve;
+            });
+          }
+          return store.reader()(ownerId, sessionId, query);
+        },
+      },
+    });
+    let handle: ReturnType<typeof registerEventRoutes> | undefined;
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async findOwner() {
+          return valid ? OWNER : null;
+        },
+      },
+      registerRoutes: (router) => {
+        handle = registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 40,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    const response = await open(app, { Authorization: "Bearer csp_test" });
     const frames = new FrameReader(response);
-    expect(await frames.ended()).toBe(true);
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+    wakeup.notify();
+    for (let i = 0; i < 100 && !releaseRead; i += 1) await Bun.sleep(5);
+    valid = false;
+    const revokedAt = Date.now();
+    // The body ends while the read is still pending: the watchdog closed it.
+    expect(await frames.ended(1_000)).toBe(true);
+    expect(Date.now() - revokedAt).toBeLessThan(200);
+    expect(handle?.activeStreams()).toBe(1);
+    releaseRead?.();
+    for (let i = 0; i < 100 && handle?.activeStreams() !== 0; i += 1) {
+      await Bun.sleep(5);
+    }
+    expect(handle?.activeStreams()).toBe(0);
+  });
+
+  test("admission caps per owner and per process answer 429 before any read", async () => {
+    const { app, store, handle } = harness({
+      maxStreams: 3,
+      maxStreamsPerOwner: 2,
+    });
+    store.append(event(1));
+    const controllers: AbortController[] = [];
+    const openFor = async (owner: string) => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      return open(app, { "X-Owner-Id": owner }, { signal: controller.signal });
+    };
+    expect((await openFor(OWNER)).status).toBe(200);
+    expect((await openFor(OWNER)).status).toBe(200);
+    const reads = store.reads.length;
+    const third = await openFor(OWNER);
+    expect(third.status).toBe(429);
+    expect(third.headers.get("Retry-After")).toBe("15");
+    expect(apiErrorResponseSchema.parse(await third.json()).error.code).toBe(
+      "RATE_LIMITED",
+    );
+    expect(store.reads).toHaveLength(reads);
+    // Another owner still gets the last process-wide slot, then nothing.
+    store.owner = "owner-b";
+    expect((await openFor("owner-b")).status).toBe(200);
+    expect((await openFor("owner-b")).status).toBe(429);
+    expect(handle.activeStreams()).toBe(3);
+    for (const controller of controllers) controller.abort();
+    for (let i = 0; i < 100 && handle.activeStreams() > 0; i += 1) {
+      await Bun.sleep(5);
+    }
+    expect(handle.activeStreams()).toBe(0);
   });
 
   test("a blocked keepalive write closes the stream within the bound", async () => {

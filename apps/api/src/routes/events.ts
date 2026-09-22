@@ -20,16 +20,24 @@ export const SSE_KEEPALIVE_MS = 15_000;
 // a full page means "read again", a short one means "wait for more".
 export const SSE_REPLAY_BATCH = 100;
 
+// Admission caps: a stream is a resident handle plus a query every
+// keepalive, so a runaway client must not be able to open them without
+// bound. Sized for the alpha's single API process; raise via server env.
+export const SSE_MAX_STREAMS = 256;
+export const SSE_MAX_STREAMS_PER_OWNER = 8;
+
 // 410 CURSOR_EXPIRED is declared for clients and reserved here; alpha never
 // trims events, so nothing produces it yet.
 export const eventRouteErrors: Record<string, number[]> = {
-  "GET /v1/sessions/{id}/events": [400, 401, 404, 410, 503],
+  "GET /v1/sessions/{id}/events": [400, 401, 404, 410, 429, 503],
 };
 
 export interface EventStreamOptions {
   wakeup: SessionEventWakeup;
   keepaliveMs?: number;
   batchSize?: number;
+  maxStreams?: number;
+  maxStreamsPerOwner?: number;
   logger?: Pick<StructuredLogger, "info" | "warn">;
 }
 
@@ -73,18 +81,51 @@ export function registerEventRoutes(
 ): EventStreamHandle {
   const keepaliveMs = options.keepaliveMs ?? SSE_KEEPALIVE_MS;
   const batchSize = options.batchSize ?? SSE_REPLAY_BATCH;
+  const maxStreams = options.maxStreams ?? SSE_MAX_STREAMS;
+  const maxStreamsPerOwner =
+    options.maxStreamsPerOwner ?? SSE_MAX_STREAMS_PER_OWNER;
   const logger = options.logger ?? createLogger();
   let active = 0;
+  const activeByOwner = new Map<string, number>();
+
+  // Reserved before any database work so an over-limit client costs nothing
+  // but this check; released when the stream ends or the request fails.
+  const admit = (ownerId: string): (() => void) => {
+    const mine = activeByOwner.get(ownerId) ?? 0;
+    if (active >= maxStreams || mine >= maxStreamsPerOwner) {
+      throw new ApiHttpError(
+        429,
+        "RATE_LIMITED",
+        "Too many open event streams",
+        true,
+      );
+    }
+    active += 1;
+    activeByOwner.set(ownerId, mine + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      active -= 1;
+      const rest = (activeByOwner.get(ownerId) ?? 1) - 1;
+      if (rest <= 0) activeByOwner.delete(ownerId);
+      else activeByOwner.set(ownerId, rest);
+    };
+  };
 
   router.get("/sessions/:id/events", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
-    // The middleware's check is the last one that counts; the first-page
-    // read below can wait on the pool, and that wait must count against the
-    // revocation window rather than reset it.
-    const authenticatedAt = Date.now();
     const actor = { ownerId: context.get("ownerId") };
     const reauthenticate = context.get("reauthenticate");
     const after = requireLastEventId(context.req.header("Last-Event-ID"));
+    let release: () => void;
+    try {
+      release = admit(actor.ownerId);
+    } catch (error) {
+      // Seconds: the earliest a slot can plausibly free up.
+      context.header("Retry-After", String(Math.ceil(keepaliveMs / 1000)));
+      throw error;
+    }
     const read = (cursor: string | undefined) =>
       mapped(() =>
         service.readEvents(actor, params.id, {
@@ -109,6 +150,42 @@ export function registerEventRoutes(
       };
     };
     const closed = new AbortController();
+    const closeWith = (reason: string) => {
+      if (!closed.signal.aborted) closed.abort(reason);
+    };
+    // Credential watchdog, independent of whatever the loop is awaiting: a
+    // read can span several pool timeouts and a write can sit on
+    // backpressure, and neither may stretch the revocation window. Every
+    // keepalive it re-runs the middleware's check; a "no", or a check that
+    // does not answer within another keepalive, ends the stream. The clock
+    // starts at the middleware's own check, before the first read.
+    let onRevoked: (() => void) | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const armWatchdog = () => {
+      watchdog = setTimeout(async () => {
+        let verdict: boolean;
+        try {
+          verdict = await Promise.race([
+            reauthenticate(),
+            new Promise<boolean>((resolve) =>
+              setTimeout(() => resolve(false), keepaliveMs),
+            ),
+          ]);
+        } catch {
+          verdict = false;
+        }
+        if (closed.signal.aborted) return;
+        if (!verdict) {
+          closeWith("credential_revoked");
+          onRevoked?.();
+          return;
+        }
+        armWatchdog();
+      }, keepaliveMs);
+    };
+    const disarmWatchdog = () => clearTimeout(watchdog);
+    armWatchdog();
+
     let armed = armWait(closed.signal);
     // The first page is read before the response commits to a stream, so an
     // unknown session, a foreign owner, a bad cursor and a storage outage are
@@ -116,8 +193,17 @@ export function registerEventRoutes(
     let firstPage: SseEvent[];
     try {
       firstPage = await read(after);
+      if (closed.signal.aborted) {
+        throw new ApiHttpError(
+          401,
+          "UNAUTHORIZED",
+          "Authentication is required",
+        );
+      }
     } catch (error) {
       armed.release();
+      disarmWatchdog();
+      release();
       throw error;
     }
 
@@ -125,9 +211,9 @@ export function registerEventRoutes(
     // and the Cache-Control that streamSSE sets.
     context.header("X-Accel-Buffering", "no");
     return streamSSE(context, async (stream) => {
-      const closeWith = (reason: string) => {
-        if (!closed.signal.aborted) closed.abort(reason);
-      };
+      // Abort the body too: a write blocked on backpressure or a read still
+      // in flight would otherwise keep the connection open past the verdict.
+      onRevoked = () => stream.abort();
       stream.onAbort(() => closeWith("client_disconnected"));
       context.req.raw.signal.addEventListener(
         "abort",
@@ -135,18 +221,8 @@ export function registerEventRoutes(
         { once: true },
       );
 
-      active += 1;
       let sent = 0;
       let cursor = after;
-      let lastAuthAt = authenticatedAt;
-      // On the keepalive clock whatever the stream is doing, so neither a
-      // long replay nor a steady run of notifications lets a revoked key
-      // keep reading past the window.
-      const stillAuthenticated = async () => {
-        if (Date.now() - lastAuthAt < keepaliveMs) return true;
-        lastAuthAt = Date.now();
-        return reauthenticate();
-      };
       // A write blocks on client backpressure. Past one keepalive the
       // connection is treated as dead: the body is aborted so the pending
       // write fails instead of holding the credential check hostage. The
@@ -173,12 +249,6 @@ export function registerEventRoutes(
         while (!closed.signal.aborted) {
           for (const event of page) {
             if (closed.signal.aborted) break;
-            // Before every frame, not per page: a page is up to 100 events
-            // and a slow reader can hold each write for a while.
-            if (!(await stillAuthenticated())) {
-              closeWith("credential_revoked");
-              break;
-            }
             const written = await writeBounded(() =>
               stream.writeSSE({
                 id: event.id,
@@ -195,10 +265,6 @@ export function registerEventRoutes(
             sent += 1;
           }
           if (closed.signal.aborted) break;
-          if (!(await stillAuthenticated())) {
-            closeWith("credential_revoked");
-            break;
-          }
           // A short page means the high-watermark is reached: wait for a
           // NOTIFY, bounded by the keepalive so a lost notification costs at
           // most one interval. A full page means keep replaying; the
@@ -209,12 +275,6 @@ export function registerEventRoutes(
               sleep(keepaliveMs, armed.signal),
             ]);
             if (closed.signal.aborted) break;
-            // Re-check before the keepalive write, which may itself block for
-            // a whole interval; the revocation bound is one interval, not two.
-            if (!(await stillAuthenticated())) {
-              closeWith("credential_revoked");
-              break;
-            }
             if (outcome === "tick") {
               if (
                 !(await writeBounded(() => stream.write(": keepalive\n\n")))
@@ -239,7 +299,8 @@ export function registerEventRoutes(
         closeWith("read_failed");
       } finally {
         armed.release();
-        active -= 1;
+        disarmWatchdog();
+        release();
         logger.info("SSE stream closed", {
           session_id: params.id,
           reason: closed.signal.aborted ? String(closed.signal.reason) : "eof",

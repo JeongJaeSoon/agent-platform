@@ -75,6 +75,18 @@ const workers = createWorkerGateway({
         : DEFAULT_LEASE_TTL_MS,
   },
 });
+// An unset or malformed value keeps the route's default rather than
+// disabling the cap.
+function positiveEnv<K extends string>(
+  name: string,
+  key: K,
+): Partial<Record<K, number>> {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0
+    ? ({ [key]: value } as Record<K, number>)
+    : {};
+}
+
 // Wakes SSE streams on NOTIFY; streams still re-read on their keepalive
 // clock, so a listener that is down only adds latency, never loses events.
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
@@ -86,7 +98,12 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
-    registerEventRoutes(router, sessions, { wakeup: notifier, logger });
+    registerEventRoutes(router, sessions, {
+      wakeup: notifier,
+      logger,
+      ...positiveEnv("SSE_MAX_STREAMS", "maxStreams"),
+      ...positiveEnv("SSE_MAX_STREAMS_PER_OWNER", "maxStreamsPerOwner"),
+    });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
   readiness: createReadinessProbe({
