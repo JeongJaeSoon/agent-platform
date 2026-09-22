@@ -4,7 +4,11 @@ import { join } from "node:path";
 import type { WorkspaceBundleVerifier } from "@agent-platform/platform";
 import { gitBundleOffers } from "@agent-platform/runtime-core";
 
-import { defaultGitRunner, type GitCommandRunner } from "./git-runner.ts";
+import {
+  defaultGitRunner,
+  type GitCommandResult,
+  type GitCommandRunner,
+} from "./git-runner.ts";
 
 export type GitWorkspaceBundleVerifierOptions = {
   readonly gitRunner?: GitCommandRunner;
@@ -38,9 +42,14 @@ export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
  * a permanent rejection and a throw into a retryable outage. Git saying no —
  * a non-zero fetch or rev-list, including one killed at the timeout — is a
  * verdict about the bundle and comes back `unusable`. Not being able to ask
- * git at all — no temp space, no git binary, a spawn failure, a repository
- * that would not initialise — is a control-plane fault and is thrown, so a
- * healthy checkpoint is not retired over a full disk.
+ * git properly — no temp space, no git binary, a spawn failure, a repository
+ * that would not initialise, a git killed by someone else's signal, or a git
+ * that died on the disk or the process table rather than on the pack — is a
+ * control-plane fault and is thrown, so a healthy checkpoint is not retired
+ * over a full disk. The last case is told apart by what git printed, since
+ * git reports both with the same exit code; the list is deliberately the OS
+ * errors, not git's own refusals, so an unknown refusal still counts against
+ * the bundle.
  *
  * Nothing about this run outlives it: the repository is created under a fresh
  * temp directory and removed whichever way the run ends.
@@ -96,12 +105,12 @@ export function createGitWorkspaceBundleVerifier(
           ],
           repository,
         );
-        if (fetch.exitCode !== 0) return unusable("git fetch", fetch);
+        if (fetch.exitCode !== 0) return refused("git fetch", fetch);
         const walk = await git(
           ["rev-list", "--objects", "--quiet", `${commit}^{commit}`, "--"],
           repository,
         );
-        if (walk.exitCode !== 0) return unusable("git rev-list", walk);
+        if (walk.exitCode !== 0) return refused("git rev-list", walk);
         return { status: "restorable" };
       } finally {
         await rm(directory, { force: true, recursive: true });
@@ -124,12 +133,34 @@ export function createGitWorkspaceBundleVerifier(
   }
 }
 
-function unusable(
+/**
+ * Messages git prints when the host, not the pack, made it stop. Matched
+ * case-insensitively against stderr because git wraps `strerror` text in its
+ * own phrasing (`fatal: unable to write ...: No space left on device`).
+ */
+const HOST_FAULTS = [
+  "no space left on device",
+  "too many open files",
+  "input/output error",
+  "cannot allocate memory",
+  "out of memory",
+  "read-only file system",
+  "permission denied",
+  "resource temporarily unavailable",
+];
+
+function refused(
   command: string,
-  result: { exitCode: number; stderr: string },
+  result: GitCommandResult,
 ): { status: "unusable"; reason: string } {
-  return {
-    status: "unusable",
-    reason: `${command} failed with exit code ${result.exitCode}: ${result.stderr.trim()}`,
-  };
+  const detail = result.stderr.trim();
+  const message = `${command} failed with exit code ${result.exitCode}: ${detail}`;
+  if (result.signal !== undefined) {
+    throw new Error(`${command} was killed by ${result.signal}`);
+  }
+  const lowered = detail.toLowerCase();
+  if (HOST_FAULTS.some((fault) => lowered.includes(fault))) {
+    throw new Error(message);
+  }
+  return { status: "unusable", reason: message };
 }

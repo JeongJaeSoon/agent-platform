@@ -148,6 +148,83 @@ describe("git workspace bundle verifier", () => {
     ).rejects.toThrow("ENOENT");
   });
 
+  test("git dying on the host rather than on the pack throws", async () => {
+    const gitRunner: GitCommandRunner = async (args) =>
+      args[0] === "init"
+        ? { exitCode: 0, stderr: "", stdout: "" }
+        : {
+            exitCode: 128,
+            stderr: "fatal: unable to write pack: No space left on device\n",
+            stdout: "",
+          };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("No space left on device");
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("a git killed by someone else's signal throws", async () => {
+    const gitRunner: GitCommandRunner = async (args) =>
+      args[0] === "init"
+        ? { exitCode: 0, stderr: "", stdout: "" }
+        : { exitCode: 128, signal: "SIGKILL", stderr: "", stdout: "" };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("git fetch was killed by SIGKILL");
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("an inherited alternate object store cannot vouch for a commit the pack lacks", async () => {
+    // A second repository holds a commit the bundle never carried; with the
+    // host's GIT_ALTERNATE_OBJECT_DIRECTORIES pointing at it, git would find
+    // the commit there and the connectivity check would pass.
+    const other = await createGitBundle({ message: "elsewhere" });
+    const alternate = await mkdtemp(join(tempRoot, "alternate-"));
+    await defaultGitRunner(["init", "--quiet", "--bare", "."], {
+      cwd: alternate,
+      env: {},
+    });
+    await writeFile(join(alternate, "other.bundle"), other.bytes);
+    const unbundle = await defaultGitRunner(
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "other.bundle",
+        `${other.ref}:refs/other`,
+      ],
+      { cwd: alternate, env: {} },
+    );
+    expect(unbundle.exitCode).toBe(0);
+    const text = new TextDecoder("latin1").decode(bundle.bytes);
+    const header = text.slice(0, text.indexOf("\n\n"));
+    const bytes = new Uint8Array(bundle.bytes);
+    bytes.set(
+      new TextEncoder().encode(header.replace(bundle.commit, other.commit)),
+      0,
+    );
+    const previous = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+    process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = join(alternate, "objects");
+    try {
+      const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+      const verdict = await verifier.verify({
+        bytes,
+        commit: other.commit,
+        key: "k",
+      });
+      expect(verdict.status).toBe("unusable");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+      } else {
+        process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = previous;
+      }
+      await rm(alternate, { force: true, recursive: true });
+    }
+  });
+
   test("a git that outlives the timeout is killed and reported as unusable", async () => {
     // A stand-in git on PATH that never returns is the one way to make the
     // real runner wait; the init call still runs the real binary.

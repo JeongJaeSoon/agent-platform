@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 
 export interface GitCommandResult {
   readonly exitCode: number;
+  /** Set when something other than this runner killed git. */
+  readonly signal?: string;
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -27,6 +29,13 @@ export const GIT_TIMEOUT_EXIT_CODE = 124;
 /**
  * Runs git and hands back exit code and both streams.
  *
+ * The child sees the host environment minus every `GIT_*` variable, plus what
+ * the caller passes. An inherited `GIT_DIR`, `GIT_OBJECT_DIRECTORY` or
+ * `GIT_ALTERNATE_OBJECT_DIRECTORIES` would point git at a repository other
+ * than the one the caller chose, and an inherited `GIT_CONFIG*` at settings
+ * the caller never asked for; callers that need git configured say so
+ * explicitly through `env`.
+ *
  * git is started in its own process group because it forks helpers
  * (`index-pack`, `pack-objects`) that inherit its pipes. Killing only the
  * leader on timeout would leave a helper holding the pipes open, and a runner
@@ -41,7 +50,7 @@ export function defaultGitRunner(
     const child = spawn("git", args, {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       detached: true,
-      env: { ...process.env, ...options.env },
+      env: { ...withoutGitVariables(process.env), ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -77,15 +86,24 @@ export function defaultGitRunner(
         }));
       }
     });
-    child.on("close", (code) =>
+    child.on("close", (code, signal) =>
       settle(() => ({
         // Killed by a signal: no code, and not a success.
         exitCode: code ?? 128,
+        ...(signal === null ? {} : { signal }),
         stderr: Buffer.concat(stderr).toString(),
         stdout: Buffer.concat(stdout).toString(),
       })),
     );
   });
+}
+
+function withoutGitVariables(env: NodeJS.ProcessEnv): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && !name.startsWith("GIT_")) kept[name] = value;
+  }
+  return kept;
 }
 
 function killGroup(pid: number | undefined): void {
