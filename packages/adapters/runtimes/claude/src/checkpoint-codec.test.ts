@@ -610,6 +610,40 @@ describe("Claude profile fingerprint", () => {
     );
   });
 
+  test("an sdk entry needs an identity even when its instance is hidden", () => {
+    // The SDK reads `instance` directly; a non-enumerable or accessor
+    // property must not make the wrapper look like plain data here.
+    const hidden = { type: "sdk", name: "review" };
+    Object.defineProperty(hidden, "instance", {
+      enumerable: false,
+      value: new McpServer("review"),
+    });
+    const viaGetter = {
+      command: "x",
+      get env() {
+        return { TOKEN: "t" };
+      },
+    };
+
+    expect(() =>
+      claudeProfileFingerprint({ ...config, mcpServers: { review: hidden } }),
+    ).toThrow(UnidentifiedComponentError);
+    expect(() =>
+      claudeProfileFingerprint({ ...config, mcpServers: { g: viaGetter } }),
+    ).toThrow(UnidentifiedComponentError);
+  });
+
+  test("reads plugins by index so an overridden iterator cannot hide one", () => {
+    const plugins = [{ path: "/plugins/hidden", type: "local" as const }];
+    Object.defineProperty(plugins, Symbol.iterator, {
+      value: function* () {},
+    });
+
+    expect(() => claudeProfileFingerprint({ ...config, plugins })).toThrow(
+      /Plugin "\/plugins\/hidden" has no identity/,
+    );
+  });
+
   test("changes when the appended system prompt changes", () => {
     expect(
       claudeProfileFingerprint({ ...config, appendSystemPrompt: "extra" }),

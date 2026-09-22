@@ -57,7 +57,13 @@ export function describeComponents(
   // not vanish into the prototype setter and out of the fingerprint.
   const mcpServers: Record<string, unknown> = Object.create(null);
   for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
-    if (isPlainData(server, [])) {
+    // An SDK entry is opaque by declaration, whatever its properties look
+    // like from here: the SDK reads `instance` directly, so hiding it behind
+    // a non-enumerable property must not turn the entry into plain data.
+    if (
+      !(isRecord(server) && server.type === "sdk") &&
+      isPlainData(server, [])
+    ) {
       const reduced = withCredentialKeysOnly(server);
       if (!carriesCredentialContainer(server)) {
         mcpServers[name] = reduced;
@@ -85,7 +91,11 @@ export function describeComponents(
       identity,
     };
   }
-  const plugins = [...(config.plugins ?? [])]
+  // Indexed copy, not spread: the SDK reads the array by index too, so an
+  // overridden iterator cannot show validation fewer plugins than it loads.
+  const declared = config.plugins ?? [];
+  const plugins = Array.from({ length: declared.length }, (_, i) => declared[i])
+    .filter((plugin): plugin is NonNullable<typeof plugin> => plugin != null)
     .sort((left, right) => left.path.localeCompare(right.path))
     .map((plugin) => ({
       identity: declaredIdentity(
@@ -175,7 +185,13 @@ function isPlainData(value: unknown, stack: object[]): boolean {
   if (stack.includes(value)) return false;
   stack.push(value);
   try {
-    return Object.values(value).every((nested) => isPlainData(nested, stack));
+    // Every own property, enumerable or not, and no accessors: a getter can
+    // answer one thing to this walk and another to the SDK.
+    return Reflect.ownKeys(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !("value" in descriptor)) return false;
+      return isPlainData(descriptor.value, stack);
+    });
   } finally {
     stack.pop();
   }
