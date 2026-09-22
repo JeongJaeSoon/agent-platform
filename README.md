@@ -182,11 +182,11 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
-`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 두 suite는 `.github/scripts/retry-flaky.sh`가 1회 재시도하고, 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
+`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
 
 **이 설정이 무엇을 숨기는지 분명히 해둔다.** `spikes` check-run 자체는 실패로 남아 PR checks 목록에 빨갛게 보이지만(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`), run 결론만 읽는 소비자 — 알림, 대시보드, release automation — 에게는 spike 회귀가 보이지 않는다. 그래서 job 마지막에 두 suite의 outcome을 run summary에 적는다(취소되지 않은 run이면 언제나 — 취소·timeout으로 job이 끊기면 이 표도 남지 않는다). 그래도 **spike 회귀를 자동으로 알려주는 장치는 없다**. 사람이 Checks를 열어야 한다.
 
-재시도 역시 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. 다만 재시도는 같은 workspace에서 도는 것이라 **독립 재현이 아니다**: 첫 시도가 남긴 LocalStack 객체나 subprocess 때문에 cleanup·idempotency 버그가 두 번째에 우연히 통과할 수 있다. 중단된 경우는 재시도하지 않는다 — 취소된 workflow를 다시 시작하지 않기 위해서다. 판단 근거는 wrapper 자신이 받은 SIGHUP·SIGINT·SIGTERM이며, runner는 step의 진입 프로세스에만 신호를 보내므로 wrapper는 suite를 background로 띄우고 `wait`에서 블록한다(foreground 명령이면 bash가 trap을 그 명령이 끝날 때까지 미룬다). child만 신호를 받은 경우를 위해 exit 129·130·137·143도 함께 본다. `128 이상`을 전부 취소로 보면 스스로 200으로 끝나는 명령이 재시도를 못 받는다. flaky 원인 수정은 별도 티켓이다.
+**재시도 wrapper는 94S-217에서 걷어냈다.** 이 job은 `continue-on-error`라 실패가 머지를 막지 않으므로 재시도가 사는 것은 안전이 아니라 flaky가 보일 확률의 감소뿐이었다 — 재현율 14%가 2%가 된다. 94s-92의 LocalStack timeout이 233 run 동안 숨어 있던 방식이 정확히 그것이다. 두 suite는 이제 자기가 어디서 멈췄는지 stderr로 말하므로(`STEP_STUCK`, 테스트 단위 deadline watchdog) 첫 발생에서 바로 이름이 찍혀야 의미가 있다. `.github/scripts/retry-flaky.sh`와 `tests/retry-flaky.test.ts`는 계약 그대로 남겨 두었다 — 호출하는 job만 없앴다.
 
 `main` branch protection은 **`check`와 `integration`을 둘 다 required로** 켜 두었다. 재구성 전에는 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
 
