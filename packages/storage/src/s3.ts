@@ -36,6 +36,10 @@ export const S3_MAX_ATTEMPTS = 3;
 export type BodyReadBounds = {
   /** Attempts at one object's body before the read is given up on. */
   readonly attempts: number;
+  /** Ceiling on what one body may accumulate in memory. */
+  readonly maxBytes: number;
+  /** Budget for one whole body, however steadily it trickles. */
+  readonly maxReadMs: number;
   /** How long a body may deliver nothing before the read is abandoned. */
   readonly stallMs: number;
 };
@@ -48,19 +52,45 @@ export type BodyReadBounds = {
  * 20s against a peer that stopped mid-body. Destroying the stream is the only
  * thing that ends the wait, so the bound lives here rather than in the client.
  *
- * It bounds a *stall*, not the whole read: a 128 MiB bundle may take as long as
- * it needs as long as bytes keep arriving.
+ * Three bounds, because one cannot do the job:
+ *
+ * - `stallMs` is the fast one and the reason this exists: no bytes, no wait.
+ *   It is deliberately not a budget for the whole read, since a 128 MiB bundle
+ *   may legitimately take minutes on a healthy connection.
+ * - `maxReadMs` is the backstop a per-chunk bound cannot be: a peer dripping
+ *   one byte just inside `stallMs` stays technically alive forever.
+ * - `maxBytes` caps what a body can make this process hold. The checkpoint
+ *   service's own 128 MiB gate is the meaningful limit; this one only keeps a
+ *   lying `Content-Length` from growing the heap without end.
  */
 export const DEFAULT_BODY_READ_BOUNDS: BodyReadBounds = {
   attempts: 3,
+  maxBytes: 256 * 1024 * 1024,
+  maxReadMs: 300_000,
   stallMs: 10_000,
 };
 
-/** A response body that stopped delivering bytes within its bound. */
+/**
+ * A response body that stopped delivering bytes within its bound. Worth
+ * another request: the stalled socket is gone, so the retry gets a fresh one.
+ */
 export class BodyStallError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BodyStallError";
+  }
+}
+
+/**
+ * A body that kept delivering but ran past {@link BodyReadBounds.maxReadMs} or
+ * {@link BodyReadBounds.maxBytes}. Not retried: a peer that behaves this way
+ * on one connection will behave this way on the next, and retrying only
+ * multiplies the time a worker turn spends held.
+ */
+export class BodyLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BodyLimitError";
   }
 }
 
@@ -82,14 +112,14 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 
 export async function bodyBytes(
   body: unknown,
-  stallMs: number = DEFAULT_BODY_READ_BOUNDS.stallMs,
+  bounds: BodyReadBounds = DEFAULT_BODY_READ_BOUNDS,
 ): Promise<Uint8Array> {
   // Iterating comes before `transformToByteArray()` even though SDK bodies
   // offer both: chunk arrival is the only progress signal there is, and
   // without it the bound would have to be a budget for the entire read, which
   // a large object would trip on a perfectly healthy connection.
   if (Symbol.asyncIterator in Object(body)) {
-    return readIterable(body as AsyncIterable<Uint8Array | string>, stallMs);
+    return readIterable(body as AsyncIterable<Uint8Array | string>, bounds);
   }
   if (
     typeof body === "object" &&
@@ -97,10 +127,12 @@ export async function bodyBytes(
     "transformToByteArray" in body &&
     typeof body.transformToByteArray === "function"
   ) {
-    // No progress to observe, so the one bound covers the whole read.
+    // No progress to observe, so the stall bound covers the whole read.
     const collect = body.transformToByteArray() as Promise<Uint8Array>;
     return new Uint8Array(
-      await withStallBound(collect, stallMs, (error) => closeBody(body, error)),
+      await withStallBound(collect, bounds.stallMs, (error) =>
+        closeBody(body, error),
+      ),
     );
   }
   if (body instanceof Uint8Array) return body;
@@ -131,7 +163,7 @@ export async function getObjectBytes(
       if (response.Body === undefined) {
         throw new Error(`S3 object has no body: ${key}`);
       }
-      return await bodyBytes(response.Body, bounds.stallMs);
+      return await bodyBytes(response.Body, bounds);
     } catch (error) {
       if (isMissingObject(error)) return undefined;
       if (!(error instanceof BodyStallError)) throw error;
@@ -182,23 +214,59 @@ export function isConditionalConflict(error: unknown): boolean {
 
 async function readIterable(
   body: AsyncIterable<Uint8Array | string>,
-  stallMs: number,
+  bounds: BodyReadBounds,
 ): Promise<Uint8Array> {
   const iterator = body[Symbol.asyncIterator]();
+  const startedAt = Date.now();
   const parts: Uint8Array[] = [];
+  let total = 0;
   for (;;) {
-    const step = await withStallBound(iterator.next(), stallMs, (error) =>
-      closeBody(body, error, iterator),
+    const step = await withStallBound(
+      iterator.next(),
+      bounds.stallMs,
+      (error) => closeBody(body, error, iterator),
     );
     if (step.done === true) break;
     const part = step.value;
-    parts.push(
+    const bytes =
       typeof part === "string"
         ? new TextEncoder().encode(part)
-        : new Uint8Array(part),
-    );
+        : new Uint8Array(part);
+    total += bytes.byteLength;
+    // Checked per chunk rather than on a timer: a body that keeps delivering
+    // never lets the stall bound fire, so this is the only place a drip is
+    // seen for what it is.
+    if (total > bounds.maxBytes) {
+      throw overLimit(
+        body,
+        iterator,
+        `S3 response body exceeded ${bounds.maxBytes} bytes`,
+      );
+    }
+    if (Date.now() - startedAt > bounds.maxReadMs) {
+      throw overLimit(
+        body,
+        iterator,
+        `S3 response body took longer than ${bounds.maxReadMs}ms`,
+      );
+    }
+    parts.push(bytes);
   }
   return concatBytes(parts);
+}
+
+function overLimit(
+  body: unknown,
+  iterator: AsyncIterator<Uint8Array | string>,
+  message: string,
+): BodyLimitError {
+  const error = new BodyLimitError(message);
+  try {
+    closeBody(body, error, iterator);
+  } catch {
+    // Best effort, as in withStallBound: the caller still gets the error.
+  }
+  return error;
 }
 
 async function withStallBound<T>(

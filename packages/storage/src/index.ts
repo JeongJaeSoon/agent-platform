@@ -18,7 +18,9 @@ import {
 
 export * from "./checkpoint-objects.ts";
 export {
+  BodyLimitError,
   type BodyReadBounds,
+  BodyStallError,
   DEFAULT_BODY_READ_BOUNDS,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
