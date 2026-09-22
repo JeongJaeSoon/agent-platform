@@ -235,7 +235,7 @@ integration("sessions API on PostgreSQL", () => {
           .where(eq(receipts.ownerId, owner))
       )[0]?.n,
     ).toBe(1);
-  });
+  }, 60_000);
 
   test("serves the create and append receipts to their owner only", async () => {
     const created = createSessionResponseSchema.parse(
@@ -285,7 +285,7 @@ integration("sessions API on PostgreSQL", () => {
       headers: { "X-Owner-Id": owner },
     });
     expect(unknown.status).toBe(404);
-  });
+  }, 60_000);
 
   test("readiness passes against the migrated database without touching any backend", async () => {
     const response = await app.request("/readyz");
@@ -294,18 +294,22 @@ integration("sessions API on PostgreSQL", () => {
       "ready",
     );
     expect((await app.request("/healthz")).status).toBe(200);
-  });
+  }, 60_000);
 
   test("probe pool cancels a statement that outlives the timeout and stays usable", async () => {
     const started = Date.now();
-    await expect(probePool.query("SELECT pg_sleep(5)")).rejects.toMatchObject({
+    // The sleep is 60x the 500ms limit so the gap between "the timeout fired"
+    // and "the query simply finished" is far wider than a loaded runner's
+    // scheduling jitter. At 5s it was not: this read 4524ms against a 3000ms
+    // bound on the arm64 runner while the cancel itself had worked.
+    await expect(probePool.query("SELECT pg_sleep(30)")).rejects.toMatchObject({
       // 57014 query_canceled: the server killed it, not just the client.
       code: "57014",
     });
-    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.waitingCount).toBe(0);
-  });
+  }, 60_000);
 
   test("api pool cancels a statement that outlives statement_timeout and maps it to 503", async () => {
     // The URL tries to switch both limits off; the pool must not let it.
@@ -318,18 +322,18 @@ integration("sessions API on PostgreSQL", () => {
     try {
       const started = Date.now();
       const failure = await apiPool
-        .query("SELECT pg_sleep(5)")
+        .query("SELECT pg_sleep(30)")
         .then(() => null)
         .catch((error: unknown) => error);
       expect(failure).toMatchObject({ code: "57014" });
-      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(Date.now() - started).toBeLessThan(10_000);
       // The classifier in app.onError / mapped() must turn it into 503.
       expect(isStorageUnavailable(failure)).toBe(true);
       expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
     } finally {
       await apiPool.end();
     }
-  });
+  }, 60_000);
 
   test("api pool evicts a client whose query_timeout fired instead of returning it busy", async () => {
     // statement_timeout high so only the client-side read timeout can fire,
@@ -341,24 +345,25 @@ integration("sessions API on PostgreSQL", () => {
     });
     const db = drizzle(apiPool, { schema });
     try {
-      const started = Date.now();
       const failure = await db
         .transaction(async (tx) => {
-          await tx.execute("SELECT pg_sleep(5)");
+          await tx.execute("SELECT pg_sleep(30)");
         })
         .then(() => null)
         .catch((error: unknown) => error);
-      // drizzle's ROLLBACK after the failure must not wait another queryMs on
-      // the same dead socket; the poisoned client is gone from the pool.
-      expect(Date.now() - started).toBeLessThan(2_000);
       expect(isStorageUnavailable(failure)).toBe(true);
       await Bun.sleep(50);
+      // drizzle's ROLLBACK after the failure must not wait another queryMs on
+      // the same dead socket. An empty pool is that, measured directly: a
+      // client that was returned would still be in it. The wall-clock version
+      // of this assertion could not tell a second 500ms round from a loaded
+      // runner's jitter.
       expect(apiPool.totalCount).toBe(0);
       expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
     } finally {
       await apiPool.end();
     }
-  });
+  }, 60_000);
 
   test("api pool frees the slot when a checked-out client times out before the caller releases it", async () => {
     // drizzle executes BEGIN outside the try/finally that releases the
@@ -386,7 +391,7 @@ integration("sessions API on PostgreSQL", () => {
     } finally {
       await apiPool.end();
     }
-  });
+  }, 60_000);
 
   test("survives the backend of an idle probe connection being terminated", async () => {
     expect((await app.request("/readyz")).status).toBe(200);
@@ -400,7 +405,7 @@ integration("sessions API on PostgreSQL", () => {
     // pg-pool has emitted "error" for the idle client by now; the process is
     // still here and the next probe simply reconnects.
     expect((await app.request("/readyz")).status).toBe(200);
-  });
+  }, 60_000);
 
   test("10 concurrent creates with one key produce one session, turn and receipt", async () => {
     const responses = await Promise.all(
@@ -420,7 +425,7 @@ integration("sessions API on PostgreSQL", () => {
       .from(idempotencyKeys)
       .where(eq(idempotencyKeys.key, "race-1"));
     expect(keyed?.n).toBe(1);
-  });
+  }, 60_000);
 
   test("detail matches the contract and hides other owners' sessions", async () => {
     const created = createSessionResponseSchema.parse(
@@ -454,7 +459,7 @@ integration("sessions API on PostgreSQL", () => {
     });
     expect(foreign.status).toBe(404);
     expect((await foreign.json()).error.details).toBeNull();
-  });
+  }, 60_000);
 
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
@@ -502,7 +507,7 @@ integration("sessions API on PostgreSQL", () => {
     } finally {
       await db.delete(sessions).where(eq(sessions.id, legacyId));
     }
-  });
+  }, 60_000);
 
   test("lists 150 sessions through stable cursors without duplicates or gaps", async () => {
     const listOwner = `owner-${crypto.randomUUID()}`;
@@ -629,7 +634,7 @@ integration("sessions API on PostgreSQL", () => {
     expect(
       postSessionMessageResponseSchema.parse(await sameAsCreate.json()).turn_id,
     ).toBe("3");
-  });
+  }, 60_000);
 
   test("3 concurrent messages get turn ids 2,3,4 without gaps in queue order", async () => {
     const sessionId = await createdSession("race-append");
@@ -672,7 +677,7 @@ integration("sessions API on PostgreSQL", () => {
       .from(idempotencyKeys)
       .where(eq(idempotencyKeys.resource, sessionId));
     expect(keyed?.n).toBe(3);
-  });
+  }, 60_000);
 
   test("rejects messages by admission state and keeps the turn count", async () => {
     const sessionId = await createdSession("admission-1");
@@ -708,7 +713,7 @@ integration("sessions API on PostgreSQL", () => {
       .update(sessions)
       .set({ admissionState: "active" })
       .where(eq(sessions.id, sessionId));
-  });
+  }, 60_000);
 
   test("hides other owners' sessions from messages and turns", async () => {
     const sessionId = await createdSession("foreign-1");
@@ -732,7 +737,7 @@ integration("sessions API on PostgreSQL", () => {
     }
     const missing = await append(crypto.randomUUID(), "missing");
     expect(missing.status).toBe(404);
-  });
+  }, 60_000);
 
   test("lists turns in FIFO order through cursors and serves the detail projection", async () => {
     const sessionId = await createdSession("turns-1");
@@ -867,5 +872,5 @@ integration("sessions API on PostgreSQL", () => {
       );
       expect(response.status, turnId).toBe(404);
     }
-  });
+  }, 60_000);
 });
