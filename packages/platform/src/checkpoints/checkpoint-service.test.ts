@@ -21,6 +21,7 @@ import type {
   CommitCheckpointInput,
   CommitCheckpointResult,
 } from "../ports/checkpoint-store.ts";
+import type { WorkspaceBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
   createCheckpointService,
   manifestRefFor,
@@ -575,6 +576,54 @@ describe("validateManifest", () => {
       status: "rejected",
       reason: `manifest references an object outside ${sessionObjectPrefix(sessionId)}: ${stolen}`,
     });
+  });
+
+  test("refuses a workspace bundle larger than the control plane will read", async () => {
+    // Verifying means holding the object whole to hash it, so the ceiling is
+    // checked against the declared size before anything is fetched.
+    const small = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxWorkspaceBundleBytes: 16,
+      objects,
+      store: checkpoints.store,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await small.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(
+        /over the 16 the control plane will verify/,
+      ),
+    });
+  });
+
+  test("defers the commit question to the injected bundle verifier", async () => {
+    // A deployment that wants git-grade assurance swaps this port out; the
+    // service must ask it rather than settle the question itself.
+    const asked: string[] = [];
+    const workspaceBundles: WorkspaceBundleVerifier = {
+      async verify(input) {
+        asked.push(input.commit);
+        return { status: "unusable", reason: "git says no" };
+      },
+    };
+    const strict = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects,
+      store: checkpoints.store,
+      workspaceBundles,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await strict.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `workspace bundle ${BUNDLE} cannot restore ${workspaceBundle.commit}: git says no`,
+    });
+    expect(asked).toEqual([workspaceBundle.commit]);
   });
 
   test("refuses a manifest naming another session's transcript", async () => {

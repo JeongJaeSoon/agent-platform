@@ -11,13 +11,16 @@ import type {
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
-import { gitBundleOffers } from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
   CheckpointPointer,
   CheckpointStore,
 } from "../ports/checkpoint-store.ts";
+import {
+  structuralBundleVerifier,
+  type WorkspaceBundleVerifier,
+} from "../ports/workspace-bundle-verifier.ts";
 
 export type CheckpointRequest = {
   /** Where this attempt must upload its manifest. */
@@ -106,9 +109,24 @@ export type RestorePlanResult =
 export type CheckpointServiceDependencies = {
   /** Manifest codecs by engine name. */
   codecs: Readonly<Record<string, CheckpointCodec>>;
+  /**
+   * Largest workspace bundle the control plane will read, in bytes.
+   *
+   * Verifying one means holding it whole to hash it, so without a ceiling an
+   * honest monorepo — or a fenced worker declaring a huge object — decides
+   * how much memory the API process uses. A checkpoint over the limit is
+   * refused rather than promoted unverified, which makes the limit a real
+   * constraint on how big a captured workspace may be; 94S-227 (incremental
+   * bundles) is what keeps a long session from walking into it.
+   */
+  maxWorkspaceBundleBytes?: number;
   objects: CheckpointObjectStore;
   store: CheckpointStore;
+  /** Defaults to `structuralBundleVerifier`. */
+  workspaceBundles?: WorkspaceBundleVerifier;
 };
+
+export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 512 * 1024 * 1024;
 
 /**
  * Every publish attempt gets its own key.
@@ -143,6 +161,9 @@ export function manifestRefFor(
  */
 export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const { codecs, objects, store } = deps;
+  const maxBundleBytes =
+    deps.maxWorkspaceBundleBytes ?? DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES;
+  const bundles = deps.workspaceBundles ?? structuralBundleVerifier;
 
   async function validateManifest(input: {
     checkpoint: CheckpointRef;
@@ -284,14 +305,14 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   /**
    * The workspace half of "committed means restorable".
    *
-   * Until now `gitCommit` was 40 hex characters and nothing more: a worker that
-   * wrote a commit it never pushed, or transposed two characters, produced a
-   * manifest that validated, a pointer that advanced past the last healthy
-   * checkpoint, and a restore that died at `git checkout`. So the commit's
-   * objects travel with the checkpoint, and the bundle carrying them is read
-   * here — presence, size and digest like any other object, and then the one
-   * question a digest cannot answer: does this bundle actually offer that
-   * commit, on its own, to a workspace that starts empty?
+   * `gitCommit` on its own is 40 hex characters and nothing more. A worker
+   * that names a commit it never pushed, or transposes two of them, would
+   * otherwise produce a manifest that validates, a pointer that advances past
+   * the last healthy checkpoint, and a restore that dies at `git checkout`. So
+   * the commit's objects travel with the checkpoint, and the bundle carrying
+   * them is read here — presence, size and digest like any other object, and
+   * then the one question a digest cannot answer: does this bundle actually
+   * offer that commit, on its own, to a workspace that starts empty?
    *
    * It is read whole every time rather than skipped via the verified set,
    * because what is being checked is not the object's integrity but its
@@ -302,10 +323,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     workspace: CheckpointManifest["workspace"],
   ): Promise<string | undefined> {
     const { bundle, gitCommit } = workspace;
+    // Both figures, and before the body: the manifest's is the worker's
+    // claim and the store's is the truth, and either one over the ceiling
+    // means this object is never pulled into the process at all.
+    const tooBig = (found: number) =>
+      `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`;
+    if (bundle.bytes > maxBundleBytes) return tooBig(bundle.bytes);
     const head = await objects.head(bundle.key);
     if (head === undefined) {
       return `manifest references a missing workspace bundle: ${bundle.key}`;
     }
+    if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
     if (head.bytes !== bundle.bytes) {
       return `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`;
     }
@@ -313,12 +341,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     if (body === undefined) {
       return `manifest references a missing workspace bundle: ${bundle.key}`;
     }
+    // A store that answered a smaller HEAD than it then served is the one
+    // case the checks above cannot bound.
+    if (body.byteLength > maxBundleBytes) return tooBig(body.byteLength);
     const digest = sha256(body);
     if (digest !== bundle.sha256) {
       return `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`;
     }
-    const verdict = gitBundleOffers(body, gitCommit);
-    return verdict.status === "offers"
+    const verdict = await bundles.verify({
+      bytes: body,
+      commit: gitCommit,
+      key: bundle.key,
+    });
+    return verdict.status === "restorable"
       ? undefined
       : `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
   }

@@ -74,10 +74,13 @@ async function bundle(
 describe("readGitBundleHeader", () => {
   test("reads the refs out of a bundle git wrote", async () => {
     const { directory, shas } = await repository(2);
-    const header = readGitBundleHeader(await bundle(directory, ["main"]));
+    const bytes = await bundle(directory, ["main"]);
+    const header = readGitBundleHeader(bytes);
 
     expect(header).toEqual({
       capabilities: [],
+      // Straight after the blank line, where the packfile starts.
+      packOffset: bytes.indexOf(0x0a, bytes.indexOf(0x0a) + 1) + 2,
       prerequisites: [],
       refs: [{ name: "refs/heads/main", oid: shas[1] as string }],
       version: 2,
@@ -184,6 +187,64 @@ describe("gitBundleOffers", () => {
     ).toEqual({
       status: "unusable",
       reason: "git bundle uses object format sha256",
+    });
+  });
+
+  test("refuses a bundle whose packfile was truncated in transit", async () => {
+    const { directory, shas } = await repository(2);
+    const whole = await bundle(directory, ["main"]);
+
+    expect(
+      gitBundleOffers(
+        whole.subarray(0, whole.byteLength - 8),
+        shas[1] as string,
+      ),
+    ).toEqual({
+      status: "unusable",
+      reason: "git bundle packfile does not match its own checksum",
+    });
+  });
+
+  test("refuses a bundle whose packfile was altered under an intact header", async () => {
+    // The header still names the commit and the length is unchanged, so only
+    // git's own pack checksum tells the two apart.
+    const { directory, shas } = await repository(2);
+    const tampered = await bundle(directory, ["main"]);
+    const target = tampered.byteLength - 40;
+    tampered.set([(tampered[target] ?? 0) ^ 0xff], target);
+
+    expect(gitBundleOffers(tampered, shas[1] as string)).toEqual({
+      status: "unusable",
+      reason: "git bundle packfile does not match its own checksum",
+    });
+  });
+
+  test("refuses a header-shaped file whose packfile is only the magic", () => {
+    // What a digest alone would wave through: bytes the worker hashed itself.
+    const text = `# v2 git bundle\n${"a".repeat(40)} refs/heads/main\n\nPACK`;
+
+    expect(
+      gitBundleOffers(new TextEncoder().encode(text), "a".repeat(40)),
+    ).toEqual({
+      status: "unusable",
+      reason: "git bundle packfile is truncated",
+    });
+  });
+
+  test("refuses a packfile whose version git never wrote", () => {
+    const header = new TextEncoder().encode(
+      `# v2 git bundle\n${"a".repeat(40)} refs/heads/main\n\n`,
+    );
+    const pack = new Uint8Array(12 + 20);
+    pack.set(new TextEncoder().encode("PACK"));
+    new DataView(pack.buffer).setUint32(4, 9);
+    const bytes = new Uint8Array(header.byteLength + pack.byteLength);
+    bytes.set(header);
+    bytes.set(pack, header.byteLength);
+
+    expect(gitBundleOffers(bytes, "a".repeat(40))).toEqual({
+      status: "unusable",
+      reason: "git bundle packfile is version 9",
     });
   });
 
