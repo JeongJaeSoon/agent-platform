@@ -11,6 +11,15 @@ export interface GitCommandResult {
 }
 
 export type GitCommandOptions = {
+  /**
+   * Drop every inherited `GIT_*` variable before adding `env`. Off by
+   * default: session storage's clone and push rely on whatever TLS, SSH and
+   * proxy settings the host carries. The verifier turns it on, because an
+   * inherited `GIT_DIR`, `GIT_OBJECT_DIRECTORY` or
+   * `GIT_ALTERNATE_OBJECT_DIRECTORIES` would let git answer for a repository
+   * other than the empty one it was pointed at.
+   */
+  readonly clearGitEnvironment?: boolean;
   readonly cwd?: string;
   readonly env: Record<string, string>;
   /**
@@ -31,13 +40,6 @@ export const GIT_TIMEOUT_EXIT_CODE = 124;
 /**
  * Runs git and hands back exit code and both streams.
  *
- * The child sees the host environment minus every `GIT_*` variable, plus what
- * the caller passes. An inherited `GIT_DIR`, `GIT_OBJECT_DIRECTORY` or
- * `GIT_ALTERNATE_OBJECT_DIRECTORIES` would point git at a repository other
- * than the one the caller chose, and an inherited `GIT_CONFIG*` at settings
- * the caller never asked for; callers that need git configured say so
- * explicitly through `env`.
- *
  * git is started in its own process group because it forks helpers
  * (`index-pack`, `pack-objects`) that inherit its pipes. Killing only the
  * leader on timeout would leave a helper holding the pipes open, and a runner
@@ -52,7 +54,12 @@ export function defaultGitRunner(
     const child = spawn("git", args, {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       detached: true,
-      env: { ...withoutGitVariables(process.env), ...options.env },
+      env: {
+        ...(options.clearGitEnvironment
+          ? withoutGitVariables(process.env)
+          : process.env),
+        ...options.env,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];

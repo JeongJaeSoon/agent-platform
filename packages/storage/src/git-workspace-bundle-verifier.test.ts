@@ -246,34 +246,75 @@ describe("git workspace bundle verifier", () => {
   });
 
   test("a ref name git would refuse never reaches a refspec or stderr", async () => {
-    const text = new TextDecoder("latin1").decode(bundle.bytes);
-    const headerEnd = text.indexOf("\n\n");
-    const header = text
-      .slice(0, headerEnd)
-      .replace(bundle.ref, "refs/heads/permission denied");
-    const bytes = new Uint8Array(
-      Buffer.concat([
-        Buffer.from(header, "latin1"),
-        bundle.bytes.subarray(headerEnd),
-      ]),
-    );
-    const calls: string[][] = [];
-    const gitRunner: GitCommandRunner = async (args) => {
-      calls.push([...args]);
-      return { exitCode: 0, stderr: "", stdout: "" };
-    };
-    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
-    const verdict = await verifier.verify({
-      bytes,
-      commit: bundle.commit,
-      key: "k",
-    });
-    expect(verdict).toEqual({
-      status: "unusable",
-      reason:
-        'git bundle ref name is not one git would accept: "refs/heads/permission denied"',
-    });
-    expect(calls).toEqual([]);
+    for (const ref of [
+      "refs/heads/permission denied",
+      "refs/heads/main.",
+      "refs/heads/main.lock",
+      "refs/heads/.hidden",
+      "refs/heads/-flag",
+      "refs/heads/a..b",
+      "refs/heads/",
+      "main",
+    ]) {
+      const text = new TextDecoder("latin1").decode(bundle.bytes);
+      const headerEnd = text.indexOf("\n\n");
+      const header = text.slice(0, headerEnd).replace(bundle.ref, ref);
+      const bytes = new Uint8Array(
+        Buffer.concat([
+          Buffer.from(header, "latin1"),
+          bundle.bytes.subarray(headerEnd),
+        ]),
+      );
+      const calls: string[][] = [];
+      const gitRunner: GitCommandRunner = async (args) => {
+        calls.push([...args]);
+        return { exitCode: 0, stderr: "", stdout: "" };
+      };
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner,
+        tempRoot,
+      });
+      const verdict = await verifier.verify({
+        bytes,
+        commit: bundle.commit,
+        key: "k",
+      });
+      expect(verdict).toEqual({
+        status: "unusable",
+        reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
+      });
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("ref names git bundles actually write pass the gate", async () => {
+    for (const ref of [
+      "refs/heads/main",
+      "refs/heads/feature/x-1.2_y",
+      "refs/tags/v1.0.0",
+      "HEAD",
+    ]) {
+      const text = new TextDecoder("latin1").decode(bundle.bytes);
+      const headerEnd = text.indexOf("\n\n");
+      const header = text.slice(0, headerEnd).replace(bundle.ref, ref);
+      const bytes = new Uint8Array(
+        Buffer.concat([
+          Buffer.from(header, "latin1"),
+          bundle.bytes.subarray(headerEnd),
+        ]),
+      );
+      const calls: string[][] = [];
+      const gitRunner: GitCommandRunner = async (args) => {
+        calls.push([...args]);
+        return { exitCode: 0, stderr: "", stdout: "" };
+      };
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner,
+        tempRoot,
+      });
+      await verifier.verify({ bytes, commit: bundle.commit, key: "k" });
+      expect(calls.map((args) => args[0])).toEqual(["init", "-c", "rev-list"]);
+    }
   });
 
   test("a filtered bundle is refused before git and by git alike", async () => {

@@ -30,11 +30,11 @@ export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 /**
  * Stricter than `git check-ref-format`: `HEAD` (what `git bundle create …
  * HEAD` records) or a full `refs/` name whose components use the characters
- * git bundles actually produce, none starting with a dot or a dash and none
- * ending in `.lock`.
+ * git bundles actually produce, none starting with a dot or a dash, none
+ * ending in a dot and none ending in `.lock`.
  */
 const SAFE_REF_NAME =
-  /^(HEAD|refs(\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?<!\.lock))+)$/;
+  /^(HEAD|refs(\/[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?(?<!\.lock))+)$/;
 
 /**
  * The git-backed `WorkspaceBundleVerifier`: proves the bundle's pack really
@@ -143,6 +143,7 @@ export function createGitWorkspaceBundleVerifier(
 
   function git(args: readonly string[], cwd: string) {
     return gitRunner(args, {
+      clearGitEnvironment: true,
       cwd,
       env: {
         // The verdict must not depend on whoever runs the control plane:
@@ -186,6 +187,9 @@ const GIT_REFUSALS = [
   "not a valid object",
   "bad revision",
   "does not appear to be a git repository",
+  // Belt and braces behind SAFE_REF_NAME: a ref the gate let through and git
+  // still will not fetch is the bundle's doing, not the host's.
+  "invalid refspec",
 ];
 
 /**
