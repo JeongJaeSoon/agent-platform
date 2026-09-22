@@ -142,29 +142,29 @@ type Fenced =
   | { outcome: "ok"; session: SessionRow; attempt: AttemptRow; at: Date }
   | FenceRejection;
 
-// Locks the session and attempt rows and classifies why the fence does not
-// hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
-// else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
-// Everything between the caller reading its clock and this row lock —
-// waiting for a pool connection, BEGIN, the lock itself — is real time the
-// lease kept burning. It is added to the caller's clock rather than read from
-// the database so an injected clock still governs the test suite.
 function shift(at: Date, by: number): Date {
   return by === 0 ? at : new Date(at.getTime() + by);
 }
 
+// Everything between the caller reading its clock and the point this is
+// called — waiting for a pool connection, BEGIN, a row lock — is real time
+// the lease kept burning. It is added to the caller's clock rather than read
+// from the database so an injected clock still governs the test suite.
 function since(now: Date, startedAt: number): Date {
   return shift(now, Math.max(0, Date.now() - startedAt));
 }
 
 // The fence is taken once, but the checks that follow it are several round
 // trips and any of them can block on a lock. The lease is therefore judged
-// again against real elapsed time just before the first write, so nothing
-// commits under a lease that ended mid-transaction.
+// again just before the first write, so nothing commits under a lease that
+// ended mid-transaction.
 function leaseHeld(attempt: AttemptRow, now: Date, startedAt: number): boolean {
   return attempt.leaseExpiresAt.getTime() > since(now, startedAt).getTime();
 }
 
+// Locks the session and attempt rows and classifies why the fence does not
+// hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
+// else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
 async function acquireFence(
   tx: Database,
   fence: WorkerFence,
