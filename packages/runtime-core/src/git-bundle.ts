@@ -1,0 +1,195 @@
+/**
+ * Reading a git bundle far enough to answer one question: can this object
+ * restore the commit a checkpoint manifest pins?
+ *
+ * A bundle is a text header followed by a packfile. The header names the refs
+ * the pack carries and the commits it assumes the receiver already has, and it
+ * is plain ASCII; the pack ends in a sha1 git computed over the rest of it. So
+ * both halves can be judged without a git binary, which is what lets the
+ * control plane judge them at all.
+ *
+ * The pack's *contents* are not walked. Reading which objects it holds means
+ * inflating every one and resolving its delta chain — `git index-pack`'s job,
+ * not a manifest check's — so what is established here is that the pack is
+ * whole and that its own header claims the commit, not that the two agree.
+ */
+
+import { createHash } from "node:crypto";
+
+export type GitBundleRef = {
+  readonly name: string;
+  readonly oid: string;
+};
+
+export type GitBundleHeader = {
+  /** `@`-prefixed v3 capability lines, verbatim and without the `@`. */
+  readonly capabilities: readonly string[];
+  /** Offset of the packfile, i.e. one past the blank line ending the header. */
+  readonly packOffset: number;
+  /** Commits the bundle expects the receiver to already have. */
+  readonly prerequisites: readonly string[];
+  readonly refs: readonly GitBundleRef[];
+  readonly version: 2 | 3;
+};
+
+export type GitBundleVerdict =
+  /** Ref names a fetch may ask for to land the commit. */
+  | { readonly refs: readonly string[]; readonly status: "offers" }
+  | { readonly reason: string; readonly status: "unusable" };
+
+/**
+ * A malformed bundle must not be able to make the reader walk an arbitrary
+ * amount of a multi-gigabyte object looking for a header terminator.
+ */
+const HEADER_LIMIT_BYTES = 1024 * 1024;
+
+/** `PACK`, a 4-byte version and a 4-byte object count. */
+const PACK_HEADER_BYTES = 12;
+/** The sha1 git writes over everything before it. */
+const PACK_TRAILER_BYTES = 20;
+
+const SIGNATURES: ReadonlyMap<string, 2 | 3> = new Map([
+  ["# v2 git bundle", 2],
+  ["# v3 git bundle", 3],
+]);
+
+export function readGitBundleHeader(
+  bytes: Uint8Array,
+): GitBundleHeader | undefined {
+  const end = headerEnd(bytes);
+  if (end === undefined) return undefined;
+  // The pack has to actually be there. Without this a manifest could pin a
+  // header-shaped text file and the failure would surface only at restore.
+  if (!startsWith(bytes.subarray(end + 2), "PACK")) return undefined;
+
+  const lines = new TextDecoder("utf8", { fatal: false })
+    .decode(bytes.subarray(0, end))
+    .split("\n");
+  const signature = lines[0];
+  const version =
+    signature === undefined ? undefined : SIGNATURES.get(signature);
+  if (version === undefined) return undefined;
+
+  const capabilities: string[] = [];
+  const prerequisites: string[] = [];
+  const refs: GitBundleRef[] = [];
+  for (const line of lines.slice(1)) {
+    if (line.length === 0) return undefined;
+    if (line.startsWith("@")) {
+      // Capabilities are a v3 addition, and git writes them before any ref.
+      if (version !== 3 || refs.length > 0 || prerequisites.length > 0) {
+        return undefined;
+      }
+      capabilities.push(line.slice(1));
+      continue;
+    }
+    if (line.startsWith("-")) {
+      prerequisites.push(line.slice(1).split(" ")[0] ?? "");
+      continue;
+    }
+    const space = line.indexOf(" ");
+    if (space <= 0 || space === line.length - 1) return undefined;
+    refs.push({ name: line.slice(space + 1), oid: line.slice(0, space) });
+  }
+  return { capabilities, packOffset: end + 2, prerequisites, refs, version };
+}
+
+/**
+ * Whether `bytes` is a bundle a restore can fetch `commit` out of on its own.
+ *
+ * Three things disqualify it. A *prerequisite* means git will refuse the fetch
+ * unless the receiver already has that commit, and a restore starts from an
+ * empty workspace. The commit has to be a *ref tip*, because a fetch asks for
+ * refs and a commit merely somewhere in the packed history is not reachable by
+ * name. And the *packfile* has to be intact — a header alone says what the
+ * bundle claims to carry, not that it still carries it.
+ *
+ * What this does not establish is that the intact pack contains the object the
+ * header names. Deciding that means reconstructing every packed object through
+ * its delta chain, which is `git index-pack`'s job, so a deployment that wants
+ * that assurance injects a git-backed `WorkspaceBundleVerifier` instead. What
+ * is left uncovered is a worker that rewrites its own bundle's header while
+ * keeping a valid pack — a worker lying about its own session's commit, which
+ * it could equally do by pinning a different real commit.
+ */
+export function gitBundleOffers(
+  bytes: Uint8Array,
+  commit: string,
+): GitBundleVerdict {
+  const header = readGitBundleHeader(bytes);
+  if (header === undefined) {
+    return { status: "unusable", reason: "not a git bundle" };
+  }
+  const objectFormat = header.capabilities
+    .find((capability) => capability.startsWith("object-format="))
+    ?.slice("object-format=".length);
+  if (objectFormat !== undefined && objectFormat !== "sha1") {
+    return {
+      status: "unusable",
+      reason: `git bundle uses object format ${objectFormat}`,
+    };
+  }
+  if (header.prerequisites.length > 0) {
+    return {
+      status: "unusable",
+      reason: `git bundle needs ${header.prerequisites.length} prerequisite commit(s) a fresh workspace does not have`,
+    };
+  }
+  const wanted = commit.toLowerCase();
+  const refs = header.refs
+    .filter((ref) => ref.oid.toLowerCase() === wanted)
+    .map((ref) => ref.name);
+  if (refs.length === 0) {
+    return {
+      status: "unusable",
+      reason: `git bundle does not offer ${commit} as a ref tip`,
+    };
+  }
+  const damaged = damagedPack(bytes.subarray(header.packOffset));
+  if (damaged !== undefined) return { status: "unusable", reason: damaged };
+  return { status: "offers", refs };
+}
+
+/**
+ * Why the packfile cannot be the one git wrote, or undefined when it is.
+ *
+ * The trailing digest is the check that matters: git computes it over every
+ * preceding pack byte, so a truncated upload, a lifecycle-mangled object or a
+ * body swapped underneath a matching length all fail here. The fields before
+ * it are cheap and rule out bytes that merely start with the magic.
+ */
+function damagedPack(pack: Uint8Array): string | undefined {
+  if (pack.byteLength < PACK_HEADER_BYTES + PACK_TRAILER_BYTES) {
+    return "git bundle packfile is truncated";
+  }
+  if (!startsWith(pack, "PACK")) return "git bundle has no packfile";
+  const view = new DataView(pack.buffer, pack.byteOffset, pack.byteLength);
+  const version = view.getUint32(4);
+  if (version !== 2 && version !== 3) {
+    return `git bundle packfile is version ${version}`;
+  }
+  if (view.getUint32(8) === 0) return "git bundle packfile carries no objects";
+  const body = pack.subarray(0, pack.byteLength - PACK_TRAILER_BYTES);
+  const trailer = pack.subarray(pack.byteLength - PACK_TRAILER_BYTES);
+  const digest = createHash("sha1").update(body).digest();
+  return digest.equals(Buffer.from(trailer))
+    ? undefined
+    : "git bundle packfile does not match its own checksum";
+}
+
+/** Index of the `\n\n` that ends the header, or undefined within the limit. */
+function headerEnd(bytes: Uint8Array): number | undefined {
+  const limit = Math.min(bytes.byteLength - 1, HEADER_LIMIT_BYTES);
+  for (let index = 0; index < limit; index += 1) {
+    if (bytes[index] === 0x0a && bytes[index + 1] === 0x0a) return index;
+  }
+  return undefined;
+}
+
+function startsWith(bytes: Uint8Array, ascii: string): boolean {
+  if (bytes.byteLength < ascii.length) return false;
+  for (let index = 0; index < ascii.length; index += 1) {
+    if (bytes[index] !== ascii.charCodeAt(index)) return false;
+  }
+  return true;
+}
