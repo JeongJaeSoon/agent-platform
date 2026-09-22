@@ -63,22 +63,36 @@ export function ReceiptSummary({
       </div>
 
       <dl className="ap-receipt__target">
-        <div className="ap-receipt__field">
-          <dt>세션</dt>
-          <dd className="ap-receipt__id">{target.session_id}</dd>
-        </div>
-        {target.turn_id ? (
+        {"session_id" in target ? (
+          <>
+            <div className="ap-receipt__field">
+              <dt>세션</dt>
+              <dd className="ap-receipt__id">{target.session_id}</dd>
+            </div>
+            {target.turn_id ? (
+              <div className="ap-receipt__field">
+                <dt>턴</dt>
+                <dd className="ap-receipt__id">{target.turn_id}</dd>
+              </div>
+            ) : null}
+            {target.request_id ? (
+              <div className="ap-receipt__field">
+                <dt>요청</dt>
+                <dd className="ap-receipt__id">{target.request_id}</dd>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          // A mutation outside a session names its resource instead (94S-148).
+          // The kind shows raw until a screen actually renders one of these —
+          // the ticket that adds that route owns the Korean label for it.
           <div className="ap-receipt__field">
-            <dt>턴</dt>
-            <dd className="ap-receipt__id">{target.turn_id}</dd>
+            <dt>대상</dt>
+            <dd className="ap-receipt__id">
+              {target.resource.kind} · {target.resource.id}
+            </dd>
           </div>
-        ) : null}
-        {target.request_id ? (
-          <div className="ap-receipt__field">
-            <dt>요청</dt>
-            <dd className="ap-receipt__id">{target.request_id}</dd>
-          </div>
-        ) : null}
+        )}
       </dl>
 
       {error ? (
