@@ -32,7 +32,7 @@ export type WorkerObjectStoreEnvironment = {
 export type WorkerObjectStoreConfig = {
   accessKeyId: string;
   bucket: string;
-  endpoint?: string;
+  endpoint: string;
   region: string;
   /** Every key this worker may read or write starts with this. */
   scope: string;
@@ -58,17 +58,32 @@ export function objectStoreConfigFromEnv(
       `WORKER_OBJECT_PREFIX ${scope} must be a key prefix ending in "/"`,
     );
   }
-  if (endpoint) {
-    try {
-      new URL(endpoint);
-    } catch {
-      throw new Error(`AWS_ENDPOINT_URL ${endpoint} is not a URL`);
-    }
+  // The worker leaves its network only through the egress proxy, and the
+  // proxy refuses the GREASE ECH that Bun's node:https puts in every
+  // ClientHello (94S-219). Over https this client would therefore fail on
+  // every request; refusing at startup says so once instead. Deliberately
+  // minimal: lift it when the store has a transport measured to send no
+  // ECH and a worker-network PUT/GET test proves it (94S-254).
+  if (!endpoint) {
+    throw new Error(
+      "AWS_ENDPOINT_URL is required: the worker cannot reach an https object store through the egress proxy yet (94S-254)",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error(`AWS_ENDPOINT_URL ${endpoint} is not a URL`);
+  }
+  if (url.protocol !== "http:") {
+    throw new Error(
+      `AWS_ENDPOINT_URL ${endpoint} must be http: the worker cannot reach an https object store through the egress proxy yet (94S-254)`,
+    );
   }
   return {
     accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket: required(environment.S3_BUCKET, "S3_BUCKET"),
-    ...(endpoint ? { endpoint } : {}),
+    endpoint,
     region: required(environment.AWS_REGION, "AWS_REGION"),
     scope,
     secretAccessKey: required(
@@ -96,7 +111,7 @@ export function createWorkerObjectStore(
   const client = createStorageS3Client({
     s3: {
       accessKeyId: config.accessKeyId,
-      ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+      endpoint: config.endpoint,
       region: config.region,
       secretAccessKey: config.secretAccessKey,
     },

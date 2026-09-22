@@ -97,7 +97,7 @@ CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Establishe
 
 * 검사 대상은 평문으로 보이는 **바깥** ClientHello의 SNI다. TLS를 종단하지 않으므로 그 안의 HTTP `Host`·경로·본문, 허용된 서비스가 다시 중계하는 곳은 보지 못한다. domain fronting을 CDN 쪽에서 막는 것은 별개의 통제다.
 * IP literal allowlist는 `IP:port` 접근 권한이지 hostname 보장이 아니다. 공유 CDN edge 주소를 IP로 allowlist에 올리지 않는다.
-* **Bun 1.3의 `fetch`·`node:https`는 GREASE ECH를 보내므로 이 proxy로 CONNECT하면 거부된다**(Bun `node:tls`·`Bun.connect({tls})`, Node, curl, 그리고 worker의 SDK가 spawn하는 Claude Code 바이너리는 보내지 않는다 — 2026-09-23 실측). 따라서 worker 안에서 Bun의 HTTP 클라이언트로 https upstream을 부르는 코드는 현재 지원하지 않는다. compose의 object store(localstack)는 http absolute-form이라 무관하지만, https S3 endpoint는 ECH를 보내지 않는 transport와 worker 네트워크 안 실제 PUT/GET 검증이 있기 전까지 지원 범위 밖이다. 런타임·클라이언트 버전을 올리면 다시 측정한다.
+* **Bun 1.3의 `fetch`·`node:https`는 GREASE ECH를 보내므로 이 proxy로 CONNECT하면 거부된다**(Bun `node:tls`·`Bun.connect({tls})`, Node, curl, 그리고 worker의 SDK가 spawn하는 Claude Code 바이너리는 보내지 않는다 — 2026-09-23 실측). 따라서 worker 안에서 Bun의 HTTP 클라이언트로 https upstream을 부르는 코드는 현재 지원하지 않는다. compose의 object store(localstack)는 http absolute-form이라 무관하지만, https S3 endpoint는 ECH를 보내지 않는 transport와 worker 네트워크 안 실제 PUT/GET 검증이 있기 전까지 지원 범위 밖이고, 워커의 `objectStoreConfigFromEnv`는 그때까지 `AWS_ENDPOINT_URL`이 없거나 http가 아니면 시작 단계에서 거부한다(94S-254). 런타임·클라이언트 버전을 올리면 다시 측정한다.
 
 **이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 하나가 남아 있다: 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다(94S-216). 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이것이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
 
