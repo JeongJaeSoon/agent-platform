@@ -13,6 +13,7 @@ import {
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
+import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
 import {
   inputUuid,
@@ -85,12 +86,26 @@ describe("WorkerHost against the actual Claude SDK", () => {
     );
     const spawned: number[] = [];
     const exited: number[] = [];
+    const trail: string[] = [];
+    const recording: WorkerLogger = {
+      info: (event) => trail.push(event),
+      warn: (event) => trail.push(event),
+      error: (event) => trail.push(event),
+    };
+    // What composition wires: the host confirms the PID is gone from this.
+    const engines = new EngineProcesses();
     const registry = (): RuntimeRegistry => {
       const runtime = new ClaudeSdkRuntime(
         { endpoints: [server?.url ?? ""], models: [MODEL] },
         {
-          onSpawn: (pid) => spawned.push(pid),
-          onExit: (pid) => exited.push(pid),
+          onSpawn: (pid) => {
+            spawned.push(pid);
+            engines.onSpawn(pid);
+          },
+          onExit: (pid) => {
+            exited.push(pid);
+            engines.onExit(pid);
+          },
         },
       );
       return {
@@ -126,8 +141,9 @@ describe("WorkerHost against the actual Claude SDK", () => {
     const first = new WorkerHost({
       checkpoints: firstCheckpoints,
       execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      engines,
       gateway: firstGateway,
-      logger: silent,
+      logger: recording,
       runtimes: registry(),
       timeouts,
     });
@@ -154,6 +170,12 @@ describe("WorkerHost against the actual Claude SDK", () => {
       inputUuid(SESSION_ID, "2", "msg-2"),
     );
     expect(firstGateway.releases).toHaveLength(1);
+    // The host did not leave until it saw the engine's PID exit.
+    expect(exited).toEqual(spawned);
+    expect(trail).toContain("worker.engine.exited");
+    expect(trail.indexOf("worker.engine.exited")).toBeLessThan(
+      trail.indexOf("worker.released"),
+    );
 
     // The engine session the next process has to continue.
     const resume = firstCheckpoints.resumeHandle;
@@ -178,6 +200,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
         localTranscriptResume: true,
       }),
       execution: { bootstrapNonce: "wln_test", generation: 2, id: "exec-1" },
+      engines,
       gateway: secondGateway,
       logger: silent,
       runtimes: registry(),
@@ -205,15 +228,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
       ),
     ).toBe(true);
 
-    // Both engine processes were reaped with their hosts.
-    await waitFor(() => exited.length === 2, "both engine processes to exit");
+    // Both engine processes were reaped before their hosts returned.
+    expect(exited).toHaveLength(2);
   }, 60_000);
 });
-
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 10_000; waited += 25) {
-    if (condition()) return;
-    await Bun.sleep(25);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}

@@ -669,6 +669,7 @@ integration("worker gateway on PostgreSQL", () => {
           ...scopeOf(claimed, "9999999999"),
           turn_id: "9999999999",
           finalize_key: "f",
+          final_source_sequence: 0,
           terminal: {
             status: "completed",
             reason: null,
@@ -737,6 +738,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "completed" as const,
         reason: null,
@@ -769,6 +771,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(interrupted.claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "interrupted",
         reason: "user_stop",
@@ -798,6 +801,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(unknown.claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "outcome_unknown",
         reason: "sdk_vanished",
@@ -901,6 +905,121 @@ integration("worker gateway on PostgreSQL", () => {
     ).not.toBeNull();
   });
 
+  test("finalize cannot close a turn short of its event tail (94S-218)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const scope = scopeOf(claimed, "1");
+    await gateway.appendEvents(principalOf(claimed), {
+      ...scope,
+      batch_key: "b1",
+      events: [event(1)],
+    });
+    const request = {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "fin-tail",
+      final_source_sequence: 2,
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    };
+    // Event 2 is still in flight: the turn stays open.
+    expect(
+      await failure(gateway.finalize(principalOf(claimed), request)),
+    ).toEqual({ status: 409, code: "REVISION_CONFLICT" });
+    // Claiming less than is stored is refused the same way.
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...request,
+          final_source_sequence: 0,
+        }),
+      ),
+    ).toEqual({ status: 409, code: "REVISION_CONFLICT" });
+    const [open] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(
+        and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+      );
+    expect(open?.status).toBe("running");
+
+    await gateway.appendEvents(principalOf(claimed), {
+      ...scope,
+      batch_key: "b2",
+      events: [event(2)],
+    });
+    const done = await gateway.finalize(principalOf(claimed), request);
+    expect(done.status).toBe("completed");
+    // A retry of the finalize that went through is still a replay.
+    expect(await gateway.finalize(principalOf(claimed), request)).toEqual(done);
+  });
+
+  test("append and finalize racing in either order never lose the tail (94S-218)", async () => {
+    for (const round of [0, 1, 2, 3, 4, 5]) {
+      const { session, claimed } = await claimAndDeliver();
+      const scope = scopeOf(claimed, "1");
+      const request = {
+        ...scope,
+        turn_id: "1",
+        finalize_key: `race-${round}`,
+        final_source_sequence: 2,
+        terminal: {
+          status: "completed" as const,
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      };
+      const append = () =>
+        gateway.appendEvents(principalOf(claimed), {
+          ...scope,
+          batch_key: `race-${round}`,
+          events: [event(1), event(2)],
+        });
+      const finalize = () =>
+        gateway.finalize(principalOf(claimed), request).then(
+          () => "finalized" as const,
+          (error: unknown) => {
+            if (
+              error instanceof WorkerGatewayError &&
+              error.code === "REVISION_CONFLICT"
+            ) {
+              return "refused" as const;
+            }
+            throw error;
+          },
+        );
+      // Alternate which request is sent first; the session lock decides.
+      const [first] =
+        round % 2 === 0
+          ? await Promise.all([finalize(), append()])
+          : await Promise.all([append(), finalize()]).then(
+              ([, verdict]) => [verdict] as const,
+            );
+      // The append always lands: a finalize never closed the turn on it.
+      if (first === "refused") {
+        expect(await finalize()).toBe("finalized");
+      }
+      const [stored] = await db
+        .select({ n: count() })
+        .from(events)
+        .where(eq(events.sessionId, session.session_id));
+      expect(stored?.n).toBe(2);
+      const [closed] = await db
+        .select({ status: turns.status })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+        );
+      expect(closed?.status).toBe("completed");
+    }
+  });
+
   test("a rejected batch leaves the stream untouched and a closed turn takes no new events", async () => {
     const { session, claimed } = await claimAndDeliver();
     const base = { ...scopeOf(claimed, "1"), batch_key: "b" };
@@ -953,6 +1072,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 1,
       terminal: {
         status: "completed",
         reason: null,
@@ -1024,6 +1144,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scope,
       turn_id: "1",
       finalize_key: "drain-1",
+      final_source_sequence: 0,
       terminal: {
         status: "completed",
         reason: null,
@@ -1148,6 +1269,7 @@ integration("worker gateway on PostgreSQL", () => {
           ...scopeOf(claimed, "1"),
           turn_id: "1",
           finalize_key: "slow-1",
+          final_source_sequence: 0,
           terminal: {
             status: "completed",
             reason: null,
@@ -1245,6 +1367,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "late-1",
+      final_source_sequence: 0,
       terminal: {
         status: "completed" as const,
         reason: null,
@@ -1500,6 +1623,7 @@ integration("worker gateway on PostgreSQL", () => {
         ...scopeOf(claimed, "1"),
         turn_id: "1",
         finalize_key: "waited-1",
+        final_source_sequence: 0,
         terminal: {
           status: "completed",
           reason: null,
@@ -1648,6 +1772,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "double-1",
+      final_source_sequence: 0,
       terminal: {
         status: "completed" as const,
         reason: null,
@@ -1929,6 +2054,7 @@ integration("worker gateway on PostgreSQL", () => {
           ...scopeOf(claimed, "1"),
           turn_id: "1",
           finalize_key: "f",
+          final_source_sequence: 0,
           terminal: {
             status: "completed",
             reason: null,
@@ -1968,6 +2094,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin-1",
+      final_source_sequence: 0,
       terminal: {
         status: "completed" as const,
         reason: null,
@@ -2027,6 +2154,7 @@ integration("worker gateway on PostgreSQL", () => {
         gateway.finalize(principalOf(claimed), {
           ...request,
           finalize_key: "fin-2",
+          final_source_sequence: 0,
         }),
       ),
     ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
@@ -2043,6 +2171,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "completed" as const,
         reason: null,
@@ -2161,6 +2290,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "failed",
         reason: "sdk_error",
@@ -2193,6 +2323,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin",
+      final_source_sequence: 0,
       terminal: {
         status: "completed",
         reason: null,

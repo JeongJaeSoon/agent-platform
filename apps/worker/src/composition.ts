@@ -7,6 +7,7 @@ import {
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
+import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import {
   type RuntimeLauncher,
@@ -18,6 +19,7 @@ import {
 
 export type WorkerComposition = {
   checkpoints?: WorkerCheckpointPort;
+  engines?: EngineProcesses;
   gateway?: WorkerGatewaySession;
   logger?: WorkerLogger;
   runtimes?: RuntimeRegistry;
@@ -32,8 +34,10 @@ export function createWorkerHost(
   config: WorkerConfig,
   overrides: WorkerComposition = {},
 ): WorkerHost {
+  const engines = overrides.engines ?? new EngineProcesses();
   return new WorkerHost({
     checkpoints: overrides.checkpoints ?? unwiredCheckpoints,
+    engines,
     execution: {
       bootstrapNonce: config.bootstrapNonce,
       generation: config.executionGeneration,
@@ -46,7 +50,7 @@ export function createWorkerHost(
         credential: config.bootstrapNonce,
         requestTimeoutMs: config.timeouts.requestTimeoutMs,
       }),
-    runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config),
+    runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
     timeouts: config.timeouts,
     ...(overrides.logger === undefined ? {} : { logger: overrides.logger }),
   });
@@ -58,11 +62,17 @@ export function createWorkerHost(
  * happens to be installed, because the transcript a checkpoint resumes is only
  * replayable on the build that wrote it.
  */
-export function claudeRuntimeRegistry(config: WorkerConfig): RuntimeRegistry {
-  const runtime = new ClaudeSdkRuntime({
-    endpoints: [config.runtime.profile.endpoint],
-    models: [config.runtime.model],
-  });
+export function claudeRuntimeRegistry(
+  config: WorkerConfig,
+  engines: EngineProcesses,
+): RuntimeRegistry {
+  const runtime = new ClaudeSdkRuntime(
+    {
+      endpoints: [config.runtime.profile.endpoint],
+      models: [config.runtime.model],
+    },
+    engines,
+  );
   const launcher: RuntimeLauncher = {
     start(launch, hooks) {
       const { correlationId, ...plan } = launch;

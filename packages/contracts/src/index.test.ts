@@ -487,6 +487,7 @@ describe("worker protocol", () => {
       finalizeRequestSchema.safeParse({
         ...scope,
         finalize_key: "f1",
+        final_source_sequence: 0,
         terminal: {
           status: "completed",
           reason: null,
@@ -504,6 +505,7 @@ describe("worker protocol", () => {
       finalizeRequestSchema.safeParse({
         ...scope,
         finalize_key: "f1",
+        final_source_sequence: 0,
         terminal: { status: "queued", reason: null, result: null, usage: null },
         checkpoint: null,
       }).success,

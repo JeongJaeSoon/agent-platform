@@ -6,7 +6,7 @@ import type {
 } from "@agent-platform/contracts";
 
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
-import { Heartbeat } from "./heartbeat.ts";
+import { Heartbeat, type HeartbeatOptions } from "./heartbeat.ts";
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",
@@ -118,6 +118,50 @@ describe("Heartbeat", () => {
 
     expect(lost).toHaveLength(1);
     expect(lost[0]).toContain("lease expired");
+  });
+
+  test("owes a beat asked for while one is in flight", async () => {
+    let state: "running" | "draining" = "running";
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beats: HeartbeatRequest[] = [];
+    const options: HeartbeatOptions = {
+      gateway: {
+        heartbeat: async (request) => {
+          beats.push(request);
+          if (beats.length === 1) await held;
+          return {
+            lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+            auth_revision: scope.auth_revision,
+            control_pending: false,
+          };
+        },
+      },
+      scope: () => scope,
+      attemptState: () => state,
+      intervalMs: 1,
+      leaseExpiresAt: new Date(Date.now() + 30_000),
+      onLost: () => {},
+    };
+    const beat = new Heartbeat(options);
+    beat.start();
+    for (let waited = 0; beats.length === 0 && waited < 1_000; waited += 1) {
+      await Bun.sleep(1);
+    }
+    // Now slow the loop down: only an owed beat can arrive in time.
+    options.intervalMs = 60_000;
+    state = "draining";
+    beat.beatNow();
+    release();
+    await settle();
+    await beat.stop();
+
+    expect(beats.map((request) => request.attempt_state)).toEqual([
+      "running",
+      "draining",
+    ]);
   });
 
   test("stops beating once it has lost ownership", async () => {

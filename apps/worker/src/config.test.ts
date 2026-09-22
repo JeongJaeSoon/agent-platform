@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
+import {
+  SHUTDOWN_RESERVE_MS,
+  type WorkerEnvironment,
+  workerConfigFromEnv,
+} from "./config.ts";
 
 const launched: WorkerEnvironment = {
   HOME: "/home/worker",
@@ -47,6 +51,24 @@ describe("workerConfigFromEnv", () => {
       nextInputWaitMs: 20_000,
       questionTimeoutMs: 1_800_000,
       requestTimeoutMs: 30_000,
+    });
+  });
+
+  test("fits the drain inside the launcher's stop grace", () => {
+    const drain = (grace: string | undefined) =>
+      workerConfigFromEnv({ ...launched, WORKER_STOP_GRACE_SEC: grace })
+        .timeouts;
+
+    // Unknown grace: the configured budget stands, and nothing is bounded.
+    expect(drain(undefined).drainTimeoutMs).toBe(100_000);
+    expect(drain(undefined).stopGraceMs).toBeUndefined();
+    // DESIGN's 120 s leaves the whole default drain.
+    expect(drain("120").drainTimeoutMs).toBe(100_000);
+    expect(drain("60").drainTimeoutMs).toBe(60_000 - SHUTDOWN_RESERVE_MS);
+    // LocalDocker's 10 s pays for the shutdown only: no drain at all.
+    expect(drain("10")).toMatchObject({
+      drainTimeoutMs: 0,
+      stopGraceMs: 10_000,
     });
   });
 

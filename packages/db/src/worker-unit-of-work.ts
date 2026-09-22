@@ -962,6 +962,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
+        // Appends take the same session lock, so this read cannot race one:
+        // either the tail landed before this transaction or it arrives after
+        // a refusal and the worker finalizes again.
+        const durable = await contiguousThrough(tx, fence);
+        if (durable !== input.finalSourceSequence) {
+          return { outcome: "events_incomplete", acceptedThrough: durable };
+        }
 
         let checkpointRevision: number | null = null;
         if (input.checkpoint) {

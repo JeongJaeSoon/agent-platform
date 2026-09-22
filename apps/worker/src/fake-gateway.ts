@@ -222,7 +222,19 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     const replay = this.finalized.find(
       (earlier) => earlier.finalize_key === request.finalize_key,
     );
-    if (replay === undefined) this.finalized.push(request);
+    if (replay === undefined) {
+      // The same gate finalizeAtomic applies (94S-218); a replay is answered
+      // from what was stored, like the real one.
+      if (request.final_source_sequence !== this.acceptedThrough) {
+        throw new WorkerGatewayRequestError(
+          409,
+          "REVISION_CONFLICT",
+          `Events are durable through source_sequence ${this.acceptedThrough}, not ${request.final_source_sequence}`,
+          false,
+        );
+      }
+      this.finalized.push(request);
+    }
     return {
       turn_id: request.turn_id,
       status: request.terminal.status,
