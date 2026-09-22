@@ -188,7 +188,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 재시도 역시 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. 다만 재시도는 같은 workspace에서 도는 것이라 **독립 재현이 아니다**: 첫 시도가 남긴 LocalStack 객체나 subprocess 때문에 cleanup·idempotency 버그가 두 번째에 우연히 통과할 수 있다. 중단된 경우는 재시도하지 않는다 — 취소된 workflow를 다시 시작하지 않기 위해서다. 판단 근거는 wrapper 자신이 받은 SIGHUP·SIGINT·SIGTERM이며, runner는 step의 진입 프로세스에만 신호를 보내므로 wrapper는 suite를 background로 띄우고 `wait`에서 블록한다(foreground 명령이면 bash가 trap을 그 명령이 끝날 때까지 미룬다). child만 신호를 받은 경우를 위해 exit 129·130·137·143도 함께 본다. `128 이상`을 전부 취소로 보면 스스로 200으로 끝나는 명령이 재시도를 못 받는다. flaky 원인 수정은 별도 티켓이다.
 
-`main` branch protection은 아직 설정되어 있지 않다(`gh api repos/JeongJaeSoon/agent-platform/branches/main/protection` → 404). 켤 때 **`check`와 `integration`을 모두 required로 지정한다.** 재구성 전 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
+`main` branch protection은 **`check`와 `integration`을 둘 다 required로** 켜 두었다. 재구성 전에는 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
 
 **건너뛴 job은 GitHub의 required-check 판정에서 성공으로 센다** — 성공 상태는 `success`·`skipped`·`neutral` 셋이다([Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)). 비용 절감을 위해 job을 건너뛰게 만든 이번 변경은 그래서 두 가지 주의를 남긴다.
 
@@ -202,3 +202,12 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 `@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 설정·인증·버전·모델 alias와 검증 조건은 [설계서 §9](docs/DESIGN.md#9-dockerfile)에 둔다.
 
 검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 94S-91 transport gate는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 아직 워커 턴 루프나 배포 검증을 대신하지 않는다.
+
+## 라이선스
+
+이 저장소는 **source-available이지 오픈소스가 아니다.** 읽고 감사할 수 있도록 공개할 뿐,
+공개 자체가 사용권을 주지 않는다. 실행·복제·수정·배포와 이 소프트웨어를 이용한 서비스
+제공은 저작권자의 사전 서면 허가가 있어야 한다. 전문은 [LICENSE](LICENSE)에 있다.
+
+기여는 지금 받지 않는다. 외부 기여가 섞이면 저작권자가 이 소프트웨어를 상용으로
+라이선스할 수 있는 여지가 좁아지기 때문이다.
