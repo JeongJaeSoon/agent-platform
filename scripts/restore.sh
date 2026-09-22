@@ -57,6 +57,18 @@ if project_has_resources "$INTO"; then
   log "restore: project '$INTO' already has containers, volumes or networks; pick an unused name"
   exit "$EXIT_TARGET_NOT_EMPTY"
 fi
+# The check above is a look, not a reservation: two restores into one name
+# could both pass it. `docker network create` refuses a duplicate name, so
+# it doubles as a daemon-wide lock held until this run ends, by which time
+# the compose resources themselves keep the name taken.
+LOCK="${INTO}-restore-lock"
+if [ "$CHECK_ONLY" != 1 ]; then
+  if ! docker network create "$LOCK" >/dev/null 2>&1; then
+    log "restore: another restore into '$INTO' is in progress (network $LOCK exists)"
+    exit "$EXIT_TARGET_NOT_EMPTY"
+  fi
+  trap 'docker network rm "$LOCK" >/dev/null 2>&1 || true' EXIT
+fi
 [ "$INTO" != "$(jq -r '.source.project' "$MANIFEST")" ] \
   || log "restore: warning — target name equals the source project name; it is empty on this daemon, continuing"
 if [ "$CHECK_ONLY" = 1 ]; then

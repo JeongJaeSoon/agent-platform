@@ -98,7 +98,9 @@ log "backup: objects/ $OBJECT_COUNT objects from s3://${BUCKET}"
 # One shell inside the container: sqlite's online backup for a consistent DB
 # file, then one bundle per repository. Repositories without a single ref
 # cannot be bundled (git refuses an empty bundle) and are listed instead so
-# restore recreates them empty.
+# restore recreates them empty. Gitea stays up meanwhile, so the two snapshots
+# are compared afterwards: a repository created, renamed or deleted between
+# them shows up as a database/disk mismatch and fails the backup.
 compose "$PROJECT" exec -T -u git gitea sh -s -- "$STAGE" <<'EOF'
 set -eu
 stage="$1"
@@ -121,6 +123,14 @@ for repo in /data/git/repositories/*/*.git; do
     printf '%s/%s %s\n' "$owner" "$name" "$(git -C "$repo" symbolic-ref HEAD)" >> "$stage/gitea/empty-repos"
   fi
 done
+on_disk="$(cut -d' ' -f1 "$stage/gitea/bundled-repos" "$stage/gitea/empty-repos" | grep -v '\.wiki$' | sort)"
+in_db="$(sqlite3 "$stage/gitea/gitea.db" "SELECT owner_name || '/' || lower_name FROM repository ORDER BY 1")"
+if [ "$on_disk" != "$in_db" ]; then
+  echo "gitea database and repository directories disagree (a repository changed during the backup?):" >&2
+  echo "database: $in_db" >&2
+  echo "on disk:  $on_disk" >&2
+  exit 1
+fi
 EOF
 compose "$PROJECT" cp "gitea:${STAGE}/repos/." "$DEST/repos/"
 compose "$PROJECT" cp "gitea:${STAGE}/gitea/." "$DEST/gitea/"

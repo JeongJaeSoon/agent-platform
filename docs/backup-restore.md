@@ -36,6 +36,7 @@ backup-20260923T101500Z/
 
 - `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있으니 api·scheduler·worker를 멈추고 받는다. 스크립트는 실행 중이면 경고만 한다.
 - `gitea/app.ini`에는 Gitea의 SECRET_KEY·INTERNAL_TOKEN이, `db.sql`에는 api key 해시가 들어 있다. 디렉터리는 `umask 077`로 만들어지며 보관 위치는 백업 소유자가 책임진다.
+- Gitea는 백업 중 계속 떠 있다. sqlite 스냅샷과 repo 디렉터리 목록을 비교해 그 사이 repo가 생기거나 이름이 바뀌었으면 백업을 실패시킨다.
 - LFS·attachments·avatars·indexer는 담지 않는다. 지금 설치는 저장소 데이터만 쓰며 필요해지면 `gitea dump`로 바꾼다.
 
 ## 복원
@@ -49,7 +50,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 
 1. `SHA256SUMS` 검증. 불일치면 exit 1.
 2. **schema 검사** — manifest의 `schema.applied`가 이 checkout `packages/db/migrations`의 journal(각 SQL 파일 sha256, journal 순서)과 정확히 같아야 한다. 오래된 백업도, 이 checkout이 모르는 migration이 든 백업도 exit 3으로 거부한다. 오래된 백업을 올리려면 그 백업과 같은 commit을 checkout해 복원·검증한 뒤 migration을 별도 단계로 돌린다.
-3. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다.
+3. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다. 같은 이름으로 동시에 들어오는 restore는 `<project>-restore-lock` network 생성으로 하나만 통과한다(끝나면 제거).
 4. `infra/docker-compose.restore.yml`을 겹쳐 postgres·localstack·gitea를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순), worker network 이름을 project별로 바꾸며, postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
 5. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 6. bucket이 비어 있는지 확인한 뒤 `awslocal s3 sync`. object 수가 manifest와 같아야 한다. 이미 있는 object를 덮어쓰는 경로는 없다.
