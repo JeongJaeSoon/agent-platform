@@ -1,10 +1,8 @@
 import { deadline } from "./deadline.ts";
-import { isAlive, reapDescendants } from "./process-tree.ts";
+import { groupMembers, killGroup } from "./process-group.ts";
 
 /** How long one signal is given to take effect before the next one. */
 export const SIGNAL_GRACE_MS = 2_000;
-export const REAP_SWEEPS = 5;
-export const REAP_SWEEP_MS = 25;
 
 /**
  * What the watchdog must keep in hand when it fires.
@@ -13,50 +11,43 @@ export const REAP_SWEEP_MS = 25;
  * bun's own test timeout cut off the diagnosis — which is the one thing the
  * watchdog exists to prevent. The slack covers `pgrep` and process bookkeeping.
  */
-export const WATCHDOG_MARGIN_MS =
-  REAP_SWEEPS * REAP_SWEEP_MS + 2 * SIGNAL_GRACE_MS + 2_000;
+export const WATCHDOG_MARGIN_MS = 2 * SIGNAL_GRACE_MS + 2_000;
 
 export type StuckChild = {
-  readonly pid?: number;
-  kill(signal?: NodeJS.Signals | number): void;
+  readonly pid?: number | undefined;
 };
 
 /**
  * Takes down a child that would not settle, and reports what it took.
  *
- * Descendants go first, while the child is still alive to point at them: the
- * Agent SDK spawns the Claude CLI below it, and once the child is gone its
- * children are reparented and `pgrep -P` can no longer reach them. A survivor
- * does not hold the child's stdout open — the SDK gives it its own pipes — but
- * it does keep talking to the fake API and to LocalStack while the next test is
- * already using them.
+ * The child leads its own process group (see `startChild`), so both signals go
+ * to the group rather than to the one pid: everything the Agent SDK spawned
+ * below it goes with it, and nothing can fork its way out between snapshots.
  */
 export async function reapStuckChild(
   child: StuckChild,
   settled: Promise<unknown>,
 ): Promise<string[]> {
-  const notes: string[] = [];
+  const pgid = child.pid;
+  if (pgid === undefined) return ["no pid: nothing to reap"];
 
-  const reaped =
-    child.pid === undefined
-      ? []
-      : await reapDescendants(child.pid, REAP_SWEEPS);
-  notes.push(`descendants reaped: ${reaped.join(", ") || "none"}`);
+  const notes = [`group before: ${groupMembers(pgid).join(", ") || "empty"}`];
 
-  child.kill("SIGTERM");
+  killGroup(pgid, "SIGTERM");
   const grace = deadline(SIGNAL_GRACE_MS);
   await Promise.race([settled, grace.expired]);
   grace.cancel();
 
-  child.kill("SIGKILL");
+  killGroup(pgid, "SIGKILL");
   const reap = deadline(SIGNAL_GRACE_MS);
   const settledAfterKill = await Promise.race([
     settled.then(() => true),
     reap.expired.then(() => false),
   ]);
   reap.cancel();
+
   notes.push(
-    `after SIGKILL: settled=${settledAfterKill} alive=${reaped.filter(isAlive).join(", ") || "none"}`,
+    `after SIGKILL: settled=${settledAfterKill} group=${groupMembers(pgid).join(", ") || "empty"}`,
   );
   return notes;
 }

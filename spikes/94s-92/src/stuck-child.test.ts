@@ -1,48 +1,57 @@
 import { describe, expect, test } from "bun:test";
-import { isAlive, processTree } from "./process-tree.ts";
+import { spawn } from "node:child_process";
+import { groupMembers, isAlive } from "./process-group.ts";
 import { reapStuckChild, WATCHDOG_MARGIN_MS } from "./stuck-child.ts";
 
 /**
- * The watchdog fires `WATCHDOG_MARGIN_MS` before bun's own test timeout and
- * then has to finish inside it. If cleanup outlives the margin, bun kills the
- * test first and the diagnosis — the whole point of the watchdog — is lost.
+ * Two things have to hold at once. The watchdog fires `WATCHDOG_MARGIN_MS`
+ * before bun's own test timeout and has to finish inside it, or bun kills the
+ * test first and the diagnosis — the point of the watchdog — is lost. And the
+ * cleanup has to reach descendants that appear *after* it started, which is
+ * exactly what a PID-tree walk cannot promise.
  */
 describe("reapStuckChild", () => {
-  test("finishes inside the watchdog margin against a child that ignores SIGTERM", async () => {
-    // Traps TERM and keeps a grandchild alive, so every branch of the cleanup
-    // is exercised: the sweep, the ignored SIGTERM, and the SIGKILL.
-    const child = Bun.spawn({
-      cmd: ["sh", "-c", 'trap "" TERM; sleep 30 & wait'],
-      stderr: "ignore",
-      stdout: "ignore",
+  test("takes down a group whose members ignore SIGTERM and fork mid-cleanup", async () => {
+    // Traps TERM, keeps one grandchild from the start and spawns another after
+    // the cleanup is already under way.
+    const child = spawn(
+      "sh",
+      ["-c", 'trap "" TERM; sleep 30 & sleep 2; sleep 30 & wait'],
+      { detached: true, stdio: ["ignore", "ignore", "ignore"] },
+    );
+    const pgid = child.pid;
+    if (pgid === undefined) throw new Error("child has no pid");
+    const settled = new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
     });
-    if (child.pid === undefined) throw new Error("child has no pid");
-    const settled = child.exited;
 
-    let tree: number[] = [];
-    for (let attempt = 0; attempt < 50 && tree.length < 2; attempt += 1) {
+    let members: number[] = [];
+    for (let attempt = 0; attempt < 50 && members.length < 2; attempt += 1) {
       await Bun.sleep(20);
-      tree = processTree(child.pid);
+      members = groupMembers(pgid);
     }
-    expect(tree.length).toBeGreaterThanOrEqual(2);
+    expect(members.length).toBeGreaterThanOrEqual(2);
 
     const startedAt = Date.now();
     const notes = await reapStuckChild(child, settled);
     const elapsed = Date.now() - startedAt;
 
     expect(elapsed).toBeLessThan(WATCHDOG_MARGIN_MS);
-    expect(notes.join("\n")).toContain("descendants reaped:");
-    await settled;
-    expect(tree.filter(isAlive)).toEqual([]);
+    expect(notes.join("\n")).toContain("after SIGKILL");
+    // The second sleeper is spawned 2s in, during the SIGTERM grace period.
+    // A snapshot taken before the signal would not contain it.
+    expect(groupMembers(pgid)).toEqual([]);
+    expect(members.filter(isAlive)).toEqual([]);
   }, 20_000);
 
   test("reports a child that is already gone without waiting out the grace periods", async () => {
-    const child = Bun.spawn({
-      cmd: ["sh", "-c", "exit 0"],
-      stderr: "ignore",
-      stdout: "ignore",
+    const child = spawn("sh", ["-c", "exit 0"], {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
     });
-    const settled = child.exited;
+    const settled = new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
+    });
     await settled;
 
     const startedAt = Date.now();

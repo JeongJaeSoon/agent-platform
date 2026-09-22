@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { type ChildProcess, spawn } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -30,6 +31,7 @@ import {
   localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
+import { killGroup } from "./process-group.ts";
 import {
   mark,
   startStallReporter,
@@ -251,8 +253,11 @@ describeActual("actual SDK SessionStore process contract", () => {
       });
       await waitForRequestCount(server.requests, 1);
       await Bun.sleep(500);
-      child.kill("SIGKILL");
-      expect(await child.exited).not.toBe(0);
+      // The group, not the pid: this child is blocked in `append` with the SDK
+      // and its CLI still running below it.
+      const exited = childExit(child);
+      killGroup(child.pid ?? 0, "SIGKILL");
+      expect(await exited).not.toBe(0);
 
       const store = new S3SessionStoreProbe({
         bucket: localstackBucket(),
@@ -495,11 +500,12 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
     0,
     testDeadline - Date.now() - WATCHDOG_MARGIN_MS,
   );
+  if (!child.stdout || !child.stderr) throw new Error("child has no pipes");
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
   let exitCode: number | undefined;
   const settled = Promise.all([
-    child.exited.then((code) => {
+    childExit(child).then((code) => {
       exitCode = code;
     }),
     stdout.closed,
@@ -541,18 +547,31 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
   };
 }
 
+/**
+ * The child's exit code, or -1 when a signal ended it — node reports that as a
+ * null code. Registered at the call site, because `exit` fires once and a
+ * listener added afterwards waits for an event that has already gone by.
+ */
+function childExit(child: ChildProcess): Promise<number> {
+  return new Promise((resolve) => {
+    child.once("exit", (code) => resolve(code ?? -1));
+  });
+}
+
 /** Buffers a child stream so partial output is readable before it closes. */
-function collect(stream: ReadableStream<Uint8Array>) {
-  const decoder = new TextDecoder();
+function collect(stream: NodeJS.ReadableStream) {
   let buffer = "";
   let open = true;
-  const closed = (async () => {
-    for await (const chunk of stream) {
-      buffer += decoder.decode(chunk, { stream: true });
-    }
-    buffer += decoder.decode();
-    open = false;
-  })();
+  stream.setEncoding("utf8");
+  const closed = new Promise<void>((resolve) => {
+    stream.on("data", (chunk: string) => {
+      buffer += chunk;
+    });
+    stream.on("close", () => {
+      open = false;
+      resolve();
+    });
+  });
   return {
     closed,
     state: () => (open ? "open" : "closed"),
@@ -560,10 +579,17 @@ function collect(stream: ReadableStream<Uint8Array>) {
   };
 }
 
-function startChild(options: ChildOptions) {
-  return Bun.spawn({
-    cmd: [process.execPath, join(import.meta.dir, "sdk-child.ts")],
+function startChild(options: ChildOptions): ChildProcess {
+  // `detached` makes the child lead its own process group, so the watchdog can
+  // take down everything the SDK spawned below it with a single signal. A PID
+  // tree cannot promise that: a descendant that forks after the last snapshot
+  // is reparented the moment the child dies and becomes unreachable.
+  //
+  // The cost is that a signal sent to this process's group no longer reaches
+  // the child, so every path out of here signals its group explicitly.
+  return spawn(process.execPath, [join(import.meta.dir, "sdk-child.ts")], {
     cwd: import.meta.dir,
+    detached: true,
     env: {
       ...process.env,
       ANTHROPIC_BASE_URL: options.apiUrl,
@@ -581,8 +607,7 @@ function startChild(options: ChildOptions) {
       SESSION_STORE_PREFIX: options.prefix,
       WORKSPACE_PATH: options.workspace,
     },
-    stderr: "pipe",
-    stdout: "pipe",
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
