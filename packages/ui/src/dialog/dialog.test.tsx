@@ -154,6 +154,53 @@ describe("ConfirmDialog", () => {
     });
   });
 
+  test("열었던 버튼이 사라졌으면 없는 곳으로 포커스를 보내지 않는다", async () => {
+    const user = await setupUser();
+    function Vanishing() {
+      const [open, setOpen] = useState(false);
+      const [present, setPresent] = useState(true);
+      return (
+        <>
+          {present ? (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(true);
+              }}
+            >
+              사라질 버튼
+            </button>
+          ) : null}
+          <button type="button" onClick={() => setPresent(false)}>
+            버튼 없애기
+          </button>
+          <ConfirmDialog
+            open={open}
+            onOpenChange={setOpen}
+            title="계속할까요?"
+            consequence="되돌릴 수 있습니다."
+            onConfirm={() => {}}
+          />
+        </>
+      );
+    }
+
+    const { baseElement, getByText } = render(<Vanishing />);
+    await user.click(getByText("사라질 버튼"));
+    await waitFor(() => {
+      expect(baseElement.querySelector("[role='dialog']")).not.toBeNull();
+    });
+    fireEvent.click(getByText("버튼 없애기"));
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(baseElement.querySelector("[role='dialog']")).toBeNull();
+    });
+    // The opener is gone; focusing it would silently do nothing and leave the
+    // keyboard inside a detached subtree.
+    expect(document.activeElement?.isConnected).toBe(true);
+  });
+
   test("확인을 누르면 알릴 뿐, 스스로 성공으로 넘어가지 않는다", async () => {
     const user = await setupUser();
     const calls: string[] = [];

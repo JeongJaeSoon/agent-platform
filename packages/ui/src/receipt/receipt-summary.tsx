@@ -55,7 +55,9 @@ export function ReceiptSummary({
     <div className={cn("ap-receipt", className)} data-status={status}>
       <div className="ap-receipt__head">
         <span className="ap-receipt__operation">
-          {RECEIPT_OPERATION_LABEL[operation] ?? operation}
+          {Object.hasOwn(RECEIPT_OPERATION_LABEL, operation)
+            ? RECEIPT_OPERATION_LABEL[operation]
+            : operation}
         </span>
         <StatusLabel axis="receipt" state={status} />
       </div>

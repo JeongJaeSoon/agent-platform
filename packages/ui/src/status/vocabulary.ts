@@ -111,13 +111,16 @@ export function describeStatus<A extends StatusAxis>(
 ): StatusDescriptor {
   const axisVocabulary: Record<string, StatusDescriptor> =
     STATUS_VOCABULARY[axis];
-  return (
-    axisVocabulary[state] ?? {
-      // A state the server added and this build has not learned yet: say so
-      // rather than guessing a tone that might read as success.
-      label: state,
-      tone: "unknown",
-      inFlight: false,
-    }
-  );
+  // `hasOwn`, not a plain lookup: the state comes from the server, and
+  // "__proto__" would hand back Object.prototype — no label, no tone.
+  if (Object.hasOwn(axisVocabulary, state)) {
+    return axisVocabulary[state] as StatusDescriptor;
+  }
+  return {
+    // A state the server added and this build has not learned yet: say so
+    // rather than guessing a tone that might read as success.
+    label: state,
+    tone: "unknown",
+    inFlight: false,
+  };
 }

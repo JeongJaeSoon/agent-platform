@@ -133,4 +133,14 @@ describe("상태 어휘", () => {
     expect(descriptor.tone).toBe("unknown");
     expect(descriptor.label).toBe("teleported");
   });
+
+  test("Object.prototype의 이름이 상태로 와도 그 자리를 지킨다", () => {
+    // A plain lookup returns Object.prototype here: no label, no tone.
+    for (const state of ["__proto__", "constructor", "toString"]) {
+      const descriptor = describeStatus("turn", state as never);
+      expect(descriptor.tone).toBe("unknown");
+      expect(descriptor.label).toBe(state);
+      expect(descriptor.inFlight).toBe(false);
+    }
+  });
 });

@@ -85,7 +85,105 @@ function customProperties(predicate: (d: Declaration) => boolean): string[] {
     .map((d) => d.property);
 }
 
+/** WCAG relative luminance, then the 2.1 contrast ratio. */
+function contrast(foreground: string, background: string): number {
+  const luminance = (hex: string): number => {
+    const channels = [1, 3, 5]
+      .map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return (
+      0.2126 * (channels[0] as number) +
+      0.7152 * (channels[1] as number) +
+      0.0722 * (channels[2] as number)
+    );
+  };
+  const a = luminance(foreground);
+  const b = luminance(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/** Token name → value, for one theme's block. */
+function paletteOf(
+  predicate: (d: Declaration) => boolean,
+): Map<string, string> {
+  const palette = new Map<string, string>();
+  for (const declaration of tokenDeclarations) {
+    if (
+      !declaration.property.startsWith("--ap-color") &&
+      !declaration.property.startsWith("--ap-tone")
+    ) {
+      continue;
+    }
+    if (!predicate(declaration) || !/^#[0-9a-f]{6}$/i.test(declaration.value)) {
+      continue;
+    }
+    palette.set(declaration.property, declaration.value);
+  }
+  return palette;
+}
+
 describe("tokens.css", () => {
+  test("본문 색이 앉을 수 있는 모든 바탕에서 AA를 넘는다", () => {
+    // 12px 상태 문구까지 포함하므로 large-text 예외(3:1)는 쓰지 않는다.
+    const AA = 4.5;
+    const SURFACES = [
+      "--ap-color-canvas",
+      "--ap-color-surface",
+      "--ap-color-surface-sunken",
+      ...[
+        "neutral",
+        "progress",
+        "attention",
+        "caution",
+        "danger",
+        "unknown",
+        "positive",
+      ].map((tone) => `--ap-tone-${tone}-bg`),
+    ];
+    const themes: [string, Map<string, string>][] = [
+      [
+        "light",
+        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+      ],
+      ["dark", paletteOf((d) => d.selector === ':root[data-theme="dark"]')],
+    ];
+
+    const failures: string[] = [];
+    for (const [theme, palette] of themes) {
+      expect(palette.size).toBeGreaterThan(0);
+      for (const text of [
+        "--ap-color-foreground",
+        "--ap-color-muted-foreground",
+      ]) {
+        for (const surface of SURFACES) {
+          const fg = palette.get(text);
+          const bg = palette.get(surface);
+          if (!fg || !bg) continue;
+          const ratio = contrast(fg, bg);
+          if (ratio < AA) {
+            failures.push(
+              `${theme}: ${text} on ${surface} = ${ratio.toFixed(2)}`,
+            );
+          }
+        }
+      }
+      // The rail is its own surface with its own pair.
+      const rail = palette.get("--ap-color-rail");
+      for (const text of [
+        "--ap-color-rail-foreground",
+        "--ap-color-rail-muted-foreground",
+      ]) {
+        const fg = palette.get(text);
+        if (!fg || !rail) continue;
+        const ratio = contrast(fg, rail);
+        if (ratio < AA) {
+          failures.push(`${theme}: ${text} on rail = ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
   test("색 토큰이 라이트·다크 양쪽에 모두 있다", () => {
     const light = new Set(
       customProperties((d) => d.selector === ":root" && d.atRules.length === 0),
@@ -150,13 +248,17 @@ describe("styles.css", () => {
     const tooWide = styleDeclarations.filter((d) => {
       if (!["width", "min-width", "max-width"].includes(d.property))
         return false;
-      // A big intrinsic width is fine when it is capped against the container.
-      if (/\b(?:min|clamp)\(/.test(d.value) && /100%|vw\b/.test(d.value)) {
-        return false;
-      }
+      // A big intrinsic width is fine when `min()` caps it against the
+      // container. `clamp(a, b, c)` does not: its floor is `a`, so only the
+      // first argument is read below.
+      const value = /^\s*min\(/.test(d.value)
+        ? /100%|vw\b/.test(d.value)
+          ? ""
+          : d.value
+        : (/^\s*clamp\((.*)$/.exec(d.value)?.[1]?.split(",")[0] ?? d.value);
       // rem as well as px: `width: 40rem` is 640px at the default root size,
       // and this package states its widths in rem.
-      const match = /(\d+(?:\.\d+)?)(px|rem)\b/.exec(d.value);
+      const match = /(\d+(?:\.\d+)?)(px|rem)\b/.exec(value);
       if (!match) return false;
       const px =
         Number(match[1]) * (match[2] === "rem" ? ROOT_FONT_SIZE_PX : 1);
@@ -165,6 +267,37 @@ describe("styles.css", () => {
     expect(
       tooWide.map((d) => `${d.selector} { ${d.property}: ${d.value} }`),
     ).toEqual([]);
+  });
+
+  test("서버가 준 글자를 그리는 자리는 모두 끊어서 감싼다", () => {
+    /*
+     * 360px에서 넘치는지는 레이아웃 엔진 없이는 볼 수 없지만, 원인은 볼 수
+     * 있다 — 서버 문자열(식별자·URL·트레이스 토큰)에는 공백이 없을 수 있고,
+     * flex 항목의 최소 폭은 가장 긴 단어다.
+     */
+    const SERVER_TEXT = [
+      ".ap-status__text",
+      ".ap-status__detail",
+      ".ap-receipt__id",
+      ".ap-receipt__detail",
+      ".ap-receipt-link__text",
+      ".ap-receipt-link__id",
+      ".ap-state__description",
+    ];
+    const declared = new Map<string, Set<string>>();
+    for (const declaration of styleDeclarations) {
+      if (declaration.atRules.length > 0) continue;
+      for (const selector of declaration.selector.split(",")) {
+        const key = selector.trim();
+        const properties = declared.get(key) ?? new Set<string>();
+        properties.add(declaration.property);
+        declared.set(key, properties);
+      }
+    }
+    const missing = SERVER_TEXT.filter(
+      (selector) => !declared.get(selector)?.has("overflow-wrap"),
+    );
+    expect(missing).toEqual([]);
   });
 
   test("모션을 쓰는 선택자마다 reduced-motion 짝이 있다", () => {

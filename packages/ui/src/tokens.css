@@ -27,7 +27,6 @@
   --ap-color-border-strong: #c7bfb0;
   --ap-color-foreground: #1b1915;
   --ap-color-muted-foreground: #6a6358;
-  --ap-color-faint-foreground: #8d8579;
 
   /* Restrained accent: used for focus and the single primary action. */
   --ap-color-accent: #2f6b5c;
@@ -133,7 +132,6 @@
     --ap-color-border-strong: #453f37;
     --ap-color-foreground: #ece7df;
     --ap-color-muted-foreground: #a49c90;
-    --ap-color-faint-foreground: #837c72;
 
     --ap-color-accent: #6fb3a0;
     --ap-color-accent-hover: #86c4b2;
@@ -187,7 +185,6 @@
   --ap-color-border-strong: #453f37;
   --ap-color-foreground: #ece7df;
   --ap-color-muted-foreground: #a49c90;
-  --ap-color-faint-foreground: #837c72;
 
   --ap-color-accent: #6fb3a0;
   --ap-color-accent-hover: #86c4b2;

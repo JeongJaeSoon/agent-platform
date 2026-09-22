@@ -79,11 +79,16 @@ describe("패키지 경계", () => {
       if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
       const imports = source.matchAll(
-        /import\s+(type\s+)?[^;]*?from\s+"@agent-platform\/contracts"/g,
+        /import\s+(type\s+)?[^;]*?from\s+["']@agent-platform\/contracts["']/g,
       );
       for (const match of imports) {
         // A value import would drag zod into the browser bundle for nothing.
         if (!match[1]) offenders.push(file);
+      }
+      // `await import("@agent-platform/contracts")` is a value import with no
+      // `type` to look for, so it is caught by shape instead.
+      if (/\bimport\s*\(\s*["']@agent-platform\/contracts["']/.test(source)) {
+        offenders.push(`${file} (dynamic)`);
       }
     }
     expect(offenders).toEqual([]);

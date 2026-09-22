@@ -46,15 +46,14 @@ export function ConfirmDialog({
   /*
    * Who to give the keyboard back to. Radix restores focus to `Dialog.Trigger`,
    * but the screens own their buttons and never mount one, so its ref is empty
-   * and focus falls to <body> — a keyboard user loses their place. Captured
-   * during the render that opens the dialog, before Radix moves focus inside.
+   * and focus falls to <body> — a keyboard user loses their place.
+   *
+   * Captured in `onOpenAutoFocus`, which Radix fires while `document.activeElement`
+   * is still the opener and before it moves focus inside. An event handler, not
+   * render: a render that React starts and throws away would otherwise leave a
+   * stale opener behind for the next open.
    */
   const openerRef = useRef<HTMLElement | null>(null);
-  const wasOpen = useRef(false);
-  if (open && !wasOpen.current && typeof document !== "undefined") {
-    openerRef.current = document.activeElement as HTMLElement | null;
-  }
-  wasOpen.current = open;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -66,9 +65,16 @@ export function ConfirmDialog({
           className={cn("ap-dialog", className)}
           data-tone={tone}
           data-busy={busy || undefined}
+          onOpenAutoFocus={() => {
+            openerRef.current = document.activeElement as HTMLElement | null;
+          }}
           onCloseAutoFocus={(event) => {
+            const opener = openerRef.current;
+            // Gone from the page — the screen that owned it was torn down with
+            // the dialog. Nothing to return to, so leave Radix's fallback.
+            if (!opener?.isConnected) return;
             event.preventDefault();
-            openerRef.current?.focus();
+            opener.focus();
           }}
         >
           <Dialog.Title className="ap-dialog__title">{title}</Dialog.Title>

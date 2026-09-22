@@ -23,9 +23,29 @@ const VOID_TAGS = new Set([
 
 const TAG = /<(\/?)([a-zA-Z][\w-]*)(?:\s[^>]*?)?(\/?)>/g;
 
+/*
+ * React's `useId` counts renders per process. `bun test packages/ui` and CI's
+ * whole-repo run reach this component with different counters, so the raw id
+ * (`_r_1e_` here, `_r_2g_` there) is not a property of the markup. Each
+ * distinct id is renumbered in order of appearance, which keeps what the
+ * snapshot is actually for — that the label still points at its input.
+ */
+const GENERATED_ID = /_r_[0-9a-z]+_/g;
+
+function stableIds(markup: string): string {
+  const seen = new Map<string, string>();
+  return markup.replace(GENERATED_ID, (id) => {
+    const existing = seen.get(id);
+    if (existing) return existing;
+    const replacement = `_id${seen.size + 1}_`;
+    seen.set(id, replacement);
+    return replacement;
+  });
+}
+
 export function htmlOf(node: Element | null): string {
   if (!node) return "";
-  return indent(node.outerHTML.replace(/></g, ">\n<"));
+  return indent(stableIds(node.outerHTML).replace(/></g, ">\n<"));
 }
 
 /** How much deeper the tree is after this line. Text keeps tags on one line. */

@@ -111,7 +111,10 @@
 }
 
 .ap-status__stale {
-  color: var(--ap-color-faint-foreground);
+  /* muted, not a fainter tier: "갱신 지연" is meaning, and a warm grey light
+     enough to read as "faint" lands near 3:1 on the tone backgrounds. The
+     hierarchy comes from size and weight instead. */
+  color: var(--ap-color-muted-foreground);
   font-size: var(--ap-text-xs);
   font-weight: var(--ap-weight-regular);
 }
@@ -334,6 +337,9 @@
 
 .ap-state__description {
   margin: 0;
+  /* The server's own message lands here — a trace id or a URL with no spaces
+     in it must wrap rather than widen the page. */
+  overflow-wrap: anywhere;
   color: var(--ap-color-muted-foreground);
   font-size: var(--ap-text-sm);
 }
