@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
+  bootstrapTokenSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   LOGIN_LOCKOUT_ATTEMPTS,
@@ -189,7 +190,16 @@ export async function bootstrapGateFromEnv(
   print: (line: string) => void = (line) => console.error(line),
 ): Promise<BootstrapGate> {
   if (value) {
-    return createBootstrapGate(value);
+    // The request schema bounds the token; a configured value outside it
+    // could never be presented, which would leave the install impossible to
+    // bootstrap with no error anywhere. Refuse to start instead.
+    const parsed = bootstrapTokenSchema.safeParse(value);
+    if (!parsed.success) {
+      throw new Error(
+        "BOOTSTRAP_TOKEN must be 32 to 256 characters (or unset to generate one)",
+      );
+    }
+    return createBootstrapGate(parsed.data);
   }
   const token = generateBootstrapToken();
   if ((await store.countUsers()) === 0) {
@@ -205,18 +215,26 @@ export async function bootstrapGateFromEnv(
 // Login lockout
 // ---------------------------------------------------------------------------
 
+export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
+
 /**
  * Per-email failure window, in process memory. Two replicas keep two
  * windows, so the effective limit is attempts × replicas; a shared store is
- * the trigger for moving this to the database.
+ * the trigger for moving this to the database. The map holds at most
+ * `maxKeys` addresses: past that, the address whose failure was recorded
+ * longest ago is dropped, so a spray of distinct emails costs the attacker
+ * their own lockouts, not the process its memory.
  */
 export class LoginLockout {
+  // Map iteration is insertion order; a key is re-inserted on every failure
+  // so the first key is always the least recently failed one.
   private readonly failures = new Map<string, number[]>();
 
   constructor(
     private readonly options: {
       attempts?: number;
       windowMs?: number;
+      maxKeys?: number;
       now?: () => number;
     } = {},
   ) {}
@@ -227,8 +245,15 @@ export class LoginLockout {
   private get windowMs() {
     return this.options.windowMs ?? LOGIN_LOCKOUT_WINDOW_MS;
   }
+  private get maxKeys() {
+    return this.options.maxKeys ?? LOGIN_LOCKOUT_MAX_KEYS;
+  }
   private now() {
     return (this.options.now ?? Date.now)();
+  }
+
+  get size(): number {
+    return this.failures.size;
   }
 
   private live(key: string): number[] {
@@ -236,8 +261,6 @@ export class LoginLockout {
     const kept = (this.failures.get(key) ?? []).filter((at) => at > cutoff);
     if (kept.length === 0) {
       this.failures.delete(key);
-    } else {
-      this.failures.set(key, kept);
     }
     return kept;
   }
@@ -253,13 +276,16 @@ export class LoginLockout {
   recordFailure(key: string): void {
     const live = this.live(key);
     live.push(this.now());
-    this.failures.set(key, live);
-    // Unbounded keys would let a scanner grow the map; sweep when it is big.
-    if (this.failures.size > 10_000) {
-      for (const stale of [...this.failures.keys()]) {
-        this.live(stale);
+    // Only the last `attempts` stamps can ever matter to retryAfterMs.
+    const kept = live.slice(-this.attempts);
+    this.failures.delete(key);
+    if (this.failures.size >= this.maxKeys) {
+      const eldest = this.failures.keys().next().value;
+      if (eldest !== undefined) {
+        this.failures.delete(eldest);
       }
     }
+    this.failures.set(key, kept);
   }
 
   clear(key: string): void {

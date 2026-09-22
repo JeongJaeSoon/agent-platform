@@ -315,9 +315,20 @@ describe("bootstrap", () => {
     await bootstrapGateFromEnv(undefined, identity, logger, print);
     expect(printed).toHaveLength(0);
 
-    const given = await bootstrapGateFromEnv("given", identity, logger, print);
+    const given = await bootstrapGateFromEnv(
+      "g".repeat(32),
+      identity,
+      logger,
+      print,
+    );
     expect(printed).toHaveLength(0);
-    expect(given.consume("given")).toBe(true);
+    expect(given.consume("g".repeat(32))).toBe(true);
+
+    // A configured token the request schema would refuse can never be
+    // presented, so it is a startup error rather than a silent dead install.
+    expect(
+      bootstrapGateFromEnv("short", identity, logger, print),
+    ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
   });
 });
 
@@ -450,6 +461,25 @@ describe("login, logout, me", () => {
 });
 
 describe("login lockout", () => {
+  test("holds at most maxKeys addresses, evicting the least recently failed", () => {
+    let now = 0;
+    const lockout = new LoginLockout({ maxKeys: 3, now: () => now });
+    for (const key of ["a", "b", "c"]) {
+      now += 1;
+      lockout.recordFailure(key);
+    }
+    expect(lockout.size).toBe(3);
+    now += 1;
+    lockout.recordFailure("a"); // a becomes the most recent
+    now += 1;
+    lockout.recordFailure("d"); // evicts b, the least recently failed
+    expect(lockout.size).toBe(3);
+    for (let i = 0; i < 4; i += 1) lockout.recordFailure("b");
+    expect(lockout.retryAfterMs("b")).toBe(0); // b restarted from zero
+    for (let i = 0; i < 4; i += 1) lockout.recordFailure("a");
+    expect(lockout.retryAfterMs("a")).toBeGreaterThan(0); // a kept its two
+  });
+
   test("the sixth failed attempt inside the window is 429, and success clears it", async () => {
     let now = 1_000_000;
     const lockout = new LoginLockout({ now: () => now });
