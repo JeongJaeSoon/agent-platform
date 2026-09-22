@@ -1,0 +1,32 @@
+# Actions are pinned to commit SHAs, which do not move when a maintainer
+# retags a release — that retag is how the tj-actions/changed-files supply
+# chain attack reached thousands of repositories. A SHA that nobody bumps is
+# its own problem, and this is what bumps it: without this file, pinning just
+# trades a supply chain risk for running a year-old action.
+#
+# `versioning-strategy` is not set because a SHA pin carries the version in the
+# trailing comment; Dependabot rewrites both.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One PR a week rather than one per action. These move together and are
+      # reviewed the same way.
+      actions:
+        patterns:
+          - "*"
+
+  # `directory: /` only reaches .github/workflows. A composite action is a
+  # separate entry pointed at the folder holding its action.yml, and
+  # bun-setup pins two actions of its own.
+  - package-ecosystem: github-actions
+    directory: /.github/actions/bun-setup
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
