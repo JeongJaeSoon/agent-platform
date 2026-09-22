@@ -28,8 +28,9 @@
 | `apps/worker` | runtime-core·Claude adapter·contracts만 조립하는 워커 진입점. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
-| `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한 |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration |
+| `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
+| `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 bare Bun 이미지에 자기 디렉터리만 마운트해 기동한다 |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy |
 
 immutable checkpoint manifest와 authoritative pointer, typed pending requests, SDK 기반 resume은 후속 확장이다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
@@ -69,7 +70,7 @@ HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
-scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`과 tmpfs를 가리키는 `HOME` 다섯만 받는다(`host.docker.internal`은 `host-gateway`로 매핑). `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, 그리고 egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기)만 받는다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -77,10 +78,25 @@ WORKER_IMAGE=agent-platform-worker:dev \
 WORKER_GATEWAY_URL=http://host.docker.internal:3000 \
 EXECUTION_SLOT_LIMIT=10 \
 EXECUTION_INSTALLATION_ID=local \
+EXECUTION_DOCKER_NETWORK=agent-platform-worker \
+EXECUTION_DOCKER_NETWORK_ALLOWLIST=agent-platform-worker \
+EXECUTION_EGRESS_PROXY_URL=http://egress-proxy:3128 \
   bun run --cwd apps/scheduler start
 ```
 
-실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: true`) 네트워크에만 붙는다. Docker가 이 네트워크에 바깥으로 나가는 경로를 만들지 않으므로 worker는 host·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스에 직접 닿지 못한다. 두 네트워크에 걸친 유일한 구성원이 `egress-proxy` 서비스이고, worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그것을 가리킨다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
+
+차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway, gitea)다. 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다. 같은 worker 네트워크에 있는 worker끼리의 통신은 아직 막지 않는다(후속 티켓).
+
+scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
+
+```bash
+docker compose -f infra/docker-compose.yml up -d egress-proxy
+docker network inspect agent-platform-worker \
+  --format '{{.Name}} internal={{.Internal}}'
+```
+
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 internal 네트워크·바깥 네트워크·upstream 두 개·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`로 확인하며 인터넷을 쓰지 않는다. scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
 
 ```bash
 DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
@@ -91,7 +107,7 @@ DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/
 로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001·2222가 이미 사용 중인지 먼저 확인한다.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d postgres localstack gitea
+docker compose -f infra/docker-compose.yml up -d postgres localstack gitea egress-proxy
 docker compose -f infra/docker-compose.yml ps
 docker compose -f infra/docker-compose.yml run --rm migrate
 ```

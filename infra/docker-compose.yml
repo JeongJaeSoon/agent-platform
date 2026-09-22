@@ -70,6 +70,32 @@ services:
       retries: 12
       start_period: 10s
 
+  # The only member of the worker network with a route off it. Workers are
+  # handed it as HTTP_PROXY/HTTPS_PROXY; the two allowlists below are the
+  # whole of what a worker can reach.
+  egress-proxy:
+    image: oven/bun:1.3.10
+    command: ["bun", "run", "/app/src/main.ts"]
+    environment:
+      EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-host.docker.internal:3000,gitea:3000}
+      EGRESS_PROXY_PORT: "3128"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    extra_hosts:
+      # The worker gateway runs on the host; only the proxy may reach it.
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - worker
+    volumes:
+      - ../apps/egress-proxy:/app:ro
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3128/healthz'); if (!r.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   api:
     build:
       context: ..
@@ -120,6 +146,16 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+
+networks:
+  default:
+  # Worker containers only ever join this one. `internal` is what makes the
+  # egress policy enforceable: Docker installs no route off it, so the proxy
+  # is the only way out and the scheduler refuses to launch if this flag is
+  # ever lost (`verifyNetworkIsolation`).
+  worker:
+    name: agent-platform-worker
+    internal: true
 
 volumes:
   postgres-data:
