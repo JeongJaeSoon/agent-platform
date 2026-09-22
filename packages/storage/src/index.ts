@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 import {
+  BoundedNodeHttpHandler,
   concatBytes,
   getObjectBytes,
   S3_MAX_ATTEMPTS,
@@ -191,7 +192,7 @@ export function createStorageS3Client(
     },
     maxAttempts: S3_MAX_ATTEMPTS,
     region: config.s3.region,
-    requestHandler: bounds,
+    requestHandler: new BoundedNodeHttpHandler(bounds),
     ...(config.s3.endpoint === undefined
       ? {}
       : { endpoint: config.s3.endpoint, forcePathStyle: true }),

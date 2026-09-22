@@ -127,6 +127,53 @@ describe("storage S3 client request bounds", () => {
     expect(Date.now() - startedAt).toBeGreaterThan(1_000);
   }, 30_000);
 
+  /**
+   * The bodies `bodyBytes()` never sees. On any status >= 300 — and for a
+   * ListObjectsV2 page on 200 — the SDK reads the body itself, inside
+   * `send()`, after both request timeouts have been cleared by the arriving
+   * headers. Measured before this bound existed: `send()` stayed pending
+   * forever, and an `abortSignal` passed to it did not help.
+   */
+  test("gives up on an error body that stops mid-XML", async () => {
+    const endpoint = await stallingXmlPeer(503);
+    const client = createStorageS3Client(configFor(endpoint), {
+      ...S3_REQUEST_BOUNDS,
+      bodyIdleMs: 300,
+    });
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+
+    const startedAt = Date.now();
+    const outcome = await store.get("94s-223/stalled-error").then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    client.destroy();
+
+    // The SDK hands our own stall error back out of `send()`, so the read
+    // treats it as one: retried on a fresh request, then given up on.
+    expect(outcome).toContain("stalled 3 times");
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+  }, 20_000);
+
+  test("gives up on a list page that stops mid-XML", async () => {
+    const endpoint = await stallingXmlPeer(200);
+    const client = createStorageS3Client(configFor(endpoint), {
+      ...S3_REQUEST_BOUNDS,
+      bodyIdleMs: 300,
+    });
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+
+    const startedAt = Date.now();
+    const outcome = await store.list("94s-223/").then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    client.destroy();
+
+    expect(outcome).toContain("delivered nothing for 300ms");
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+  }, 20_000);
+
   test("keeps the shipped bounds in the shape the SDK needs", () => {
     // @smithy/node-http-handler 4.12.1 logs a warning and keeps waiting when
     // `requestTimeout` expires without this flag, which is indistinguishable
@@ -155,6 +202,22 @@ async function silentPeer(): Promise<{
     server.close();
   });
   return { accepted, endpoint: await listen(server) };
+}
+
+/** Answers with `status` and a few bytes of XML, then stops. */
+async function stallingXmlPeer(status: number): Promise<string> {
+  const server = createHttpServer((_request, response) => {
+    response.writeHead(status, {
+      "content-length": "200",
+      "content-type": "application/xml",
+    });
+    response.write("<?xml version=");
+  });
+  closers.push(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return listen(server);
 }
 
 function configFor(s3Endpoint: string): StorageConfig {

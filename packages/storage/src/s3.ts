@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 export interface S3ClientLike {
   send(
@@ -9,6 +10,13 @@ export interface S3ClientLike {
 }
 
 export type S3RequestBounds = {
+  /**
+   * How long any response body may deliver nothing before the handler
+   * destroys it. This is the only bound that reaches the bodies the SDK reads
+   * for itself — an error document, a ListObjectsV2 page — which it collects
+   * inside `send()` before we ever see them.
+   */
+  readonly bodyIdleMs: number;
   readonly connectionTimeout: number;
   readonly requestTimeout: number;
   readonly throwOnRequestTimeout: boolean;
@@ -39,10 +47,80 @@ export type S3RequestBounds = {
  * same case under `requestTimeout` failed in 509ms.
  */
 export const S3_REQUEST_BOUNDS: S3RequestBounds = {
+  bodyIdleMs: 10_000,
   connectionTimeout: 3_000,
   requestTimeout: 300_000,
   throwOnRequestTimeout: true,
 };
+
+/**
+ * `NodeHttpHandler` with every response body on a leash.
+ *
+ * Both request timeouts are cleared the moment the response *headers* arrive,
+ * and the SDK then reads some bodies itself — an error document on any status
+ * >= 300, a ListObjectsV2 page — inside `send()`, before `bodyBytes()` could
+ * ever bound them. Measured: a peer that answers `503` with ten bytes of XML
+ * and stops leaves `send()` pending forever, and an `abortSignal` passed to
+ * `send` does not end it either. Destroying the stream does, and this is the
+ * last place that still holds it.
+ *
+ * The bound is idle time, not total: it is armed from the socket's own data
+ * events, so a 128 MiB GetObject that keeps arriving keeps resetting it.
+ */
+export class BoundedNodeHttpHandler extends NodeHttpHandler {
+  readonly #bodyIdleMs: number;
+
+  constructor(bounds: S3RequestBounds) {
+    super(bounds);
+    this.#bodyIdleMs = bounds.bodyIdleMs;
+  }
+
+  override async handle(
+    ...args: Parameters<NodeHttpHandler["handle"]>
+  ): ReturnType<NodeHttpHandler["handle"]> {
+    const result = await super.handle(...args);
+    guardResponseBody(result.response.body, this.#bodyIdleMs);
+    return result;
+  }
+}
+
+type GuardableBody = {
+  destroy?: (error?: Error) => void;
+  on?: (event: string, listener: () => void) => void;
+  socket?: {
+    on?: (event: string, listener: () => void) => void;
+    off?: (event: string, listener: () => void) => void;
+  };
+};
+
+function guardResponseBody(body: unknown, idleMs: number): void {
+  const stream = body as GuardableBody | null;
+  if (typeof stream?.destroy !== "function") return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onData = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(onIdle, idleMs);
+  };
+  const onIdle = () => {
+    // Listening on the socket rather than the body: a `data` listener on the
+    // body would put it in flowing mode and eat the bytes its real consumer
+    // is waiting for.
+    stream.socket?.off?.("data", onData);
+    stream.destroy?.(
+      new BodyStallError(`S3 response body delivered nothing for ${idleMs}ms`),
+    );
+  };
+  const settle = () => {
+    if (timer) clearTimeout(timer);
+    stream.socket?.off?.("data", onData);
+  };
+
+  stream.socket?.on?.("data", onData);
+  stream.on?.("close", settle);
+  stream.on?.("end", settle);
+  timer = setTimeout(onIdle, idleMs);
+}
 
 /** Bounded retries on top of {@link S3_REQUEST_BOUNDS}. */
 export const S3_MAX_ATTEMPTS = 3;
