@@ -11,14 +11,10 @@ import {
   parseSessionCatalogEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import {
-  createProbePool,
-  createReadinessProbe,
-  watchIdleErrors,
-} from "./readiness.ts";
+import { API_POOL_TIMEOUTS, createApiPool, createProbePool } from "./pool.ts";
+import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -45,13 +41,7 @@ if (isCatalogEmpty(catalog)) {
   });
 }
 
-// A bounded connect keeps /readyz (and every request) from hanging on a
-// black-holed database host instead of answering 503.
-const pool = watchIdleErrors(
-  new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 }),
-  logger,
-  "api",
-);
+const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
@@ -71,11 +61,20 @@ const app = createApiApp({
     db: createProbePool(databaseUrl, logger),
     // AUTH_MODE unset still fails closed (every /v1 call is 401), which is a
     // misconfiguration, not a serving instance.
-    requiredEnv: ["DATABASE_URL", "AUTH_MODE"],
+    // app.ts treats anything but "none" as api-key mode, so a typo would
+    // silently run authenticated; only the two spellings we document count.
+    requiredEnv: [
+      "DATABASE_URL",
+      { name: "AUTH_MODE", allowed: ["none", "api-key"] },
+    ],
   }),
 });
 
 export default {
   port: Number(process.env.PORT ?? 3000),
+  // Bun closes a response that has produced no bytes for idleTimeout seconds
+  // (default 10). A request waiting on the pool's query_timeout must still
+  // get its 503, so leave room above API_POOL_TIMEOUTS.queryMs.
+  idleTimeout: Math.ceil(API_POOL_TIMEOUTS.queryMs / 1000) + 10,
   fetch: app.fetch,
 };

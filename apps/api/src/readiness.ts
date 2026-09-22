@@ -6,8 +6,6 @@ import {
   type MigrationEntry,
   type MigrationHead,
 } from "@agent-platform/db";
-import type { StructuredLogger } from "@agent-platform/observability";
-import { Pool } from "pg";
 
 export type ReadinessResult =
   | { ready: true }
@@ -20,60 +18,39 @@ export interface QueryRunner {
   query(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
-// A pool of its own so probe traffic never competes with API requests for
-// clients. statement_timeout makes the server cancel a statement the probe
-// gave up on instead of leaving it running; the client-side query_timeout is
-// only the fallback for a socket the server can no longer answer on, so it
-// fires later.
-export function createProbePool(
-  connectionString: string,
-  logger: StructuredLogger,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Pool {
-  return watchIdleErrors(
-    new Pool({
-      connectionString,
-      max: 1,
-      connectionTimeoutMillis: timeoutMs,
-      statement_timeout: timeoutMs,
-      query_timeout: timeoutMs * 2,
-    }),
-    logger,
-    "probe",
-  );
-}
-
-// pg-pool emits "error" for an idle client whose backend went away; with no
-// listener that is an uncaught exception and the process dies on a database
-// restart instead of answering 503 until it is back.
-export function watchIdleErrors(
-  pool: Pool,
-  logger: StructuredLogger,
-  name: string,
-): Pool {
-  pool.on("error", (error) => {
-    logger.warn("Idle database connection dropped", {
-      pool: name,
-      error_name: error.name,
-      code: (error as { code?: string }).code ?? null,
-    });
-  });
-  return pool;
-}
+// A bare name must be set and non-empty; with `allowed`, its trimmed value
+// must also be one of those.
+export type RequiredEnv =
+  | string
+  | { readonly name: string; readonly allowed: readonly string[] };
 
 export interface CreateReadinessProbeOptions {
   readonly db: QueryRunner;
-  // Variable names that must be set and non-empty.
-  readonly requiredEnv: readonly string[];
+  readonly requiredEnv: readonly RequiredEnv[];
   readonly environment?: Record<string, string | undefined>;
   readonly expected?: { head: MigrationHead; migrations: MigrationEntry[] };
   // Last-resort bound for each database step when the runner has no
-  // timeouts of its own (see createProbePool); it abandons the promise, so
-  // the runner itself must free the connection.
+  // timeouts of its own (see createProbePool in pool.ts); it abandons the
+  // promise, so the runner itself must free the connection.
   readonly timeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 2_000;
+
+function configProblems(
+  required: readonly RequiredEnv[],
+  environment: Record<string, string | undefined>,
+): string[] {
+  return required.flatMap((entry) => {
+    const name = typeof entry === "string" ? entry : entry.name;
+    const value = environment[name]?.trim();
+    if (!value) return [`missing ${name}`];
+    if (typeof entry !== "string" && !entry.allowed.includes(value)) {
+      return [`${name} must be one of ${entry.allowed.join("|")}`];
+    }
+    return [];
+  });
+}
 
 async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -155,14 +132,12 @@ export function createReadinessProbe(
         reason: `expected migrations up to ${expected.head.tag}: ${drift}`,
       };
     }
-    const missing = options.requiredEnv.filter(
-      (name) => !environment[name]?.trim(),
-    );
-    if (missing.length > 0) {
+    const problems = configProblems(options.requiredEnv, environment);
+    if (problems.length > 0) {
       return {
         ready: false,
         check: "config",
-        reason: `missing configuration: ${missing.join(", ")}`,
+        reason: `configuration: ${problems.join(", ")}`,
       };
     }
     return { ready: true };

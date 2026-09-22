@@ -31,8 +31,9 @@ import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { createApiApp } from "./app.ts";
-import { createProbePool, createReadinessProbe } from "./readiness.ts";
+import { createApiApp, isStorageUnavailable } from "./app.ts";
+import { createApiPool, createProbePool } from "./pool.ts";
+import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -304,6 +305,28 @@ integration("sessions API on PostgreSQL", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.waitingCount).toBe(0);
+  });
+
+  test("api pool cancels a statement that outlives statement_timeout and maps it to 503", async () => {
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 500,
+      queryMs: 1_000,
+    });
+    try {
+      const started = Date.now();
+      const failure = await apiPool
+        .query("SELECT pg_sleep(5)")
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: "57014" });
+      expect(Date.now() - started).toBeLessThan(3_000);
+      // The classifier in app.onError / mapped() must turn it into 503.
+      expect(isStorageUnavailable(failure)).toBe(true);
+      expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+    } finally {
+      await apiPool.end();
+    }
   });
 
   test("survives the backend of an idle probe connection being terminated", async () => {

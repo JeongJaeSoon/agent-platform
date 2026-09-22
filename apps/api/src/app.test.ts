@@ -144,6 +144,13 @@ describe("API authentication", () => {
       "SQLSTATE 53300 too many connections",
       Object.assign(new Error("too many connections"), { code: "53300" }),
     ],
+    [
+      "SQLSTATE 57014 statement_timeout cancel",
+      Object.assign(new Error("canceling statement due to statement timeout"), {
+        code: "57014",
+      }),
+    ],
+    ["pg client query_timeout", new Error("Query read timeout")],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {
       async findOwner() {
