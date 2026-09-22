@@ -70,14 +70,23 @@ const app = createApiApp({
   }),
 });
 
+// Bun resets a connection whose response has produced no bytes for the idle
+// timeout (default 10s), and a reset carries no status, no request id and no
+// retry hint. A /v1 request runs several database stages in sequence (key
+// lookup, pool wait, BEGIN, statements, ROLLBACK), each with its own timeout,
+// so its budget covers a handful of the longest one. Only those requests get
+// it: keep-alive sockets and probes stay on the short default. An absolute
+// per-request deadline is a follow-up (see 94S-200).
+const DB_REQUEST_TIMEOUT_SECONDS = Math.ceil(
+  (API_POOL_TIMEOUTS.queryMs * 5) / 1000,
+);
+
 export default {
   port: Number(process.env.PORT ?? 3000),
-  // Bun resets a connection whose response has produced no bytes for
-  // idleTimeout seconds (default 10), and a reset carries no status, no
-  // request id and no retry hint. A request runs several database stages in
-  // sequence (key lookup, pool wait, BEGIN, statements, ROLLBACK), each with
-  // its own timeout, so the budget must cover a handful of the longest one,
-  // not just one; the per-request deadline is a follow-up (see 94S-200).
-  idleTimeout: Math.ceil((API_POOL_TIMEOUTS.queryMs * 5) / 1000),
-  fetch: app.fetch,
+  fetch(request: Request, server: { timeout(r: Request, s: number): void }) {
+    if (new URL(request.url).pathname.startsWith("/v1")) {
+      server.timeout(request, DB_REQUEST_TIMEOUT_SECONDS);
+    }
+    return app.fetch(request);
+  },
 };
