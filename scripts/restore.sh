@@ -118,7 +118,7 @@ log "restore: $RESTORED_OBJECTS objects in s3://$BUCKET"
 GITEA_CID="$(compose_restore "$INTO" ps -q gitea)"
 GITEA_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$GITEA_CID")"
 [ -n "$GITEA_VOLUME" ] || die "gitea container has no volume mounted at /data"
-EMPTY_REPOS="$(jq -r '.repos.empty[]' "$MANIFEST")"
+EMPTY_REPOS="$(jq -r '.repos.empty[] | "\(.name) \(.head)"' "$MANIFEST")"
 # Staged into the volume while the container runs (docker cp cannot create
 # directories in a stopped one), then moved into place by a throwaway
 # container on the same volume so nothing touches gitea.db while Gitea has
@@ -139,8 +139,8 @@ compose_restore "$INTO" exec -T -u git gitea sh -s -- "$STAGE" "$EMPTY_REPOS" <<
 set -eu
 stage="$1"
 empty="$2"
-# Bare repositories recreated here inherit the branch name from the bundle;
-# only the hint git prints for an empty init is being silenced.
+# Empty repositories get their recorded HEAD below; this only silences the
+# hint git prints for an init without one.
 export GIT_CONFIG_PARAMETERS="'init.defaultBranch=main'"
 mkdir -p /data/git/repositories
 for bundle in "$stage"/repos/*/*.bundle; do
@@ -153,12 +153,13 @@ for bundle in "$stage"/repos/*/*.bundle; do
   git clone --quiet --mirror "$bundle" "$target"
   git -C "$target" bundle verify "$bundle" >/dev/null 2>&1
 done
-printf '%s\n' "$empty" | while read -r repo; do
+printf '%s\n' "$empty" | while read -r repo head; do
   [ -n "$repo" ] || continue
   target="/data/git/repositories/$repo.git"
   [ ! -e "$target" ] || { echo "refusing to overwrite $target" >&2; exit 1; }
   mkdir -p "$(dirname "$target")"
-  git -c init.defaultBranch=main init --quiet --bare "$target"
+  git init --quiet --bare "$target"
+  git -C "$target" symbolic-ref HEAD "$head"
 done
 gitea admin regenerate hooks >/dev/null
 EOF

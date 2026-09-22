@@ -30,7 +30,7 @@ backup-20260923T101500Z/
 | `schema.applied[]` | DB의 `drizzle.__drizzle_migrations` 행(`hash`, `when`) 순서대로. `head_tag`는 마지막 행에 해당하는 journal tag |
 | `images.<service>` | 실행 중인 컨테이너의 image·image id·registry digest. api/worker/scheduler 컨테이너가 없으면 `status: "not_built"`로 남긴다(94S-125 이미지 뒤 채워짐). 나중에 만든 이미지를 이 값에 소급 기록하지 않는다 |
 | `objects` | bucket 이름과 object 수 |
-| `repos` | bundle로 담은 repo 목록과 ref가 없어 bundle을 만들 수 없던 빈 repo 목록 |
+| `repos` | bundle로 담은 repo 목록과, ref가 없어 bundle을 만들 수 없던 빈 repo의 이름·symbolic HEAD |
 
 주의:
 
@@ -64,7 +64,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 scripts/verify-restore.sh --project ap-restore-1
 ```
 
-`checkpoints` 모든 행에 대해 ① `manifest_ref` object를 내려받아 sha256 = `manifest_sha256` ② manifest 안의 transcript part(root·subagent)·untracked 파일·workspace bundle을 각각 내려받아 sha256 대조 ③ bundle을 `git bundle verify`에 넣고 `workspace.gitCommit`이 ref tip인지 확인한다. `sessions.checkpoint_revision`과 같은 행은 `pointer`로 표시된다. 마지막으로 scratch key에 `If-None-Match: *` 두 번째 쓰기가 412로 거부되는지 확인해 복원된 store가 여전히 create-only임을 본다. 하나라도 실패하면 exit 5.
+`checkpoints` 모든 행에 대해 ① `manifest_ref` object를 내려받아 sha256 = `manifest_sha256` ② manifest 안의 transcript part(root·subagent)·untracked 파일·workspace bundle을 각각 내려받아 sha256 대조 ③ bundle을 `git bundle verify`에 넣고 `workspace.gitCommit`이 ref tip인지 확인한다. `sessions.checkpoint_revision`과 같은 행은 `pointer`로 표시되며, pointer가 가리키는 revision에 `checkpoints` 행이 없으면 그 자체로 FAIL이다. manifest의 `sessionId`·`revision`도 행과 같아야 한다. 마지막으로 scratch key에 `If-None-Match: *` 두 번째 쓰기가 412로 거부되는지 확인해 복원된 store가 여전히 create-only임을 본다. 하나라도 실패하면 exit 5.
 
 두 항목은 지금 검증할 수 없어 `SKIP`으로만 출력한다.
 

@@ -109,7 +109,7 @@ for repo in /data/git/repositories/*/*.git; do
     mkdir -p "$stage/repos/$owner"
     git -C "$repo" bundle create "$stage/repos/$owner/$name.bundle" --all >/dev/null 2>&1
   else
-    printf '%s/%s\n' "$owner" "$name" >> "$stage/gitea/empty-repos"
+    printf '%s/%s %s\n' "$owner" "$name" "$(git -C "$repo" symbolic-ref HEAD)" >> "$stage/gitea/empty-repos"
   fi
 done
 EOF
@@ -117,7 +117,9 @@ compose "$PROJECT" cp "gitea:${STAGE}/repos/." "$DEST/repos/"
 compose "$PROJECT" cp "gitea:${STAGE}/gitea/." "$DEST/gitea/"
 compose "$PROJECT" exec -T -u git gitea rm -rf "$STAGE"
 REPOS_JSON="$(cd "$DEST/repos" && find . -name '*.bundle' -type f | sed 's#^\./##; s#\.bundle$##' | LC_ALL=C sort | jq -R . | jq -s .)"
-EMPTY_REPOS_JSON="$(jq -R . < "$DEST/gitea/empty-repos" | jq -s .)"
+# An empty repository has no bundle, only a name and the branch HEAD points
+# at, which Gitea's own metadata expects to find again after restore.
+EMPTY_REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea/empty-repos" | jq -s .)"
 log "backup: repos/ $(printf '%s' "$REPOS_JSON" | jq length) bundled, $(printf '%s' "$EMPTY_REPOS_JSON" | jq length) empty"
 
 # --- images ----------------------------------------------------------------

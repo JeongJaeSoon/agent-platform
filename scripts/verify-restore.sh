@@ -42,7 +42,8 @@ trap 'rm -rf "$WORK"' EXIT
 git init --quiet --bare "$WORK/verify.git"
 
 fetch_object() {
-  compose "$PROJECT" exec -T localstack awslocal s3 cp "s3://${BUCKET}/$1" - 2>/dev/null
+  # `</dev/null`: exec -T would otherwise swallow the row loop's stdin.
+  compose "$PROJECT" exec -T localstack awslocal s3 cp "s3://${BUCKET}/$1" - 2>/dev/null </dev/null
 }
 
 FAILED=0
@@ -72,10 +73,18 @@ check_ref() {
   return 0
 }
 
-QUERY="SELECT c.session_id, c.revision, c.manifest_ref, c.manifest_sha256,
-              (s.checkpoint_revision IS NOT DISTINCT FROM c.revision)::int
+# Every session pointer first (left join, so a pointer whose checkpoints row
+# is missing still comes out, with empty ref and hash), then the historical
+# rows the pointer does not name.
+QUERY="SELECT s.id, s.checkpoint_revision, coalesce(c.manifest_ref, ''), coalesce(c.manifest_sha256, ''), 1
+       FROM sessions s LEFT JOIN checkpoints c
+         ON c.session_id = s.id AND c.revision = s.checkpoint_revision
+       WHERE s.checkpoint_revision IS NOT NULL
+       UNION ALL
+       SELECT c.session_id, c.revision, c.manifest_ref, c.manifest_sha256, 0
        FROM checkpoints c JOIN sessions s ON s.id = c.session_id
-       ORDER BY c.session_id, c.revision"
+       WHERE s.checkpoint_revision IS DISTINCT FROM c.revision
+       ORDER BY 1, 2"
 # Read the rows up front: a query that fails inside a process substitution
 # would look like an empty database and let the run exit 0.
 ROWS_TEXT="$(psql_in "$PROJECT" -Atc "$QUERY")" || die "could not read checkpoints from project '$PROJECT'"
@@ -86,6 +95,10 @@ while IFS='|' read -r session revision ref expected is_pointer; do
   [ "$is_pointer" = 1 ] && tag="$tag pointer"
   manifest="$WORK/manifest-$ROWS.json"
   ok=1
+  if [ -z "$ref" ]; then
+    fail "$tag: sessions.checkpoint_revision names a revision with no checkpoints row"
+    continue
+  fi
   check_ref "$tag manifest" "$ref" "$expected" "$manifest" || ok=0
   if [ "$ok" = 1 ]; then
     if ! jq -e '.version == 2 and .workspace.bundle.key and .transcripts.root.parts' "$manifest" >/dev/null 2>&1; then
@@ -132,9 +145,13 @@ if compose "$PROJECT" exec -T localstack sh -c "
   set -eu
   printf one > /tmp/verify-one; printf two > /tmp/verify-two
   awslocal s3api put-object --bucket '$BUCKET' --key '$SCRATCH' --body /tmp/verify-one >/dev/null
-  if awslocal s3api put-object --bucket '$BUCKET' --key '$SCRATCH' --if-none-match '*' --body /tmp/verify-two >/dev/null 2>&1; then
+  # Only a 412 proves the store enforces the precondition; any other failure
+  # (bad option, transient error) leaves the object untouched for the wrong
+  # reason.
+  if err=\"\$(awslocal s3api put-object --bucket '$BUCKET' --key '$SCRATCH' --if-none-match '*' --body /tmp/verify-two 2>&1 >/dev/null)\"; then
     awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet; exit 1
   fi
+  case \"\$err\" in *PreconditionFailed*) ;; *) echo \"\$err\" >&2; awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet; exit 1 ;; esac
   [ \"\$(awslocal s3 cp 's3://$BUCKET/$SCRATCH' -)\" = one ]
   awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet
 "; then
