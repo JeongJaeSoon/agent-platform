@@ -656,6 +656,42 @@ packages/runtime-core ──▶ packages/contracts
 - e2e는 `infra/docker-compose.yml`을 띄우고 `packages/contracts`의 스키마로 응답을 검증
 
 
+
+### 8.3 인터페이스·협업 트랙 확장 (계획, 2026-09-22)
+
+alpha(D0~D4) 위에 사람이 쓰는 접점(웹 콘솔·Slack)·자동 배정·에이전트 정의·기억·루틴·협업을 올리는 트랙이 별도로 설계됐다. 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓 정본은 Linear `agent-platform · Interface & Collaboration`(94S-148~195), 조사 원문은 `docs/references/`다. 이 절은 §8 트리와의 관계만 고정하며 아래 경로는 아직 존재하지 않는다.
+
+```
+apps/
+├── web/                          # Vite + React + TanStack SPA. apps/api가 dist를 정적 서빙(같은 origin, cookie)
+└── api/src/routes/{auth,workspaces,agents,dispatches,slack,memory,routines}.ts
+packages/
+├── contracts/src/{domain/*,chat/envelope.ts}   # 도메인 zod 계약. api·worker-protocol은 확장만
+├── ui/                           # tokens.css + 기본 컴포넌트(순수 프레젠테이션)
+├── platform/src/{authorization/authorization-context.ts,authorization/grants.ts,agents/,digests/}
+├── dispatch/                     # fast-path → 후보 검색 → 랭킹 → 분류기 → 판정 → 적용, replay 평가 하네스
+├── chat-interface/               # inbox/outbox worker, binding·mute 공통 정책
+├── chat-slack/                   # Kollegium packages/slack 이식(signature·events·presentation·manifest)
+└── memory/                       # MCP 서버(memory_search/read/write/link)·summarizer·scanner·consolidation
+```
+
+의존 방향은 `apps/api → feature 패키지(dispatch·chat-interface·chat-slack·memory) → packages/platform → db/contracts`이고 `apps/web`은 contracts에서 생성한 클라이언트와 `packages/ui`만 import한다(HTTP/SSE로만 소비). §8.1의 규칙은 그대로다: `apps/*`는 서로 import하지 않고, worker는 memory MCP 도구 등록 외에 새 의존을 얻지 않는다.
+
+alpha 코드에 닿는 변경은 아래 8건뿐이며 각각 보호 장치가 있다. 실행 정본이 alpha 하나라는 원칙과 §6·§7의 worker·lease·checkpoint 계약은 바뀌지 않는다.
+
+| 변경 | 파일 | 티켓 | 보호 장치 |
+|---|---|---|---|
+| Principal → `AuthorizationContext` + legacy adapter | `packages/platform/src/authorization/policy.ts`, `session-service.ts` | 94S-148 | api-key 경로 테스트 불변 |
+| receipt `target_ref` resource union | `packages/contracts/src/api/receipt.ts` | 94S-148 | session variant 유지 |
+| `turns.actor_id`·`receipts.actor` | `packages/db/src/schema.ts` | 94S-150 | nullable 추가 |
+| 세션 생성 body `agent_release_id` | `packages/contracts/src/api/session.ts` | 94S-157 | `profile_id`와 XOR |
+| UoW `*Within` 추출 | `packages/db/src/postgres-unit-of-work.ts`, `packages/queue/src/postgres.ts` | 94S-169 | public 시그니처 불변, p95 +5% 이내 |
+| admission `closed` 추가 | `session.ts` enum | 94S-174 | feature flag, D4 전 비활성 |
+| bootstrapClaim `memory_token`·`memory_bundle_id` | worker-protocol | 94S-180·185 | optional·버전 태그 |
+| `appendSystemPrompt` bundle 주입 | `apps/worker/src/sdk-adapter.ts` | 94S-185 | profile `memory.enabled` |
+
+migration 번호 대역은 I0·I1 = 1xx, I2 = 2xx, I3 = 3xx, I4 = 4xx이며 공통 파일(`packages/contracts`, `db/src/schema*`, `apps/api/src/app.ts`, `openapi.json`)은 레인 A(I2)가 소유한다. Pi·Codex 엔진은 이 트랙이 아니라 `packages/adapters/runtimes/*`의 후속 leaf다.
+
 ---
 
 ## 9. Dockerfile
