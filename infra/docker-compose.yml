@@ -239,6 +239,11 @@ services:
       EXECUTION_DOCKER_NETWORK_ALLOWLIST: ${EXECUTION_DOCKER_NETWORK_ALLOWLIST:-agent-platform-worker}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
       EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      # Docker Desktop cannot carry a project quota, so the local stack opts out
+      # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
+      EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}
+      EXECUTION_WORKSPACE_QUOTA_MB: ${EXECUTION_WORKSPACE_QUOTA_MB:-4096}
+      EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: ${EXECUTION_WORKSPACE_GC_MIN_AGE_SEC:-3600}
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
       # Object store the scheduler hands each worker (94S-244): the compose
