@@ -56,6 +56,11 @@ export type CheckpointWorkspace = {
    * commit back into an unfetchable one. Carrying the objects makes the
    * checkpoint's own durability the only thing restore depends on, and makes
    * the commit verifiable by exactly the digest check every other object gets.
+   *
+   * Writers must upload it with `putImmutable`. Finalize verifies the bytes it
+   * reads, and nothing it can do afterwards keeps that key from being replaced
+   * before restore — the verdict is only as durable as the write that made it.
+   * Pinning the verified object version so the two cannot diverge is 94S-229.
    */
   readonly bundle: ObjectRef;
   readonly gitCommit: string;
