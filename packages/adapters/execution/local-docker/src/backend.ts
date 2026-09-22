@@ -22,6 +22,7 @@ import {
   type ContainerInspect,
   DockerApiError,
   DockerClient,
+  type ImageInspect,
   type VolumeInspect,
 } from "./docker-client.ts";
 
@@ -182,6 +183,26 @@ export class QuotaProbeNameTakenError extends Error {
       `Volume ${volume} is not this host's quota probe. The preflight needs that name and will not remove a volume it did not create; rename or remove it deliberately.`,
     );
     this.name = "QuotaProbeNameTakenError";
+  }
+}
+
+/**
+ * The image declares a `VOLUME` of its own. Docker materializes one anonymous
+ * volume per declared path on every container built from it: writable, no
+ * ceiling, none of our labels. That is a hole straight through the workspace
+ * quota, so the image is refused rather than launched around.
+ */
+export class ImageVolumeError extends Error {
+  constructor(
+    readonly image: string,
+    readonly paths: string[],
+  ) {
+    super(
+      `Image ${image} declares VOLUME ${paths.join(", ")}. Docker would give each one an ` +
+        "unbounded, unlabelled anonymous volume that no quota covers and no GC reclaims. " +
+        "Build the worker image without those declarations.",
+    );
+    this.name = "ImageVolumeError";
   }
 }
 
@@ -380,6 +401,7 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
+    await this.assertImageDeclaresNoVolumes(intent.image);
     // Before the container, because naming a volume in `Mounts` is enough for
     // Docker to conjure one — unlabelled, and with no ceiling on it.
     await this.ensureWorkspaceVolume(intent.sessionId);
@@ -581,6 +603,29 @@ export class LocalDockerBackend implements ExecutionBackend {
     if (volume === null) return;
     const problem = workspaceVolumeProblem(volume, sessionId, this.config);
     if (problem !== null) throw new WorkspaceQuotaError(name, problem);
+  }
+
+  /**
+   * The read-only rootfs and the bounded mounts are the whole of what a
+   * worker may write to — unless its image declares a `VOLUME`, which Docker
+   * honours by attaching a writable anonymous volume outside all of it.
+   */
+  private async assertImageDeclaresNoVolumes(image: string): Promise<void> {
+    let inspected: ImageInspect | null;
+    try {
+      inspected = await this.client.inspectImage(image);
+    } catch (error) {
+      if (error instanceof DockerApiError && error.status === 404) return;
+      throw error;
+    }
+    // Not pulled yet: the create that follows answers with its own 404, and
+    // the next attempt inspects an image that exists.
+    if (inspected === null) return;
+    const declared = Object.keys(inspected.Config.Volumes ?? {});
+    // The workspace path is ours; the image declaring it changes nothing,
+    // because the mount spec names a volume for exactly that target.
+    const extra = declared.filter((path) => path !== this.config.workspaceDir);
+    if (extra.length > 0) throw new ImageVolumeError(image, extra.sort());
   }
 
   /** The container under this name has to be this very launch, or hands off. */

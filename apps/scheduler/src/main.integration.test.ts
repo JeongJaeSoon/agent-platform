@@ -147,4 +147,42 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       expect(rowKeys.has(key)).toBe(true);
     }
   }, 180_000);
+
+  test("a refused quota preflight still reclaims the workspaces it can", async () => {
+    // The probe needs disk, so the daemon that fails it is often the one that
+    // is full — the moment reclaiming finished sessions matters most. This
+    // daemon fails the probe for a different reason (no project quota behind
+    // its storage), which exercises the same path: refuse to admit work, but
+    // not before the pass has had its chance to free disk.
+    const closedSession = crypto.randomUUID();
+    sessionIds.push(closedSession);
+    await db.insert(sessions).values({
+      id: closedSession,
+      ownerId: runLabel,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${closedSession}`,
+      admissionState: "closed",
+    });
+    const name = workspaceVolumeFor(closedSession, runLabel);
+    await client.createVolume({
+      Driver: "local",
+      Labels: {
+        [LABELS.installation]: runLabel,
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: closedSession,
+        [LABELS.workspaceQuota]: "off",
+      },
+      Name: name,
+    });
+
+    await expect(
+      main({
+        ...environment(),
+        EXECUTION_WORKSPACE_QUOTA: "on",
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
+      }),
+    ).rejects.toThrow("cannot put a size quota");
+
+    expect(await client.inspectVolume(name)).toBeNull();
+  }, 180_000);
 });

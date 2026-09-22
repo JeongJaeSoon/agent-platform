@@ -123,6 +123,13 @@ export type ContainerSummary = {
   State: string;
 };
 
+export type ImageInspect = {
+  Config: {
+    /** Declared `VOLUME` paths, as a set with empty values. */
+    Volumes?: Record<string, unknown> | null;
+  };
+};
+
 export type VolumeInspect = {
   /** RFC 3339; absent on daemons older than the field. */
   CreatedAt?: string;
@@ -234,6 +241,22 @@ export class DockerClient {
     return response.json();
   }
 
+  /**
+   * The image as the daemon has it, or null when it is not pulled yet.
+   * `Config.Volumes` is the interesting part: every path in it becomes a
+   * writable anonymous volume on any container built from the image.
+   */
+  async inspectImage(name: string): Promise<ImageInspect | null> {
+    const response = await this.request(
+      "GET",
+      `/images/${encodeURIComponent(name)}/json`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    return response.json();
+  }
+
   /** 201 with the new id; 409 when a network of that name already exists. */
   async createNetwork(body: NetworkCreateBody): Promise<{ Id: string }> {
     return (await this.request("POST", "/networks/create", body, [201])).json();
@@ -326,9 +349,13 @@ export class DockerClient {
       undefined,
       [204, 304, 404],
     );
+    // `v=true` takes the container's *anonymous* volumes with it — the ones
+    // Docker materializes for every `VOLUME` an image declares. Named volumes
+    // are untouched by it, so the session workspace still outlives this call
+    // and is reclaimed by GC instead.
     await this.request(
       "DELETE",
-      `/containers/${encoded}?force=true`,
+      `/containers/${encoded}?force=true&v=true`,
       undefined,
       [204, 404],
     );

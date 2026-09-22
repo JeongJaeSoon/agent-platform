@@ -37,17 +37,41 @@ export async function main(
           "a runaway worker can fill this daemon's disk",
       );
     }
-    await backend.verifyWorkspaceQuota();
-    return await runScheduler({
-      backend,
-      image: config.image,
-      logger,
-      resources: config.resources,
-      slotLimit: config.slotLimit,
-      store: createPostgresSchedulerStore(db, {
-        connectForLock: () => pool.connect(),
-      }),
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
     });
+    const pass = (slotLimit: number) =>
+      runScheduler({
+        backend,
+        image: config.image,
+        logger,
+        resources: config.resources,
+        slotLimit,
+        store,
+      });
+    try {
+      await backend.verifyWorkspaceQuota();
+    } catch (error) {
+      // The probe needs a little disk of its own, so a daemon that is already
+      // full fails it — and that is exactly when the workspaces of finished
+      // sessions are worth reclaiming. Launching nothing (slot limit 0) while
+      // still running the pass breaks that deadlock; the error is rethrown
+      // afterwards, so this process still refuses to admit work.
+      logger.error(
+        "Workspace quota preflight failed; reclaiming workspaces before giving up",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      await pass(0).catch((reclaimError: unknown) => {
+        logger.error("Reclaim-only pass failed", {
+          error:
+            reclaimError instanceof Error
+              ? reclaimError.message
+              : String(reclaimError),
+        });
+      });
+      throw error;
+    }
+    return await pass(config.slotLimit);
   } finally {
     await pool.end();
   }

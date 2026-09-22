@@ -55,7 +55,7 @@ describe("localDockerConfigFromEnv", () => {
     }
   });
 
-  test("a non-positive quota or GC age is refused", () => {
+  test("a quota of zero is refused, a GC age of zero is not", () => {
     expect(() =>
       localDockerConfigFromEnv({ ...base, EXECUTION_WORKSPACE_QUOTA_MB: "0" }),
     ).toThrow("EXECUTION_WORKSPACE_QUOTA_MB must be a positive integer");
@@ -64,7 +64,17 @@ describe("localDockerConfigFromEnv", () => {
         ...base,
         EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "-1",
       }),
-    ).toThrow("EXECUTION_WORKSPACE_GC_MIN_AGE_SEC must be a positive integer");
+    ).toThrow(
+      "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC must be a non-negative integer",
+    );
+    // Zero says "reclaim as soon as the session is finished with it", which
+    // is what the tests that want a deterministic pass ask for.
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
+      }).workspaceGcMinAgeMs,
+    ).toBe(0);
   });
 
   test("an entrypoint override is split on whitespace and omitted when empty", () => {

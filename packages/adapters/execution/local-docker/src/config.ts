@@ -145,8 +145,10 @@ export function localDockerConfigFromEnv(
       1024,
     user: environment.EXECUTION_DOCKER_USER ?? DEFAULT_WORKER_USER,
     workspaceDir: environment.EXECUTION_DOCKER_WORKSPACE_DIR ?? "/workspace",
+    // Zero is a real setting — reclaim as soon as the session is finished —
+    // so this one is not a `positiveInteger`.
     workspaceGcMinAgeMs:
-      positiveInteger(
+      nonNegativeInteger(
         environment.EXECUTION_WORKSPACE_GC_MIN_AGE_SEC ??
           String(DEFAULT_WORKSPACE_GC_MIN_AGE_SEC),
         "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC",
@@ -258,6 +260,14 @@ export function validateLocalDockerConfig(
     throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
   }
   return config;
+}
+
+function nonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function positiveInteger(value: string, name: string): number {

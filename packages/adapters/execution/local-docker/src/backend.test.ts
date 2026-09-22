@@ -46,7 +46,10 @@ class FakeDocker {
   readonly containers = new Map<string, FakeContainer>();
   /** name -> whether the network is `internal`. */
   readonly networks = new Map<string, boolean>([["ap-workers", true]]);
-  readonly requests: Array<{ method: string; path: string }> = [];
+  readonly requests: Array<{ method: string; path: string; query: string }> =
+    [];
+  /** Image name → the `VOLUME` paths it declares. */
+  readonly images = new Map<string, string[]>([["worker:test", []]]);
   private nextId = 1;
   private server: ReturnType<typeof Bun.serve> | undefined;
   /** When set, the next create returns 409 without creating anything. */
@@ -106,7 +109,7 @@ class FakeDocker {
   private async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/v1\.\d+/, "");
-    this.requests.push({ method: request.method, path });
+    this.requests.push({ method: request.method, path, query: url.search });
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
@@ -221,6 +224,22 @@ class FakeDocker {
         this.volumes.delete(name);
         return new Response(null, { status: 204 });
       }
+    }
+    const image = path.match(/^\/images\/(.+)\/json$/);
+    if (request.method === "GET" && image) {
+      const name = decodeURIComponent(image[1] ?? "");
+      const declared = this.images.get(name);
+      if (declared === undefined) {
+        return json({ message: `No such image: ${name}` }, 404);
+      }
+      return json({
+        Config: {
+          Volumes:
+            declared.length === 0
+              ? null
+              : Object.fromEntries(declared.map((v) => [v, {}])),
+        },
+      });
     }
     const network = path.match(/^\/networks\/([^/]+)$/);
     if (request.method === "GET" && network) {
@@ -648,6 +667,53 @@ describe("LocalDockerBackend.inspect", () => {
     const intent = intentFor();
     docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));
     expect((await backend.inspect(intent)).stale).toBeUndefined();
+  });
+
+  test("an image that declares its own VOLUME refuses the launch", async () => {
+    // Docker gives each declared path a writable anonymous volume: outside
+    // the quota, outside the labels, and left behind at termination.
+    docker.images.set("worker:test", ["/var/cache", "/data"]);
+
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "declares VOLUME /data, /var/cache",
+    );
+    expect(docker.containers.size).toBe(0);
+    // Refused before anything was created for it.
+    expect(docker.volumes.size).toBe(0);
+  });
+
+  test("the image declaring the workspace path itself is fine", async () => {
+    // That target is mounted from the named volume we made, so nothing
+    // anonymous comes of it.
+    docker.images.set("worker:test", ["/workspace"]);
+
+    await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
+      created: true,
+    });
+  });
+
+  test("an image the daemon does not have yet is left to the create", async () => {
+    // 404 here means 404 there; failing early would only change the message.
+    docker.images.delete("worker:test");
+
+    await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
+      created: true,
+    });
+  });
+
+  test("terminate takes the container's anonymous volumes with it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.requests.length = 0;
+
+    await backend.terminate(intent);
+
+    const removal = docker.requests.find((r) => r.method === "DELETE");
+    // Named volumes are untouched by `v`, so the workspace still outlives it.
+    expect(removal?.query).toContain("v=true");
+    expect(
+      docker.volumes.has(workspaceVolumeFor(intent.sessionId, "test-a")),
+    ).toBe(true);
   });
 
   test("status mapping covers every Docker state", () => {
