@@ -237,6 +237,54 @@ describe("agent, version and release", () => {
     ).toBe(false);
   });
 
+  test("a release snapshot has no room for a live credential", () => {
+    const release = {
+      id: "rel_9f2c",
+      agent_id: AGENT_ID,
+      version_id: VERSION_ID,
+      runtime_profile_id: "claude-coding-v1",
+      runtime_profile_fingerprint: "fp_1",
+      runtime_config_snapshot: { model: "claude-sonnet-5" },
+      effective_tools: { tools: ["Read"], mcp: [] },
+      created_at: AT,
+    };
+    // This is the repository's own ClaudeRuntimeConfig shape: handing a
+    // resolved profile straight to the release used to persist the key.
+    expect(
+      agentReleaseSchema.safeParse({
+        ...release,
+        runtime_config_snapshot: {
+          endpoint: "https://api.anthropic.com",
+          profile: { kind: "anthropic", auth: { kind: "api_key", value: "x" } },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      agentReleaseSchema.safeParse({
+        ...release,
+        runtime_config_snapshot: { headers: [{ authorization: "Bearer x" }] },
+      }).success,
+    ).toBe(false);
+    for (const key of ["api_key", "apiKey", "secret", "private_key"]) {
+      expect(
+        agentReleaseSchema.safeParse({
+          ...release,
+          runtime_config_snapshot: { [key]: "x" },
+        }).success,
+      ).toBe(false);
+    }
+    // A reference is how a credential is meant to travel.
+    expect(
+      agentReleaseSchema.safeParse({
+        ...release,
+        runtime_config_snapshot: {
+          api_key_ref: "env:ANTHROPIC_API_KEY",
+          auth_kind: "api_key",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
   test("activation is a compare-and-swap on the agent's revision", () => {
     expect(
       activateAgentRequestSchema.parse({

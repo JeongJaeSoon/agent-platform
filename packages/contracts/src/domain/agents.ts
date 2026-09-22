@@ -102,6 +102,46 @@ export const effectiveToolsSchema = z
   })
   .strict();
 
+// A structural guard at the trust boundary, not secret detection: the
+// repository's own `ClaudeRuntimeConfig` carries the live key at
+// `profile.auth.value`, so handing a resolved config straight to this schema
+// used to persist it. Rejecting the key names that hold a credential makes
+// that mistake fail loudly at the parse instead of quietly in the database. A
+// credential travels as a reference — `api_key_ref: "env:ANTHROPIC_API_KEY"` —
+// and any key ending in `_ref` is allowed for exactly that reason.
+const CREDENTIAL_KEY =
+  /^(auth|authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|password|passphrase|credential|credentials|private[-_]?key)$/i;
+
+function assertCredentialFree(
+  value: unknown,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      assertCredentialFree(item, [...path, index], ctx);
+    });
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (CREDENTIAL_KEY.test(key)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, key],
+        message: `${key} may not travel in a release snapshot; store a reference instead`,
+      });
+      continue;
+    }
+    assertCredentialFree(nested, [...path, key], ctx);
+  }
+}
+
+/** The resolved profile config, with every credential left behind. */
+export const runtimeConfigSnapshotSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((snapshot, ctx) => assertCredentialFree(snapshot, [], ctx));
+
 /**
  * A version pinned to the runtime settings it was released against.
  *
@@ -116,8 +156,7 @@ export const agentReleaseSchema = z
     version_id: agentVersionIdSchema,
     runtime_profile_id: z.string().min(1).max(128),
     runtime_profile_fingerprint: z.string().min(1).max(128),
-    /** Resolved profile config with every credential left behind. */
-    runtime_config_snapshot: z.record(z.string(), z.unknown()),
+    runtime_config_snapshot: runtimeConfigSnapshotSchema,
     effective_tools: effectiveToolsSchema,
     created_at: timestampSchema,
   })

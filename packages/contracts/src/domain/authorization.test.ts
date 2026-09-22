@@ -328,6 +328,20 @@ describe("Grant", () => {
     expect(
       isGrantActive(grantSchema.parse({ ...grant, revoked_at: NOW }), half),
     ).toBe(false);
+
+    // PostgreSQL timestamptz hands back microseconds, so milliseconds are not
+    // a fine enough ruler either: these two are half a millisecond apart.
+    const micro = "2026-09-22T12:00:00.000500Z";
+    const zero = "2026-09-22T12:00:00.000000Z";
+    expect(
+      isGrantActive(grantSchema.parse({ ...grant, expires_at: micro }), zero),
+    ).toBe(true);
+    expect(
+      isGrantActive(grantSchema.parse({ ...grant, revoked_at: micro }), zero),
+    ).toBe(true);
+    expect(
+      isGrantActive(grantSchema.parse({ ...grant, revoked_at: zero }), micro),
+    ).toBe(false);
   });
 
   test("a grant never widens the key scope it was issued under", () => {

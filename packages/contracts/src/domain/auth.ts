@@ -3,6 +3,8 @@ import { z } from "zod";
 import { timestampSchema, userIdSchema } from "../shared/index.ts";
 import {
   principalSchema,
+  scopesExceeding,
+  scopesForRole,
   sessionScopeSchema,
   workspaceRoleSchema,
 } from "./authorization.ts";
@@ -63,6 +65,9 @@ export const bootstrapResponseSchema = z
 export const loginRequestSchema = z
   .object({ email: emailSchema, password: passwordSchema })
   .strict();
+// A response is where a client builds its own idea of what it may do, so the
+// role ceiling has to hold here too — not only on the principal the server
+// keeps. Otherwise a cached login body describes a member with recovery.
 export const loginResponseSchema = z
   .object({
     user_id: userIdSchema,
@@ -71,7 +76,19 @@ export const loginResponseSchema = z
     scopes: z.array(sessionScopeSchema),
     expires_at: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((response, ctx) => {
+    for (const scope of scopesExceeding(
+      response.scopes,
+      scopesForRole(response.role),
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["scopes"],
+        message: `${response.role} cannot hold ${scope}`,
+      });
+    }
+  });
 
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z
@@ -86,9 +103,22 @@ export const authMeResponseSchema = z
       .strict()
       .nullable(),
     workspace: workspaceSchema.nullable(),
+    /** The effective ceiling; it can narrow the principal's, never widen it. */
     scopes: z.array(sessionScopeSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((response, ctx) => {
+    for (const scope of scopesExceeding(
+      response.scopes,
+      response.principal.scopes,
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["scopes"],
+        message: `the principal does not hold ${scope}`,
+      });
+    }
+  });
 
 /**
  * Redeeming an invite. It never touches an existing account's password: a

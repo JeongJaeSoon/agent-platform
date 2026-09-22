@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { MEMORY_VISIBILITY_VALUES, memoryRecordSchema } from "./memory.ts";
-import { surfaceBindingSchema } from "./surfaces.ts";
+import {
+  formatSurfaceRef,
+  sessionLinkSchema,
+  surfaceBindingSchema,
+} from "./surfaces.ts";
 
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000e1";
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000e2";
@@ -186,6 +190,55 @@ describe("MemoryRecord", () => {
           ...binding,
           status: "partial",
           [field]: null,
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  test("a surface ref cannot be spelled two ways", () => {
+    // Channel and thread ids are opaque, and a surface may put a colon in
+    // either; concatenating raw would make these two the same reserved key.
+    expect(formatSurfaceRef("a:b", "c")).not.toBe(formatSurfaceRef("a", "b:c"));
+    expect(formatSurfaceRef("C01", "1700000000.000100")).toBe(
+      "C01:1700000000.000100",
+    );
+    expect(() => formatSurfaceRef("", "c")).toThrow(TypeError);
+  });
+
+  test("a live session link carries both pins or it cannot be bound", () => {
+    const link = {
+      id: "019a0000-0000-7000-8000-0000000000e6",
+      workspace_id: WORKSPACE_ID,
+      owner_id: "owner_1",
+      session_id: SESSION_ID,
+      surface: "slack",
+      installation_id: "019a0000-0000-7000-8000-0000000000e7",
+      surface_binding_id: BINDING_ID,
+      surface_ref: formatSurfaceRef("C01", "1700000000.000100"),
+      channel_id: "C01",
+      thread_id: "1700000000.000100",
+      agent_id: AGENT_ID,
+      release_id: "rel_9f2c",
+      profile_id: "claude-coding-v1",
+      role: "primary",
+      visibility: "full",
+      muted: false,
+      revision: 0,
+      created_by: null,
+      created_at: AT,
+      revoked_at: null,
+    };
+    expect(sessionLinkSchema.safeParse(link).success).toBe(true);
+    for (const field of ["release_id", "profile_id"] as const) {
+      expect(
+        sessionLinkSchema.safeParse({ ...link, [field]: null }).success,
+      ).toBe(false);
+      // A revoked link may have lost its pins; nothing binds through it.
+      expect(
+        sessionLinkSchema.safeParse({
+          ...link,
+          [field]: null,
+          revoked_at: AT,
         }).success,
       ).toBe(true);
     }

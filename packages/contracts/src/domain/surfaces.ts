@@ -99,8 +99,20 @@ export const sessionLinkVisibilitySchema = z.enum(
  */
 export const surfaceRefSchema = z.string().min(1).max(256);
 
+/**
+ * Both components are opaque strings a surface mints, and a surface is free to
+ * put a colon in one: plain concatenation makes `("a:b", "c")` and
+ * `("a", "b:c")` the same ref, which is two conversations sharing one reserved
+ * link key and messages resolving to the wrong session. Percent-encode each
+ * component so the separator only ever appears where this function put it.
+ */
 export function formatSurfaceRef(channelId: string, threadId: string): string {
-  return surfaceRefSchema.parse(`${channelId}:${threadId}`);
+  if (channelId.length === 0 || threadId.length === 0) {
+    throw new TypeError("surface ref: empty component");
+  }
+  return surfaceRefSchema.parse(
+    `${encodeURIComponent(channelId)}:${encodeURIComponent(threadId)}`,
+  );
 }
 
 export const sessionLinkSchema = z
@@ -126,7 +138,23 @@ export const sessionLinkSchema = z
     created_at: timestampSchema,
     revoked_at: timestampSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((link, ctx) => {
+    // `ScopedSessionBinding` — what every inbound message resolves to — needs
+    // both pins. A live link missing either one would be admitted here and
+    // then fail every bind, so it is not a state worth storing. Only a revoked
+    // link may have lost them.
+    if (link.revoked_at !== null) return;
+    for (const field of ["release_id", "profile_id"] as const) {
+      if (link[field] === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `a live session link needs ${field}`,
+        });
+      }
+    }
+  });
 
 export type SurfaceKind = z.infer<typeof surfaceKindSchema>;
 export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;

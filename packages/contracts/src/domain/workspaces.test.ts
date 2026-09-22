@@ -6,6 +6,7 @@ import {
   bootstrapRequestSchema,
   CSRF_HEADER_VALUE,
   loginRequestSchema,
+  loginResponseSchema,
   PASSWORD_MIN_LENGTH,
   WEB_SESSION_COOKIE_NAME,
 } from "./auth.ts";
@@ -197,6 +198,49 @@ describe("auth requests", () => {
     expect(
       authMeResponseSchema.safeParse({ ...me, password: PASSWORD }).success,
     ).toBe(false);
+  });
+
+  test("a response cannot describe more authority than its own ceiling", () => {
+    // A client builds its idea of what it may do from these bodies, so the
+    // role ceiling has to hold here and not only on the stored principal.
+    const login = {
+      user_id: USER_ID,
+      workspace_id: WORKSPACE_ID,
+      role: "member",
+      scopes: ["sessions:approve"],
+      expires_at: AT,
+    };
+    expect(loginResponseSchema.safeParse(login).success).toBe(true);
+    expect(
+      loginResponseSchema.safeParse({
+        ...login,
+        scopes: ["sessions:recover"],
+      }).success,
+    ).toBe(false);
+    expect(
+      loginResponseSchema.safeParse({
+        ...login,
+        role: "owner",
+        scopes: ["sessions:recover"],
+      }).success,
+    ).toBe(true);
+
+    const me = {
+      principal: {
+        kind: "user",
+        id: USER_ID,
+        workspace_id: WORKSPACE_ID,
+        role: "owner",
+        scopes: ["sessions:read"],
+      },
+      user: null,
+      workspace: null,
+      scopes: ["sessions:read", "sessions:control"],
+    };
+    expect(authMeResponseSchema.safeParse(me).success).toBe(false);
+    expect(authMeResponseSchema.safeParse({ ...me, scopes: [] }).success).toBe(
+      true,
+    );
   });
 
   test("names the cookie and the CSRF header the web surface must send", () => {

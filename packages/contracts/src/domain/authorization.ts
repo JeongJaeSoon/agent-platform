@@ -40,6 +40,20 @@ export function scopesForRole(role: WorkspaceRole): readonly SessionScope[] {
   return role === "owner" ? SESSION_SCOPE_VALUES : MEMBER_SCOPES;
 }
 
+/**
+ * The scopes in `held` that `ceiling` does not allow. Every schema that
+ * carries a scope list next to the thing that bounds it — a role, a
+ * principal — checks itself with this, so no response can describe an
+ * authority its own ceiling refuses.
+ */
+export function scopesExceeding(
+  held: readonly SessionScope[],
+  ceiling: readonly SessionScope[],
+): SessionScope[] {
+  const allowed = new Set(ceiling);
+  return held.filter((scope) => !allowed.has(scope));
+}
+
 // ---------------------------------------------------------------------------
 // Principal and authorization context
 // ---------------------------------------------------------------------------
@@ -81,15 +95,15 @@ export const principalSchema = z
     // user fewer scopes than the role allows, never more. Without this a
     // `member` row carrying `sessions:recover` would walk straight through
     // `authorizationContextFor` into owner-only recovery.
-    const allowed = new Set(scopesForRole(principal.role));
-    for (const scope of principal.scopes) {
-      if (!allowed.has(scope)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["scopes"],
-          message: `${principal.role} cannot hold ${scope}`,
-        });
-      }
+    for (const scope of scopesExceeding(
+      principal.scopes,
+      scopesForRole(principal.role),
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["scopes"],
+        message: `${principal.role} cannot hold ${scope}`,
+      });
     }
   });
 
@@ -378,25 +392,37 @@ function sameRef(
 }
 
 // Both timestamps are RFC 3339 but need not share fractional precision, and
-// `"…:00.500Z" < "…:00Z"` is true as a string. Compare instants instead.
-// Date.parse truncates below the millisecond; two grants that differ only in
-// microseconds are the same instant here, which is finer than any expiry the
-// platform issues.
-function instant(timestamp: string): number {
-  const value = Date.parse(timestamp);
-  if (Number.isNaN(value)) {
+// `"…:00.500Z" < "…:00Z"` is true as a string, so the spelling cannot decide
+// this. `Date.parse` alone cannot either: it truncates below the millisecond,
+// and PostgreSQL `timestamptz` hands back microseconds, so two boundaries a
+// few microseconds apart would collapse into one. Compare the milliseconds,
+// then whatever digits the string carries beyond them.
+const SUB_MILLISECOND_DIGITS = 6;
+
+function instant(timestamp: string): [number, number] {
+  const milliseconds = Date.parse(timestamp);
+  if (Number.isNaN(milliseconds)) {
     throw new TypeError(`not an RFC 3339 timestamp: ${timestamp}`);
   }
-  return value;
+  const fraction = /\.(\d+)/.exec(timestamp)?.[1] ?? "";
+  const subMilliseconds = fraction
+    .slice(3, 3 + SUB_MILLISECOND_DIGITS)
+    .padEnd(SUB_MILLISECOND_DIGITS, "0");
+  return [milliseconds, Number(subMilliseconds)];
+}
+
+function compareInstants(left: string, right: string): number {
+  const [leftMs, leftSub] = instant(left);
+  const [rightMs, rightSub] = instant(right);
+  return leftMs === rightMs ? leftSub - rightSub : leftMs - rightMs;
 }
 
 /** Revocation and expiry both take effect at the instant they name. */
 export function isGrantActive(grant: Grant, at: string): boolean {
-  const now = instant(at);
-  if (grant.revoked_at !== null && instant(grant.revoked_at) <= now) {
+  if (grant.revoked_at !== null && compareInstants(grant.revoked_at, at) <= 0) {
     return false;
   }
-  return grant.expires_at === null || now < instant(grant.expires_at);
+  return grant.expires_at === null || compareInstants(at, grant.expires_at) < 0;
 }
 
 /**
