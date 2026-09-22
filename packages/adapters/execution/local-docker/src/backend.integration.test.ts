@@ -200,6 +200,7 @@ integration("LocalDockerBackend against a real daemon", () => {
         `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
         `${ENV.objectRegion}=ap-northeast-1`,
         `${ENV.objectSecretAccessKey}=test`,
+        `${ENV.stopGrace}=1`,
       ].sort(),
     );
     const host = inspected.HostConfig as Record<string, unknown>;
