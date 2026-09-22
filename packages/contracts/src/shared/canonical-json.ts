@@ -15,6 +15,11 @@ function assertRepresentable(value: unknown, path: string): void {
   if (typeof value === "number" && !Number.isFinite(value)) {
     throw new TypeError(`canonicalJson: non-finite number at ${path}`);
   }
+  // `JSON.stringify(-0)` is `"0"`, so two values JavaScript tells apart would
+  // hash the same. Identity is the whole job here.
+  if (Object.is(value, -0)) {
+    throw new TypeError(`canonicalJson: negative zero at ${path}`);
+  }
   if (typeof value === "bigint") {
     throw new TypeError(`canonicalJson: bigint at ${path}`);
   }

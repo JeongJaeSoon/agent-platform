@@ -106,7 +106,17 @@ export const sessionLinkVisibilitySchema = z.enum(
  * revocation: a new message on a revoked thread needs an explicit rebind, it
  * does not quietly open a new session (Codex E08).
  */
-export const surfaceRefSchema = z.string().min(1).max(256);
+// Two 128-character components plus the separator already exceed 256 before
+// encoding, and percent-encoding can triple each one. The cap has to admit
+// every pair the component schemas accept, or a valid conversation would have
+// no representable ref at all.
+export const SURFACE_REF_MAX_LENGTH = 1024;
+export const surfaceRefSchema = z.string().min(1).max(SURFACE_REF_MAX_LENGTH);
+
+/** The spelling itself, with no validation — what a refinement can compare to. */
+function canonicalSurfaceRef(channelId: string, threadId: string): string {
+  return `${encodeURIComponent(channelId)}:${encodeURIComponent(threadId)}`;
+}
 
 /**
  * Both components are opaque strings a surface mints, and a surface is free to
@@ -119,9 +129,7 @@ export function formatSurfaceRef(channelId: string, threadId: string): string {
   if (channelId.length === 0 || threadId.length === 0) {
     throw new TypeError("surface ref: empty component");
   }
-  return surfaceRefSchema.parse(
-    `${encodeURIComponent(channelId)}:${encodeURIComponent(threadId)}`,
-  );
+  return surfaceRefSchema.parse(canonicalSurfaceRef(channelId, threadId));
 }
 
 export const sessionLinkSchema = z
@@ -149,16 +157,21 @@ export const sessionLinkSchema = z
   })
   .strict()
   .superRefine((link, ctx) => {
-    // `ScopedSessionBinding` — what every inbound message resolves to — needs
-    // both pins. A live link missing either one would be admitted here and
-    // then fail every bind, so it is not a state worth storing. Only a revoked
-    // link may have lost them.
     // `(installation_id, surface_ref)` is a reserved natural key, so one
     // conversation must have exactly one spelling. A writer that concatenated
     // the ids itself would otherwise reserve a second key for the same thread
-    // and open a second session on it.
-    if (link.channel_id !== null && link.thread_id !== null) {
-      const canonical = formatSurfaceRef(link.channel_id, link.thread_id);
+    // and open a second session on it. Half an identity is worse than none: it
+    // skips canonicalisation and lets any spelling through.
+    if ((link.channel_id === null) !== (link.thread_id === null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["thread_id"],
+        message: "channel_id and thread_id are both set or both null",
+      });
+    } else if (link.channel_id !== null && link.thread_id !== null) {
+      // `canonicalSurfaceRef`, not the formatter: a `parse` here would throw
+      // out of `safeParse` instead of reporting an issue.
+      const canonical = canonicalSurfaceRef(link.channel_id, link.thread_id);
       if (link.surface_ref !== canonical) {
         ctx.addIssue({
           code: "custom",
@@ -167,6 +180,10 @@ export const sessionLinkSchema = z
         });
       }
     }
+    // `ScopedSessionBinding` — what every inbound message resolves to — needs
+    // both pins. A live link missing either one would be admitted here and
+    // then fail every bind, so it is not a state worth storing. Only a revoked
+    // link may have lost them.
     if (link.revoked_at !== null) return;
     for (const field of ["release_id", "profile_id"] as const) {
       if (link[field] === null) {

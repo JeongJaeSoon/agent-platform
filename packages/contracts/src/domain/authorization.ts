@@ -215,6 +215,20 @@ export const authorizationContextSchema = z
           message: "an installation always has a workspace",
         });
       }
+      // The context's `scopes` is the general vocabulary, so the ceiling
+      // `principalSchema` puts on an installation has to be repeated where a
+      // context is validated directly — otherwise middleware hands a chat app
+      // operator-only recovery and nothing objects.
+      for (const scope of scopesExceeding(
+        ctx_.scopes,
+        INSTALLATION_SESSION_SCOPE_VALUES,
+      )) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["scopes"],
+          message: `an installation cannot hold ${scope}`,
+        });
+      }
       return;
     }
     if (ctx_.principal.kind !== "user") return;
@@ -421,6 +435,8 @@ export const AUTHORIZATION_ACTION_VALUES = [
 export const authorizationActionSchema = z.enum(AUTHORIZATION_ACTION_VALUES);
 
 export type ActorRef = z.infer<typeof actorRefSchema>;
+export type HumanActor = z.infer<typeof humanActorSchema>;
+export type ServiceActor = z.infer<typeof serviceActorSchema>;
 export type ResourceKind = z.infer<typeof resourceKindSchema>;
 export type ResourceRef = z.infer<typeof resourceRefSchema>;
 export type AudienceRef = z.infer<typeof audienceRefSchema>;
@@ -459,7 +475,7 @@ export const grantSchema = z
     workspace_id: workspaceIdSchema,
     actor: actorRefSchema,
     /** The installation or app acting for the actor; null for direct use. */
-    service_principal: actorRefSchema.nullable(),
+    service_principal: serviceActorSchema.nullable(),
     actions: z.array(authorizationActionSchema).min(1),
     resource: resourceRefSchema,
     audience: audienceRefSchema,
@@ -502,7 +518,7 @@ export type GrantRequest = {
   /** The workspace the resource lives in; a grant never crosses it. */
   workspaceId: string;
   actor: ActorRef;
-  servicePrincipal: ActorRef | null;
+  servicePrincipal: ServiceActor | null;
   action: AuthorizationAction;
   resource: ResourceRef;
   audience: AudienceRef;

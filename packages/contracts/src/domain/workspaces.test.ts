@@ -113,6 +113,36 @@ describe("invites hold no redeemable token", () => {
     ).toBe(false);
   });
 
+  test("the status and the audit timestamps give the same answer", () => {
+    // Both answer "is this still redeemable"; a consumer reading one and a
+    // consumer reading the other must not disagree.
+    expect(
+      inviteSchema.safeParse({ ...invite, status: "accepted" }).success,
+    ).toBe(false);
+    expect(
+      inviteSchema.safeParse({
+        ...invite,
+        status: "accepted",
+        accepted_at: AT,
+      }).success,
+    ).toBe(true);
+    expect(inviteSchema.safeParse({ ...invite, accepted_at: AT }).success).toBe(
+      false,
+    );
+    expect(
+      inviteSchema.safeParse({ ...invite, status: "revoked", revoked_at: AT })
+        .success,
+    ).toBe(true);
+    expect(
+      inviteSchema.safeParse({ ...invite, status: "revoked" }).success,
+    ).toBe(false);
+    // `expired` has no timestamp of its own — `expires_at` already carries it
+    // and the clock, not a write, makes a row expired.
+    expect(
+      inviteSchema.safeParse({ ...invite, status: "expired" }).success,
+    ).toBe(true);
+  });
+
   test("the token exists only in the create response, once", () => {
     expect(
       createInviteRequestSchema.safeParse({

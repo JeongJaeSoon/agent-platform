@@ -273,6 +273,30 @@ describe("MemoryRecord", () => {
         surface_ref: `${link.channel_id}:${link.thread_id}x`,
       }).success,
     ).toBe(false);
+    // Half an identity would skip canonicalisation and let any spelling
+    // through — exactly the second key this is meant to prevent.
+    expect(
+      sessionLinkSchema.safeParse({ ...link, thread_id: null }).success,
+    ).toBe(false);
+    // Components the id schemas accept must have a representable ref, and
+    // asking for one must not throw out of safeParse.
+    const long = "c".repeat(128);
+    expect(() =>
+      sessionLinkSchema.safeParse({
+        ...link,
+        channel_id: long,
+        thread_id: long,
+        surface_ref: formatSurfaceRef(long, long),
+      }),
+    ).not.toThrow();
+    expect(
+      sessionLinkSchema.safeParse({
+        ...link,
+        channel_id: long,
+        thread_id: long,
+        surface_ref: formatSurfaceRef(long, long),
+      }).success,
+    ).toBe(true);
     for (const field of ["release_id", "profile_id"] as const) {
       expect(
         sessionLinkSchema.safeParse({ ...link, [field]: null }).success,

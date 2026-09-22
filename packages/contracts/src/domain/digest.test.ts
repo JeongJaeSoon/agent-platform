@@ -43,6 +43,37 @@ describe("SessionDigest", () => {
     expect(parsed.summarized_turn_sequence).toBeNull();
   });
 
+  test("a title always says something, an empty summary is honest", () => {
+    // Dispatch generates the title and a person can rename it; neither
+    // produces a blank. An unsummarized session really has no summary.
+    expect(
+      sessionDigestSchema.safeParse({ ...digest, title: "" }).success,
+    ).toBe(false);
+    expect(
+      sessionDigestSchema.safeParse({ ...digest, summary: "" }).success,
+    ).toBe(true);
+  });
+
+  test("the summarizer checkpoint is both fields or neither", () => {
+    // Half of it lets one consumer read "never summarized" and another read a
+    // covered turn.
+    expect(
+      sessionDigestSchema.safeParse({
+        ...digest,
+        summarized_turn_sequence: 4,
+        last_summarized_turn_id: "4",
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionDigestSchema.safeParse({ ...digest, summarized_turn_sequence: 4 })
+        .success,
+    ).toBe(false);
+    expect(
+      sessionDigestSchema.safeParse({ ...digest, last_summarized_turn_id: "4" })
+        .success,
+    ).toBe(false);
+  });
+
   test("caps the title by code points, and the byte cap is what makes that safe", () => {
     const ascii = "a".repeat(DIGEST_TITLE_MAX_CODE_POINTS);
     expect(

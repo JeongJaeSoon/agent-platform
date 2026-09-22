@@ -115,6 +115,14 @@ describe("principal and scopes", () => {
     // Keying replay on the installation would collapse every user of a
     // workspace into one window, so it refuses instead of guessing.
     expect(() => idempotencyPrincipalFor(ctx)).toThrow(TypeError);
+    // The context's scope field is the general vocabulary, so the ceiling has
+    // to be repeated where a context is validated directly.
+    expect(
+      authorizationContextSchema.safeParse({
+        ...ctx,
+        scopes: ["sessions:recover"],
+      }).success,
+    ).toBe(false);
   });
 
   test("a role is a ceiling: a member cannot carry recovery", () => {
@@ -308,6 +316,14 @@ describe("Grant", () => {
     expect(grantSchema.safeParse({ ...grant, actions: [] }).success).toBe(
       false,
     );
+    // Every other contract calls this field a service actor; a user here plus
+    // a hand-built request naming the same ref would make the grant active.
+    expect(
+      grantSchema.safeParse({
+        ...grant,
+        service_principal: { kind: "user", id: USER_ID },
+      }).success,
+    ).toBe(false);
   });
 
   test("matches actor, service principal, action, resource and audience exactly", () => {

@@ -102,7 +102,34 @@ export const inviteSchema = z
     revoked_at: timestampSchema.nullable(),
     created_at: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((invite, ctx) => {
+    // The status and the audit timestamps answer the same question — is this
+    // still redeemable — so they cannot give different answers. `expired` is
+    // the one status with no timestamp of its own: `expires_at` already
+    // carries it, and a row is expired by the clock rather than by a write.
+    const stamped = {
+      accepted: invite.accepted_at,
+      revoked: invite.revoked_at,
+    } as const;
+    for (const [status, at] of Object.entries(stamped)) {
+      const field = `${status}_at` as const;
+      if (invite.status === status && at === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `a ${status} invite carries its ${field}`,
+        });
+      }
+      if (invite.status !== status && at !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `only a ${status} invite carries ${field}`,
+        });
+      }
+    }
+  });
 
 export const createInviteRequestSchema = z
   .object({ email: emailSchema, role: workspaceRoleSchema })

@@ -65,6 +65,10 @@ describe("canonical JSON", () => {
     expect(() => canonicalJson(withExtra)).toThrow(TypeError);
     const key = Symbol("hidden");
     expect(() => canonicalJson({ a: 1, [key]: 2 })).toThrow(TypeError);
+    // JSON.stringify(-0) is "0", so two values JavaScript tells apart would
+    // hash alike — and identity is the whole job here.
+    expect(Object.is(-0, 0)).toBe(false);
+    expect(() => canonicalJson({ x: -0 })).toThrow(TypeError);
   });
 });
 
@@ -292,6 +296,15 @@ describe("agent, version and release", () => {
         }).success,
       ).toBe(false);
     }
+    // An acronym must not swallow the word after it.
+    for (const key of ["APIKey", "JWTToken", "AWSSecretKey"]) {
+      expect(
+        agentReleaseSchema.safeParse({
+          ...release,
+          runtime_config_snapshot: { [key]: "x" },
+        }).success,
+      ).toBe(false);
+    }
     // A reference is how a credential is meant to travel, and naming the
     // scheme is not holding it.
     expect(
@@ -303,6 +316,14 @@ describe("agent, version and release", () => {
         },
       }).success,
     ).toBe(true);
+    // The `_ref` suffix is an exemption from the word scan, so the value has
+    // to actually be a reference — otherwise it is the easiest way through.
+    expect(
+      agentReleaseSchema.safeParse({
+        ...release,
+        runtime_config_snapshot: { api_key_ref: "sk-live-example" },
+      }).success,
+    ).toBe(false);
   });
 
   test("a release snapshot must be hashable, since its id is the hash", () => {

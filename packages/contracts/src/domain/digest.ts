@@ -33,10 +33,13 @@ function boundedText(maxCodePoints: number, maxBytes: number) {
     );
 }
 
+// A title always says something: dispatch generates one and a person can
+// rename it, but neither produces a blank. An empty summary is different —
+// it is what an unsummarized session honestly has.
 export const digestTitleSchema = boundedText(
   DIGEST_TITLE_MAX_CODE_POINTS,
   DIGEST_TITLE_MAX_BYTES,
-);
+).min(1);
 export const digestSummarySchema = boundedText(
   DIGEST_SUMMARY_MAX_CODE_POINTS,
   DIGEST_SUMMARY_MAX_BYTES,
@@ -55,7 +58,7 @@ export const costUsdSchema = z.string().regex(/^\d+(\.\d+)?$/);
  * Owned end to end by I1-1 (94S-159). Dispatch candidate search and the Slack
  * thread summary read it; nothing else writes it.
  */
-export const sessionDigestSchema = z
+const sessionDigestRowSchema = z
   .object({
     session_id: sessionIdSchema,
     workspace_id: workspaceIdSchema,
@@ -84,9 +87,26 @@ export const sessionDigestSchema = z
   })
   .strict();
 
+export const sessionDigestSchema = sessionDigestRowSchema.superRefine(
+  (digest, ctx) => {
+    // Both describe one summarizer checkpoint. Half of it would let one
+    // consumer read "never summarized" and another read a covered turn.
+    if (
+      (digest.summarized_turn_sequence === null) !==
+      (digest.last_summarized_turn_id === null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["last_summarized_turn_id"],
+        message: "the summarizer checkpoint is both fields or neither",
+      });
+    }
+  },
+);
+
 /** Layer 2: what `GET /v1/sessions` returns. Layer 3 (`SessionSummaryV1`, the
  * summarizer's own output) belongs to I4 and is not fixed here. */
-export const sessionDigestViewSchema = sessionDigestSchema
+export const sessionDigestViewSchema = sessionDigestRowSchema
   .omit({
     source_session_revision: true,
     summarized_turn_sequence: true,

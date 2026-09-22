@@ -133,20 +133,30 @@ const CREDENTIAL_WORD =
   /^(key|keys|token|tokens|secret|secrets|password|passphrase|credential|credentials)$/i;
 const CREDENTIAL_KEY = /^(auth|authorization|env|environment|headers)$/i;
 
-// `signingSecret` → [signing, Secret]; `client_secret` → [client, secret].
+// `signingSecret` → [signing, Secret]; `client_secret` → [client, secret];
+// `APIKey` → [API, Key]. Without the second boundary an acronym swallows the
+// word after it and `JWTToken` reads as one unknown word.
 function keyWords(key: string): string[] {
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .split(/[^A-Za-z0-9]+/)
     .filter((word) => word.length > 0);
 }
 
+// `env:ANTHROPIC_API_KEY`, `secret:slack/bot`, `vault:kv/data/x#field`. A
+// reference names where the value lives; it is not the value.
+const REFERENCE_VALUE = /^[a-z][a-z0-9+.-]*:.+$/;
+
+function namesReference(key: string): boolean {
+  const last = keyWords(key).at(-1);
+  return last !== undefined && /^refs?$/i.test(last);
+}
+
 function holdsCredential(key: string): boolean {
   if (CREDENTIAL_KEY.test(key)) return true;
-  const words = keyWords(key);
-  const last = words.at(-1);
-  if (last !== undefined && /^refs?$/i.test(last)) return false;
-  return words.some((word) => CREDENTIAL_WORD.test(word));
+  if (namesReference(key)) return false;
+  return keyWords(key).some((word) => CREDENTIAL_WORD.test(word));
 }
 
 function assertCredentialFree(
@@ -167,6 +177,20 @@ function assertCredentialFree(
         code: "custom",
         path: [...path, key],
         message: `${key} may not travel in a release snapshot; store a reference instead`,
+      });
+      continue;
+    }
+    // The `_ref` suffix buys an exemption from the word scan, so the value
+    // has to earn it: a key named like a reference holding a literal
+    // credential would otherwise be the easiest way through this guard.
+    if (
+      namesReference(key) &&
+      !(typeof nested === "string" && REFERENCE_VALUE.test(nested))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, key],
+        message: `${key} must be a reference such as env:NAME, not a value`,
       });
       continue;
     }
