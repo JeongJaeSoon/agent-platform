@@ -87,7 +87,7 @@ describe("HttpWorkerGatewayClient", () => {
     });
 
     expect(recorded[0]?.url).toBe(
-      "http://gateway.internal/worker/bootstrap-claim",
+      "http://gateway.internal/internal/worker/bootstrap-claim",
     );
     expect(recorded[0]?.headers.Authorization).toBe("Bearer wln_launch");
     expect(claim.session_credential).toBe("wsc_session");

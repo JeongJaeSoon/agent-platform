@@ -3,6 +3,7 @@ import type {
   AttemptState,
   BootstrapClaimResponse,
   CheckpointRef,
+  NextInputResponse,
   SessionRuntime,
   TerminalTurnStatus,
   WorkerScope,
@@ -76,7 +77,8 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-type Stop = { kind: "drain" | "lost" | "idle"; reason: string };
+/** `failed` winds down like a drain; only the reported outcome differs. */
+type Stop = { kind: "drain" | "failed" | "idle" | "lost"; reason: string };
 
 type Settlement = {
   reason: string | null;
@@ -120,23 +122,21 @@ export class WorkerHost {
   private pumping: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
   private stopping: Stop | undefined;
-  /** Resolves on any stop: no further input is accepted after it. */
-  private readonly stopped: Promise<void>;
   /** Resolves when the current turn has to be given up unfinished. */
   private readonly abandoned: Promise<void>;
-  private announceStop: () => void = () => {};
   private announceAbandon: () => void = () => {};
+  private abandonedNow = false;
   private turn: Turn | undefined;
 
   constructor(options: WorkerHostOptions) {
     this.options = options;
     this.checkpoints = options.checkpoints;
     this.logger = options.logger ?? consoleLogger;
-    this.stopped = new Promise<void>((resolve) => {
-      this.announceStop = resolve;
-    });
     this.abandoned = new Promise<void>((resolve) => {
-      this.announceAbandon = resolve;
+      this.announceAbandon = () => {
+        this.abandonedNow = true;
+        resolve();
+      };
     });
   }
 
@@ -174,6 +174,13 @@ export class WorkerHost {
       gateway: this.options.gateway,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
+      onFailed: (error) =>
+        isOwnershipLost(error)
+          ? this.lose(describe(error))
+          : this.stop({
+              kind: "failed",
+              reason: `Events could not be stored: ${describe(error)}`,
+            }),
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
@@ -210,13 +217,13 @@ export class WorkerHost {
       // A worker that failed but still owns the session gives it back, so
       // recovery does not have to wait for the lease to lapse.
       this.stop({
-        kind: isOwnershipLost(error) ? "lost" : "drain",
+        kind: isOwnershipLost(error) ? "lost" : "failed",
         reason: describe(error),
       });
       this.logger.error("worker.failed", { reason: describe(error) });
       await this.shutdown(run);
       return {
-        outcome: isOwnershipLost(error) ? "lease_lost" : "failed",
+        outcome: this.stopping?.kind === "lost" ? "lease_lost" : "failed",
         reason: describe(error),
         turns: this.turns,
       };
@@ -229,10 +236,21 @@ export class WorkerHost {
           ? "lease_lost"
           : stop.kind === "idle"
             ? "idle"
-            : "drained",
+            : stop.kind === "failed"
+              ? "failed"
+              : "drained",
       reason: stop.reason,
       turns: this.turns,
     };
+  }
+
+  /** Read through getters: the field changes across awaits, which narrowing cannot see. */
+  private get ownerLost(): boolean {
+    return this.stopping?.kind === "lost";
+  }
+
+  private get stopKind(): Stop["kind"] | undefined {
+    return this.stopping?.kind;
   }
 
   private get scope(): WorkerScope {
@@ -258,7 +276,9 @@ export class WorkerHost {
       kind: stop.kind,
       reason: stop.reason,
     });
-    this.announceStop();
+    // Tell the gateway now rather than at the next beat: a draining attempt
+    // is handed no further input.
+    if (stop.kind !== "lost") this.heartbeat?.beatNow();
     if (stop.kind === "lost") {
       this.announceAbandon();
       return;
@@ -320,15 +340,12 @@ export class WorkerHost {
   private async turnLoop(run: AgentRun): Promise<void> {
     let lastInputAt = this.now().getTime();
     while (this.stopping === undefined) {
-      const next = await this.race(
-        this.withRetry(() =>
-          this.options.gateway.nextInput({
-            ...this.scope,
-            wait_ms: this.options.timeouts.nextInputWaitMs,
-          }),
-        ),
-      );
-      if (next === undefined) return;
+      // Not raced with a drain: an input the gateway hands over is this
+      // attempt's to finish, and one dropped here stays open until the
+      // reconciler decides it. The draining heartbeat `stop` sends makes the
+      // gateway answer the poll empty, so waiting costs one poll interval.
+      const next = await this.untilAbandoned(this.nextInput());
+      if (next === undefined || next === null) return;
       if (next.input === null) {
         const idleFor = this.now().getTime() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
@@ -345,10 +362,29 @@ export class WorkerHost {
     }
   }
 
+  private async nextInput(): Promise<NextInputResponse | null> {
+    try {
+      return await this.withRetry(() =>
+        this.options.gateway.nextInput({
+          ...this.scope,
+          wait_ms: this.options.timeouts.nextInputWaitMs,
+        }),
+      );
+    } catch (error) {
+      // Once winding down, a failed poll only means there is nothing more to
+      // run; losing the lease is still a loss.
+      if (this.stopping !== undefined && !isOwnershipLost(error)) return null;
+      throw error;
+    }
+  }
+
   private async runTurn(
     run: AgentRun,
     input: { input_id: string; message: string; turn_id: string },
   ): Promise<void> {
+    // Delivered while the engine was already gone: nothing can run it, so it
+    // is left open for the reconciler rather than sent into the void.
+    if (this.stopKind === "failed") return;
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what
     // lets the engine deduplicate a turn it already saw after a crash.
@@ -375,26 +411,35 @@ export class WorkerHost {
       this.abandoned.then(() => undefined),
     ]);
     // Owner loss forbids every further durable write, including this one.
-    if (settlement === undefined || this.stopping?.kind === "lost") return;
+    if (settlement === undefined || this.ownerLost) return;
     // The event tail has to be durable before the turn is declared over: a
     // finalize that overtakes its own events publishes a closed turn whose
-    // stream is still arriving.
-    await this.publisher?.idle();
-    const checkpoint = await this.capture(run);
-    await this.withRetry(() =>
-      this.options.gateway.finalize({
-        ...this.scope,
-        turn_id: input.turn_id,
-        finalize_key: `${this.scope.attempt_id}:${input.turn_id}`,
-        terminal: {
-          status: settlement.status,
-          reason: settlement.reason,
-          result: settlement.result ?? null,
-          usage: settlement.usage ?? null,
-        },
-        checkpoint,
-      }),
+    // stream is still arriving. Both waits end with the drain budget, so a
+    // gateway that keeps failing cannot hold the process past it.
+    const flushed = await this.untilAbandoned(
+      (this.publisher?.idle() ?? Promise.resolve()).then(() => true),
     );
+    if (flushed === undefined || this.ownerLost) return;
+    const checkpoint = await this.capture(run);
+    const finalized = await this.untilAbandoned(
+      this.withRetry(
+        () =>
+          this.options.gateway.finalize({
+            ...this.scope,
+            turn_id: input.turn_id,
+            finalize_key: `${this.scope.attempt_id}:${input.turn_id}`,
+            terminal: {
+              status: settlement.status,
+              reason: settlement.reason,
+              result: settlement.result ?? null,
+              usage: settlement.usage ?? null,
+            },
+            checkpoint,
+          }),
+        () => this.abandonedNow,
+      ),
+    );
+    if (finalized === undefined) return;
     this.turns.push({
       turnId: input.turn_id,
       status: settlement.status,
@@ -443,6 +488,9 @@ export class WorkerHost {
           result: null,
           usage: null,
         });
+        // An engine that is gone accepts inputs it will never answer, so the
+        // loop must not hand it another one. A no-op when shutdown closed it.
+        this.stop({ kind: "failed", reason: "The engine stream ended" });
       }
     })();
   }
@@ -530,11 +578,23 @@ export class WorkerHost {
       this.logger.warn("worker.ownership.lost", { reason: stop.reason });
       return;
     }
-    await this.publisher?.idle().catch((error) => {
+    const flushed = await this.untilAbandoned(
+      (this.publisher?.idle() ?? Promise.resolve()).then(
+        () => true,
+        (error) => {
+          this.logger.warn("worker.events.undelivered", {
+            reason: describe(error),
+          });
+          return false;
+        },
+      ),
+    );
+    if (flushed === undefined) {
+      this.publisher?.abandon("The drain budget ran out");
       this.logger.warn("worker.events.undelivered", {
-        reason: describe(error),
+        reason: "The drain budget ran out",
       });
-    });
+    }
     await this.options.gateway
       .release({ ...this.scope, turn_id: null, reason: stop.reason })
       .then((response) =>
@@ -545,15 +605,21 @@ export class WorkerHost {
       );
   }
 
-  /** Resolves with the value, or undefined once the loop has been told to stop. */
-  private async race<T>(work: Promise<T>): Promise<T | undefined> {
-    // The loser keeps running; its own handler is what keeps a late rejection
-    // from surfacing as an unhandled one.
+  /** Resolves with the value, or undefined once the turn has to be given up. */
+  private async untilAbandoned<T>(work: Promise<T>): Promise<T | undefined> {
     work.catch(() => {});
-    return Promise.race([work, this.stopped.then(() => undefined)]);
+    return Promise.race([work, this.abandoned.then(() => undefined)]);
   }
 
-  private async withRetry<T>(call: () => Promise<T>): Promise<T> {
+  /**
+   * Retries a transient failure until `giveUp` says the result is no longer
+   * wanted: by default any stop, but a finalize keeps trying for as long as
+   * the drain budget lasts.
+   */
+  private async withRetry<T>(
+    call: () => Promise<T>,
+    giveUp: () => boolean = () => this.stopping !== undefined,
+  ): Promise<T> {
     for (;;) {
       try {
         return await call();
@@ -562,7 +628,7 @@ export class WorkerHost {
           this.lose(describe(error));
           throw error;
         }
-        if (!isRetryable(error) || this.stopping !== undefined) throw error;
+        if (!isRetryable(error) || giveUp()) throw error;
         this.logger.warn("worker.gateway.retry", { reason: describe(error) });
         await this.sleep(GATEWAY_RETRY_MS);
       }
