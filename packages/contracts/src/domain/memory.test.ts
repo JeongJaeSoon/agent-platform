@@ -195,6 +195,41 @@ describe("MemoryRecord", () => {
     }
   });
 
+  test("a revoked binding cannot also report itself ready", () => {
+    // One consumer reads `status`, another reads `revoked_at`; if they can
+    // disagree, one of them keeps routing into a revoked binding.
+    const binding = {
+      id: BINDING_ID,
+      workspace_id: WORKSPACE_ID,
+      owner_id: "owner_1",
+      surface: "slack",
+      installation_id: SESSION_ID,
+      external_surface_id: "C01",
+      surface_kind: "private_channel",
+      agent_id: AGENT_ID,
+      mode: "mention",
+      memory_write_policy: "deny",
+      status: "ready",
+      muted: false,
+      revision: 0,
+      created_at: AT,
+      revoked_at: null,
+    };
+    expect(
+      surfaceBindingSchema.safeParse({ ...binding, revoked_at: AT }).success,
+    ).toBe(false);
+    expect(
+      surfaceBindingSchema.safeParse({ ...binding, status: "revoked" }).success,
+    ).toBe(false);
+    expect(
+      surfaceBindingSchema.safeParse({
+        ...binding,
+        status: "revoked",
+        revoked_at: AT,
+      }).success,
+    ).toBe(true);
+  });
+
   test("a surface ref cannot be spelled two ways", () => {
     // Channel and thread ids are opaque, and a surface may put a colon in
     // either; concatenating raw would make these two the same reserved key.

@@ -4,6 +4,7 @@ import {
   acceptInviteRequestSchema,
   authMeResponseSchema,
   bootstrapRequestSchema,
+  bootstrapResponseSchema,
   CSRF_HEADER_VALUE,
   loginRequestSchema,
   loginResponseSchema,
@@ -233,14 +234,99 @@ describe("auth requests", () => {
         role: "owner",
         scopes: ["sessions:read"],
       },
-      user: null,
-      workspace: null,
+      user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
+      workspace: {
+        id: WORKSPACE_ID,
+        slug: "acme",
+        name: "Acme",
+        settings: {},
+        created_at: AT,
+      },
       scopes: ["sessions:read", "sessions:control"],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(false);
     expect(authMeResponseSchema.safeParse({ ...me, scopes: [] }).success).toBe(
       true,
     );
+  });
+
+  test("the /me projection describes the principal that authenticated", () => {
+    // It is assembled from joins; a mismatched one hands the web client
+    // someone else's identity or tenant and nothing downstream would notice.
+    const workspace = {
+      id: WORKSPACE_ID,
+      slug: "acme",
+      name: "Acme",
+      settings: {},
+      created_at: AT,
+    };
+    const me = {
+      principal: {
+        kind: "user",
+        id: USER_ID,
+        workspace_id: WORKSPACE_ID,
+        role: "owner",
+        scopes: ["sessions:read"],
+      },
+      user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
+      workspace,
+      scopes: ["sessions:read"],
+    };
+    expect(authMeResponseSchema.safeParse(me).success).toBe(true);
+    expect(
+      authMeResponseSchema.safeParse({
+        ...me,
+        user: { ...me.user, id: INVITE_ID },
+      }).success,
+    ).toBe(false);
+    expect(authMeResponseSchema.safeParse({ ...me, user: null }).success).toBe(
+      false,
+    );
+    expect(
+      authMeResponseSchema.safeParse({
+        ...me,
+        workspace: { ...workspace, id: INVITE_ID },
+      }).success,
+    ).toBe(false);
+
+    // An api key has no human behind it, and a legacy key has no workspace.
+    const keyMe = {
+      principal: {
+        kind: "api_key",
+        id: "key_1",
+        owner_id: "owner_1",
+        workspace_id: null,
+        scopes: [],
+      },
+      user: null,
+      workspace: null,
+      scopes: [],
+    };
+    expect(authMeResponseSchema.safeParse(keyMe).success).toBe(true);
+    expect(
+      authMeResponseSchema.safeParse({ ...keyMe, workspace }).success,
+    ).toBe(false);
+    expect(
+      authMeResponseSchema.safeParse({ ...keyMe, user: me.user }).success,
+    ).toBe(false);
+  });
+
+  test("bootstrap leaves an owner behind, never a member", () => {
+    const body = {
+      user_id: USER_ID,
+      workspace: {
+        id: WORKSPACE_ID,
+        slug: "acme",
+        name: "Acme",
+        settings: {},
+        created_at: AT,
+      },
+      role: "owner",
+    };
+    expect(bootstrapResponseSchema.safeParse(body).success).toBe(true);
+    expect(
+      bootstrapResponseSchema.safeParse({ ...body, role: "member" }).success,
+    ).toBe(false);
   });
 
   test("names the cookie and the CSRF header the web surface must send", () => {

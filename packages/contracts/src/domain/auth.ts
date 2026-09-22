@@ -58,7 +58,9 @@ export const bootstrapResponseSchema = z
   .object({
     user_id: userIdSchema,
     workspace: workspaceSchema,
-    role: workspaceRoleSchema,
+    /** Bootstrap makes the first owner; a workspace nobody can manage or
+     * recover is not a workspace this operation is allowed to leave behind. */
+    role: z.literal("owner"),
   })
   .strict();
 
@@ -116,6 +118,46 @@ export const authMeResponseSchema = z
         code: "custom",
         path: ["scopes"],
         message: `the principal does not hold ${scope}`,
+      });
+    }
+    // The projection is assembled from joins, so say that it must describe
+    // the principal that was authenticated — otherwise a mismatched join
+    // hands the web client someone else's identity or tenant and it looks
+    // valid. The schema cannot know whether the join was correct; it can
+    // insist the three parts agree with each other.
+    const { principal, user, workspace } = response;
+    if (principal.kind === "user") {
+      if (user === null || user.id !== principal.id) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["user"],
+          message: "must be the authenticated user",
+        });
+      }
+      if (workspace === null || workspace.id !== principal.workspace_id) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["workspace"],
+          message: "must be the principal's workspace",
+        });
+      }
+      return;
+    }
+    // An API key has no human behind it, and a legacy key has no workspace
+    // until an explicit mapping exists (Codex B18).
+    if (user !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["user"],
+        message: "an api key principal has no user",
+      });
+    }
+    const expected = principal.workspace_id;
+    if (expected === null ? workspace !== null : workspace?.id !== expected) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["workspace"],
+        message: "must be the workspace the key is mapped to",
       });
     }
   });

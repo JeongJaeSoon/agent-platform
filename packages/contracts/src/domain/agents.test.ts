@@ -265,7 +265,16 @@ describe("agent, version and release", () => {
         runtime_config_snapshot: { headers: [{ authorization: "Bearer x" }] },
       }).success,
     ).toBe(false);
-    for (const key of ["api_key", "apiKey", "secret", "private_key"]) {
+    // The names that actually appear in a runtime profile are compound.
+    for (const key of [
+      "api_key",
+      "apiKey",
+      "client_secret",
+      "signing_secret",
+      "botToken",
+      "secretAccessKey",
+      "private_key",
+    ]) {
       expect(
         agentReleaseSchema.safeParse({
           ...release,
@@ -273,7 +282,8 @@ describe("agent, version and release", () => {
         }).success,
       ).toBe(false);
     }
-    // A reference is how a credential is meant to travel.
+    // A reference is how a credential is meant to travel, and naming the
+    // scheme is not holding it.
     expect(
       agentReleaseSchema.safeParse({
         ...release,
@@ -283,6 +293,34 @@ describe("agent, version and release", () => {
         },
       }).success,
     ).toBe(true);
+  });
+
+  test("a release snapshot must be hashable, since its id is the hash", () => {
+    const release = {
+      id: "rel_9f2c",
+      agent_id: AGENT_ID,
+      version_id: VERSION_ID,
+      runtime_profile_id: "claude-coding-v1",
+      runtime_profile_fingerprint: "fp_1",
+      runtime_config_snapshot: { model: "claude-sonnet-5" },
+      effective_tools: { tools: ["Read"], mcp: [] },
+      created_at: AT,
+    };
+    // A snapshot canonicalJson refuses is a release that parses and then has
+    // no identity, so the two rules have to be the same rule.
+    for (const snapshot of [
+      { released_at: new Date(AT) },
+      { retries: 10n },
+      { nested: [1, undefined] },
+      { limit: Number.POSITIVE_INFINITY },
+    ]) {
+      expect(
+        agentReleaseSchema.safeParse({
+          ...release,
+          runtime_config_snapshot: snapshot,
+        }).success,
+      ).toBe(false);
+    }
   });
 
   test("activation is a compare-and-swap on the agent's revision", () => {

@@ -114,6 +114,24 @@ describe("ChatInboundEnvelope", () => {
     ).toBe(false);
   });
 
+  test("the human and the installation cannot be swapped", () => {
+    // Grant matching treats the two differently, so an adapter that fills
+    // them the wrong way round would hand the human service authority.
+    expect(
+      chatInboundEnvelopeSchema.safeParse({
+        ...inbound,
+        actor: inbound.servicePrincipal,
+        servicePrincipal: inbound.actor,
+      }).success,
+    ).toBe(false);
+    expect(
+      chatInboundEnvelopeSchema.safeParse({
+        ...inbound,
+        actor: { kind: "service", id: "install_1" },
+      }).success,
+    ).toBe(false);
+  });
+
   test("an adapter cannot smuggle authority in beside the actor", () => {
     expect(
       chatInboundEnvelopeSchema.safeParse({ ...inbound, ownerId: "owner_1" })

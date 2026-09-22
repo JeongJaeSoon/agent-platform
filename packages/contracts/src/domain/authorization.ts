@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   agentIdSchema,
   grantIdSchema,
+  installationIdSchema,
   opaqueIdSchema,
   revisionSchema,
   timestampSchema,
@@ -58,13 +59,46 @@ export function scopesExceeding(
 // Principal and authorization context
 // ---------------------------------------------------------------------------
 
-export const PRINCIPAL_KIND_VALUES = ["api_key", "user"] as const;
+export const PRINCIPAL_KIND_VALUES = [
+  "api_key",
+  "user",
+  "installation",
+] as const;
 export const principalKindSchema = z.enum(PRINCIPAL_KIND_VALUES);
+
+/**
+ * A chat installation's ceiling. Recovery is an operator power (03b §4.1
+ * "복구 | sessions:recover | operator 권한") and a chat app is not an
+ * operator, so it is not in the vocabulary an installation can even name.
+ */
+export const INSTALLATION_SESSION_SCOPE_VALUES = [
+  "sessions:read",
+  "sessions:write",
+  "sessions:approve",
+  "sessions:control",
+] as const;
+export const installationSessionScopeSchema = z.enum(
+  INSTALLATION_SESSION_SCOPE_VALUES,
+);
 
 /** Just enough to name who is acting; the full principal carries the ceiling. */
 export const principalRefSchema = z
   .object({ kind: principalKindSchema, id: opaqueIdSchema })
   .strict();
+
+export const ACTOR_KIND_VALUES = ["user", "service"] as const;
+export const actorKindSchema = z.enum(ACTOR_KIND_VALUES);
+export const actorRefSchema = z
+  .object({ kind: actorKindSchema, id: opaqueIdSchema })
+  .strict();
+// Where a field means one or the other and swapping them would move
+// authority, name which one it is rather than accept either.
+export const humanActorSchema = actorRefSchema.extend({
+  kind: z.literal("user"),
+});
+export const serviceActorSchema = actorRefSchema.extend({
+  kind: z.literal("service"),
+});
 
 export const principalSchema = z
   .discriminatedUnion("kind", [
@@ -86,6 +120,22 @@ export const principalSchema = z
         workspace_id: workspaceIdSchema,
         role: workspaceRoleSchema,
         scopes: z.array(sessionScopeSchema),
+      })
+      .strict(),
+    // A signed chat webhook carries no bearer key, so what authenticated is
+    // the installation, not the person who typed (03b §4.1). The human stays
+    // the actor: the app's authority is never inherited by them, and theirs is
+    // never lent to the app. A Slack user with no internal mapping still
+    // produces a representable context — it simply has no `actor_user_id`, and
+    // admission fails on identity rather than on a malformed principal.
+    z
+      .object({
+        kind: z.literal("installation"),
+        id: installationIdSchema,
+        /** The workspace's server-issued service owner, never the chat team id. */
+        owner_id: opaqueIdSchema,
+        workspace_id: workspaceIdSchema,
+        scopes: z.array(installationSessionScopeSchema),
       })
       .strict(),
   ])
@@ -119,12 +169,70 @@ export const authorizationContextSchema = z
     principal: principalRefSchema,
     /** The human behind the request when the principal is not itself one. */
     actor_user_id: userIdSchema.optional(),
+    /**
+     * The installation or app carrying the request. It lends no authority of
+     * its own; `grantCovers` matches on it, so a context assembled without it
+     * cannot ask about a grant that names one (03b §4.1).
+     */
+    service_principal: serviceActorSchema.optional(),
     owner_scope: opaqueIdSchema,
     workspace_id: workspaceIdSchema.optional(),
     /** The 94S-132 ceiling carried with the context, never re-derived downstream. */
     scopes: z.array(sessionScopeSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((ctx_, ctx) => {
+    // Middleware may assemble a context by hand instead of through
+    // `authorizationContextFor`, so the relationships that function
+    // establishes are stated here rather than left to it. What a schema
+    // cannot check is whether the user really belongs to that workspace or
+    // whether the scopes match their role — the context carries no role, and
+    // membership is a row (94S-150, 94S-152). It can check that the parts
+    // agree with each other, which is what stops a hand-built context from
+    // authorizing against another tenant's partition.
+    if (ctx_.principal.kind === "installation") {
+      // What authenticated is also what acts for the human, so a context
+      // claiming installation A must not match grants naming service B.
+      if (ctx_.service_principal?.id !== ctx_.principal.id) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["service_principal"],
+          message: "an installation is its own service principal",
+        });
+      }
+      if (ctx_.workspace_id === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["workspace_id"],
+          message: "an installation always has a workspace",
+        });
+      }
+      return;
+    }
+    if (ctx_.principal.kind !== "user") return;
+    if (ctx_.actor_user_id !== ctx_.principal.id) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["actor_user_id"],
+        message: "a user principal acts as itself",
+      });
+    }
+    if (ctx_.workspace_id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["workspace_id"],
+        message: "a user principal always has a workspace",
+      });
+      return;
+    }
+    if (ctx_.owner_scope !== ctx_.workspace_id) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["owner_scope"],
+        message: "a user's owner partition is their workspace",
+      });
+    }
+  });
 
 export type PrincipalKind = z.infer<typeof principalKindSchema>;
 export type PrincipalRef = z.infer<typeof principalRefSchema>;
@@ -165,6 +273,17 @@ export function authorizationContextFor(
       ...(principal.workspace_id === null
         ? {}
         : { workspace_id: principal.workspace_id }),
+      scopes: [...principal.scopes],
+    };
+  }
+  if (principal.kind === "installation") {
+    return {
+      principal: { kind: "installation", id: principal.id },
+      // The installation is both what authenticated and what acts for the
+      // human, so a grant naming it matches on the same id.
+      service_principal: { kind: "service", id: principal.id },
+      owner_scope: principal.owner_id,
+      workspace_id: principal.workspace_id,
       scopes: [...principal.scopes],
     };
   }
@@ -228,18 +347,22 @@ export function formatIdempotencyPrincipal(
 }
 
 export function idempotencyPrincipalFor(ctx: AuthorizationContext): string {
+  if (ctx.principal.kind === "installation") {
+    // The chat path's replay window is the logical sender —
+    // `slack:<team>:<user>` — and the context carries neither. Keying on the
+    // installation instead would collapse every user of a workspace into one
+    // replay window, so the adapter formats its own and this refuses rather
+    // than guessing.
+    throw new TypeError(
+      "a chat installation formats its own idempotency principal",
+    );
+  }
   return formatIdempotencyPrincipal(ctx.principal.kind, ctx.principal.id);
 }
 
 // ---------------------------------------------------------------------------
 // Actors, resources and audiences
 // ---------------------------------------------------------------------------
-
-export const ACTOR_KIND_VALUES = ["user", "service"] as const;
-export const actorKindSchema = z.enum(ACTOR_KIND_VALUES);
-export const actorRefSchema = z
-  .object({ kind: actorKindSchema, id: opaqueIdSchema })
-  .strict();
 
 // The resource vocabulary the receipt target union and Grant share.
 export const RESOURCE_KIND_VALUES = [

@@ -22,6 +22,7 @@ const USER_ID = "019a0000-0000-7000-8000-0000000000b1";
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000b2";
 const GRANT_ID = "019a0000-0000-7000-8000-0000000000b3";
 const SESSION_ID = "019a0000-0000-7000-8000-0000000000b4";
+const INSTALLATION_ID = "019a0000-0000-7000-8000-0000000000b5";
 
 const grant: Grant = grantSchema.parse({
   grant_id: GRANT_ID,
@@ -74,6 +75,46 @@ describe("principal and scopes", () => {
     expect(scopesForRole("owner")).toEqual(SESSION_SCOPE_VALUES);
     expect(scopesForRole("member")).not.toContain("sessions:recover");
     expect(scopesForRole("member")).toContain("sessions:approve");
+  });
+
+  test("a signed chat webhook authenticates the installation, not the typist", () => {
+    // 03b §4.1: the webhook carries no bearer key, so the installation is what
+    // authenticated. The human stays the actor and lends it nothing.
+    const installation = {
+      kind: "installation",
+      id: INSTALLATION_ID,
+      owner_id: "owner_1",
+      workspace_id: WORKSPACE_ID,
+      scopes: ["sessions:write"],
+    };
+    expect(principalSchema.safeParse(installation).success).toBe(true);
+    // Recovery is an operator power; a chat app cannot even name it.
+    expect(
+      principalSchema.safeParse({
+        ...installation,
+        scopes: ["sessions:recover"],
+      }).success,
+    ).toBe(false);
+
+    const ctx = authorizationContextFor(principalSchema.parse(installation));
+    expect(authorizationContextSchema.safeParse(ctx).success).toBe(true);
+    expect(ctx.service_principal).toEqual({
+      kind: "service",
+      id: INSTALLATION_ID,
+    });
+    // The owner partition is the workspace's service owner, not the chat team.
+    expect(ctx.owner_scope).toBe("owner_1");
+    // A Slack user with no internal mapping is still representable.
+    expect(Object.hasOwn(ctx, "actor_user_id")).toBe(false);
+    expect(
+      authorizationContextSchema.safeParse({
+        ...ctx,
+        service_principal: { kind: "service", id: "install_other" },
+      }).success,
+    ).toBe(false);
+    // Keying replay on the installation would collapse every user of a
+    // workspace into one window, so it refuses instead of guessing.
+    expect(() => idempotencyPrincipalFor(ctx)).toThrow(TypeError);
   });
 
   test("a role is a ceiling: a member cannot carry recovery", () => {
@@ -139,6 +180,51 @@ describe("AuthorizationContext", () => {
     expect(ctx.actor_user_id).toBe(USER_ID);
     expect(ctx.owner_scope).toBe(WORKSPACE_ID);
     expect(ctx.workspace_id).toBe(WORKSPACE_ID);
+  });
+
+  test("a hand-built context cannot point at another tenant", () => {
+    // Middleware may assemble this itself instead of calling
+    // `authorizationContextFor`, so the relationships that function
+    // establishes are checked here too.
+    const ctx = authorizationContextFor({
+      kind: "user",
+      id: USER_ID,
+      workspace_id: WORKSPACE_ID,
+      role: "owner",
+      scopes: [...SESSION_SCOPE_VALUES],
+    });
+    expect(authorizationContextSchema.safeParse(ctx).success).toBe(true);
+    expect(
+      authorizationContextSchema.safeParse({ ...ctx, owner_scope: SESSION_ID })
+        .success,
+    ).toBe(false);
+    expect(
+      authorizationContextSchema.safeParse({
+        ...ctx,
+        actor_user_id: SESSION_ID,
+      }).success,
+    ).toBe(false);
+    const { workspace_id: _dropped, ...withoutWorkspace } = ctx;
+    expect(authorizationContextSchema.safeParse(withoutWorkspace).success).toBe(
+      false,
+    );
+  });
+
+  test("carries the service principal a grant match needs", () => {
+    // Without it no route can build a GrantRequest for a chat installation.
+    const ctx = authorizationContextFromLegacy({ ownerId: "owner_1" });
+    expect(
+      authorizationContextSchema.safeParse({
+        ...ctx,
+        service_principal: { kind: "service", id: "install_1" },
+      }).success,
+    ).toBe(true);
+    expect(
+      authorizationContextSchema.safeParse({
+        ...ctx,
+        service_principal: { kind: "user", id: USER_ID },
+      }).success,
+    ).toBe(false);
   });
 
   test("stays closed to fields a caller invented", () => {

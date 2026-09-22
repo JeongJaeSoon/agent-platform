@@ -4,6 +4,7 @@ import {
   agentIdSchema,
   agentReleaseIdSchema,
   agentVersionIdSchema,
+  canonicalJson,
   revisionSchema,
   sha256HexSchema,
   timestampSchema,
@@ -106,11 +107,38 @@ export const effectiveToolsSchema = z
 // repository's own `ClaudeRuntimeConfig` carries the live key at
 // `profile.auth.value`, so handing a resolved config straight to this schema
 // used to persist it. Rejecting the key names that hold a credential makes
-// that mistake fail loudly at the parse instead of quietly in the database. A
-// credential travels as a reference — `api_key_ref: "env:ANTHROPIC_API_KEY"` —
-// and any key ending in `_ref` is allowed for exactly that reason.
-const CREDENTIAL_KEY =
-  /^(auth|authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|password|passphrase|credential|credentials|private[-_]?key)$/i;
+// that mistake fail loudly at the parse instead of quietly in the database.
+//
+// The match is on a *word* inside the key, not on the whole key, because the
+// names that actually appear are compound: `client_secret`, `signing_secret`,
+// `botToken`, `secretAccessKey`. A credential travels as a reference —
+// `api_key_ref: "env:ANTHROPIC_API_KEY"` — so a key whose last word is `ref`
+// is allowed, and that is the only exemption.
+//
+// It errs wide on purpose: a false positive is a parse error the author fixes
+// by renaming or by storing a reference, a false negative is a live key in an
+// immutable row. `auth` is the exception — it names a credential only as the
+// whole key (`profile.auth = {kind, value}`), while `auth_kind` and
+// `auth_endpoint` describe one without holding it.
+const CREDENTIAL_WORD =
+  /^(key|keys|token|tokens|secret|secrets|password|passphrase|credential|credentials)$/i;
+const CREDENTIAL_KEY = /^(auth|authorization)$/i;
+
+// `signingSecret` → [signing, Secret]; `client_secret` → [client, secret].
+function keyWords(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word.length > 0);
+}
+
+function holdsCredential(key: string): boolean {
+  if (CREDENTIAL_KEY.test(key)) return true;
+  const words = keyWords(key);
+  const last = words.at(-1);
+  if (last !== undefined && /^refs?$/i.test(last)) return false;
+  return words.some((word) => CREDENTIAL_WORD.test(word));
+}
 
 function assertCredentialFree(
   value: unknown,
@@ -125,7 +153,7 @@ function assertCredentialFree(
   }
   if (value === null || typeof value !== "object") return;
   for (const [key, nested] of Object.entries(value)) {
-    if (CREDENTIAL_KEY.test(key)) {
+    if (holdsCredential(key)) {
       ctx.addIssue({
         code: "custom",
         path: [...path, key],
@@ -140,7 +168,22 @@ function assertCredentialFree(
 /** The resolved profile config, with every credential left behind. */
 export const runtimeConfigSnapshotSchema = z
   .record(z.string(), z.unknown())
-  .superRefine((snapshot, ctx) => assertCredentialFree(snapshot, [], ctx));
+  .superRefine((snapshot, ctx) => {
+    // The release id is a hash of this, so a snapshot `canonicalJson` cannot
+    // represent — a Date, a Map, an undefined optional — is a release that
+    // parses and then cannot be identified. Reuse the hash's own rule rather
+    // than restate it.
+    try {
+      canonicalJson(snapshot);
+    } catch (error) {
+      ctx.addIssue({
+        code: "custom",
+        message: `not canonically representable: ${(error as Error).message}`,
+      });
+      return;
+    }
+    assertCredentialFree(snapshot, [], ctx);
+  });
 
 /**
  * A version pinned to the runtime settings it was released against.

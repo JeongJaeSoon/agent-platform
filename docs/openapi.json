@@ -2349,7 +2349,8 @@
                     "type": "string",
                     "enum": [
                       "api_key",
-                      "user"
+                      "user",
+                      "installation"
                     ]
                   },
                   "id": {

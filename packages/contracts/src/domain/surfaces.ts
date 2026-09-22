@@ -64,6 +64,15 @@ export const surfaceBindingSchema = z
   })
   .strict()
   .superRefine((binding, ctx) => {
+    // One consumer reads `status`, another reads `revoked_at`; if they can
+    // disagree, one of them keeps routing events into a revoked binding.
+    if ((binding.status === "revoked") !== (binding.revoked_at !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["revoked_at"],
+        message: "revoked status and revoked_at must agree",
+      });
+    }
     // The three columns are nullable because `partial` and `failed` are real
     // states: an install can land before the channel is chosen. `ready` is the
     // claim that routing works, so it cannot be missing what routing needs.

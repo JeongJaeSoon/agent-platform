@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 import { messageTextSchema } from "../api/index.ts";
-import { actorRefSchema } from "../domain/index.ts";
+import {
+  actorRefSchema,
+  humanActorSchema,
+  serviceActorSchema,
+} from "../domain/index.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -45,10 +49,14 @@ export const chatInboundEnvelopeSchema = z
     workspaceId: workspaceIdSchema,
     eventId: surfaceEventIdSchema,
     occurredAt: timestampSchema,
-    /** The person who spoke. Never replaced by the app's own principal. */
-    actor: actorRefSchema,
+    /**
+     * The person who spoke. Never replaced by the app's own principal — and
+     * the kinds are pinned so an adapter that swaps the two fields fails here
+     * instead of handing the human service authority (03b §4.1).
+     */
+    actor: humanActorSchema,
     /** The installation acting on their behalf; it lends no authority of its own. */
-    servicePrincipal: actorRefSchema,
+    servicePrincipal: serviceActorSchema,
     surfaceBindingId: surfaceBindingIdSchema,
     conversationKey: conversationKeySchema,
     messageId: opaqueIdSchema,
@@ -109,6 +117,7 @@ export const chatOutboundEnvelopeSchema = z
     deliveryId: opaqueIdSchema,
     sourceEventId: surfaceEventIdSchema,
     scope: scopedSessionBindingSchema,
+    /** Who the delivery is attributed to — the app on outbound, not a human. */
     actor: actorRefSchema,
     audience: chatAudienceSchema,
     category: chatOutboundCategorySchema,
