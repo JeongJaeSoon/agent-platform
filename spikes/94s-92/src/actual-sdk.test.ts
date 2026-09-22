@@ -20,6 +20,7 @@ import {
   publishCheckpoint,
   QuiescenceTracker,
 } from "./checkpoint-contract.ts";
+import { deadline } from "./deadline.ts";
 import { startFakeAnthropicServer } from "./fake-anthropic.ts";
 import {
   createLocalstackClient,
@@ -488,10 +489,12 @@ async function runChild(
     stderr.closed,
   ]);
 
+  const watchdog = deadline(watchdogMs);
   const timedOut = await Promise.race([
     settled.then(() => false),
-    Bun.sleep(watchdogMs).then(() => true),
+    watchdog.expired.then(() => true),
   ]);
+  watchdog.cancel();
   if (timedOut) {
     // Which of the three is still open is the whole diagnosis: a live child is
     // a stuck child, while a dead child with an open pipe is a grandchild
@@ -504,7 +507,9 @@ async function runChild(
       `child stderr so far: ${JSON.stringify(stderr.text())}`,
     ];
     child.kill("SIGTERM");
-    await Promise.race([settled, Bun.sleep(2_000)]);
+    const grace = deadline(2_000);
+    await Promise.race([settled, grace.expired]);
+    grace.cancel();
     state.push(`after SIGTERM: exit=${exitCode ?? "pending"}`);
     state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
     child.kill("SIGKILL");
@@ -571,8 +576,8 @@ async function waitForRequestCount(
   requests: readonly unknown[],
   expected: number,
 ): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (requests.length < expected && Date.now() < deadline) {
+  const expiresAt = Date.now() + 5_000;
+  while (requests.length < expected && Date.now() < expiresAt) {
     await Bun.sleep(25);
   }
   if (requests.length < expected) throw new Error("Fake API request timed out");

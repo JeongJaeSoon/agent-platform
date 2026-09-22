@@ -6,6 +6,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { S3Client } from "@aws-sdk/client-s3";
+import { deadline } from "./deadline.ts";
 import { s3MaxAttempts, s3RequestBounds } from "./localstack.ts";
 import { S3CallTracker, startStallReporter } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
@@ -48,28 +49,15 @@ const lateWrites = new Set<Promise<void>>();
 /** Longer than a bounded S3 attempt chain, so a real write is never cut off. */
 const LATE_WRITE_DRAIN_MS = 15_000;
 
-/**
- * Waits for `promises`, giving up after `ms`. The timer is cleared either way:
- * a `Bun.sleep` left running in a lost `Promise.race` still holds the event
- * loop open, which would keep this process alive long after it has printed its
- * result — indistinguishable, from the parent, from a child that hung.
- */
+/** Waits for `promises`, giving up after `ms`. */
 async function settleWithin(
   promises: readonly Promise<unknown>[],
   ms: number,
 ): Promise<void> {
   if (promises.length === 0) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      Promise.allSettled(promises),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  const drain = deadline(ms);
+  await Promise.race([Promise.allSettled(promises), drain.expired]);
+  drain.cancel();
 }
 const store: SessionStore = {
   append: async (key: SessionKey, entries: SessionStoreEntry[]) => {

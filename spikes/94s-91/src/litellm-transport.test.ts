@@ -3,6 +3,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import {
   createProbeContext,
+  deadline,
   type FakeAnthropicServer,
   type ProbeContext,
   runSdkQuery,
@@ -117,10 +118,12 @@ describe("actual LiteLLM Anthropic transport", () => {
     upstream?.stop();
     if (proxyExited) {
       proxy.kill("SIGKILL");
+      const reap = deadline(PROXY_REAP_MS);
       const reaped = await Promise.race([
         proxyExited.then(() => true),
-        Bun.sleep(PROXY_REAP_MS).then(() => false),
+        reap.expired.then(() => false),
       ]);
+      reap.cancel();
       // A SIGKILLed process that is still not reaped is worth seeing, but it
       // is teardown, not the transport contract: say so without failing the
       // suite over it.
@@ -343,8 +346,8 @@ async function waitForProxyPort(
   exitCode: () => number | null,
   logs: () => string,
 ): Promise<number> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
+  const expiresAt = Date.now() + 60_000;
+  while (Date.now() < expiresAt) {
     if (exitCode() !== null) throw new Error(`LiteLLM exited: ${logs()}`);
     const match = logs().match(/http:\/\/127\.0\.0\.1:(\d+)/);
     if (match?.[1]) return Number(match[1]);
@@ -357,8 +360,8 @@ async function waitFor(
   condition: () => boolean | Promise<boolean>,
   timeoutMs: number,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  const expiresAt = Date.now() + timeoutMs;
+  while (Date.now() < expiresAt) {
     if (await condition()) return;
     await Bun.sleep(50);
   }

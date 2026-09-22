@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import { S3Client } from "@aws-sdk/client-s3";
+import { deadline } from "./deadline.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
 /**
@@ -66,13 +67,17 @@ describe("S3SessionStoreProbe against a peer that stalls mid-body", () => {
     });
 
     const startedAt = Date.now();
+    // A losing `Bun.sleep` would keep its timer alive and hold the test process
+    // open for the full 10s even on the happy path.
+    const giveUp = deadline(10_000);
     const outcome = await Promise.race([
       store.load({ projectKey: "proj", sessionId: "sess" }).then(
         () => "resolved",
         (error: Error) => error.message,
       ),
-      Bun.sleep(10_000).then(() => "never settled"),
+      giveUp.expired.then(() => "never settled"),
     ]);
+    giveUp.cancel();
     client.destroy();
 
     expect(outcome).toContain("stalled 2 times");

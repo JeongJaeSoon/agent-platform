@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import {
   createProbeContext,
+  deadline,
   type FakeAnthropicServer,
   type ProbeContext,
   runSdkQuery,
@@ -272,10 +273,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
           activeCallbacks,
         );
         if (activeCallbacks === 2) bothInFlight.resolve();
-        await Promise.race([
-          bothInFlight.promise,
-          Bun.sleep(CONCURRENT_CALLBACK_WINDOW_MS),
-        ]);
+        const barrier = deadline(CONCURRENT_CALLBACK_WINDOW_MS);
+        await Promise.race([bothInFlight.promise, barrier.expired]);
+        barrier.cancel();
         const answer = options.toolUseID.endsWith("alpha")
           ? "alpha custom response"
           : "beta-one";
