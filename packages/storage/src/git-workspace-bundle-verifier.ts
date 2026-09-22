@@ -153,9 +153,11 @@ export function createGitWorkspaceBundleVerifier(
 
 /**
  * How git words a refusal of the pack or of the commit, under `LC_ALL=C`.
- * `fetch` reports index-pack and connectivity failures through the first
- * group; `rev-list` reports a commit the pack never delivered through the
- * second.
+ * Specific diagnostics only: `fetch` names a corrupt or truncated pack, a
+ * malformed object or a tip the pack did not deliver; `rev-list` names a
+ * commit that never arrived. Generic words such as "pack" or "index-pack"
+ * also appear when git fails to fork or open a directory, so they are not
+ * here.
  */
 const GIT_REFUSALS = [
   "did not send all necessary objects",
@@ -165,13 +167,36 @@ const GIT_REFUSALS = [
   "missing commit",
   "missing tag",
   "fsck error",
-  "index-pack",
-  "unpack",
-  "pack ",
-  "corrupt",
+  "pack signature mismatch",
+  "pack version",
+  "premature end of pack file",
+  "pack has bad object",
+  "bad pack",
+  "pack is corrupt",
+  "is corrupt",
+  "inflate returned",
+  "delta base offset",
   "not a valid object",
   "bad revision",
   "does not appear to be a git repository",
+];
+
+/**
+ * The host getting in git's way, wherever the message otherwise lands. These
+ * take precedence: `cannot fork() for git index-pack: Resource temporarily
+ * unavailable` mentions the pack helper and is still not about the pack.
+ */
+const HOST_FAULTS = [
+  "resource temporarily unavailable",
+  "cannot fork",
+  "permission denied",
+  "no space left on device",
+  "disk quota exceeded",
+  "too many open files",
+  "input/output error",
+  "cannot allocate memory",
+  "out of memory",
+  "read-only file system",
 ];
 
 function refused(
@@ -185,6 +210,9 @@ function refused(
     throw new Error(`${command} was killed by ${result.signal}`);
   }
   const lowered = detail.toLowerCase();
+  if (HOST_FAULTS.some((fault) => lowered.includes(fault))) {
+    throw new Error(message);
+  }
   if (GIT_REFUSALS.some((refusal) => lowered.includes(refusal))) {
     return { status: "unusable", reason: message };
   }

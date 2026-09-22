@@ -159,6 +159,8 @@ describe("git workspace bundle verifier", () => {
     for (const stderr of [
       "fatal: unable to write pack: No space left on device\n",
       "fatal: write error: Disk quota exceeded\n",
+      "fatal: cannot fork() for git index-pack: Resource temporarily unavailable\n",
+      "error: unable to open object pack directory: repo.git/objects/pack: Permission denied\nfatal: index-pack failed\n",
       "error: something this code has never seen\n",
     ]) {
       const gitRunner: GitCommandRunner = async (args) =>
@@ -175,7 +177,7 @@ describe("git workspace bundle verifier", () => {
           commit: bundle.commit,
           key: "k",
         }),
-      ).rejects.toThrow(stderr.trim());
+      ).rejects.toThrow(stderr.trim().split("\n")[0] as string);
       expect(await readdir(tempRoot)).toEqual([]);
     }
   });
