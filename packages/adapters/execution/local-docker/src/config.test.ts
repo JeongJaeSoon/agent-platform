@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { localDockerConfigFromEnv } from "./config.ts";
 
 const base = {
+  AWS_ACCESS_KEY_ID: "test",
+  AWS_ENDPOINT_URL: "http://localstack:4566",
+  AWS_REGION: "ap-northeast-1",
+  AWS_SECRET_ACCESS_KEY: "test",
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+  S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
 };
 
@@ -17,6 +22,13 @@ describe("localDockerConfigFromEnv", () => {
       homeDir: "/home/worker",
       installationId: "local",
       network: "agent-platform-worker",
+      objectStore: {
+        accessKeyId: "test",
+        bucket: "claude-sessions",
+        endpoint: "http://localstack:4566",
+        region: "ap-northeast-1",
+        secretAccessKey: "test",
+      },
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 10,
       tmpfsSizeBytes: 256 * 1024 * 1024,
@@ -61,6 +73,64 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_EGRESS_PROXY_URL: "https://egress-proxy:3128",
       }),
     ).toThrow("http://");
+  });
+
+  test("object store access is required and the endpoint optional", () => {
+    for (const name of [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_REGION",
+      "AWS_SECRET_ACCESS_KEY",
+      "S3_BUCKET",
+    ] as const) {
+      expect(() =>
+        localDockerConfigFromEnv({ ...base, [name]: undefined }),
+      ).toThrow(name);
+      expect(() => localDockerConfigFromEnv({ ...base, [name]: " " })).toThrow(
+        name,
+      );
+    }
+    const aws = localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" });
+    expect("endpoint" in aws.objectStore).toBe(false);
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
+    ).toThrow("AWS_ENDPOINT_URL");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "ftp://localstack:4566",
+      }),
+    ).toThrow("http(s)://");
+    let message = "";
+    try {
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "http://user:hunter2@localstack:4566",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("credentials");
+    expect(message).not.toContain("hunter2");
+  });
+
+  test("a refused object store value is named, never quoted", () => {
+    // These land in scheduler logs; the check is by name so the message
+    // can be logged as is. The key id is the one that could be quoted
+    // harmlessly, and it is still not.
+    for (const [name, value] of [
+      ["AWS_SECRET_ACCESS_KEY", "sk with space"],
+      ["AWS_ACCESS_KEY_ID", "AKIA=oops"],
+      ["S3_BUCKET", "my bucket"],
+    ] as const) {
+      let message = "";
+      try {
+        localDockerConfigFromEnv({ ...base, [name]: value });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain(name);
+      expect(message).not.toContain(value);
+    }
   });
 
   test("the network must be on the allowlist", () => {
