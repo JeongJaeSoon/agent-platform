@@ -31,6 +31,7 @@ import {
   sessionEventSchema,
   sessionMessageSchema,
   sessionStatusSchema,
+  sessionSummarySchema,
   sseEventSchema,
   TURN_STATUS_VALUES,
   unassignedSessionSignalSchema,
@@ -91,6 +92,32 @@ describe("session contracts", () => {
         status: "queued",
       }).success,
     ).toBe(true);
+  });
+
+  test("summary repository_id is a catalog key or null, never empty", () => {
+    const summary = {
+      id: SESSION_ID,
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: {
+        kind: "claude_agent_sdk",
+        version: "unknown",
+        profile_id: "unknown",
+      },
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(sessionSummarySchema.parse(summary).repository_id).toBeNull();
+    expect(
+      sessionSummarySchema.safeParse({ ...summary, repository_id: "" }).success,
+    ).toBe(false);
+    const { repository_id: _omitted, ...missing } = summary;
+    expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
   test("accepts the api.md detail example with durability", () => {

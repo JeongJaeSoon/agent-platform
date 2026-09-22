@@ -374,6 +374,54 @@ integration("sessions API on PostgreSQL", () => {
     expect((await foreign.json()).error.details).toBeNull();
   });
 
+  test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
+    // An M0 row: the client sent the URL directly, so it may embed
+    // credentials. It has no profile/repository catalog keys (94S-147).
+    const legacyOwner = `owner-${crypto.randomUUID()}`;
+    const legacyId = crypto.randomUUID();
+    const secret = "legacy-basic-auth-password";
+    const repoUrl = `https://deploy:${secret}@legacy.invalid/team/app.git`;
+    await db.insert(sessions).values({
+      id: legacyId,
+      ownerId: legacyOwner,
+      repoUrl,
+      branch: "main",
+      profileId: null,
+      repositoryId: null,
+    });
+    try {
+      const detailResponse = await app.request(`/v1/sessions/${legacyId}`, {
+        headers: { "X-Owner-Id": legacyOwner },
+      });
+      expect(detailResponse.status).toBe(200);
+      const detailText = await detailResponse.text();
+      const detail = getSessionResponseSchema.parse(JSON.parse(detailText));
+      expect(detail).toMatchObject({
+        id: legacyId,
+        repository_id: null,
+        runtime: { profile_id: "unknown" },
+        current_turn_id: null,
+        queued_turn_count: 0,
+      });
+      expect(detailText).not.toContain(secret);
+      expect(detailText).not.toContain("legacy.invalid");
+
+      const listResponse = await app.request("/v1/sessions", {
+        headers: { "X-Owner-Id": legacyOwner },
+      });
+      expect(listResponse.status).toBe(200);
+      const listText = await listResponse.text();
+      const page = listSessionsResponseSchema.parse(JSON.parse(listText));
+      expect(page.items.map((item) => [item.id, item.repository_id])).toEqual([
+        [legacyId, null],
+      ]);
+      expect(listText).not.toContain(secret);
+      expect(listText).not.toContain("legacy.invalid");
+    } finally {
+      await db.delete(sessions).where(eq(sessions.id, legacyId));
+    }
+  });
+
   test("lists 150 sessions through stable cursors without duplicates or gaps", async () => {
     const listOwner = `owner-${crypto.randomUUID()}`;
     const ids = new Set<string>();
