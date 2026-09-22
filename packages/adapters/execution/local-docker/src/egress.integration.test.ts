@@ -97,29 +97,28 @@ integration("worker egress is confined to the proxy allowlist", () => {
     }
   }, 120_000);
 
-  /** A one-file HTTP server on the outer network, reachable only by name. */
+  /**
+   * A one-file HTTP server on the outer network, reachable only by name.
+   * `publish` also binds it to a host port, which needs `ExposedPorts`: the
+   * daemon ignores a binding for a port the container never declared.
+   */
   async function startServer(
     name: string,
     body: string,
     publish = false,
   ): Promise<void> {
     created.push(name);
-    await client.createContainer(name, {
+    const response = await raw("POST", `/containers/create?name=${name}`, {
       Cmd: [
         "sh",
         "-c",
         `mkdir -p /www && echo ${body} > /www/index.html && httpd -f -p 8080 -h /www`,
       ],
-      Env: [],
+      // Deliberately the worst case: bound to every host address, which is
+      // what a carelessly configured dev stack does.
+      ...(publish ? { ExposedPorts: { "8080/tcp": {} } } : {}),
       HostConfig: {
-        CapDrop: [],
-        Memory: 64 * 1024 * 1024,
-        Mounts: [],
-        NanoCpus: 250_000_000,
         NetworkMode: outerNetwork,
-        PidsLimit: 64,
-        // Deliberately the worst case: bound to every host address, which is
-        // what a carelessly configured dev stack does.
         ...(publish
           ? {
               PortBindings: {
@@ -127,15 +126,11 @@ integration("worker egress is confined to the proxy allowlist", () => {
               },
             }
           : {}),
-        ReadonlyRootfs: false,
-        RestartPolicy: { Name: "no" },
-        SecurityOpt: [],
-        Tmpfs: {},
       },
       Image: IMAGE,
-      Labels: {},
       User: "0:0",
     });
+    expect(response.status).toBe(201);
     await client.startContainer(name);
   }
 
