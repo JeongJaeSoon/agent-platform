@@ -160,7 +160,6 @@ describe("runtime profiles", () => {
       HTTP_PROXY: "http://egress-proxy:3128",
       HTTPS_PROXY: "http://egress-proxy:3128",
       LANG: "en_US.UTF-8",
-      NODE_EXTRA_CA_CERTS: "/etc/egress/ca.pem",
       NO_PROXY: "localhost,127.0.0.1,::1",
       PATH: "/bin",
       TMPDIR: expect.any(String),
@@ -168,6 +167,21 @@ describe("runtime profiles", () => {
       https_proxy: "http://egress-proxy:3128",
       no_proxy: "localhost,127.0.0.1,::1",
     });
+  });
+
+  test("trusts an extra CA bundle only when the config names one", () => {
+    // The host's bundle would make whoever holds that CA able to impersonate
+    // the Messages endpoint; trust is a composition decision, not ambient.
+    const host = { NODE_EXTRA_CA_CERTS: "/host/ca.pem", PATH: "/bin" };
+    expect("NODE_EXTRA_CA_CERTS" in runtimeEnvironment(baseConfig, host)).toBe(
+      false,
+    );
+    expect(
+      runtimeEnvironment(
+        { ...baseConfig, trustedCaBundle: "/etc/egress/ca.pem" },
+        host,
+      ).NODE_EXTRA_CA_CERTS,
+    ).toBe("/etc/egress/ca.pem");
   });
 
   test("forwards each proxy variable only when the host sets it", () => {

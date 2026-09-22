@@ -77,23 +77,24 @@ export function validateRuntimeConfig(
  * across by hand. Each is forwarded only when the host sets it: an uppercase
  * twin the host never had would change which value the engine prefers.
  *
- * `NODE_EXTRA_CA_CERTS` travels with them: it is a path to a public CA
- * bundle, not a secret, and it is how a TLS-terminating egress or a private
- * Messages endpoint becomes trusted by the engine — nothing else here can
- * name a certificate.
+ * Deliberately not here: `NODE_EXTRA_CA_CERTS`. A CA bundle changes who may
+ * impersonate the Messages endpoint, so it comes from `trustedCaBundle` on
+ * the config, never from whatever the host happens to trust.
  */
 const HOST_PROXY_VARIABLES = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
   "NO_PROXY",
-  "NODE_EXTRA_CA_CERTS",
   "http_proxy",
   "https_proxy",
   "no_proxy",
 ] as const;
 
 export function runtimeEnvironment(
-  config: Pick<ClaudeRuntimeConfig, "claudeConfigDir" | "home" | "profile">,
+  config: Pick<
+    ClaudeRuntimeConfig,
+    "claudeConfigDir" | "home" | "profile" | "trustedCaBundle"
+  >,
   host: NodeJS.ProcessEnv = process.env,
 ): Record<string, string | undefined> {
   const environment: Record<string, string | undefined> = {
@@ -108,6 +109,9 @@ export function runtimeEnvironment(
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
     if (value !== undefined) environment[name] = value;
+  }
+  if (config.trustedCaBundle !== undefined) {
+    environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;
   }
   if (config.profile.auth.kind === "bearer") {
     environment.ANTHROPIC_AUTH_TOKEN = config.profile.auth.value;

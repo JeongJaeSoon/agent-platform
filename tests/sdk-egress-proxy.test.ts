@@ -33,6 +33,7 @@ const HOST_VARIABLES = [
   "HTTPS_PROXY",
   "NO_PROXY",
   "NODE_EXTRA_CA_CERTS",
+  "NODE_TLS_REJECT_UNAUTHORIZED",
   "http_proxy",
   "https_proxy",
   "no_proxy",
@@ -79,11 +80,13 @@ describe("SDK child process behind the egress proxy", () => {
     server = startFakeAnthropicServer(textReply("through the tunnel"), {
       tls: certificate,
     });
-    const { allowed, denied } = await startProxyFor(server, {
-      NODE_EXTRA_CA_CERTS: certificate.path,
-    });
+    const { allowed, denied } = await startProxyFor(server);
 
-    await runOneTurn(isolated, server);
+    // The bundle is named on the config. The host's own trust settings are
+    // left pointing at nothing useful to prove they are not what got through.
+    process.env.NODE_EXTRA_CA_CERTS = "/nonexistent/host-ca.pem";
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+    await runOneTurn(isolated, server, { trustedCaBundle: certificate.path });
 
     expect(server.requests).toHaveLength(1);
     expect(server.requests[0]?.headers["x-api-key"]).toBe("placeholder-local");
@@ -99,7 +102,6 @@ describe("SDK child process behind the egress proxy", () => {
 
 async function startProxyFor(
   endpoint: FakeAnthropicServer,
-  extra: Partial<Record<(typeof HOST_VARIABLES)[number], string>> = {},
 ): Promise<{ allowed: Seen[]; denied: string[] }> {
   const target = new URL(endpoint.url);
   const allowed: Seen[] = [];
@@ -138,7 +140,6 @@ async function startProxyFor(
     http_proxy: proxyUrl,
     https_proxy: proxyUrl,
     no_proxy: "egress-proxy.invalid",
-    ...extra,
   };
   for (const name of HOST_VARIABLES) {
     hostVariables.set(name, process.env[name]);
@@ -152,6 +153,7 @@ async function startProxyFor(
 async function runOneTurn(
   workspace: IsolatedWorkspace,
   endpoint: FakeAnthropicServer,
+  extra: { trustedCaBundle?: string } = {},
 ): Promise<void> {
   const { home } = workspace;
   const runtime = new ClaudeSdkRuntime({
@@ -174,6 +176,7 @@ async function runOneTurn(
       },
       settingSources: ["project"],
       tools: [],
+      ...extra,
     },
     {
       onPermission: async () => ({
@@ -196,7 +199,7 @@ function endpointOf(endpoint: FakeAnthropicServer, method: string): Seen {
   return { host: target.hostname, method, port: Number(target.port) };
 }
 
-/** A throwaway loopback certificate; the engine trusts it via a CA bundle path. */
+/** A throwaway loopback certificate; the engine trusts it via `trustedCaBundle`. */
 async function selfSignedCertificate(
   directory: string,
 ): Promise<{ cert: string; key: string; path: string }> {
