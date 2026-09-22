@@ -67,6 +67,13 @@ export function Gallery({ openDialog }: GalleryProps = {}): JSX.Element {
           state="paused"
           label="관리자가 세웠습니다"
         />
+        {/* An unbreakable identifier: the case that pushed the row past 360px
+            before `.ap-status__detail` got a min-width of 0. */}
+        <StatusLabel
+          axis="execution"
+          state="suspended"
+          detail={`exec_${"0".repeat(60)}`}
+        />
       </div>
 
       <h2>Receipt</h2>

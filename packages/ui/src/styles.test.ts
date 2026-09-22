@@ -11,6 +11,7 @@ const TOKENS = await Bun.file(`${import.meta.dir}/tokens.css`).text();
 const STYLES = await Bun.file(`${import.meta.dir}/styles.css`).text();
 
 const NARROWEST_VIEWPORT_PX = 360;
+const ROOT_FONT_SIZE_PX = 16;
 const REDUCED_MOTION = "@media (prefers-reduced-motion: reduce)";
 
 interface Declaration {
@@ -149,9 +150,17 @@ describe("styles.css", () => {
     const tooWide = styleDeclarations.filter((d) => {
       if (!["width", "min-width", "max-width"].includes(d.property))
         return false;
-      const match = /(\d+(?:\.\d+)?)px/.exec(d.value);
+      // A big intrinsic width is fine when it is capped against the container.
+      if (/\b(?:min|clamp)\(/.test(d.value) && /100%|vw\b/.test(d.value)) {
+        return false;
+      }
+      // rem as well as px: `width: 40rem` is 640px at the default root size,
+      // and this package states its widths in rem.
+      const match = /(\d+(?:\.\d+)?)(px|rem)\b/.exec(d.value);
       if (!match) return false;
-      return Number(match[1]) > NARROWEST_VIEWPORT_PX;
+      const px =
+        Number(match[1]) * (match[2] === "rem" ? ROOT_FONT_SIZE_PX : 1);
+      return px > NARROWEST_VIEWPORT_PX;
     });
     expect(
       tooWide.map((d) => `${d.selector} { ${d.property}: ${d.value} }`),
@@ -173,6 +182,21 @@ describe("styles.css", () => {
         // without `!important`. A near-miss selector would silently lose.
         expect(stilled.get(property)?.has(selector)).toBe(true);
       }
+    }
+  });
+
+  test("reduced-motion 짝이 모션을 실제로 끈다", () => {
+    // The pairing test above only proves the selector is repeated. Without
+    // this one, `animation: ap-spin 900ms linear infinite` in the reduced
+    // block would still pass while nothing at all was stilled.
+    const stilled = styleDeclarations.filter(
+      (d) =>
+        d.atRules.includes(REDUCED_MOTION) &&
+        /^(animation|transition)(-|$)/.test(d.property),
+    );
+    expect(stilled.length).toBeGreaterThan(0);
+    for (const declaration of stilled) {
+      expect(declaration.value).toBe("none");
     }
   });
 

@@ -268,6 +268,15 @@ exports[`컴포넌트 갤러리 360px 1`] = `
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
+    <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        </path>
+      </svg>
+      <span class="ap-visually-hidden">실행: </span>
+      <span class="ap-status__text">멈춤</span>
+      <span class="ap-status__detail">exec_000000000000000000000000000000000000000000000000000000000000</span>
+    </span>
   </div>
   <h2>Receipt</h2>
   <div class="ap-receipt" data-status="accepted">
@@ -305,7 +314,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-receipt-link__dot" aria-hidden="true">
         </span>
         <span class="ap-receipt-link__text">접수 내역</span>
-        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__status">접수됨</span>
+        <span class="ap-visually-hidden">, 접수 번호 </span>
         <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
       </a>
     </div>
@@ -675,6 +685,15 @@ exports[`컴포넌트 갤러리 768px 1`] = `
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
+    <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        </path>
+      </svg>
+      <span class="ap-visually-hidden">실행: </span>
+      <span class="ap-status__text">멈춤</span>
+      <span class="ap-status__detail">exec_000000000000000000000000000000000000000000000000000000000000</span>
+    </span>
   </div>
   <h2>Receipt</h2>
   <div class="ap-receipt" data-status="accepted">
@@ -712,7 +731,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-receipt-link__dot" aria-hidden="true">
         </span>
         <span class="ap-receipt-link__text">접수 내역</span>
-        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__status">접수됨</span>
+        <span class="ap-visually-hidden">, 접수 번호 </span>
         <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
       </a>
     </div>
@@ -1082,6 +1102,15 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
+    <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        </path>
+      </svg>
+      <span class="ap-visually-hidden">실행: </span>
+      <span class="ap-status__text">멈춤</span>
+      <span class="ap-status__detail">exec_000000000000000000000000000000000000000000000000000000000000</span>
+    </span>
   </div>
   <h2>Receipt</h2>
   <div class="ap-receipt" data-status="accepted">
@@ -1119,7 +1148,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-receipt-link__dot" aria-hidden="true">
         </span>
         <span class="ap-receipt-link__text">접수 내역</span>
-        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__status">접수됨</span>
+        <span class="ap-visually-hidden">, 접수 번호 </span>
         <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
       </a>
     </div>

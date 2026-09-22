@@ -101,6 +101,10 @@
 }
 
 .ap-status__detail {
+  /* A flex item's floor is its longest word; an unbreakable id (a ULID, a
+     stack frame) would push the row past 360px without these two. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--ap-color-muted-foreground);
   font-size: var(--ap-text-xs);
   font-weight: var(--ap-weight-regular);
@@ -226,6 +230,7 @@
 
 .ap-receipt-link {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ap-space-2);
   max-width: 100%;
@@ -245,7 +250,19 @@
   background: var(--ap-tone-fg);
 }
 
+.ap-receipt-link__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap-receipt-link__status {
+  flex: none;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+
 .ap-receipt-link__id {
+  min-width: 0;
   color: var(--ap-color-muted-foreground);
   font-family: var(--ap-font-mono);
   overflow-wrap: anywhere;

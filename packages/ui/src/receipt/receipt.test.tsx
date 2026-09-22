@@ -153,6 +153,23 @@ describe("ReceiptLink", () => {
     expect(link?.textContent).toContain("결과 미확정");
     expect(link?.textContent).toContain("rcpt_1");
   });
+
+  test("상태 문구가 눈에 보이는 자리에 있다", () => {
+    const { container } = render(
+      <ReceiptLink
+        receiptId="rcpt_1"
+        status="failed"
+        href="/receipts/rcpt_1"
+      />,
+    );
+
+    // 색만으로 상태를 말하지 않는다 (§4·§6): the dot carries the same signal,
+    // so hiding this span would leave colour as the only difference.
+    const status = container.querySelector(".ap-receipt-link__status");
+    expect(status?.textContent).toBe("실패");
+    expect(status?.classList.contains("ap-visually-hidden")).toBe(false);
+    expect(status?.closest(".ap-visually-hidden")).toBeNull();
+  });
 });
 
 describe("formatTimestamp", () => {

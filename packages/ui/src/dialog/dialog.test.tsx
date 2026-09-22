@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
-const { render, waitFor } = await setupDom();
+const { render, waitFor, fireEvent } = await setupDom();
 // Radix decides at import time whether a DOM exists; loaded any earlier, its
 // portals silently never mount. See the note in test-support/dom.ts.
 const { ConfirmDialog } = await import("./confirm-dialog.tsx");
@@ -47,6 +47,35 @@ function DestructiveHarness({
       resourceName="결제 담당"
       onConfirm={onConfirm}
     />
+  );
+}
+
+/** The owner opens it from its own button and closes it itself. */
+function OwnedHarness({ destructive = false }: { destructive?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const props = {
+    open,
+    onOpenChange: setOpen,
+    title: "에이전트를 해고할까요?",
+    consequence: "카드와 release가 비활성화됩니다.",
+    onConfirm: () => {},
+  };
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        여는 버튼
+      </button>
+      {/* Stands in for "the server answered, so the owner closed it" — the
+          path that never goes through onOpenChange. */}
+      <button type="button" onClick={() => setOpen(false)}>
+        밖에서 닫기
+      </button>
+      {destructive ? (
+        <DestructiveActionDialog {...props} resourceName="결제 담당" />
+      ) : (
+        <ConfirmDialog {...props} />
+      )}
+    </>
   );
 }
 
@@ -104,6 +133,25 @@ describe("ConfirmDialog", () => {
       await user.tab();
       expect(dialog.contains(document.activeElement)).toBe(true);
     }
+  });
+
+  test("닫으면 열었던 버튼으로 포커스가 돌아온다", async () => {
+    const user = await setupUser();
+    const { baseElement, getByText } = render(<OwnedHarness />);
+    const opener = getByText("여는 버튼") as HTMLButtonElement;
+
+    await user.click(opener);
+    await waitFor(() => {
+      expect(baseElement.querySelector("[role='dialog']")).not.toBeNull();
+    });
+
+    await user.keyboard("{Escape}");
+
+    // Radix aims at Dialog.Trigger, which this package does not mount; without
+    // the restore, focus would land on <body> and the keyboard user is lost.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(opener);
+    });
   });
 
   test("확인을 누르면 알릴 뿐, 스스로 성공으로 넘어가지 않는다", async () => {
@@ -184,6 +232,42 @@ describe("DestructiveActionDialog", () => {
     await waitFor(() => {
       expect(confirm.disabled).toBe(false);
     });
+  });
+
+  test("주인이 밖에서 닫아도 입력한 이름이 남지 않는다", async () => {
+    const user = await setupUser();
+    const { baseElement, getByText } = render(
+      <OwnedHarness destructive={true} />,
+    );
+
+    await user.click(getByText("여는 버튼"));
+    await waitFor(() => {
+      expect(baseElement.querySelector("input")).not.toBeNull();
+    });
+    await user.type(
+      baseElement.querySelector("input") as HTMLInputElement,
+      "결제 담당",
+    );
+    await waitFor(() => {
+      expect(
+        (getByText("삭제").closest("button") as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+
+    // fireEvent, not user-event: Radix sets `pointer-events: none` on <body>
+    // while the modal is open, and a real owner closes it from its own code.
+    fireEvent.click(getByText("밖에서 닫기"));
+    await user.click(getByText("여는 버튼"));
+
+    await waitFor(() => {
+      expect(baseElement.querySelector("input")).not.toBeNull();
+    });
+    expect((baseElement.querySelector("input") as HTMLInputElement).value).toBe(
+      "",
+    );
+    expect(
+      (getByText("삭제").closest("button") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   test("위험 동작임을 색이 아닌 표기로도 남긴다", () => {

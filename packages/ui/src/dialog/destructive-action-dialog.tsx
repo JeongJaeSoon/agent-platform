@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from "react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { ConfirmDialog } from "./confirm-dialog.tsx";
 
@@ -43,16 +43,18 @@ export function DestructiveActionDialog({
   const inputId = useId();
   const [typed, setTyped] = useState("");
 
-  const handleOpenChange = (next: boolean): void => {
-    // Reopening starts from an empty field; a stale match must not carry over.
-    if (!next) setTyped("");
-    onOpenChange(next);
-  };
+  // Reopening starts from an empty field; a stale match must not carry over.
+  // Keyed off `open` rather than `onOpenChange`, because the owner usually
+  // closes this dialog itself once the server answers — that path never calls
+  // the handler, and the typed name would survive into the next open.
+  useEffect(() => {
+    if (!open) setTyped("");
+  }, [open]);
 
   return (
     <ConfirmDialog
       open={open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={onOpenChange}
       title={title}
       consequence={consequence}
       onConfirm={onConfirm}

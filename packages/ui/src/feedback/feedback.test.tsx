@@ -100,6 +100,20 @@ describe("오류 문구", () => {
     );
     expect(guidanceFor(undefined)).toBeUndefined();
   });
+
+  test("Object.prototype의 이름을 코드로 받아도 문자열만 돌려준다", () => {
+    // A plain lookup hands these back as objects, and React throws on render.
+    for (const code of [
+      "__proto__",
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      expect(guidanceFor(code)).toBe(
+        "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+      );
+    }
+  });
 });
 
 describe("Skeleton", () => {

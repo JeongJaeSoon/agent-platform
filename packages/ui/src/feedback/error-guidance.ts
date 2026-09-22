@@ -39,8 +39,10 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
 /** Unknown codes fall back to a neutral instruction rather than raw English. */
 export function guidanceFor(code: string | undefined): string | undefined {
   if (!code) return undefined;
-  return (
-    ERROR_GUIDANCE[code as ApiErrorCode] ??
-    "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요."
-  );
+  // `hasOwn`, not a plain lookup: the code arrives from the server, and
+  // "__proto__" or "constructor" would otherwise hand React an object.
+  if (!Object.hasOwn(ERROR_GUIDANCE, code)) {
+    return "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.";
+  }
+  return ERROR_GUIDANCE[code as ApiErrorCode];
 }

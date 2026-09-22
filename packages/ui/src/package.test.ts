@@ -37,12 +37,31 @@ describe("패키지 경계", () => {
     const offenders: string[] = [];
     for (const file of await sourceFiles()) {
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
-      for (const match of source.matchAll(/(?:from|import)\s+"([^"]+)"/g)) {
+      // Static and dynamic, single- and double-quoted: Biome normalises quotes
+      // today, but the boundary must not depend on a formatter to hold.
+      const specifiers = source.matchAll(
+        /\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g,
+      );
+      for (const match of specifiers) {
         const specifier = match[1] ?? "";
         if (FORBIDDEN_IMPORTS.some((name) => specifier.startsWith(name))) {
           offenders.push(`${file}: ${specifier}`);
         }
       }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("직접 네트워크를 부르지 않는다", async () => {
+    // Dropping a bare `fetch(...)` into a component needs no import, so the
+    // import test above would never see it.
+    const calls =
+      /\bfetch\s*\(|\bXMLHttpRequest\b|\bnew\s+WebSocket\b|\bnew\s+EventSource\b/;
+    const offenders: string[] = [];
+    for (const file of await sourceFiles()) {
+      if (file.includes(".test.") || file.includes("test-support")) continue;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      if (calls.test(source)) offenders.push(file);
     }
     expect(offenders).toEqual([]);
   });

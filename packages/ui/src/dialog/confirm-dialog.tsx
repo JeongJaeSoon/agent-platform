@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { JSX, ReactNode } from "react";
+import { useRef } from "react";
 
 import { cn } from "../lib/cn.ts";
 
@@ -42,6 +43,19 @@ export function ConfirmDialog({
   children,
   className,
 }: ConfirmDialogProps): JSX.Element {
+  /*
+   * Who to give the keyboard back to. Radix restores focus to `Dialog.Trigger`,
+   * but the screens own their buttons and never mount one, so its ref is empty
+   * and focus falls to <body> — a keyboard user loses their place. Captured
+   * during the render that opens the dialog, before Radix moves focus inside.
+   */
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current && typeof document !== "undefined") {
+    openerRef.current = document.activeElement as HTMLElement | null;
+  }
+  wasOpen.current = open;
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -52,6 +66,10 @@ export function ConfirmDialog({
           className={cn("ap-dialog", className)}
           data-tone={tone}
           data-busy={busy || undefined}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            openerRef.current?.focus();
+          }}
         >
           <Dialog.Title className="ap-dialog__title">{title}</Dialog.Title>
           <Dialog.Description className="ap-dialog__consequence">

@@ -32,10 +32,10 @@ export function ReceiptLink({
     >
       <span className="ap-receipt-link__dot" aria-hidden="true" />
       <span className="ap-receipt-link__text">{children ?? "접수 내역"}</span>
-      <span className="ap-visually-hidden">
-        {" "}
-        ({descriptor.label}, 접수 번호 {receiptId})
-      </span>
+      {/* Visible, not hidden: the dot's colour is the same signal, and colour
+          alone is not a signal for everyone (§4·§6). */}
+      <span className="ap-receipt-link__status">{descriptor.label}</span>
+      <span className="ap-visually-hidden">, 접수 번호 </span>
       <span className="ap-receipt-link__id">{receiptId}</span>
     </a>
   );
