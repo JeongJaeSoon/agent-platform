@@ -52,6 +52,4 @@ ENV NODE_ENV=production
 VOLUME ["/workspace"]
 # The scheduler passes bootstrap identity through env (WORKER_EXECUTION_ID,
 # WORKER_BOOTSTRAP_NONCE, WORKER_GATEWAY_URL, ...) and may override Cmd.
-# Entry point is apps/worker/src/index.ts until 94S-122 lands the WorkerHost
-# loop at apps/worker/src/main.ts; switch this line then.
-CMD ["bun", "run", "apps/worker/src/index.ts"]
+CMD ["bun", "run", "apps/worker/src/main.ts"]
