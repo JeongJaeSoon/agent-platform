@@ -37,8 +37,10 @@ done
 [ -n "$BACKUP" ] && [ -n "$INTO" ] || usage
 [ -d "$BACKUP" ] || die "backup directory not found: $BACKUP"
 BACKUP="$(cd "$BACKUP" && pwd)"
+# Compose's own rule: lowercase alphanumerics, `_` and `-`, starting with a
+# letter or digit.
 case "$INTO" in
-  *[!a-z0-9_-]*|"") die "project name must match [a-z0-9_-]+: '$INTO'" ;;
+  ""|[!a-z0-9]*|*[!a-z0-9_-]*) die "project name must match [a-z0-9][a-z0-9_-]*: '$INTO'" ;;
 esac
 case "$PORT_BASE" in
   ''|*[!0-9]*) die "--port-base must be a number" ;;

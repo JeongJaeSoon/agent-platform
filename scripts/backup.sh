@@ -55,9 +55,13 @@ done
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="${OUT}/backup-${TS}"
-[ ! -e "$DEST" ] || die "refusing to overwrite existing $DEST"
 umask 077
-mkdir -p "$DEST/objects" "$DEST/repos" "$DEST/gitea"
+mkdir -p "$OUT"
+# A plain mkdir is the reservation: two backups started in the same second
+# get the same name, and the one that loses the mkdir stops here instead of
+# interleaving its files with the winner's.
+mkdir "$DEST" 2>/dev/null || die "refusing to overwrite existing $DEST"
+mkdir "$DEST/objects" "$DEST/repos" "$DEST/gitea"
 log "backup: project=$PROJECT -> $DEST"
 
 # --- database -------------------------------------------------------------
@@ -81,7 +85,8 @@ elif [ "$HEAD_TAG" != "$CHECKOUT_HEAD" ]; then
 fi
 
 # --- objects ---------------------------------------------------------------
-STAGE="/tmp/ap-backup-${TS}"
+# Per-process, so concurrent backups of one project do not share a stage.
+STAGE="/tmp/ap-backup-${TS}-$$"
 compose "$PROJECT" exec -T localstack sh -c \
   "rm -rf '$STAGE' && mkdir -p '$STAGE' && awslocal s3 sync 's3://${BUCKET}' '$STAGE' --quiet"
 compose "$PROJECT" cp "localstack:${STAGE}/." "$DEST/objects/"
