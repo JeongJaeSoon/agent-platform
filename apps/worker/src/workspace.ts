@@ -54,7 +54,10 @@ type Git = (
  * - those network calls get the credential from a helper that answers
  *   only the descriptor's protocol and host, may use only that protocol,
  *   and read no global or system config (HOME is the engine's too);
- * - no git command here runs repository hooks or an fsmonitor.
+ * - no git command here runs a hook, an fsmonitor, a filter driver the
+ *   checkout's config defines, or recurses into a submodule, and each one
+ *   is killed past a deadline, so a planted command can neither run nor
+ *   wedge the claim while the heartbeat keeps its lease alive.
  * Failures are reported with the URL and the credential replaced.
  *
  * Deliberately minimal: a clone takes whatever history the remote serves,
@@ -72,18 +75,20 @@ export class GitWorkspace implements WorkspacePreparer {
     const { url } = input.descriptor.repository;
     const remote = splitSecret(url);
     const redact = redactor(url, remote.secret);
+    // Filled in once the checkout's filter drivers are known.
+    const neutralized: Array<[string, string]> = [];
     const git: Git = (args, options = {}) =>
-      runGit(
-        args,
-        options.cwd ?? this.root,
-        input.signal,
+      runGit(args, {
+        cwd: options.cwd ?? this.root,
+        network: options.network === true ? remote : null,
+        overrides: neutralized,
         redact,
-        options.network === true ? remote : null,
-      );
+        signal: input.signal,
+      });
     const plan = planWorkspacePreparation({
       workspace: input.descriptor,
       restore: input.restore,
-      observed: await this.observe(git),
+      observed: await this.observe(git, neutralized),
     });
     switch (plan.action) {
       case "restore":
@@ -109,7 +114,10 @@ export class GitWorkspace implements WorkspacePreparer {
     }
   }
 
-  private async observe(git: Git): Promise<WorkspaceObservation> {
+  private async observe(
+    git: Git,
+    neutralized: Array<[string, string]>,
+  ): Promise<WorkspaceObservation> {
     const entries = await readdir(this.root).catch((error: unknown) => {
       if (isMissing(error)) return [];
       throw error;
@@ -119,6 +127,8 @@ export class GitWorkspace implements WorkspacePreparer {
     if ((await stat(join(this.root, ".git")).catch(() => null)) === null) {
       return { kind: "foreign" };
     }
+    // Reading config runs nothing; everything after this may.
+    neutralized.push(...(await filterOverrides(git)));
     const remote = await git(["config", "--get", "remote.origin.url"]);
     const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const shallow = await git(["rev-parse", "--is-shallow-repository"]);
@@ -141,8 +151,16 @@ export class GitWorkspace implements WorkspacePreparer {
    * checkout may be deleted.
    */
   private async holdsLocalWork(git: Git): Promise<boolean> {
+    // Ignored files count: an unsound checkout with none of the other kinds
+    // of work is deleted, and an ignored `.env` is still somebody's.
     const probes = await Promise.all([
-      git(["status", "--porcelain", "--untracked-files=all"]),
+      git([
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--ignored=matching",
+        "--ignore-submodules=all",
+      ]),
       git([
         "rev-list",
         "--max-count=1",
@@ -153,8 +171,14 @@ export class GitWorkspace implements WorkspacePreparer {
       ]),
       git(["stash", "list"]),
     ]);
-    return probes.some(
-      (probe) => probe.code !== 0 || probe.stdout.trim() !== "",
+    // Submodules are never looked into (their config is the engine's too),
+    // so having any is treated as holding work in them.
+    const submodules = await stat(join(this.root, ".git", "modules")).catch(
+      () => null,
+    );
+    return (
+      submodules !== null ||
+      probes.some((probe) => probe.code !== 0 || probe.stdout.trim() !== "")
     );
   }
 
@@ -284,8 +308,52 @@ const SCOPED_HELPER = [
   "}; f",
 ].join(" ");
 
+/**
+ * Every filter driver the checkout's config defines, emptied: git runs no
+ * filter whose command is empty, and `required=false` keeps it from failing
+ * the command instead.
+ */
+async function filterOverrides(git: Git): Promise<Array<[string, string]>> {
+  const listed = await git([
+    "config",
+    "--includes",
+    "--name-only",
+    "--get-regexp",
+    "^filter\\.",
+  ]);
+  // Exit 1 is "no such key"; anything else leaves the drivers unknown.
+  if (listed.code === 1) return [];
+  if (listed.code !== 0) {
+    throw new Error(
+      `git config failed (exit ${listed.code}): ${listed.stderr}`,
+    );
+  }
+  const drivers = new Set(
+    listed.stdout
+      .split("\n")
+      .filter((key) => key.startsWith("filter."))
+      .map((key) => key.slice("filter.".length, key.lastIndexOf(".")))
+      .filter((name) => name !== ""),
+  );
+  return [...drivers].flatMap(
+    (name): Array<[string, string]> => [
+      [`filter.${name}.clean`, ""],
+      [`filter.${name}.smudge`, ""],
+      [`filter.${name}.process`, ""],
+      [`filter.${name}.required`, "false"],
+    ],
+  );
+}
+
+/** Long enough for a large clone; a local command gets far less. */
+const NETWORK_DEADLINE_MS = 30 * 60_000;
+const LOCAL_DEADLINE_MS = 2 * 60_000;
+
 /** `network` is null for calls that must not leave this machine. */
-function gitEnvironment(network: Remote | null): Record<string, string> {
+function gitEnvironment(
+  network: Remote | null,
+  overrides: Array<[string, string]>,
+): Record<string, string> {
   const env: Record<string, string> = {
     // A credential prompt would hang the claim; fail instead.
     GIT_TERMINAL_PROMPT: "0",
@@ -302,6 +370,10 @@ function gitEnvironment(network: Remote | null): Record<string, string> {
   const config: Array<[string, string]> = [
     ["core.hooksPath", "/dev/null"],
     ["core.fsmonitor", "false"],
+    ["submodule.recurse", "false"],
+    ["gc.auto", "0"],
+    ["maintenance.auto", "false"],
+    ...overrides,
   ];
   const secret = network?.secret ?? null;
   if (network !== null && secret !== null) {
@@ -327,16 +399,22 @@ function gitEnvironment(network: Remote | null): Record<string, string> {
 
 async function runGit(
   args: string[],
-  cwd: string,
-  signal: AbortSignal,
-  redact: (text: string) => string,
-  network: Remote | null,
+  options: {
+    cwd: string;
+    network: Remote | null;
+    overrides: Array<[string, string]>;
+    redact: (text: string) => string;
+    signal: AbortSignal;
+  },
 ): Promise<GitResult> {
+  const { network, redact, signal } = options;
   signal.throwIfAborted();
   const child = Bun.spawn(["git", ...args], {
-    cwd,
-    env: gitEnvironment(network),
+    cwd: options.cwd,
+    env: gitEnvironment(network, options.overrides),
+    killSignal: "SIGKILL",
     signal,
+    timeout: network === null ? LOCAL_DEADLINE_MS : NETWORK_DEADLINE_MS,
     stderr: "pipe",
     stdin: "ignore",
     stdout: "pipe",

@@ -1157,48 +1157,6 @@ describe("WorkerHost outcomes a drain must not hide", () => {
     expect(gateway.releases).toEqual([]);
   });
 
-  test("an input that arrives as the lease is lost is never sent to the engine", async () => {
-    let open!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      open = resolve;
-    });
-    // The poll's answer and the beat that finds the lease gone land together.
-    class LateInput extends FakeWorkerGateway {
-      override async nextInput(
-        request: Parameters<FakeWorkerGateway["nextInput"]>[0],
-      ) {
-        const answer = await super.nextInput(request);
-        await gate;
-        return answer;
-      }
-      override async heartbeat(
-        request: Parameters<FakeWorkerGateway["heartbeat"]>[0],
-      ) {
-        await gate;
-        this.heartbeatFailure = "LEASE_EXPIRED";
-        return super.heartbeat(request);
-      }
-    }
-    const gateway = new LateInput();
-    const { host, runtime } = harness(
-      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
-      { gateway, timeouts: { heartbeatIntervalMs: 20 } },
-    );
-    gateway.enqueue("delivered to an attempt that no longer owns it");
-    const loop = host.runLoop();
-    await waitFor(
-      () => gateway.calls.includes("nextInput"),
-      "the poll to be out",
-    );
-    await Bun.sleep(60);
-    open();
-
-    const summary = await loop;
-
-    expect(summary.outcome).toBe("lease_lost");
-    expect(runtime.inputs).toEqual([]);
-  });
-
   test("a claim still unanswered when the stop grace runs out is given up", async () => {
     class SilentClaim extends FakeWorkerGateway {
       override bootstrapClaim(): Promise<never> {

@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readdir,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -242,6 +243,44 @@ describe("GitWorkspace", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("runs no filter driver the checkout's config defines", async () => {
+    await prepare(descriptor());
+    const marker = join(scratch, "filter-ran");
+    const filter = join(scratch, "wedge");
+    await writeFile(filter, `#!/bin/sh\ntouch "${marker}"\nsleep 30\n`);
+    await chmod(filter, 0o755);
+    git(["config", "filter.wedge.clean", filter], root);
+    git(["config", "filter.wedge.smudge", filter], root);
+    git(["config", "filter.wedge.required", "true"], root);
+    await writeFile(
+      join(root, ".git", "info", "attributes"),
+      "* filter=wedge\n",
+    );
+    // Dirty to git's stat check, so status has to look at the content.
+    await writeFile(join(root, "README.md"), "seed\n");
+    const touched = new Date(Date.now() + 5_000);
+    await utimes(join(root, "README.md"), touched, touched);
+
+    expect(await prepare(descriptor())).toBe("reuse");
+    expect(await Bun.file(marker).exists()).toBe(false);
+  }, 20_000);
+
+  test("keeps an unsound checkout whose only work is an ignored file", async () => {
+    await prepare(descriptor());
+    await writeFile(join(root, ".gitignore"), ".env\n");
+    git(["add", ".gitignore"], root);
+    git(["commit", "--quiet", "-m", "ignore"], root);
+    git(["push", "--quiet", "origin", "HEAD:main"], root);
+    await writeFile(join(root, ".env"), "only copy\n");
+    await writeFile(
+      join(root, ".git", "shallow"),
+      `${git(["rev-parse", "HEAD"], root)}\n`,
+    );
+
+    await expect(prepare(descriptor())).rejects.toThrow("refused");
+    expect(await Bun.file(join(root, ".env")).text()).toBe("only copy\n");
   });
 
   test("brings the origin's new commits into a reused checkout", async () => {

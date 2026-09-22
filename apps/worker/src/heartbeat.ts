@@ -76,10 +76,20 @@ export class Heartbeat {
   private async beat(): Promise<void> {
     const scope = this.options.scope();
     try {
-      const response = await this.options.gateway.heartbeat({
-        ...scope,
-        attempt_state: this.options.attemptState(),
-      });
+      const response = await this.beforeLeaseRunsOut(
+        this.options.gateway.heartbeat({
+          ...scope,
+          attempt_state: this.options.attemptState(),
+        }),
+      );
+      if (response === undefined) {
+        // The request timeout can be longer than what is left of the lease;
+        // past the lease the engine must not keep acting as its owner.
+        this.declareLost(
+          `lease expired at ${this.lease.toISOString()} before the gateway answered`,
+        );
+        return;
+      }
       this.lease = new Date(response.lease_expires_at);
       if (response.auth_revision !== scope.auth_revision) {
         // The session's authorization moved on, so this token's binding is
@@ -103,6 +113,25 @@ export class Heartbeat {
           `lease expired at ${this.lease.toISOString()} with the gateway unreachable`,
         );
       }
+    }
+  }
+
+  private async beforeLeaseRunsOut<T>(
+    request: Promise<T>,
+  ): Promise<T | undefined> {
+    request.catch(() => {});
+    const now = (this.options.now ?? (() => new Date()))();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<undefined>((resolve) => {
+      timer = setTimeout(
+        () => resolve(undefined),
+        Math.max(0, this.lease.getTime() - now.getTime()),
+      );
+    });
+    try {
+      return await Promise.race([request, expired]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
