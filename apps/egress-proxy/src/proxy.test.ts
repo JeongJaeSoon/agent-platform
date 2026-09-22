@@ -229,9 +229,10 @@ describe("egress proxy", () => {
     // answer that by dropping the connection half way down, which reaches a
     // worker as a truncated file rather than as an error it can retry.
     //
-    // The transfer also takes longer than the stall deadline while never
-    // letting the queue reach empty, which is the case a deadline measured
-    // from the first stall rather than from the last progress would cut.
+    // The stall deadline stays at its default. Shortening it here to also
+    // exercise the no-progress rearm put this test one scheduling hiccup
+    // away from failing, and it did: `closed after 7704008 bytes` on the
+    // arm64 runner. A test added to remove a flake must not be one.
     const tight = await startEgressProxy({
       logger: silent,
       maxBufferedBytes: 64 * 1024,
@@ -241,7 +242,6 @@ describe("egress proxy", () => {
       },
       port: 0,
       resolve,
-      stallTimeoutMs: 300,
     });
     try {
       const talk = await connect(tight.port, 30);
