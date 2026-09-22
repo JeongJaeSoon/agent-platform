@@ -32,16 +32,25 @@ export const noWorkspace: WorkspacePreparer = {
 };
 
 type GitResult = { code: number; stdout: string; stderr: string };
+type Git = (
+  args: string[],
+  options?: { cwd?: string; authenticated?: boolean },
+) => Promise<GitResult>;
 
 /**
  * Carries out `planWorkspacePreparation` with the `git` on this image.
  *
  * The repository URL may embed a credential (the descriptor keeps userinfo
  * on purpose). The engine runs in this checkout with tools that can read
- * `.git/config`, so the credential is split off: origin is stored without
- * it, and git gets it from a one-shot credential helper fed through the
- * environment of that one git process. Failures are reported with the URL
- * replaced.
+ * and write `.git`, and a reused checkout is whatever the last attempt's
+ * engine left there, so:
+ * - origin is stored without the credential;
+ * - only clone and fetch get it, from a one-shot credential helper fed
+ *   through that one process's environment, and the helper answers only
+ *   for the descriptor's own protocol and host, so a rewritten remote
+ *   (`url.*.insteadOf`) cannot collect it;
+ * - no git command here runs repository hooks or an fsmonitor.
+ * Failures are reported with the URL replaced.
  *
  * Deliberately minimal: a clone takes whatever history the remote serves,
  * with no depth or size limit beyond the workspace volume's own (94S-215).
@@ -56,10 +65,16 @@ export class GitWorkspace implements WorkspacePreparer {
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]> {
     const { url } = input.descriptor.repository;
-    const remote = splitCredential(url);
+    const remote = splitSecret(url);
     const redact = redactor(url);
-    const git = (args: string[], cwd = this.root) =>
-      runGit(args, cwd, input.signal, redact, remote.credential);
+    const git: Git = (args, options = {}) =>
+      runGit(
+        args,
+        options.cwd ?? this.root,
+        input.signal,
+        redact,
+        options.authenticated === true ? remote.secret : null,
+      );
     const plan = planWorkspacePreparation({
       workspace: input.descriptor,
       restore: input.restore,
@@ -83,15 +98,16 @@ export class GitWorkspace implements WorkspacePreparer {
           git(["remote", "set-url", "origin", remote.url]),
           "remote set-url",
         );
-        await check(git(["fetch", "--quiet", "origin"]), "fetch");
+        await check(
+          git(["fetch", "--quiet", "origin"], { authenticated: true }),
+          "fetch",
+        );
         await check(git(["checkout", "--quiet", plan.branch]), "checkout");
         return plan.action;
     }
   }
 
-  private async observe(
-    git: (args: string[]) => Promise<GitResult>,
-  ): Promise<WorkspaceObservation> {
+  private async observe(git: Git): Promise<WorkspaceObservation> {
     const entries = await readdir(this.root).catch((error: unknown) => {
       if (isMissing(error)) return [];
       throw error;
@@ -122,9 +138,7 @@ export class GitWorkspace implements WorkspacePreparer {
    * probe that fails counts as work: this answer decides whether a
    * checkout may be deleted.
    */
-  private async holdsLocalWork(
-    git: (args: string[]) => Promise<GitResult>,
-  ): Promise<boolean> {
+  private async holdsLocalWork(git: Git): Promise<boolean> {
     const probes = await Promise.all([
       git(["status", "--porcelain", "--untracked-files=all"]),
       git([
@@ -142,17 +156,13 @@ export class GitWorkspace implements WorkspacePreparer {
     );
   }
 
-  private async clone(
-    git: (args: string[], cwd?: string) => Promise<GitResult>,
-    url: string,
-    branch: string,
-  ): Promise<void> {
+  private async clone(git: Git, url: string, branch: string): Promise<void> {
     // Run from the parent: the root may not exist yet, and git creates it.
     await check(
-      git(
-        ["clone", "--quiet", "--branch", branch, "--", url, this.root],
-        join(this.root, ".."),
-      ),
+      git(["clone", "--quiet", "--branch", branch, "--", url, this.root], {
+        authenticated: true,
+        cwd: join(this.root, ".."),
+      }),
       "clone",
     );
   }
@@ -165,30 +175,34 @@ export class GitWorkspace implements WorkspacePreparer {
   }
 }
 
-type Credential = { username: string; password: string };
+type Secret = {
+  host: string;
+  password: string;
+  protocol: string;
+  username: string;
+};
 
 /** The URL git may store, and the userinfo it may not. */
-function splitCredential(url: string): {
-  url: string;
-  credential: Credential | null;
-} {
+function splitSecret(url: string): { url: string; secret: Secret | null } {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     // scp-like syntax (git@host:path) carries a user name, never a secret.
-    return { url, credential: null };
+    return { url, secret: null };
   }
   if (parsed.username === "" && parsed.password === "") {
-    return { url, credential: null };
+    return { url, secret: null };
   }
-  const credential = {
-    username: decodeURIComponent(parsed.username),
+  const secret = {
+    host: parsed.host,
     password: decodeURIComponent(parsed.password),
+    protocol: parsed.protocol.replace(/:$/, ""),
+    username: decodeURIComponent(parsed.username),
   };
   parsed.username = "";
   parsed.password = "";
-  return { url: parsed.toString(), credential };
+  return { url: parsed.toString(), secret };
 }
 
 /** What git needs from the host: its binary, a HOME, and the egress proxy. */
@@ -203,7 +217,26 @@ const GIT_HOST_VARIABLES = [
   "no_proxy",
 ] as const;
 
-function gitEnvironment(credential: Credential | null): Record<string, string> {
+/**
+ * Answers `get` only for the descriptor's protocol and host; git writes
+ * `protocol=` and `host=` lines on stdin. Quoted case patterns match
+ * literally.
+ */
+const SCOPED_HELPER = [
+  "!f() {",
+  'test "$1" = get || exit 0;',
+  "p=; h=;",
+  'while IFS= read -r line; do case "$line" in',
+  '"protocol=$WORKER_GIT_PROTOCOL") p=1;;',
+  '"host=$WORKER_GIT_HOST") h=1;;',
+  "esac; done;",
+  'test -n "$p" && test -n "$h" || exit 0;',
+  'echo "username=$WORKER_GIT_USERNAME";',
+  'echo "password=$WORKER_GIT_PASSWORD";',
+  "}; f",
+].join(" ");
+
+function gitEnvironment(secret: Secret | null): Record<string, string> {
   const env: Record<string, string> = {
     // A credential prompt would hang the claim; fail instead.
     GIT_TERMINAL_PROMPT: "0",
@@ -212,20 +245,30 @@ function gitEnvironment(credential: Credential | null): Record<string, string> {
     const value = process.env[name];
     if (value !== undefined) env[name] = value;
   }
-  if (credential !== null) {
-    // Config through the environment, so the secret is on no command line;
-    // the empty helper first drops any helper the image configures.
+  // Config through the environment outranks the repository's own, which
+  // the last attempt's engine could write.
+  const config: Array<[string, string]> = [
+    ["core.hooksPath", "/dev/null"],
+    ["core.fsmonitor", "false"],
+  ];
+  if (secret !== null) {
+    // The empty helper first drops every helper configured anywhere else.
+    config.push(
+      ["credential.helper", ""],
+      ["credential.helper", SCOPED_HELPER],
+    );
     Object.assign(env, {
-      GIT_CONFIG_COUNT: "2",
-      GIT_CONFIG_KEY_0: "credential.helper",
-      GIT_CONFIG_VALUE_0: "",
-      GIT_CONFIG_KEY_1: "credential.helper",
-      GIT_CONFIG_VALUE_1:
-        '!f() { echo "username=$WORKER_GIT_USERNAME"; echo "password=$WORKER_GIT_PASSWORD"; }; f',
-      WORKER_GIT_PASSWORD: credential.password,
-      WORKER_GIT_USERNAME: credential.username,
+      WORKER_GIT_HOST: secret.host,
+      WORKER_GIT_PASSWORD: secret.password,
+      WORKER_GIT_PROTOCOL: secret.protocol,
+      WORKER_GIT_USERNAME: secret.username,
     });
   }
+  env.GIT_CONFIG_COUNT = String(config.length);
+  config.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  });
   return env;
 }
 
@@ -234,12 +277,12 @@ async function runGit(
   cwd: string,
   signal: AbortSignal,
   redact: (text: string) => string,
-  credential: Credential | null,
+  secret: Secret | null,
 ): Promise<GitResult> {
   signal.throwIfAborted();
   const child = Bun.spawn(["git", ...args], {
     cwd,
-    env: gitEnvironment(credential),
+    env: gitEnvironment(secret),
     signal,
     stderr: "pipe",
     stdin: "ignore",
