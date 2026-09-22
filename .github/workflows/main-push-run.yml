@@ -44,7 +44,8 @@ jobs:
           verdicts=$(.github/scripts/check-main-push-run.sh "$SHA") || rc=$?
           echo "$verdicts"
           [ "$rc" -le 1 ] || exit "$rc"
-          [ -n "$verdicts" ] || { echo "no verdict at all" >&2; exit 1; }
+          # A quiet window prints nothing and is fine; a lookup that could
+          # not happen already left with exit 2 above.
           while read -r verdict short; do
             [ "$verdict" = missing ] || continue
             {
