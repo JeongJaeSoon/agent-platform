@@ -3,6 +3,7 @@ import { z } from "zod";
 export const API_ERROR_CODE_VALUES = [
   "BAD_REQUEST",
   "UNAUTHORIZED",
+  "FORBIDDEN",
   "NOT_FOUND",
   "PAYLOAD_TOO_LARGE",
   "UNSUPPORTED_CAPABILITY",

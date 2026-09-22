@@ -22,6 +22,40 @@ function loggerWithMemory(): {
 }
 
 describe("API authentication", () => {
+  test("internal routes get the same idle clock management as /v1", async () => {
+    const app = createApiApp({
+      authMode: "none",
+      logger: loggerWithMemory().logger,
+      registerInternalRoutes: (router) => {
+        router.get("/poll", (context) => context.json({ ok: true }));
+        router.post("/poll", async (context) =>
+          context.json({ bytes: (await context.req.arrayBuffer()).byteLength }),
+        );
+      },
+    });
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+
+    // A long poll is a GET-shaped wait: the clock is off before the handler
+    // runs, so Bun's idle default cannot cut the connection mid-wait.
+    expect((await app.request("/internal/poll", {}, env)).status).toBe(200);
+    expect(calls).toEqual([0]);
+
+    // A body is still read under the clock, then the clock stops.
+    calls.length = 0;
+    const posted = await app.request(
+      "/internal/poll",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(await posted.json()).toEqual({ bytes: 2 });
+    expect(calls).toEqual([BODY_IDLE_TIMEOUT_SECONDS, 0]);
+  });
+
   test("stops the idle clock for database work and re-arms it only while an authenticated body is read", async () => {
     let bodyRead = false;
     const app = createApiApp({

@@ -45,6 +45,8 @@ export const sessions = pgTable(
       .default("active"),
     revision: integer().notNull().default(0),
     leaseEpoch: integer("lease_epoch").notNull().default(0),
+    executionGeneration: integer("execution_generation").notNull().default(0),
+    authRevision: integer("auth_revision").notNull().default(0),
     executionId: text("execution_id"),
     profileId: text("profile_id"),
     repositoryId: text("repository_id"),
@@ -156,6 +158,10 @@ export const queueMessages = pgTable(
     index("queue_messages_pick_idx")
       .on(table.sessionId, table.id)
       .where(sql`${table.claimedBy} IS NULL`),
+    // nextInput polls for a session's head every few hundred milliseconds
+    // and looks at claimed rows too, which the partial index above cannot
+    // serve.
+    index("queue_messages_head_idx").on(table.sessionId, table.kind, table.id),
   ],
 );
 
@@ -287,6 +293,92 @@ export const executions = pgTable(
       table.sessionId,
       table.generation,
     ),
+  ],
+);
+
+// One worker binding to a session: the fenced identity every post-claim
+// write carries (lease_epoch, execution_generation, auth_revision).
+export const attempts = pgTable(
+  "attempts",
+  {
+    id: text().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    executionId: text("execution_id").notNull(),
+    leaseEpoch: integer("lease_epoch").notNull(),
+    executionGeneration: integer("execution_generation").notNull(),
+    authRevision: integer("auth_revision").notNull(),
+    state: text().notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason"),
+  },
+  (table) => [
+    index("attempts_session_started_idx").on(table.sessionId, table.startedAt),
+  ],
+);
+
+// A launch intent: the slot reserved when the backend was asked to start an
+// execution, plus the one-time nonce the worker trades for its binding.
+export const workerLaunches = pgTable(
+  "worker_launches",
+  {
+    executionId: text("execution_id").primaryKey(),
+    generation: integer().notNull(),
+    partition: text().notNull().default("default"),
+    // Set when the launch was started for one particular session, which is
+    // what a backend that mounts a session's workspace into the container
+    // does. The claim is then pinned to it instead of taking the partition's
+    // head, so an execution built for B can never run A.
+    sessionId: uuid("session_id").references(() => sessions.id),
+    backend: text().notNull(),
+    nonceHash: bytea("nonce_hash").notNull().unique(),
+    nonceExpiresAt: timestamp("nonce_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    claimedAttemptId: text("claimed_attempt_id").references(() => attempts.id),
+    slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    slotReleasedAt: timestamp("slot_released_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("worker_launches_open_slot_idx")
+      .on(table.partition)
+      .where(sql`${table.slotReleasedAt} IS NULL`),
+  ],
+);
+
+// Session credential handed out by bootstrapClaim; only its hash is stored.
+export const workerCredentials = pgTable(
+  "worker_credentials",
+  {
+    tokenHash: bytea("token_hash").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Every heartbeat extends the attempt's live credential, and revoked
+    // rows are kept as history, so that lookup needs its own index.
+    index("worker_credentials_live_idx")
+      .on(table.attemptId)
+      .where(sql`${table.revokedAt} IS NULL`),
   ],
 );
 

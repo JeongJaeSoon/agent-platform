@@ -32,9 +32,13 @@ function honoRoutes(): Set<string> {
       registerReceiptRoutes(router, {} as SessionService);
     },
   });
+  // /internal/* is the worker protocol, not part of the public document.
   return new Set(
     app.routes
-      .filter((route) => route.method !== "ALL")
+      .filter(
+        (route) =>
+          route.method !== "ALL" && !route.path.startsWith("/internal/"),
+      )
       .map(
         (route) =>
           `${route.method} ${route.path.replace(/\/$/, "").replace(/:(\w+)/g, "{$1}") || "/"}`,

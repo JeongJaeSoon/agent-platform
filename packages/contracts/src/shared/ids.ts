@@ -7,8 +7,11 @@ export const executionIdSchema = z.string().min(1);
 export const receiptIdSchema = z.uuid();
 export const requestIdSchema = z.string().min(1);
 export const timestampSchema = z.iso.datetime();
-export const revisionSchema = z.number().int().nonnegative();
-export const epochSchema = z.number().int().nonnegative();
+// These land in PostgreSQL `integer` columns, so a larger value is a bad
+// request rather than a failed insert.
+export const INT4_MAX = 2_147_483_647;
+export const revisionSchema = z.number().int().nonnegative().max(INT4_MAX);
+export const epochSchema = z.number().int().nonnegative().max(INT4_MAX);
 export const opaqueCursorSchema = z.string().min(1);
 export const idempotencyKeySchema = z.string().min(1).max(255);
 // `unknown` accepts undefined; use this where the key must be present.
