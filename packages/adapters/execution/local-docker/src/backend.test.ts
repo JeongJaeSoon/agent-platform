@@ -696,7 +696,7 @@ describe("a daemon that accepts the connection but never answers", () => {
       // never fired the promises would never settle and the test's own
       // deadline would end it. A tighter bound measures the runner, not the
       // client: the same 6x margin in sessions.integration.test.ts read
-      // 4524ms against 3000ms on the arm64 runner.
+      // 4524ms against 3000ms on a loaded CI runner.
       expect(Date.now() - started).toBeLessThan(5_000);
     } finally {
       stalled.stop(true);

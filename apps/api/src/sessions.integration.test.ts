@@ -301,7 +301,7 @@ integration("sessions API on PostgreSQL", () => {
     // The sleep is 60x the 500ms limit so the gap between "the timeout fired"
     // and "the query simply finished" is far wider than a loaded runner's
     // scheduling jitter. At 5s it was not: this read 4524ms against a 3000ms
-    // bound on the arm64 runner while the cancel itself had worked.
+    // bound on a loaded CI runner while the cancel itself had worked.
     await expect(probePool.query("SELECT pg_sleep(30)")).rejects.toMatchObject({
       // 57014 query_canceled: the server killed it, not just the client.
       code: "57014",
