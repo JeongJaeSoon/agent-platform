@@ -18,6 +18,7 @@
         "@agent-platform/db": "workspace:*",
         "@agent-platform/observability": "workspace:*",
         "@agent-platform/platform": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
         "drizzle-orm": "0.45.2",
         "hono": "4.13.7",
         "pg": "8.16.3",
@@ -25,6 +26,7 @@
         "zod": "4.6.5",
       },
       "devDependencies": {
+        "@agent-platform/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
       },
@@ -158,6 +160,7 @@
       "name": "@agent-platform/storage",
       "version": "0.0.0",
       "dependencies": {
+        "@agent-platform/platform": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@smithy/node-http-handler": "^4.12.1",
