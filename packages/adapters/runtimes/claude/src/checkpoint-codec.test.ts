@@ -559,6 +559,33 @@ describe("Claude profile fingerprint", () => {
     ).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test("reduces env and headers beside a live instance to key names too", () => {
+    // A rotated value next to an opaque instance must not move the digest;
+    // a new key or a new identity must.
+    const opaque = (env: Record<string, string>, identity = "review@1") => ({
+      ...config,
+      identities: { mcpServers: { review: identity } },
+      mcpServers: {
+        review: {
+          type: "sdk",
+          name: "review",
+          instance: new McpServer("r"),
+          env,
+        },
+      },
+    });
+
+    expect(claudeProfileFingerprint(opaque({ TOKEN: "new" }))).toBe(
+      claudeProfileFingerprint(opaque({ TOKEN: "old" })),
+    );
+    expect(
+      claudeProfileFingerprint(opaque({ TOKEN: "old", MODE: "rw" })),
+    ).not.toBe(claudeProfileFingerprint(opaque({ TOKEN: "old" })));
+    expect(
+      claudeProfileFingerprint(opaque({ TOKEN: "old" }, "review@2")),
+    ).not.toBe(claudeProfileFingerprint(opaque({ TOKEN: "old" })));
+  });
+
   test("keeps a registry named __proto__ in the fingerprint", () => {
     // The SDK still receives it; an accumulator with an ordinary prototype
     // would swallow it and call the two tool surfaces compatible.

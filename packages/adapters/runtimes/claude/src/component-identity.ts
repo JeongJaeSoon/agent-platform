@@ -78,7 +78,12 @@ export function describeComponents(
       name,
       `MCP server "${name}" is not plain data and has no identity in identities.mcpServers`,
     );
-    mcpServers[name] = { ...plainTopLevelFields(server), identity };
+    // The same reduction as the serializable path: a live instance next to a
+    // plain `env` does not make that env any less of a credential container.
+    mcpServers[name] = {
+      ...(withCredentialKeysOnly(plainTopLevelFields(server)) as object),
+      identity,
+    };
   }
   const plugins = [...(config.plugins ?? [])]
     .sort((left, right) => left.path.localeCompare(right.path))
