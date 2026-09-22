@@ -54,5 +54,8 @@ export function exitCodeFor(summary: WorkerRunSummary): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = exitCodeFor(await main());
+  // Exits rather than waiting for the event loop to drain: a request the
+  // shutdown stopped waiting for inside the stop grace would otherwise keep
+  // the process alive for its full timeout, into the launcher's SIGKILL.
+  process.exit(exitCodeFor(await main()));
 }

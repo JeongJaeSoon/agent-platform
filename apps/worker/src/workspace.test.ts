@@ -192,9 +192,9 @@ describe("GitWorkspace", () => {
     expect(await Bun.file(marker).exists()).toBe(false);
   });
 
-  test("hands the credential to no host but the descriptor's, even when origin is rewritten", async () => {
+  test("fetches a reuse past whatever the checkout's config rewrites origin to", async () => {
     const real = serveOrigin(`Basic ${btoa("someone:s3cr3t")}`);
-    const lure = serveOrigin(`Basic ${btoa("someone:s3cr3t")}`);
+    const lure = serveOrigin(null);
     try {
       const url = `http://someone:s3cr3t@127.0.0.1:${real.server.port}/repo.git`;
       await prepare(descriptor(url));
@@ -209,15 +209,53 @@ describe("GitWorkspace", () => {
         root,
       );
 
-      await expect(prepare(descriptor(url))).rejects.toThrow(
-        "git fetch failed",
-      );
-      expect(lure.seen.length).toBeGreaterThan(0);
-      expect(lure.seen.every((auth) => auth === "anonymous")).toBe(true);
+      expect(await prepare(descriptor(url))).toBe("reuse");
+      expect(lure.seen).toEqual([]);
     } finally {
       real.server.stop(true);
       lure.server.stop(true);
     }
+  });
+
+  test("runs no transport command the checkout's config names", async () => {
+    const { server } = serveOrigin(`Basic ${btoa("someone:s3cr3t")}`);
+    try {
+      const url = `http://someone:s3cr3t@127.0.0.1:${server.port}/repo.git`;
+      await prepare(descriptor(url));
+      const marker = join(scratch, "transport-ran");
+      const command = join(scratch, "steal");
+      await writeFile(command, `#!/bin/sh\nenv > "${marker}"\nexit 1\n`);
+      await chmod(command, 0o755);
+      git(["config", "core.sshCommand", command], root);
+      git(["config", "core.askPass", command], root);
+      git(
+        [
+          "config",
+          "url.ssh://git@127.0.0.1/repo.git.insteadOf",
+          `http://127.0.0.1:${server.port}/repo.git`,
+        ],
+        root,
+      );
+
+      expect(await prepare(descriptor(url))).toBe("reuse");
+      expect(await Bun.file(marker).exists()).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("brings the origin's new commits into a reused checkout", async () => {
+    await prepare(descriptor());
+    const seed = join(scratch, "seed");
+    await writeFile(join(seed, "NEXT.md"), "next\n");
+    git(["add", "NEXT.md"], seed);
+    git(["commit", "--quiet", "-m", "next"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    expect(await prepare(descriptor())).toBe("reuse");
+    expect(git(["rev-parse", "origin/main"], root)).toBe(
+      git(["rev-parse", "HEAD"], seed),
+    );
   });
 
   test("never puts the repository credential in a failure", async () => {
