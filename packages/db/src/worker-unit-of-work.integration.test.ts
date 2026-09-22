@@ -1276,6 +1276,39 @@ integration("worker gateway on PostgreSQL", () => {
     }
   });
 
+  test("two finalizes of the same turn in flight agree on one result", async () => {
+    const { session, claimed } = await claimAndDeliver(partitionFor("dblfin"));
+    const request = {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "double-1",
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    };
+    const [a, b] = await Promise.all([
+      gateway.finalize(principalOf(claimed), request),
+      gateway.finalize(principalOf(claimed), request),
+    ]);
+    expect(a).toEqual(b);
+    const [turn] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(turn?.status).toBe("completed");
+    // The input is acknowledged once, not twice.
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, session.session_id)),
+    ).toHaveLength(0);
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

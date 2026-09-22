@@ -882,6 +882,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // belongs to whoever holds the lease, and saying "open" to anyone
         // else would have the gateway verify a checkpoint on their behalf.
         const fenced = await acquireFence(tx, fence, now);
+        // Waiting for that lock is exactly when a competing finalize commits,
+        // so the turn is read again before this one is called open.
+        const settled = await probeFinalize(tx, fence, input, false);
+        if (settled.state !== "open") return settled.result;
         return fenced.outcome === "ok" ? { outcome: "open" } : fenced;
       });
     },
