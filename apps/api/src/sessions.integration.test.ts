@@ -31,8 +31,9 @@ import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { createApiApp } from "./app.ts";
-import { createProbePool, createReadinessProbe } from "./readiness.ts";
+import { createApiApp, isStorageUnavailable } from "./app.ts";
+import { createApiPool, createProbePool } from "./pool.ts";
+import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -304,6 +305,87 @@ integration("sessions API on PostgreSQL", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.waitingCount).toBe(0);
+  });
+
+  test("api pool cancels a statement that outlives statement_timeout and maps it to 503", async () => {
+    // The URL tries to switch both limits off; the pool must not let it.
+    const overriding = `${databaseUrl ?? ""}${databaseUrl?.includes("?") ? "&" : "?"}statement_timeout=0&query_timeout=0`;
+    const apiPool = createApiPool(overriding, createLogger(), {
+      connectMs: 1_000,
+      statementMs: 500,
+      queryMs: 1_000,
+    });
+    try {
+      const started = Date.now();
+      const failure = await apiPool
+        .query("SELECT pg_sleep(5)")
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: "57014" });
+      expect(Date.now() - started).toBeLessThan(3_000);
+      // The classifier in app.onError / mapped() must turn it into 503.
+      expect(isStorageUnavailable(failure)).toBe(true);
+      expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+    } finally {
+      await apiPool.end();
+    }
+  });
+
+  test("api pool evicts a client whose query_timeout fired instead of returning it busy", async () => {
+    // statement_timeout high so only the client-side read timeout can fire,
+    // as it does when the server is frozen and never sends the cancel reply.
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 30_000,
+      queryMs: 500,
+    });
+    const db = drizzle(apiPool, { schema });
+    try {
+      const started = Date.now();
+      const failure = await db
+        .transaction(async (tx) => {
+          await tx.execute("SELECT pg_sleep(5)");
+        })
+        .then(() => null)
+        .catch((error: unknown) => error);
+      // drizzle's ROLLBACK after the failure must not wait another queryMs on
+      // the same dead socket; the poisoned client is gone from the pool.
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(isStorageUnavailable(failure)).toBe(true);
+      await Bun.sleep(50);
+      expect(apiPool.totalCount).toBe(0);
+      expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+    } finally {
+      await apiPool.end();
+    }
+  });
+
+  test("api pool frees the slot when a checked-out client times out before the caller releases it", async () => {
+    // drizzle executes BEGIN outside the try/finally that releases the
+    // client, so a BEGIN that times out never reaches release(); with max 1
+    // the pool would then be exhausted for the life of the process.
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 30_000,
+      queryMs: 500,
+    });
+    try {
+      const client = await apiPool.connect();
+      const failure = await client
+        .query("SELECT pg_sleep(5)")
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ message: "Query read timeout" });
+      // No release() by the caller, and yet the slot is free again.
+      expect(apiPool.totalCount).toBe(0);
+      // A late release() from a caller that does reach its finally is harmless.
+      expect(() => client.release()).not.toThrow();
+      const next = await apiPool.connect();
+      expect((await next.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+      next.release();
+    } finally {
+      await apiPool.end();
+    }
   });
 
   test("survives the backend of an idle probe connection being terminated", async () => {

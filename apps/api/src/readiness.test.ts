@@ -133,7 +133,39 @@ describe("readiness probe", () => {
     ).toEqual({
       ready: false,
       check: "config",
-      reason: "missing configuration: AUTH_MODE",
+      reason: "configuration: missing AUTH_MODE",
     });
+    // A value outside the allowed set is a misconfiguration too: app.ts
+    // would run "bogus" as api-key mode without complaint.
+    expect(
+      await createReadinessProbe({
+        db,
+        requiredEnv: [
+          "DATABASE_URL",
+          { name: "AUTH_MODE", allowed: ["none", "api-key"] },
+        ],
+        environment: { DATABASE_URL: "postgres://x", AUTH_MODE: "bogus" },
+      })(),
+    ).toEqual({
+      ready: false,
+      check: "config",
+      reason: "configuration: AUTH_MODE must be one of none|api-key",
+    });
+    expect(
+      await createReadinessProbe({
+        db,
+        requiredEnv: [{ name: "AUTH_MODE", allowed: ["none", "api-key"] }],
+        environment: { AUTH_MODE: "api-key" },
+      })(),
+    ).toEqual({ ready: true });
+    // app.ts compares the raw value, so surrounding whitespace is a typo
+    // that would run in api-key mode; readiness must judge the same string.
+    expect(
+      await createReadinessProbe({
+        db,
+        requiredEnv: [{ name: "AUTH_MODE", allowed: ["none", "api-key"] }],
+        environment: { AUTH_MODE: " none " },
+      })(),
+    ).toMatchObject({ ready: false, check: "config" });
   }, 30_000);
 });
