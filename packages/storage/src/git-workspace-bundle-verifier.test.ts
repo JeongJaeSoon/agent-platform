@@ -97,7 +97,7 @@ describe("git workspace bundle verifier", () => {
     expect(await readdir(tempRoot)).toEqual(before);
   });
 
-  test("a git that exits abnormally yields unusable, not a throw", async () => {
+  test("git refusing the pack yields unusable, not a throw", async () => {
     const gitRunner: GitCommandRunner = async (args) =>
       args[0] === "init"
         ? { exitCode: 0, stderr: "", stdout: "" }
@@ -115,18 +115,37 @@ describe("git workspace bundle verifier", () => {
     expect(await readdir(tempRoot)).toEqual([]);
   });
 
-  test("a runner that throws yields unusable and still cleans up", async () => {
+  test("a runner that cannot start git throws, and still cleans up", async () => {
     const gitRunner: GitCommandRunner = async () => {
       throw new Error("spawn git ENOENT");
     };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
-    const verdict = await verifier.verify({
-      bytes: bundle.bytes,
-      commit: bundle.commit,
-      key: "k",
-    });
-    expect(verdict).toEqual({ status: "unusable", reason: "spawn git ENOENT" });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("spawn git ENOENT");
     expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("a repository that will not initialise is a fault, not a verdict", async () => {
+    const gitRunner: GitCommandRunner = async () => ({
+      exitCode: 128,
+      stderr: "fatal: cannot mkdir: No space left on device\n",
+      stdout: "",
+    });
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("git init failed with exit code 128");
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
+  test("a temp root that cannot be written throws instead of rejecting the bundle", async () => {
+    const verifier = createGitWorkspaceBundleVerifier({
+      tempRoot: join(tempRoot, "missing"),
+    });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("ENOENT");
   });
 
   test("a git that outlives the timeout is killed and reported as unusable", async () => {
