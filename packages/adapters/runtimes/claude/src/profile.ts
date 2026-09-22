@@ -69,6 +69,23 @@ export function validateRuntimeConfig(
   throw new Error("Unsupported permission mode");
 }
 
+/**
+ * The only host variables the engine inherits verbatim. On the worker
+ * network the egress proxy is the sole route to the Messages endpoint and
+ * the container learns it through these (94S-199); the SDK replaces the
+ * child's environment rather than merging it, so they have to be carried
+ * across by hand. Each is forwarded only when the host sets it: an uppercase
+ * twin the host never had would change which value the engine prefers.
+ */
+const HOST_PROXY_VARIABLES = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+] as const;
+
 export function runtimeEnvironment(
   config: Pick<ClaudeRuntimeConfig, "claudeConfigDir" | "home" | "profile">,
   host: NodeJS.ProcessEnv = process.env,
@@ -82,6 +99,10 @@ export function runtimeEnvironment(
     PATH: host.PATH,
     TMPDIR: host.TMPDIR ?? tmpdir(),
   };
+  for (const name of HOST_PROXY_VARIABLES) {
+    const value = host[name];
+    if (value !== undefined) environment[name] = value;
+  }
   if (config.profile.auth.kind === "bearer") {
     environment.ANTHROPIC_AUTH_TOKEN = config.profile.auth.value;
   } else {
