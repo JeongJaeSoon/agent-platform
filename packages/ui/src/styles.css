@@ -167,6 +167,9 @@
 }
 
 .ap-receipt__operation {
+  /* An operation this build has no label for is printed raw. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: var(--ap-weight-bold);
 }
 
@@ -352,6 +355,7 @@
 }
 
 .ap-state__code {
+  overflow-wrap: anywhere;
   color: var(--ap-color-muted-foreground);
   font-family: var(--ap-font-mono);
   font-size: var(--ap-text-xs);

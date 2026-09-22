@@ -30,16 +30,23 @@ const TAG = /<(\/?)([a-zA-Z][\w-]*)(?:\s[^>]*?)?(\/?)>/g;
  * distinct id is renumbered in order of appearance, which keeps what the
  * snapshot is actually for — that the label still points at its input.
  */
+const ID_ATTRIBUTE =
+  /\b(id|for|data-ap-dialog|aria-labelledby|aria-describedby|aria-controls)="([^"]*)"/g;
 const GENERATED_ID = /_r_[0-9a-z]+_/g;
 
 function stableIds(markup: string): string {
   const seen = new Map<string, string>();
-  return markup.replace(GENERATED_ID, (id) => {
-    const existing = seen.get(id);
-    if (existing) return existing;
-    const replacement = `_id${seen.size + 1}_`;
-    seen.set(id, replacement);
-    return replacement;
+  // Only inside the attributes that carry an id: the same shape appearing in
+  // visible text or an href is content, and normalising it would hide a change.
+  return markup.replace(ID_ATTRIBUTE, (whole, name: string, value: string) => {
+    const rewritten = value.replace(GENERATED_ID, (id) => {
+      const existing = seen.get(id);
+      if (existing) return existing;
+      const replacement = `_id${seen.size + 1}_`;
+      seen.set(id, replacement);
+      return replacement;
+    });
+    return rewritten === value ? whole : `${name}="${rewritten}"`;
   });
 }
 

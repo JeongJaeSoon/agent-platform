@@ -154,6 +154,44 @@ describe("ConfirmDialog", () => {
     });
   });
 
+  test("안에서 autoFocus가 먼저 포커스를 가져가도 돌려줄 곳을 기억한다", async () => {
+    // Radix skips its own open event when a child already holds focus, so a
+    // capture that hangs on that event would come back empty.
+    const user = await setupUser();
+    function WithAutoFocus() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            여는 버튼
+          </button>
+          <ConfirmDialog
+            open={open}
+            onOpenChange={setOpen}
+            title="이름을 정할까요?"
+            consequence="나중에 바꿀 수 있습니다."
+            onConfirm={() => {}}
+          >
+            {/* biome-ignore lint/a11y/noAutofocus: the case under test */}
+            <input autoFocus={true} aria-label="이름" />
+          </ConfirmDialog>
+        </>
+      );
+    }
+
+    const { baseElement, getByText } = render(<WithAutoFocus />);
+    const opener = getByText("여는 버튼") as HTMLButtonElement;
+    await user.click(opener);
+    await waitFor(() => {
+      expect(baseElement.querySelector("[role='dialog']")).not.toBeNull();
+    });
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(opener);
+    });
+  });
+
   test("열었던 버튼이 사라졌으면 없는 곳으로 포커스를 보내지 않는다", async () => {
     const user = await setupUser();
     function Vanishing() {

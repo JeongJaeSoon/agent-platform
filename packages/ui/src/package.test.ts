@@ -85,10 +85,18 @@ describe("패키지 경계", () => {
         // A value import would drag zod into the browser bundle for nothing.
         if (!match[1]) offenders.push(file);
       }
-      // `await import("@agent-platform/contracts")` is a value import with no
-      // `type` to look for, so it is caught by shape instead.
-      if (/\bimport\s*\(\s*["']@agent-platform\/contracts["']/.test(source)) {
-        offenders.push(`${file} (dynamic)`);
+      // Forms with no `type` to look for: a dynamic import, a bare
+      // side-effect import, and a re-export. Each pulls zod in at runtime.
+      const RUNTIME_FORMS: [RegExp, string][] = [
+        [/\bimport\s*\(\s*["']@agent-platform\/contracts["']/, "dynamic"],
+        [/\bimport\s+["']@agent-platform\/contracts["']/, "side effect"],
+        [
+          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@agent-platform\/contracts["']/,
+          "re-export",
+        ],
+      ];
+      for (const [pattern, kind] of RUNTIME_FORMS) {
+        if (pattern.test(source)) offenders.push(`${file} (${kind})`);
       }
     }
     expect(offenders).toEqual([]);

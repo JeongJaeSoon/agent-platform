@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { JSX, ReactNode } from "react";
-import { useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 import { cn } from "../lib/cn.ts";
 
@@ -48,12 +48,35 @@ export function ConfirmDialog({
    * but the screens own their buttons and never mount one, so its ref is empty
    * and focus falls to <body> — a keyboard user loses their place.
    *
-   * Captured in `onOpenAutoFocus`, which Radix fires while `document.activeElement`
-   * is still the opener and before it moves focus inside. An event handler, not
-   * render: a render that React starts and throws away would otherwise leave a
-   * stale opener behind for the next open.
+   * Tracked by watching focus rather than read at open time: Radix skips its
+   * own open event when a child already took focus (an `autoFocus` input), and
+   * by the time any effect of ours runs the opener is no longer current. The
+   * last thing focused outside *this* content is the opener — outside this one
+   * specifically, so a dialog opened from within another returns to the button
+   * inside it.
+   *
+   * The marker attribute rather than a ref: React attaches a parent's ref after
+   * the subtree is in the DOM, so an `autoFocus` child fires before we could
+   * recognise our own content by it. The attribute is already there.
    */
+  const instanceId = useId();
   const openerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const remember = (event: FocusEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (
+        !target?.closest ||
+        target.closest(`[data-ap-dialog="${instanceId}"]`)
+      ) {
+        return;
+      }
+      openerRef.current = target;
+    };
+    document.addEventListener("focusin", remember);
+    return () => {
+      document.removeEventListener("focusin", remember);
+    };
+  }, [instanceId]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -62,12 +85,10 @@ export function ConfirmDialog({
         {/* Radix wires aria-labelledby/aria-describedby to the Title and
             Description below, and owns Escape and the focus trap. */}
         <Dialog.Content
+          data-ap-dialog={instanceId}
           className={cn("ap-dialog", className)}
           data-tone={tone}
           data-busy={busy || undefined}
-          onOpenAutoFocus={() => {
-            openerRef.current = document.activeElement as HTMLElement | null;
-          }}
           onCloseAutoFocus={(event) => {
             const opener = openerRef.current;
             // Gone from the page — the screen that owned it was torn down with

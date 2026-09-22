@@ -114,9 +114,7 @@ function paletteOf(
     ) {
       continue;
     }
-    if (!predicate(declaration) || !/^#[0-9a-f]{6}$/i.test(declaration.value)) {
-      continue;
-    }
+    if (!predicate(declaration)) continue;
     palette.set(declaration.property, declaration.value);
   }
   return palette;
@@ -140,44 +138,62 @@ describe("tokens.css", () => {
         "positive",
       ].map((tone) => `--ap-tone-${tone}-bg`),
     ];
+    const light = paletteOf(
+      (d) => d.selector === ":root" && d.atRules.length === 0,
+    );
     const themes: [string, Map<string, string>][] = [
+      ["light", light],
       [
-        "light",
-        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+        "dark(수동)",
+        paletteOf((d) => d.selector === ':root[data-theme="dark"]'),
       ],
-      ["dark", paletteOf((d) => d.selector === ':root[data-theme="dark"]')],
+      [
+        // The OS-preference block is a third theme, not a copy: a regression
+        // that only lands there would otherwise go unmeasured.
+        "dark(시스템)",
+        paletteOf((d) =>
+          d.atRules.includes("@media (prefers-color-scheme: dark)"),
+        ),
+      ],
+    ];
+    const TEXT = ["--ap-color-foreground", "--ap-color-muted-foreground"];
+    const RAIL_TEXT = [
+      "--ap-color-rail-foreground",
+      "--ap-color-rail-muted-foreground",
     ];
 
     const failures: string[] = [];
+    // A token this test cannot read is a hole in it, not a pass. Every pair
+    // below must resolve to a hex value in every theme.
+    const colourOf = (
+      theme: string,
+      palette: Map<string, string>,
+      name: string,
+    ): string | null => {
+      const value = palette.get(name);
+      if (value && /^#[0-9a-f]{6}$/i.test(value)) return value;
+      failures.push(`${theme}: ${name} = ${value ?? "없음"} (읽을 수 없다)`);
+      return null;
+    };
+
     for (const [theme, palette] of themes) {
       expect(palette.size).toBeGreaterThan(0);
-      for (const text of [
-        "--ap-color-foreground",
-        "--ap-color-muted-foreground",
-      ]) {
-        for (const surface of SURFACES) {
-          const fg = palette.get(text);
-          const bg = palette.get(surface);
-          if (!fg || !bg) continue;
-          const ratio = contrast(fg, bg);
-          if (ratio < AA) {
-            failures.push(
-              `${theme}: ${text} on ${surface} = ${ratio.toFixed(2)}`,
-            );
+      for (const [texts, surfaces] of [
+        [TEXT, SURFACES],
+        [RAIL_TEXT, ["--ap-color-rail"]],
+      ] as [string[], string[]][]) {
+        for (const text of texts) {
+          const fg = colourOf(theme, palette, text);
+          for (const surface of surfaces) {
+            const bg = colourOf(theme, palette, surface);
+            if (!fg || !bg) continue;
+            const ratio = contrast(fg, bg);
+            if (ratio < AA) {
+              failures.push(
+                `${theme}: ${text} on ${surface} = ${ratio.toFixed(2)}`,
+              );
+            }
           }
-        }
-      }
-      // The rail is its own surface with its own pair.
-      const rail = palette.get("--ap-color-rail");
-      for (const text of [
-        "--ap-color-rail-foreground",
-        "--ap-color-rail-muted-foreground",
-      ]) {
-        const fg = palette.get(text);
-        if (!fg || !rail) continue;
-        const ratio = contrast(fg, rail);
-        if (ratio < AA) {
-          failures.push(`${theme}: ${text} on rail = ${ratio.toFixed(2)}`);
         }
       }
     }
@@ -251,10 +267,16 @@ describe("styles.css", () => {
       // A big intrinsic width is fine when `min()` caps it against the
       // container. `clamp(a, b, c)` does not: its floor is `a`, so only the
       // first argument is read below.
-      const value = /^\s*min\(/.test(d.value)
-        ? /100%|vw\b/.test(d.value)
-          ? ""
-          : d.value
+      // `100%` is the container; `vw` includes the scrollbar and is what
+      // pushed the dialog sideways once already. A `+` inside the cap means
+      // it grows past the container, so it is not a cap.
+      const cappedToContainer =
+        /^\s*min\(/.test(d.value) &&
+        d.value.includes("100%") &&
+        !/\bvw\b/.test(d.value) &&
+        !/100%\s*\+/.test(d.value);
+      const value = cappedToContainer
+        ? ""
         : (/^\s*clamp\((.*)$/.exec(d.value)?.[1]?.split(",")[0] ?? d.value);
       // rem as well as px: `width: 40rem` is 640px at the default root size,
       // and this package states its widths in rem.
@@ -278,11 +300,13 @@ describe("styles.css", () => {
     const SERVER_TEXT = [
       ".ap-status__text",
       ".ap-status__detail",
+      ".ap-receipt__operation",
       ".ap-receipt__id",
       ".ap-receipt__detail",
       ".ap-receipt-link__text",
       ".ap-receipt-link__id",
       ".ap-state__description",
+      ".ap-state__code",
     ];
     const declared = new Map<string, Set<string>>();
     for (const declaration of styleDeclarations) {

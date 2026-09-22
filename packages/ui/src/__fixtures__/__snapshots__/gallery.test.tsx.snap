@@ -1252,13 +1252,13 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
 `;
 
 exports[`컴포넌트 갤러리 열린 다이얼로그까지 포함한 좁은 화면 1`] = `
-"<div role="dialog" id="radix-_id1_" data-state="open" class="ap-dialog" data-tone="danger" tabindex="-1" aria-describedby="radix-_id2_" aria-labelledby="radix-_id3_" style="pointer-events: auto;">
-  <h2 id="radix-_id3_" class="ap-dialog__title">에이전트를 해고할까요?</h2>
-  <p id="radix-_id2_" class="ap-dialog__consequence">카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다.</p>
+"<div role="dialog" id="radix-_id1_" data-state="open" data-ap-dialog="_id2_" class="ap-dialog" data-tone="danger" tabindex="-1" aria-describedby="radix-_id3_" aria-labelledby="radix-_id4_" style="pointer-events: auto;">
+  <h2 id="radix-_id4_" class="ap-dialog__title">에이전트를 해고할까요?</h2>
+  <p id="radix-_id3_" class="ap-dialog__consequence">카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다.</p>
   <div class="ap-dialog__match">
-    <label class="ap-dialog__match-label" for="_id4_">계속하려면 아래 이름을 그대로 입력하세요</label>
+    <label class="ap-dialog__match-label" for="_id5_">계속하려면 아래 이름을 그대로 입력하세요</label>
     <code class="ap-dialog__match-target">결제 담당</code>
-    <input id="_id4_" class="ap-input" autocomplete="off" type="text" value="">
+    <input id="_id5_" class="ap-input" autocomplete="off" type="text" value="">
   </div>
   <div class="ap-dialog__actions">
     <button type="button" class="ap-button ap-button--quiet">취소</button>
