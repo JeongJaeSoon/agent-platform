@@ -31,6 +31,24 @@ export const API_POOL_TIMEOUTS: PoolTimeouts = {
 const QUERY_READ_TIMEOUT = "Query read timeout";
 
 export class EvictOnReadTimeoutClient extends Client {
+  private pendingRelease: ((error?: Error) => void) | undefined;
+
+  // pg-pool assigns release() on every checkout and throws if it is called
+  // twice. Eviction hands the client back itself (drizzle runs BEGIN before
+  // the try/finally that releases, so a timed-out BEGIN would otherwise leak
+  // the slot for good), and the caller's own release() must then be a no-op.
+  set release(fn: ((error?: Error) => void) | undefined) {
+    this.pendingRelease = fn;
+  }
+
+  get release(): (error?: Error) => void {
+    return (error?: Error) => {
+      const fn = this.pendingRelease;
+      this.pendingRelease = undefined;
+      fn?.(error);
+    };
+  }
+
   private evictOnReadTimeout(error: unknown): void {
     if (!(error instanceof Error) || error.message !== QUERY_READ_TIMEOUT) {
       return;
@@ -43,11 +61,11 @@ export class EvictOnReadTimeoutClient extends Client {
       _queryable?: boolean;
       connection?: { stream?: { destroy(e?: Error): void } };
     };
-    // The socket error only lands on the next tick and the client is usually
-    // released before that; flag it unusable now so pg-pool removes it on
-    // release instead of parking it idle for a tick.
+    // The socket error only lands on the next tick; flag the client unusable
+    // now so pg-pool removes it rather than parking it idle for a tick.
     internals._queryable = false;
     internals.connection?.stream?.destroy(error);
+    this.release(error);
   }
 
   // pg's overloads (callback or promise, text or config) all funnel through

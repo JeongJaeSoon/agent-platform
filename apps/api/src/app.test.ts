@@ -157,6 +157,10 @@ describe("API authentication", () => {
         "Client has encountered a connection error and is not queryable",
       ),
     ],
+    [
+      "statement queued behind a closed client",
+      new Error("Client was closed and is not queryable"),
+    ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {
       async findOwner() {

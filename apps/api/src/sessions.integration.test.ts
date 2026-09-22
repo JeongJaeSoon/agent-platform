@@ -358,6 +358,34 @@ integration("sessions API on PostgreSQL", () => {
     }
   });
 
+  test("api pool frees the slot when a checked-out client times out before the caller releases it", async () => {
+    // drizzle executes BEGIN outside the try/finally that releases the
+    // client, so a BEGIN that times out never reaches release(); with max 1
+    // the pool would then be exhausted for the life of the process.
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 30_000,
+      queryMs: 500,
+    });
+    try {
+      const client = await apiPool.connect();
+      const failure = await client
+        .query("SELECT pg_sleep(5)")
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ message: "Query read timeout" });
+      // No release() by the caller, and yet the slot is free again.
+      expect(apiPool.totalCount).toBe(0);
+      // A late release() from a caller that does reach its finally is harmless.
+      expect(() => client.release()).not.toThrow();
+      const next = await apiPool.connect();
+      expect((await next.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+      next.release();
+    } finally {
+      await apiPool.end();
+    }
+  });
+
   test("survives the backend of an idle probe connection being terminated", async () => {
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.idleCount).toBe(1);
