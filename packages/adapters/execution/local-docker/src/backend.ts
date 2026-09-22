@@ -671,9 +671,9 @@ export class LocalDockerBackend implements ExecutionBackend {
       );
     }
     if (found.length > 1) {
-      // ponytail: reported, not resolved. Merging or choosing between two
-      // workspaces needs to know which one a worker actually wrote to;
-      // revisit if a launch race is ever observed to produce this.
+      // Reported, not resolved: choosing between two workspaces needs to
+      // know which one a worker actually wrote to, which nothing here can
+      // tell. Worth resolving if a launch race is ever seen to produce it.
       throw new WorkspaceQuotaError(
         found
           .map((volume) => volume.Name)
