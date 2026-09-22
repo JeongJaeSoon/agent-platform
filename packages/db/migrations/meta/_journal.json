@@ -71,6 +71,13 @@
       "when": 1790114154729,
       "tag": "0100_auth_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790115218982,
+      "tag": "0101_aspiring_luckman",
+      "breakpoints": true
     }
   ]
 }
