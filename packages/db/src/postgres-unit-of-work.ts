@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   attemptStateSchema,
   type CreateSessionResponse,
+  checkpointBlockReasonSchema,
   createSessionResponseSchema,
   executionObservationSchema,
   type ListSessionsQuery,
@@ -26,6 +27,7 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
 } from "@agent-platform/platform";
+import { projectDurability } from "@agent-platform/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
@@ -218,7 +220,10 @@ export function createPostgresSessionUnitOfWork(
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx
-          .select({ admissionState: sessions.admissionState })
+          .select({
+            admissionState: sessions.admissionState,
+            checkpointPendingReason: sessions.checkpointPendingReason,
+          })
           .from(sessions)
           .where(
             and(
@@ -235,6 +240,16 @@ export function createPostgresSessionUnitOfWork(
           return {
             outcome: "rejected",
             admissionState: session.admissionState,
+          };
+        }
+        // A turn accepted now would run on a transcript the platform cannot
+        // read back; it could never be reported as durably finished.
+        if (session.checkpointPendingReason !== null) {
+          return {
+            outcome: "checkpoint_unavailable",
+            reason: checkpointBlockReasonSchema.parse(
+              session.checkpointPendingReason,
+            ),
           };
         }
         const [last] = await tx
@@ -530,13 +545,21 @@ export function createPostgresSessionReader(db: Database): SessionReader {
                 eq(turns.status, "completed"),
               ),
             ),
-          db
-            .select({ sequence: turns.sequence })
-            .from(checkpoints)
-            .innerJoin(turns, eq(turns.id, checkpoints.turnId))
-            .where(eq(checkpoints.sessionId, sessionId))
-            .orderBy(desc(checkpoints.revision))
-            .limit(1),
+          // The turn the *pointer's* checkpoint closed, not the newest
+          // checkpoint row: the two agree only while nothing is committing.
+          row.checkpointRevision === null
+            ? Promise.resolve([undefined])
+            : db
+                .select({ sequence: turns.sequence })
+                .from(checkpoints)
+                .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+                .where(
+                  and(
+                    eq(checkpoints.sessionId, sessionId),
+                    eq(checkpoints.revision, row.checkpointRevision),
+                  ),
+                )
+                .limit(1),
         ]);
       return {
         ...summary,
@@ -549,17 +572,19 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         checkpoint_revision: row.checkpointRevision,
         pending_request_count: pending?.count ?? 0,
         attention: null,
-        durability: {
-          last_transcript_persisted_at: null,
-          checkpoint_committed_at:
-            row.checkpointCommittedAt?.toISOString() ?? null,
-          checkpoint_revision: row.checkpointRevision,
-          last_completed_turn_id:
-            completed?.sequence == null ? null : String(completed.sequence),
-          last_checkpointed_turn_id:
+        durability: projectDurability({
+          checkpointCommittedAt: row.checkpointCommittedAt,
+          checkpointRevision: row.checkpointRevision,
+          lastCheckpointedTurnId:
             checkpoint?.sequence == null ? null : String(checkpoint.sequence),
-          checkpoint_pending_reason: null,
-        },
+          lastCompletedTurnId:
+            completed?.sequence == null ? null : String(completed.sequence),
+          lastTranscriptPersistedAt: row.lastTranscriptPersistedAt,
+          pendingReason:
+            row.checkpointPendingReason === null
+              ? null
+              : checkpointBlockReasonSchema.parse(row.checkpointPendingReason),
+        }),
       };
     },
 

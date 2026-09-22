@@ -469,6 +469,45 @@ integration("sessions API on PostgreSQL", () => {
     expect((await foreign.json()).error.details).toBeNull();
   }, 60_000);
 
+  test("detail carries the durability the rows record, and a mirror failure closes input", async () => {
+    const sessionId = await createdSession("durability-1");
+    const persistedAt = new Date("2026-09-23T01:02:03.000Z");
+    await db
+      .update(sessions)
+      .set({
+        checkpointPendingAttemptId: "attempt-x",
+        checkpointPendingReason: "mirror_error",
+        lastTranscriptPersistedAt: persistedAt,
+      })
+      .where(eq(sessions.id, sessionId));
+    const response = await app.request(`/v1/sessions/${sessionId}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    expect(response.status).toBe(200);
+    expect(
+      getSessionResponseSchema.parse(await response.json()).durability,
+    ).toEqual({
+      checkpoint_committed_at: null,
+      checkpoint_pending_reason: "mirror_error",
+      checkpoint_revision: null,
+      last_checkpointed_turn_id: null,
+      last_completed_turn_id: null,
+      last_transcript_persisted_at: persistedAt.toISOString(),
+    });
+    // The turn could never be reported complete, so it is not accepted.
+    const refused = await append(sessionId, "durability-1-append");
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error.code).toBe("CHECKPOINT_UNAVAILABLE");
+    // A stranger still sees nothing, not the refusal.
+    const foreign = await append(
+      sessionId,
+      "durability-1-foreign",
+      undefined,
+      stranger,
+    );
+    expect(foreign.status).toBe(404);
+  }, 60_000);
+
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
     // credentials. It has no profile/repository catalog keys (94S-147).

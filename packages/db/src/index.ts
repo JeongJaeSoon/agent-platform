@@ -1,3 +1,4 @@
+export * from "./checkpoint-store.ts";
 export * from "./enqueue.ts";
 export * from "./migration-head.ts";
 export * from "./postgres-unit-of-work.ts";

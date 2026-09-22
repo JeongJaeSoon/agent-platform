@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import type {
   CheckpointObjectStore,
   ObjectRef,
@@ -7,8 +8,6 @@ import type {
   TranscriptMirror,
   TranscriptRevision,
 } from "@agent-platform/runtime-core";
-
-import { digestParts } from "./transcript-digest.ts";
 
 /** Give up rather than spin if a slot keeps being taken from under us. */
 const SLOT_ATTEMPTS = 64;

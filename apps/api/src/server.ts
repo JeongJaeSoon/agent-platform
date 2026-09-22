@@ -13,10 +13,13 @@ import {
   isCatalogEmpty,
   ownerScopedPolicy,
   parseSessionCatalogEnv,
-  rejectUnverifiedCheckpoints,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
+import {
+  checkpointStorageConfigFromEnv,
+  createApiCheckpoints,
+} from "./checkpoints.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -47,8 +50,19 @@ if (isCatalogEmpty(catalog)) {
   });
 }
 
+// Checked before the pool exists: a bucket that is missing is a startup
+// error, not a warning, unless the operator said there is none.
+const checkpointStorage = checkpointStorageConfigFromEnv(process.env);
+if (checkpointStorage === "disabled") {
+  logger.warn(
+    "Checkpoint object store is disabled; every checkpoint will be refused and no session can be restored",
+    {},
+  );
+}
+
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
+const checkpoints = createApiCheckpoints(db, checkpointStorage);
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
@@ -61,11 +75,13 @@ const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
-  // Fails closed: the storage-backed CheckpointService exists (94S-124) but
-  // nothing binds it to this gateway yet (94S-201), so a finalize that carries
-  // a checkpoint is refused rather than promoted unread. Turns without a
-  // checkpoint finalize normally.
-  checkpoints: rejectUnverifiedCheckpoints,
+  // The storage-backed verifier: a checkpoint is promoted only after its
+  // manifest, objects and workspace bundle were read back from S3 (checked by
+  // git), and the pointer itself advances inside the turn's own transaction.
+  checkpoints: checkpoints.verifier,
+  ...(checkpoints.protocol === undefined
+    ? {}
+    : { checkpointProtocol: checkpoints.protocol }),
   options: {
     leaseTtlMs:
       Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0

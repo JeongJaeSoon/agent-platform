@@ -4,10 +4,12 @@ import {
   appendEventsResponseSchema,
   type BootstrapClaimResponse,
   bootstrapClaimResponseSchema,
+  checkpointRequestResponseSchema,
   finalizeResponseSchema,
   heartbeatResponseSchema,
   nextInputResponseSchema,
   releaseResponseSchema,
+  restorePlanResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
@@ -304,7 +306,7 @@ describe("/internal/worker", () => {
             usage: null,
           },
           checkpoint: {
-            revision: 1,
+            revision: 0,
             manifest_ref: "s3://b/m.json",
             manifest_sha256: "f".repeat(64),
           },
@@ -314,7 +316,7 @@ describe("/internal/worker", () => {
     expect(finalized).toEqual({
       turn_id: "1",
       status: "completed",
-      checkpoint_revision: 1,
+      checkpoint_revision: 0,
     });
     const [row] = await db
       .select({
@@ -323,7 +325,7 @@ describe("/internal/worker", () => {
       })
       .from(sessions)
       .where(eq(sessions.id, seeded.session_id));
-    expect(row).toEqual({ status: "idle", checkpointRevision: 1 });
+    expect(row).toEqual({ status: "idle", checkpointRevision: 0 });
 
     const released = releaseResponseSchema.parse(
       await (
@@ -434,5 +436,153 @@ describe("/internal/worker", () => {
         }),
       ),
     ).toEqual({ status: 400, code: "BAD_REQUEST" });
+  });
+
+  test("checkpoint-request and restore-plan are fenced session-token calls answered by the checkpoint protocol", async () => {
+    await seedSession();
+    const { binding, nonce } = await claimed();
+    const token = binding.session_credential;
+    const protocolCalls: unknown[] = [];
+    const withProtocol = createApiApp({
+      authMode: "api-key",
+      registerInternalRoutes: (router) =>
+        registerWorkerRoutes(
+          router,
+          createWorkerGateway({
+            work: createPostgresWorkerUnitOfWork(db),
+            catalog: { profiles: {}, repositories: {} },
+            checkpoints: acceptAllCheckpoints,
+            checkpointProtocol: {
+              async requestCheckpoint(input) {
+                protocolCalls.push(input);
+                const revision = (input.pointer?.revision ?? -1) + 1;
+                return {
+                  status: "ready",
+                  request: {
+                    manifestRef: `sessions/${input.sessionId}/checkpoints/${String(revision).padStart(10, "0")}/${input.attemptId}/manifest.json`,
+                    revision,
+                    sessionId: input.sessionId,
+                  },
+                };
+              },
+              async getRestorePlan() {
+                return { status: "none" };
+              },
+            },
+            options: { leaseTtlMs: LEASE_TTL_MS, now: () => clock },
+          }),
+        ),
+    });
+    const post = (path: string, token: string | null, body: unknown) =>
+      withProtocol.request(`/internal/worker/${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    expect(
+      checkpointRequestResponseSchema.parse(
+        await (
+          await post("checkpoint-request", token, {
+            ...scope(binding),
+            preparation: { status: "ready" },
+          })
+        ).json(),
+      ),
+    ).toEqual({
+      status: "ready",
+      revision: 0,
+      manifest_ref: `sessions/${binding.session_id}/checkpoints/0000000000/${binding.attempt_id}/manifest.json`,
+    });
+    expect(protocolCalls.at(-1)).toMatchObject({
+      attemptId: binding.attempt_id,
+      sessionId: binding.session_id,
+      pointer: null,
+    });
+    expect(
+      checkpointRequestResponseSchema.parse(
+        await (
+          await post("checkpoint-request", token, {
+            ...scope(binding),
+            preparation: {
+              status: "rejected",
+              reason: "turn_in_flight",
+              detail: "input pending",
+            },
+          })
+        ).json(),
+      ),
+    ).toEqual({
+      status: "blocked",
+      reason: "turn_in_flight",
+      detail: "input pending",
+    });
+    expect(
+      restorePlanResponseSchema.parse(
+        await (
+          await post("restore-plan", token, {
+            ...scope(binding),
+            runtime: {
+              engine: "claude",
+              sdk_version: "0.3.270",
+              cli_version: "2.1.270",
+              profile_sha256: "c".repeat(64),
+            },
+          })
+        ).json(),
+      ),
+    ).toEqual({ status: "none" });
+    // The bootstrap token cannot ask; a malformed preparation never reaches
+    // the gateway.
+    expect(
+      await errorOf(
+        await post("checkpoint-request", nonce, {
+          ...scope(binding),
+          preparation: { status: "ready" },
+        }),
+      ),
+    ).toEqual({ status: 403, code: "FORBIDDEN" });
+    expect(
+      await errorOf(
+        await post("checkpoint-request", token, {
+          ...scope(binding),
+          preparation: { status: "rejected", reason: "disk_full", detail: "x" },
+        }),
+      ),
+    ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    // The heartbeat carries the transcript report through to the row.
+    const beat = await post("heartbeat", token, {
+      ...scope(binding),
+      attempt_state: "running",
+      transcript: {
+        persisted_at: "2026-09-22T00:00:01.000Z",
+        mirror_error: null,
+      },
+    });
+    expect(beat.status).toBe(200);
+    const [row] = await db
+      .select({ persistedAt: sessions.lastTranscriptPersistedAt })
+      .from(sessions)
+      .where(eq(sessions.id, binding.session_id));
+    expect(row?.persistedAt?.toISOString()).toBe("2026-09-22T00:00:01.000Z");
+  });
+
+  test("without an object store the checkpoint protocol is 409 CHECKPOINT_UNAVAILABLE", async () => {
+    await seedSession();
+    const { binding } = await claimed();
+    const response = await post(
+      "checkpoint-request",
+      binding.session_credential,
+      {
+        ...scope(binding),
+        preparation: { status: "ready" },
+      },
+    );
+    expect(await errorOf(response)).toEqual({
+      status: 409,
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
   });
 });

@@ -3,6 +3,8 @@ import {
   appendEventsResponseSchema,
   bootstrapClaimRequestSchema,
   bootstrapClaimResponseSchema,
+  checkpointRequestResponseSchema,
+  checkpointRequestSchema,
   finalizeRequestSchema,
   finalizeResponseSchema,
   heartbeatRequestSchema,
@@ -11,6 +13,8 @@ import {
   nextInputResponseSchema,
   releaseRequestSchema,
   releaseResponseSchema,
+  restorePlanRequestSchema,
+  restorePlanResponseSchema,
 } from "@agent-platform/contracts";
 import {
   type WorkerGateway,
@@ -108,6 +112,18 @@ export function registerWorkerRoutes(
     appendEventsRequestSchema,
     appendEventsResponseSchema,
     (principal, body) => gateway.appendEvents(principal, body),
+  );
+  call(
+    "/checkpoint-request",
+    checkpointRequestSchema,
+    checkpointRequestResponseSchema,
+    (principal, body) => gateway.requestCheckpoint(principal, body),
+  );
+  call(
+    "/restore-plan",
+    restorePlanRequestSchema,
+    restorePlanResponseSchema,
+    (principal, body) => gateway.restorePlan(principal, body),
   );
   call(
     "/finalize",

@@ -16,6 +16,7 @@ import {
 import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -236,6 +237,14 @@ integration("worker gateway on PostgreSQL", () => {
       executionGeneration: claimed.execution_generation,
       authRevision: claimed.auth_revision,
     };
+  }
+
+  function fenceOf(claimed: Awaited<ReturnType<typeof claim>>) {
+    const { kind: _kind, ...fence } = principalOf(claimed) as Extract<
+      WorkerPrincipal,
+      { kind: "session" }
+    >;
+    return fence;
   }
 
   async function failure(work: Promise<unknown>) {
@@ -1292,7 +1301,7 @@ integration("worker gateway on PostgreSQL", () => {
             usage: null,
           },
           checkpoint: {
-            revision: 1,
+            revision: 0,
             manifest_ref: "s3://bucket/m.json",
             manifest_sha256: "a".repeat(64),
           },
@@ -2100,9 +2109,11 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("finalize commits checkpoint, turn terminal, receipt and queue ACK in one transaction and replays by key", async () => {
     const { session, claimed } = await claimAndDeliver();
+    // The first checkpoint of a session is revision 0: exactly the next one
+    // after "none", as checkpointStateAtomic would have handed out.
     const checkpoint = {
-      revision: 1,
-      manifest_ref: "s3://bucket/manifest-1.json",
+      revision: 0,
+      manifest_ref: "s3://bucket/manifest-0.json",
       manifest_sha256: "a".repeat(64),
     };
     const request = {
@@ -2122,7 +2133,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(done).toEqual({
       turn_id: "1",
       status: "completed",
-      checkpoint_revision: 1,
+      checkpoint_revision: 0,
     });
 
     const [turn] = await db
@@ -2153,14 +2164,14 @@ integration("worker gateway on PostgreSQL", () => {
       .select()
       .from(checkpoints)
       .where(eq(checkpoints.sessionId, session.session_id));
-    expect(cp?.revision).toBe(1);
+    expect(cp?.revision).toBe(0);
     expect(cp?.turnId).toBe(turn?.id ?? -1);
     const [row] = await db
       .select()
       .from(sessions)
       .where(eq(sessions.id, session.session_id));
     expect(row?.status).toBe("idle");
-    expect(row?.checkpointRevision).toBe(1);
+    expect(row?.checkpointRevision).toBe(0);
     expect(row?.checkpointCommittedAt?.toISOString()).toBe(clock.toISOString());
 
     expect(await gateway.finalize(principalOf(claimed), request)).toEqual(done);
@@ -2180,7 +2191,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(empty.input).toBeNull();
   });
 
-  test("finalize refuses a rejected manifest and a non-monotonic revision without touching the turn", async () => {
+  test("finalize refuses a rejected manifest and a revision that is not the next one without touching the turn", async () => {
     const { session, claimed } = await claimAndDeliver();
     const base = {
       ...scopeOf(claimed, "1"),
@@ -2199,7 +2210,7 @@ integration("worker gateway on PostgreSQL", () => {
         gateway.finalize(principalOf(claimed), {
           ...base,
           checkpoint: {
-            revision: 1,
+            revision: 0,
             manifest_ref: "bad/ref",
             manifest_sha256: "b".repeat(64),
           },
@@ -2210,18 +2221,21 @@ integration("worker gateway on PostgreSQL", () => {
       .update(sessions)
       .set({ checkpointRevision: 5 })
       .where(eq(sessions.id, session.session_id));
-    expect(
-      await failure(
-        gateway.finalize(principalOf(claimed), {
-          ...base,
-          checkpoint: {
-            revision: 5,
-            manifest_ref: "ok/ref",
-            manifest_sha256: "c".repeat(64),
-          },
-        }),
-      ),
-    ).toEqual({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    // Neither the current revision nor one that skips ahead: only 6 is next.
+    for (const revision of [5, 7]) {
+      expect(
+        await failure(
+          gateway.finalize(principalOf(claimed), {
+            ...base,
+            checkpoint: {
+              revision,
+              manifest_ref: "ok/ref",
+              manifest_sha256: "c".repeat(64),
+            },
+          }),
+        ),
+      ).toEqual({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    }
     const [turn] = await db
       .select({ status: turns.status })
       .from(turns)
@@ -2241,8 +2255,8 @@ integration("worker gateway on PostgreSQL", () => {
     const { session, launch: l, claimed } = await claimAndDeliver(partition);
     expect(claimed.restore).toBeNull();
     const checkpoint = {
-      revision: 1,
-      manifest_ref: "s3://bucket/descriptor-manifest-1.json",
+      revision: 0,
+      manifest_ref: "s3://bucket/descriptor-manifest-0.json",
       manifest_sha256: "b".repeat(64),
     };
     await gateway.finalize(principalOf(claimed), {
@@ -2523,5 +2537,310 @@ integration("worker gateway on PostgreSQL", () => {
       ).toBe(false);
     }
     expect(await work.countReservedSlots(partition)).toBe(0);
+  });
+
+  test("a mirror failure holds new input and completed terminals; only another attempt's checkpoint releases it", async () => {
+    const partition = partitionFor("mirror");
+    const { session, launch: l, claimed } = await claimAndDeliver(partition);
+    const ownerId =
+      (
+        await db
+          .select({ ownerId: sessions.ownerId })
+          .from(sessions)
+          .where(eq(sessions.id, session.session_id))
+      )[0]?.ownerId ?? "";
+    const append = (message: string) =>
+      createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        principal: { ownerId },
+        sessionId: session.session_id,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: crypto.randomUUID(),
+        message,
+      });
+    const row = async () => {
+      const [stored] = await db
+        .select({
+          pending: sessions.checkpointPendingReason,
+          pendingAttempt: sessions.checkpointPendingAttemptId,
+          persistedAt: sessions.lastTranscriptPersistedAt,
+          revision: sessions.checkpointRevision,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, session.session_id));
+      return stored;
+    };
+    // Queued before the failure: what the next attempt will run.
+    expect((await append("second input")).outcome).toBe("accepted");
+
+    const later = new Date("2026-09-22T00:00:10.000Z");
+    const earlier = new Date("2026-09-22T00:00:05.000Z");
+    await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+      transcript: {
+        persisted_at: later.toISOString(),
+        mirror_error: "batch 7 dropped",
+      },
+    });
+    expect(await row()).toMatchObject({
+      pending: "mirror_error",
+      pendingAttempt: claimed.attempt_id,
+      persistedAt: later,
+    });
+    // A late heartbeat neither walks the mark back nor clears the reason.
+    await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+      transcript: { persisted_at: earlier.toISOString(), mirror_error: null },
+    });
+    expect(await row()).toMatchObject({
+      pending: "mirror_error",
+      persistedAt: later,
+    });
+    // Neither does asking for a checkpoint at a safe boundary.
+    expect(
+      await createPostgresWorkerUnitOfWork(db).checkpointStateAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+      }),
+    ).toEqual({ outcome: "ok", pointer: null, pendingReason: "mirror_error" });
+
+    // New input is refused: a turn run now could never be reported done.
+    expect(await append("third input")).toEqual({
+      outcome: "checkpoint_unavailable",
+      reason: "mirror_error",
+    });
+    // So is a success the worker cannot back with a checkpoint...
+    const terminal = (status: "completed" | "interrupted") => ({
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: `fin-${status}`,
+      final_source_sequence: 0,
+      terminal: { status, reason: null, result: null, usage: null },
+    });
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...terminal("completed"),
+          checkpoint: null,
+        }),
+      ),
+    ).toEqual({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    const [open] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(
+        and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+      );
+    expect(open?.status).toBe("running");
+    // ...while a checkpoint from the same attempt closes the turn but proves
+    // nothing about the transcript since the failure: the reason stays.
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...terminal("completed"),
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/mirror-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+      }),
+    ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
+    expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
+
+    // A fresh run re-mirrors from the local file; its checkpoint is what
+    // shows the transcript is whole again.
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "mirror_error",
+    });
+    await gateway.confirmExecutionGone(l.executionId);
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    const again = await claim(await launch(partition, session.session_id));
+    expect(again.restore?.revision).toBe(0);
+    const next = await gateway.nextInput(principalOf(again), scopeOf(again));
+    expect(next.input?.turn_id).toBe("2");
+    expect(
+      await gateway.finalize(principalOf(again), {
+        ...scopeOf(again, "2"),
+        turn_id: "2",
+        finalize_key: "fin-2",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "s3://bucket/mirror-1.json",
+          manifest_sha256: "b".repeat(64),
+        },
+      }),
+    ).toMatchObject({ status: "completed", checkpoint_revision: 1 });
+    expect(await row()).toMatchObject({
+      pending: null,
+      pendingAttempt: null,
+      revision: 1,
+    });
+    expect((await append("fourth input")).outcome).toBe("accepted");
+  });
+
+  test("a mirror failure never holds back an interrupt or a failure", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+      transcript: { persisted_at: null, mirror_error: "batch 2 dropped" },
+    });
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, "1"),
+        turn_id: "1",
+        finalize_key: "fin-int",
+        final_source_sequence: 0,
+        terminal: {
+          status: "interrupted",
+          reason: "user",
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      }),
+    ).toMatchObject({ status: "interrupted", checkpoint_revision: null });
+    const [stored] = await db
+      .select({
+        status: sessions.status,
+        pending: sessions.checkpointPendingReason,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(stored).toEqual({ status: "stopped", pending: "mirror_error" });
+  });
+
+  test("checkpointStateAtomic answers the fenced pointer and records only a durable refusal", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const work = createPostgresWorkerUnitOfWork(db);
+    expect(
+      await work.checkpointStateAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+      }),
+    ).toEqual({ outcome: "ok", pointer: null, pendingReason: null });
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "s3://bucket/state-0.json",
+        manifest_sha256: "a".repeat(64),
+      },
+    });
+    expect(
+      await work.checkpointStateAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+        pendingReason: "mirror_error",
+      }),
+    ).toEqual({
+      outcome: "ok",
+      pointer: {
+        committedAt: clock,
+        manifestRef: "s3://bucket/state-0.json",
+        manifestSha256: "a".repeat(64),
+        revision: 0,
+        turnId: "1",
+      },
+      pendingReason: "mirror_error",
+    });
+    // The store reads the same pointer, outside any fence.
+    expect(
+      await createPostgresCheckpointStore(db).readPointer(session.session_id),
+    ).toMatchObject({ revision: 0, turnId: "1" });
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, session.session_id));
+    expect(
+      await work.checkpointStateAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+      }),
+    ).toEqual({ outcome: "stale_epoch" });
+    // A pointer at a revision no row describes is corruption, not "none".
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 9 })
+      .where(eq(sessions.id, session.session_id));
+    await expect(
+      createPostgresCheckpointStore(db).readPointer(session.session_id),
+    ).rejects.toThrow(/revision 9/);
+  });
+
+  test("the store's turn-less commit judges the fence and the next revision like a finalize does", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const store = createPostgresCheckpointStore(db);
+    const commit = (revision: number, sha: string) =>
+      store.commitAtomic({
+        checkpoint: {
+          revision,
+          manifest_ref: `s3://bucket/turnless-${revision}.json`,
+          manifest_sha256: sha.repeat(64),
+        },
+        fence: fenceOf(claimed),
+        now: clock,
+        sessionId: session.session_id,
+        turnId: null,
+      });
+    expect(await commit(1, "a")).toEqual({
+      outcome: "conflict",
+      currentRevision: null,
+    });
+    expect(await commit(0, "a")).toEqual({ outcome: "committed", revision: 0 });
+    expect(await commit(0, "a")).toEqual({ outcome: "replayed", revision: 0 });
+    expect(await commit(0, "b")).toEqual({
+      outcome: "conflict",
+      currentRevision: 0,
+    });
+    expect(await store.readPointer(session.session_id)).toMatchObject({
+      revision: 0,
+      turnId: null,
+    });
+    // The turn's own finalize continues from the pointer the store moved.
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, "1"),
+        turn_id: "1",
+        finalize_key: "fin",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "s3://bucket/turnless-1.json",
+          manifest_sha256: "c".repeat(64),
+        },
+      }),
+    ).toMatchObject({ checkpoint_revision: 1 });
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, session.session_id));
+    expect(await commit(2, "d")).toEqual({ outcome: "stale_epoch" });
   });
 });

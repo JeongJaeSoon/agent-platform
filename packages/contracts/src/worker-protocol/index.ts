@@ -157,8 +157,33 @@ export const nextInputResponseSchema = z.object({
   lease_expires_at: timestampSchema,
 });
 
+// Why a run refuses to be checkpointed right now (runtime-core
+// CheckpointBlockReason, mirrored here so the wire schema is closed).
+export const checkpointBlockReasonSchema = z.enum([
+  "mirror_error",
+  "no_engine_session",
+  "turn_in_flight",
+]);
+
+// The worker's view of its transcript mirror, reported with each heartbeat.
+// `persisted_at` is the last mirror write that succeeded; `mirror_error` is
+// set while a batch has been dropped and the mirror no longer describes the
+// engine session. The server records the error as the session's pending
+// reason, which holds new turns and completed terminals back until a
+// checkpoint that reads the whole transcript commits.
+export const transcriptReportSchema = z
+  .object({
+    persisted_at: timestampSchema.nullable(),
+    mirror_error: z.string().min(1).nullable(),
+  })
+  .strict();
+
 export const heartbeatRequestSchema = workerScopeSchema
-  .extend({ attempt_state: attemptStateSchema })
+  .extend({
+    attempt_state: attemptStateSchema,
+    // Optional so a worker that does not mirror yet heartbeats unchanged.
+    transcript: transcriptReportSchema.optional(),
+  })
   .strict();
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
@@ -220,6 +245,107 @@ export const pendingControlResponseSchema = z.object({
   ),
 });
 
+// Asks the server where the next checkpoint goes. The runtime's own verdict
+// travels with it: the server decides which refusals outlive the turn and
+// records those as the session's pending reason. The answer is authoritative —
+// the revision and manifest key come from the committed pointer, never from
+// the worker's memory of its restore point.
+export const checkpointRequestSchema = workerScopeSchema
+  .extend({
+    preparation: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("ready") }).strict(),
+      z
+        .object({
+          status: z.literal("rejected"),
+          reason: checkpointBlockReasonSchema,
+          detail: z.string().min(1),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export const checkpointRequestResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ready"),
+    revision: revisionSchema,
+    manifest_ref: z.string().min(1),
+  }),
+  z.object({
+    status: z.literal("blocked"),
+    reason: checkpointBlockReasonSchema,
+    detail: z.string().min(1),
+  }),
+]);
+
+// What the worker runs, so the server can say whether the committed
+// checkpoint can be resumed by it (runtime-core RuntimeFingerprint).
+export const runtimeFingerprintSchema = z
+  .object({
+    engine: z.string().min(1),
+    sdk_version: z.string().min(1),
+    cli_version: z.string().min(1),
+    profile_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+export const restorePlanRequestSchema = workerScopeSchema
+  .extend({ runtime: runtimeFingerprintSchema })
+  .strict();
+
+const restoreObjectSchema = z.object({
+  key: z.string().min(1),
+  bytes: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export const restoreArtifactSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.enum([
+      "transcript_root",
+      "transcript_subagent",
+      "workspace_bundle",
+    ]),
+    label: z.string(),
+    objects: z.array(restoreObjectSchema),
+  }),
+  z.object({
+    kind: z.literal("workspace_untracked"),
+    label: z.string(),
+    objects: z.array(restoreObjectSchema.extend({ path: z.string().min(1) })),
+  }),
+]);
+export const restorePlanSchema = z.object({
+  revision: revisionSchema,
+  manifest_ref: z.string().min(1),
+  engine: z.string().min(1),
+  resume: z.string().min(1),
+  cwd: z.string().min(1),
+  git_commit: z.string().regex(/^[0-9a-f]{40}$/),
+  artifacts: z.array(restoreArtifactSchema),
+  object_keys: z.array(z.string().min(1)),
+});
+// `none` is a new session. `unavailable` and `incompatible` are refusals the
+// worker must fail its claim on: starting a fresh engine session on top of a
+// session that has a checkpoint is exactly what the pointer exists to stop.
+export const restorePlanResponseSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("none") }),
+  z.object({ status: z.literal("ready"), plan: restorePlanSchema }),
+  z.object({
+    status: z.literal("unavailable"),
+    code: z.literal("CHECKPOINT_UNAVAILABLE"),
+    reason: z.string().min(1),
+  }),
+  z.object({
+    status: z.literal("incompatible"),
+    code: z.literal("INCOMPATIBLE_CHECKPOINT"),
+    mismatches: z.array(
+      z.object({
+        field: z.enum(["cliVersion", "engine", "profileSha256", "sdkVersion"]),
+        expected: z.string(),
+        found: z.string(),
+      }),
+    ),
+  }),
+]);
+
 export const finalizeRequestSchema = workerScopeSchema
   .extend({
     turn_id: turnIdSchema,
@@ -261,7 +387,17 @@ export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;
+export type CheckpointBlockReason = z.infer<typeof checkpointBlockReasonSchema>;
+export type TranscriptReport = z.infer<typeof transcriptReportSchema>;
 export type HeartbeatRequest = z.infer<typeof heartbeatRequestSchema>;
+export type CheckpointRequest = z.infer<typeof checkpointRequestSchema>;
+export type CheckpointRequestResponse = z.infer<
+  typeof checkpointRequestResponseSchema
+>;
+export type RuntimeFingerprintWire = z.infer<typeof runtimeFingerprintSchema>;
+export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
+export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
+export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 export type WorkerEvent = z.infer<typeof workerEventSchema>;
 export type AppendEventsRequest = z.infer<typeof appendEventsRequestSchema>;

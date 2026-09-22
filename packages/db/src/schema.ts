@@ -54,6 +54,19 @@ export const sessions = pgTable(
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
       withTimezone: true,
     }),
+    // A CheckpointBlockReason that outlives the turn that produced it
+    // (durability.ts DURABLE_BLOCKERS); null once a checkpoint commits.
+    checkpointPendingReason: text("checkpoint_pending_reason"),
+    // The attempt that reported the reason. A checkpoint clears it only when
+    // another attempt commits one: the runtime holds a mirror failure for the
+    // whole run, so a checkpoint from the same attempt was captured before
+    // the failure at best and proves nothing about what came after.
+    checkpointPendingAttemptId: text("checkpoint_pending_attempt_id"),
+    // The worker's last successful transcript mirror write, as it reported
+    // it; only ever moves forward.
+    lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
+      withTimezone: true,
+    }),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),

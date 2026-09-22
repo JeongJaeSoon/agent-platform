@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import type { CheckpointManifest } from "@agent-platform/runtime-core";
-
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
@@ -10,7 +10,6 @@ import {
   validateCompatibility,
 } from "./checkpoint-codec.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
-import { digestParts } from "./transcript-digest.ts";
 
 const profileSha256 = "a".repeat(64);
 const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };
