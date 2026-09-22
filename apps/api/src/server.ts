@@ -13,7 +13,7 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import { API_POOL_TIMEOUTS, createApiPool, createProbePool } from "./pool.ts";
+import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -70,23 +70,29 @@ const app = createApiApp({
   }),
 });
 
-// Bun resets a connection whose response has produced no bytes for the idle
-// timeout (default 10s), and a reset carries no status, no request id and no
-// retry hint. A /v1 request runs several database stages in sequence (key
-// lookup, pool wait, BEGIN, statements, ROLLBACK), each with its own timeout,
-// so its budget covers a handful of the longest one. Only those requests get
-// it: keep-alive sockets and probes stay on the short default. An absolute
-// per-request deadline is a follow-up (see 94S-200).
-const DB_REQUEST_TIMEOUT_SECONDS = Math.ceil(
-  (API_POOL_TIMEOUTS.queryMs * 5) / 1000,
-);
+// Bun resets a connection that has been idle for 10 seconds (default), and a
+// reset carries no status, no request id and no retry hint. A /v1 request runs
+// several database stages in sequence (key lookup, pool wait, BEGIN,
+// statements, ROLLBACK), each bounded by its own pool timeout but together
+// longer than 10 seconds, so once the body is in, the idle clock is switched
+// off for that request: the database timeouts are what bound it from there.
+// Ingesting the body stays under the default clock, so a client feeding bytes
+// slowly still gets cut off. An absolute per-request deadline is 94S-205.
+const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 
 export default {
   port: Number(process.env.PORT ?? 3000),
-  fetch(request: Request, server: { timeout(r: Request, s: number): void }) {
-    if (new URL(request.url).pathname.startsWith("/v1")) {
-      server.timeout(request, DB_REQUEST_TIMEOUT_SECONDS);
+  async fetch(
+    request: Request,
+    server: { timeout(r: Request, seconds: number): void },
+  ): Promise<Response> {
+    if (!new URL(request.url).pathname.startsWith("/v1")) {
+      return app.fetch(request);
     }
-    return app.fetch(request);
+    const body = BODYLESS_METHODS.has(request.method)
+      ? null
+      : await request.arrayBuffer();
+    server.timeout(request, 0);
+    return app.fetch(body === null ? request : new Request(request, { body }));
   },
 };
