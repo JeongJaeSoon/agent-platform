@@ -1180,11 +1180,15 @@ integration("worker gateway on PostgreSQL", () => {
       attempt_state: "draining",
     });
     // The worker is on its way out, so the queued turn waits for the next
-    // attempt instead of being delivered and then abandoned.
+    // attempt instead of being delivered and then abandoned — and the poll
+    // says so at once rather than holding the shutdown for its full wait.
+    const polled = Date.now();
     const next = await gateway.nextInput(principalOf(claimed), {
       ...scopeOf(claimed),
+      wait_ms: 5_000,
     });
     expect(next.input).toBeNull();
+    expect(Date.now() - polled).toBeLessThan(2_000);
     const [attempt] = await db
       .select({ state: attempts.state })
       .from(attempts)

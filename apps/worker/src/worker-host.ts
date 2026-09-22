@@ -145,6 +145,7 @@ export class WorkerHost {
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
   private stoppedAt: number | undefined;
+  private released = false;
   private turn: Turn | undefined;
 
   constructor(options: WorkerHostOptions) {
@@ -196,10 +197,7 @@ export class WorkerHost {
       onFailed: (error) =>
         isOwnershipLost(error)
           ? this.lose(describe(error))
-          : this.stop({
-              kind: "failed",
-              reason: `Events could not be stored: ${describe(error)}`,
-            }),
+          : this.fail(`Events could not be stored: ${describe(error)}`),
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
@@ -225,18 +223,30 @@ export class WorkerHost {
       const launcher = this.options.runtimes.launcherFor(claim.runtime);
       // From here on: a clone can take longer than the lease the claim gave.
       this.heartbeat.start();
-      const prepared = await this.options.workspace.prepare({
-        descriptor: claim.workspace,
-        restore: claim.restore,
-        signal: this.preparation.signal,
-      });
-      this.logger.info("worker.workspace.prepared", {
-        action: prepared,
-        repository_id: claim.workspace.repository.id,
-        branch: claim.workspace.repository.branch,
-      });
-      const plan = await this.checkpoints.restorePlan(claim.restore);
-      if (this.stopping === undefined) {
+      const prepared = await this.options.workspace
+        .prepare({
+          descriptor: claim.workspace,
+          restore: claim.restore,
+          signal: this.preparation.signal,
+        })
+        .catch((error: unknown) => {
+          // A stop aborts the preparation; that is the stop's outcome, not a
+          // failure of its own.
+          if (this.preparation.signal.aborted) return null;
+          throw error;
+        });
+      if (prepared !== null) {
+        this.logger.info("worker.workspace.prepared", {
+          action: prepared,
+          repository_id: claim.workspace.repository.id,
+          branch: claim.workspace.repository.branch,
+        });
+      }
+      const plan =
+        prepared === null
+          ? null
+          : await this.checkpoints.restorePlan(claim.restore);
+      if (plan !== null && this.stopping === undefined) {
         run = launcher.start(
           {
             ...plan,
@@ -250,23 +260,19 @@ export class WorkerHost {
         await this.turnLoop(run);
       }
     } catch (error) {
-      // A stop while the workspace was being prepared aborts it; that is the
-      // stop's outcome, not a failure of its own.
-      if (!(this.preparation.signal.aborted && this.stopping !== undefined)) {
-        // A worker that failed but still owns the session gives it back, so
-        // recovery does not have to wait for the lease to lapse.
-        this.stop({
-          kind: isOwnershipLost(error) ? "lost" : "failed",
-          reason: describe(error),
-        });
-        this.logger.error("worker.failed", { reason: describe(error) });
-        await this.shutdown(run);
-        return {
-          outcome: this.stopping?.kind === "lost" ? "lease_lost" : "failed",
-          reason: describe(error),
-          turns: this.turns,
-        };
-      }
+      // A worker that failed but still owns the session gives it back, so
+      // recovery does not have to wait for the lease to lapse.
+      this.stop({
+        kind: isOwnershipLost(error) ? "lost" : "failed",
+        reason: describe(error),
+      });
+      this.logger.error("worker.failed", { reason: describe(error) });
+      await this.shutdown(run);
+      return {
+        outcome: this.stopping?.kind === "lost" ? "lease_lost" : "failed",
+        reason: describe(error),
+        turns: this.turns,
+      };
     }
     const stop = this.stopping ?? { kind: "drain", reason: "loop ended" };
     await this.shutdown(run);
@@ -337,7 +343,27 @@ export class WorkerHost {
     timer.unref?.();
   }
 
+  /**
+   * A failure that must show in the outcome even when a drain is already
+   * under way: first-wins `stop` would report the session as cleanly drained
+   * while events it owed were never stored.
+   */
+  private fail(reason: string): void {
+    if (this.stopping === undefined) {
+      this.stop({ kind: "failed", reason });
+      return;
+    }
+    if (this.stopping.kind === "lost" || this.stopping.kind === "failed") {
+      return;
+    }
+    this.stopping = { kind: "failed", reason };
+    this.logger.error("worker.failed", { reason });
+  }
+
   private lose(reason: string): void {
+    // A poll still in flight when the session was given back comes home to
+    // a fence that is gone; that is the release, not a lease loss.
+    if (this.released) return;
     if (this.stopping?.kind === "lost") return;
     this.stopping = undefined;
     this.stop({ kind: "lost", reason });
@@ -482,6 +508,7 @@ export class WorkerHost {
     // Where settleTurn cut the stream; idle() has made all of it durable.
     const finalSourceSequence = this.publisher?.hold() ?? 0;
     const checkpoint = await this.capture(run);
+    if (this.ownerLost) return;
     const finalized = await this.untilAbandoned(
       this.withRetry(
         () =>
@@ -645,7 +672,12 @@ export class WorkerHost {
       await settledWithin(this.pumping, this.withinGrace(ENGINE_EXIT_GRACE_MS));
     }
     await this.confirmEngineExit();
-    await this.heartbeat?.stop();
+    if (this.heartbeat !== undefined) {
+      await settledWithin(
+        this.heartbeat.stop(),
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      );
+    }
     if (stop.kind === "lost") {
       // No durable write survives owner loss: not the event tail, not the
       // in-flight turn, not the release.
@@ -669,7 +701,8 @@ export class WorkerHost {
         reason: "The drain budget ran out",
       });
     }
-    await this.options.gateway
+    this.released = true;
+    const releasing = this.options.gateway
       .release({ ...this.scope, turn_id: null, reason: stop.reason })
       .then((response) =>
         this.logger.info("worker.released", { released: response.released }),
@@ -677,6 +710,16 @@ export class WorkerHost {
       .catch((error) =>
         this.logger.warn("worker.release.failed", { reason: describe(error) }),
       );
+    // The release keeps its reserve; past the grace the SIGKILL ends it anyway.
+    const releaseBudget = this.withinGrace(
+      this.options.timeouts.requestTimeoutMs,
+      0,
+    );
+    if (!(await settledWithin(releasing, releaseBudget))) {
+      this.logger.warn("worker.release.failed", {
+        reason: "The stop grace ran out before the gateway answered",
+      });
+    }
   }
 
   /**
@@ -705,11 +748,10 @@ export class WorkerHost {
    * A shutdown wait, cut to what the launcher's stop grace still allows so
    * the release at the end is not the part the SIGKILL takes away.
    */
-  private withinGrace(ms: number): number {
+  private withinGrace(ms: number, reserve = RELEASE_RESERVE_MS): number {
     const grace = this.options.timeouts.stopGraceMs;
     if (grace === undefined || this.stoppedAt === undefined) return ms;
-    const left =
-      this.stoppedAt + grace - RELEASE_RESERVE_MS - this.now().getTime();
+    const left = this.stoppedAt + grace - reserve - this.now().getTime();
     return Math.max(0, Math.min(ms, left));
   }
 

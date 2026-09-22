@@ -406,7 +406,13 @@ export function createWorkerGateway(deps: {
       for (;;) {
         const result = await work.nextInputAtomic({ fence, now: now() });
         if (result.outcome !== "ok") rejected(result);
-        if (result.input || now().getTime() >= deadline) {
+        // A draining attempt is never handed new input, so waiting out the
+        // poll would only hold up its shutdown.
+        if (
+          result.input ||
+          result.draining === true ||
+          now().getTime() >= deadline
+        ) {
           return {
             input: result.input
               ? {

@@ -117,6 +117,50 @@ describe("GitWorkspace", () => {
     expect(await readdir(root)).toEqual(["stray.txt"]);
   });
 
+  test("clones with the URL's credential but never stores it where the engine can read it", async () => {
+    // Git's dumb HTTP protocol is plain files, so a static server behind
+    // Basic auth is enough to make the credential load-bearing.
+    git(["update-server-info"], origin);
+    const expected = `Basic ${btoa("someone:s3cr3t/pass")}`;
+    const asked: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const auth = request.headers.get("authorization");
+        asked.push(auth === null ? "anonymous" : "authorized");
+        if (auth !== expected) {
+          return new Response("who?", {
+            status: 401,
+            headers: { "WWW-Authenticate": 'Basic realm="git"' },
+          });
+        }
+        const path = new URL(request.url).pathname.replace(/^\/repo\.git/, "");
+        const file = Bun.file(join(origin, path));
+        return (await file.exists())
+          ? new Response(file)
+          : new Response("missing", { status: 404 });
+      },
+    });
+    try {
+      const url = `http://someone:s3cr3t%2Fpass@127.0.0.1:${server.port}/repo.git`;
+
+      expect(await prepare(descriptor(url))).toBe("clone");
+      expect(await Bun.file(join(root, "README.md")).text()).toBe("seed\n");
+      const stored = await Bun.file(join(root, ".git", "config")).text();
+      expect(stored).not.toContain("s3cr3t");
+      expect(stored).not.toContain("someone");
+      expect(git(["config", "--get", "remote.origin.url"], root)).toBe(
+        `http://127.0.0.1:${server.port}/repo.git`,
+      );
+      expect(asked).toContain("authorized");
+
+      // A later attempt reuses it, fetching with the same credential.
+      expect(await prepare(descriptor(url))).toBe("reuse");
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("never puts the repository credential in a failure", async () => {
     // Nothing listens on the discard port, so the clone fails at once.
     const url = "http://someone:hunter2@127.0.0.1:9/private.git";
