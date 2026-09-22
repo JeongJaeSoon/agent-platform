@@ -4,6 +4,8 @@ export interface GitCommandResult {
   readonly exitCode: number;
   /** Set when something other than this runner killed git. */
   readonly signal?: string;
+  /** Set when this runner killed git for running past `timeoutMs`. */
+  readonly timedOut?: true;
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -83,6 +85,7 @@ export function defaultGitRunner(
           exitCode: GIT_TIMEOUT_EXIT_CODE,
           stderr: `git exceeded ${options.timeoutMs}ms`,
           stdout: "",
+          timedOut: true,
         }));
       }
     });

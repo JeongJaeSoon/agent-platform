@@ -28,11 +28,13 @@ export type GitWorkspaceBundleVerifierOptions = {
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 
 /**
- * Stricter than `git check-ref-format`: full `refs/` names, path components
- * of the characters git bundles actually produce, no component starting with
- * a dot or a dash and none ending in `.lock`.
+ * Stricter than `git check-ref-format`: `HEAD` (what `git bundle create …
+ * HEAD` records) or a full `refs/` name whose components use the characters
+ * git bundles actually produce, none starting with a dot or a dash and none
+ * ending in `.lock`.
  */
-const SAFE_REF_NAME = /^refs(\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?<!\.lock))+$/;
+const SAFE_REF_NAME =
+  /^(HEAD|refs(\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?<!\.lock))+)$/;
 
 /**
  * The git-backed `WorkspaceBundleVerifier`: proves the bundle's pack really
@@ -46,17 +48,15 @@ const SAFE_REF_NAME = /^refs(\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?<!\.lock))+$/;
  * the pinned commit rather than whichever ref the bundle happened to name.
  *
  * Two kinds of failure, kept apart because the service turns a verdict into
- * a permanent rejection and a throw into a retryable outage. Git saying no —
- * a non-zero fetch or rev-list, including one killed at the timeout — is a
- * verdict about the bundle and comes back `unusable`. Not being able to ask
- * git properly — no temp space, no git binary, a spawn failure, a repository
- * that would not initialise, a git killed by someone else's signal, or a git
- * that died on the disk or the process table rather than on the pack — is a
- * control-plane fault and is thrown, so a healthy checkpoint is not retired
- * over a full disk. The last case is told apart by what git printed, since
- * git reports both with the same exit code; the list is deliberately the OS
- * errors, not git's own refusals, so an unknown refusal still counts against
- * the bundle.
+ * a permanent rejection and a throw into a retryable outage. Git refusing the
+ * pack — a missing or corrupt object, a tip the pack did not deliver — is a
+ * verdict about the bundle and comes back `unusable`. Everything else — no
+ * temp space, no git binary, a spawn failure, a repository that would not
+ * initialise, a git killed by a signal or by the timeout, or a failure this
+ * code does not recognise — is thrown, so a healthy checkpoint is never
+ * retired over a full disk or a busy host. Recognition is by git's own
+ * wording under `LC_ALL=C`; the list is git's refusals, not the OS errors, so
+ * that an unknown message errs toward a retry rather than a rejection.
  *
  * Nothing about this run outlives it: the repository is created under a fresh
  * temp directory and removed whichever way the run ends.
@@ -139,10 +139,12 @@ export function createGitWorkspaceBundleVerifier(
       cwd,
       env: {
         // The verdict must not depend on whoever runs the control plane:
-        // no user config, no system config, no prompts.
+        // no user config, no system config, no prompts, and git's messages
+        // in the one language `refused` below reads.
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_TERMINAL_PROMPT: "0",
+        LC_ALL: "C",
       },
       timeoutMs,
     });
@@ -150,19 +152,26 @@ export function createGitWorkspaceBundleVerifier(
 }
 
 /**
- * Messages git prints when the host, not the pack, made it stop. Matched
- * case-insensitively against stderr because git wraps `strerror` text in its
- * own phrasing (`fatal: unable to write ...: No space left on device`).
+ * How git words a refusal of the pack or of the commit, under `LC_ALL=C`.
+ * `fetch` reports index-pack and connectivity failures through the first
+ * group; `rev-list` reports a commit the pack never delivered through the
+ * second.
  */
-const HOST_FAULTS = [
-  "no space left on device",
-  "too many open files",
-  "input/output error",
-  "cannot allocate memory",
-  "out of memory",
-  "read-only file system",
-  "permission denied",
-  "resource temporarily unavailable",
+const GIT_REFUSALS = [
+  "did not send all necessary objects",
+  "bad object",
+  "missing blob",
+  "missing tree",
+  "missing commit",
+  "missing tag",
+  "fsck error",
+  "index-pack",
+  "unpack",
+  "pack ",
+  "corrupt",
+  "not a valid object",
+  "bad revision",
+  "does not appear to be a git repository",
 ];
 
 function refused(
@@ -171,12 +180,13 @@ function refused(
 ): { status: "unusable"; reason: string } {
   const detail = result.stderr.trim();
   const message = `${command} failed with exit code ${result.exitCode}: ${detail}`;
+  if (result.timedOut) throw new Error(message);
   if (result.signal !== undefined) {
     throw new Error(`${command} was killed by ${result.signal}`);
   }
   const lowered = detail.toLowerCase();
-  if (HOST_FAULTS.some((fault) => lowered.includes(fault))) {
-    throw new Error(message);
+  if (GIT_REFUSALS.some((refusal) => lowered.includes(refusal))) {
+    return { status: "unusable", reason: message };
   }
-  return { status: "unusable", reason: message };
+  throw new Error(`${message} (not a refusal git is known to give a bundle)`);
 }

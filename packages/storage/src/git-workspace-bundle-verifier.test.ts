@@ -156,19 +156,28 @@ describe("git workspace bundle verifier", () => {
   });
 
   test("git dying on the host rather than on the pack throws", async () => {
-    const gitRunner: GitCommandRunner = async (args) =>
-      args[0] === "init"
-        ? { exitCode: 0, stderr: "", stdout: "" }
-        : {
-            exitCode: 128,
-            stderr: "fatal: unable to write pack: No space left on device\n",
-            stdout: "",
-          };
-    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
-    await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
-    ).rejects.toThrow("No space left on device");
-    expect(await readdir(tempRoot)).toEqual([]);
+    for (const stderr of [
+      "fatal: unable to write pack: No space left on device\n",
+      "fatal: write error: Disk quota exceeded\n",
+      "error: something this code has never seen\n",
+    ]) {
+      const gitRunner: GitCommandRunner = async (args) =>
+        args[0] === "init"
+          ? { exitCode: 0, stderr: "", stdout: "" }
+          : { exitCode: 128, stderr, stdout: "" };
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner,
+        tempRoot,
+      });
+      await expect(
+        verifier.verify({
+          bytes: bundle.bytes,
+          commit: bundle.commit,
+          key: "k",
+        }),
+      ).rejects.toThrow(stderr.trim());
+      expect(await readdir(tempRoot)).toEqual([]);
+    }
   });
 
   test("a git killed by someone else's signal throws", async () => {
@@ -322,7 +331,39 @@ describe("git workspace bundle verifier", () => {
     expect(fetch.stderr).toContain("did not send all necessary objects");
   });
 
-  test("a git that outlives the timeout is killed and reported as unusable", async () => {
+  test("a bundle recorded against HEAD, as `git bundle create … HEAD` writes it, is restorable", async () => {
+    const source = await mkdtemp(join(tempRoot, "head-"));
+    const env = {
+      GIT_AUTHOR_EMAIL: "t@example.invalid",
+      GIT_AUTHOR_NAME: "t",
+      GIT_COMMITTER_EMAIL: "t@example.invalid",
+      GIT_COMMITTER_NAME: "t",
+    };
+    const run = async (...args: string[]) => {
+      const result = await defaultGitRunner(args, { cwd: source, env });
+      expect(result.exitCode).toBe(0);
+      return result.stdout.trim();
+    };
+    await run("init", "--quiet", "--initial-branch=main", ".");
+    await writeFile(join(source, "file.txt"), "x\n");
+    await run("add", "file.txt");
+    await run("commit", "--quiet", "-m", "c");
+    const commit = await run("rev-parse", "HEAD");
+    const path = join(source, "head.bundle");
+    await run("bundle", "create", path, "HEAD");
+    const bytes = new Uint8Array(await readFile(path));
+    await rm(source, { force: true, recursive: true });
+    expect(new TextDecoder("latin1").decode(bytes.subarray(0, 80))).toContain(
+      `${commit} HEAD`,
+    );
+
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+    expect(await verifier.verify({ bytes, commit, key: "k" })).toEqual({
+      status: "restorable",
+    });
+  });
+
+  test("a git that outlives the timeout is killed and reported as a fault, not a verdict", async () => {
     // A stand-in git on PATH that never returns is the one way to make the
     // real runner wait; the init call still runs the real binary.
     const bin = join(tempRoot, "bin");
@@ -342,16 +383,12 @@ describe("git workspace bundle verifier", () => {
       tempRoot,
     });
     const started = Date.now();
-    const verdict = await verifier.verify({
-      bytes: bundle.bytes,
-      commit: bundle.commit,
-      key: "k",
-    });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow(
+      `git fetch failed with exit code ${GIT_TIMEOUT_EXIT_CODE}: git exceeded 200ms`,
+    );
     expect(Date.now() - started).toBeLessThan(5_000);
-    expect(verdict).toEqual({
-      status: "unusable",
-      reason: `git fetch failed with exit code ${GIT_TIMEOUT_EXIT_CODE}: git exceeded 200ms`,
-    });
     await rm(bin, { force: true, recursive: true });
     expect(await readdir(tempRoot)).toEqual([]);
   });
