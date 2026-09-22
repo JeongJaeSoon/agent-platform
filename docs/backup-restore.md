@@ -2,7 +2,7 @@
 
 `scripts/backup.sh`가 한 compose 설치(PostgreSQL·LocalStack S3·Gitea)를 디렉터리 하나로 묶고, `scripts/restore.sh`가 그것을 **새 compose project**에 풀며, `scripts/verify-restore.sh`가 복원된 checkpoint pointer가 가리키는 object의 sha256을 대조한다. 원본 설치의 volume·환경 파일은 어느 스크립트도 쓰지 않는다(README 규칙).
 
-호스트에 필요한 것: docker + compose v2.24 이상(`!override` 병합), git, jq, `sha256sum` 또는 `shasum`. pg_dump·psql·awslocal은 컨테이너 안에서 실행한다.
+호스트에 필요한 것: docker + compose v2.24 이상(`!override` 병합), git, jq, `sha256sum` 또는 `shasum`, 그리고 `bun install`을 마친 이 저장소 checkout(restore의 `migrate` 서비스가 checkout을 마운트하고, verify가 `bun run scripts/lib/decode-manifest.ts`로 production codec을 부른다). pg_dump·psql·awslocal은 컨테이너 안에서 실행한다.
 
 ## 백업
 
