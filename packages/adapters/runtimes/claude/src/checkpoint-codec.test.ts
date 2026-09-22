@@ -559,6 +559,19 @@ describe("Claude profile fingerprint", () => {
     ).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test("keeps a registry named __proto__ in the fingerprint", () => {
+    // The SDK still receives it; an accumulator with an ordinary prototype
+    // would swallow it and call the two tool surfaces compatible.
+    const withProto = {
+      ...config,
+      mcpServers: Object.fromEntries([["__proto__", { command: "hidden" }]]),
+    };
+
+    expect(claudeProfileFingerprint(withProto)).not.toBe(
+      claudeProfileFingerprint(config),
+    );
+  });
+
   test("treats a function inside an otherwise plain MCP config as opaque", () => {
     const withCallback = {
       ...config,

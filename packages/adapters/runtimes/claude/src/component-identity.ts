@@ -53,7 +53,9 @@ export type ComponentDescription = {
 export function describeComponents(
   config: Pick<ClaudeRuntimeConfig, "identities" | "mcpServers" | "plugins">,
 ): ComponentDescription {
-  const mcpServers: Record<string, unknown> = {};
+  // Null prototype: a registry named `__proto__` must land as an own entry,
+  // not vanish into the prototype setter and out of the fingerprint.
+  const mcpServers: Record<string, unknown> = Object.create(null);
   for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
     if (isPlainData(server, [])) {
       const reduced = withCredentialKeysOnly(server);
