@@ -353,7 +353,7 @@ describe("login, logout, me", () => {
     );
     expect(JSON.stringify(h.identity.sessions)).not.toContain(token);
     expect(
-      h.identity.sessions[0]!.expiresAt.getTime() - Date.now(),
+      (h.identity.sessions[0]?.expiresAt.getTime() ?? 0) - Date.now(),
     ).toBeGreaterThan(WEB_SESSION_TTL_MS - 5_000);
   });
 
@@ -373,10 +373,13 @@ describe("login, logout, me", () => {
   test("a disabled account or membership cannot log in", async () => {
     const h = harness();
     await h.bootstrap();
-    h.identity.memberships[0]!.disabledAt = new Date();
+    const membership = h.identity.memberships[0];
+    const user = h.identity.users[0];
+    if (!membership || !user) throw new Error("bootstrap left no rows");
+    membership.disabledAt = new Date();
     expect((await h.login()).status).toBe(401);
-    h.identity.memberships[0]!.disabledAt = null;
-    h.identity.users[0]!.disabledAt = new Date();
+    membership.disabledAt = null;
+    user.disabledAt = new Date();
     expect((await h.login()).status).toBe(401);
   });
 
@@ -437,7 +440,8 @@ describe("login, logout, me", () => {
     const h = harness();
     await h.bootstrap();
     const cookie = cookieOf(await h.login());
-    const session = h.identity.sessions[0]!;
+    const session = h.identity.sessions[0];
+    if (!session) throw new Error("login left no session");
     const start = Date.now();
     h.identity.now = () => start + 2 * 60 * 60 * 1000;
     const later = await h.app.request("/v1/auth/me", {
@@ -511,7 +515,7 @@ describe("principal middleware", () => {
     const h = harness();
     await h.bootstrap();
     const cookie = cookieOf(await h.login());
-    const workspaceId = h.identity.workspaces[0]!.id;
+    const workspaceId = h.identity.workspaces[0]?.id;
 
     const cookieOnly = await h.app.request("/v1/whoami", {
       headers: { Cookie: cookie },
