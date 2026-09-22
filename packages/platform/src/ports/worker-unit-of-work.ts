@@ -1,6 +1,7 @@
 import type {
   AttemptState,
   CheckpointRef,
+  ExecutionBackend,
   FinalizeRequest,
   WorkerEvent,
 } from "@agent-platform/contracts";
@@ -24,7 +25,7 @@ export type RegisterLaunchInput = {
   executionId: string;
   generation: number;
   partition: string;
-  backend: string;
+  backend: ExecutionBackend;
   nonceHash: Uint8Array;
   nonceExpiresAt: Date;
 };

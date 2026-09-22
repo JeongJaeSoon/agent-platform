@@ -297,6 +297,26 @@ describe("WorkerGateway", () => {
     expect(slept).toEqual([1]);
   });
 
+  test("registerLaunch refuses a backend the session contract cannot name", async () => {
+    let persisted = 0;
+    const { instance } = gateway({
+      async registerLaunchAtomic() {
+        persisted += 1;
+        return { outcome: "registered" };
+      },
+    });
+    await expect(
+      instance.registerLaunch({
+        executionId: "e-1",
+        generation: 1,
+        // A caller outside TypeScript can still send this, and the value is
+        // read back through the public session contract.
+        backend: "kubernetes" as never,
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST" });
+    expect(persisted).toBe(0);
+  });
+
   test("authenticate hashes the bearer token and rejects unknown ones", async () => {
     const seen: Uint8Array[] = [];
     const { instance } = gateway({

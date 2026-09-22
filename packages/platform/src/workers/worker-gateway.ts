@@ -6,6 +6,7 @@ import type {
   AttemptState,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
+  ExecutionBackend,
   FinalizeRequest,
   FinalizeResponse,
   HeartbeatRequest,
@@ -17,6 +18,7 @@ import type {
   SessionRuntime,
   WorkerScope,
 } from "@agent-platform/contracts";
+import { executionBackendSchema } from "@agent-platform/contracts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type {
   ConfirmExecutionGoneResult,
@@ -247,18 +249,29 @@ export function createWorkerGateway(deps: {
       executionId: string;
       generation: number;
       partition?: string;
-      backend: string;
+      backend: ExecutionBackend;
       nonce?: string;
       // `nonce` is null when this execution was already registered: the
       // original nonce is stored only as a hash, so a caller that lost it
       // must launch a new execution rather than receive an unusable value.
     }): Promise<{ nonce: string | null; outcome: "registered" | "exists" }> {
+      // The value is persisted and read back through the public session
+      // contract, so a backend the contract does not name would only surface
+      // as a parse failure on someone else's read.
+      const backend = executionBackendSchema.safeParse(input.backend);
+      if (!backend.success) {
+        throw new WorkerGatewayError(
+          400,
+          "BAD_REQUEST",
+          `Unknown execution backend: ${String(input.backend)}`,
+        );
+      }
       const nonce = input.nonce ?? generateLaunchNonce();
       const result = await work.registerLaunchAtomic({
         executionId: input.executionId,
         generation: input.generation,
         partition: input.partition ?? "default",
-        backend: input.backend,
+        backend: backend.data,
         nonceHash: hashWorkerToken(nonce),
         nonceExpiresAt: new Date(now().getTime() + nonceTtlMs),
       });

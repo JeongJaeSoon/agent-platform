@@ -149,9 +149,20 @@ type Fenced =
 // waiting for a pool connection, BEGIN, the lock itself — is real time the
 // lease kept burning. It is added to the caller's clock rather than read from
 // the database so an injected clock still governs the test suite.
+function shift(at: Date, by: number): Date {
+  return by === 0 ? at : new Date(at.getTime() + by);
+}
+
 function since(now: Date, startedAt: number): Date {
-  const waited = Math.max(0, Date.now() - startedAt);
-  return waited === 0 ? now : new Date(now.getTime() + waited);
+  return shift(now, Math.max(0, Date.now() - startedAt));
+}
+
+// The fence is taken once, but the checks that follow it are several round
+// trips and any of them can block on a lock. The lease is therefore judged
+// again against real elapsed time just before the first write, so nothing
+// commits under a lease that ended mid-transaction.
+function leaseHeld(attempt: AttemptRow, now: Date, startedAt: number): boolean {
+  return attempt.leaseExpiresAt.getTime() > since(now, startedAt).getTime();
 }
 
 async function acquireFence(
@@ -423,6 +434,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
+      const startedAt = Date.now();
       return db.transaction(async (tx) => {
         const [launch] = await tx
           .select()
@@ -430,6 +442,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(workerLaunches.nonceHash, input.nonceHash))
           .limit(1)
           .for("update");
+        // Waiting for the pool and for this row is real time. The lease and
+        // the token are measured from here rather than from the clock the
+        // request arrived with, so a claim that waited out its own TTL does
+        // not answer "claimed" with a binding that is already dead. Audit
+        // stamps keep the caller's clock: they record the request, not the
+        // ownership window.
+        const waited = Math.max(0, Date.now() - startedAt);
+        const at = shift(input.now, waited);
+        const leaseExpiresAt = shift(input.leaseExpiresAt, waited);
+        const credentialExpiresAt = shift(input.credentialExpiresAt, waited);
         if (
           !launch ||
           launch.executionId !== input.executionId ||
@@ -440,7 +462,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // Applies to the replay path too: after the nonce lifetime the
           // bootstrap door is shut, and re-entering it would revoke the
           // session token of the worker that is still running.
-          launch.nonceExpiresAt.getTime() <= input.now.getTime()
+          launch.nonceExpiresAt.getTime() <= at.getTime()
         ) {
           return { outcome: "invalid_credential" };
         }
@@ -467,7 +489,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           await issueCredential(tx, {
             attemptId: bound.attempt.id,
             credentialHash: input.credentialHash,
-            credentialExpiresAt: input.credentialExpiresAt,
+            credentialExpiresAt,
           });
           // Revoking the old token does not stop a request that authenticated
           // before it: the auth revision moves so anything already in flight
@@ -486,10 +508,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             // The attempt has not started, so the replay gets a whole lease:
             // handing back the expired one would answer "claimed" and then
             // refuse every call the worker makes with it.
-            .set({
-              authRevision: session.authRevision,
-              leaseExpiresAt: input.leaseExpiresAt,
-            })
+            .set({ authRevision: session.authRevision, leaseExpiresAt })
             .where(eq(attempts.id, bound.attempt.id))
             .returning();
           if (!attempt) return { outcome: "invalid_credential" };
@@ -543,7 +562,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionGeneration: session.executionGeneration,
             authRevision: session.authRevision,
             state: "allocated",
-            leaseExpiresAt: input.leaseExpiresAt,
+            leaseExpiresAt,
             startedAt: input.now,
           })
           .returning();
@@ -567,7 +586,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               observedAt: input.now,
             },
           });
-        await issueCredential(tx, input);
+        await issueCredential(tx, { ...input, credentialExpiresAt });
         await tx
           .update(workerLaunches)
           .set({ claimedAttemptId: attempt.id })
@@ -864,6 +883,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "sequence_gap", acceptedThrough: durable };
           }
         }
+        if (fresh.length > 0 && !leaseHeld(fenced.attempt, now, startedAt)) {
+          return { outcome: "lease_expired" };
+        }
         if (fresh.length > 0) {
           await tx.insert(events).values(
             fresh.map((event) => ({
@@ -930,6 +952,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
+        if (!leaseHeld(fenced.attempt, now, startedAt)) {
+          return { outcome: "lease_expired" };
+        }
 
         let checkpointRevision: number | null = null;
         if (input.checkpoint) {

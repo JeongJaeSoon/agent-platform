@@ -79,6 +79,26 @@ integration("worker gateway on PostgreSQL", () => {
     await database.drop();
   });
 
+  const briefGateway = (leaseTtlMs: number) =>
+    createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: { leaseTtlMs, now: () => clock, sleep: async () => {} },
+    });
+
   async function launch(partition: string) {
     const executionId = `exec-${crypto.randomUUID()}`;
     const registered = await gateway.registerLaunch({
@@ -1231,24 +1251,7 @@ integration("worker gateway on PostgreSQL", () => {
     const partition = partitionFor("lockwait");
     await queuedSession(partition);
     const l = await launch(partition);
-    const brief = createWorkerGateway({
-      work: createPostgresWorkerUnitOfWork(db),
-      catalog: {
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-          },
-        },
-        repositories: {},
-      },
-      checkpoints: {
-        async verify() {
-          return { status: "verified" };
-        },
-      },
-      options: { leaseTtlMs: 150, now: () => clock, sleep: async () => {} },
-    });
+    const brief = briefGateway(150);
     const claimed = await brief.bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
       execution_generation: l.generation,
@@ -1274,6 +1277,90 @@ integration("worker gateway on PostgreSQL", () => {
     } finally {
       blocker.release();
     }
+  });
+
+  test("a claim that waits out its TTL on the launch row still hands out a live lease", async () => {
+    const partition = partitionFor("claimwait");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const brief = briefGateway(150);
+    const blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+      [l.executionId],
+    );
+    const pending = brief.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await blocker.query("COMMIT");
+    } finally {
+      blocker.release();
+    }
+    const claimed = await pending;
+    // Measured from the request clock the 150 ms lease would have been spent
+    // on the lock alone; it starts once the binding exists.
+    expect(new Date(claimed.lease_expires_at).getTime()).toBeGreaterThanOrEqual(
+      clock.getTime() + 150 + 300,
+    );
+    const next = await brief.nextInput(principalOf(claimed), {
+      ...scopeOf(claimed),
+    });
+    expect(next.input?.turn_id).toBe("1");
+  });
+
+  test("a finalize that waits out its lease on the turn row commits nothing", async () => {
+    const partition = partitionFor("finwait");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    const brief = briefGateway(400);
+    const claimed = await brief.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    await brief.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    const blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query("SELECT 1 FROM turns WHERE id = $1 FOR UPDATE", [
+      turn?.id,
+    ]);
+    // The fence holds when it is taken; the lease runs out while finalize
+    // waits for the turn row it is about to write.
+    const blocked = failure(
+      brief.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, "1"),
+        turn_id: "1",
+        finalize_key: "waited-1",
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      }),
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await blocker.query("COMMIT");
+    } finally {
+      blocker.release();
+    }
+    expect(await blocked).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+    const [after] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(after?.status).toBe("running");
   });
 
   test("two finalizes of the same turn in flight agree on one result", async () => {
@@ -1319,7 +1406,7 @@ integration("worker gateway on PostgreSQL", () => {
     advance(LEASE_TTL_MS + 1);
     const second = await claim(l);
     expect(second.attempt_id).toBe(first.attempt_id);
-    expect(new Date(second.lease_expires_at).getTime()).toBe(
+    expect(new Date(second.lease_expires_at).getTime()).toBeGreaterThanOrEqual(
       clock.getTime() + LEASE_TTL_MS,
     );
     // The binding it just answered with actually works.
