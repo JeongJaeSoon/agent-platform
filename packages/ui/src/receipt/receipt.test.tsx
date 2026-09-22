@@ -156,11 +156,20 @@ describe("ReceiptLink", () => {
 });
 
 describe("formatTimestamp", () => {
-  test("러너 시간대와 무관하게 같은 문자열을 만든다", () => {
+  test("러너의 시간대·ICU와 무관하게 같은 문자열을 만든다", () => {
+    // Pinned literally: `dateStyle: "short"` rendered the year as "26" on
+    // macOS and "2026" on the CI runner, which only the snapshot caught.
     expect(formatTimestamp("2026-09-21T02:15:00.000Z")).toBe(
-      formatTimestamp("2026-09-21T02:15:00.000Z"),
+      "2026. 09. 21. 11:15",
     );
-    expect(formatTimestamp("2026-09-21T02:15:00.000Z")).toContain("26.");
+    // KST is UTC+9, so an instant before 15:00Z still belongs to that day.
+    expect(formatTimestamp("2026-09-21T14:59:59.000Z")).toBe(
+      "2026. 09. 21. 23:59",
+    );
+    // …and the one after it rolls over to the next, at hour 00 rather than 24.
+    expect(formatTimestamp("2026-09-21T15:00:00.000Z")).toBe(
+      "2026. 09. 22. 00:00",
+    );
   });
 
   test("날짜가 아니면 받은 문자열을 그대로 둔다", () => {
