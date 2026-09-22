@@ -328,4 +328,30 @@ integration("workspace disk pressure", () => {
       ),
     ).toBe(0);
   }, 180_000);
+
+  test("a volume re-created under the same name still enforces its ceiling", async () => {
+    // Workspace names are deterministic, so a volume removed by GC or by an
+    // operator comes back under the name it had. If the daemon kept only the
+    // `size` metadata and dropped the project quota behind it, `Options.size`
+    // would still look right and the workspace would be unbounded. This is
+    // the only place in the repo that can tell the difference.
+    if (!capable) {
+      expect(capable).toBe(false);
+      return;
+    }
+    await client.removeVolume(name);
+    const again = await client.createVolume({
+      Driver: "local",
+      DriverOpts: { size: String(QUOTA_BYTES) },
+      Labels: {},
+      Name: name,
+    });
+    expect(Number(again.Options?.size)).toBe(QUOTA_BYTES);
+
+    expect(
+      await runAgainstVolume(
+        "dd if=/dev/zero of=/workspace/over bs=1M count=256 2>&1 | grep -q 'No space left on device'",
+      ),
+    ).toBe(0);
+  }, 180_000);
 });
