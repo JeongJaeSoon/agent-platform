@@ -25,9 +25,8 @@ const POLL_INTERVAL_MS = 100;
 // the assertion instead of surfacing as an `undefined` status. A port already
 // held by another listener is not distinguished: its answer fails the status
 // assertion below, without stderr (94S-256 left that out on purpose). Each
-// fetch is
-// aborted at the deadline so a server that accepts the connection but never
-// answers still ends here, not at the test timeout.
+// fetch is aborted at the deadline so a server that accepts the connection
+// but never answers still ends here, not at the test timeout.
 async function waitForServer(
   server: Bun.Subprocess,
   stderr: Promise<string>,
