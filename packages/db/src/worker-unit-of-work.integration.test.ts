@@ -399,6 +399,13 @@ integration("worker gateway on PostgreSQL", () => {
         }),
       ),
     ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+    // Giving the binding up is still allowed on the current epoch.
+    expect(
+      await gateway.release(principalOf(claimed), {
+        ...scopeOf(claimed),
+        reason: "lease_lost",
+      }),
+    ).toEqual({ released: true });
   });
 
   test("appendEvents dedups on (attempt_id, source_sequence); a re-sent batch is a no-op", async () => {

@@ -70,7 +70,7 @@ function fencedSession(fence: WorkerFence) {
   );
 }
 
-function fencedAttempt(fence: WorkerFence, now: Date) {
+function ownedAttempt(fence: WorkerFence) {
   return and(
     eq(attempts.id, fence.attemptId),
     eq(attempts.sessionId, fence.sessionId),
@@ -78,8 +78,11 @@ function fencedAttempt(fence: WorkerFence, now: Date) {
     eq(attempts.executionGeneration, fence.executionGeneration),
     eq(attempts.authRevision, fence.authRevision),
     notInArray(attempts.state, ENDED_ATTEMPT_STATES),
-    gt(attempts.leaseExpiresAt, now),
   );
+}
+
+function fencedAttempt(fence: WorkerFence, now: Date) {
+  return and(ownedAttempt(fence), gt(attempts.leaseExpiresAt, now));
 }
 
 function expectFenced(rows: unknown[], what: string) {
@@ -694,16 +697,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     releaseAtomic(input: ReleaseInput): Promise<ReleaseResult> {
       const { fence, now } = input;
       return db.transaction(async (tx) => {
+        // An expired lease on the current epoch may still release: the
+        // worker is giving the binding up, which only advances the fence.
+        // A superseded epoch cannot; that binding is not its to release.
         const fenced = await acquireFence(tx, fence, now);
-        if (fenced.outcome !== "ok") return { released: false };
-        expectFenced(
-          await tx
-            .update(attempts)
-            .set({ state: "exited", endedAt: now, endReason: input.reason })
-            .where(fencedAttempt(fence, now))
-            .returning({ id: attempts.id }),
-          "attempt",
-        );
+        if (fenced.outcome === "stale_epoch") return { released: false };
+        const [attempt] = await tx
+          .update(attempts)
+          .set({ state: "exited", endedAt: now, endReason: input.reason })
+          .where(ownedAttempt(fence))
+          .returning({ id: attempts.id, executionId: attempts.executionId });
+        if (!attempt) return { released: false };
         await revokeCredentials(tx, fence.attemptId, now);
         // The epoch moves on so nothing from this attempt lands later, but
         // pod_id/execution_id stay: the session is not claimable until the
@@ -719,9 +723,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .returning({ id: sessions.id }),
           "session",
         );
-        await tx
-          .delete(workers)
-          .where(eq(workers.podId, fenced.attempt.executionId));
+        await tx.delete(workers).where(eq(workers.podId, attempt.executionId));
         return { released: true };
       });
     },
