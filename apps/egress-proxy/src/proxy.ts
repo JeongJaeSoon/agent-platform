@@ -7,7 +7,6 @@ import {
   decideEgress,
   type EgressPolicy,
   type EgressResolver,
-  normalizeHost,
 } from "./policy.ts";
 import { type ProxyRequest, parseRequestHead } from "./request.ts";
 import { MAX_CLIENT_HELLO_BYTES, parseClientHelloSni } from "./tls.ts";
@@ -525,7 +524,7 @@ export async function startEgressProxy(
     } else if (verdict.kind === "no-sni") {
       refuse("ClientHello carries no server name");
       return;
-    } else if (normalizeHost(verdict.host) !== host) {
+    } else if (verdict.host.toLowerCase() !== host) {
       refuse(
         `server name ${verdict.host} is not the CONNECT authority ${host}`,
       );

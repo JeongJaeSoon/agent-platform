@@ -111,6 +111,25 @@ describe("parseClientHelloSni", () => {
     });
   });
 
+  test("the cap is measured on the wire, whatever the framing", () => {
+    // A hello whose message fits the cap but whose record headers push the
+    // bytes on the wire past it. Framed as one record it is under.
+    const padding = { data: new Uint8Array(16 * 1024 - 400), type: 0x1234 };
+    const whole = clientHello({ extensions: [padding], serverNames: ["a"] });
+    expect(whole.byteLength).toBeLessThanOrEqual(MAX_CLIENT_HELLO_BYTES);
+    expect(parseClientHelloSni(whole)).toEqual({ host: "a", kind: "sni" });
+    const framed = clientHello({
+      extensions: [padding],
+      recordSize: 64,
+      serverNames: ["a"],
+    });
+    expect(framed.byteLength).toBeGreaterThan(MAX_CLIENT_HELLO_BYTES);
+    expect(parseClientHelloSni(framed)).toMatchObject({
+      kind: "reject",
+      reason: expect.stringContaining("wire bytes"),
+    });
+  });
+
   test("an oversized or empty record is rejected", () => {
     const empty = Uint8Array.from([22, 3, 1, 0, 0]);
     expect(parseClientHelloSni(empty)).toMatchObject({ kind: "reject" });
@@ -147,6 +166,24 @@ describe("parseClientHelloSni", () => {
       reason: expect.stringContaining("duplicate"),
     });
     expect(parseClientHelloSni(first)).toMatchObject({ kind: "sni" });
+  });
+
+  test("a host_name that is not a DNS name is rejected, brackets included", () => {
+    for (const bad of ["[a.test]", "a..test", "-a.test", "a_b.test", "a/b"]) {
+      expect(
+        parseClientHelloSni(clientHello({ serverNames: [bad] })),
+      ).toMatchObject({ kind: "reject" });
+    }
+    expect(
+      parseClientHelloSni(clientHello({ serverNames: ["127.0.0.1"] })),
+    ).toMatchObject({
+      kind: "reject",
+      reason: expect.stringContaining("IP literal"),
+    });
+    // Case is the caller's to fold; the name comes back as sent.
+    expect(
+      parseClientHelloSni(clientHello({ serverNames: ["Api.Example.COM"] })),
+    ).toEqual({ host: "Api.Example.COM", kind: "sni" });
   });
 
   test("a host_name that is empty, non-ASCII or dotted is rejected", () => {

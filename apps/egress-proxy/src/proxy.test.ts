@@ -812,6 +812,10 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
       },
     },
   });
+  const sendBytes = (encoded: Uint8Array): void => {
+    outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
+    drainOutbox(socket);
+  };
   return {
     byteCount(): number {
       return bytes;
@@ -823,12 +827,9 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
       return closed;
     },
     send(text: string): void {
-      this.sendBytes(new TextEncoder().encode(text));
+      sendBytes(new TextEncoder().encode(text));
     },
-    sendBytes(encoded: Uint8Array): void {
-      outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
-      drainOutbox(socket);
-    },
+    sendBytes,
     stopReading(): void {
       // Untyped in bun-types; see the note on `reader` in proxy.ts.
       (socket as unknown as { pause(): boolean }).pause();

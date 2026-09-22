@@ -12,11 +12,14 @@
  */
 
 /**
- * More than this and the ClientHello is not one this proxy will wait for.
- * Real hellos are a few hundred bytes to a couple of kilobytes even with a
- * post-quantum key share; the cap exists so an unfinished one cannot hold a
- * buffer open.
+ * The wire bytes — record headers included — within which the ClientHello
+ * has to be complete. Real hellos are a few hundred bytes to a couple of
+ * kilobytes even with a post-quantum key share; the cap exists so an
+ * unfinished one cannot hold a buffer open, and it is measured on the wire
+ * so that the verdict does not depend on how the bytes were framed.
  */
+import { isIP } from "node:net";
+
 export const MAX_CLIENT_HELLO_BYTES = 16 * 1024;
 
 /** RFC 8446 §5.1: a record's plaintext fragment is at most 2^14 bytes. */
@@ -26,7 +29,12 @@ const HANDSHAKE_HEADER = 4;
 const CONTENT_TYPE_HANDSHAKE = 22;
 const HANDSHAKE_CLIENT_HELLO = 1;
 const EXTENSION_SERVER_NAME = 0;
-/** draft-ietf-tls-esni: the outer SNI is then a decoy, not the destination. */
+/**
+ * RFC 9849. With ECH the visible server name is the outer one, which may be
+ * a decoy; the real name is encrypted where no proxy can judge it. GREASE
+ * ECH (RFC 9849 §6.2) is indistinguishable from the real thing by design,
+ * so the extension is refused whatever it carries.
+ */
 const EXTENSION_ENCRYPTED_CLIENT_HELLO = 0xfe0d;
 const NAME_TYPE_HOST_NAME = 0;
 
@@ -112,6 +120,12 @@ function collectHandshake(bytes: Uint8Array): Collected {
     }
   }
   if (wanted === null) return { kind: "incomplete" };
+  if (offset > MAX_CLIENT_HELLO_BYTES) {
+    return {
+      kind: "reject",
+      reason: `ClientHello took ${offset} wire bytes, over the ${MAX_CLIENT_HELLO_BYTES} byte cap`,
+    };
+  }
   return { kind: "handshake", message: join(fragments, wanted) };
 }
 
@@ -177,7 +191,9 @@ function parseClientHello(message: Uint8Array): ClientHelloVerdict {
     if (seen.has(type)) return reject(`duplicate extension ${type}`);
     seen.add(type);
     if (type === EXTENSION_ENCRYPTED_CLIENT_HELLO) {
-      return reject("encrypted_client_hello hides the real server name");
+      return reject(
+        "encrypted_client_hello is not accepted: the server name it protects cannot be judged",
+      );
     }
     if (type === EXTENSION_SERVER_NAME) {
       const parsed = parseServerNameList(data);
@@ -188,7 +204,11 @@ function parseClientHello(message: Uint8Array): ClientHelloVerdict {
   return host === null ? { kind: "no-sni" } : { host, kind: "sni" };
 }
 
-/** RFC 6066 §3: exactly one host_name, ASCII, no trailing dot. */
+/**
+ * RFC 6066 §3: exactly one host_name, an ASCII DNS name with no trailing dot
+ * and never an IP literal. The name is returned as sent; the caller folds
+ * case, which is the only normalisation the RFC allows.
+ */
 function parseServerNameList(
   data: Uint8Array,
 ): { host: string; kind: "sni" } | { kind: "reject"; reason: string } {
@@ -226,8 +246,26 @@ function parseServerNameList(
     host = String.fromCharCode(...name);
   }
   if (host === null) return reject("server_name has no host_name");
-  if (host.endsWith(".")) return reject("host_name ends with a dot");
+  if (!isDnsName(host)) return reject(`host_name ${host} is not a DNS name`);
+  if (isIP(host) !== 0) return reject("host_name is an IP literal");
   return { host, kind: "sni" };
+}
+
+/**
+ * Letters, digits and hyphens in dot-separated labels, RFC 1123 shape. This
+ * is deliberately stricter than the authority parser, whose bracket and
+ * trailing-dot handling exist for URLs, not for what a TLS client sends.
+ */
+function isDnsName(name: string): boolean {
+  if (name.length > 253) return false;
+  return name
+    .split(".")
+    .every(
+      (label) =>
+        label.length >= 1 &&
+        label.length <= 63 &&
+        /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(label),
+    );
 }
 
 function reject(reason: string): { kind: "reject"; reason: string } {
