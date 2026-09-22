@@ -77,7 +77,7 @@ integration("worker gateway on PostgreSQL", () => {
   afterAll(async () => {
     await pool.end();
     await database.drop();
-  });
+  }, 60_000);
 
   const briefGateway = (leaseTtlMs: number) =>
     createWorkerGateway({

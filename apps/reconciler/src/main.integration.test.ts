@@ -62,7 +62,7 @@ integration("reconciler process on PostgreSQL", () => {
       claimToken: crypto.randomUUID(),
       visibleAt: new Date(Date.now() + 60_000),
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await db
@@ -75,7 +75,7 @@ integration("reconciler process on PostgreSQL", () => {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
     await db.delete(workers).where(eq(workers.podId, podId));
     await pool.end();
-  });
+  }, 60_000);
 
   test("requeues once, logs the session, and exits zero", async () => {
     const child = Bun.spawn(

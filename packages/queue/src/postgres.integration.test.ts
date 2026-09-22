@@ -45,7 +45,7 @@ integration("PostgresQueue on PostgreSQL", () => {
     } finally {
       await database.drop();
     }
-  });
+  }, 60_000);
 
   test("uses concurrent SKIP LOCKED claims without duplicates", async () => {
     for (let sequence = 0; sequence < 10; sequence += 1) {

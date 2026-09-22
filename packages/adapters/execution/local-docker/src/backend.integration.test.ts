@@ -102,7 +102,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       ).catch(() => undefined);
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
-  });
+  }, 120_000);
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
     const socket = dockerHost.startsWith("unix://")

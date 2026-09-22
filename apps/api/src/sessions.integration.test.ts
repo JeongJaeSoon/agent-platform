@@ -95,7 +95,7 @@ integration("sessions API on PostgreSQL", () => {
         requiredEnv: ["QUEUE_DATABASE_URL"],
       }),
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
     for (const ownerId of [owner, stranger]) {
@@ -119,7 +119,7 @@ integration("sessions API on PostgreSQL", () => {
     }
     await probePool.end();
     await pool.end();
-  });
+  }, 60_000);
 
   function append(
     sessionId: string,
