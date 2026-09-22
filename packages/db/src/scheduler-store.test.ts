@@ -267,6 +267,7 @@ describe("PostgresSchedulerStore", () => {
       {
         backend: "local_docker",
         claimed: false,
+        desiredState: "running",
         executionId: intent.executionId,
         generation: 1,
         nonceExpired: false,
@@ -281,6 +282,7 @@ describe("PostgresSchedulerStore", () => {
       {
         backend: "local_docker",
         claimed: false,
+        desiredState: "running",
         executionId: "exec-legacy",
         generation: 1,
         nonceExpired: false,

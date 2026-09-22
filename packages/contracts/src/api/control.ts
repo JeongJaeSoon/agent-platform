@@ -47,6 +47,11 @@ export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
   z.object({ ...recoveryDecisionBase, decision: z.literal("close") }).strict(),
 ]);
 export const controlAcceptedResponseSchema = receiptAcceptedResponseSchema;
+// The 202 itself says that a kill undoes nothing the execution already did
+// outside; the receipt repeats it once the kill is observed.
+export const terminateSessionResponseSchema = receiptAcceptedResponseSchema
+  .extend({ external_effects_reverted: z.literal(false) })
+  .strict();
 export const recoveryDecisionResultSchema = z.object({
   resulting_admission_state: admissionStateSchema,
   checkpoint_revision: revisionSchema.nullable(),
@@ -67,6 +72,9 @@ export type RecoveryDecisionRequest = z.infer<
 >;
 export type ControlAcceptedResponse = z.infer<
   typeof controlAcceptedResponseSchema
+>;
+export type TerminateSessionResponse = z.infer<
+  typeof terminateSessionResponseSchema
 >;
 export type RecoveryDecisionResult = z.infer<
   typeof recoveryDecisionResultSchema

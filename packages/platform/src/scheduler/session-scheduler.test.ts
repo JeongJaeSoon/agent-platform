@@ -61,6 +61,7 @@ class MemoryStore implements SchedulerStore {
     const execution: Launch = {
       backend: "local_docker",
       claimed: false,
+      desiredState: "running",
       executionId: `exec-${++this.sequence}`,
       generation: 1,
       nonce: null,
@@ -183,6 +184,34 @@ class MemoryStore implements SchedulerStore {
     if (!row) return;
     row.slotReleased = true;
     row.observedState = "terminated";
+  }
+
+  async desiredStateOf(ref: ExecutionRef) {
+    const row = this.executions.get(ref.executionId);
+    return row && row.generation === ref.generation ? row.desiredState : null;
+  }
+
+  /** Terminate receipts as the store would hold them: created_at only. */
+  readonly terminateReceipts: { createdAt: Date; status: string }[] = [];
+
+  async markOverdueTerminations({
+    now,
+    deadlineMs,
+  }: {
+    now: Date;
+    deadlineMs: number;
+  }) {
+    let flipped = 0;
+    for (const receipt of this.terminateReceipts) {
+      if (
+        receipt.status === "accepted" &&
+        receipt.createdAt.getTime() <= now.getTime() - deadlineMs
+      ) {
+        receipt.status = "unknown";
+        flipped += 1;
+      }
+    }
+    return flipped;
   }
 
   async listActiveExecutions(backend: ActiveExecution["backend"]) {
@@ -312,8 +341,11 @@ class FakeBackend implements ExecutionBackend {
     return { suspend: false };
   }
 
+  duringEnsure?: (intent: LaunchIntent) => void;
+
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     this.ensureCalls.push(intent);
+    this.duringEnsure?.(intent);
     if (this.failEnsureFor.has(intent.sessionId)) {
       throw new Error("docker unavailable");
     }
@@ -1447,6 +1479,178 @@ describe("runScheduler", () => {
         (r) => r.level === "error" && r.message.includes("Reconciling"),
       ),
     ).toBe(true);
+  });
+
+  test("a kill intent tears the resource down before anything else and confirms it gone once", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    launch.desiredState = "terminated";
+    launch.claimed = true;
+    // A terminate also blocks dispatch, so the session is not waiting.
+    store.unassigned.delete(launch.sessionId);
+
+    const summary = await run();
+    expect(summary.killed).toEqual([
+      { executionId: launch.executionId, generation: launch.generation },
+    ]);
+    expect(summary.terminatedObserved).toEqual(summary.killed);
+    expect(backend.terminateCalls).toEqual(summary.killed);
+    expect(backend.containers.size).toBe(0);
+    expect(store.confirmedGone).toEqual([launch.executionId]);
+    expect(launch.slotReleased).toBe(true);
+    // Not inspected, not re-ensured: the intent is to remove it.
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(
+      records.some(
+        (r) => r.message === "Execution killed on request; resource removed",
+      ),
+    ).toBe(true);
+  });
+
+  test("a kill that commits while the pass is out at the provider is honoured, not re-ensured", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    // The resource is gone and the row still says running: the pass would
+    // re-create it, but a terminate lands during its inspect.
+    backend.containers.clear();
+    store.unassigned.delete(launch.sessionId);
+    backend.duringInspect = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.reensured).toEqual([]);
+    expect(summary.killed).toHaveLength(1);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+  });
+
+  test("a kill that commits while a live resource is being inspected is carried out this pass", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    store.unassigned.delete(launch.sessionId);
+    backend.duringInspect = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.killed).toHaveLength(1);
+    expect(summary.terminatedObserved).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("a kill that commits while the first launch is being created takes it down in the same pass", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    backend.duringEnsure = (intent) => {
+      const row = store.executions.get(intent.executionId);
+      if (!row) throw new Error("launch row missing during ensure");
+      row.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.launched).toHaveLength(1);
+    expect(summary.killed).toHaveLength(1);
+    expect(backend.containers.size).toBe(0);
+    const [launch] = [...store.executions.values()];
+    expect(launch?.slotReleased).toBe(true);
+  });
+
+  test("a kill that commits while the resource is being re-created takes it down again", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    backend.containers.clear();
+    store.unassigned.delete(launch.sessionId);
+    backend.duringEnsure = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.reensured).toHaveLength(1);
+    expect(summary.killed).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("a kill the provider will not carry out keeps the slot and is retried next pass", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    launch.desiredState = "terminated";
+    backend.failTerminateFor.add(nameOf(launch));
+
+    const failed = await run();
+    expect(failed.killFailed).toEqual([
+      { executionId: launch.executionId, generation: launch.generation },
+    ]);
+    expect(failed.killed).toEqual([]);
+    expect(launch.slotReleased).toBe(false);
+    expect(store.confirmedGone).toEqual([]);
+    expect(failed.launched).toEqual([]);
+
+    backend.failTerminateFor.clear();
+    const retried = await run();
+    expect(retried.killed).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+  });
+
+  test("a kill whose resource is already absent still confirms the execution gone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    launch.desiredState = "terminated";
+    backend.containers.clear();
+
+    const summary = await run();
+    expect(summary.killed).toHaveLength(1);
+    expect(store.confirmedGone).toEqual([launch.executionId]);
+    expect(summary.reensured).toEqual([]);
+  });
+
+  test("terminate receipts past the deadline are reported unknown, later ones are left alone", async () => {
+    const { run, store } = harness();
+    const start = new Date("2026-09-23T00:00:00.000Z");
+    let clock = start;
+    const summaryOf = () =>
+      runScheduler({
+        backend: new FakeBackend(),
+        image: "worker:test",
+        logger: recordingLogger().logger,
+        now: () => clock,
+        resources: RESOURCES,
+        slotLimit: 10,
+        store,
+      });
+    store.terminateReceipts.push(
+      { createdAt: start, status: "accepted" },
+      { createdAt: new Date(start.getTime() + 10_000), status: "accepted" },
+    );
+    clock = new Date(start.getTime() + 29_999);
+    expect((await summaryOf()).terminationsOverdue).toBe(0);
+    clock = new Date(start.getTime() + 30_000);
+    expect((await summaryOf()).terminationsOverdue).toBe(1);
+    expect(store.terminateReceipts.map((r) => r.status)).toEqual([
+      "unknown",
+      "accepted",
+    ]);
+    await run();
   });
 
   test("rejects a negative or fractional slot limit", async () => {

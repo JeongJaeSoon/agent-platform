@@ -5,6 +5,7 @@ export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";
 export * from "./ports/execution-backend.ts";
 export * from "./ports/scheduler-store.ts";
+export * from "./ports/session-control.ts";
 export * from "./ports/session-unit-of-work.ts";
 export * from "./ports/worker-unit-of-work.ts";
 export * from "./ports/workspace-bundle-verifier.ts";

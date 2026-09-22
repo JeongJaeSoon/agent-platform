@@ -1,6 +1,7 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
@@ -52,6 +53,7 @@ const db = drizzle(pool, { schema });
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
+  controls: createPostgresSessionControl(db),
   reader: createPostgresSessionReader(db),
   catalog,
 });
