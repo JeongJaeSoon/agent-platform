@@ -126,18 +126,24 @@ project_has_resources() {
   return 1
 }
 
-# Writes SHA256SUMS over every regular file under $1 (relative paths), so a
-# bundle that was copied around can be checked before restore.
-write_checksums() {
-  local dir="$1"
-  (
-    cd "$dir"
-    find . -type f ! -name SHA256SUMS -print | LC_ALL=C sort | while read -r file; do
-      printf '%s  %s\n' "$(sha256_file "$file")" "${file#./}"
-    done
-  ) > "${dir}/SHA256SUMS"
+# Every regular file under $1 except the root SHA256SUMS itself (an S3 key
+# may well be named SHA256SUMS), relative paths, sorted.
+bundle_inventory() {
+  (cd "$1" && find . -type f ! -path ./SHA256SUMS -print | sed 's#^\./##' | LC_ALL=C sort)
 }
 
+# Writes SHA256SUMS over the inventory, so a bundle that was copied around
+# can be checked before restore.
+write_checksums() {
+  local dir="$1"
+  bundle_inventory "$dir" | while read -r file; do
+    printf '%s  %s\n' "$(sha256_file "${dir}/${file}")" "$file"
+  done > "${dir}/SHA256SUMS"
+}
+
+# Every listed file must hash as listed, and the inventory must be exactly
+# the listed paths: a file added after the fact (a bundle restore would
+# clone, say) is as much a modification as a changed byte.
 verify_checksums() {
   local dir="$1"
   [ -r "${dir}/SHA256SUMS" ] || die "SHA256SUMS missing in $dir"
@@ -148,5 +154,12 @@ verify_checksums() {
     else
       shasum -a 256 -s -c SHA256SUMS
     fi
-  )
+  ) || return 1
+  local listed
+  listed="$(sed 's/^[0-9a-f]*  //' "${dir}/SHA256SUMS" | LC_ALL=C sort)"
+  if [ "$listed" != "$(bundle_inventory "$dir")" ]; then
+    log "checksums: files present differ from SHA256SUMS"
+    diff <(printf '%s\n' "$listed") <(bundle_inventory "$dir") >&2 || true
+    return 1
+  fi
 }

@@ -30,7 +30,7 @@ backup-20260923T101500Z/
 | `schema.applied[]` | DB의 `drizzle.__drizzle_migrations` 행(`hash`, `when`) 순서대로. `head_tag`는 마지막 행에 해당하는 journal tag |
 | `images.<service>` | 실행 중인 컨테이너의 image·image id·registry digest. api/worker/scheduler 컨테이너가 없으면 `status: "not_built"`로 남긴다(94S-125 이미지 뒤 채워짐). 나중에 만든 이미지를 이 값에 소급 기록하지 않는다 |
 | `objects` | bucket 이름과 object 수 |
-| `repos` | bundle로 담은 repo 목록과, ref가 없어 bundle을 만들 수 없던 빈 repo의 이름·symbolic HEAD |
+| `repos` | bundle로 담은 repo와 빈 repo(ref가 없어 bundle 불가) 각각의 이름·symbolic HEAD. 복원 시 HEAD를 그대로 되돌리고 임시 origin은 제거한다 |
 
 주의:
 

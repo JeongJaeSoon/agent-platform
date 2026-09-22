@@ -119,6 +119,7 @@ GITEA_CID="$(compose_restore "$INTO" ps -q gitea)"
 GITEA_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$GITEA_CID")"
 [ -n "$GITEA_VOLUME" ] || die "gitea container has no volume mounted at /data"
 EMPTY_REPOS="$(jq -r '.repos.empty[] | "\(.name) \(.head)"' "$MANIFEST")"
+BUNDLED_HEADS="$(jq -r '.repos.bundled[] | "\(.name) \(.head)"' "$MANIFEST")"
 # Staged into the volume while the container runs (docker cp cannot create
 # directories in a stopped one), then moved into place by a throwaway
 # container on the same volume so nothing touches gitea.db while Gitea has
@@ -135,10 +136,11 @@ docker run --rm -v "${GITEA_VOLUME}:/data" alpine:3 sh -c "
 " >/dev/null
 compose_restore "$INTO" up -d --wait gitea >/dev/null
 STAGE=/data/restore-stage
-compose_restore "$INTO" exec -T -u git gitea sh -s -- "$STAGE" "$EMPTY_REPOS" <<'EOF'
+compose_restore "$INTO" exec -T -u git gitea sh -s -- "$STAGE" "$EMPTY_REPOS" "$BUNDLED_HEADS" <<'EOF'
 set -eu
 stage="$1"
 empty="$2"
+heads="$3"
 # Empty repositories get their recorded HEAD below; this only silences the
 # hint git prints for an init without one.
 export GIT_CONFIG_PARAMETERS="'init.defaultBranch=main'"
@@ -152,6 +154,14 @@ for bundle in "$stage"/repos/*/*.bundle; do
   mkdir -p "/data/git/repositories/$owner"
   git clone --quiet --mirror "$bundle" "$target"
   git -C "$target" bundle verify "$bundle" >/dev/null 2>&1
+  # The clone's origin is the stage path, gone in a moment; the source
+  # repository had no such remote either.
+  git -C "$target" remote remove origin
+  head="$(printf '%s\n' "$heads" | awk -v r="$owner/$name" '$1 == r { print $2 }')"
+  case "$head" in
+    ""|detached) ;;
+    *) git -C "$target" symbolic-ref HEAD "$head" ;;
+  esac
 done
 printf '%s\n' "$empty" | while read -r repo head; do
   [ -n "$repo" ] || continue
@@ -180,7 +190,8 @@ log "restore: migrate reports noop"
 
 cat <<EOF
 restore: done — project '$INTO'
-  postgres   postgresql://127.0.0.1:${RESTORE_POSTGRES_PORT}/$(jq -r '.db.name' "$MANIFEST")
+  postgres   postgresql://${POSTGRES_USER}@127.0.0.1:${RESTORE_POSTGRES_PORT}/${POSTGRES_DB}
+             (password: the POSTGRES_PASSWORD this shell started the project with; compose default otherwise)
   localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)
   gitea      http://127.0.0.1:${RESTORE_GITEA_HTTP_PORT}
   verify     scripts/verify-restore.sh --project $INTO --bucket $BUCKET

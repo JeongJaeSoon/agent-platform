@@ -155,6 +155,19 @@ describe("restore.sh preflight", () => {
     });
   });
 
+  test("refuses a bundle with a file SHA256SUMS does not list", async () => {
+    await withManifest(await checkoutMigrations(), async (dir) => {
+      await bash(`source "${lib}"; write_checksums "${dir}"`, repoRoot);
+      await writeFile(join(dir, "repos-extra.bundle"), "not listed\n");
+      const result = await bash(
+        `scripts/restore.sh "${dir}" --into backup-restore-test --check-only`,
+        repoRoot,
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("files present differ from SHA256SUMS");
+    });
+  });
+
   test("checks the schema before touching docker", async () => {
     const applied = (await checkoutMigrations()).slice(0, -1);
     await withManifest(applied, async (dir) => {

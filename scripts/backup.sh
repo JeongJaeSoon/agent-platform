@@ -101,6 +101,7 @@ rm -rf "$stage" && mkdir -p "$stage/repos" "$stage/gitea"
 sqlite3 /data/gitea/gitea.db ".backup '$stage/gitea/gitea.db'"
 cp /data/gitea/conf/app.ini "$stage/gitea/app.ini"
 : > "$stage/gitea/empty-repos"
+: > "$stage/gitea/bundled-repos"
 for repo in /data/git/repositories/*/*.git; do
   [ -d "$repo" ] || continue
   owner="$(basename "$(dirname "$repo")")"
@@ -108,6 +109,9 @@ for repo in /data/git/repositories/*/*.git; do
   if [ -n "$(git -C "$repo" for-each-ref --count=1)" ]; then
     mkdir -p "$stage/repos/$owner"
     git -C "$repo" bundle create "$stage/repos/$owner/$name.bundle" --all >/dev/null 2>&1
+    # A bundle carries HEAD as an object id only; the branch it names is
+    # what a clone should point HEAD at when several branches share the tip.
+    printf '%s/%s %s\n' "$owner" "$name" "$(git -C "$repo" symbolic-ref -q HEAD || echo detached)" >> "$stage/gitea/bundled-repos"
   else
     printf '%s/%s %s\n' "$owner" "$name" "$(git -C "$repo" symbolic-ref HEAD)" >> "$stage/gitea/empty-repos"
   fi
@@ -116,7 +120,7 @@ EOF
 compose "$PROJECT" cp "gitea:${STAGE}/repos/." "$DEST/repos/"
 compose "$PROJECT" cp "gitea:${STAGE}/gitea/." "$DEST/gitea/"
 compose "$PROJECT" exec -T -u git gitea rm -rf "$STAGE"
-REPOS_JSON="$(cd "$DEST/repos" && find . -name '*.bundle' -type f | sed 's#^\./##; s#\.bundle$##' | LC_ALL=C sort | jq -R . | jq -s .)"
+REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea/bundled-repos" | jq -s 'sort_by(.name)')"
 # An empty repository has no bundle, only a name and the branch HEAD points
 # at, which Gitea's own metadata expects to find again after restore.
 EMPTY_REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea/empty-repos" | jq -s .)"
@@ -172,7 +176,7 @@ jq -n \
     repos: { bundled: $repos, empty: $empty_repos, dir: "repos" },
     images: $images
   }' > "$DEST/manifest.json"
-rm -f "$DEST/gitea/empty-repos"
+rm -f "$DEST/gitea/empty-repos" "$DEST/gitea/bundled-repos"
 
 write_checksums "$DEST"
 log "backup: done -> $DEST (schema head $HEAD_TAG, $OBJECT_COUNT objects)"
