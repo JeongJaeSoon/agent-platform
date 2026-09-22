@@ -6,7 +6,8 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@agent-platform/runtime-core": "workspace:*",
-    "@aws-sdk/client-s3": "^3.888.0"
+    "@aws-sdk/client-s3": "^3.888.0",
+    "@smithy/node-http-handler": "^4.12.1"
   },
   "scripts": {
     "benchmark:localstack": "bun run src/benchmark.ts",
