@@ -87,7 +87,7 @@ describe("upsert-ci-issue.sh", () => {
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
-        ["ci-spikes-failure", "CI: spikes failed on main", body.path],
+        ["ci-spikes-failure", "CI: spikes failed (non-blocking job)", body.path],
         {
           "label create": "",
           "issue list": "",
@@ -106,7 +106,7 @@ describe("upsert-ci-issue.sh", () => {
         call.startsWith("issue create"),
       );
       expect(create).toContain("--label ci-spikes-failure");
-      expect(create).toContain("--title CI: spikes failed on main");
+      expect(create).toContain("--title CI: spikes failed (non-blocking job)");
     } finally {
       await body.dispose();
     }
@@ -117,7 +117,7 @@ describe("upsert-ci-issue.sh", () => {
     try {
       const outcome = await run(
         "upsert-ci-issue.sh",
-        ["ci-spikes-failure", "CI: spikes failed on main", body.path],
+        ["ci-spikes-failure", "CI: spikes failed (non-blocking job)", body.path],
         {
           "label create": "",
           "issue list": "12",
