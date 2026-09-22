@@ -467,7 +467,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!session) return { outcome: "invalid_credential" };
           const [attempt] = await tx
             .update(attempts)
-            .set({ authRevision: session.authRevision })
+            // The attempt has not started, so the replay gets a whole lease:
+            // handing back the expired one would answer "claimed" and then
+            // refuse every call the worker makes with it.
+            .set({
+              authRevision: session.authRevision,
+              leaseExpiresAt: input.leaseExpiresAt,
+            })
             .where(eq(attempts.id, bound.attempt.id))
             .returning();
           if (!attempt) return { outcome: "invalid_credential" };

@@ -264,6 +264,39 @@ describe("WorkerGateway", () => {
     expect([verified, committed]).toEqual([0, 0]);
   });
 
+  test("a short wait_ms is not rounded up to a whole poll interval", async () => {
+    const slept: number[] = [];
+    let at = new Date("2026-09-22T00:00:00.000Z");
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic() {
+          return {
+            outcome: "ok",
+            input: null,
+            leaseExpiresAt: new Date(at.getTime() + 30_000),
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: 30_000,
+        pollIntervalMs: 250,
+        now: () => at,
+        sleep: async (ms: number) => {
+          slept.push(ms);
+          at = new Date(at.getTime() + ms);
+        },
+      },
+    });
+    await instance.nextInput(principal, { ...scope, wait_ms: 1 });
+    expect(slept).toEqual([1]);
+  });
+
   test("authenticate hashes the bearer token and rejects unknown ones", async () => {
     const seen: Uint8Array[] = [];
     const { instance } = gateway({

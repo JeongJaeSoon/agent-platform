@@ -1309,6 +1309,26 @@ integration("worker gateway on PostgreSQL", () => {
     ).toHaveLength(0);
   });
 
+  test("a claim replayed after the lease lapsed comes back with a fresh one", async () => {
+    const partition = partitionFor("lapsed");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    // The first response was lost and the retry arrives after the lease it
+    // carried would have run out, but before the nonce expires.
+    advance(LEASE_TTL_MS + 1);
+    const second = await claim(l);
+    expect(second.attempt_id).toBe(first.attempt_id);
+    expect(new Date(second.lease_expires_at).getTime()).toBe(
+      clock.getTime() + LEASE_TTL_MS,
+    );
+    // The binding it just answered with actually works.
+    const next = await gateway.nextInput(principalOf(second), {
+      ...scopeOf(second),
+    });
+    expect(next.input?.turn_id).toBe("1");
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

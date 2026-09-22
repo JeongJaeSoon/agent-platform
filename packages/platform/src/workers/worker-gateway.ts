@@ -369,7 +369,9 @@ export function createWorkerGateway(deps: {
             lease_expires_at: result.leaseExpiresAt.toISOString(),
           };
         }
-        await sleep(pollIntervalMs);
+        // Never sleep past the deadline the caller asked for: a one
+        // millisecond wait must not cost a whole poll interval.
+        await sleep(Math.min(pollIntervalMs, deadline - now().getTime()));
       }
     },
 
