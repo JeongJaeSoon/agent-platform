@@ -17,10 +17,15 @@ import type {
 import { runScheduler, type SchedulerLogger } from "./session-scheduler.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
+const NONCE_TTL_MS = 10 * 60 * 1000;
+
+/** A launch row: the slot it holds and the credential it has handed out. */
+type Launch = ActiveExecution & { slotReleased: boolean; nonce: string | null };
 
 class MemoryStore implements SchedulerStore {
-  readonly executions = new Map<string, ActiveExecution>();
+  readonly executions = new Map<string, Launch>();
   readonly unassigned = new Set<string>();
+  readonly confirmedGone: string[] = [];
   locked = false;
   /** Models the store itself failing, distinct from one row's provider. */
   failList = false;
@@ -44,27 +49,29 @@ class MemoryStore implements SchedulerStore {
     return ids;
   }
 
-  seedActive(overrides: Partial<ActiveExecution> = {}): ActiveExecution {
+  seedActive(overrides: Partial<Launch> = {}): Launch {
     const sessionId = overrides.sessionId ?? crypto.randomUUID();
-    const execution: ActiveExecution = {
+    const execution: Launch = {
       backend: "local_docker",
-      bootstrapNonce: "nonce",
+      claimed: false,
       executionId: `exec-${++this.sequence}`,
       generation: 1,
+      nonce: null,
+      nonceExpiresAt: null,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       providerRef: null,
       sessionId,
+      slotReleased: false,
       ...overrides,
     };
     this.executions.set(execution.executionId, execution);
     return execution;
   }
 
-  private live(): ActiveExecution[] {
-    return [...this.executions.values()].filter(
-      (e) => e.observedState !== "terminated",
-    );
+  /** The ledger: a launch holds its slot until it is confirmed gone. */
+  private live(): Launch[] {
+    return [...this.executions.values()].filter((e) => !e.slotReleased);
   }
 
   async inspectDemand({ limit }: { limit: number }) {
@@ -95,19 +102,58 @@ class MemoryStore implements SchedulerStore {
       generation,
       sessionId: input.sessionId,
     });
-    if (seeded.operationId === null || seeded.bootstrapNonce === null) {
+    if (seeded.operationId === null) {
       throw new Error("seeded intent is complete");
     }
-    return {
-      ...seeded,
-      bootstrapNonce: seeded.bootstrapNonce,
-      operationId: seeded.operationId,
-    };
+    return { ...seeded, operationId: seeded.operationId };
+  }
+
+  async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased
+    ) {
+      throw new Error(`no credential for ${ref.executionId}`);
+    }
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+    row.nonceExpiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+    return row.nonce;
+  }
+
+  async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.nonceExpiresAt === null ||
+      row.nonceExpiresAt.getTime() > now.getTime()
+    ) {
+      return false;
+    }
+    row.nonce = null;
+    return true;
+  }
+
+  async confirmExecutionGone(executionId: string): Promise<void> {
+    this.confirmedGone.push(executionId);
+    const row = this.executions.get(executionId);
+    if (!row) return;
+    row.slotReleased = true;
+    row.observedState = "terminated";
   }
 
   async listActiveExecutions(backend: ActiveExecution["backend"]) {
     if (this.failList) throw new Error("database down");
-    return this.live().filter((e) => e.backend === backend);
+    // Copies, like a query result: what the caller carries is a snapshot and
+    // stays behind whatever the rows do while the pass runs.
+    return this.live()
+      .filter((e) => e.backend === backend)
+      .map((e) => ({ ...e }));
   }
 
   async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {
@@ -117,7 +163,7 @@ class MemoryStore implements SchedulerStore {
         row !== undefined &&
         row.backend === backend &&
         row.generation === ref.generation &&
-        row.observedState !== "terminated"
+        !row.slotReleased
       );
     });
   }
@@ -136,6 +182,12 @@ class MemoryStore implements SchedulerStore {
 type Container = {
   exited: boolean;
   generation: number;
+  /**
+   * What the resource was built with, exactly as an env var would be. Only
+   * containers this backend created have one; a hand-seeded fixture stands
+   * for a container that was already there.
+   */
+  nonce?: string;
   operationId: string;
   sessionId: string;
   /** false models Docker `created`: create succeeded, start never ran. */
@@ -161,6 +213,7 @@ class FakeBackend implements ExecutionBackend {
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
+  duringInspect: ((ref: ExecutionRef) => void) | null = null;
 
   capabilities() {
     return { suspend: false };
@@ -189,6 +242,8 @@ class FakeBackend implements ExecutionBackend {
     this.containers.set(nameOf(intent), {
       exited,
       generation: intent.generation,
+      // Only the create path asks for one, like the real backend.
+      nonce: await intent.issueBootstrapNonce(),
       operationId: intent.operationId,
       sessionId: intent.sessionId,
     });
@@ -200,6 +255,9 @@ class FakeBackend implements ExecutionBackend {
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
+    // The one place a pass is demonstrably out on the network, and so the
+    // place a test can make the rows move underneath it.
+    this.duringInspect?.(ref);
     if (this.failInspectFor.has(ref.executionId)) {
       throw new Error("ownership conflict");
     }
@@ -340,6 +398,9 @@ describe("runScheduler", () => {
     expect(intent).toBeDefined();
     if (!intent) throw new Error("no intent");
 
+    const firstNonce = [...backend.containers.values()][0]?.nonce;
+    expect(firstNonce).toBeString();
+
     // Control host restart after commit but before Docker created anything.
     backend.containers.clear();
     const summary = await run();
@@ -351,7 +412,13 @@ describe("runScheduler", () => {
     expect(backend.containers.size).toBe(1);
     const [again] = backend.ensureCalls.slice(-1);
     expect(again?.operationId).toBe(intent.operationId);
-    expect(again?.bootstrapNonce).toBe(intent.bootstrapNonce);
+    // The identity is the same launch; the credential is not. The container
+    // that held the old nonce is gone, so nothing is cut off by rotating it.
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.nonce).not.toBe(firstNonce);
+    expect(store.executions.get(intent.executionId)?.nonce).toBe(
+      replacement?.nonce,
+    );
     expect(
       records.some(
         (r) =>
@@ -427,6 +494,107 @@ describe("runScheduler", () => {
     ]);
     expect(backend.containers.get("exec-1#1")?.started).toBe(true);
     expect(store.executions.get("exec-1")?.observedState).toBe("running");
+    // Adopting is not creating: the container's own nonce is still the only
+    // credential for this launch, so nothing was issued behind its back.
+    expect(store.executions.get("exec-1")?.nonce).toBeNull();
+  });
+
+  test("a running resource whose nonce expired before it claimed is replaced", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const first = container.nonce;
+
+    // The bootstrap door shut and nobody came through it. The container still
+    // runs, so without this it would hold its slot and its session for good.
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(summary.reensured).toHaveLength(1);
+    expect(store.confirmedGone).toEqual([]);
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.nonce).not.toBe(first);
+    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(
+      records.some(
+        (r) => r.level === "warn" && r.message.includes("Launch nonce expired"),
+      ),
+    ).toBe(true);
+  });
+
+  test("an expired nonce on a claimed launch is left alone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name] = [...backend.containers.keys()];
+    const row = store.executions.get(name?.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    // A worker already traded the nonce: its expiry says nothing any more.
+    row.claimed = true;
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+  });
+
+  test("a claim that lands mid-pass keeps its container off the replacement path", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const claimedNonce = container.nonce;
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+    // A worker gets through the door after the pass read the rows and before
+    // it decides: the expiry the pass is holding is already out of date.
+    backend.duringInspect = () => {
+      row.claimed = true;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    // Same container, same credential: the binding it made still stands.
+    expect([...backend.containers.keys()]).toEqual([name]);
+    expect(row.nonce).toBe(claimedNonce ?? null);
+    expect(
+      records.some(
+        (r) => r.level === "info" && r.message.includes("already been claimed"),
+      ),
+    ).toBe(true);
+  });
+
+  test("a claimed launch whose resource vanished is confirmed gone, never re-created", async () => {
+    const { backend, records, run, store } = harness();
+    store.seedActive({
+      claimed: true,
+      executionId: "exec-1",
+      observedState: "running",
+    });
+    const summary = await run();
+    expect(store.confirmedGone).toEqual(["exec-1"]);
+    expect(summary.terminatedObserved).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(summary.reensured).toEqual([]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(
+      records.some((r) => r.level === "warn" && r.message.includes("vanished")),
+    ).toBe(true);
   });
 
   test("an exited resource whose removal fails stays live and is retried", async () => {
@@ -496,11 +664,12 @@ describe("runScheduler", () => {
     expect(store.executions.get("exec-1")?.observedState).toBe("terminated");
   });
 
-  test("a resource whose row is already terminated is reclaimed as an orphan", async () => {
+  test("a resource whose launch already gave its slot back is an orphan", async () => {
     const { backend, run, store } = harness();
     const row = store.seedActive({
       executionId: "exec-1",
       observedState: "terminated",
+      slotReleased: true,
     });
     backend.containers.set("exec-1#1", {
       exited: true,
@@ -513,6 +682,29 @@ describe("runScheduler", () => {
       { executionId: "exec-1", generation: 1 },
     ]);
     expect(backend.containers.size).toBe(0);
+  });
+
+  test("a terminated observation does not free the slot; only confirming it gone does", async () => {
+    const { backend, run, store } = harness(1);
+    // Two sessions, one slot: the second can only start once the first
+    // launch's slot comes back, and the ledger is the launch row alone.
+    store.addUnassigned(2);
+    const first = await run();
+    expect(first.launched).toHaveLength(1);
+
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    // A row recorded terminated by hand is not a released slot.
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.observedState = "terminated";
+    expect((await run()).launched).toEqual([]);
+
+    container.exited = true;
+    const third = await run();
+    expect(store.confirmedGone).toEqual([row.executionId]);
+    expect(third.terminatedObserved).toHaveLength(1);
+    expect(third.launched).toHaveLength(1);
   });
 
   test("the store refuses a reservation past the slot limit even when the pass thought a slot was free", async () => {
@@ -629,10 +821,13 @@ describe("runScheduler", () => {
         (r) => r.level === "error" && r.message.includes("right after launch"),
       ),
     ).toBe(true);
-    // The dead resource is reclaimed as an orphan of a non-live row next pass.
+    // The launch still holds its slot, so the next pass reclaims the dead
+    // resource as its own and only then hands the slot back.
     backend.exitOnStartFor.clear();
     const next = await run();
-    expect(next.orphansTerminated).toHaveLength(1);
+    expect(next.terminatedObserved).toHaveLength(1);
+    expect(next.orphansTerminated).toEqual([]);
+    expect(store.confirmedGone).toHaveLength(1);
   });
 
   test("an orphan whose termination throws is unresolved and holds a slot", async () => {
@@ -659,13 +854,11 @@ describe("runScheduler", () => {
   test("a legacy row without an intent is inspected and closed, never relaunched", async () => {
     const { backend, run, store } = harness();
     const gone = store.seedActive({
-      bootstrapNonce: null,
       executionId: "legacy-gone",
       observedState: "running",
       operationId: null,
     });
     const exited = store.seedActive({
-      bootstrapNonce: null,
       executionId: "legacy-exited",
       observedState: "running",
       operationId: null,

@@ -221,7 +221,11 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
       }
       try {
-        await this.client.createContainer(name, this.createBody(intent));
+        // The credential is minted here and nowhere else: it lives in this
+        // one request body, reaches the container as an env var, and is only
+        // ever stored as a hash. Adopting an existing container skips this,
+        // so a worker that is already running keeps the nonce it was given.
+        await this.client.createContainer(name, await this.createBody(intent));
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
@@ -372,7 +376,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { created: false, providerRef: container.Id, state };
   }
 
-  private createBody(intent: LaunchIntent): ContainerCreateBody {
+  private async createBody(intent: LaunchIntent): Promise<ContainerCreateBody> {
     const { config } = this;
     // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
     // says every worker is bounded, so refuse anything that would drop one.
@@ -391,10 +395,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     // root, so hand both of its writable dirs to its uid/gid.
     const [uid, gid = uid] = config.user.split(":");
     const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes},uid=${uid},gid=${gid}`;
+    // Last, so a limit this host refuses never costs the launch a nonce.
+    const bootstrapNonce = await intent.issueBootstrapNonce();
     return {
       ...(config.command ? { Cmd: config.command } : {}),
       Env: [
-        `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+        `${ENV.bootstrapNonce}=${bootstrapNonce}`,
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=${config.gatewayUrl}`,
