@@ -359,6 +359,21 @@ export function createPostgresSchedulerStore(
       await work.confirmExecutionGoneAtomic({ executionId, now });
     },
 
+    async desiredStateOf(ref) {
+      const [row] = await db
+        .select({ desiredState: executions.desiredState })
+        .from(executions)
+        .where(
+          and(
+            eq(executions.id, ref.executionId),
+            eq(executions.generation, ref.generation),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      return row.desiredState === "terminated" ? "terminated" : "running";
+    },
+
     markOverdueTerminations(input): Promise<number> {
       return expireOverdueTerminations(db, input);
     },

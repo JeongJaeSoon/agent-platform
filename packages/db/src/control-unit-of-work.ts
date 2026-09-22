@@ -85,8 +85,20 @@ export function terminateReceiptResult(input: {
  */
 export async function expireOverdueTerminations(
   db: Database,
-  input: { now: Date; deadlineMs: number },
+  input: { now: Date; deadlineMs: number; dryRun?: boolean },
 ): Promise<number> {
+  const overdueWhere = and(
+    eq(receipts.operation, TERMINATE),
+    eq(receipts.status, "accepted"),
+    lte(receipts.createdAt, new Date(input.now.getTime() - input.deadlineMs)),
+  );
+  if (input.dryRun) {
+    const rows = await db
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(overdueWhere);
+    return rows.length;
+  }
   const overdue = await db
     .update(receipts)
     .set({
@@ -232,15 +244,20 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 .set({ desiredState: "terminated" })
                 .where(eq(executions.id, session.executionId))
                 .returning({ id: executions.id });
-        const pendingKill = session.executionId !== null;
-        if (pendingKill && outbox.length !== 1) {
+        // A session on the legacy pod lifecycle (pod_id without an
+        // execution) has no kill outbox and no epoch its worker honours.
+        // Its receipt is not reported succeeded on nothing: it stays
+        // accepted, blocks dispatch, and the deadline sweep reports it
+        // unknown, which is the truth until that path grows a kill.
+        const pendingKill =
+          session.executionId !== null || session.podId !== null;
+        if (session.executionId !== null && outbox.length !== 1) {
           // A bound session without its executions row is a broken
           // invariant, not evidence that nothing is running.
           throw new Error(
             `Session ${sessionId} points at execution ${session.executionId} which has no row`,
           );
         }
-
         // The epoch moves on in the same transaction: from here every
         // request the old worker makes is 409 STALE_EPOCH, whether or not
         // its container is still up. A session already waiting on an

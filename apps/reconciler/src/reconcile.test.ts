@@ -53,8 +53,11 @@ describe("reconciler run", () => {
         });
         return [];
       },
-      expireTerminations: async ({ now }) => {
-        expect(now).toEqual(new Date("2026-09-14T00:00:00Z"));
+      expireTerminations: async (options) => {
+        expect(options).toEqual({
+          dryRun: false,
+          now: new Date("2026-09-14T00:00:00Z"),
+        });
         return 2;
       },
     });

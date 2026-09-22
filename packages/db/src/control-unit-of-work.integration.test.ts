@@ -511,6 +511,28 @@ integration("session terminate on PostgreSQL", () => {
     });
   });
 
+  test("a legacy pod-bound session is not reported terminated on nothing", async () => {
+    const session = await queuedSession(`legacy-${crypto.randomUUID()}`);
+    await db
+      .update(sessions)
+      .set({ podId: `pod-${crypto.randomUUID()}`, status: "running" })
+      .where(eq(sessions.id, session.session_id));
+    const before = await sessionRow(session.session_id);
+    const result = await terminate(session, before.revision);
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect(result.response.receipt_status).toBe("accepted");
+    expect((await sessionRow(session.session_id)).admissionState).toBe(
+      "stopping",
+    );
+    advance(30_000);
+    expect(
+      await store().markOverdueTerminations({ now: clock, deadlineMs: 30_000 }),
+    ).toBeGreaterThanOrEqual(1);
+    expect((await receiptRow(result.response.receipt_id)).status).toBe(
+      "unknown",
+    );
+  });
+
   test("replay, payload conflict, revision conflict, closed session and foreign owner", async () => {
     const session = await queuedSession(`guard-${crypto.randomUUID()}`);
     const before = await sessionRow(session.session_id);

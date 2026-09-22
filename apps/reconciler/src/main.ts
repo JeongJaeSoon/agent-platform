@@ -39,10 +39,11 @@ export async function main(
       logger,
       reconcile: (options) => reconcileOrphanedSessions(db, options),
       reconcileLeases: (options) => reconcileExpiredLeases(db, options),
-      expireTerminations: ({ now }) =>
+      expireTerminations: ({ dryRun, now }) =>
         expireOverdueTerminations(db, {
-          now,
           deadlineMs: TERMINATE_DEADLINE_MS,
+          dryRun,
+          now,
         }),
     });
   } finally {

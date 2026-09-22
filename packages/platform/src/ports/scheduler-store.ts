@@ -120,6 +120,14 @@ export interface SchedulerStore {
    */
   confirmExecutionGone(executionId: string, now: Date): Promise<void>;
   /**
+   * The row's kill intent as it stands now, not as the pass's snapshot had
+   * it. A terminate can commit while the pass is out at the provider, and
+   * the pass must not re-create a resource that was just asked to go.
+   */
+  desiredStateOf(
+    ref: ExecutionRef,
+  ): Promise<ActiveExecution["desiredState"] | null>;
+  /**
    * Terminate receipts still `accepted` after `deadlineMs` become `unknown`:
    * the caller is told the kill was not observed in time. The execution row
    * keeps its kill intent, so reconciliation goes on and a later

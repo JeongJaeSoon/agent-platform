@@ -35,7 +35,7 @@ export async function runReconciler(input: {
   reconcileLeases(options: LeaseReconcileOptions): Promise<ReconciledLease[]>;
   // Terminate receipts past their deadline become unknown. The scheduler
   // sweeps too, but it may not run at all while Docker is down.
-  expireTerminations(options: { now: Date }): Promise<number>;
+  expireTerminations(options: { now: Date; dryRun: boolean }): Promise<number>;
 }): Promise<ReconcilerRun> {
   const environment = input.environment ?? process.env;
   const leaseTtlSec = positiveNumber(
@@ -77,9 +77,7 @@ export async function runReconciler(input: {
     reconciled_count: leases.length,
     session_ids: leases.map(({ sessionId }) => sessionId),
   });
-  const terminationsOverdue = dryRun
-    ? 0
-    : await input.expireTerminations({ now });
+  const terminationsOverdue = await input.expireTerminations({ dryRun, now });
   input.logger.info("Overdue terminate receipts marked unknown", {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,

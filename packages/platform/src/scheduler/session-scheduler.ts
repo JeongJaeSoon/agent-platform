@@ -164,7 +164,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
       return;
     }
-    if (execution.desiredState === "terminated") {
+    if (await killRequested(execution)) {
       await kill(execution);
       return;
     }
@@ -296,6 +296,13 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     await reensure(execution, "missing");
   }
 
+  // The snapshot is checked first, then the row: a terminate that committed
+  // after listActiveExecutions still gets its kill this pass.
+  async function killRequested(execution: ActiveExecution): Promise<boolean> {
+    if (execution.desiredState === "terminated") return true;
+    return (await store.desiredStateOf(refOf(execution))) === "terminated";
+  }
+
   /**
    * Carries out a kill intent. The resource is removed whatever it was
    * doing; the store then decides what its session's turns become. A
@@ -393,6 +400,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reason: "missing" | ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
+    if (await killRequested(execution)) {
+      // Asked to go while this pass was out at the provider: building it
+      // again would hand the kill a fresh target. It is killed instead.
+      await kill(execution);
+      return;
+    }
     const stored = storedIntentOf(execution);
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of

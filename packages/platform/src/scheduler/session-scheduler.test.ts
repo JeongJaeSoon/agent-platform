@@ -148,6 +148,11 @@ class MemoryStore implements SchedulerStore {
     row.observedState = "terminated";
   }
 
+  async desiredStateOf(ref: ExecutionRef) {
+    const row = this.executions.get(ref.executionId);
+    return row && row.generation === ref.generation ? row.desiredState : null;
+  }
+
   /** Terminate receipts as the store would hold them: created_at only. */
   readonly terminateReceipts: { createdAt: Date; status: string }[] = [];
 
@@ -1013,6 +1018,27 @@ describe("runScheduler", () => {
         (r) => r.message === "Execution killed on request; resource removed",
       ),
     ).toBe(true);
+  });
+
+  test("a kill that commits while the pass is out at the provider is honoured, not re-ensured", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    // The resource is gone and the row still says running: the pass would
+    // re-create it, but a terminate lands during its inspect.
+    backend.containers.clear();
+    store.unassigned.delete(launch.sessionId);
+    backend.duringInspect = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.reensured).toEqual([]);
+    expect(summary.killed).toHaveLength(1);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
   });
 
   test("a kill the provider will not carry out keeps the slot and is retried next pass", async () => {
