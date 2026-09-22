@@ -1,0 +1,212 @@
+import { z } from "zod";
+
+import {
+  agentIdSchema,
+  agentReleaseIdSchema,
+  installationIdSchema,
+  OPAQUE_ID_MAX_LENGTH,
+  opaqueIdSchema,
+  ownerScopeSchema,
+  revisionSchema,
+  sessionIdSchema,
+  sessionLinkIdSchema,
+  surfaceBindingIdSchema,
+  timestampSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "../shared/index.ts";
+
+/** Where a conversation happens (03 §5). `api` is a direct client. */
+export const SURFACE_KIND_VALUES = ["web", "slack", "api"] as const;
+export const surfaceKindSchema = z.enum(SURFACE_KIND_VALUES);
+
+/** The kind of place inside a chat surface; drives memory visibility. */
+export const SURFACE_CHANNEL_KIND_VALUES = [
+  "public_channel",
+  "private_channel",
+  "dm",
+] as const;
+export const surfaceChannelKindSchema = z.enum(SURFACE_CHANNEL_KIND_VALUES);
+
+/** Admission, not output: `off` stops accepting input, mute only silences. */
+export const BINDING_MODE_VALUES = ["off", "mention", "ambient"] as const;
+export const bindingModeSchema = z.enum(BINDING_MODE_VALUES);
+
+export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;
+export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
+
+export const SURFACE_BINDING_STATUS_VALUES = [
+  "ready",
+  "partial",
+  "failed",
+  "revoked",
+] as const;
+export const surfaceBindingStatusSchema = z.enum(SURFACE_BINDING_STATUS_VALUES);
+
+/** A place where one agent works: (installation, external surface) → agent. */
+export const surfaceBindingSchema = z
+  .object({
+    id: surfaceBindingIdSchema,
+    workspace_id: workspaceIdSchema,
+    /** The server-issued service owner, never the chat team id (03b §5). */
+    owner_id: ownerScopeSchema,
+    surface: surfaceKindSchema,
+    installation_id: installationIdSchema.nullable(),
+    /** Channel id as the surface spells it; opaque here. */
+    external_surface_id: opaqueIdSchema.nullable(),
+    surface_kind: surfaceChannelKindSchema.nullable(),
+    agent_id: agentIdSchema,
+    mode: bindingModeSchema,
+    memory_write_policy: memoryWritePolicySchema,
+    status: surfaceBindingStatusSchema,
+    muted: z.boolean(),
+    revision: revisionSchema,
+    created_at: timestampSchema,
+    revoked_at: timestampSchema.nullable(),
+  })
+  .strict()
+  .superRefine((binding, ctx) => {
+    // One consumer reads `status`, another reads `revoked_at`; if they can
+    // disagree, one of them keeps routing events into a revoked binding.
+    if ((binding.status === "revoked") !== (binding.revoked_at !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["revoked_at"],
+        message: "revoked status and revoked_at must agree",
+      });
+    }
+    // The three columns are nullable because `partial` and `failed` are real
+    // states: an install can land before the channel is chosen. `ready` is the
+    // claim that routing works, so it cannot be missing what routing needs.
+    if (binding.surface !== "slack" || binding.status !== "ready") return;
+    for (const field of [
+      "installation_id",
+      "external_surface_id",
+      "surface_kind",
+    ] as const) {
+      if (binding[field] === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `a ready slack binding needs ${field}`,
+        });
+      }
+    }
+  });
+
+export const SESSION_LINK_ROLE_VALUES = ["primary", "mirror"] as const;
+export const sessionLinkRoleSchema = z.enum(SESSION_LINK_ROLE_VALUES);
+
+/** How much history a newly linked surface may see; the owner chooses (A04). */
+export const SESSION_LINK_VISIBILITY_VALUES = ["full", "summary"] as const;
+export const sessionLinkVisibilitySchema = z.enum(
+  SESSION_LINK_VISIBILITY_VALUES,
+);
+
+/**
+ * `(installation_id, surface_ref)` is the natural key and stays reserved after
+ * revocation: a new message on a revoked thread needs an explicit rebind, it
+ * does not quietly open a new session (Codex E08).
+ */
+// The cap has to admit every pair the component schemas accept, or a valid
+// conversation has no representable ref at all — so it is derived, not picked.
+// `encodeURIComponent` turns one UTF-16 code unit into at most 9 characters
+// (`%EA%B0%80` for a Hangul syllable); a surrogate pair is 2 units and 12
+// characters, so 9 per unit is the ceiling. Two components plus the separator.
+const MAX_PERCENT_ENCODED_EXPANSION = 9;
+export const SURFACE_REF_MAX_LENGTH =
+  OPAQUE_ID_MAX_LENGTH * MAX_PERCENT_ENCODED_EXPANSION * 2 + 1;
+export const surfaceRefSchema = z.string().min(1).max(SURFACE_REF_MAX_LENGTH);
+
+/** The spelling itself, with no validation — what a refinement can compare to. */
+function canonicalSurfaceRef(channelId: string, threadId: string): string {
+  return `${encodeURIComponent(channelId)}:${encodeURIComponent(threadId)}`;
+}
+
+/**
+ * Both components are opaque strings a surface mints, and a surface is free to
+ * put a colon in one: plain concatenation makes `("a:b", "c")` and
+ * `("a", "b:c")` the same ref, which is two conversations sharing one reserved
+ * link key and messages resolving to the wrong session. Percent-encode each
+ * component so the separator only ever appears where this function put it.
+ */
+export function formatSurfaceRef(channelId: string, threadId: string): string {
+  if (channelId.length === 0 || threadId.length === 0) {
+    throw new TypeError("surface ref: empty component");
+  }
+  return surfaceRefSchema.parse(canonicalSurfaceRef(channelId, threadId));
+}
+
+export const sessionLinkSchema = z
+  .object({
+    id: sessionLinkIdSchema,
+    workspace_id: workspaceIdSchema,
+    owner_id: ownerScopeSchema,
+    session_id: sessionIdSchema,
+    surface: surfaceKindSchema,
+    installation_id: installationIdSchema,
+    surface_binding_id: surfaceBindingIdSchema,
+    surface_ref: surfaceRefSchema,
+    channel_id: opaqueIdSchema.nullable(),
+    thread_id: opaqueIdSchema.nullable(),
+    agent_id: agentIdSchema,
+    release_id: agentReleaseIdSchema.nullable(),
+    profile_id: z.string().min(1).max(128).nullable(),
+    role: sessionLinkRoleSchema,
+    visibility: sessionLinkVisibilitySchema,
+    muted: z.boolean(),
+    revision: revisionSchema,
+    created_by: userIdSchema.nullable(),
+    created_at: timestampSchema,
+    revoked_at: timestampSchema.nullable(),
+  })
+  .strict()
+  .superRefine((link, ctx) => {
+    // `(installation_id, surface_ref)` is a reserved natural key, so one
+    // conversation must have exactly one spelling. A writer that concatenated
+    // the ids itself would otherwise reserve a second key for the same thread
+    // and open a second session on it. Half an identity is worse than none: it
+    // skips canonicalisation and lets any spelling through.
+    if ((link.channel_id === null) !== (link.thread_id === null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["thread_id"],
+        message: "channel_id and thread_id are both set or both null",
+      });
+    } else if (link.channel_id !== null && link.thread_id !== null) {
+      // `canonicalSurfaceRef`, not the formatter: a `parse` here would throw
+      // out of `safeParse` instead of reporting an issue.
+      const canonical = canonicalSurfaceRef(link.channel_id, link.thread_id);
+      if (link.surface_ref !== canonical) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["surface_ref"],
+          message: "must be formatSurfaceRef(channel_id, thread_id)",
+        });
+      }
+    }
+    // `ScopedSessionBinding` — what every inbound message resolves to — needs
+    // both pins. A live link missing either one would be admitted here and
+    // then fail every bind, so it is not a state worth storing. Only a revoked
+    // link may have lost them.
+    if (link.revoked_at !== null) return;
+    for (const field of ["release_id", "profile_id"] as const) {
+      if (link[field] === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `a live session link needs ${field}`,
+        });
+      }
+    }
+  });
+
+export type SurfaceKind = z.infer<typeof surfaceKindSchema>;
+export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;
+export type BindingMode = z.infer<typeof bindingModeSchema>;
+export type MemoryWritePolicy = z.infer<typeof memoryWritePolicySchema>;
+export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
+export type SurfaceBinding = z.infer<typeof surfaceBindingSchema>;
+export type SessionLinkRole = z.infer<typeof sessionLinkRoleSchema>;
+export type SessionLinkVisibility = z.infer<typeof sessionLinkVisibilitySchema>;
+export type SessionLink = z.infer<typeof sessionLinkSchema>;
