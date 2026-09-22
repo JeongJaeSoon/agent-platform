@@ -164,6 +164,35 @@ async function acquireFence(
   return { outcome: "ok", session, attempt };
 }
 
+// The worker drops its local buffer up to this number, so it must be the
+// end of the unbroken run this attempt has stored: a batch that arrives
+// while an earlier sequence is still missing acknowledges only up to the
+// gap. A row with no successor ends a run; the first such row ends the
+// first run.
+async function contiguousThrough(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<number> {
+  const [row] = await tx
+    .select({
+      through: sql<number | null>`min(${events.sourceSequence})`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.sessionId, fence.sessionId),
+        eq(events.attemptId, fence.attemptId),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${events} next
+          WHERE next.session_id = ${fence.sessionId}
+            AND next.attempt_id = ${fence.attemptId}
+            AND next.source_sequence = ${events.sourceSequence} + 1
+        )`,
+      ),
+    );
+  return row?.through ?? 0;
+}
+
 function parseTurnId(turnId: string): number | null {
   if (!TURN_ID.test(turnId)) return null;
   const sequence = Number(turnId);
@@ -630,9 +659,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         );
         return {
           outcome: "ok",
-          acceptedThrough: Math.max(
-            ...input.events.map((event) => event.source_sequence),
-          ),
+          acceptedThrough: await contiguousThrough(tx, fence),
           cursor: encodeEventCursor(latest?.id ?? 0),
         };
       });

@@ -590,11 +590,23 @@ integration("worker gateway on PostgreSQL", () => {
       events: [event(1), event(2)],
     });
     expect(extended.accepted_through).toBe(2);
+    // A batch that skips ahead is stored but only acknowledged up to the gap,
+    // so the worker keeps sequence 3 in its buffer.
+    const ahead = await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(4)],
+    });
+    expect(ahead.accepted_through).toBe(2);
+    const closed = await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(3)],
+    });
+    expect(closed.accepted_through).toBe(4);
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
       .where(eq(events.sessionId, session.session_id));
-    expect(storedRow?.stored).toBe(2);
+    expect(storedRow?.stored).toBe(4);
   });
 
   test("finalize replayed with the same key but a different terminal is a conflict", async () => {
