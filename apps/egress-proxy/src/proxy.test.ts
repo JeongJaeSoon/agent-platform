@@ -738,7 +738,11 @@ describe("egress proxy", () => {
     // attempt is still pending, and once B carries the tunnel that banner
     // (and any pause or stall it caused) must stay with A.
     let banners = 0;
-    const banner = (n: number): string => `server-first-banner-${n}`.repeat(8);
+    // A's banner is far past any socket buffer, so with the client not
+    // reading it can only be queued, which is what used to arm the stall
+    // timer; B's fits in the kernel buffer and never queues at all.
+    const banner = (n: number): string =>
+      `server-first-banner-${n}`.repeat(n === 1 ? 64 * 1024 : 8);
     const talker = Bun.listen<EchoState>({
       hostname: "127.0.0.1",
       port: 0,
@@ -786,6 +790,11 @@ describe("egress proxy", () => {
     try {
       const talk = await connect(late.port);
       talk.send(request(`CONNECT tunnel.test:${talker.port} HTTP/1.1`));
+      // Not reading while A arrives, is abandoned, and the stall deadline
+      // passes: a timer A armed against this connection would fire here.
+      talk.stopReading();
+      await Bun.sleep(800 + stallMs);
+      talk.resumeReading();
       expect(
         await talk.waitFor("200 Connection Established", 10_000),
       ).toContain("200");
@@ -797,12 +806,10 @@ describe("egress proxy", () => {
       talk.sendBytes(clientHello({ serverNames: ["tunnel.test"] }));
       talk.send("before");
       expect(await talk.waitFor("before", 10_000)).toContain("before");
-
-      // Past A's own arrival and past the stall deadline, the tunnel holds.
-      await Bun.sleep(800 + stallMs);
       talk.send("after");
       expect(await talk.waitFor("after", 10_000)).toContain("after");
       expect(talk.text()).not.toContain(banner(1));
+      expect(talk.isClosed()).toBe(false);
       talk.close();
     } finally {
       late.stop();
