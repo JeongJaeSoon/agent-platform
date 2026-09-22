@@ -194,6 +194,19 @@ describe("API checkpoint composition", () => {
         AWS_ENDPOINT_URL: "localstack:4566",
       }),
     ).toThrow(/not an http\(s\) URL/);
+    // Neither refusal repeats the value: it may carry a credential.
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        AWS_ENDPOINT_URL: "ftp://user:hunter2@host",
+      }),
+    ).toThrow(/^AWS_ENDPOINT_URL is not an http\(s\) URL$/);
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        AWS_ENDPOINT_URL: "http://user:hunter2@host:4566",
+      }),
+    ).toThrow(/^AWS_ENDPOINT_URL must not carry userinfo$/);
     expect(() =>
       checkpointStorageConfigFromEnv({
         ...full,

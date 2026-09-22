@@ -17,7 +17,8 @@ case "$app" in
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
     ;;
   api)
-    docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && bun --version'
+    # git: the checkpoint bundle verifier spawns it (94S-201).
+    docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
     ;;
   scheduler)
     docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'

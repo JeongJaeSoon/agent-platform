@@ -92,8 +92,13 @@ export function checkpointStorageConfigFromEnv(
     }
     // A bare host:port parses as a URL whose scheme is the host name; the
     // SDK needs an http(s) origin.
+    // The value is not echoed: an endpoint pasted with userinfo would put
+    // a credential into the startup log.
     if (!parsed || !["http:", "https:"].includes(parsed.protocol)) {
-      throw new Error(`AWS_ENDPOINT_URL ${endpoint} is not an http(s) URL`);
+      throw new Error("AWS_ENDPOINT_URL is not an http(s) URL");
+    }
+    if (parsed.username !== "" || parsed.password !== "") {
+      throw new Error("AWS_ENDPOINT_URL must not carry userinfo");
     }
   }
   // The bucket is named first so an empty environment is reported as the
