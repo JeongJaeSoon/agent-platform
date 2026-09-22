@@ -226,6 +226,37 @@ describe("Claude session store", () => {
     expect(part.bytes).toBeGreaterThan(0);
   });
 
+  test("captures without re-reading parts it wrote itself", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const { mirror } = store(objects);
+    await mirror.append(root, [entry("a", "first")]);
+    await mirror.append(root, [entry("b", "second")]);
+
+    objects.resetReads();
+    await mirror.captureRevision(root);
+    await mirror.captureRevision(root);
+
+    // Otherwise a session that checkpoints each turn re-downloads its whole
+    // history every turn.
+    expect(objects.reads()).toEqual([]);
+  });
+
+  test("a restore still confronts the bytes the store holds now", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const { mirror } = store(objects);
+    await mirror.append(root, [entry("a", "first")]);
+    const revision = await mirror.captureRevision(root);
+    if (revision === null) throw new Error("expected a revision");
+    const part = revision.parts[0];
+    if (part === undefined) throw new Error("expected a part");
+    await objects.put(part.key, new TextEncoder().encode('{"type":"x"}\n'));
+
+    // Same store instance, so a cached body would hide the corruption.
+    await expect(mirror.loadRevision(revision)).rejects.toThrow(
+      /integrity failure/,
+    );
+  });
+
   test("never lets two sessions share a key prefix", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const { mirror } = store(objects);

@@ -90,8 +90,13 @@ export const CLAUDE_RUNTIME_FINGERPRINT = {
  * direction, since the alternative is calling two different tool surfaces
  * compatible.
  *
- * What it does not cover: plugin *contents* at an unchanged path. Only the path
- * and type are hashed, because the files are not readable from here.
+ * What it does not cover: plugin *contents* at an unchanged path, and the
+ * behaviour of an in-process MCP server. The SDK accepts a live `McpServer`
+ * instance in `mcpServers`, which has no serializable identity and is cyclic —
+ * hashing it verbatim throws. Such an entry is reduced to its class name, so
+ * the fingerprint still distinguishes "an in-process server is registered under
+ * this name" from "a different transport is", but not one in-process server
+ * from another under the same name.
  */
 export function claudeProfileFingerprint(
   config: Pick<
@@ -110,7 +115,7 @@ export function claudeProfileFingerprint(
     JSON.stringify(
       canonical({
         appendSystemPrompt: config.appendSystemPrompt ?? null,
-        mcpServers: config.mcpServers ?? {},
+        mcpServers: describeOpaque(config.mcpServers ?? {}),
         model: config.model,
         permissionMode: config.permissionMode ?? "default",
         plugins: [...(config.plugins ?? [])].sort((left, right) =>
@@ -190,6 +195,25 @@ function canonical(value: unknown): unknown {
     Object.entries(value)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, nested]) => [key, canonical(nested)]),
+  );
+}
+
+/**
+ * Replaces anything that is not plain data with a stable stand-in, so a live
+ * object graph in the config cannot make the fingerprint throw. Recursion is
+ * bounded by the same rule: a class instance is never descended into, which is
+ * also what stops a cycle.
+ */
+function describeOpaque(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(describeOpaque);
+  if (typeof value === "function") return { opaque: value.name || "function" };
+  if (typeof value !== "object" || value === null) return value;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return { opaque: prototype.constructor?.name ?? "object" };
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, describeOpaque(nested)]),
   );
 }
 

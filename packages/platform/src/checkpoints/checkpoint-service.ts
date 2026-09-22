@@ -32,6 +32,17 @@ export type ManifestVerdict =
   | { manifest: CheckpointManifest; status: "verified" }
   | { reason: string; status: "rejected" };
 
+/**
+ * Every object a session may own lives under this prefix, and nothing else
+ * does. A manifest naming a key outside its own session's namespace is refused
+ * rather than trusted, so a worker fenced for one session cannot pin another
+ * session's transcript into its restore plan. Hosts build the transcript mirror
+ * prefix from this too.
+ */
+export function sessionObjectPrefix(sessionId: string): string {
+  return `sessions/${sessionId}/`;
+}
+
 export type FinalizeCheckpointInput = {
   checkpoint: CheckpointRef;
   fence: CheckpointFence;
@@ -99,7 +110,7 @@ export function manifestRefFor(
 ): string {
   // Zero-padded so a prefix listing of a session's checkpoints is ordered.
   const padded = String(revision).padStart(10, "0");
-  return `sessions/${sessionId}/checkpoints/${padded}/${attemptId}/manifest.json`;
+  return `${sessionObjectPrefix(sessionId)}checkpoints/${padded}/${attemptId}/manifest.json`;
 }
 
 /**
@@ -119,6 +130,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function validateManifest(input: {
     checkpoint: CheckpointRef;
     sessionId: string;
+    /**
+     * `key\u0000sha256` pairs a previous commit already read and hashed. Parts
+     * are write-once, so re-hashing them would only re-download a transcript
+     * that grows with the session.
+     */
+    verified?: ReadonlySet<string>;
   }): Promise<ManifestVerdict> {
     const { checkpoint, sessionId } = input;
     const bytes = await objects.get(checkpoint.manifest_ref);
@@ -161,25 +178,35 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest is revision ${manifest.revision}, not ${checkpoint.revision}`,
       };
     }
-    const missing = await missingArtifact(manifest);
-    if (missing !== undefined) return { status: "rejected", reason: missing };
+    const bad = await badArtifact(manifest, sessionId, input.verified);
+    if (bad !== undefined) return { status: "rejected", reason: bad };
     return { status: "verified", manifest };
   }
 
   /**
-   * A manifest that parses is not yet a restorable checkpoint: a partial
-   * upload, a lifecycle deletion or a truncated part leaves it naming objects
-   * that are not there. The pointer must never advance to one of those, so
-   * every referenced object is checked for presence and declared size before
-   * the checkpoint counts as verified.
+   * A manifest that parses is not yet a restorable checkpoint, and the pointer
+   * must never advance to one that is not. Three things are checked, in the
+   * order that fails cheapest first.
    *
-   * Sizes, not digests: the bytes are hashed on the way back in
-   * `loadRevision`, where they have to be read anyway. Re-downloading every
-   * transcript part on each checkpoint would double the transfer to catch a
-   * corruption that restore catches regardless.
+   * *Namespace.* Object keys come from the worker. One that names another
+   * session's object would put that transcript into this session's restore
+   * plan, so anything outside the session's own prefix is refused before it is
+   * ever fetched.
+   *
+   * *Presence and size.* A partial upload or a lifecycle deletion leaves the
+   * manifest naming objects that are not there.
+   *
+   * *Digest.* A same-length overwrite passes a size check and then fails at
+   * restore — by which point the pointer has already superseded the last
+   * healthy checkpoint and the session is unresumable. Hashing here is what
+   * makes "committed" mean "restorable". Parts already hashed under the
+   * previous pointer are skipped, because parts are write-once: without that,
+   * every checkpoint would re-download the whole transcript.
    */
-  async function missingArtifact(
+  async function badArtifact(
     manifest: CheckpointManifest,
+    sessionId: string,
+    verified: ReadonlySet<string> = new Set(),
   ): Promise<string | undefined> {
     const refs = [
       ...manifest.transcripts.root.parts,
@@ -188,18 +215,66 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
       ...manifest.workspace.untracked,
     ];
-    const heads = await Promise.all(
-      refs.map(async (ref) => [ref, await objects.head(ref.key)] as const),
-    );
-    for (const [ref, head] of heads) {
-      if (head === undefined) {
-        return `manifest references a missing object: ${ref.key}`;
-      }
-      if (head.bytes !== ref.bytes) {
-        return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
+    const prefix = sessionObjectPrefix(sessionId);
+    for (const ref of refs) {
+      if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
+        return `manifest references an object outside ${prefix}: ${ref.key}`;
       }
     }
-    return undefined;
+    const problems = await Promise.all(
+      refs.map(async (ref) => {
+        const head = await objects.head(ref.key);
+        if (head === undefined) {
+          return `manifest references a missing object: ${ref.key}`;
+        }
+        if (head.bytes !== ref.bytes) {
+          return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
+        }
+        if (verified.has(refToken(ref))) return undefined;
+        const body = await objects.get(ref.key);
+        if (body === undefined) {
+          return `manifest references a missing object: ${ref.key}`;
+        }
+        const digest = sha256(body);
+        if (digest !== ref.sha256) {
+          return `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`;
+        }
+        return undefined;
+      }),
+    );
+    return problems.find((problem) => problem !== undefined);
+  }
+
+  /**
+   * What the currently committed checkpoint already proved. A pointer that
+   * cannot be read yields nothing, which only costs a re-hash.
+   */
+  async function verifiedRefs(sessionId: string): Promise<Set<string>> {
+    const tokens = new Set<string>();
+    try {
+      const pointer = await store.readPointer(sessionId);
+      if (pointer === null) return tokens;
+      const bytes = await objects.get(pointer.manifestRef);
+      if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
+        return tokens;
+      }
+      const engine = engineOf(bytes);
+      const codec = engine === undefined ? undefined : own(codecs, engine);
+      if (codec === undefined) return tokens;
+      const manifest = codec.decode(bytes);
+      for (const ref of [
+        ...manifest.transcripts.root.parts,
+        ...Object.values(manifest.transcripts.subagents).flatMap(
+          (revision) => revision.parts,
+        ),
+        ...manifest.workspace.untracked,
+      ]) {
+        tokens.add(refToken(ref));
+      }
+    } catch {
+      return new Set();
+    }
+    return tokens;
   }
 
   return {
@@ -246,13 +321,38 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * The fence travels into the same transaction as the pointer update, so a
      * worker whose lease was taken over cannot win the next revision merely by
      * uploading first — object-store ordering decides nothing here.
+     *
+     * The caller supplies both the fence and the manifest reference, and
+     * nothing yet ties them together: a confused worker could hand over the
+     * fence it holds and some other attempt's manifest, which would promote
+     * exactly the orphan that per-attempt keys exist to isolate. So the
+     * reference is not taken as given — it must be the one key this session,
+     * revision and attempt could have written.
      */
     async finalize(
       input: FinalizeCheckpointInput,
     ): Promise<FinalizeCheckpointResult> {
+      if (input.fence.sessionId !== input.sessionId) {
+        return {
+          outcome: "rejected",
+          reason: `fence belongs to session ${input.fence.sessionId}`,
+        };
+      }
+      const expectedRef = manifestRefFor(
+        input.sessionId,
+        input.checkpoint.revision,
+        input.fence.attemptId,
+      );
+      if (input.checkpoint.manifest_ref !== expectedRef) {
+        return {
+          outcome: "rejected",
+          reason: `manifest ${input.checkpoint.manifest_ref} is not this attempt's key ${expectedRef}`,
+        };
+      }
       const verdict = await validateManifest({
         checkpoint: input.checkpoint,
         sessionId: input.sessionId,
+        verified: await verifiedRefs(input.sessionId),
       });
       if (verdict.status === "rejected") {
         return { outcome: "rejected", reason: verdict.reason };
@@ -300,6 +400,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           revision: pointer.revision,
         },
         sessionId: input.sessionId,
+        // These are the objects finalize already hashed on the way in, and the
+        // worker hashes them again as it downloads them. Re-reading the whole
+        // transcript here would only add a round trip between the two.
+        verified: await verifiedRefs(input.sessionId),
       });
       if (verdict.status === "rejected") {
         return {
@@ -393,6 +497,12 @@ function engineOf(bytes: Uint8Array): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// Key and digest together: the same key carrying different bytes is exactly
+// the case a verified-set must not wave through.
+function refToken(ref: ObjectRef): string {
+  return `${ref.key}\u0000${ref.sha256}`;
 }
 
 // Codec registries are plain objects; inherited keys are not codecs.

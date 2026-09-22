@@ -36,6 +36,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
   readonly #prefix: string;
   readonly #now: () => number;
   readonly #sequence = new Map<string, number>();
+  /**
+   * Parts are write-once, so what a part holds never has to be fetched twice.
+   * Without this, every capture re-downloads and re-parses the whole
+   * transcript, and a session that checkpoints at each turn boundary pays for
+   * its history again on every turn.
+   */
+  readonly #parts = new Map<string, Promise<Uint8Array>>();
   #appendFailures = 0;
 
   constructor(options: ClaudeSessionStoreOptions) {
@@ -58,21 +65,20 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
     const prefix = this.#keyPrefix(key);
     const name = `part-${String(await this.#nextTick(prefix)).padStart(13, "0")}-${randomUUID()}.jsonl`;
+    const bytes = new TextEncoder().encode(body);
     try {
-      await this.#objects.put(
-        `${prefix}${name}`,
-        new TextEncoder().encode(body),
-      );
+      await this.#objects.put(`${prefix}${name}`, bytes);
     } catch (error) {
       this.#appendFailures += 1;
       throw error;
     }
+    this.#parts.set(`${prefix}${name}`, Promise.resolve(bytes));
   }
 
   async load(key: TranscriptKey): Promise<TranscriptEntry[] | null> {
     const parts = await this.#listParts(key);
     if (parts.length === 0) return null;
-    const bodies = await Promise.all(parts.map((part) => this.#read(part)));
+    const bodies = await Promise.all(parts.map((part) => this.#cached(part)));
     return deduplicate(bodies.flatMap(parseEntries));
   }
 
@@ -96,7 +102,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   ): Promise<TranscriptRevision | null> {
     const parts = await this.#listParts(key);
     if (parts.length === 0) return null;
-    const bodies = await Promise.all(parts.map((part) => this.#read(part)));
+    const bodies = await Promise.all(parts.map((part) => this.#cached(part)));
     const refs: ObjectRef[] = parts.map((part, index) => {
       const body = bodies[index] ?? new Uint8Array();
       return { bytes: body.byteLength, key: part, sha256: sha256(body) };
@@ -165,6 +171,22 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const bytes = await this.#objects.get(key);
     if (bytes === undefined) throw new Error(`Missing transcript part: ${key}`);
     return bytes;
+  }
+
+  /**
+   * Used wherever the question is "what did the mirror record", never in
+   * `loadRevision`: restoring a checkpoint has to confront the bytes the store
+   * actually holds now, not a copy this process happens to remember.
+   */
+  #cached(key: string): Promise<Uint8Array> {
+    const hit = this.#parts.get(key);
+    if (hit !== undefined) return hit;
+    const pending = this.#read(key).catch((error: unknown) => {
+      this.#parts.delete(key);
+      throw error;
+    });
+    this.#parts.set(key, pending);
+    return pending;
   }
 
   #keyPrefix(key: TranscriptKey): string {

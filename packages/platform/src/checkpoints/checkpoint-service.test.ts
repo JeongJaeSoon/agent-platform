@@ -21,6 +21,7 @@ import type {
 import {
   createCheckpointService,
   manifestRefFor,
+  sessionObjectPrefix,
 } from "./checkpoint-service.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -78,10 +79,13 @@ const codec: CheckpointCodec = {
 };
 
 /** Artifact bodies the manifests below point at, by key. */
+const ROOT_PART = `${sessionObjectPrefix(sessionId)}mirror/root-0.jsonl`;
+const SUB_PART = `${sessionObjectPrefix(sessionId)}mirror/sub-0.jsonl`;
+const UNTRACKED = `${sessionObjectPrefix(sessionId)}workspace/notes.md`;
 const ARTIFACTS: Record<string, string> = {
-  "mirror/root-0.jsonl": '{"type":"user","uuid":"r1"}\n',
-  "mirror/sub-0.jsonl": '{"type":"user","uuid":"s1"}\n',
-  "workspace/untracked/notes.md": "scratch\n",
+  [ROOT_PART]: '{"type":"user","uuid":"r1"}\n',
+  [SUB_PART]: '{"type":"user","uuid":"s1"}\n',
+  [UNTRACKED]: "scratch\n",
 };
 
 function ref(key: string): ObjectRef {
@@ -103,13 +107,13 @@ function manifest(
     transcripts: {
       root: {
         entryCount: 2,
-        parts: [ref("mirror/root-0.jsonl")],
+        parts: [ref(ROOT_PART)],
         sha256: "c".repeat(64),
       },
       subagents: {
         "agents/reviewer": {
           entryCount: 1,
-          parts: [ref("mirror/sub-0.jsonl")],
+          parts: [ref(SUB_PART)],
           sha256: "e".repeat(64),
         },
       },
@@ -117,7 +121,7 @@ function manifest(
     version: 1,
     workspace: {
       gitCommit: "f".repeat(40),
-      untracked: [ref("workspace/untracked/notes.md")],
+      untracked: [ref(UNTRACKED)],
     },
     ...overrides,
   };
@@ -180,6 +184,19 @@ beforeEach(async () => {
     store: checkpoints.store,
   });
 });
+
+/** A second service over the same objects, fenced to a different owner. */
+function serviceOwnedBy(owner: CheckpointFence) {
+  const store = memoryCheckpointStore(owner);
+  return {
+    store,
+    service: createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects,
+      store: store.store,
+    }),
+  };
+}
 
 /** Uploads a manifest the way a worker would, and returns the ref for it. */
 async function upload(body: CheckpointManifest, attempt = attemptId) {
@@ -250,10 +267,11 @@ describe("requestCheckpoint", () => {
 
     const second = await upload(manifest(), "attempt-2");
     expect(second.result).toEqual({ outcome: "created" });
+    const replacement = serviceOwnedBy(fence({ attemptId: "attempt-2" }));
     expect(
-      await service.finalize({
+      await replacement.service.finalize({
         ...second,
-        fence: fence(),
+        fence: fence({ attemptId: "attempt-2" }),
         now: new Date(),
         sessionId,
         turnId: "1",
@@ -379,31 +397,31 @@ describe("validateManifest", () => {
   });
 
   test("refuses a manifest naming a transcript part that was never uploaded", async () => {
-    objects.remove("mirror/sub-0.jsonl");
+    objects.remove(SUB_PART);
     const { checkpoint } = await upload(manifest());
 
     expect(
       await service.validateManifest({ checkpoint, sessionId }),
     ).toMatchObject({
       status: "rejected",
-      reason: "manifest references a missing object: mirror/sub-0.jsonl",
+      reason: `manifest references a missing object: ${SUB_PART}`,
     });
   });
 
   test("refuses a manifest naming an untracked file that was never uploaded", async () => {
-    objects.remove("workspace/untracked/notes.md");
+    objects.remove(UNTRACKED);
     const { checkpoint } = await upload(manifest());
 
     expect(
       await service.validateManifest({ checkpoint, sessionId }),
     ).toMatchObject({
       status: "rejected",
-      reason: expect.stringMatching(/workspace\/untracked\/notes\.md/),
+      reason: expect.stringMatching(/workspace\/notes\.md/),
     });
   });
 
   test("refuses a part whose stored size is not the size the manifest declares", async () => {
-    await objects.put("mirror/root-0.jsonl", encode("truncated"));
+    await objects.put(ROOT_PART, encode("truncated"));
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -412,6 +430,67 @@ describe("validateManifest", () => {
       status: "rejected",
       reason: expect.stringMatching(/mirror\/root-0\.jsonl is 9 bytes, not/),
     });
+  });
+
+  test("refuses a part replaced by different bytes of the same length", async () => {
+    const original = ARTIFACTS[ROOT_PART] ?? "";
+    // Same length, so a size check waves it through and only a digest catches
+    // it — at which point the pointer has already superseded the last good one.
+    await objects.put(ROOT_PART, encode(original.replace("r1", "XX")));
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/hashes to [0-9a-f]{64}, not/),
+    });
+  });
+
+  test("refuses a manifest naming another session's transcript", async () => {
+    const other = "22222222-2222-4222-8222-222222222222";
+    const stolen = `${sessionObjectPrefix(other)}mirror/root-0.jsonl`;
+    await objects.put(stolen, encode("{}\n"));
+    const { checkpoint } = await upload(
+      manifest({
+        transcripts: {
+          root: {
+            entryCount: 1,
+            parts: [{ bytes: 3, key: stolen, sha256: sha256("{}\n") }],
+            sha256: "c".repeat(64),
+          },
+          subagents: {},
+        },
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/outside sessions\/11111111/),
+    });
+  });
+
+  test("refuses a key that climbs out of the session namespace", async () => {
+    const climbing = `${sessionObjectPrefix(sessionId)}../elsewhere/root.jsonl`;
+    await objects.put(climbing, encode("{}\n"));
+    const { checkpoint } = await upload(
+      manifest({
+        transcripts: {
+          root: {
+            entryCount: 1,
+            parts: [{ bytes: 3, key: climbing, sha256: sha256("{}\n") }],
+            sha256: "c".repeat(64),
+          },
+          subagents: {},
+        },
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "rejected" });
   });
 });
 
@@ -450,7 +529,7 @@ describe("finalize", () => {
   });
 
   test("never commits a checkpoint whose artifacts are not all there", async () => {
-    objects.remove("mirror/root-0.jsonl");
+    objects.remove(ROOT_PART);
     const { checkpoint } = await upload(manifest());
 
     expect(
@@ -579,6 +658,98 @@ describe("finalize", () => {
       codec.encode(manifest({ resume: "engine-session-1" })).bytes,
     );
   });
+
+  test("refuses to promote a manifest another attempt uploaded", async () => {
+    // The orphan an attempt left behind before it died. Per-attempt keys keep
+    // it out of the live attempt's way only if nobody may point at it.
+    const orphan = await upload(
+      manifest({ resume: "engine-session-dead" }),
+      "attempt-dead",
+    );
+    expect(orphan.result).toEqual({ outcome: "created" });
+
+    expect(
+      await service.finalize({
+        ...orphan,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: expect.stringMatching(/is not this attempt's key/),
+    });
+    expect(checkpoints.committed).toEqual([]);
+    expect(checkpoints.pointer()).toBeNull();
+  });
+
+  test("refuses a fence issued for a different session", async () => {
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.finalize({
+        checkpoint,
+        fence: fence({ sessionId: "22222222-2222-4222-8222-222222222222" }),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: expect.stringMatching(/fence belongs to session 22222222/),
+    });
+    expect(checkpoints.committed).toEqual([]);
+  });
+
+  test("does not re-read parts the committed pointer already proved", async () => {
+    const zero = await upload(manifest());
+    await service.finalize({
+      ...zero,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "1",
+    });
+
+    // Revision 1 keeps revision 0's parts and adds one.
+    const grown = `${sessionObjectPrefix(sessionId)}mirror/root-1.jsonl`;
+    const body = '{"type":"user","uuid":"r2"}\n';
+    await objects.put(grown, encode(body));
+    const next = manifest({ revision: 1, resume: "engine-session-2" });
+    const one = await upload({
+      ...next,
+      transcripts: {
+        ...next.transcripts,
+        root: {
+          entryCount: 3,
+          parts: [
+            ref(ROOT_PART),
+            {
+              bytes: encode(body).byteLength,
+              key: grown,
+              sha256: sha256(body),
+            },
+          ],
+          sha256: "c".repeat(64),
+        },
+      },
+    });
+
+    objects.resetReads();
+    expect(
+      await service.finalize({
+        ...one,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "2",
+      }),
+    ).toEqual({ outcome: "committed", revision: 1 });
+    // Only the new part's body is fetched; the carried-over ones are not.
+    expect(objects.reads().filter((key) => key === ROOT_PART)).toEqual([]);
+    expect(objects.reads()).toContain(grown);
+  });
 });
 
 describe("getRestorePlan", () => {
@@ -605,28 +776,24 @@ describe("getRestorePlan", () => {
           {
             kind: "transcript_root",
             label: "",
-            objects: [ref("mirror/root-0.jsonl")],
+            objects: [ref(ROOT_PART)],
           },
           {
             kind: "transcript_subagent",
             label: "agents/reviewer",
-            objects: [ref("mirror/sub-0.jsonl")],
+            objects: [ref(SUB_PART)],
           },
           {
             kind: "workspace_untracked",
             label: "",
-            objects: [ref("workspace/untracked/notes.md")],
+            objects: [ref(UNTRACKED)],
           },
         ],
         cwd: "/workspace",
         engine: runtime.engine,
         gitCommit: "f".repeat(40),
         manifestRef: manifestRefFor(sessionId, 0, attemptId),
-        objectKeys: [
-          "mirror/root-0.jsonl",
-          "mirror/sub-0.jsonl",
-          "workspace/untracked/notes.md",
-        ],
+        objectKeys: [ROOT_PART, SUB_PART, UNTRACKED],
         resume: "engine-session-1",
         revision: 0,
       },
@@ -719,7 +886,7 @@ describe("getRestorePlan", () => {
       sessionId,
       turnId: "1",
     });
-    objects.remove("mirror/root-0.jsonl");
+    objects.remove(ROOT_PART);
 
     expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
       status: "unavailable",

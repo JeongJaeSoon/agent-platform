@@ -11,6 +11,9 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
   failWrites(count: number): void;
   /** Drops an object, standing in for a lifecycle rule or an operator delete. */
   remove(key: string): void;
+  /** Keys whose bodies were fetched since the last reset, in call order. */
+  reads(): string[];
+  resetReads(): void;
 };
 
 /**
@@ -20,6 +23,7 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
  */
 export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore {
   const objects = new Map<string, Uint8Array>();
+  const reads: string[] = [];
   let failuresLeft = 0;
 
   function guardWrite(key: string): void {
@@ -30,6 +34,7 @@ export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore
 
   return {
     async get(key) {
+      reads.push(key);
       const stored = objects.get(key);
       return stored === undefined ? undefined : stored.slice();
     },
@@ -71,6 +76,14 @@ export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore
 
     remove(key) {
       objects.delete(key);
+    },
+
+    reads() {
+      return [...reads];
+    },
+
+    resetReads() {
+      reads.length = 0;
     },
   };
 }

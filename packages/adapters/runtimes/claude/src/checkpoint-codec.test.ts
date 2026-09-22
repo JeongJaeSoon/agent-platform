@@ -230,6 +230,26 @@ describe("Claude profile fingerprint", () => {
     ).not.toBe(claudeProfileFingerprint(config));
   });
 
+  test("survives an in-process MCP server the SDK accepts", () => {
+    // `createSdkMcpServer` hands back a live object graph with cycles in it;
+    // hashing it verbatim throws, which would stop the session checkpointing.
+    class McpServer {
+      self: unknown;
+      constructor(readonly name: string) {
+        this.self = this;
+      }
+    }
+    const inProcess = {
+      ...config,
+      mcpServers: { review: new McpServer("review") },
+    };
+
+    expect(claudeProfileFingerprint(inProcess)).toMatch(/^[0-9a-f]{64}$/);
+    expect(claudeProfileFingerprint(inProcess)).not.toBe(
+      claudeProfileFingerprint(config),
+    );
+  });
+
   test("changes when the appended system prompt changes", () => {
     expect(
       claudeProfileFingerprint({ ...config, appendSystemPrompt: "extra" }),
