@@ -61,6 +61,11 @@ export type FakeAnthropicOptions = {
     | ((request: RecordedRequest, index: number) => FakeFailure | undefined);
   /** Delay before every response, applied before `failWith` and the reply. */
   latencyMs?: number;
+  /**
+   * Serve HTTPS with this certificate, so a client that tunnels TLS through
+   * a proxy (`CONNECT`) exercises that path instead of absolute-form HTTP.
+   */
+  tls?: { cert: string; key: string };
 };
 
 export type FakeAnthropicServer = {
@@ -80,6 +85,7 @@ export function startFakeAnthropicServer(
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
+    ...(options.tls === undefined ? {} : { tls: options.tls }),
     async fetch(request) {
       const url = new URL(request.url);
       if (request.method !== "POST" || !url.pathname.endsWith("/messages")) {
@@ -113,7 +119,7 @@ export function startFakeAnthropicServer(
   return {
     requests,
     stop: () => server.stop(true),
-    url: `http://127.0.0.1:${server.port}`,
+    url: `${options.tls === undefined ? "http" : "https"}://127.0.0.1:${server.port}`,
   };
 }
 

@@ -52,6 +52,14 @@ class MemoryS3 implements S3ClientLike {
   }
 }
 
+// The hydrate test below is the only one that spawns real `git` (7 direct
+// runGit calls plus hydrate/checkpoint for two sessions, ~20 processes).
+// Idle it takes 1.9-2.7s on a 14-core M-series Mac (5 runs, bun 1.3.11,
+// git 2.55), so bun's 5s default fails whenever Codex/docker share the CPU.
+// 30s is >10x the idle p95: a genuinely hung git still fails fast enough,
+// while CPU contention no longer does. Matches localstack.test.ts.
+const REAL_GIT_TIMEOUT_MS = 30_000;
+
 const baseConfig: StorageConfig = {
   bucket: "test-bucket",
   chunkBytes: 1024,
@@ -116,102 +124,106 @@ describe("Claude transcript path", () => {
   });
 });
 
-test("hydrates new and resumed branches and preserves transcript bytes", async () => {
-  const root = await makeTempDirectory();
-  const source = join(root, "source");
-  const remote = join(root, "remote.git");
-  await mkdir(source);
-  await runGit(["init", "--initial-branch", "main"], source);
-  await writeFile(join(source, "README.md"), "base\n");
-  await runGit(["add", "README.md"], source);
-  await runGit(
-    [
-      "-c",
-      "user.name=Storage Test",
-      "-c",
-      "user.email=storage@example.test",
-      "commit",
-      "-m",
-      "Initial",
-    ],
-    source,
-  );
-  await runGit(["clone", "--bare", source, remote], root);
-  const baseCommit = (
-    await runGit(["rev-parse", "refs/heads/main"], remote)
-  ).trim();
+test(
+  "hydrates new and resumed branches and preserves transcript bytes",
+  async () => {
+    const root = await makeTempDirectory();
+    const source = join(root, "source");
+    const remote = join(root, "remote.git");
+    await mkdir(source);
+    await runGit(["init", "--initial-branch", "main"], source);
+    await writeFile(join(source, "README.md"), "base\n");
+    await runGit(["add", "README.md"], source);
+    await runGit(
+      [
+        "-c",
+        "user.name=Storage Test",
+        "-c",
+        "user.email=storage@example.test",
+        "commit",
+        "-m",
+        "Initial",
+      ],
+      source,
+    );
+    await runGit(["clone", "--bare", source, remote], root);
+    const baseCommit = (
+      await runGit(["rev-parse", "refs/heads/main"], remote)
+    ).trim();
 
-  const s3 = new MemoryS3();
-  const storage = createSessionStorage(baseConfig, { s3Client: s3 });
-  const firstWorkspace = join(root, "first-workspace");
-  const firstClaudeHome = join(root, "first-home", ".claude");
-  const first = await storage.hydrate({
-    baseBranch: "main",
-    claudeHome: firstClaudeHome,
-    cwd: "/workspace",
-    repositoryUrl: remote,
-    sessionId: "session-01",
-    workspacePath: firstWorkspace,
-  });
-  expect(first).toEqual({ mode: "new" });
+    const s3 = new MemoryS3();
+    const storage = createSessionStorage(baseConfig, { s3Client: s3 });
+    const firstWorkspace = join(root, "first-workspace");
+    const firstClaudeHome = join(root, "first-home", ".claude");
+    const first = await storage.hydrate({
+      baseBranch: "main",
+      claudeHome: firstClaudeHome,
+      cwd: "/workspace",
+      repositoryUrl: remote,
+      sessionId: "session-01",
+      workspacePath: firstWorkspace,
+    });
+    expect(first).toEqual({ mode: "new" });
 
-  await writeFile(join(firstWorkspace, "feature.txt"), "session change\n");
-  const originalTranscript = new TextEncoder().encode(
-    '{"type":"user","message":"안녕"}\n{"type":"assistant","message":"hello"}\n',
-  );
-  const firstTranscriptPath = claudeTranscriptPath(
-    firstClaudeHome,
-    "/workspace",
-    "claude-01",
-  );
-  await mkdir(join(firstClaudeHome, "projects", "-workspace"), {
-    recursive: true,
-  });
-  await writeFile(firstTranscriptPath, originalTranscript);
-  const checkpoint = await storage.checkpoint({
-    claudeHome: firstClaudeHome,
-    claudeSessionId: "claude-01",
-    cwd: "/workspace",
-    sessionId: "session-01",
-    workspacePath: firstWorkspace,
-  });
+    await writeFile(join(firstWorkspace, "feature.txt"), "session change\n");
+    const originalTranscript = new TextEncoder().encode(
+      '{"type":"user","message":"안녕"}\n{"type":"assistant","message":"hello"}\n',
+    );
+    const firstTranscriptPath = claudeTranscriptPath(
+      firstClaudeHome,
+      "/workspace",
+      "claude-01",
+    );
+    await mkdir(join(firstClaudeHome, "projects", "-workspace"), {
+      recursive: true,
+    });
+    await writeFile(firstTranscriptPath, originalTranscript);
+    const checkpoint = await storage.checkpoint({
+      claudeHome: firstClaudeHome,
+      claudeSessionId: "claude-01",
+      cwd: "/workspace",
+      sessionId: "session-01",
+      workspacePath: firstWorkspace,
+    });
 
-  expect(checkpoint.transcriptObjects).toEqual([
-    "sessions/session-01/transcript.jsonl",
-  ]);
-  expect(s3.objects.has("sessions/session-01/meta.json")).toBe(true);
-  expect(s3.objects.get("sessions/session-01/transcript.jsonl")).toEqual(
-    originalTranscript,
-  );
-  expect((await runGit(["rev-parse", "refs/heads/main"], remote)).trim()).toBe(
-    baseCommit,
-  );
-  expect(
-    (
-      await runGit(["rev-parse", "refs/heads/session/session-01"], remote)
-    ).trim(),
-  ).toBe(checkpoint.gitCommit);
-  expect(checkpoint.gitCommit).not.toBe(baseCommit);
+    expect(checkpoint.transcriptObjects).toEqual([
+      "sessions/session-01/transcript.jsonl",
+    ]);
+    expect(s3.objects.has("sessions/session-01/meta.json")).toBe(true);
+    expect(s3.objects.get("sessions/session-01/transcript.jsonl")).toEqual(
+      originalTranscript,
+    );
+    expect(
+      (await runGit(["rev-parse", "refs/heads/main"], remote)).trim(),
+    ).toBe(baseCommit);
+    expect(
+      (
+        await runGit(["rev-parse", "refs/heads/session/session-01"], remote)
+      ).trim(),
+    ).toBe(checkpoint.gitCommit);
+    expect(checkpoint.gitCommit).not.toBe(baseCommit);
 
-  const secondWorkspace = join(root, "second-workspace");
-  const secondClaudeHome = join(root, "second-home", ".claude");
-  const resumed = await storage.hydrate({
-    baseBranch: "main",
-    claudeHome: secondClaudeHome,
-    cwd: "/workspace",
-    repositoryUrl: remote,
-    sessionId: "session-01",
-    workspacePath: secondWorkspace,
-  });
-  expect(resumed.mode).toBe("resumed");
-  expect(resumed.claudeSessionId).toBe("claude-01");
-  expect(await readFile(join(secondWorkspace, "feature.txt"), "utf8")).toBe(
-    "session change\n",
-  );
-  expect(new Uint8Array(await readFile(resumed.transcriptPath ?? ""))).toEqual(
-    originalTranscript,
-  );
-});
+    const secondWorkspace = join(root, "second-workspace");
+    const secondClaudeHome = join(root, "second-home", ".claude");
+    const resumed = await storage.hydrate({
+      baseBranch: "main",
+      claudeHome: secondClaudeHome,
+      cwd: "/workspace",
+      repositoryUrl: remote,
+      sessionId: "session-01",
+      workspacePath: secondWorkspace,
+    });
+    expect(resumed.mode).toBe("resumed");
+    expect(resumed.claudeSessionId).toBe("claude-01");
+    expect(await readFile(join(secondWorkspace, "feature.txt"), "utf8")).toBe(
+      "session change\n",
+    );
+    expect(
+      new Uint8Array(await readFile(resumed.transcriptPath ?? "")),
+    ).toEqual(originalTranscript);
+  },
+  REAL_GIT_TIMEOUT_MS,
+);
 
 test("chunks a long transcript and reassembles it byte-for-byte", async () => {
   const root = await makeTempDirectory();

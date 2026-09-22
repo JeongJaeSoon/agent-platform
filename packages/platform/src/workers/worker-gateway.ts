@@ -288,7 +288,7 @@ export function createWorkerGateway(deps: {
 
     async authenticate(token: string | null): Promise<WorkerPrincipal> {
       const principal = token
-        ? await work.resolveCredential(hashWorkerToken(token), now())
+        ? await work.resolveCredential(hashWorkerToken(token))
         : null;
       if (!principal) {
         throw new WorkerGatewayError(
@@ -327,8 +327,8 @@ export function createWorkerGateway(deps: {
         executionGeneration: request.execution_generation,
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(sessionToken),
-        credentialExpiresAt: new Date(at.getTime() + sessionTokenTtlMs),
-        leaseExpiresAt: new Date(at.getTime() + leaseTtlMs),
+        credentialTtlMs: sessionTokenTtlMs,
+        leaseTtlMs,
         now: at,
       });
       switch (result.outcome) {
@@ -414,10 +414,10 @@ export function createWorkerGateway(deps: {
       }
       const at = now();
       const result = await work.heartbeatAtomic({
-        credentialExpiresAt: new Date(at.getTime() + sessionTokenTtlMs),
+        credentialTtlMs: sessionTokenTtlMs,
         fence,
         now: at,
-        leaseExpiresAt: new Date(at.getTime() + leaseTtlMs),
+        leaseTtlMs,
         attemptState: request.attempt_state,
       });
       if (result.outcome !== "ok") rejected(result);

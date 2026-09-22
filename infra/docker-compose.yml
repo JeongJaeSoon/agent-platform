@@ -38,10 +38,13 @@ services:
       postgres:
         condition: service_healthy
 
+  # Workers reach this through the egress proxy (EGRESS_PRIVATE_ALLOWLIST
+  # below), so it runs S3 alone: every service on the allowlisted port is a
+  # service a worker can call, and nothing here uses Secrets Manager.
   localstack:
     image: localstack/localstack:3
     environment:
-      SERVICES: s3,secretsmanager
+      SERVICES: s3
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
@@ -84,7 +87,8 @@ services:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
       # stays for an API started on the host with `bun run --cwd apps/api start`.
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000}
+      # localstack:4566 is the worker's object store (94S-244).
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,localstack:4566}
       EGRESS_PROXY_PORT: "3128"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:

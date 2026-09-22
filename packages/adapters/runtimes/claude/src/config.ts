@@ -58,4 +58,12 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
    */
   localTranscriptResume?: true;
   settingSources?: [] | ["project"];
+  /**
+   * PEM bundle the engine trusts in addition to the system store, for a
+   * Messages endpoint behind a private CA or a TLS-terminating egress. It is
+   * named here, by whoever composes the runtime, and never picked up from the
+   * host environment: an ambient bundle would quietly become a trust root for
+   * credential-bearing API traffic.
+   */
+  trustedCaBundle?: string;
 };
