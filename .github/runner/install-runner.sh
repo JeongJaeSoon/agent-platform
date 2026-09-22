@@ -90,9 +90,18 @@ ENV
 
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh install runner && ./svc.sh start" >/dev/null
 
+# The runner is up from here on, so a failure below is a different failure:
+# jobs are being taken, just without the hardening this block adds.
+trap 'echo "
+FAILED after the runner came up. It is registered and taking jobs, but without
+the isolation dependency and the graceful stop below — it can run a job with no
+ruleset in front of it. Re-run this script." >&2' ERR
+
 # Stopping the VM must let the runner tell GitHub the job is gone, and let the
 # hook clean up, instead of the job hanging until GitHub times it out. The
-# isolation dependency belongs here too: no ruleset, no jobs.
+# isolation dependency belongs here too: no ruleset, no jobs. BindsTo, not
+# Requires: both propagate an explicit stop, but only BindsTo follows the
+# isolation unit into any inactive state.
 limactl shell "$VM" sudo bash -s <<'GUEST' >/dev/null
 set -euo pipefail
 mapfile -t units < <(systemctl list-units --type=service --all --no-legend 'actions.runner.*' | awk '{print $1}')
@@ -105,7 +114,7 @@ if [ "${#units[@]}" -ne 1 ]; then
 fi
 unit=${units[0]}
 install -d "/etc/systemd/system/${unit}.d"
-printf '[Unit]\nRequires=ci-isolation.service\nAfter=ci-isolation.service docker.service\n\n[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' \
+printf '[Unit]\nBindsTo=ci-isolation.service\nAfter=ci-isolation.service docker.service\n\n[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' \
   >"/etc/systemd/system/${unit}.d/graceful.conf"
 systemctl daemon-reload
 systemctl restart "$unit"

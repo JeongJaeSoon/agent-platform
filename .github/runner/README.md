@@ -126,10 +126,13 @@ gh api repos/JeongJaeSoon/agent-platform/actions/runners --jq '.runners[]|"\(.na
 ## 유지보수
 
 ```bash
-limactl shell agent-platform-ci -- sudo /usr/local/sbin/ci-reclaim   # 정기 회수를 지금 실행
-limactl shell agent-platform-ci -- df -h /                           # 남은 공간
-.github/runner/install-runner.sh                                     # 러너 버전 갱신 + 훅 재설치
+limactl shell agent-platform-ci -- sudo /usr/local/sbin/ci-reclaim      # 정기 회수를 지금 실행
+limactl shell agent-platform-ci -- df -h /                              # 남은 공간
+limactl shell agent-platform-ci -- sudo nft -f /etc/ci-isolation.nft    # 격리 규칙만 다시 적재
+.github/runner/install-runner.sh                                        # 러너 버전 갱신 + 훅 재설치
 ```
+
+격리 규칙을 고쳤을 때 `systemctl restart ci-isolation.service`를 쓰면 **돌고 있던 job이 취소된다.** 러너 서비스가 `BindsTo=ci-isolation.service`라 격리 유닛이 멈추면 러너도 함께 멈추기 때문이고, 이건 의도한 동작이다 — 격리 없이 job을 받는 상태를 만들지 않는다. 실제로 이 경로를 밟아 봤고, 러너는 6초 안에 GitHub에 `Canceled`를 보고한 뒤 재기동해 다음 job을 집었다. 규칙만 갈아끼울 때는 위처럼 `nft -f`를 직접 쓴다. 파일이 자기 테이블을 declare-then-delete로 다시 만들므로 한 트랜잭션에 교체된다.
 
 `--disableupdate`로 등록했으므로 러너가 스스로 업데이트하지 않는다. GitHub이 구 버전 거부를 시작하면 위 스크립트를 다시 돌린다.
 
