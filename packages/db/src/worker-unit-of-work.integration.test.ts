@@ -59,6 +59,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -87,6 +95,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -262,6 +278,26 @@ integration("worker gateway on PostgreSQL", () => {
     });
     expect(first.restore).toBeNull();
     expect(first.session_credential.startsWith("wsc_")).toBe(true);
+    // The repository comes from the row: this gateway's catalog lists no
+    // repositories at all, which is exactly the drift the descriptor must
+    // survive. The profile comes from the catalog, resolved at claim time.
+    expect(first.workspace).toEqual({
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+    });
+    expect(first.runtime_config).toEqual({
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: { kind: "api_key", value: "catalog-provider-key" },
+      },
+    });
 
     const retry = await claim(l);
     expect(retry.session_id).toBe(first.session_id);
@@ -1073,6 +1109,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -1236,6 +1280,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -1931,6 +1983,69 @@ integration("worker gateway on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.id, session.receipt_id));
     expect(receipt?.status).toBe("accepted");
+  });
+
+  test("the workspace descriptor rides every claim, with and without a restore pointer, and for legacy rows", async () => {
+    const partition = partitionFor("descriptor");
+    const { session, launch: l, claimed } = await claimAndDeliver(partition);
+    expect(claimed.restore).toBeNull();
+    const checkpoint = {
+      revision: 1,
+      manifest_ref: "s3://bucket/descriptor-manifest-1.json",
+      manifest_sha256: "b".repeat(64),
+    };
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin-desc",
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint,
+    });
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    await gateway.confirmExecutionGone(l.executionId);
+    // A pre-catalog row: no key, but the URL and branch it was created with.
+    await db
+      .update(sessions)
+      .set({ repositoryId: null })
+      .where(eq(sessions.id, session.session_id));
+    await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      principal: {
+        ownerId:
+          (
+            await db
+              .select()
+              .from(sessions)
+              .where(eq(sessions.id, session.session_id))
+          )[0]?.ownerId ?? "",
+      },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "second input",
+    });
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    const again = await claim(await launch(partition, session.session_id));
+    expect(again.session_id).toBe(session.session_id);
+    expect(again.restore).toEqual(checkpoint);
+    expect(again.workspace).toEqual({
+      repository: {
+        id: null,
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+    });
+    expect(again.runtime_config.model).toBe("claude-sonnet-5");
   });
 
   test("a failed terminal marks the receipt failed and the session failed", async () => {
