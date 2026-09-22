@@ -35,8 +35,13 @@ function manifest(
       root: revision("root/part-1.jsonl"),
       subagents: { "agents/reviewer": revision("sub/part-1.jsonl") },
     },
-    version: 1,
+    version: 2,
     workspace: {
+      bundle: {
+        bytes: 1024,
+        key: "sessions/s1/workspace/workspace.bundle",
+        sha256: "c".repeat(64),
+      },
       gitCommit: "0".repeat(40),
       untracked: [
         {
@@ -143,12 +148,40 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("refuses a version 1 manifest instead of reading it as this shape", () => {
+    // Version 1 pinned a commit with no bundle behind it. Decoding one here
+    // would mean inventing a bundle that was never uploaded, so the version
+    // literal is what rejects it — not a missing-field error further down.
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    body.version = 1;
+    delete body.workspace.bundle;
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("refuses a manifest whose workspace commit is not a full sha", () => {
     expect(() =>
       encodeCheckpointManifest(
-        manifest({ workspace: { gitCommit: "abc1234", untracked: [] } }),
+        manifest({
+          workspace: { ...manifest().workspace, gitCommit: "abc1234" },
+        }),
       ),
     ).toThrow();
+  });
+
+  test("refuses a manifest that pins a commit without the bundle carrying it", () => {
+    // The commit alone is unverifiable, so a manifest that omits the bundle is
+    // not a manifest this codec will produce or accept.
+    const { bundle: _bundle, ...workspace } = manifest().workspace;
+
+    expect(() =>
+      encodeCheckpointManifest(
+        manifest({ workspace: workspace as CheckpointManifest["workspace"] }),
+      ),
+    ).toThrow(/bundle/);
   });
 
   test("accepts a manifest written by the same runtime", () => {

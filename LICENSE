@@ -1,0 +1,41 @@
+Copyright (c) 2026 JeongJaeSoon. All rights reserved.
+
+This repository is source-available, not open source. The source is published
+so that it can be read and audited. Publishing it grants no license to use it.
+
+PERMITTED
+
+  - Reading and reviewing the source code.
+  - Forking within GitHub, to the extent the GitHub Terms of Service require
+    it of public repositories.
+
+NOT PERMITTED without prior written permission from the copyright holder
+
+  - Using, running, executing, or deploying this software or any part of it,
+    for any purpose, including internal use and evaluation.
+  - Copying, modifying, translating, or preparing derivative works.
+  - Distributing, publishing, sublicensing, selling, renting, or otherwise
+    transferring this software or any part of it.
+  - Using this software, in whole or in part, to provide a hosted, managed, or
+    otherwise commercial service to any third party.
+  - Using this software to train, fine-tune, or evaluate a machine learning
+    model, or incorporating it into a dataset for that purpose.
+
+CONTRIBUTIONS
+
+Contributions are not accepted at this time. Unsolicited contributions cannot
+be merged, because doing so would encumber the copyright holder's ability to
+license this software commercially.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+LICENSING INQUIRIES
+
+Open an issue in this repository.

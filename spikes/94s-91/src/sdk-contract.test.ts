@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import {
   createProbeContext,
+  deadline,
   type FakeAnthropicServer,
   type ProbeContext,
   runSdkQuery,
@@ -21,6 +22,9 @@ import {
   toolReply,
   toolsReply,
 } from "./harness";
+
+/** How long one AskUserQuestion callback waits for its sibling to arrive. */
+const CONCURRENT_CALLBACK_WINDOW_MS = 5_000;
 
 let context: ProbeContext | undefined;
 let server: FakeAnthropicServer | undefined;
@@ -253,6 +257,12 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     const callbackAnswers = new Map<string, string>();
     let activeCallbacks = 0;
     let maximumActiveCallbacks = 0;
+    // Both callbacks are held until the second one arrives, so the overlap is
+    // observed rather than raced for. A fixed sleep only overlaps when the SDK
+    // happens to dispatch the second call inside it, which a loaded runner
+    // does not guarantee. The bound keeps a genuinely serialising SDK a named
+    // assertion failure instead of a deadlock.
+    const bothInFlight = Promise.withResolvers<void>();
 
     await runSdkQuery(context, server.url, "Ask both questions.", {
       canUseTool: async (name, input, options) => {
@@ -262,7 +272,10 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
           maximumActiveCallbacks,
           activeCallbacks,
         );
-        await Bun.sleep(30);
+        if (activeCallbacks === 2) bothInFlight.resolve();
+        const barrier = deadline(CONCURRENT_CALLBACK_WINDOW_MS);
+        await Promise.race([bothInFlight.promise, barrier.expired]);
+        barrier.cancel();
         const answer = options.toolUseID.endsWith("alpha")
           ? "alpha custom response"
           : "beta-one";

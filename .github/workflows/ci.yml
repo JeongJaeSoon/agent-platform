@@ -9,15 +9,29 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Which job to run. Anything but `all` skips the rest — use it when a manual run only needs one of them.'
+        type: choice
+        required: false
+        default: all
+        options: [all, check, integration, spikes]
+      allow_parallel:
+        description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  # Per PR, so a new push cancels the run it superseded. Everything else keys on
-  # the run itself: two merges landing back to back, or two manual runs of the
-  # same commit, must not cancel or queue behind each other.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  # `github.event.inputs.*`, not `inputs.*`: a dispatch through the API sends
+  # input values as strings, so a declared boolean arrives as the *string*
+  # "false", which `!inputs.allow_parallel` reads as truthy — silently turning
+  # the default into independent parallel runs.
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && github.event.inputs.allow_parallel != 'true' && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -26,10 +40,17 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A non-dispatch event has no `only`, so it reads as `all`.
+    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
+    # LTS image on its own schedule, which lands as an unrelated CI break in
+    # whatever PR is open that day.
+    runs-on: ubuntu-24.04
+    # Ceilings sit just above the slowest run on record (6m/4m/6m), so a hang
+    # costs minutes rather than a quarter hour.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
         with:
           save-cache: "true"
@@ -40,8 +61,14 @@ jobs:
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
   integration:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # No service containers when the fast checks already failed. `skipped` is
+    # not `failure`: `only=integration` skips `check` and must still run this.
+    needs: check
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     services:
       postgres:
         image: postgres:16
@@ -82,7 +109,7 @@ jobs:
       S3_BUCKET: claude-sessions
       STORAGE_LOCALSTACK_TEST: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
       - run: bun run test
@@ -99,7 +126,11 @@ jobs:
   # the other half of the contract: refusing to start rather than running
   # unbounded.
   workspace-quota:
-    runs-on: ubuntu-latest
+    needs: check
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && contains(fromJSON('["all","workspace-quota"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -150,8 +181,17 @@ jobs:
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
   spikes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    needs: check
+    # Because a spike failure never blocks anything, running it on every PR
+    # commit buys no signal the main-push run does not already give. It stays on
+    # main pushes and on demand (`-f only=spikes`), which is also how a PR that
+    # actually touches spikes/ gets its answer.
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && github.event_name != 'pull_request'
+      && contains(fromJSON('["all","spikes"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     continue-on-error: true
     services:
       localstack:
@@ -176,12 +216,12 @@ jobs:
       S3_BUCKET: claude-sessions
       SESSION_STORE_LOCALSTACK_TEST: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
         with:
           cache-scope: spikes
           save-cache: "true"
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -192,15 +232,20 @@ jobs:
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
+      # No retry wrapper. This job is `continue-on-error`, so a failure never
+      # blocks a merge and a retry buys no safety — it only squares the odds of
+      # a flake being seen at all, which is how 94S-217's cause stayed hidden
+      # for 233 runs. The suites now name the step they hang on; let them say so
+      # on the first occurrence.
       - id: spike-91
         name: spikes/94s-91 check
-        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+        run: bun run --cwd spikes/94s-91 check
       # The two spikes are independent investigations: one failing must not
       # hide the other's result.
       - id: spike-92
         if: '!cancelled()'
         name: spikes/94s-92 check
-        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+        run: bun run --cwd spikes/94s-92 check
       # continue-on-error leaves the run green, so whoever reads only the run
       # conclusion never learns a spike broke. State the outcome on the summary
       # page on every run that was not cancelled.

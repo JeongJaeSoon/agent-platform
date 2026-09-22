@@ -46,6 +46,9 @@ export interface CreateApiAppOptions {
   keyStore?: ApiKeyStore;
   logger?: StructuredLogger;
   registerRoutes?: (router: ApiRouter) => void;
+  // Mounted under /internal, outside the /v1 API-key middleware; each
+  // internal route family brings its own authentication.
+  registerInternalRoutes?: (router: ApiRouter) => void;
   // Backs GET /readyz; without one the process reports 503 NOT_READY, so a
   // build that forgot to wire the probe is never routed traffic.
   readiness?: ReadinessProbe;
@@ -311,6 +314,34 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   v1.get("/", rootHandler);
   options.registerRoutes?.(v1);
   app.route("/v1", v1);
+  if (options.registerInternalRoutes) {
+    const internal = new Hono<ApiEnvironment>({ strict: false });
+    // These routes are outside the /v1 middleware but need the same clock
+    // management, and more of it: the gateway's long poll holds a connection
+    // open for longer than the server's idle default, so a poll that finds
+    // no input would be cut off mid-wait. Each internal family authenticates
+    // itself, so the body is read under the clock and the clock is then
+    // stopped for the handler.
+    internal.use("*", async (context, next) => {
+      const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
+      if (!BODYLESS_METHODS.has(context.req.method)) {
+        setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
+        const raw = await context.req.arrayBuffer();
+        if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+          return errorResponse(
+            context,
+            413,
+            "PAYLOAD_TOO_LARGE",
+            "Request body too large",
+          );
+        }
+      }
+      setIdleTimeout(0);
+      await next();
+    });
+    options.registerInternalRoutes(internal);
+    app.route("/internal", internal);
+  }
 
   app.notFound((context) =>
     errorResponse(context, 404, "NOT_FOUND", "Resource not found"),

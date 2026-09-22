@@ -29,6 +29,27 @@ export type ProbeContext = {
   workspace: string;
 };
 
+/**
+ * A cancellable deadline. `Bun.sleep` in a lost `Promise.race` leaves a live
+ * timer that holds the event loop open until it fires, which is indistinguishable
+ * from work that has not finished.
+ */
+export function deadline(ms: number): {
+  expired: Promise<void>;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return {
+    cancel: () => {
+      if (timer) clearTimeout(timer);
+    },
+    expired,
+  };
+}
+
 export async function createProbeContext(): Promise<ProbeContext> {
   const isolated = await createIsolatedWorkspace({ prefix: "94s-91-sdk-" });
   return {

@@ -5,6 +5,7 @@ import {
   type CheckpointStore,
   createCheckpointService,
   manifestRefFor,
+  structuralBundleVerifier,
 } from "@agent-platform/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -20,6 +21,7 @@ import type {
 } from "@agent-platform/runtime-core";
 import { createCheckpointObjectStore } from "@agent-platform/storage";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
@@ -35,7 +37,23 @@ import {
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const projectKey = "-workspace";
-const gitCommit = "a".repeat(40);
+// The workspace half of the checkpoint: a real bundle, uploaded into the
+// attempt's own directory beside the manifest that names it.
+const workspaceBundle = await createGitBundle();
+const gitCommit = workspaceBundle.commit;
+
+function bundleKeyFor(revision: number, attempt: string): string {
+  const ref = manifestRefFor(sessionId, revision, attempt);
+  return `${ref.slice(0, ref.lastIndexOf("/") + 1)}workspace.bundle`;
+}
+
+function bundleRefFor(revision: number, attempt: string) {
+  return {
+    bytes: workspaceBundle.bytes.byteLength,
+    key: bundleKeyFor(revision, attempt),
+    sha256: workspaceBundle.sha256,
+  };
+}
 const config = {
   model: "claude-sonnet-4-5",
   profile: {
@@ -129,6 +147,7 @@ for (const [name, createObjects] of backends) {
         codecs: { claude: claudeCheckpointCodec },
         objects,
         store,
+        workspaceBundles: structuralBundleVerifier,
       });
       const mirror = new ClaudeSessionStore({
         objects,
@@ -137,6 +156,9 @@ for (const [name, createObjects] of backends) {
       const root = { projectKey, sessionId };
       const subagent = { ...root, subpath: "agents/reviewer" };
 
+      for (const attempt of [attemptId, "attempt-stale"]) {
+        await objects.put(bundleKeyFor(0, attempt), workspaceBundle.bytes);
+      }
       await mirror.append(root, [entry("r1", "first turn")]);
       await mirror.append(subagent, [entry("s1", "review")]);
 
@@ -185,7 +207,13 @@ for (const [name, createObjects] of backends) {
 
       // A worker whose lease already ended finishes uploading its own manifest.
       // Its key is its own, so the upload succeeds — what stops it is the fence.
-      const stale = await publish(mirror, 0, "sdk-session-stale");
+      const stale = await publish(
+        mirror,
+        0,
+        "sdk-session-stale",
+        runtime,
+        "attempt-stale",
+      );
       const staleRef = manifestRefFor(sessionId, 0, "attempt-stale");
       expect(await objects.putImmutable(staleRef, stale.bytes)).toEqual({
         outcome: "created",
@@ -226,8 +254,20 @@ for (const [name, createObjects] of backends) {
             Object.values(first.manifest.transcripts.subagents).flatMap(
               (revision) => revision.parts.map((part) => part.key),
             ),
-          ),
+          )
+          .concat(bundleKeyFor(0, attemptId)),
       );
+      // The plan says where the commit comes from, so a worker restoring it
+      // never has to reach for a remote that may have moved on.
+      expect(
+        plan.plan.artifacts.find(
+          (artifact) => artifact.kind === "workspace_bundle",
+        ),
+      ).toEqual({
+        kind: "workspace_bundle",
+        label: "",
+        objects: [bundleRefFor(0, attemptId)],
+      });
       const rootArtifact = plan.plan.artifacts[0];
       if (rootArtifact === undefined)
         throw new Error("expected a root artifact");
@@ -247,11 +287,13 @@ for (const [name, createObjects] of backends) {
         codecs: { claude: claudeCheckpointCodec },
         objects,
         store,
+        workspaceBundles: structuralBundleVerifier,
       });
       const mirror = new ClaudeSessionStore({
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
+      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
       await mirror.append({ projectKey, sessionId }, [
         entry("r1", "first turn"),
       ]);
@@ -295,6 +337,7 @@ async function publish(
   revision: number,
   resume: string,
   fingerprint = runtime,
+  attempt = attemptId,
 ) {
   const root = await mirror.captureRevision({ projectKey, sessionId });
   if (root === null) throw new Error("expected a root transcript revision");
@@ -316,8 +359,12 @@ async function publish(
     runtime: fingerprint,
     sessionId,
     transcripts: { root, subagents },
-    version: 1,
-    workspace: { gitCommit, untracked: [] },
+    version: 2,
+    workspace: {
+      bundle: bundleRefFor(revision, attempt),
+      gitCommit,
+      untracked: [],
+    },
   };
   return { ...claudeCheckpointCodec.encode(manifest), manifest };
 }

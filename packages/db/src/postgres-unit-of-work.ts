@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  attemptStateSchema,
   type CreateSessionResponse,
   createSessionResponseSchema,
   executionObservationSchema,
@@ -28,6 +29,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
 import {
+  attempts,
   checkpoints,
   events,
   executions,
@@ -49,9 +51,9 @@ type IdempotencyScope = {
   key: string;
 };
 
-// ponytail: an advisory lock serializes same-key races; SELECT FOR UPDATE
-// cannot lock a row that does not exist yet. Always taken before any row
-// lock so every transaction acquires locks in the same order.
+// An advisory lock serializes same-key races; SELECT FOR UPDATE cannot lock a
+// row that does not exist yet. Always taken before any row lock so every
+// transaction acquires locks in the same order.
 async function lockIdempotencyScope(tx: Database, scope: IdempotencyScope) {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, scope.operation, scope.resource, scope.key])}))`,
@@ -607,14 +609,25 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       if (!row) return null;
       const revisions = await checkpointRevisions([row.id]);
       const parts = resultParts(row.resultJson);
+      const attemptRows = row.attemptId
+        ? await db
+            .select()
+            .from(attempts)
+            .where(eq(attempts.id, row.attemptId))
+            .limit(1)
+        : [];
       return {
         ...summarizeTurn(row, revisions.get(row.id) ?? null),
         result: parts.result,
         usage: parts.usage,
-        // Per-attempt lease_epoch/execution_generation are not persisted
-        // until the attempts table lands (94S-121); synthesising them from
-        // the session's current values would rewrite history after a resume.
-        attempts: [],
+        attempts: attemptRows.map((attempt) => ({
+          attempt_id: attempt.id,
+          state: attemptStateSchema.parse(attempt.state),
+          lease_epoch: attempt.leaseEpoch,
+          execution_generation: attempt.executionGeneration,
+          started_at: attempt.startedAt.toISOString(),
+          ended_at: attempt.endedAt?.toISOString() ?? null,
+        })),
       };
     },
 

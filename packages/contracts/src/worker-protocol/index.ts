@@ -11,6 +11,7 @@ import {
   attemptIdSchema,
   epochSchema,
   executionIdSchema,
+  INT4_MAX,
   opaqueCursorSchema,
   revisionSchema,
   sessionIdSchema,
@@ -48,6 +49,11 @@ export const bootstrapClaimRequestSchema = z
     ]),
   })
   .strict();
+// Retrying bootstrapClaim issues a new credential and revokes the previous
+// one, so two retries in flight at once can leave a worker holding the token
+// that lost. Before its first accepted call a worker that is answered 401
+// claims again: while the attempt has not used a token, the same binding
+// comes back with a working credential.
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -80,9 +86,13 @@ export const heartbeatResponseSchema = z.object({
 });
 
 const v = sessionEventVariants;
+// Per attempt, source_sequence starts at 1 and increases by one. Subscribers
+// read the stream back in the order it was stored, so an event whose
+// predecessor is missing is refused rather than written out of order: the
+// worker resends from the acknowledged prefix.
 function sourced<V extends (typeof v)[keyof typeof v]>(variant: V) {
   return variant.extend({
-    source_sequence: z.number().int().nonnegative(),
+    source_sequence: z.number().int().positive().max(INT4_MAX),
     occurred_at: timestampSchema,
   });
 }
@@ -103,6 +113,7 @@ export const appendEventsRequestSchema = workerScopeSchema
   })
   .strict();
 export const appendEventsResponseSchema = z.object({
+  // The attempt's durable prefix: 0 until sequence 1 is stored.
   accepted_through: z.number().int().nonnegative(),
   cursor: opaqueCursorSchema,
 });

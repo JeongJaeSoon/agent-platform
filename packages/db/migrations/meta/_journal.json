@@ -43,6 +43,13 @@
       "when": 1790040846827,
       "tag": "0005_uneven_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790056862765,
+      "tag": "0006_steady_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

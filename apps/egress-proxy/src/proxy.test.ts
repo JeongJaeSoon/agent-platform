@@ -218,19 +218,100 @@ describe("egress proxy", () => {
     talk.send(
       request(`GET http://gateway.test:${upstreamPort}/large HTTP/1.1`),
     );
-    const received = await talk.waitForBytes(BIG.length, 30_000);
+    const received = await talk.waitForBody(BIG.length, 30_000);
     expect(received).toBeGreaterThanOrEqual(BIG.length);
     talk.close();
   }, 60_000);
+
+  test("a client slower than the upstream still gets every byte", async () => {
+    // Burning 30ms inside every data callback makes this client slower than
+    // a loopback upstream by far more than the cap below. The proxy used to
+    // answer that by dropping the connection half way down, which reaches a
+    // worker as a truncated file rather than as an error it can retry.
+    //
+    // The stall deadline stays at its default. Shortening it here to also
+    // exercise the no-progress rearm put this test one scheduling hiccup
+    // away from failing, and it did: `closed after 7704008 bytes` on the
+    // arm64 runner. A test added to remove a flake must not be one.
+    const tight = await startEgressProxy({
+      logger: silent,
+      maxBufferedBytes: 64 * 1024,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      resolve,
+    });
+    try {
+      const talk = await connect(tight.port, 30);
+      talk.send(
+        request(`GET http://gateway.test:${upstreamPort}/large HTTP/1.1`),
+      );
+      const received = await talk.waitForBody(BIG.length, 60_000);
+      expect(received).toBeGreaterThanOrEqual(BIG.length);
+      talk.close();
+    } finally {
+      tight.stop();
+    }
+  }, 120_000);
+
+  test("a client that stops reading is dropped once its queue goes stale", async () => {
+    // The other half of the same rule: pausing the upstream is the answer to
+    // a slow client, and this deadline is the answer to one that never reads
+    // again. Nothing else reaps a connection past its request head, so
+    // without it a worker could hold a slot and its buffer for good.
+    const warnings: string[] = [];
+    const stallMs = 300;
+    const strict = await startEgressProxy({
+      logger: createProxyLogger("warn", (line) => warnings.push(line)),
+      maxBufferedBytes: 64 * 1024,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      resolve,
+      stallTimeoutMs: stallMs,
+    });
+    try {
+      const startedAt = Date.now();
+      const talk = await connect(strict.port);
+      talk.send(
+        request(`GET http://gateway.test:${upstreamPort}/large HTTP/1.1`),
+      );
+      talk.stopReading();
+      // A paused socket never reads the FIN either, so the close only shows
+      // up once it starts reading again — which is why the proxy's own
+      // account of giving up is what this waits on.
+      const dropped = await waitFor(
+        () => warnings.some((line) => line.includes("client fell behind")),
+        10_000,
+      );
+      expect(dropped).toBe(true);
+      // The old behaviour dropped the moment the cap was crossed, in tens of
+      // milliseconds. Waiting out the deadline is what tells the two apart.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(stallMs);
+      talk.resumeReading();
+      expect(await waitFor(() => talk.isClosed(), 10_000)).toBe(true);
+      expect(talk.byteCount()).toBeLessThan(BIG.length);
+    } finally {
+      strict.stop();
+    }
+  }, 30_000);
 
   test("a large upload through a tunnel comes back whole", async () => {
     const talk = await connect(proxy.port);
     talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
     await talk.waitFor("200 Connection Established");
+    const handshake = talk.byteCount();
     const payload = "b".repeat(2 * 1024 * 1024);
     talk.send(payload);
-    const received = await talk.waitForBytes(payload.length, 30_000);
-    expect(received).toBeGreaterThanOrEqual(payload.length);
+    const received = await talk.waitForBytes(
+      handshake + payload.length,
+      30_000,
+    );
+    expect(received - handshake).toBeGreaterThanOrEqual(payload.length);
     talk.close();
   }, 60_000);
 
@@ -472,6 +553,18 @@ function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   return out;
 }
 
+async function waitFor(
+  condition: () => boolean,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return true;
+    await Bun.sleep(20);
+  }
+  return false;
+}
+
 function request(...lines: string[]): string {
   return `${lines.join("\r\n")}\r\n\r\n`;
 }
@@ -481,6 +574,10 @@ type Conversation = {
   close(): void;
   isClosed(): boolean;
   send(text: string): void;
+  waitForBody(count: number, timeoutMs?: number): Promise<number>;
+  /** Stop draining without closing — a client the proxy has to give up on. */
+  stopReading(): void;
+  resumeReading(): void;
   text(): string;
   waitFor(needle: string, timeoutMs?: number): Promise<string>;
   waitForBytes(count: number, timeoutMs?: number): Promise<number>;
@@ -494,6 +591,7 @@ type Conversation = {
 async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
   let received = "";
   let bytes = 0;
+  let headerBytes: number | null = null;
   let closed = false;
   // The client has to respect backpressure too, or a megabyte-scale send
   // silently truncates and the test blames the proxy.
@@ -531,6 +629,10 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
         if (received.length < 64 * 1024) {
           received += new TextDecoder().decode(chunk);
         }
+        if (headerBytes === null) {
+          const end = received.indexOf("\r\n\r\n");
+          if (end >= 0) headerBytes = end + 4;
+        }
       },
     },
   });
@@ -549,14 +651,41 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
       outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
       drainOutbox(socket);
     },
+    stopReading(): void {
+      // Untyped in bun-types; see the note on `reader` in proxy.ts.
+      (socket as unknown as { pause(): boolean }).pause();
+    },
+    resumeReading(): void {
+      (socket as unknown as { resume(): boolean }).resume();
+    },
     text(): string {
       return received;
+    },
+    // Counting the response head as payload would let a transfer that is
+    // short by exactly the head still satisfy `>= BIG.length`.
+    async waitForBody(count: number, timeoutMs = 20_000): Promise<number> {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (headerBytes !== null && bytes - headerBytes >= count) {
+          return bytes - headerBytes;
+        }
+        if (closed) {
+          throw new Error(`closed after ${bytes} bytes, head ${headerBytes}`);
+        }
+        await Bun.sleep(10);
+      }
+      throw new Error(
+        `timed out after ${bytes} bytes; wanted ${count} of body`,
+      );
     },
     async waitForBytes(count: number, timeoutMs = 20_000): Promise<number> {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         if (bytes >= count) return bytes;
-        if (closed) return bytes;
+        // A short read and a truncated transfer are different failures, and
+        // returning the byte count for both once read as "slow" what was a
+        // connection the proxy had closed.
+        if (closed) throw new Error(`closed after ${bytes} of ${count} bytes`);
         await Bun.sleep(10);
       }
       throw new Error(`timed out after ${bytes} of ${count} bytes`);

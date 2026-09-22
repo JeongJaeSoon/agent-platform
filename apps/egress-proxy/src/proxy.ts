@@ -32,6 +32,13 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
  */
 const DEFAULT_DISPATCH_TIMEOUT_MS = 20_000;
 const DEFAULT_HEAD_TIMEOUT_MS = 15_000;
+/**
+ * How long a peer may leave a queue over its cap before the pair is dropped.
+ * Pausing the fast side answers a peer that is merely slow; this answers one
+ * that has stopped reading altogether, which nothing else reaps once the
+ * connection is past its head.
+ */
+const DEFAULT_STALL_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_CONNECTIONS = 256;
 const DEFAULT_MAX_CONNECTIONS_PER_CLIENT = 32;
 /** A destination resolving to more addresses than this is not tried further. */
@@ -45,12 +52,14 @@ export type EgressProxyOptions = {
   headTimeoutMs?: number;
   hostname?: string;
   logger?: ProxyLogger;
-  /** Bytes a stalled peer may leave queued before the pair is dropped. */
+  /** Bytes a slow peer may leave queued before the proxy stops reading. */
   maxBufferedBytes?: number;
   maxConnections?: number;
   maxConnectionsPerClient?: number;
   policy: EgressPolicy;
   port?: number;
+  /** How long a queue may stay over `maxBufferedBytes` before the drop. */
+  stallTimeoutMs?: number;
   /** Injected by tests; production dials with Bun. */
   connect?: UpstreamDialer;
   /** Injected by tests; production resolves through the OS. */
@@ -63,6 +72,24 @@ export type EgressProxyServer = {
 };
 
 type Queue = { bytes: number; chunks: Uint8Array[] };
+
+/**
+ * Bun's TCP sockets stop and restart reading at runtime — the peer then sees
+ * TCP backpressure instead of this process buffering — but `bun-types` only
+ * declares it on WebSocket, so the cast lives here rather than at four call
+ * sites.
+ *
+ * ponytail: a hand-written declaration of someone else's API, verified
+ * against Bun 1.3.11. Delete it the moment `bun-types` carries `pause` and
+ * `resume` on `Socket`; if a Bun upgrade ever drops them, the proxy would
+ * buffer without limit, so `a client that stops reading is dropped` is the
+ * test that has to stay green.
+ */
+type SocketReader = { pause(): boolean; resume(): boolean };
+
+function reader(socket: Socket<never> | Socket<unknown>): SocketReader {
+  return socket as unknown as SocketReader;
+}
 
 /** The one thing a test needs to hold open: how an upstream is dialled. */
 export type UpstreamDialer = (options: {
@@ -87,6 +114,10 @@ type ClientState = {
   headTimer: ReturnType<typeof setTimeout> | undefined;
   phase: "head" | "connecting" | "piping" | "closed";
   remote: string;
+  /** Armed while a queue sits over its cap; a peer that never drains dies. */
+  stallTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Queue depth when the current deadline was armed, to measure progress. */
+  stallBytes: number;
   /** Bytes owed to the client; flushed from the client's own drain. */
   toClient: Queue;
   /** Bytes owed to the upstream; flushed from the upstream's drain. */
@@ -109,6 +140,7 @@ export async function startEgressProxy(
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxPerClient =
     options.maxConnectionsPerClient ?? DEFAULT_MAX_CONNECTIONS_PER_CLIENT;
+  const stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
   let open = 0;
   // One worker must not be able to spend the global budget on its own.
   const perClient = new Map<string, number>();
@@ -128,13 +160,15 @@ export async function startEgressProxy(
       drain(socket) {
         // This socket became writable, so what drains is what it is owed.
         flush(socket, socket.data.toClient);
-        if (
-          socket.data.closeWhenDrained &&
-          socket.data.toClient.chunks.length === 0
-        ) {
+        if (socket.data.toClient.chunks.length > 0) return;
+        if (socket.data.closeWhenDrained) {
           socket.data.phase = "closed";
           socket.end();
+          return;
         }
+        const upstream = socket.data.upstream;
+        if (upstream !== null) reader(upstream).resume();
+        unstall(socket);
       },
       error(socket, error) {
         logger.warn("Client connection failed", { error: error.message });
@@ -154,6 +188,8 @@ export async function startEgressProxy(
           phase: "head",
           releaseDeferred: false,
           remote,
+          stallBytes: 0,
+          stallTimer: undefined,
           toClient: { bytes: 0, chunks: [] },
           toUpstream: { bytes: 0, chunks: [] },
           upstream: null,
@@ -208,8 +244,11 @@ export async function startEgressProxy(
       const upstream = state.upstream;
       if (upstream === null) return;
       if (!push(upstream, state.toUpstream, chunk, maxBuffered)) {
-        logger.warn("Dropping a connection whose upstream fell behind");
-        drop(socket);
+        stall(
+          socket,
+          socket,
+          "Dropping a connection whose upstream fell behind",
+        );
       }
       return;
     }
@@ -372,11 +411,14 @@ export async function startEgressProxy(
       );
     }
     state.earlyBytes = 0;
+    // Every early chunk was already accepted from the client, so all of them
+    // are queued whatever the cap says; only the reading stops.
+    let keepingUp = true;
     for (const pending of state.early.splice(0)) {
-      if (!push(upstream, state.toUpstream, pending, maxBuffered)) {
-        drop(socket);
-        return;
-      }
+      keepingUp = push(upstream, state.toUpstream, pending, maxBuffered);
+    }
+    if (!keepingUp) {
+      stall(socket, socket, "Dropping a connection whose upstream fell behind");
     }
   }
 
@@ -408,17 +450,23 @@ export async function startEgressProxy(
           }
           client.end();
         },
-        data(_socket, chunk) {
+        data(socket, chunk) {
           if (abandoned) return;
           if (!push(client, client.data.toClient, chunk, maxBuffered)) {
-            logger.warn("Dropping a connection whose client fell behind");
-            drop(client);
+            stall(
+              client,
+              socket,
+              "Dropping a connection whose client fell behind",
+            );
           }
         },
         drain(socket) {
           if (abandoned) return;
           // The upstream became writable, so what drains is what it is owed.
           flush(socket, client.data.toUpstream);
+          if (client.data.toUpstream.chunks.length > 0) return;
+          reader(client).resume();
+          unstall(client);
         },
         error(_socket, error) {
           if (abandoned) return;
@@ -467,6 +515,62 @@ export async function startEgressProxy(
     });
   }
 
+  /**
+   * A queue past its cap means one side is slower than the other. Stop
+   * reading from the fast side rather than dropping the pair: the bytes
+   * already accepted still have to arrive in order, and a transfer cut at
+   * the cap reaches the worker as a truncated download, not as an error it
+   * can act on. The deadline is what still separates a slow peer from one
+   * that has stopped reading — past the request head nothing else reaps it.
+   */
+  function stall(
+    socket: Socket<ClientState>,
+    source: Socket<unknown>,
+    reason: string,
+  ): void {
+    reader(source).pause();
+    if (socket.data.stallTimer !== undefined) return;
+    arm(socket, reason);
+  }
+
+  /**
+   * The deadline measures a window with no progress, not the age of the
+   * stall. A peer reading at a steady trickle can take longer than the
+   * timeout to clear a full queue, and cutting it there would be the
+   * truncation this exists to remove.
+   */
+  function arm(socket: Socket<ClientState>, reason: string): void {
+    socket.data.stallBytes = owed(socket.data);
+    socket.data.stallTimer = setTimeout(() => {
+      if (owed(socket.data) < socket.data.stallBytes) {
+        arm(socket, reason);
+        return;
+      }
+      socket.data.stallTimer = undefined;
+      logger.warn(reason);
+      drop(socket);
+    }, stallTimeoutMs);
+  }
+
+  function owed(state: ClientState): number {
+    return state.toClient.bytes + state.toUpstream.bytes;
+  }
+
+  /** Both queues drained, so neither side is owed anything: disarm. */
+  function unstall(socket: Socket<ClientState>): void {
+    if (socket.data.stallTimer === undefined) return;
+    if (socket.data.toClient.chunks.length > 0) return;
+    if (socket.data.toUpstream.chunks.length > 0) return;
+    clearTimeout(socket.data.stallTimer);
+    socket.data.stallTimer = undefined;
+  }
+
+  function clearStallTimer(state: ClientState): void {
+    if (state.stallTimer === undefined) return;
+    clearTimeout(state.stallTimer);
+    state.stallTimer = undefined;
+  }
+
   function clearHeadTimer(state: ClientState): void {
     if (state.headTimer === undefined) return;
     clearTimeout(state.headTimer);
@@ -475,6 +579,7 @@ export async function startEgressProxy(
 
   function release(socket: Socket<ClientState>): void {
     clearHeadTimer(socket.data);
+    clearStallTimer(socket.data);
     if (!socket.data.counted) return;
     if (socket.data.dispatching) {
       // The outbound attempt outlives the client socket by up to the connect
@@ -559,7 +664,7 @@ function reasonPhrase(status: number): string {
   }
 }
 
-/** false once the queue is past the cap, which the caller answers by closing. */
+/** false once the queue is past the cap, which the caller answers by pausing. */
 function push(
   target: Socket<unknown>,
   queue: Queue,

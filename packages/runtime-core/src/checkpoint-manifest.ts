@@ -47,6 +47,22 @@ export type WorkspaceArtifact = ObjectRef & {
 };
 
 export type CheckpointWorkspace = {
+  /**
+   * A git bundle whose tip is `gitCommit`, stored beside the transcript parts.
+   *
+   * The commit travels with the checkpoint rather than being looked up in a
+   * remote, because a remote answers for the branch it has *now*: a force-push,
+   * a branch delete or a GC after the checkpoint was taken all turn a verified
+   * commit back into an unfetchable one. Carrying the objects makes the
+   * checkpoint's own durability the only thing restore depends on, and makes
+   * the commit verifiable by exactly the digest check every other object gets.
+   *
+   * Writers must upload it with `putImmutable`. Finalize verifies the bytes it
+   * reads, and nothing it can do afterwards keeps that key from being replaced
+   * before restore — the verdict is only as durable as the write that made it.
+   * Pinning the verified object version so the two cannot diverge is 94S-229.
+   */
+  readonly bundle: ObjectRef;
   readonly gitCommit: string;
   /** Files git does not track, uploaded individually so restore is exact. */
   readonly untracked: readonly WorkspaceArtifact[];
@@ -69,7 +85,14 @@ export type CheckpointManifest = {
   readonly runtime: RuntimeFingerprint;
   readonly sessionId: string;
   readonly transcripts: CheckpointTranscripts;
-  readonly version: 1;
+  /**
+   * Bumped to 2 when `workspace.bundle` became required. Version 1 described a
+   * manifest that pinned a commit nothing could be asked to produce, so the two
+   * shapes cannot both be called 1 — a reader would have to guess which it has.
+   * No version 1 manifest is decoded: nothing outside tests has ever written
+   * one, since the capture path lands in 94S-201/94S-122.
+   */
+  readonly version: 2;
   readonly workspace: CheckpointWorkspace;
 };
 

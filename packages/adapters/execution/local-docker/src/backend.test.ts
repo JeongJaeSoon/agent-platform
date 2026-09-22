@@ -952,11 +952,17 @@ describe("a daemon that accepts the connection but never answers", () => {
       await expect(slow.listManaged()).rejects.toBeInstanceOf(
         DockerTimeoutError,
       );
-      expect(Date.now() - started).toBeLessThan(2_000);
+      // Three calls at a 100ms deadline. The bound is loose because it only
+      // has to catch "the deadline is not honoured at all" — if a timeout
+      // never fired the promises would never settle and the test's own
+      // deadline would end it. A tighter bound measures the runner, not the
+      // client: the same 6x margin in sessions.integration.test.ts read
+      // 4524ms against 3000ms on a loaded CI runner.
+      expect(Date.now() - started).toBeLessThan(5_000);
     } finally {
       stalled.stop(true);
     }
-  });
+  }, 30_000);
 
   test("rejects a non-positive deadline", () => {
     expect(

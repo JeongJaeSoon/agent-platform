@@ -17,6 +17,10 @@ import type {
   CheckpointPointer,
   CheckpointStore,
 } from "../ports/checkpoint-store.ts";
+import {
+  rejectUnverifiedWorkspaceBundles,
+  type WorkspaceBundleVerifier,
+} from "../ports/workspace-bundle-verifier.ts";
 
 export type CheckpointRequest = {
   /** Where this attempt must upload its manifest. */
@@ -60,10 +64,13 @@ export type FinalizeCheckpointResult =
 
 export type RestoreArtifact =
   | {
-      /** The subagent subpath, or "" for the root transcript. */
+      /**
+       * The subagent subpath for a subagent transcript, and "" for the root
+       * transcript and the workspace bundle.
+       */
       label: string;
       objects: readonly ObjectRef[];
-      kind: "transcript_root" | "transcript_subagent";
+      kind: "transcript_root" | "transcript_subagent" | "workspace_bundle";
     }
   // Each object names the workspace-relative path it is restored to.
   | {
@@ -76,6 +83,11 @@ export type RestorePlan = {
   artifacts: readonly RestoreArtifact[];
   cwd: string;
   engine: string;
+  /**
+   * The commit the workspace is restored to. It is fetched out of the
+   * `workspace_bundle` artifact below, never from a remote — see
+   * `CheckpointWorkspace.bundle`.
+   */
   gitCommit: string;
   manifestRef: string;
   /** Every object key the plan needs, deduplicated, in download order. */
@@ -97,9 +109,43 @@ export type RestorePlanResult =
 export type CheckpointServiceDependencies = {
   /** Manifest codecs by engine name. */
   codecs: Readonly<Record<string, CheckpointCodec>>;
+  /**
+   * How many workspace bundles may be read and verified at once.
+   *
+   * The size ceiling below bounds one bundle; this bounds the process. Without
+   * it, ten sessions finalizing together each buy themselves a full bundle in
+   * memory and the ceiling turns out to have promised nothing.
+   */
+  maxConcurrentBundleVerifications?: number;
+  /**
+   * Largest workspace bundle the control plane will read, in bytes.
+   *
+   * Verifying one means holding it whole to hash it, and the S3 adapter
+   * gathers the chunks before joining them, so the real high-water mark is
+   * about twice this per bundle in flight. Together with the concurrency
+   * limit above that is the memory a finalize can cost.
+   *
+   * Two consequences worth knowing before changing it. A checkpoint over the
+   * limit is refused rather than promoted unverified, so a session whose
+   * workspace outgrows the limit stops checkpointing entirely and says so in
+   * the rejection reason; 94S-227 (incremental bundles) is what keeps a long
+   * session from walking into that. And the limit is applied on the way out as
+   * well as in, so lowering it retires restore plans that were committed under
+   * the old one — raise it back and they return.
+   */
+  maxWorkspaceBundleBytes?: number;
   objects: CheckpointObjectStore;
   store: CheckpointStore;
+  /**
+   * Defaults to `rejectUnverifiedWorkspaceBundles`, so a deployment that has
+   * not said how its bundles are verified commits no checkpoints at all
+   * rather than commits ones that may not restore.
+   */
+  workspaceBundles?: WorkspaceBundleVerifier;
 };
+
+export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
+export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 
 /**
  * Every publish attempt gets its own key.
@@ -134,6 +180,13 @@ export function manifestRefFor(
  */
 export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const { codecs, objects, store } = deps;
+  const maxBundleBytes =
+    deps.maxWorkspaceBundleBytes ?? DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES;
+  const bundles = deps.workspaceBundles ?? rejectUnverifiedWorkspaceBundles;
+  const bundleGate = createGate(
+    deps.maxConcurrentBundleVerifications ??
+      DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
+  );
 
   async function validateManifest(input: {
     checkpoint: CheckpointRef;
@@ -186,14 +239,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest is revision ${manifest.revision}, not ${checkpoint.revision}`,
       };
     }
-    const bad = await badArtifact(manifest, sessionId, input.verified);
+    const bad = await badArtifact(
+      manifest,
+      sessionId,
+      checkpoint.manifest_ref,
+      input.verified,
+    );
     if (bad !== undefined) return { status: "rejected", reason: bad };
     return { status: "verified", manifest };
   }
 
   /**
    * A manifest that parses is not yet a restorable checkpoint, and the pointer
-   * must never advance to one that is not. Three things are checked, in the
+   * must never advance to one that is not. Four things are checked, in the
    * order that fails cheapest first.
    *
    * *Namespace.* Object keys come from the worker. One that names another
@@ -210,10 +268,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * makes "committed" mean "restorable". Parts already hashed under the
    * previous pointer are skipped, because parts are write-once: without that,
    * every checkpoint would re-download the whole transcript.
+   *
+   * *The workspace commit.* Same idea one level up: an object that hashes
+   * correctly is still the wrong object if it does not carry the commit the
+   * manifest pins.
    */
   async function badArtifact(
     manifest: CheckpointManifest,
     sessionId: string,
+    manifestRef: string,
     verified: ReadonlySet<string> = new Set(),
   ): Promise<string | undefined> {
     const refs = [
@@ -224,7 +287,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ...manifest.workspace.untracked,
     ];
     const prefix = sessionObjectPrefix(sessionId);
-    for (const ref of refs) {
+    for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
         return `manifest references an object outside ${prefix}: ${ref.key}`;
       }
@@ -264,7 +327,84 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
       return undefined;
     });
-    return problems.find((problem) => problem !== undefined);
+    const bad = problems.find((problem) => problem !== undefined);
+    return bad ?? (await badWorkspaceBundle(manifest.workspace, manifestRef));
+  }
+
+  /**
+   * The workspace half of "committed means restorable".
+   *
+   * `gitCommit` on its own is 40 hex characters and nothing more. A worker
+   * that names a commit it never pushed, or transposes two of them, would
+   * otherwise produce a manifest that validates, a pointer that advances past
+   * the last healthy checkpoint, and a restore that dies at `git checkout`. So
+   * the commit's objects travel with the checkpoint, and the bundle carrying
+   * them is read here — presence, size and digest like any other object, and
+   * then the one question a digest cannot answer: does this bundle actually
+   * offer that commit, on its own, to a workspace that starts empty?
+   *
+   * It is read whole every time rather than skipped via the verified set,
+   * because what is being checked is not the object's integrity but its
+   * relationship to *this* manifest's commit, and that changes with every
+   * revision even when the bytes do not.
+   */
+  function badWorkspaceBundle(
+    workspace: CheckpointManifest["workspace"],
+    manifestRef: string,
+  ): Promise<string | undefined> {
+    // Everything that needs the object itself runs under the gate; the
+    // cheap refusals above it must not queue behind a gigabyte being hashed.
+    return bundleGate(() => readAndVerifyBundle(workspace, manifestRef));
+  }
+
+  async function readAndVerifyBundle(
+    workspace: CheckpointManifest["workspace"],
+    manifestRef: string,
+  ): Promise<string | undefined> {
+    const { bundle, gitCommit } = workspace;
+    // One attempt's directory holds one attempt's objects. A bundle at a key
+    // the session reuses across revisions is either overwritten — so the
+    // committed checkpoint stops describing what is stored — or refused by
+    // create-only forever after the first one. Pinning it beside the manifest
+    // that names it gives every revision its own write-once key, and gives a
+    // worker from a dead epoch nothing of the live one to clobber.
+    const attempt = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
+    if (attempt.length === 0 || !bundle.key.startsWith(attempt)) {
+      return `workspace bundle ${bundle.key} is not under this attempt's ${attempt}`;
+    }
+    // Both figures, and before the body: the manifest's is the worker's
+    // claim and the store's is the truth, and either one over the ceiling
+    // means this object is never pulled into the process at all.
+    const tooBig = (found: number) =>
+      `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`;
+    if (bundle.bytes > maxBundleBytes) return tooBig(bundle.bytes);
+    const head = await objects.head(bundle.key);
+    if (head === undefined) {
+      return `manifest references a missing workspace bundle: ${bundle.key}`;
+    }
+    if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
+    if (head.bytes !== bundle.bytes) {
+      return `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`;
+    }
+    const body = await objects.get(bundle.key);
+    if (body === undefined) {
+      return `manifest references a missing workspace bundle: ${bundle.key}`;
+    }
+    // A store that answered a smaller HEAD than it then served is the one
+    // case the checks above cannot bound.
+    if (body.byteLength > maxBundleBytes) return tooBig(body.byteLength);
+    const digest = sha256(body);
+    if (digest !== bundle.sha256) {
+      return `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`;
+    }
+    const verdict = await bundles.verify({
+      bytes: body,
+      commit: gitCommit,
+      key: bundle.key,
+    });
+    return verdict.status === "restorable"
+      ? undefined
+      : `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
   }
 
   function safeWorkspacePath(path: string): boolean {
@@ -490,6 +630,13 @@ function planOf(
         };
       }),
   ];
+  // Before the untracked files: they are restored on top of the checkout, and
+  // an ordered download list is the only thing telling a worker so.
+  artifacts.push({
+    kind: "workspace_bundle",
+    label: "",
+    objects: [manifest.workspace.bundle],
+  });
   if (manifest.workspace.untracked.length > 0) {
     artifacts.push({
       kind: "workspace_untracked",
@@ -554,6 +701,33 @@ function refToken(ref: ObjectRef): string {
 // Codec registries are plain objects; inherited keys are not codecs.
 function own<T>(record: Readonly<Record<string, T>>, key: string) {
   return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+/**
+ * Runs at most `limit` tasks at once, handing a finishing task's slot
+ * straight to the next in line so a burst cannot briefly exceed the limit.
+ */
+function createGate(limit: number) {
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(`Concurrency limit must be a positive integer: ${limit}`);
+  }
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async function run<T>(task: () => Promise<T>): Promise<T> {
+    if (active >= limit) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active += 1;
+    }
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      // Hand the slot over rather than release it, so nobody slips between.
+      if (next === undefined) active -= 1;
+      else next();
+    }
+  };
 }
 
 function sha256(bytes: Uint8Array): string {

@@ -25,12 +25,12 @@ integration("API server on PostgreSQL", () => {
         migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
       });
     }
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
-  });
+  }, 60_000);
 
   test("issues one plaintext value, stores its digest, and authenticates HTTP", async () => {
     const keyProcess = Bun.spawn(

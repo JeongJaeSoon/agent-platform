@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
-
 import type { AgentRun, AgentRuntime, RuntimeConfig } from "./index.ts";
+import { WORKER_GATEWAY_DECISIONS } from "./index.ts";
 
 describe("runtime-core contracts", () => {
+  test("the worker gateway decisions reach callers as a runtime value", () => {
+    expect(WORKER_GATEWAY_DECISIONS).toContain("LEASE_EXPIRED");
+  });
+
   test("RuntimeConfig carries the mode instead of separate entry points", () => {
     const fresh: RuntimeConfig = {
       correlationId: "c",

@@ -127,6 +127,12 @@ export async function getSessionForOwner(
   return session ?? null;
 }
 
+// A session bound through the Worker Gateway carries an execution_id and is
+// governed by attempts, leases and confirmExecutionGone: clearing its pod_id
+// here would let a replacement claim while the execution may still be alive.
+// The lease-expiry reconciler for those sessions is 94S-139.
+const podLifecycleSession = isNull(sessions.executionId);
+
 export async function findOrphanedSessions(
   db: Database,
   leaseTtlMs: number,
@@ -140,6 +146,7 @@ export async function findOrphanedSessions(
     .where(
       and(
         isNotNull(sessions.podId),
+        podLifecycleSession,
         or(isNull(workers.podId), lt(workers.lastSeen, cutoff)),
       ),
     )
@@ -218,6 +225,7 @@ export async function reconcileOrphanedSessions(
       .where(
         and(
           isNotNull(sessions.podId),
+          podLifecycleSession,
           or(isNull(workers.podId), lt(workers.lastSeen, cutoff)),
         ),
       )

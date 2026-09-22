@@ -9,7 +9,7 @@ export interface AuthorizationPolicy {
   ): boolean;
 }
 
-// ponytail: owner match only; scopes per API key arrive with 94S-132.
+// Owner match only; scopes per API key arrive with 94S-132.
 export const ownerScopedPolicy: AuthorizationPolicy = {
   authorize(actor, _action, resource) {
     return actor.ownerId === resource.ownerId;
