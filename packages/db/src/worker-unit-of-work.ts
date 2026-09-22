@@ -42,6 +42,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
+import { encodeEventCursor } from "./event-cursor.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -332,10 +333,6 @@ function parseTurnId(turnId: string): number | null {
   if (!TURN_ID.test(turnId)) return null;
   const sequence = Number(turnId);
   return sequence <= SEQUENCE_MAX ? sequence : null;
-}
-
-function encodeEventCursor(id: number) {
-  return `ev_${id.toString(36)}`;
 }
 
 async function latestCheckpoint(

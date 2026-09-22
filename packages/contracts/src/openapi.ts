@@ -181,7 +181,9 @@ const routes: Route[] = [
     scope: "read",
     lastEventId: true,
     success: { status: 200, schema: "SseEvent", sse: true },
-    errors: [401, 404, 410],
+    // 410 CURSOR_EXPIRED is declared for clients but never produced in alpha:
+    // events are not trimmed (api.md § 이벤트).
+    errors: [400, 401, 404, 410, 503],
   },
   {
     method: "get",

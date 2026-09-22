@@ -13,6 +13,7 @@ import type {
   Receipt,
   SessionDetail,
   SessionRuntime,
+  SseEvent,
   TurnDetail,
 } from "@agent-platform/contracts";
 import type {
@@ -21,6 +22,7 @@ import type {
 } from "../authorization/policy.ts";
 import type {
   InputAcceptance,
+  ReadEventsQuery,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
 import type { SessionCatalog } from "./catalog.ts";
@@ -228,6 +230,19 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       return turn;
+    },
+
+    async readEvents(
+      actor: Principal,
+      sessionId: string,
+      query: ReadEventsQuery,
+    ): Promise<SseEvent[]> {
+      requireAuthorized(actor, "sessions:read", actor.ownerId);
+      const page = await reader.readEvents(actor.ownerId, sessionId, query);
+      if (!page) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return page;
     },
 
     // Only the principal that issued the command may read its receipt;

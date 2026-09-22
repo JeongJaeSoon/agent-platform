@@ -11,7 +11,10 @@ import {
   type Receipt,
   type ReceiptSessionTarget,
   receiptSchema,
+  SSE_SCHEMA_VERSION,
+  type SseEvent,
   sessionIdSchema,
+  sseEventSchema,
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
@@ -21,6 +24,7 @@ import type {
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
+  ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
   SessionRecord,
@@ -28,6 +32,11 @@ import type {
 } from "@agent-platform/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
+import {
+  decodeEventCursor,
+  encodeEventCursor,
+  InvalidCursorError,
+} from "./event-cursor.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -299,12 +308,6 @@ function decodeCursor(value: string): Cursor {
     }
   } catch {}
   throw new InvalidCursorError();
-}
-
-export class InvalidCursorError extends Error {
-  constructor() {
-    super("Invalid cursor");
-  }
 }
 
 // Turns page in FIFO order; the cursor is the last sequence on the page.
@@ -661,6 +664,51 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
       });
+    },
+
+    async readEvents(
+      ownerId: string,
+      sessionId: string,
+      query: ReadEventsQuery,
+    ): Promise<SseEvent[] | null> {
+      const after = decodeEventCursor(query.after);
+      if (!(await ownedSession(ownerId, sessionId))) return null;
+      // Ordered by row id, which is commit order within one session: the
+      // worker's appendEvents inserts under the session row lock, so a lower
+      // id can never become visible after a higher one and a reader that
+      // resumes from the last id it saw misses nothing.
+      const rows = await db
+        .select({
+          id: events.id,
+          type: events.type,
+          payload: events.payload,
+          attemptId: events.attemptId,
+          occurredAt: events.occurredAt,
+          createdAt: events.createdAt,
+          turnSequence: turns.sequence,
+        })
+        .from(events)
+        .leftJoin(turns, eq(turns.id, events.turnId))
+        .where(and(eq(events.sessionId, sessionId), gt(events.id, after)))
+        .orderBy(asc(events.id))
+        .limit(query.limit);
+      return rows.map((row) =>
+        sseEventSchema.parse({
+          id: encodeEventCursor(row.id),
+          event: row.type,
+          data: {
+            schema_version: SSE_SCHEMA_VERSION,
+            session_id: sessionId,
+            turn_id:
+              row.turnSequence === null ? null : String(row.turnSequence),
+            attempt_id: row.attemptId,
+            // Rows written outside the worker protocol carry no occurred_at;
+            // the insert time is the closest thing to when it happened.
+            occurred_at: (row.occurredAt ?? row.createdAt).toISOString(),
+            data: row.payload,
+          },
+        }),
+      );
     },
   };
 }

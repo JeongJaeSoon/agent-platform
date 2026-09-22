@@ -7,6 +7,7 @@ import type {
   Receipt,
   SessionDetail,
   SessionSummary,
+  SseEvent,
   TurnDetail,
   TurnSummary,
 } from "@agent-platform/contracts";
@@ -81,4 +82,17 @@ export interface SessionReader {
   ): Promise<TurnDetail | null>;
   // null when the receipt does not exist or belongs to another owner.
   getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
+  // Events after the cursor in session order, at most `limit`; null when the
+  // session is not visible to the owner. A page shorter than `limit` means
+  // the caller has reached the high-watermark and may wait for more.
+  readEvents(
+    ownerId: string,
+    sessionId: string,
+    query: ReadEventsQuery,
+  ): Promise<SseEvent[] | null>;
 }
+
+export type ReadEventsQuery = {
+  after?: string;
+  limit: number;
+};

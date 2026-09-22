@@ -45,6 +45,7 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt,
+      readEvents: async () => null,
     },
   });
   return createApiApp({
