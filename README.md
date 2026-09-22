@@ -161,15 +161,12 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 ```bash
 gh workflow run CI --ref <branch>                          # 세 job (spikes 포함)
 gh workflow run CI --ref <branch> -f only=spikes           # spikes만
-gh workflow run CI --ref <branch> -f only=spikes -f samples=25   # flaky 표본 25회
 gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 run을 취소하지 않음
 ```
 
 `only`는 그 job 하나만 남기고 나머지를 건너뛴다. flaky 추적처럼 한 job의 결과만 필요한 수동 실행에서 나머지 job 값을 내지 않기 위한 것이다.
 
-`samples`는 spike suite를 **한 job 안에서** N회 반복하고 통과율을 run summary에 표로 남긴다(`.github/scripts/sample-flaky.sh`). dispatch를 N번 하는 것과 달리 checkout·install·LiteLLM 설치를 한 번만 치르고, job당 분 단위 올림도 한 번만 먹는다. 실측으로 spikes job은 setup 64초 + suite 86초였으므로, 표본마다 run을 새로 띄우면 표본당 3분이지만 한 job에 모으면 표본당 1.5분 아래로 떨어진다. 표본 수를 미리 정하고 성공 run을 무제한 재요청하지 않는다.
-
-`allow_parallel=true`는 수동 실행을 run별로 분리하므로 표본끼리 취소되지 않지만, 실행 수만큼 분을 소모한다. `samples`로 해결되는 경우에는 쓰지 않는다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값들이 적용된다.
+`allow_parallel=true`는 수동 실행을 run별로 분리하므로 같은 SHA를 반복 실행해도 서로 취소되지 않는다. flaky 표본은 이것으로 모은다 — `only=spikes`와 함께 N번 dispatch한다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값들이 적용된다.
 
 예산 `$0`과 사용 중지를 유지한다. 포함 분이 소진되어 GitHub가 job을 시작하지 않으면 재시도해도 복구되지 않는다. 한도 초기화 또는 별도로 승인된 runner 대안이 필요하며, CI 최적화는 이미 사용한 분을 되돌리지 않는다.
 
