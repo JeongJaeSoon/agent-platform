@@ -144,6 +144,19 @@ jobs:
         if: '!cancelled()'
         name: spikes/94s-92 check
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+      # TEMPORARY (94S-217): the LocalStack timeout reproduces on roughly 6% of
+      # runs, so one pass per run is a useless sample. Repeat it to make the
+      # flake observable, then delete this step before merging.
+      - if: '!cancelled()'
+        name: TEMP flake hunt — repeat spikes/94s-92 LocalStack suite
+        run: |
+          fails=0
+          for attempt in $(seq 1 10); do
+            echo "::group::flake hunt attempt ${attempt}"
+            bun test --cwd spikes/94s-92 src/localstack.test.ts src/actual-sdk.test.ts || fails=$((fails + 1))
+            echo "::endgroup::"
+          done
+          echo "FLAKE_HUNT_FAILURES=${fails}/10"
       # continue-on-error leaves the run green, so whoever reads only the run
       # conclusion never learns a spike broke. State the outcome on the summary
       # page on every run that was not cancelled.
