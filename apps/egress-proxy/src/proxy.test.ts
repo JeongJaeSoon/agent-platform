@@ -697,11 +697,12 @@ describe("egress proxy", () => {
       // The dial itself is the seam: A connects for real but reports back
       // after the deadline, which is what a slow path looks like from here.
       connect: async (opts) => {
+        // Decided before the connect: a first dial slower than the deadline
+        // would otherwise leave the second one delayed too.
+        const delayed = first;
+        first = false;
         const socket = await Bun.connect(opts);
-        if (first) {
-          first = false;
-          await Bun.sleep(600);
-        }
+        if (delayed) await Bun.sleep(600);
         return socket;
       },
       logger: silent,
@@ -772,11 +773,12 @@ describe("egress proxy", () => {
     const late = await startEgressProxy({
       connectTimeoutMs: 200,
       connect: async (opts) => {
+        // Decided before the connect: a first dial slower than the deadline
+        // would otherwise leave the second one delayed too.
+        const delayed = first;
+        first = false;
         const socket = await Bun.connect(opts);
-        if (first) {
-          first = false;
-          await Bun.sleep(600);
-        }
+        if (delayed) await Bun.sleep(600);
         return socket;
       },
       logger: silent,
