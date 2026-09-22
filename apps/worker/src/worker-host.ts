@@ -91,6 +91,8 @@ type Settlement = {
 };
 
 type Turn = {
+  /** Past its terminal: what the engine emits now belongs to no turn. */
+  closed: boolean;
   settled: Promise<Settlement>;
   settle: (settlement: Settlement) => void;
   turnId: string;
@@ -422,8 +424,22 @@ export class WorkerHost {
       turn.settled,
       this.abandoned.then(() => undefined),
     ]);
-    // Owner loss forbids every further durable write, including this one.
-    if (settlement === undefined || this.ownerLost) return;
+    try {
+      // Owner loss forbids every further durable write, including this one.
+      if (settlement === undefined || this.ownerLost) return;
+      await this.finalizeTurn(run, input.turn_id, settlement);
+    } finally {
+      // Whatever the engine said after the terminal goes out now, as session
+      // events, whether or not the turn made it to a finalize.
+      this.publisher?.release();
+    }
+  }
+
+  private async finalizeTurn(
+    run: AgentRun,
+    turnId: string,
+    settlement: Settlement,
+  ): Promise<void> {
     // The event tail has to be durable before the turn is declared over: a
     // finalize that overtakes its own events publishes a closed turn whose
     // stream is still arriving. Both waits end with the drain budget, so a
@@ -432,17 +448,16 @@ export class WorkerHost {
       (this.publisher?.idle() ?? Promise.resolve()).then(() => true),
     );
     if (flushed === undefined || this.ownerLost) return;
-    // Read after the flush: everything numbered so far is stored, and the
-    // gateway refuses to close the turn short of it.
-    const finalSourceSequence = this.publisher?.published ?? 0;
+    // Where settleTurn cut the stream; idle() has made all of it durable.
+    const finalSourceSequence = this.publisher?.hold() ?? 0;
     const checkpoint = await this.capture(run);
     const finalized = await this.untilAbandoned(
       this.withRetry(
         () =>
           this.options.gateway.finalize({
             ...this.scope,
-            turn_id: input.turn_id,
-            finalize_key: `${this.scope.attempt_id}:${input.turn_id}`,
+            turn_id: turnId,
+            finalize_key: `${this.scope.attempt_id}:${turnId}`,
             final_source_sequence: finalSourceSequence,
             terminal: {
               status: settlement.status,
@@ -457,12 +472,12 @@ export class WorkerHost {
     );
     if (finalized === undefined) return;
     this.turns.push({
-      turnId: input.turn_id,
+      turnId,
       status: settlement.status,
       reason: settlement.reason,
     });
     this.logger.info("worker.turn.finalized", {
-      turn_id: input.turn_id,
+      turn_id: turnId,
       status: settlement.status,
     });
     this.turn = undefined;
@@ -474,7 +489,7 @@ export class WorkerHost {
     const settled = new Promise<Settlement>((resolve) => {
       settle = resolve;
     });
-    const turn: Turn = { settled, settle, turnId, uuid };
+    const turn: Turn = { closed: false, settled, settle, turnId, uuid };
     this.turn = turn;
     return turn;
   }
@@ -482,6 +497,11 @@ export class WorkerHost {
   private settleTurn(settlement: Settlement): void {
     const turn = this.turn;
     if (turn === undefined) return;
+    // The stream is cut here, at the terminal frame, and not wherever it has
+    // reached by the time finalize is sent: the engine keeps emitting after
+    // its result, and the gateway closes the turn only at the exact end.
+    turn.closed = true;
+    this.publisher?.hold();
     turn.settle(settlement);
   }
 
@@ -489,7 +509,10 @@ export class WorkerHost {
     return (async () => {
       try {
         for await (const frame of run.events()) {
-          this.publisher?.publish(frame.events, this.scope.turn_id);
+          this.publisher?.publish(
+            frame.events,
+            this.turn?.closed === true ? null : this.scope.turn_id,
+          );
           this.observe(frame.envelope.message);
         }
       } catch (error) {

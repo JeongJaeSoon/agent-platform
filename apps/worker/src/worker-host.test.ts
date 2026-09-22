@@ -191,6 +191,50 @@ describe("WorkerHost turn loop", () => {
     expect(finalizeAt).toBeGreaterThan(lastAppendAt);
   });
 
+  test("finalizes at the terminal even when the engine keeps talking after it", async () => {
+    const gateway = new FakeWorkerGateway();
+    // A slow capture leaves room for a frame to land between the flush and
+    // the finalize, which is where a late frame used to move the stream's end.
+    const checkpoints: WorkerCheckpointPort = {
+      restorePlan: async () => ({ mode: "new" }),
+      capture: async () => {
+        await Bun.sleep(20);
+        return null;
+      },
+    };
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: assistantMessage("answer") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "delay", delayMs: 5 },
+        { type: "emit", message: assistantMessage("after the result") },
+        { type: "await-input" },
+      ],
+      { checkpoints, gateway },
+    );
+    gateway.enqueue("first message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    const cut = gateway.finalized[0]?.final_source_sequence ?? -1;
+    const resultEvent = gateway.events.find(
+      (event) => event.event === "result",
+    );
+    expect(cut).toBe(resultEvent?.source_sequence ?? -2);
+    // The late frame is stored, after the finalize, as a session event.
+    const late = gateway.batches.find((batch) =>
+      batch.events.some((event) => event.source_sequence > cut),
+    );
+    expect(late?.turn_id).toBeNull();
+    expect(gateway.calls.lastIndexOf("appendEvents")).toBeGreaterThan(
+      gateway.calls.indexOf("finalize"),
+    );
+  });
+
   test("reports a failed engine result as a failed turn", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },

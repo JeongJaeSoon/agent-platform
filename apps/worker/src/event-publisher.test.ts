@@ -117,6 +117,27 @@ describe("EventPublisher", () => {
     await expect(events.idle()).rejects.toThrow("ownership lost");
   });
 
+  test("holds back what was published past a cut until it is released", async () => {
+    const { batches, publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.publish([systemEvent("a"), systemEvent("b")], "1");
+    expect(events.hold()).toBe(2);
+    events.publish([systemEvent("late")], null);
+    await events.idle();
+
+    // Idle means durable up to the cut; the late event is still waiting.
+    expect(events.acceptedThrough).toBe(2);
+    expect(batches.flatMap((batch) => batch.events)).toHaveLength(2);
+    // A second hold does not move the cut.
+    expect(events.hold()).toBe(2);
+
+    events.release();
+    await events.idle();
+    expect(events.acceptedThrough).toBe(3);
+    expect(batches.at(-1)?.turn_id).toBeNull();
+  });
+
   test("strips the frame cursor that is not this stream's", async () => {
     const { batches, publisher: events } = publisher(async (request) =>
       accepted(request),
