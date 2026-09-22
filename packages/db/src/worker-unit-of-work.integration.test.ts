@@ -85,6 +85,7 @@ integration("worker gateway on PostgreSQL", () => {
       partition,
       backend: "local_docker",
     });
+    if (registered.nonce === null) throw new Error("launch already registered");
     return { executionId, nonce: registered.nonce, generation: 1 };
   }
 
@@ -441,6 +442,270 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 404, code: "NOT_FOUND" });
   });
 
+  test("a nonce stops working once its lifetime passes, including on the replay path", async () => {
+    const partition = partitionFor("expiry");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    // The attempt is alive, but the bootstrap door closes with the nonce.
+    await db
+      .update(workerLaunches)
+      .set({ nonceExpiresAt: new Date(clock.getTime() - 1) })
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    // The running worker keeps the token it already holds.
+    const work = createPostgresWorkerUnitOfWork(db);
+    expect(
+      await work.resolveCredential(
+        hashWorkerToken(first.session_credential),
+        clock,
+      ),
+    ).not.toBeNull();
+  });
+
+  test("a claim is refused once the backend has taken the launch slot back", async () => {
+    const partition = partitionFor("slotgone");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    // The execution died before claiming; the backend observed it.
+    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+      sessionReleased: false,
+      slotReleased: true,
+    });
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+  });
+
+  test("registerLaunch hands out a nonce only when it registered the execution", async () => {
+    const partition = partitionFor("reg");
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const first = await gateway.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      backend: "local_docker",
+    });
+    expect(first.outcome).toBe("registered");
+    expect(first.nonce).not.toBeNull();
+    const again = await gateway.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      backend: "local_docker",
+    });
+    // The stored hash still belongs to the first nonce, so handing back a
+    // freshly generated one would only produce claims that never work.
+    expect(again).toEqual({ nonce: null, outcome: "exists" });
+  });
+
+  test("events are refused for a turn this attempt is not running", async () => {
+    const partition = partitionFor("foreign");
+    const session = await queuedSession(partition);
+    const owner = (
+      await db
+        .select({ ownerId: sessions.ownerId })
+        .from(sessions)
+        .where(eq(sessions.id, session.session_id))
+    )[0];
+    await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      principal: { ownerId: owner?.ownerId ?? "" },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "queued behind the head",
+    });
+    const l = await launch(partition);
+    const claimed = await claim(l);
+    await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+    // Turn 2 exists and belongs to the session, but no attempt runs it.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...scopeOf(claimed, "2"),
+          batch_key: "b",
+          events: [event(1)],
+        }),
+      ),
+    ).toEqual({ status: 404, code: "NOT_FOUND" });
+    // An id past the integer column is not found, not a database error.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...scopeOf(claimed, "9999999999"),
+          batch_key: "b",
+          events: [event(1)],
+        }),
+      ),
+    ).toEqual({ status: 404, code: "NOT_FOUND" });
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, "9999999999"),
+          turn_id: "9999999999",
+          finalize_key: "f",
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: null,
+        }),
+      ),
+    ).toEqual({ status: 404, code: "NOT_FOUND" });
+  });
+
+  test("reusing a source_sequence with different content is a conflict, not a silent drop", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const base = {
+      ...scopeOf(claimed, "1"),
+      batch_key: "batch-1",
+      events: [event(1)],
+    };
+    await gateway.appendEvents(principalOf(claimed), base);
+    const changed: WorkerEvent = {
+      event: "status",
+      data: { phase: "needs_input" },
+      source_sequence: 1,
+      occurred_at: clock.toISOString(),
+    };
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [changed],
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    // A batch that extends the stream around a matching replay still lands.
+    const extended = await gateway.appendEvents(principalOf(claimed), {
+      ...base,
+      events: [event(1), event(2)],
+    });
+    expect(extended.accepted_through).toBe(2);
+    const [storedRow] = await db
+      .select({ stored: count() })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id));
+    expect(storedRow?.stored).toBe(2);
+  });
+
+  test("finalize replayed with the same key but a different terminal is a conflict", async () => {
+    const { claimed } = await claimAndDeliver();
+    const request = {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: { text: "done" },
+        usage: null,
+      },
+      checkpoint: null,
+    };
+    const done = await gateway.finalize(principalOf(claimed), request);
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...request,
+          terminal: {
+            status: "failed",
+            reason: "different story",
+            result: null,
+            usage: null,
+          },
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    // The stored terminal is what a true replay answers with.
+    expect(await gateway.finalize(principalOf(claimed), request)).toEqual(done);
+  });
+
+  test("interrupted stops the session, outcome_unknown blocks it for recovery", async () => {
+    const interrupted = await claimAndDeliver();
+    await gateway.finalize(principalOf(interrupted.claimed), {
+      ...scopeOf(interrupted.claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      terminal: {
+        status: "interrupted",
+        reason: "user_stop",
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    const [stopped] = await db
+      .select({
+        status: sessions.status,
+        admissionState: sessions.admissionState,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, interrupted.session.session_id));
+    // DESIGN §6.6: an interrupt never takes the success/idle path.
+    expect(stopped).toEqual({ status: "stopped", admissionState: "active" });
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, interrupted.session.session_id)),
+    ).toHaveLength(0);
+
+    const unknown = await claimAndDeliver();
+    await gateway.finalize(principalOf(unknown.claimed), {
+      ...scopeOf(unknown.claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      terminal: {
+        status: "outcome_unknown",
+        reason: "sdk_vanished",
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    const [blocked] = await db
+      .select({
+        status: sessions.status,
+        admissionState: sessions.admissionState,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, unknown.session.session_id));
+    expect(blocked).toEqual({
+      status: "failed",
+      admissionState: "recovery_required",
+    });
+    const [turn] = await db
+      .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
+      .from(turns)
+      .where(eq(turns.sessionId, unknown.session.session_id));
+    expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
+    // The input stays on the queue until an operator decides (94S-140), and
+    // no attempt is handed it again.
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, unknown.session.session_id)),
+    ).toHaveLength(1);
+    const [receipt] = await db
+      .select({ status: receipts.status })
+      .from(receipts)
+      .where(eq(receipts.id, unknown.session.receipt_id));
+    expect(receipt?.status).toBe("unknown");
+    const again = await gateway.nextInput(
+      principalOf(unknown.claimed),
+      scopeOf(unknown.claimed),
+    );
+    expect(again.input).toBeNull();
+  });
+
   test("writes from a superseded epoch are refused with 409 STALE_EPOCH", async () => {
     const { session, claimed } = await claimAndDeliver();
     // A terminate/reconcile elsewhere bumps the session epoch.
@@ -527,7 +792,7 @@ integration("worker gateway on PostgreSQL", () => {
       );
     expect(turn?.status).toBe("completed");
     expect(turn?.endedAt?.toISOString()).toBe(clock.toISOString());
-    expect(turn?.resultJson).toEqual({
+    expect(turn?.resultJson).toMatchObject({
       finalize_key: "fin-1",
       result: { text: "done" },
       usage: { input_tokens: 3 },

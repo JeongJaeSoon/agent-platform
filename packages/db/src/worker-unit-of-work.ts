@@ -1,25 +1,30 @@
-import type { CheckpointRef } from "@agent-platform/contracts";
-import type {
-  ClaimInput,
-  ClaimResult,
-  CommitEventsInput,
-  CommitEventsResult,
-  ConfirmExecutionGoneInput,
-  ConfirmExecutionGoneResult,
-  FenceRejection,
-  FinalizeInput,
-  FinalizeResult,
-  HeartbeatInput,
-  HeartbeatResult,
-  NextInputInput,
-  NextInputResult,
-  RegisterLaunchInput,
-  ReleaseInput,
-  ReleaseResult,
-  ResolvedCredential,
-  WorkerBinding,
-  WorkerFence,
-  WorkerUnitOfWork,
+import {
+  type CheckpointRef,
+  type TerminalTurnStatus,
+  terminalTurnStatusSchema,
+} from "@agent-platform/contracts";
+import {
+  type ClaimInput,
+  type ClaimResult,
+  type CommitEventsInput,
+  type CommitEventsResult,
+  type ConfirmExecutionGoneInput,
+  type ConfirmExecutionGoneResult,
+  type FenceRejection,
+  type FinalizeInput,
+  type FinalizeResult,
+  type HeartbeatInput,
+  type HeartbeatResult,
+  type NextInputInput,
+  type NextInputResult,
+  payloadHash,
+  type RegisterLaunchInput,
+  type ReleaseInput,
+  type ReleaseResult,
+  type ResolvedCredential,
+  type WorkerBinding,
+  type WorkerFence,
+  type WorkerUnitOfWork,
 } from "@agent-platform/platform";
 import {
   and,
@@ -54,6 +59,36 @@ const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 const OPEN_TURN_STATUSES = ["running", "needs_input"];
 const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 const TURN_ID = /^[1-9]\d{0,9}$/;
+// turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
+// not reach the query, where it would fail with 22003 instead of not-found.
+const SEQUENCE_MAX = 2_147_483_647;
+
+// finalize never reports `cancelled`: that terminal comes from an operator
+// recovery decision, not from the worker.
+const workerTerminalSchema = terminalTurnStatusSchema.exclude(["cancelled"]);
+
+// DESIGN.md §6.5/§6.6: success, failure and user interrupt each get their own
+// session state, and an unknown outcome never takes the idle path.
+const SESSION_STATUS_BY_TERMINAL: Record<
+  TerminalTurnStatus,
+  "idle" | "failed" | "stopped"
+> = {
+  completed: "idle",
+  failed: "failed",
+  interrupted: "stopped",
+  cancelled: "stopped",
+  outcome_unknown: "failed",
+};
+const RECEIPT_STATUS_BY_TERMINAL: Record<
+  TerminalTurnStatus,
+  "succeeded" | "failed" | "unknown"
+> = {
+  completed: "succeeded",
+  failed: "failed",
+  interrupted: "failed",
+  cancelled: "failed",
+  outcome_unknown: "unknown",
+};
 
 type SessionRow = typeof sessions.$inferSelect;
 type AttemptRow = typeof attempts.$inferSelect;
@@ -130,7 +165,9 @@ async function acquireFence(
 }
 
 function parseTurnId(turnId: string): number | null {
-  return TURN_ID.test(turnId) ? Number(turnId) : null;
+  if (!TURN_ID.test(turnId)) return null;
+  const sequence = Number(turnId);
+  return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
 function encodeEventCursor(id: number) {
@@ -228,7 +265,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (
           !launch ||
           launch.executionId !== input.executionId ||
-          launch.generation !== input.executionGeneration
+          launch.generation !== input.executionGeneration ||
+          // The backend already observed this execution end and took its slot
+          // back, so a straggler must not claim a session with its nonce.
+          launch.slotReleasedAt !== null ||
+          // Applies to the replay path too: after the nonce lifetime the
+          // bootstrap door is shut, and re-entering it would revoke the
+          // session token of the worker that is still running.
+          launch.nonceExpiresAt.getTime() <= input.now.getTime()
         ) {
           return { outcome: "invalid_credential" };
         }
@@ -259,10 +303,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             binding: await bindingOf(tx, bound.session, bound.attempt),
           };
         }
-        if (launch.nonceExpiresAt.getTime() <= input.now.getTime()) {
-          return { outcome: "invalid_credential" };
-        }
-
         // Server-side selection: the worker never names a session. SKIP
         // LOCKED lets concurrent claims in one partition pick different
         // heads instead of serialising on the oldest signal.
@@ -498,6 +538,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         let turnRowId: number | null = null;
         if (input.turnId !== null) {
           const sequence = parseTurnId(input.turnId);
+          // Only the turn this attempt is running: the fence alone would let
+          // a live worker write history onto a queued or foreign turn.
           const [turn] = sequence
             ? await tx
                 .select({ id: turns.id })
@@ -506,6 +548,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   and(
                     eq(turns.sessionId, fence.sessionId),
                     eq(turns.sequence, sequence),
+                    eq(turns.attemptId, fence.attemptId),
                   ),
                 )
                 .limit(1)
@@ -516,7 +559,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
 
         // (session_id, attempt_id, source_sequence) is unique, so a batch
         // the worker re-sends after a lost response inserts nothing.
-        await tx
+        const inserted = await tx
           .insert(events)
           .values(
             input.events.map((event) => ({
@@ -529,7 +572,47 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               occurredAt: new Date(event.occurred_at),
             })),
           )
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ sourceSequence: events.sourceSequence });
+        // A sequence the insert skipped already exists. Saying "accepted"
+        // while the stored event says something else would hand the worker a
+        // cursor for data the stream does not contain.
+        if (inserted.length !== input.events.length) {
+          const kept = new Set(inserted.map((row) => row.sourceSequence));
+          const replayed = input.events.filter(
+            (event) => !kept.has(event.source_sequence),
+          );
+          const existing = await tx
+            .select({
+              type: events.type,
+              payload: events.payload,
+              sourceSequence: events.sourceSequence,
+            })
+            .from(events)
+            .where(
+              and(
+                eq(events.sessionId, fence.sessionId),
+                eq(events.attemptId, fence.attemptId),
+                inArray(
+                  events.sourceSequence,
+                  replayed.map((event) => event.source_sequence),
+                ),
+              ),
+            );
+          const stored = new Map(
+            existing.map((row) => [row.sourceSequence, row]),
+          );
+          for (const event of replayed) {
+            const row = stored.get(event.source_sequence);
+            if (
+              !row ||
+              row.type !== event.event ||
+              payloadHash(row.payload) !== payloadHash(event.data)
+            ) {
+              return { outcome: "event_conflict" };
+            }
+          }
+        }
         const [latest] = await tx
           .select({ id: max(events.id) })
           .from(events)
@@ -575,9 +658,18 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (!turn || turn.attemptId !== fence.attemptId) {
           return { outcome: "turn_not_found" };
         }
-        const stored = (turn.resultJson ?? {}) as { finalize_key?: unknown };
+        const terminalHash = payloadHash(input.terminal);
+        const stored = (turn.resultJson ?? {}) as {
+          finalize_key?: unknown;
+          finalize_hash?: unknown;
+        };
         if (!OPEN_TURN_STATUSES.includes(turn.status)) {
-          if (stored.finalize_key !== input.finalizeKey) {
+          // A replay carries the same key and the same body; anything else
+          // would report a terminal the stored turn does not have.
+          if (
+            stored.finalize_key !== input.finalizeKey ||
+            stored.finalize_hash !== terminalHash
+          ) {
             return { outcome: "finalize_conflict" };
           }
           const [checkpoint] = await tx
@@ -588,7 +680,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             outcome: "replayed",
             result: {
               turnId: input.turnId,
-              status: input.terminal.status,
+              status: workerTerminalSchema.parse(turn.status),
               checkpointRevision: checkpoint?.revision ?? null,
             },
           };
@@ -614,14 +706,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           checkpointRevision = input.checkpoint.revision;
         }
 
+        const unknownOutcome = input.terminal.status === "outcome_unknown";
         const [terminal] = await tx
           .update(turns)
           .set({
             status: input.terminal.status,
             endedAt: now,
             terminalReason: input.terminal.reason,
+            outcomeUnknown: unknownOutcome,
             resultJson: {
               finalize_key: input.finalizeKey,
+              finalize_hash: terminalHash,
               result: input.terminal.result,
               usage: input.terminal.usage,
             },
@@ -636,18 +731,19 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .returning({ id: turns.id });
         expectFenced([terminal].filter(Boolean), "turn");
 
-        const succeeded = input.terminal.status === "completed";
+        const receiptStatus = RECEIPT_STATUS_BY_TERMINAL[input.terminal.status];
+        const succeeded = receiptStatus === "succeeded";
         await tx
           .update(receipts)
           .set({
-            status: succeeded ? "succeeded" : "failed",
+            status: receiptStatus,
             result: succeeded
               ? { turn_id: input.turnId, status: input.terminal.status }
               : null,
             error: succeeded
               ? null
               : {
-                  code: "INTERNAL_ERROR",
+                  code: unknownOutcome ? "RECOVERY_REQUIRED" : "INTERNAL_ERROR",
                   message: input.terminal.reason ?? input.terminal.status,
                 },
             updatedAt: now,
@@ -660,21 +756,28 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               sql`${receipts.targetRef}->>'turn_id' = ${input.turnId}`,
             ),
           );
-        await tx
-          .delete(queueMessages)
-          .where(
-            and(
-              eq(queueMessages.sessionId, fence.sessionId),
-              eq(queueMessages.turnId, turn.id),
-            ),
-          );
+        // An unknown outcome keeps its queue head: the input stays blocked
+        // until an operator recovery decision (94S-140), never redelivered.
+        if (!unknownOutcome) {
+          await tx
+            .delete(queueMessages)
+            .where(
+              and(
+                eq(queueMessages.sessionId, fence.sessionId),
+                eq(queueMessages.turnId, turn.id),
+              ),
+            );
+        }
         expectFenced(
           await tx
             .update(sessions)
             .set({
-              status: input.terminal.status === "failed" ? "failed" : "idle",
+              status: SESSION_STATUS_BY_TERMINAL[input.terminal.status],
               lastTurnAt: now,
               updatedAt: now,
+              ...(unknownOutcome
+                ? { admissionState: "recovery_required" as const }
+                : {}),
               ...(checkpointRevision === null
                 ? {}
                 : { checkpointRevision, checkpointCommittedAt: now }),

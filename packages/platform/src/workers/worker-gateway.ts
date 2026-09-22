@@ -163,7 +163,10 @@ export function createWorkerGateway(deps: {
       partition?: string;
       backend: string;
       nonce?: string;
-    }): Promise<{ nonce: string; outcome: "registered" | "exists" }> {
+      // `nonce` is null when this execution was already registered: the
+      // original nonce is stored only as a hash, so a caller that lost it
+      // must launch a new execution rather than receive an unusable value.
+    }): Promise<{ nonce: string | null; outcome: "registered" | "exists" }> {
       const nonce = input.nonce ?? generateLaunchNonce();
       const result = await work.registerLaunchAtomic({
         executionId: input.executionId,
@@ -173,7 +176,10 @@ export function createWorkerGateway(deps: {
         nonceHash: hashWorkerToken(nonce),
         nonceExpiresAt: new Date(now().getTime() + nonceTtlMs),
       });
-      return { nonce, outcome: result.outcome };
+      return {
+        nonce: result.outcome === "registered" ? nonce : null,
+        outcome: result.outcome,
+      };
     },
 
     async authenticate(token: string | null): Promise<WorkerPrincipal> {
@@ -313,7 +319,18 @@ export function createWorkerGateway(deps: {
         events: request.events,
       });
       if (result.outcome === "turn_not_found") {
-        throw new WorkerGatewayError(404, "NOT_FOUND", "Unknown turn_id");
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "Unknown turn_id, or the turn is not running on this attempt",
+        );
+      }
+      if (result.outcome === "event_conflict") {
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "A source_sequence was already stored with different content",
+        );
       }
       if (result.outcome !== "ok") rejected(result);
       return {
@@ -359,7 +376,7 @@ export function createWorkerGateway(deps: {
           throw new WorkerGatewayError(
             409,
             "IDEMPOTENCY_CONFLICT",
-            "Turn already finalized under a different finalize_key",
+            "Turn already finalized under a different finalize_key or body",
           );
         case "checkpoint_rejected":
           throw new WorkerGatewayError(

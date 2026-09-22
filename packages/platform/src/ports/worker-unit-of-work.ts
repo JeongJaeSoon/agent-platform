@@ -93,6 +93,8 @@ export type CommitEventsInput = {
 export type CommitEventsResult =
   | { outcome: "ok"; acceptedThrough: number; cursor: string }
   | { outcome: "turn_not_found" }
+  // A source_sequence this attempt already stored, with different content.
+  | { outcome: "event_conflict" }
   | FenceRejection;
 
 export type FinalizeInput = {
@@ -111,7 +113,7 @@ export type FinalizeOutcome = {
 export type FinalizeResult =
   | { outcome: "finalized" | "replayed"; result: FinalizeOutcome }
   | { outcome: "turn_not_found" }
-  // The turn already reached a terminal state under a different key.
+  // The turn already reached a terminal state under a different key or body.
   | { outcome: "finalize_conflict" }
   | { outcome: "checkpoint_rejected"; reason: string }
   | FenceRejection;
