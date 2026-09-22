@@ -9,6 +9,26 @@ import { S3CallTracker } from "./s3-diagnostics.ts";
 export const localstackEnabled =
   process.env.SESSION_STORE_LOCALSTACK_TEST === "1";
 
+/**
+ * Without these a request LocalStack accepts and then never answers waits
+ * forever: the AWS SDK's default node handler sets no timeouts, and its retry
+ * policy only fires on an error that, in that state, never arrives. One such
+ * request inside a `Promise.all` fan-out is what bun reports as a bare
+ * `timed out after 30000ms`.
+ *
+ * `throwOnRequestTimeout` is not optional here. With `requestTimeout` alone,
+ * @smithy/node-http-handler 4.12.1 logs `a request has exceeded the configured
+ * timeout` and keeps waiting — the await still never settles.
+ */
+export const s3RequestBounds = {
+  connectionTimeout: 2_000,
+  requestTimeout: 4_000,
+  throwOnRequestTimeout: true,
+} as const;
+
+/** Bounded retries on top of {@link s3RequestBounds}: worst case ~13s. */
+export const s3MaxAttempts = 3;
+
 /** Every S3 call this process makes through {@link createLocalstackClient}. */
 export const localstackCalls = new S3CallTracker();
 
@@ -20,7 +40,9 @@ export function createLocalstackClient(): S3Client {
     },
     endpoint: process.env.AWS_ENDPOINT_URL ?? "http://127.0.0.1:4566",
     forcePathStyle: true,
+    maxAttempts: s3MaxAttempts,
     region: process.env.AWS_REGION ?? "ap-northeast-1",
+    requestHandler: s3RequestBounds,
   });
   return localstackCalls.instrument(client);
 }

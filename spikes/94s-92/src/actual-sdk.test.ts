@@ -165,8 +165,8 @@ describeActual("actual SDK SessionStore process contract", () => {
       const sessionId = timedOut.value.result?.session_id;
       if (!sessionId)
         throw new Error("Timed-out process returned no session ID");
-      await Bun.sleep(250);
-
+      // No settling delay: the child drains its late writes before it exits,
+      // so its exit is the synchronisation point.
       const store = new S3SessionStoreProbe({
         bucket: localstackBucket(),
         client,

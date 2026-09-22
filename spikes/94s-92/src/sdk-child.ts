@@ -6,6 +6,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { S3Client } from "@aws-sdk/client-s3";
+import { s3MaxAttempts, s3RequestBounds } from "./localstack.ts";
 import { S3CallTracker, startStallReporter } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
@@ -28,7 +29,9 @@ const client = new S3Client({
   },
   endpoint: required("AWS_ENDPOINT_URL"),
   forcePathStyle: true,
+  maxAttempts: s3MaxAttempts,
   region: required("AWS_REGION"),
+  requestHandler: s3RequestBounds,
 });
 calls.instrument(client);
 const durableStore = new S3SessionStoreProbe({
@@ -42,6 +45,8 @@ let appendAttempts = 0;
 // They keep this process alive after the query loop ends, so a stuck one is
 // indistinguishable from a hung query unless it is accounted for separately.
 const lateWrites = new Set<Promise<void>>();
+/** Longer than a bounded S3 attempt chain, so a real write is never cut off. */
+const LATE_WRITE_DRAIN_MS = 15_000;
 const store: SessionStore = {
   append: async (key: SessionKey, entries: SessionStoreEntry[]) => {
     appendAttempts += 1;
@@ -129,6 +134,16 @@ try {
   );
   process.exitCode = 1;
 } finally {
+  // The writes the adapter already gave up on are the whole point of the
+  // timeout mode: they must still land exactly once. Settle them before the
+  // client goes away, so the contract does not depend on whether the process
+  // happens to outlive them — but bound the wait, or one stuck write turns
+  // this process into a child that never exits.
   stage = `draining(${lateWrites.size} late writes)`;
+  await Promise.race([
+    Promise.allSettled([...lateWrites]),
+    Bun.sleep(LATE_WRITE_DRAIN_MS),
+  ]);
+  stage = "done";
   client.destroy();
 }
