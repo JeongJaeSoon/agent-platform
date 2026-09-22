@@ -31,6 +31,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -236,13 +237,14 @@ export function createPostgresSchedulerStore(
       });
     },
 
-    async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+    async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
       const nonce = generateLaunchNonce();
       const rotated = await db
         .update(workerLaunches)
         .set({
           nonceHash: hashWorkerToken(nonce),
-          nonceExpiresAt: new Date(now.getTime() + nonceTtlMs),
+          // Written on the database clock, where `claimAtomic` judges it.
+          nonceExpiresAt: fromDbNow(nonceTtlMs),
         })
         .where(
           and(
@@ -264,7 +266,7 @@ export function createPostgresSchedulerStore(
       return nonce;
     },
 
-    async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+    async revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean> {
       // Clearing the hash is what shuts the door: `claimAtomic` finds a launch
       // by hash, and null matches nothing. Both statements take the same row
       // lock, so a claim commits strictly before or strictly after this — the
@@ -282,7 +284,7 @@ export function createPostgresSchedulerStore(
             eq(workerLaunches.generation, ref.generation),
             isNull(workerLaunches.claimedAttemptId),
             holdsSlot(),
-            lte(workerLaunches.nonceExpiresAt, now),
+            lte(workerLaunches.nonceExpiresAt, DB_NOW),
           ),
         )
         .returning({ executionId: workerLaunches.executionId });
@@ -297,6 +299,7 @@ export function createPostgresSchedulerStore(
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
+          nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
           observedState: executions.observedState,
           operationId: executions.launchOperationId,
           providerRef: executions.providerRef,
@@ -316,6 +319,8 @@ export function createPostgresSchedulerStore(
         executionId: row.executionId,
         generation: row.generation,
         nonceExpiresAt: row.nonceExpiresAt,
+        // Null while no credential was issued; the comparison yields null too.
+        nonceExpired: row.nonceExpired === true,
         observedState: observedStateOf(row.observedState),
         operationId: row.operationId,
         providerRef: row.providerRef,

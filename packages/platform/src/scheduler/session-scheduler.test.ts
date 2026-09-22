@@ -64,6 +64,7 @@ class MemoryStore implements SchedulerStore {
       generation: 1,
       nonce: null,
       nonceExpiresAt: null,
+      nonceExpired: false,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       providerRef: null,
@@ -114,7 +115,7 @@ class MemoryStore implements SchedulerStore {
     return { ...seeded, operationId: seeded.operationId };
   }
 
-  async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+  async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -125,11 +126,11 @@ class MemoryStore implements SchedulerStore {
       throw new Error(`no credential for ${ref.executionId}`);
     }
     row.nonce = `nonce-${crypto.randomUUID()}`;
-    row.nonceExpiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+    row.nonceExpiresAt = new Date(Date.now() + NONCE_TTL_MS);
     return row.nonce;
   }
 
-  async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+  async revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -137,7 +138,7 @@ class MemoryStore implements SchedulerStore {
       row.claimed ||
       row.slotReleased ||
       row.nonceExpiresAt === null ||
-      row.nonceExpiresAt.getTime() > now.getTime()
+      row.nonceExpiresAt.getTime() > Date.now()
     ) {
       return false;
     }
@@ -157,9 +158,14 @@ class MemoryStore implements SchedulerStore {
     if (this.failList) throw new Error("database down");
     // Copies, like a query result: what the caller carries is a snapshot and
     // stays behind whatever the rows do while the pass runs.
+    // The store, not the scheduler, judges expiry — on its own clock.
     return this.live()
       .filter((e) => e.backend === backend)
-      .map((e) => ({ ...e }));
+      .map((e) => ({
+        ...e,
+        nonceExpired:
+          e.nonceExpiresAt !== null && e.nonceExpiresAt.getTime() <= Date.now(),
+      }));
   }
 
   async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {

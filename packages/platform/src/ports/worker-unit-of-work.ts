@@ -30,7 +30,9 @@ export type RegisterLaunchInput = {
   sessionId: string | null;
   backend: ExecutionBackend;
   nonceHash: Uint8Array;
-  nonceExpiresAt: Date;
+  // A lifetime, not a deadline: the storage clock decides when the nonce
+  // stops being accepted, so the caller's clock never enters the judgment.
+  nonceTtlMs: number;
 };
 
 export type WorkerBinding = {
