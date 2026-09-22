@@ -43,6 +43,9 @@ jobs:
       AWS_ENDPOINT_URL: http://127.0.0.1:4566
       AWS_REGION: ap-northeast-1
       AWS_SECRET_ACCESS_KEY: test
+      # ubuntu runners ship a Docker daemon: run the LocalDockerBackend
+      # integration tests against it (busybox) instead of skipping them.
+      DOCKER_BACKEND_TEST: "1"
       QUEUE_DATABASE_URL: postgresql://postgres:dev@127.0.0.1:5432/sessions
       S3_BUCKET: claude-sessions
       SESSION_STORE_LOCALSTACK_TEST: "1"
