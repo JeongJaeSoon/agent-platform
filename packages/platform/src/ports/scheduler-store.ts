@@ -60,6 +60,12 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    */
   nonceExpiresAt: Date | null;
   /**
+   * `nonceExpiresAt` judged on the storage clock as the rows were listed.
+   * The scheduler's own clock never decides this: a replica running ahead
+   * would replace a resource whose credential is still good.
+   */
+  nonceExpired: boolean;
+  /**
    * A replacement the scheduler committed to before tearing the resource
    * down, until the one built from the intent is observed up. It survives a
    * teardown that only half happened and a control host that died between
@@ -98,7 +104,7 @@ export interface SchedulerStore {
    * the plaintext. Refuses a launch that already bound a worker or gave its
    * slot back, so a credential is never issued for a binding that exists.
    */
-  issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string>;
+  issueBootstrapNonce(ref: ExecutionRef): Promise<string>;
   /**
    * Shuts this launch's bootstrap door for good and says whether it was still
    * open: true only when the launch was unclaimed, still held its slot, and
@@ -106,24 +112,29 @@ export interface SchedulerStore {
    * safe to tear the resource down — a claim that commits either side of it
    * loses or wins outright, never both.
    */
-  revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean>;
+  revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean>;
   /**
    * Records, before anything is torn down, that this launch is to be rebuilt
    * from its stored intent, counts the request, and shuts the launch's
    * bootstrap door in the same write — the resource about to go must not
    * bind a worker between here and the teardown, and the one built next
-   * gets a credential of its own. Returns the running count, or null when
-   * the launch has bound a worker or given its slot back: there is then
-   * nothing to rebuild, and the caller must not tear down.
+   * gets a credential of its own. Returns the new count, or null when the
+   * launch has bound a worker, given its slot back, or been asked since the
+   * rows were read (`expectedCount` no longer matches): there is then
+   * nothing to rebuild from this snapshot, and the caller must not tear
+   * down. The count check is what stops a pass that lost its lock — a
+   * dropped lock connection — from tearing down what a later pass built.
    */
   requestReplacement(
     ref: ExecutionRef,
     reason: ReplaceReason,
-    now: Date,
+    expectedCount: number,
   ): Promise<number | null>;
   /**
    * The replacement landed: the resource built from the intent is up. Clears
-   * the pending reason and keeps the count.
+   * the pending reason and keeps the count. An operator who wants an
+   * exhausted launch retried resets the count alone: clearing the reason as
+   * well would turn its stopped resource back into an ordinary exit.
    */
   settleReplacement(ref: ExecutionRef): Promise<void>;
   /** Open launches for `backend` only; other backends' rows are theirs. */

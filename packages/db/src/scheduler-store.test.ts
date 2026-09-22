@@ -269,6 +269,7 @@ describe("PostgresSchedulerStore", () => {
         claimed: false,
         executionId: intent.executionId,
         generation: 1,
+        nonceExpired: false,
         nonceExpiresAt: null,
         observedState: "pending",
         operationId: intent.operationId,
@@ -282,6 +283,7 @@ describe("PostgresSchedulerStore", () => {
         claimed: false,
         executionId: "exec-legacy",
         generation: 1,
+        nonceExpired: false,
         nonceExpiresAt: null,
         observedState: "running",
         operationId: null,
@@ -402,7 +404,7 @@ describe("PostgresSchedulerStore", () => {
       expect(await work.countReservedSlots()).toBe(1);
       // A launch that never came back would be counted twice by anyone
       // keeping a second ledger; with one, the limit of 1 proves it.
-      await store.issueBootstrapNonce(intent, NOW);
+      await store.issueBootstrapNonce(intent);
       expect(await work.countReservedSlots()).toBe(1);
       await store.confirmExecutionGone(intent.executionId, NOW);
       expect(await work.countReservedSlots()).toBe(0);
@@ -422,22 +424,30 @@ describe("PostgresSchedulerStore", () => {
     });
     if (!intent) throw new Error("no intent");
 
-    const first = await store.issueBootstrapNonce(intent, NOW);
+    const floor = Date.now();
+    const first = await store.issueBootstrapNonce(intent);
+    const ceiling = Date.now();
     expect(first).toMatch(/^wln_/);
     const [stored] = await db
       .select()
       .from(workerLaunches)
       .where(eq(workerLaunches.executionId, intent.executionId));
     expect(stored?.nonceHash).toEqual(sha256(first));
-    expect(stored?.nonceExpiresAt).toEqual(new Date(NOW.getTime() + 600_000));
+    // The expiry is written on the database clock (PGlite shares this
+    // process's), never on a clock the caller passes in.
+    const expiresAt = stored?.nonceExpiresAt?.getTime() ?? Number.NaN;
+    expect(expiresAt).toBeGreaterThanOrEqual(floor + 600_000);
+    expect(expiresAt).toBeLessThanOrEqual(ceiling + 600_000);
     // Nothing anywhere holds the plaintext.
     expect(JSON.stringify(stored)).not.toContain(first);
-    // The scheduler reads the expiry back to decide when a resource that
-    // never claimed has to be replaced rather than waited on.
+    // The scheduler reads the expiry back, already judged on the database
+    // clock, to decide when a resource that never claimed has to be
+    // replaced rather than waited on.
     const [active] = await store.listActiveExecutions("local_docker");
-    expect(active?.nonceExpiresAt).toEqual(new Date(NOW.getTime() + 600_000));
+    expect(active?.nonceExpiresAt).toEqual(stored?.nonceExpiresAt ?? null);
+    expect(active?.nonceExpired).toBe(false);
 
-    const second = await store.issueBootstrapNonce(intent, NOW);
+    const second = await store.issueBootstrapNonce(intent);
     expect(second).not.toBe(first);
     const [rotated] = await db
       .select({ nonceHash: workerLaunches.nonceHash })
@@ -448,10 +458,10 @@ describe("PostgresSchedulerStore", () => {
     // A generation that is not this launch's, and a launch whose slot is
     // already back, are both refused.
     await expect(
-      store.issueBootstrapNonce({ ...intent, generation: 9 }, NOW),
+      store.issueBootstrapNonce({ ...intent, generation: 9 }),
     ).rejects.toThrow("no bootstrap credential was issued");
     await store.confirmExecutionGone(intent.executionId, NOW);
-    await expect(store.issueBootstrapNonce(intent, NOW)).rejects.toThrow(
+    await expect(store.issueBootstrapNonce(intent)).rejects.toThrow(
       "no bootstrap credential was issued",
     );
   });
@@ -465,7 +475,7 @@ describe("PostgresSchedulerStore", () => {
       slotLimit: 10,
     });
     if (!intent) throw new Error("no intent");
-    const nonce = await store.issueBootstrapNonce(intent, NOW);
+    const nonce = await store.issueBootstrapNonce(intent);
     const hashOf = async () => {
       const [row] = await db
         .select({ nonceHash: workerLaunches.nonceHash })
@@ -476,15 +486,25 @@ describe("PostgresSchedulerStore", () => {
 
     // Inside the window there is nothing to revoke: a worker may still be on
     // its way, and the credential it was built with has to keep working.
-    expect(await store.revokeBootstrapNonce(intent, NOW)).toBe(false);
+    expect(await store.revokeBootstrapNonce(intent)).toBe(false);
     expect(await hashOf()).toEqual(sha256(nonce));
 
-    const expired = new Date(NOW.getTime() + 600_001);
-    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(true);
+    // Expiry is judged on the database clock, so the window is closed by
+    // moving the deadline into the past rather than by passing a later time.
+    const expired = new Date(Date.now() - 1);
+    const expire = async (executionId: string) =>
+      db
+        .update(workerLaunches)
+        .set({ nonceExpiresAt: expired })
+        .where(eq(workerLaunches.executionId, executionId));
+    await expire(intent.executionId);
+    const [listed] = await store.listActiveExecutions("local_docker");
+    expect(listed?.nonceExpired).toBe(true);
+    expect(await store.revokeBootstrapNonce(intent)).toBe(true);
     expect(await hashOf()).toBeNull();
     // Idempotent on purpose: a teardown that fails after the revoke leaves
     // the launch here, and the next pass has to be able to try again.
-    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(true);
+    expect(await store.revokeBootstrapNonce(intent)).toBe(true);
 
     // A claim that committed first wins outright, however stale the expiry.
     const claimed = await insertUnassigned();
@@ -495,7 +515,8 @@ describe("PostgresSchedulerStore", () => {
       slotLimit: 10,
     });
     if (!other) throw new Error("no intent");
-    await store.issueBootstrapNonce(other, NOW);
+    await store.issueBootstrapNonce(other);
+    await expire(other.executionId);
     await db.insert(attempts).values({
       authRevision: 1,
       executionGeneration: other.generation,
@@ -510,14 +531,14 @@ describe("PostgresSchedulerStore", () => {
       .update(workerLaunches)
       .set({ claimedAttemptId: "att-1" })
       .where(eq(workerLaunches.executionId, other.executionId));
-    expect(await store.revokeBootstrapNonce(other, expired)).toBe(false);
+    expect(await store.revokeBootstrapNonce(other)).toBe(false);
 
     // So does a launch whose slot already went back, and a stale generation.
-    expect(
-      await store.revokeBootstrapNonce({ ...intent, generation: 9 }, expired),
-    ).toBe(false);
+    expect(await store.revokeBootstrapNonce({ ...intent, generation: 9 })).toBe(
+      false,
+    );
     await store.confirmExecutionGone(intent.executionId, NOW);
-    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(false);
+    expect(await store.revokeBootstrapNonce(intent)).toBe(false);
   });
 
   test("requestReplacement records the intent, counts it, shuts the door, and refuses a launch that moved on", async () => {
@@ -529,7 +550,7 @@ describe("PostgresSchedulerStore", () => {
       slotLimit: 10,
     });
     if (!intent) throw new Error("no intent");
-    await store.issueBootstrapNonce(intent, NOW);
+    await store.issueBootstrapNonce(intent);
     const launchRow = async () => {
       const [row] = await db
         .select({
@@ -551,7 +572,7 @@ describe("PostgresSchedulerStore", () => {
       replacementCount: 0,
     });
 
-    expect(await store.requestReplacement(intent, "stale_isolation", NOW)).toBe(
+    expect(await store.requestReplacement(intent, "stale_isolation", 0)).toBe(
       1,
     );
     // The credential the old resource holds matches nothing from here on.
@@ -565,10 +586,13 @@ describe("PostgresSchedulerStore", () => {
       replacementCount: 1,
     });
 
+    // A request from a stale snapshot — a pass that lost its lock — is
+    // refused rather than counted twice.
+    expect(
+      await store.requestReplacement(intent, "nonce_expired", 0),
+    ).toBeNull();
     // A second request counts again and carries the latest reason.
-    expect(await store.requestReplacement(intent, "nonce_expired", NOW)).toBe(
-      2,
-    );
+    expect(await store.requestReplacement(intent, "nonce_expired", 1)).toBe(2);
     expect(await active()).toMatchObject({
       pendingReplacement: "nonce_expired",
       replacementCount: 2,
@@ -586,13 +610,13 @@ describe("PostgresSchedulerStore", () => {
       await store.requestReplacement(
         { ...intent, generation: 9 },
         "stale_isolation",
-        NOW,
+        2,
       ),
     ).toBeNull();
     // Neither is one whose slot went back.
     await store.confirmExecutionGone(intent.executionId, NOW);
     expect(
-      await store.requestReplacement(intent, "stale_isolation", NOW),
+      await store.requestReplacement(intent, "stale_isolation", 2),
     ).toBeNull();
     expect((await launchRow())?.replacementCount).toBe(2);
 
@@ -605,7 +629,7 @@ describe("PostgresSchedulerStore", () => {
       slotLimit: 10,
     });
     if (!other) throw new Error("no intent");
-    const nonce = await store.issueBootstrapNonce(other, NOW);
+    const nonce = await store.issueBootstrapNonce(other);
     await db.insert(attempts).values({
       authRevision: 1,
       executionGeneration: other.generation,
@@ -621,7 +645,7 @@ describe("PostgresSchedulerStore", () => {
       .set({ claimedAttemptId: "att-replace" })
       .where(eq(workerLaunches.executionId, other.executionId));
     expect(
-      await store.requestReplacement(other, "stale_isolation", NOW),
+      await store.requestReplacement(other, "stale_isolation", 0),
     ).toBeNull();
     const [kept] = await db
       .select({ nonceHash: workerLaunches.nonceHash })
@@ -645,7 +669,7 @@ describe("PostgresSchedulerStore", () => {
         (row) => row.executionId === intent.executionId,
       );
 
-    expect(await store.requestReplacement(intent, "stale_isolation", NOW)).toBe(
+    expect(await store.requestReplacement(intent, "stale_isolation", 0)).toBe(
       1,
     );
     // Someone else — a reconciler that saw the old container exit — reports

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
@@ -101,7 +101,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
       slotLimit: 100,
     });
     if (!intent) throw new Error("no intent");
-    await store.issueBootstrapNonce(intent, new Date());
+    await store.issueBootstrapNonce(intent);
     return { intent, sessionId, store };
   }
 
@@ -126,11 +126,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
         "UPDATE worker_launches SET slot_released_at = now() WHERE execution_id = $1",
         [intent.executionId],
       );
-      const request = store.requestReplacement(
-        intent,
-        "stale_isolation",
-        new Date(),
-      );
+      const request = store.requestReplacement(intent, "stale_isolation", 0);
       expect(await settledWithin(request, 300)).toBe("pending");
       await confirming.query("COMMIT");
       // The request re-reads the row once it gets the lock: no slot, no
@@ -179,4 +175,60 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
       .where(eq(sessions.id, sessionId));
     expect(session?.executionId).toBe(intent.executionId);
   }, 60_000);
+
+  test("issueBootstrapNonce writes the deadline on the database clock, not this process's", async () => {
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    const id = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id,
+      ownerId: "clock",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${id}`,
+    });
+    await db.insert(unassignedSessions).values({ sessionId: id });
+    // The race test above keeps its ten slots; this one needs one more.
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: new Date(),
+      sessionId: id,
+      slotLimit: 100,
+    });
+    if (!intent) throw new Error("no intent");
+    const dbNowMs = async () => {
+      const [row] = await db
+        .select({
+          ms: sql<string>`(extract(epoch from clock_timestamp()) * 1000)::text`,
+        })
+        .from(sql`(SELECT 1) AS one`);
+      return Number(row?.ms);
+    };
+    // A process clock a minute ahead: a deadline derived from it would land
+    // outside the bracket the database clock draws around the call.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60_000;
+    let floor: number;
+    let ceiling: number;
+    try {
+      floor = await dbNowMs();
+      await store.issueBootstrapNonce(intent);
+      ceiling = await dbNowMs();
+    } finally {
+      Date.now = realNow;
+    }
+    const [row] = await db
+      .select({ nonceExpiresAt: workerLaunches.nonceExpiresAt })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    const expiresAt = row?.nonceExpiresAt?.getTime() ?? Number.NaN;
+    // The column keeps microseconds; the Date read back is floored to ms.
+    expect(expiresAt).toBeGreaterThanOrEqual(Math.floor(floor) + 600_000);
+    expect(expiresAt).toBeLessThanOrEqual(ceiling + 600_000);
+    // The listing judges expiry on the same clock.
+    const [active] = (await store.listActiveExecutions("local_docker")).filter(
+      (e) => e.executionId === intent.executionId,
+    );
+    expect(active?.nonceExpired).toBe(false);
+  });
 });

@@ -41,6 +41,7 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -125,32 +126,6 @@ function ownedAttempt(fence: WorkerFence) {
     eq(attempts.authRevision, fence.authRevision),
     notInArray(attempts.state, ENDED_ATTEMPT_STATES),
   );
-}
-
-// The database clock is the one authority on lease time. Every API replica
-// carries its own clock, and a lagging one would otherwise approve writes
-// for an attempt whose lease ended, or refuse a live one early.
-const DB_NOW = sql<Date>`clock_timestamp()`;
-
-function fromDbNow(ttlMs: number) {
-  return sql<Date>`clock_timestamp() + ${ttlMs}::double precision * interval '1 millisecond'`;
-}
-
-// Read separately from the locking SELECT: a volatile function in that
-// statement's target list can be evaluated before the row lock is granted,
-// which would reopen the lock-wait window the fence exists to close.
-async function dbNow(tx: Database): Promise<Date> {
-  // As epoch milliseconds: the driver hands raw SQL timestamps back as text.
-  const [row] = await tx
-    .select({
-      epochMs: sql<string>`(extract(epoch from clock_timestamp()) * 1000)::text`,
-    })
-    .from(sql`(SELECT 1) AS one`);
-  const epochMs = Number(row?.epochMs);
-  if (!Number.isFinite(epochMs)) {
-    throw new Error("clock_timestamp() unreadable");
-  }
-  return new Date(epochMs);
 }
 
 // `at` is the database time the lease was last judged held at. Re-reading
@@ -439,7 +414,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           sessionId: input.sessionId,
           backend: input.backend,
           nonceHash: input.nonceHash,
-          nonceExpiresAt: input.nonceExpiresAt,
+          nonceExpiresAt: fromDbNow(input.nonceTtlMs),
         })
         .onConflictDoNothing({ target: workerLaunches.executionId })
         .returning({ executionId: workerLaunches.executionId });
@@ -447,7 +422,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     claimAtomic(input: ClaimInput): Promise<ClaimResult> {
-      const startedAt = Date.now();
       return db.transaction(async (tx) => {
         const [launch] = await tx
           .select()
@@ -462,13 +436,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // ownership window.
         const leaseExpiresAt = fromDbNow(input.leaseTtlMs);
         const credentialTtlMs = input.credentialTtlMs;
-        // The nonce deadline was written by the scheduler's clock and is still
-        // judged by this replica's clock plus the time spent waiting here.
-        // Moving it to the database clock touches RegisterLaunchInput and the
-        // scheduler store, which is its own ticket.
-        const at = new Date(
-          input.now.getTime() + Math.max(0, Date.now() - startedAt),
-        );
+        // The nonce deadline was written on the database clock, so it is
+        // judged there too, once the row lock is held: a claim that waited
+        // out the nonce window on the lock is refused, whatever this
+        // replica's clock says.
+        const at = await dbNow(tx);
         if (
           !launch ||
           launch.executionId !== input.executionId ||

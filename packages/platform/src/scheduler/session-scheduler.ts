@@ -278,7 +278,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     image: options.image,
     // Only the create path calls this, so the credential a running worker
     // holds is never rotated out from under it.
-    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored), now()),
+    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored)),
     operationId: stored.operationId,
     resources: options.resources,
     sessionId: stored.sessionId,
@@ -336,7 +336,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       up &&
       !execution.claimed &&
       execution.nonceExpiresAt !== null &&
-      execution.nonceExpiresAt.getTime() <= now().getTime()
+      execution.nonceExpired
     ) {
       // The bootstrap door shut before anyone came through it. The resource
       // cannot be handed a second credential while it runs — the one it holds
@@ -347,7 +347,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // worker may have bound itself since. Revoking decides and shuts the
       // door in one write: it loses to a claim that got there first, and once
       // it wins no claim can follow, so the teardown never orphans a binding.
-      if (await store.revokeBootstrapNonce(ref, now())) {
+      if (await store.revokeBootstrapNonce(ref)) {
         logger.warn("Launch nonce expired before the resource claimed", {
           ...fieldsOf(ref),
           nonce_expires_at: execution.nonceExpiresAt.toISOString(),
@@ -515,9 +515,10 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // count, and move the loop one generation along.
       summary.replacementsExhausted.push(ref);
       logger.error(
-        "Replacement limit reached; launch left as it is. Clear " +
-          "replacement_reason and replacement_count on its worker_launches " +
-          "row to let the scheduler try again",
+        "Replacement limit reached; launch left as it is. Reset " +
+          "replacement_count on its worker_launches row to let the " +
+          "scheduler try again; leave replacement_reason set, or the " +
+          "stopped resource reads as an ordinary exit",
         {
           ...fieldsOf(ref),
           limit: replacementLimit,
@@ -552,10 +553,15 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     // rebuilds from the same intent, never one it reads as an exit. The same
     // write shuts the bootstrap door, so a worker cannot bind to the
     // resource while it is on its way out.
-    const attempts = await store.requestReplacement(ref, reason, now());
+    const attempts = await store.requestReplacement(
+      ref,
+      reason,
+      execution.replacementCount,
+    );
     if (attempts === null) {
-      // A worker claimed, or the launch gave its slot back, since the rows
-      // were read. Either way the resource is not this pass's to tear down.
+      // A worker claimed, the launch gave its slot back, or another pass
+      // got here first, since the rows were read. Either way the resource
+      // is not this pass's to tear down.
       logger.info("Replacement refused; launch moved on since it was read", {
         ...fieldsOf(ref),
         reason,
@@ -647,7 +653,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         });
         return;
       }
-      if (reason !== "missing") await store.settleReplacement(ref);
+      // `pending` is launched but not yet proven: a start the daemon took
+      // and could not show. The intent stays until a pass sees it running,
+      // or a container that dies right here would read as an ordinary exit.
+      if (reason !== "missing" && ensured.state !== "pending") {
+        await store.settleReplacement(ref);
+      }
       summary.reensured.push(ref);
       logger.warn("Execution resource re-created from intent", {
         ...fieldsOf(ref),

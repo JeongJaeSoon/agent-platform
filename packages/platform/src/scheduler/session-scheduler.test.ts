@@ -65,6 +65,7 @@ class MemoryStore implements SchedulerStore {
       generation: 1,
       nonce: null,
       nonceExpiresAt: null,
+      nonceExpired: false,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       pendingReplacement: null,
@@ -120,13 +121,15 @@ class MemoryStore implements SchedulerStore {
   async requestReplacement(
     ref: ExecutionRef,
     reason: ReplaceReason,
+    expectedCount: number,
   ): Promise<number | null> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
       row.generation !== ref.generation ||
       row.claimed ||
-      row.slotReleased
+      row.slotReleased ||
+      row.replacementCount !== expectedCount
     ) {
       return null;
     }
@@ -143,7 +146,7 @@ class MemoryStore implements SchedulerStore {
     row.pendingReplacement = null;
   }
 
-  async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+  async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -154,11 +157,11 @@ class MemoryStore implements SchedulerStore {
       throw new Error(`no credential for ${ref.executionId}`);
     }
     row.nonce = `nonce-${crypto.randomUUID()}`;
-    row.nonceExpiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+    row.nonceExpiresAt = new Date(Date.now() + NONCE_TTL_MS);
     return row.nonce;
   }
 
-  async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+  async revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -166,7 +169,7 @@ class MemoryStore implements SchedulerStore {
       row.claimed ||
       row.slotReleased ||
       row.nonceExpiresAt === null ||
-      row.nonceExpiresAt.getTime() > now.getTime()
+      row.nonceExpiresAt.getTime() > Date.now()
     ) {
       return false;
     }
@@ -186,9 +189,14 @@ class MemoryStore implements SchedulerStore {
     if (this.failList) throw new Error("database down");
     // Copies, like a query result: what the caller carries is a snapshot and
     // stays behind whatever the rows do while the pass runs.
+    // The store, not the scheduler, judges expiry — on its own clock.
     return this.live()
       .filter((e) => e.backend === backend)
-      .map((e) => ({ ...e }));
+      .map((e) => ({
+        ...e,
+        nonceExpired:
+          e.nonceExpiresAt !== null && e.nonceExpiresAt.getTime() <= Date.now(),
+      }));
   }
 
   async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {
@@ -257,6 +265,8 @@ class FakeBackend implements ExecutionBackend {
   failEnsureFor = new Set<string>();
   /** Session ids whose container dies right after start (bad image). */
   exitOnStartFor = new Set<string>();
+  /** Session ids whose create is taken but whose start the daemon cannot show. */
+  createPendingFor = new Set<string>();
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
@@ -320,6 +330,7 @@ class FakeBackend implements ExecutionBackend {
       };
     }
     const exited = this.exitOnStartFor.has(intent.sessionId);
+    const pending = this.createPendingFor.has(intent.sessionId);
     // A fresh container is built on the contract this backend speaks now.
     this.staleFor.delete(nameOf(intent));
     this.containers.set(nameOf(intent), {
@@ -329,11 +340,12 @@ class FakeBackend implements ExecutionBackend {
       nonce: await intent.issueBootstrapNonce(),
       operationId: intent.operationId,
       sessionId: intent.sessionId,
+      ...(pending ? { started: false } : {}),
     });
     return {
       created: true,
       providerRef: `ctr-${intent.executionId}`,
-      state: exited ? "terminated" : "running",
+      state: exited ? "terminated" : pending ? "pending" : "running",
     };
   }
 
@@ -667,31 +679,21 @@ describe("runScheduler", () => {
     const row = store.executions.get(intent.executionId);
     if (!row?.nonceExpiresAt) throw new Error("no nonce");
     const oldNonce = backend.containers.get(name)?.nonce;
-    const late = new Date(row.nonceExpiresAt.getTime() + 1);
-    const runLate = () =>
-      runScheduler({
-        backend,
-        image: "worker:test",
-        logger: recordingLogger().logger,
-        now: () => late,
-        resources: RESOURCES,
-        slotLimit: 10,
-        store,
-      });
+    row.nonceExpiresAt = new Date(Date.now() - 1);
 
     backend.failRemoveFor.add(name);
-    const first = await runLate();
+    const first = await run();
     expect(first.reconcileFailed).toHaveLength(1);
     expect(row.pendingReplacement).toBe("nonce_expired");
 
     backend.failRemoveFor.clear();
-    const second = await runLate();
+    const second = await run();
     expect(second.reensured).toEqual([
       { executionId: intent.executionId, generation: 1 },
     ]);
     expect(store.confirmedGone).toEqual([]);
     expect(backend.containers.get(name)?.nonce).not.toBe(oldNonce);
-    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(late.getTime());
+    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(Date.now());
     expect(row.pendingReplacement).toBeNull();
   });
 
@@ -827,6 +829,38 @@ describe("runScheduler", () => {
     expect(backend.containers.get("exec-1#1")?.started).toBe(true);
     expect(row.pendingReplacement).toBeNull();
     expect(row.replacementCount).toBe(3);
+  });
+
+  test("a rebuilt resource the daemon cannot yet show running keeps the intent until it can", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent || !sessionId) throw new Error("no intent");
+    const name = `${intent.executionId}#1`;
+    const row = store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+
+    // Start accepted, post-start inspect comes back `created`: launched,
+    // but not yet proven. Settling here would make a container that dies
+    // in the next second an ordinary exit.
+    backend.staleFor.add(name);
+    backend.createPendingFor.add(sessionId);
+    const first = await run();
+    expect(first.reensured).toEqual([
+      { executionId: intent.executionId, generation: 1 },
+    ]);
+    expect(row.pendingReplacement).toBe("stale_isolation");
+    expect(row.replacementCount).toBe(1);
+
+    // Next pass: still `created`, adopted and started, and only then settled.
+    backend.createPendingFor.clear();
+    const second = await run();
+    expect(second.reensured).toHaveLength(1);
+    expect(second.replaced).toHaveLength(0);
+    expect(backend.containers.get(name)?.started).toBe(true);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(1);
   });
 
   test("a claimed launch ignores a pending replacement and is closed like any exit", async () => {
