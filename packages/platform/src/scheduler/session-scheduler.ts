@@ -4,6 +4,7 @@ import type {
   ExecutionRef,
   ExecutionResources,
   LaunchIntent,
+  ManagedWorkspace,
   TerminateExecutionResult,
 } from "../ports/execution-backend.ts";
 import type {
@@ -33,6 +34,11 @@ export type SchedulerOptions = {
   store: SchedulerStore;
 };
 
+export type ReclaimOptions = Pick<
+  SchedulerOptions,
+  "backend" | "logger" | "store"
+>;
+
 export type SchedulerRunSummary = {
   /** true when another pass held the lock and this one did nothing. */
   skipped: boolean;
@@ -54,6 +60,24 @@ export type SchedulerRunSummary = {
   replaced: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
+  /**
+   * true when GC could not even draw up its candidate list — listing the
+   * workspaces or asking the store which sessions are retained threw. Nothing
+   * was removed, and unlike the outcomes below this is a fault, not a
+   * judgement, so the exit code carries it.
+   */
+  workspaceScanFailed: boolean;
+  /** Workspaces whose removal threw; neither reclaimed nor deliberately kept. */
+  workspacesFailed: string[];
+  /** Workspaces of finished sessions, reclaimed by this pass. */
+  workspacesReclaimed: string[];
+  /**
+   * Workspaces GC decided to reclaim and deliberately left alone: still
+   * mounted, or no longer this installation's. Not part of the exit code — a
+   * volume mounted by a container that is still shutting down is the normal
+   * state during a teardown, and the next pass takes it.
+   */
+  workspacesUnresolved: string[];
 };
 
 /**
@@ -65,6 +89,8 @@ export type SchedulerRunSummary = {
  * 2. Provider resources without a matching row are logged and terminated.
  * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
  *    the transaction.
+ * 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
+ *    so a slow daemon listing never delays a launch.
  */
 export async function runScheduler(
   options: SchedulerOptions,
@@ -84,6 +110,120 @@ export async function runScheduler(
   }
 }
 
+/**
+ * Step 4 on its own, under the same lock: reclaim the workspaces of sessions
+ * nothing will come back to, and touch nothing else. It is for the caller
+ * that has just been refused admission — a daemon whose quota preflight
+ * failed, which on a full disk is the same daemon that needs the space back.
+ * A whole pass with no free slots would not do: it still re-ensures missing
+ * resources and replaces stale ones, which is the launching that the refusal
+ * forbids.
+ */
+export async function reclaimWorkspaces(
+  options: ReclaimOptions,
+): Promise<SchedulerRunSummary> {
+  const release = await options.store.acquirePassLock();
+  if (release === null) {
+    options.logger.warn("Another scheduling pass holds the lock; skipping");
+    return { ...emptySummary(0), skipped: true };
+  }
+  const summary = emptySummary(0);
+  try {
+    await collectWorkspaces(options, summary);
+    options.logger.info("Workspace reclaim completed", {
+      workspace_failed_count: summary.workspacesFailed.length,
+      workspace_reclaimed_count: summary.workspacesReclaimed.length,
+      workspace_scan_failed: summary.workspaceScanFailed,
+      workspace_unresolved_count: summary.workspacesUnresolved.length,
+    });
+    return summary;
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Reclaim the workspace volumes of sessions nothing will come back to. Runs
+ * as the last step of a pass, and on its own from `reclaimWorkspaces`.
+ */
+async function collectWorkspaces(
+  options: ReclaimOptions,
+  summary: SchedulerRunSummary,
+): Promise<void> {
+  const { backend, logger, store } = options;
+  const { listWorkspaces, removeWorkspace } = backend;
+  // A backend whose workspaces it does not own leaves both out; there is
+  // then nothing here to reclaim.
+  if (!listWorkspaces || !removeWorkspace) return;
+  let workspaces: ManagedWorkspace[];
+  let retained: Set<string>;
+  try {
+    // Workspaces first, then the rows. A session created between the two
+    // calls is in the retained set, so its brand-new workspace is kept;
+    // asking the database first would make that same workspace look
+    // unowned by the time it was listed.
+    workspaces = await listWorkspaces.call(backend);
+    if (workspaces.length === 0) return;
+    const labelled = workspaces
+      .map((workspace) => workspace.sessionId)
+      .filter((sessionId): sessionId is string => sessionId !== null);
+    retained =
+      labelled.length === 0
+        ? new Set<string>()
+        : new Set(await store.filterRetainedSessions(labelled));
+  } catch (error) {
+    // Nothing was removed, so nothing is inconsistent; the next pass
+    // reclaims whatever this one could not even look at. It is still a
+    // failure, and a pass that keeps failing here keeps leaking disk.
+    summary.workspaceScanFailed = true;
+    logger.error("Listing workspaces for reclaim failed; none reclaimed", {
+      error: messageOf(error),
+    });
+    return;
+  }
+  for (const workspace of workspaces) {
+    const { id, sessionId } = workspace;
+    if (sessionId === null) {
+      // Fail-safe, as with an unparseable container: a workspace whose
+      // owner cannot be read is left in place and reported, never guessed
+      // at from its name.
+      logger.warn("Workspace carries no session; left in place", {
+        created_at: workspace.createdAt.toISOString(),
+        workspace_id: id,
+      });
+      continue;
+    }
+    if (retained.has(sessionId)) continue;
+    let outcome: string;
+    try {
+      outcome = (await removeWorkspace.call(backend, id)).outcome;
+    } catch (error) {
+      summary.workspacesFailed.push(id);
+      logger.error("Reclaiming workspace failed", {
+        error: messageOf(error),
+        session_id: sessionId,
+        workspace_id: id,
+      });
+      continue;
+    }
+    if (outcome === "removed" || outcome === "absent") {
+      summary.workspacesReclaimed.push(id);
+      logger.info("Workspace reclaimed", {
+        outcome,
+        session_id: sessionId,
+        workspace_id: id,
+      });
+      continue;
+    }
+    summary.workspacesUnresolved.push(id);
+    logger.warn("Workspace was not reclaimed", {
+      outcome,
+      session_id: sessionId,
+      workspace_id: id,
+    });
+  }
+}
+
 function emptySummary(slotLimit: number): SchedulerRunSummary {
   return {
     activeAfter: 0,
@@ -99,6 +239,10 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     skipped: false,
     slotLimit,
     terminatedObserved: [],
+    workspaceScanFailed: false,
+    workspacesFailed: [],
+    workspacesReclaimed: [],
+    workspacesUnresolved: [],
   };
 }
 
@@ -289,6 +433,26 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reason: ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
+    const stored = storedIntentOf(execution);
+    // Replacement is a teardown followed by a create, and only the create can
+    // fail on what the provider knows. Asked here that costs a pass; asked
+    // after the terminate it costs the worker. A claimed resource is not
+    // re-created at all, and a row with no intent cannot be, so neither has
+    // anything to protect.
+    if (backend.assertReplaceable && stored !== null && !execution.claimed) {
+      try {
+        await backend.assertReplaceable(intentOf(stored));
+      } catch (error) {
+        summary.reconcileFailed.push(ref);
+        logger.error("Replacement would not launch; resource left running", {
+          ...fieldsOf(ref),
+          error: messageOf(error),
+          reason,
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+    }
     let outcome: TerminateExecutionResult;
     try {
       outcome = await backend.terminate(ref);
@@ -487,6 +651,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
     }
   }
+  // 4. Workspaces nothing will come back to.
+  await collectWorkspaces(options, summary);
+
   summary.activeAfter = (
     await store.inspectDemand({ limit: 0 })
   ).activeExecutionCount;
@@ -503,6 +670,10 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     replaced_count: summary.replaced.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
+    workspace_failed_count: summary.workspacesFailed.length,
+    workspace_reclaimed_count: summary.workspacesReclaimed.length,
+    workspace_scan_failed: summary.workspaceScanFailed,
+    workspace_unresolved_count: summary.workspacesUnresolved.length,
   });
   return summary;
 }

@@ -72,7 +72,7 @@ HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
-scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(선택)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 다섯 값이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(선택)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 다섯 값이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -83,6 +83,7 @@ EXECUTION_INSTALLATION_ID=local \
 EXECUTION_DOCKER_NETWORK=agent-platform-worker \
 EXECUTION_DOCKER_NETWORK_ALLOWLIST=agent-platform-worker \
 EXECUTION_EGRESS_PROXY_URL=http://egress-proxy:3128 \
+EXECUTION_WORKSPACE_QUOTA=off \
   bun run --cwd apps/scheduler start
 ```
 
@@ -100,6 +101,32 @@ worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: t
 scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
 
 컨테이너에는 만들어질 때의 격리 계약이 `agent-platform.isolation` label로 `<버전>:<지문>` 형태로 찍힌다. 지문은 네트워크·proxy URL·user·workspace/HOME 경로·tmpfs 크기, 그리고 object store의 bucket·endpoint·region·access key id의 해시라서, 코드를 바꾸지 않고 `EXECUTION_DOCKER_NETWORK`나 `EXECUTION_EGRESS_PROXY_URL`, `S3_BUCKET`만 바꿔도 값이 달라진다. secret access key는 지문에 넣지 않는다 — 같은 key id로 secret만 바꾼 경우 실행 중인 컨테이너는 그대로이고, 교체는 운영자가 직접 한다. 실행 중인 컨테이너의 격리는 제어 호스트를 올려도 바뀌지 않으므로, scheduler는 label이 현재 값과 다른 컨테이너를 `stale`로 보고 정지·제거한 뒤 저장된 intent로 다시 만든다(`ensureExecution`도 그런 컨테이너는 adopt하지 않는다). 버전이 **더 높은** 컨테이너는 롤백 중인 새 제어 호스트가 만든 것이다. 그 경계가 지금 요구하는 것과 같은지 알 수 없으므로 adopt도 교체도 하지 않고 `IsolationContractError`로 거절한다 — row는 살아 있고 pass는 non-zero로 끝나므로 운영자가 롤포워드하거나 직접 제거해야 한다. 격리의 모양 자체가 바뀌면 `ISOLATION_CONTRACT`를 올린다.
+
+### worker workspace의 상한과 회수
+
+세션마다 `ap-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다 — 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
+
+volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `agent-platform.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
+
+**volume 이름은 1회용이다.** `local` 드라이버는 이미 quota를 걸었던 이름을 다시 만들면 `Options.size`는 그대로 돌려주면서 실제 project quota는 걸지 않는다. xfs+prjquota(Docker 27.5.1)에서 측정한 결과 — 처음 만든 이름은 컨테이너 안 `df` 총량이 설정값(64MiB)이지만, 같은 이름을 지웠다 다시 만들면 `Options.size`가 같은데도 `df`는 파일시스템 전체(8GiB)를 보고한다. Engine API로는 둘을 구분할 수 없으므로, 세션의 workspace는 이름으로 유도하지 않고 무작위 접미사를 붙여 만든 뒤 **label로 조회한다.** GC나 운영자가 volume을 지워도 다음 것은 새 이름을 받으므로 상한이 다시 선다. 한 세션에 workspace가 둘 보이면 어느 쪽이 작업 트리인지 판단하지 않고 보고만 한다. preflight probe도 같은 이유로 매번 새 이름을 쓰고, 이전 실행이 남긴 probe는 label로 회수한다.
+
+CPU·메모리·PID·tmpfs와 달리 `/workspace`에는 상한이 없었다. `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096)가 `local` 드라이버의 `size` driver option으로 그 상한이 된다. 단 이 옵션은 **daemon의 저장소가 project quota를 감당할 때만**(xfs + `prjquota`) 동작하고, 그렇지 않으면 daemon이 create를 `400 quota size requested but no quota support`로 거절한다. scheduler는 pass 전에 probe volume을 하나 만들어 보는 것으로 이 능력을 확인하고(`verifyWorkspaceQuota`), 감당하지 못하는 daemon에서는 **아무것도 띄우지 않고 종료한다.** 조용히 무제한으로 떨어지는 경로는 없고, 무제한을 감수하려면 `EXECUTION_WORKSPACE_QUOTA=off`를 명시해야 한다 — 그 경우 기동 로그에 경고 1건이 남는다. `on`·`off` 외의 값(`false`, `0`, `no`)은 오타로 보고 거절한다.
+
+Docker Desktop은 커널 자체가 XFS quota 없이 빌드돼 있어(`XFS (loopN): quota support not available in this kernel`) 로컬에서는 `off`가 사실상 유일한 선택지다. GitHub Actions 러너의 daemon도 data root가 ext4라 마찬가지다. 그래서 실제 상한이 무는지는 CI의 `workspace-quota` job이 xfs + prjquota loop 파일을 data root로 쓰는 daemon을 따로 띄워 확인한다.
+
+상한은 volume 하나에만 거는 것으로는 부족하다. Docker는 이미지가 선언한 `VOLUME` 경로마다 **쓰기 가능한 익명 volume**을 자동으로 붙이는데, 거기에는 상한도 label도 없다. 그래서 launch 전에 이미지를 조회해 `/workspace` 외의 `VOLUME` 선언이 있으면 거절하고(`ImageVolumeError`), 컨테이너를 지울 때는 `v=true`로 익명 volume을 함께 지운다(named volume인 workspace는 영향을 받지 않는다). 아직 pull되지 않은 이미지는 조회가 404이므로 그대로 두고 create가 같은 404를 내게 한다.
+
+확인한 것과 실제로 띄우는 것 사이도 벌어질 수 있다. 태그는 가변이므로 컨테이너는 **조회한 이미지의 id**(`sha256:…`)로 만들고, volume은 create 직후 start 전에 한 번 더 확인한다 — 그 사이에 `docker volume prune`이 지나가면 Docker가 mount용으로 label도 상한도 없는 volume을 새로 만들어 주기 때문이다. 어긋나면 아직 아무것도 실행되지 않은 컨테이너를 지우고 실패시킨다.
+
+quota preflight가 실패하면 **아무것도 띄우지 않되 회수는 한 번 돌린다.** probe도 디스크를 조금 쓰므로 이미 가득 찬 daemon은 preflight부터 실패하는데, 그 순간이 바로 끝난 세션의 workspace를 회수해야 할 때다. 그대로 종료하면 회수할 방법이 영영 없어진다. 이때 도는 것은 pass가 아니라 `reclaimWorkspaces` — 같은 advisory lock 아래에서 ④단계만 수행한다. slot limit 0짜리 pass로는 부족하다. 새 예약만 막힐 뿐 사라진 컨테이너를 재생성하고 stale 컨테이너를 교체하는 일은 그대로 하기 때문이다. 회수가 끝나면 원래 오류를 다시 던져 non-zero로 끝낸다.
+
+상한은 **byte에만** 걸린다. Docker `local` 드라이버가 노출하는 것이 `size`뿐이고 daemon의 quota 구조체에 inode 필드가 없어서, Engine API로는 inode 상한을 표현할 방법이 없다. 작은 파일 수백만 개로 inode를 소진하는 경로는 아직 열려 있다(94S-224).
+
+volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성된 label 없는 volume이거나, 다른 상한으로 만들어진 volume이면 — 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `ap-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다(마이그레이션은 94S-225). volume의 quota는 나중에 바꿀 수 없고, 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 운영자가 해당 volume을 직접 정리하거나 이전 설정으로 되돌려야 한다. 같은 이유로 quota 설정은 `agent-platform.isolation` 지문에도 들어간다 — 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
+
+이 거절은 **이미 돌고 있는 worker를 죽이기 전에** 일어나야 한다. 지문이 바뀌면 stale 판정 → `terminate` → 재생성 순서인데, 재생성이 volume에서 거절당하면 그 세션은 worker도 없고 되돌아갈 길도 없는 상태로 남는다. 그래서 `inspect`는 stale을 보고하기 전에 그 세션의 volume을 읽기 전용으로 확인하고, 쓸 수 없는 volume이면 stale 대신 예외를 던진다 — 컨테이너는 예전 상한 그대로 계속 돌고, pass는 `reconcileFailed`로 non-zero를 내며, 운영자가 volume을 정리할 때까지 그 상태가 유지된다. 작업 트리를 살린 채 옮기는 마이그레이션 경로는 94S-225에서 따로 다룬다.
+
+④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다** — 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. **`stopped`도 남긴다** — resume은 expected revision만 받고 같은 session id로 돌아오므로 같은 volume을 다시 쓴다. `closed`만이 돌아오지 않는 상태다. 그래서 stop만 해 둔 세션의 디스크는 close할 때까지 남고, 그것을 만료시키려면 resume과 직렬화된 claim이 필요하다(94S-225). session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다 — volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
 
 같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`뿐 아니라 `EXECUTION_DOCKER_NETWORK`와 egress proxy도 설치마다 따로 두어야 한다. 하나의 internal 네트워크를 공유하면 설치 A의 worker가 설치 B의 worker와 proxy에 직접 닿고, B의 allowlist를 그대로 쓸 수 있다.
 
@@ -152,7 +179,7 @@ Compose의 `apps`·`worker` profile은 아직 없는 이미지 정의를 참조�
 
 `spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
 
-세 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, `integration` 4분, `spikes` 6분)에 맞춰 10/12/15분으로 좁혔다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
+네 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, `integration` 4분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 10/12/15/15분으로 좁혔다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 
@@ -180,11 +207,14 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 |---|---|---|---|---|
 | `check` | 없음 | 없음 | `bun run check` (typecheck → Biome → `bun test tests packages apps`) | ✅ |
 | `integration` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1`, `DOCKER_BACKEND_TEST=1` | `bun run test` + `bun test ./apps/api/src/server.integration.ts` | ✅ |
+| `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ✅ |
 | `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
 `check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 `integration`이 변수를 전부 켠 채 다시 돌려 skip 0으로 만든다. 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 `integration`의 skip 0을 같이 확인한다.
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
+
+`workspace-quota` job은 runner의 daemon으로는 확인할 수 없는 절 하나만을 위해 있다. workspace volume의 byte 상한은 daemon 저장소가 project quota를 감당할 때만 서는데(xfs + `prjquota`) runner의 data root는 ext4다. 그래서 이 job은 loop 파일에 xfs를 만들어 `prjquota`로 mount하고 그것을 data root로 쓰는 dind daemon을 띄운 뒤 workspace suite를 그쪽에 붙인다 — 상한을 넘는 `dd`가 실제로 `No space left on device`로 끝나는지, 그리고 volume을 지운 뒤 만든 다음 workspace에도 상한이 서는지 확인하는 곳은 여기뿐이다. 같은 suite가 `integration` job에서는 반대쪽 절을 확인한다: 상한을 걸 수 없는 daemon에서 scheduler가 기동을 거절하는지.
 
 `spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
 
@@ -192,7 +222,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 **재시도 wrapper는 94S-217에서 걷어냈다.** 이 job은 `continue-on-error`라 실패가 머지를 막지 않으므로 재시도가 사는 것은 안전이 아니라 flaky가 보일 확률의 감소뿐이었다 — 재현율 14%가 2%가 된다. 94s-92의 LocalStack timeout이 233 run 동안 숨어 있던 방식이 정확히 그것이다. 두 suite는 이제 자기가 어디서 멈췄는지 stderr로 말하므로(`STEP_STUCK`, 테스트 단위 deadline watchdog) 첫 발생에서 바로 이름이 찍혀야 의미가 있다. `.github/scripts/retry-flaky.sh`와 `tests/retry-flaky.test.ts`는 계약 그대로 남겨 두었다 — 호출하는 job만 없앴다.
 
-`main` branch protection은 **`check`와 `integration`을 둘 다 required로** 켜 두었다. 재구성 전에는 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
+`main` branch protection은 **`check`와 `integration`을 둘 다 required로** 켜 두었다. 재구성 전에는 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다. **`workspace-quota`는 아직 required가 아니다** — 켤 때 함께 넣는다. 이 job이 확인하는 것(상한이 실제로 무는지)은 다른 어떤 job도 확인하지 못하므로, required가 아닌 동안에는 빨간 `workspace-quota`를 사람이 직접 봐야 머지를 막을 수 있다.
 
 **건너뛴 job은 GitHub의 required-check 판정에서 성공으로 센다** — 성공 상태는 `success`·`skipped`·`neutral` 셋이다([Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)). 비용 절감을 위해 job을 건너뛰게 만든 이번 변경은 그래서 두 가지 주의를 남긴다.
 

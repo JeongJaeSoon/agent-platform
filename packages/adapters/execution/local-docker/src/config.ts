@@ -4,6 +4,18 @@ import {
   DEFAULT_DOCKER_REQUEST_TIMEOUT_MS,
 } from "./docker-client.ts";
 
+/**
+ * `enforced` puts a byte ceiling on the per-session workspace volume through
+ * the `local` driver's `size` option, which only holds on a daemon whose
+ * storage sits on a quota-capable filesystem (xfs with `prjquota`). `off` is
+ * the deliberate opt-out for daemons that cannot: it is never the fallback a
+ * missing capability drops into, because an unbounded workspace lets one
+ * worker fill the host out from under every other session on the daemon.
+ */
+export type WorkspaceQuota =
+  | { mode: "enforced"; sizeBytes: number }
+  | { mode: "off" };
+
 export type LocalDockerBackendConfig = {
   /** Only networks in this list may be used; the empty list means none. */
   allowedNetworks: string[];
@@ -45,6 +57,14 @@ export type LocalDockerBackendConfig = {
   user: string;
   /** Mount point of the per-session volume. */
   workspaceDir: string;
+  /**
+   * How long a workspace volume must have existed before GC will consider
+   * it. A volume is created before the container that mounts it and before
+   * anything records the session, so a young orphan is more likely a launch
+   * in flight than one to reclaim.
+   */
+  workspaceGcMinAgeMs: number;
+  workspaceQuota: WorkspaceQuota;
 };
 
 export type WorkerObjectStoreAccess = {
@@ -82,6 +102,10 @@ export type LocalDockerBackendEnvironment = {
   EXECUTION_DOCKER_TMPFS_SIZE_MB?: string | undefined;
   EXECUTION_DOCKER_USER?: string | undefined;
   EXECUTION_DOCKER_WORKSPACE_DIR?: string | undefined;
+  EXECUTION_WORKSPACE_GC_MIN_AGE_SEC?: string | undefined;
+  /** `on` (default) or `off`; anything else is a typo, not an opt-out. */
+  EXECUTION_WORKSPACE_QUOTA?: string | undefined;
+  EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
   S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
   [key: string]: string | undefined;
@@ -150,7 +174,44 @@ export function localDockerConfigFromEnv(
       1024,
     user: environment.EXECUTION_DOCKER_USER ?? DEFAULT_WORKER_USER,
     workspaceDir: environment.EXECUTION_DOCKER_WORKSPACE_DIR ?? "/workspace",
+    // Zero is a real setting — reclaim as soon as the session is finished —
+    // so this one is not a `positiveInteger`.
+    workspaceGcMinAgeMs:
+      nonNegativeInteger(
+        environment.EXECUTION_WORKSPACE_GC_MIN_AGE_SEC ??
+          String(DEFAULT_WORKSPACE_GC_MIN_AGE_SEC),
+        "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC",
+      ) * 1_000,
+    workspaceQuota: workspaceQuotaFromEnv(environment),
   });
+}
+
+export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
+export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
+
+function workspaceQuotaFromEnv(
+  environment: LocalDockerBackendEnvironment,
+): WorkspaceQuota {
+  const mode = environment.EXECUTION_WORKSPACE_QUOTA ?? "on";
+  if (mode === "off") return { mode: "off" };
+  if (mode !== "on") {
+    // A misspelt value must not read as an opt-out, and must not read as
+    // "enforced" either — either way the operator did not get what they typed.
+    throw new Error(
+      `EXECUTION_WORKSPACE_QUOTA ${mode} must be "on" or "off"; "off" is the explicit opt-out`,
+    );
+  }
+  return {
+    mode: "enforced",
+    sizeBytes:
+      positiveInteger(
+        environment.EXECUTION_WORKSPACE_QUOTA_MB ??
+          String(DEFAULT_WORKSPACE_QUOTA_MB),
+        "EXECUTION_WORKSPACE_QUOTA_MB",
+      ) *
+      1024 *
+      1024,
+  };
 }
 
 function objectStoreAccessFromEnv(
@@ -236,6 +297,21 @@ export function validateLocalDockerConfig(
       `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must be an http:// URL`,
     );
   }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    (!Number.isInteger(config.workspaceQuota.sizeBytes) ||
+      config.workspaceQuota.sizeBytes < 1)
+  ) {
+    throw new Error(
+      `Workspace quota ${config.workspaceQuota.sizeBytes} is not a positive byte limit`,
+    );
+  }
+  if (
+    !Number.isInteger(config.workspaceGcMinAgeMs) ||
+    config.workspaceGcMinAgeMs < 0
+  ) {
+    throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
+  }
   const { objectStore } = config;
   if (objectStore.endpoint !== undefined) {
     let endpoint: URL;
@@ -266,6 +342,14 @@ export function validateLocalDockerConfig(
     }
   }
   return config;
+}
+
+function nonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function positiveInteger(value: string, name: string): number {

@@ -6,7 +6,7 @@ import {
   LABELS,
   LocalDockerBackend,
   NO_PROXY_VALUE,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
@@ -76,6 +76,11 @@ integration("LocalDockerBackend against a real daemon", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    workspaceGcMinAgeMs: 0,
+    // Neither Docker Desktop nor a stock Linux runner puts its storage on a
+    // quota-capable filesystem; the quota itself is covered by
+    // workspace.integration.test.ts, which probes for one first.
+    workspaceQuota: { mode: "off" },
   });
   const backend = new LocalDockerBackend(backendConfig(), client);
   const created: LaunchIntent[] = [];
@@ -103,12 +108,17 @@ integration("LocalDockerBackend against a real daemon", () => {
           )
           .catch(() => undefined);
       }
-      await fetchDocker(
-        `/volumes/${workspaceVolumeFor(intent.sessionId, installationId)}?force=true`,
-        "DELETE",
-      ).catch(() => undefined);
+      for (const volume of await client
+        .listVolumes([`${LABELS.sessionId}=${intent.sessionId}`])
+        .catch(() => [])) {
+        await fetchDocker(`/volumes/${volume.Name}?force=true`, "DELETE").catch(
+          () => undefined,
+        );
+      }
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
+    // Bun's default hook timeout is 5s, and this tears down a container per
+    // generation per test — each with a stop that waits on the process.
   }, 120_000);
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
@@ -189,7 +199,11 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(host.Binds ?? null).toBeNull();
     expect(host.Mounts).toEqual([
       expect.objectContaining({
-        Source: workspaceVolumeFor(intent.sessionId, installationId),
+        Source: expect.stringMatching(
+          new RegExp(
+            `^${workspaceVolumePrefixFor(intent.sessionId, installationId)}`,
+          ),
+        ),
         Target: "/workspace",
         Type: "volume",
       }),

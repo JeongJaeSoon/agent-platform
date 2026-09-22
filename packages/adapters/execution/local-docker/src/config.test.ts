@@ -34,7 +34,59 @@ describe("localDockerConfigFromEnv", () => {
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",
       workspaceDir: "/workspace",
+      workspaceGcMinAgeMs: 3_600_000,
+      workspaceQuota: { mode: "enforced", sizeBytes: 4096 * 1024 * 1024 },
     });
+  });
+
+  test("the workspace quota is on unless it is turned off by name", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA: "off",
+      }).workspaceQuota,
+    ).toEqual({ mode: "off" });
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA_MB: "512",
+      }).workspaceQuota,
+    ).toEqual({ mode: "enforced", sizeBytes: 512 * 1024 * 1024 });
+  });
+
+  test("a value that is neither on nor off is a typo, not an opt-out", () => {
+    // "false", "0" and "no" all have to fail loudly: read as an opt-out they
+    // would silently remove the ceiling the operator thinks they set.
+    for (const value of ["false", "0", "no", "OFF"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_WORKSPACE_QUOTA: value,
+        }),
+      ).toThrow('must be "on" or "off"');
+    }
+  });
+
+  test("a quota of zero is refused, a GC age of zero is not", () => {
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, EXECUTION_WORKSPACE_QUOTA_MB: "0" }),
+    ).toThrow("EXECUTION_WORKSPACE_QUOTA_MB must be a positive integer");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "-1",
+      }),
+    ).toThrow(
+      "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC must be a non-negative integer",
+    );
+    // Zero says "reclaim as soon as the session is finished with it", which
+    // is what the tests that want a deterministic pass ask for.
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
+      }).workspaceGcMinAgeMs,
+    ).toBe(0);
   });
 
   test("an entrypoint override is split on whitespace and omitted when empty", () => {

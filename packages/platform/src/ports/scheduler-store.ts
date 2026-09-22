@@ -112,4 +112,16 @@ export interface SchedulerStore {
    * its session are handed back. Idempotent, however many passes see it.
    */
   confirmExecutionGone(executionId: string, now: Date): Promise<void>;
+
+  /**
+   * The subset of `sessionIds` whose workspace must be kept: a session row
+   * that has not reached a terminal admission state — a paused or
+   * recovery-required session is resumed into the same workspace — or one
+   * whose launch still holds its slot. An id with no row at all is not
+   * retained: nothing can come back to it.
+   *
+   * Ids the store cannot judge come back retained, so a workspace labelled
+   * with something that is not a session id is left alone rather than reaped.
+   */
+  filterRetainedSessions(sessionIds: string[]): Promise<string[]>;
 }

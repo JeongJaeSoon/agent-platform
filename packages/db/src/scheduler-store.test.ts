@@ -550,6 +550,106 @@ describe("PostgresSchedulerStore", () => {
     await store.confirmExecutionGone(intent.executionId, NOW);
     expect(await store.filterKnown([intent], "local_docker")).toEqual([]);
   });
+  test("workspaces are retained until the session is finished with them", async () => {
+    const active = await insertUnassigned();
+    const paused = await insertUnassigned({ admissionState: "paused" });
+    const recovery = await insertUnassigned({
+      admissionState: "recovery_required",
+    });
+    const stopped = await insertUnassigned({ admissionState: "stopped" });
+    const closed = await insertUnassigned({ admissionState: "closed" });
+    const gone = crypto.randomUUID();
+
+    const retained = await store.filterRetainedSessions([
+      active,
+      paused,
+      recovery,
+      stopped,
+      closed,
+      gone,
+    ]);
+
+    // Everything but `closed` is resumed into the same working tree, so the
+    // workspace has to outlive the container. `stopped` is the one that looks
+    // terminal and is not: resume takes only an expected revision, so it comes
+    // back on the same session id and the same volume name.
+    expect(new Set(retained)).toEqual(
+      new Set([active, paused, recovery, stopped]),
+    );
+  });
+
+  test("a finished session still holding a live execution keeps its workspace", async () => {
+    // Close is recorded before the container is torn down; reclaiming the
+    // volume in that window would pull it out from under a running worker.
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed" })
+      .where(eq(sessions.id, sessionId));
+
+    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+      sessionId,
+    ]);
+
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+    // Seeing it terminated is not the release: the launch keeps its slot, and
+    // the session with it, until the pass confirms the resource is gone.
+    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+      sessionId,
+    ]);
+
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    expect(await store.filterRetainedSessions([sessionId])).toEqual([]);
+  });
+
+  test("a stopped session keeps its workspace once its container is gone", async () => {
+    // The regression this guards: `stopped` reads as terminal but is the
+    // state an explicit resume comes back from, into this very volume.
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({ admissionState: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+    await store.confirmExecutionGone(intent.executionId, NOW);
+
+    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+      sessionId,
+    ]);
+  });
+
+  test("an id that is not a session id is retained rather than judged", async () => {
+    // A volume labelled with something else is not ours to reason about, and
+    // binding it to a uuid column would throw and take the whole GC step down.
+    expect(await store.filterRetainedSessions(["not-a-uuid"])).toEqual([
+      "not-a-uuid",
+    ]);
+    expect(await store.filterRetainedSessions([])).toEqual([]);
+  });
 });
 
 function sha256(value: string): Uint8Array {
