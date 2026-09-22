@@ -75,21 +75,23 @@ const app = createApiApp({
 // reset carries no status, no request id and no retry hint. A /v1 request runs
 // several database stages in sequence (key lookup, pool wait, BEGIN,
 // statements, ROLLBACK), each bounded by its own pool timeout but together
-// longer than 10 seconds. The app calls releaseIdleTimeout once the body is
-// received and bounded, right before its first database work, so the idle
-// clock covers ingestion (slow senders are still cut off) and the database
-// timeouts bound the rest. An absolute per-request deadline is 94S-205.
+// longer than 10 seconds. The app drives the clock through setIdleTimeout:
+// off around database work, on while it ingests a body, so the database
+// timeouts bound the former and slow senders are still cut off during the
+// latter. An absolute per-request deadline is 94S-205.
 export default {
   port: Number(process.env.PORT ?? 3000),
-  // Bun's own cap (default 128 MiB) applies before any handler runs; keep it
-  // at the API contract so an unauthenticated upload cannot buffer more.
-  maxRequestBodySize: REQUEST_BODY_MAX_BYTES,
+  // Bun's own cap (default 128 MiB) applies before any handler runs and
+  // answers without the API's error envelope, so it sits above the contract
+  // limit: the app produces the documented 413 up to twice the limit, and
+  // only a grossly oversized upload is cut at the transport.
+  maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
   fetch(
     request: Request,
     server: { timeout(r: Request, seconds: number): void },
   ): Response | Promise<Response> {
     return app.fetch(request, {
-      releaseIdleTimeout: () => server.timeout(request, 0),
+      setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
     });
   },
 };

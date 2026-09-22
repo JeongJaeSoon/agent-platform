@@ -23,10 +23,11 @@ export interface ApiVariables {
 }
 
 export interface ApiBindings {
-  // Called once the request is fully received and bounded, right before the
-  // first database work; the server uses it to stop its idle clock so a
-  // response that waits on the pool's timeouts is not reset mid-flight.
-  releaseIdleTimeout?: () => void;
+  // Sets the server's idle clock for this request, in seconds; 0 stops it.
+  // The app stops it before database work so a response that waits on the
+  // pool's timeouts is not reset mid-flight, and re-arms it while it ingests
+  // a body so a slow sender is still cut off.
+  setIdleTimeout?: (seconds: number) => void;
 }
 
 export type ApiEnvironment = {
@@ -35,6 +36,8 @@ export type ApiEnvironment = {
 };
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+// Bun's default; what a connection gets while bytes are still expected.
+export const BODY_IDLE_TIMEOUT_SECONDS = 10;
 
 export type ApiRouter = Hono<ApiEnvironment>;
 
@@ -251,22 +254,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   });
 
   v1.use("*", async (context, next) => {
-    // Ingest and bound the body before any database work (the key lookup is
-    // one) while the server's idle clock still guards against slow senders;
-    // Hono caches it, so parseJsonBody reads the same bytes.
-    if (!BODYLESS_METHODS.has(context.req.method)) {
-      const raw = await context.req.arrayBuffer();
-      if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
-        return errorResponse(
-          context,
-          413,
-          "PAYLOAD_TOO_LARGE",
-          "Request body too large",
-        );
-      }
-    }
-    context.env?.releaseIdleTimeout?.();
-
+    const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
+    // Authenticate before touching the body, so an unauthenticated sender
+    // cannot hold a connection open by dripping bytes; the key lookup is
+    // database work, so the idle clock is off for it.
+    setIdleTimeout(0);
     let ownerId: string | null = null;
     if (authMode === "none") {
       ownerId = context.req.header("X-Owner-Id")?.trim() || null;
@@ -290,6 +282,23 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       );
     }
     context.set("ownerId", ownerId);
+
+    // Ingest and bound the body under the idle clock, then hand the request
+    // to the route with the clock off for its database work. Hono caches the
+    // body, so parseJsonBody reads the same bytes.
+    if (!BODYLESS_METHODS.has(context.req.method)) {
+      setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
+      const raw = await context.req.arrayBuffer();
+      if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+        return errorResponse(
+          context,
+          413,
+          "PAYLOAD_TOO_LARGE",
+          "Request body too large",
+        );
+      }
+      setIdleTimeout(0);
+    }
     await next();
   });
 
