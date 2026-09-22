@@ -9,7 +9,11 @@ import {
   type EgressResolver,
 } from "./policy.ts";
 import { type ProxyRequest, parseRequestHead } from "./request.ts";
-import { MAX_CLIENT_HELLO_BYTES, parseClientHelloSni } from "./tls.ts";
+import {
+  type ClientHelloCursor,
+  MAX_CLIENT_HELLO_BYTES,
+  parseClientHelloSni,
+} from "./tls.ts";
 
 /**
  * A forward proxy that speaks exactly two things: `CONNECT host:port` for
@@ -139,6 +143,8 @@ type ClientState = {
    */
   hello: Uint8Array | null;
   helloBytes: number;
+  /** Where the last incomplete parse stopped, so no record is walked twice. */
+  helloCursor: ClientHelloCursor | undefined;
   /** Armed while a CONNECT client owes us its ClientHello. */
   helloTimer: ReturnType<typeof setTimeout> | undefined;
   phase: "head" | "connecting" | "inspecting" | "piping" | "closed";
@@ -220,6 +226,7 @@ export async function startEgressProxy(
           headTimer: undefined,
           hello: null,
           helloBytes: 0,
+          helloCursor: undefined,
           helloTimer: undefined,
           phase: "head",
           releaseDeferred: false,
@@ -525,6 +532,7 @@ export async function startEgressProxy(
     if (upstream === null || host === null || state.hello === null) return;
     const verdict = parseClientHelloSni(
       state.hello.subarray(0, state.helloBytes),
+      state.helloCursor,
     );
     const refuse = (reason: string): void => {
       logger.warn("Dropping a tunnel whose ClientHello failed the gate", {
@@ -534,6 +542,7 @@ export async function startEgressProxy(
       drop(socket);
     };
     if (verdict.kind === "incomplete") {
+      state.helloCursor = verdict.cursor;
       if (state.helloBytes >= state.hello.byteLength) {
         refuse(`no ClientHello within ${MAX_CLIENT_HELLO_BYTES} bytes`);
       }

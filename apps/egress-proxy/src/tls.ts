@@ -43,23 +43,47 @@ export type ClientHelloVerdict =
   | { host: string; kind: "sni" }
   /** A complete ClientHello that carries no server_name extension. */
   | { kind: "no-sni" }
-  /** Not enough bytes yet; call again with more. */
-  | { kind: "incomplete" }
+  /**
+   * Not enough bytes yet; call again with more of the same buffer, passing
+   * the cursor back so the records already walked are not walked again.
+   */
+  | { cursor: ClientHelloCursor; kind: "incomplete" }
   | { kind: "reject"; reason: string };
 
 /**
- * Reads the ClientHello at the start of `bytes`, which may span several
- * handshake records. Bytes past the end of the hello are not looked at.
+ * Where an incomplete parse left off: offsets into the caller's buffer, so
+ * a client that drips its hello a byte at a time costs one pass over the
+ * bytes and not one pass per byte. Opaque to callers; hand it back as is.
  */
-export function parseClientHelloSni(bytes: Uint8Array): ClientHelloVerdict {
-  const collected = collectHandshake(bytes);
+export type ClientHelloCursor = {
+  /** Handshake bytes gathered so far. */
+  gathered: number;
+  /** Start of the next record not yet complete. */
+  offset: number;
+  /** `[start, end)` of every completed record's fragment. */
+  ranges: Array<[number, number]>;
+  /** Total handshake bytes wanted once the header has been read. */
+  wanted: number | null;
+};
+
+/**
+ * Reads the ClientHello at the start of `bytes`, which may span several
+ * handshake records. Bytes past the end of the hello are not looked at. A
+ * cursor from an earlier incomplete verdict on a prefix of the same bytes
+ * resumes from there.
+ */
+export function parseClientHelloSni(
+  bytes: Uint8Array,
+  cursor?: ClientHelloCursor,
+): ClientHelloVerdict {
+  const collected = collectHandshake(bytes, cursor);
   if (collected.kind !== "handshake") return collected;
   return parseClientHello(collected.message);
 }
 
 type Collected =
   | { kind: "handshake"; message: Uint8Array }
-  | { kind: "incomplete" }
+  | { cursor: ClientHelloCursor; kind: "incomplete" }
   | { kind: "reject"; reason: string };
 
 /**
@@ -68,15 +92,22 @@ type Collected =
  * some stacks do it to dodge middleboxes), so the fragments are joined
  * before the message is read.
  */
-function collectHandshake(bytes: Uint8Array): Collected {
-  const fragments: Uint8Array[] = [];
-  let gathered = 0;
-  let offset = 0;
-  let wanted: number | null = null;
+function collectHandshake(
+  bytes: Uint8Array,
+  cursor?: ClientHelloCursor,
+): Collected {
+  const ranges = cursor?.ranges ?? [];
+  const fragments = ranges.map(([start, end]) => bytes.subarray(start, end));
+  let gathered = cursor?.gathered ?? 0;
+  let offset = cursor?.offset ?? 0;
+  let wanted = cursor?.wanted ?? null;
+  const incomplete = (): Collected => ({
+    cursor: { gathered, offset, ranges, wanted },
+    kind: "incomplete",
+  });
   for (;;) {
     if (wanted !== null && gathered >= wanted) break;
-    if (bytes.byteLength - offset < RECORD_HEADER)
-      return { kind: "incomplete" };
+    if (bytes.byteLength - offset < RECORD_HEADER) return incomplete();
     const type = bytes[offset];
     const versionMajor = bytes[offset + 1];
     const length = readUint16(bytes, offset + 3);
@@ -97,8 +128,9 @@ function collectHandshake(bytes: Uint8Array): Collected {
     }
     const start = offset + RECORD_HEADER;
     const end = start + length;
-    if (bytes.byteLength < end) return { kind: "incomplete" };
+    if (bytes.byteLength < end) return incomplete();
     fragments.push(bytes.subarray(start, end));
+    ranges.push([start, end]);
     gathered += length;
     offset = end;
     if (wanted === null && gathered >= HANDSHAKE_HEADER) {
@@ -119,7 +151,7 @@ function collectHandshake(bytes: Uint8Array): Collected {
       }
     }
   }
-  if (wanted === null) return { kind: "incomplete" };
+  if (wanted === null) return incomplete();
   if (offset > MAX_CLIENT_HELLO_BYTES) {
     return {
       kind: "reject",

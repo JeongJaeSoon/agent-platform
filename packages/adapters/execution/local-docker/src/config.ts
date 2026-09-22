@@ -330,7 +330,8 @@ export function validateLocalDockerConfig(
   try {
     endpoint = new URL(objectStore.endpoint);
   } catch {
-    throw new Error(`AWS_ENDPOINT_URL ${objectStore.endpoint} is not a URL`);
+    // Not quoted: a value that failed to parse may still hold a credential.
+    throw new Error("AWS_ENDPOINT_URL is not a URL");
   }
   // The URL is quoted in messages and labels; a credential in it would be
   // too, so this comes before any message that quotes it.

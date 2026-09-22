@@ -3,7 +3,11 @@ import {
   clientHello,
   EXTENSION_ENCRYPTED_CLIENT_HELLO,
 } from "./testing/client-hello.ts";
-import { MAX_CLIENT_HELLO_BYTES, parseClientHelloSni } from "./tls.ts";
+import {
+  type ClientHelloCursor,
+  MAX_CLIENT_HELLO_BYTES,
+  parseClientHelloSni,
+} from "./tls.ts";
 
 describe("parseClientHelloSni", () => {
   test("reads the one host_name a normal ClientHello carries", () => {
@@ -30,11 +34,32 @@ describe("parseClientHelloSni", () => {
   test("is incomplete until the last record arrives", () => {
     const hello = clientHello({ serverNames: ["a.test"] });
     for (const cut of [0, 3, 5, 20, hello.byteLength - 1]) {
-      expect(parseClientHelloSni(hello.subarray(0, cut))).toEqual({
+      expect(parseClientHelloSni(hello.subarray(0, cut))).toMatchObject({
         kind: "incomplete",
       });
     }
     expect(parseClientHelloSni(hello)).toEqual({ host: "a.test", kind: "sni" });
+  });
+
+  test("resuming from a cursor walks each record once and agrees with a whole parse", () => {
+    // One-byte records, fed one byte at a time: the adversarial shape. With
+    // the cursor handed back, the offset only ever moves forward.
+    const drip = clientHello({ recordSize: 1, serverNames: ["drip.test"] });
+    let cursor: ClientHelloCursor | undefined;
+    let last = -1;
+    let verdict: ReturnType<typeof parseClientHelloSni> | undefined;
+    for (let cut = 1; cut <= drip.byteLength; cut += 1) {
+      verdict = parseClientHelloSni(drip.subarray(0, cut), cursor);
+      if (verdict.kind !== "incomplete") break;
+      expect(verdict.cursor.offset).toBeGreaterThanOrEqual(last);
+      last = verdict.cursor.offset;
+      cursor = verdict.cursor;
+    }
+    expect(verdict).toEqual({ host: "drip.test", kind: "sni" });
+    expect(parseClientHelloSni(drip)).toEqual({
+      host: "drip.test",
+      kind: "sni",
+    });
   });
 
   test("reassembles a ClientHello split across handshake records", () => {
@@ -45,7 +70,7 @@ describe("parseClientHelloSni", () => {
     });
     expect(
       parseClientHelloSni(split.subarray(0, split.byteLength - 4)),
-    ).toEqual({ kind: "incomplete" });
+    ).toMatchObject({ kind: "incomplete" });
   });
 
   test("a first record that is not a handshake is rejected", () => {

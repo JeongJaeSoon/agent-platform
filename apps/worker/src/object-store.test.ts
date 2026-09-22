@@ -39,17 +39,19 @@ describe("objectStoreConfigFromEnv", () => {
         AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
       }),
     ).toThrow("must be http");
-    let message = "";
-    try {
-      objectStoreConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "https://user:hunter2@s3.example",
-      });
-    } catch (error) {
-      message = (error as Error).message;
+    for (const url of [
+      "https://user:hunter2@s3.example",
+      "http://u:hunter2@",
+    ]) {
+      let message = "";
+      try {
+        objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain("AWS_ENDPOINT_URL");
+      expect(message).not.toContain("hunter2");
     }
-    expect(message).toContain("credentials");
-    expect(message).not.toContain("hunter2");
   });
 
   test("every variable is required and the prefix must be a key prefix", () => {

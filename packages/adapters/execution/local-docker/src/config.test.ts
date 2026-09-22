@@ -170,6 +170,8 @@ describe("localDockerConfigFromEnv", () => {
     for (const url of [
       "http://user:hunter2@localstack:4566",
       "https://user:hunter2@s3.example",
+      // Malformed, so the parse itself fails and must not quote the value.
+      "http://user:hunter2@",
     ]) {
       let message = "";
       try {
@@ -177,7 +179,7 @@ describe("localDockerConfigFromEnv", () => {
       } catch (error) {
         message = (error as Error).message;
       }
-      expect(message).toContain("credentials");
+      expect(message).toContain("AWS_ENDPOINT_URL");
       expect(message).not.toContain("hunter2");
     }
   });
