@@ -280,7 +280,8 @@ export async function startEgressProxy(
     if (state.phase === "inspecting") {
       state.earlyBytes += chunk.byteLength;
       state.early.push(chunk);
-      if (absorbHello(socket, chunk)) inspectTunnel(socket);
+      absorbHello(socket, chunk);
+      inspectTunnel(socket);
       return;
     }
     if (state.phase === "piping") {
@@ -463,12 +464,8 @@ export async function startEgressProxy(
         drop(socket);
       }, handshakeTimeoutMs);
       // Bytes pipelined behind the CONNECT are already in `early`.
-      let fits = true;
-      for (const pending of state.early) {
-        fits = absorbHello(socket, pending);
-        if (!fits) break;
-      }
-      if (fits) inspectTunnel(socket);
+      for (const pending of state.early) absorbHello(socket, pending);
+      inspectTunnel(socket);
       return;
     }
     state.phase = "piping";
@@ -500,26 +497,19 @@ export async function startEgressProxy(
   }
 
   /**
-   * Appends a chunk to the hello buffer; false, with the tunnel dropped, if
-   * the cap would be crossed before a ClientHello completed.
+   * Copies a chunk into the hello buffer, up to the cap. What does not fit
+   * is still forwarded from `early` once the gate opens: a small hello
+   * followed by early data in the same segment is a hello that fits, and
+   * the verdict must not depend on how the socket cut the bytes. A hello
+   * still incomplete once the buffer is full is what `inspectTunnel` drops.
    */
-  function absorbHello(
-    socket: Socket<ClientState>,
-    chunk: Uint8Array,
-  ): boolean {
+  function absorbHello(socket: Socket<ClientState>, chunk: Uint8Array): void {
     const state = socket.data;
-    if (state.hello === null) return false;
-    if (state.helloBytes + chunk.byteLength > state.hello.byteLength) {
-      logger.warn("Dropping a tunnel whose ClientHello failed the gate", {
-        host: state.tunnelHost,
-        reason: `no ClientHello within ${MAX_CLIENT_HELLO_BYTES} bytes`,
-      });
-      drop(socket);
-      return false;
-    }
-    state.hello.set(chunk, state.helloBytes);
-    state.helloBytes += chunk.byteLength;
-    return true;
+    if (state.hello === null) return;
+    const room = state.hello.byteLength - state.helloBytes;
+    const take = chunk.subarray(0, Math.min(room, chunk.byteLength));
+    state.hello.set(take, state.helloBytes);
+    state.helloBytes += take.byteLength;
   }
 
   /**
@@ -543,9 +533,12 @@ export async function startEgressProxy(
       });
       drop(socket);
     };
-    // Incomplete within the cap: wait for more. `absorbHello` is what ends
-    // a hello that would cross it.
-    if (verdict.kind === "incomplete") return;
+    if (verdict.kind === "incomplete") {
+      if (state.helloBytes >= state.hello.byteLength) {
+        refuse(`no ClientHello within ${MAX_CLIENT_HELLO_BYTES} bytes`);
+      }
+      return;
+    }
     if (verdict.kind === "reject") {
       refuse(verdict.reason);
       return;

@@ -318,6 +318,26 @@ describe("egress proxy", () => {
     expect(sunk).toBe(before);
   }, 20_000);
 
+  test("early data coalesced behind a small ClientHello does not trip the cap", async () => {
+    // TLS 1.3 0-RTT, or simply a fast client, can put application records
+    // in the same segment as the hello. The cap is on the hello, not on the
+    // segment, so all of it goes through once the hello passes.
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    const trailing = new Uint8Array(20 * 1024).fill(0x17);
+    talk.sendBytes(concatBytes(hello, trailing));
+    const received = await talk.waitForBytes(
+      HEAD_200.length + hello.byteLength + trailing.byteLength,
+      10_000,
+    );
+    expect(received).toBe(
+      HEAD_200.length + hello.byteLength + trailing.byteLength,
+    );
+    talk.close();
+  }, 20_000);
+
   test("a ClientHello split across records and segments still passes", async () => {
     const talk = await connect(proxy.port);
     talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));

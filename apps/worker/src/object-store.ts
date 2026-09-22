@@ -73,7 +73,12 @@ export function objectStoreConfigFromEnv(
   try {
     url = new URL(endpoint);
   } catch {
-    throw new Error(`AWS_ENDPOINT_URL ${endpoint} is not a URL`);
+    throw new Error("AWS_ENDPOINT_URL is not a URL");
+  }
+  // Messages quote the URL, so a credential in it is refused first and the
+  // URL is never quoted with one.
+  if (url.username !== "" || url.password !== "") {
+    throw new Error("AWS_ENDPOINT_URL must not carry credentials");
   }
   if (url.protocol !== "http:") {
     throw new Error(

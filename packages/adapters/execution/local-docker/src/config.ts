@@ -332,14 +332,15 @@ export function validateLocalDockerConfig(
   } catch {
     throw new Error(`AWS_ENDPOINT_URL ${objectStore.endpoint} is not a URL`);
   }
+  // The URL is quoted in messages and labels; a credential in it would be
+  // too, so this comes before any message that quotes it.
+  if (endpoint.username !== "" || endpoint.password !== "") {
+    throw new Error("AWS_ENDPOINT_URL must not carry credentials");
+  }
   if (endpoint.protocol !== "http:") {
     throw new Error(
       `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http:// URL: the worker cannot reach an https object store through the egress proxy yet (94S-254)`,
     );
-  }
-  // The URL is quoted in messages and labels; a credential in it would be too.
-  if (endpoint.username !== "" || endpoint.password !== "") {
-    throw new Error("AWS_ENDPOINT_URL must not carry credentials");
   }
   // Names only in these messages, never the values: they end up in logs.
   for (const [name, value] of [

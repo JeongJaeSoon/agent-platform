@@ -165,17 +165,21 @@ describe("localDockerConfigFromEnv", () => {
         AWS_ENDPOINT_URL: "ftp://localstack:4566",
       }),
     ).toThrow("http://");
-    let message = "";
-    try {
-      localDockerConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "http://user:hunter2@localstack:4566",
-      });
-    } catch (error) {
-      message = (error as Error).message;
+    // Whatever else is wrong with the URL, a credential in it never reaches
+    // a message — the https refusal quotes the URL, so it must come after.
+    for (const url of [
+      "http://user:hunter2@localstack:4566",
+      "https://user:hunter2@s3.example",
+    ]) {
+      let message = "";
+      try {
+        localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain("credentials");
+      expect(message).not.toContain("hunter2");
     }
-    expect(message).toContain("credentials");
-    expect(message).not.toContain("hunter2");
   });
 
   test("a refused object store value is named, never quoted", () => {
