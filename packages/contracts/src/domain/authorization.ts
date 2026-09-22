@@ -52,28 +52,46 @@ export const principalRefSchema = z
   .object({ kind: principalKindSchema, id: opaqueIdSchema })
   .strict();
 
-export const principalSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("api_key"),
-      id: opaqueIdSchema,
-      owner_id: opaqueIdSchema,
-      // Legacy keys predate workspaces and stay unmapped until an explicit
-      // owner_workspace_map row exists (94S-150, Codex B18).
-      workspace_id: workspaceIdSchema.nullable(),
-      scopes: z.array(sessionScopeSchema),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("user"),
-      id: userIdSchema,
-      workspace_id: workspaceIdSchema,
-      role: workspaceRoleSchema,
-      scopes: z.array(sessionScopeSchema),
-    })
-    .strict(),
-]);
+export const principalSchema = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("api_key"),
+        id: opaqueIdSchema,
+        owner_id: opaqueIdSchema,
+        // Legacy keys predate workspaces and stay unmapped until an explicit
+        // owner_workspace_map row exists (94S-150, Codex B18).
+        workspace_id: workspaceIdSchema.nullable(),
+        scopes: z.array(sessionScopeSchema),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("user"),
+        id: userIdSchema,
+        workspace_id: workspaceIdSchema,
+        role: workspaceRoleSchema,
+        scopes: z.array(sessionScopeSchema),
+      })
+      .strict(),
+  ])
+  .superRefine((principal, ctx) => {
+    if (principal.kind !== "user") return;
+    // The role is the ceiling, not a label beside it: a membership may hand a
+    // user fewer scopes than the role allows, never more. Without this a
+    // `member` row carrying `sessions:recover` would walk straight through
+    // `authorizationContextFor` into owner-only recovery.
+    const allowed = new Set(scopesForRole(principal.role));
+    for (const scope of principal.scopes) {
+      if (!allowed.has(scope)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["scopes"],
+          message: `${principal.role} cannot hold ${scope}`,
+        });
+      }
+    }
+  });
 
 /**
  * What every route hands to a domain service.
@@ -162,11 +180,19 @@ export const IDEMPOTENCY_PRINCIPAL_KIND_VALUES = [
 export const idempotencyPrincipalKindSchema = z.enum(
   IDEMPOTENCY_PRINCIPAL_KIND_VALUES,
 );
+// Alpha owner ids are an unconstrained `text` column, so each id is
+// percent-encoded before it joins the string: a tenant whose id holds a space,
+// a slash, a colon or Hangul still yields exactly one principal instead of
+// throwing on the way in. `:` survives encoding only as the kind separator, so
+// the split stays unambiguous. No length cap — `idempotency_keys.principal` is
+// `text` and alpha stored the bare owner id there with none either.
+const ENCODED_SEGMENT = "[A-Za-z0-9\\-_.!~*'()%]+";
 export const idempotencyPrincipalSchema = z
   .string()
-  .max(255)
   .regex(
-    /^(api_key|user|slack):[A-Za-z0-9._@-]+(?::[A-Za-z0-9._@-]+)*$/,
+    new RegExp(
+      `^(api_key|user|slack):${ENCODED_SEGMENT}(?::${ENCODED_SEGMENT})*$`,
+    ),
     "must be kind:id, e.g. user:<uuid> or slack:<team>:<user>",
   );
 
@@ -178,7 +204,13 @@ export function formatIdempotencyPrincipal(
   kind: IdempotencyPrincipalKind,
   ...ids: readonly string[]
 ): string {
-  return idempotencyPrincipalSchema.parse([kind, ...ids].join(":"));
+  const encoded = ids.map((id) => {
+    if (id.length === 0) {
+      throw new TypeError("idempotency principal: empty id segment");
+    }
+    return encodeURIComponent(id);
+  });
+  return idempotencyPrincipalSchema.parse([kind, ...encoded].join(":"));
 }
 
 export function idempotencyPrincipalFor(ctx: AuthorizationContext): string {
@@ -308,11 +340,33 @@ export const grantSchema = z
 export type Grant = z.infer<typeof grantSchema>;
 
 export type GrantRequest = {
+  /** The workspace the resource lives in; a grant never crosses it. */
+  workspaceId: string;
   actor: ActorRef;
   servicePrincipal: ActorRef | null;
   action: AuthorizationAction;
   resource: ResourceRef;
   audience: AudienceRef;
+};
+
+// An action that touches a session also needs the 94S-132 scope for it, so a
+// grant listing `session.control` while holding only `sessions:read` is inert.
+// Workspace, agent, memory and delivery actions have no session scope to spend.
+const ACTION_SESSION_SCOPE: Record<AuthorizationAction, SessionScope | null> = {
+  "workspace.read": null,
+  "workspace.manage": null,
+  "agent.manage": null,
+  "binding.manage": null,
+  "routine.manage": null,
+  "session.read": "sessions:read",
+  "session.submit": "sessions:write",
+  "session.approve": "sessions:approve",
+  "session.control": "sessions:control",
+  "session.recover": "sessions:recover",
+  "memory.read": null,
+  "memory.write": null,
+  "artifact.read": "sessions:read",
+  "delivery.send": null,
 };
 
 function sameRef(
@@ -323,10 +377,26 @@ function sameRef(
   return left.kind === right.kind && left.id === right.id;
 }
 
+// Both timestamps are RFC 3339 but need not share fractional precision, and
+// `"…:00.500Z" < "…:00Z"` is true as a string. Compare instants instead.
+// Date.parse truncates below the millisecond; two grants that differ only in
+// microseconds are the same instant here, which is finer than any expiry the
+// platform issues.
+function instant(timestamp: string): number {
+  const value = Date.parse(timestamp);
+  if (Number.isNaN(value)) {
+    throw new TypeError(`not an RFC 3339 timestamp: ${timestamp}`);
+  }
+  return value;
+}
+
 /** Revocation and expiry both take effect at the instant they name. */
 export function isGrantActive(grant: Grant, at: string): boolean {
-  if (grant.revoked_at !== null && grant.revoked_at <= at) return false;
-  return grant.expires_at === null || at < grant.expires_at;
+  const now = instant(at);
+  if (grant.revoked_at !== null && instant(grant.revoked_at) <= now) {
+    return false;
+  }
+  return grant.expires_at === null || now < instant(grant.expires_at);
 }
 
 /**
@@ -340,9 +410,12 @@ export function grantCovers(
   at: string,
 ): boolean {
   if (!isGrantActive(grant, at)) return false;
+  if (grant.workspace_id !== request.workspaceId) return false;
   if (!sameRef(grant.actor, request.actor)) return false;
   if (!sameRef(grant.service_principal, request.servicePrincipal)) return false;
   if (!grant.actions.includes(request.action)) return false;
+  const required = ACTION_SESSION_SCOPE[request.action];
+  if (required !== null && !grant.scopes.includes(required)) return false;
   if (!sameRef(grant.resource, request.resource)) return false;
   return sameRef(grant.audience, request.audience);
 }

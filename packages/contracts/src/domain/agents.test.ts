@@ -54,6 +54,18 @@ describe("canonical JSON", () => {
     expect(() => canonicalJson({ nested: [1, undefined] })).toThrow(TypeError);
     expect(() => canonicalJson(10n)).toThrow(TypeError);
   });
+
+  test("refuses what JSON would drop on the floor", () => {
+    // A hole serialises as `null`, so `[ , ]` and `[null]` would hash alike.
+    // biome-ignore lint/suspicious/noSparseArray: that is the case under test
+    expect(() => canonicalJson([, 1])).toThrow(TypeError);
+    expect(() => canonicalJson(Array(1))).toThrow(TypeError);
+    const withExtra = [1];
+    (withExtra as unknown as Record<string, unknown>).note = "dropped";
+    expect(() => canonicalJson(withExtra)).toThrow(TypeError);
+    const key = Symbol("hidden");
+    expect(() => canonicalJson({ a: 1, [key]: 2 })).toThrow(TypeError);
+  });
 });
 
 describe("AgentCard", () => {

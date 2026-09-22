@@ -61,6 +61,33 @@ describe("MemoryRecord", () => {
     }
   });
 
+  test("each visibility decides what its ref is, not just that it has one", () => {
+    // Without a per-variant id schema a surface binding id would stand in for
+    // a session and still parse, quietly widening who can read the row.
+    expect(
+      memoryRecordSchema.safeParse({
+        ...record,
+        visibility: "session",
+        visibility_ref: "C01",
+      }).success,
+    ).toBe(false);
+    expect(
+      memoryRecordSchema.safeParse({
+        ...record,
+        visibility: "channel",
+        visibility_ref: "C01",
+      }).success,
+    ).toBe(false);
+    // A scoped actor id is minted by the surface, so it is not a uuid.
+    expect(
+      memoryRecordSchema.safeParse({
+        ...record,
+        visibility: "user",
+        visibility_ref: "slack:T01:U02",
+      }).success,
+    ).toBe(true);
+  });
+
   test("an unscoped visibility must not carry a ref", () => {
     for (const visibility of ["agent", "workspace"] as const) {
       expect(
@@ -125,5 +152,42 @@ describe("MemoryRecord", () => {
         memory_write_policy: "allow_all",
       }).success,
     ).toBe(false);
+  });
+
+  test("a ready slack binding cannot be missing what routing needs", () => {
+    const binding = {
+      id: BINDING_ID,
+      workspace_id: WORKSPACE_ID,
+      owner_id: "owner_1",
+      surface: "slack",
+      installation_id: SESSION_ID,
+      external_surface_id: "C01",
+      surface_kind: "private_channel",
+      agent_id: AGENT_ID,
+      mode: "mention",
+      memory_write_policy: "deny",
+      status: "ready",
+      muted: false,
+      revision: 0,
+      created_at: AT,
+      revoked_at: null,
+    };
+    for (const field of [
+      "installation_id",
+      "external_surface_id",
+      "surface_kind",
+    ] as const) {
+      expect(
+        surfaceBindingSchema.safeParse({ ...binding, [field]: null }).success,
+      ).toBe(false);
+      // `partial` is exactly the state where the column is still empty.
+      expect(
+        surfaceBindingSchema.safeParse({
+          ...binding,
+          status: "partial",
+          [field]: null,
+        }).success,
+      ).toBe(true);
+    }
   });
 });

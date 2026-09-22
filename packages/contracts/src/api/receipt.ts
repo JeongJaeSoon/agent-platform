@@ -36,19 +36,27 @@ export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
 export const receiptOperationSchema = z.enum(RECEIPT_OPERATION_VALUES);
 // The alpha shape, unchanged: every session operation still answers with
 // exactly these three fields.
-export const receiptSessionTargetSchema = z.object({
-  session_id: sessionIdSchema,
-  turn_id: turnIdSchema.nullable(),
-  request_id: requestIdSchema.nullable(),
-});
+// Strict on both sides, so a target can only ever be one of the two: a value
+// carrying both shapes would otherwise match the session branch and have its
+// resource fields silently stripped. It also matches what the generated
+// OpenAPI already promised (`additionalProperties: false`).
+export const receiptSessionTargetSchema = z
+  .object({
+    session_id: sessionIdSchema,
+    turn_id: turnIdSchema.nullable(),
+    request_id: requestIdSchema.nullable(),
+  })
+  .strict();
 // Mutations outside a session — invites, agents, releases, dispatches, memory,
 // routines — name their resource instead (Codex B03). Each route adds its own
 // `operation` value in its own ticket; the vocabulary here stays session-only
 // until one does.
-export const receiptResourceTargetSchema = z.object({
-  resource: resourceRefSchema,
-  workspace_id: workspaceIdSchema.nullable(),
-});
+export const receiptResourceTargetSchema = z
+  .object({
+    resource: resourceRefSchema,
+    workspace_id: workspaceIdSchema.nullable(),
+  })
+  .strict();
 export const receiptTargetSchema = z.union([
   receiptSessionTargetSchema,
   receiptResourceTargetSchema,

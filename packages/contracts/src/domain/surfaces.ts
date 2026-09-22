@@ -62,7 +62,26 @@ export const surfaceBindingSchema = z
     created_at: timestampSchema,
     revoked_at: timestampSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((binding, ctx) => {
+    // The three columns are nullable because `partial` and `failed` are real
+    // states: an install can land before the channel is chosen. `ready` is the
+    // claim that routing works, so it cannot be missing what routing needs.
+    if (binding.surface !== "slack" || binding.status !== "ready") return;
+    for (const field of [
+      "installation_id",
+      "external_surface_id",
+      "surface_kind",
+    ] as const) {
+      if (binding[field] === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `a ready slack binding needs ${field}`,
+        });
+      }
+    }
+  });
 
 export const SESSION_LINK_ROLE_VALUES = ["primary", "mirror"] as const;
 export const sessionLinkRoleSchema = z.enum(SESSION_LINK_ROLE_VALUES);

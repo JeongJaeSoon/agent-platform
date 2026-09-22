@@ -64,6 +64,34 @@ describe("receipt target union", () => {
     ).toBe(false);
   });
 
+  test("a target is one variant or the other, never a blend of both", () => {
+    // Non-strict variants would match the session branch here and drop the
+    // resource fields on the floor, which is a target nobody wrote.
+    expect(
+      receiptSchema.safeParse({
+        ...base,
+        target_ref: {
+          session_id: SESSION_ID,
+          turn_id: null,
+          request_id: null,
+          resource: { kind: "invite", id: "x" },
+          workspace_id: WORKSPACE_ID,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      receiptSchema.safeParse({
+        ...base,
+        target_ref: {
+          session_id: SESSION_ID,
+          turn_id: null,
+          request_id: null,
+          owner_id: "owner_1",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   test("the operation vocabulary stays session-only until a route adds to it", () => {
     expect(RECEIPT_OPERATION_VALUES as readonly string[]).not.toContain(
       "create_invite",
