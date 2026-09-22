@@ -1,0 +1,123 @@
+import type {
+  AdmissionState,
+  ExecutionState,
+  ReceiptStatus,
+  TurnStatus,
+} from "@agent-platform/contracts";
+
+/**
+ * admission·turn·receipt·execution are separate axes and are never merged into
+ * one badge (02 UX 설계 §4.1). A tone is a meaning; the hex lives in tokens.css.
+ */
+export const STATUS_AXIS_VALUES = [
+  "admission",
+  "turn",
+  "receipt",
+  "execution",
+] as const;
+export type StatusAxis = (typeof STATUS_AXIS_VALUES)[number];
+
+export const STATUS_TONE_VALUES = [
+  "neutral",
+  "progress",
+  "attention",
+  "caution",
+  "danger",
+  "unknown",
+  "positive",
+] as const;
+export type StatusTone = (typeof STATUS_TONE_VALUES)[number];
+
+export type StatusStateOf<A extends StatusAxis> = A extends "admission"
+  ? AdmissionState
+  : A extends "turn"
+    ? TurnStatus
+    : A extends "receipt"
+      ? ReceiptStatus
+      : ExecutionState;
+
+export interface StatusDescriptor {
+  /** What a person reads. Korean operational copy, never uppercased (§6). */
+  readonly label: string;
+  readonly tone: StatusTone;
+  /** True while the platform is still moving; drives the spinner. */
+  readonly inFlight: boolean;
+}
+
+/** The axis name a screen reader hears before the state. */
+export const STATUS_AXIS_LABEL: Record<StatusAxis, string> = {
+  admission: "세션",
+  turn: "턴",
+  receipt: "접수",
+  execution: "실행",
+};
+
+const admission: Record<AdmissionState, StatusDescriptor> = {
+  active: { label: "활성", tone: "neutral", inFlight: false },
+  pausing: { label: "일시정지 중", tone: "caution", inFlight: true },
+  paused: { label: "일시정지됨", tone: "caution", inFlight: false },
+  resuming: { label: "복원 중", tone: "progress", inFlight: true },
+  stopping: { label: "종료 중", tone: "neutral", inFlight: true },
+  stopped: { label: "종료됨", tone: "neutral", inFlight: false },
+  recovery_required: {
+    label: "확인 필요 — 결과를 알 수 없음",
+    tone: "danger",
+    inFlight: false,
+  },
+  closed: { label: "보관됨", tone: "neutral", inFlight: false },
+};
+
+const turn: Record<TurnStatus, StatusDescriptor> = {
+  queued: { label: "대기 중", tone: "neutral", inFlight: false },
+  running: { label: "작업 중", tone: "progress", inFlight: true },
+  needs_input: { label: "답변 대기", tone: "attention", inFlight: false },
+  completed: { label: "완료", tone: "positive", inFlight: false },
+  failed: { label: "실패", tone: "danger", inFlight: false },
+  interrupted: { label: "중단됨", tone: "neutral", inFlight: false },
+  cancelled: { label: "취소됨", tone: "neutral", inFlight: false },
+  outcome_unknown: { label: "결과 미확정", tone: "unknown", inFlight: false },
+};
+
+/*
+ * `accepted` is deliberately not positive: 접수와 완료를 구분한다 (§1). Only
+ * `succeeded` — the server's own confirmation — earns the success tone.
+ */
+const receipt: Record<ReceiptStatus, StatusDescriptor> = {
+  accepted: { label: "접수됨", tone: "progress", inFlight: true },
+  succeeded: { label: "확정됨", tone: "positive", inFlight: false },
+  failed: { label: "실패", tone: "danger", inFlight: false },
+  unknown: { label: "결과 미확정", tone: "unknown", inFlight: false },
+};
+
+const execution: Record<ExecutionState, StatusDescriptor> = {
+  pending: { label: "준비 중", tone: "neutral", inFlight: true },
+  running: { label: "실행 중", tone: "progress", inFlight: true },
+  suspended: { label: "멈춤", tone: "caution", inFlight: false },
+  terminating: { label: "정리 중", tone: "neutral", inFlight: true },
+  terminated: { label: "정리됨", tone: "neutral", inFlight: false },
+  unknown: { label: "상태 미확인", tone: "unknown", inFlight: false },
+};
+
+export const STATUS_VOCABULARY = {
+  admission,
+  turn,
+  receipt,
+  execution,
+} as const;
+
+export function describeStatus<A extends StatusAxis>(
+  axis: A,
+  state: StatusStateOf<A>,
+): StatusDescriptor {
+  const axisVocabulary: Record<string, StatusDescriptor> =
+    STATUS_VOCABULARY[axis];
+  return (
+    axisVocabulary[state] ?? {
+      // A state the server added and this build has not learned yet: say so
+      // rather than guessing a tone that might read as success.
+      label: state,
+      tone: "unknown",
+      inFlight: false,
+    }
+  );
+}

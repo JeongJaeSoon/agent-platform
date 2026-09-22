@@ -1,0 +1,36 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`EmptyState 제목·설명·두 동작을 그린다 1`] = `
+"<div class="ap-state ap-state--empty">
+  <p class="ap-state__title">아직 세션이 없습니다</p>
+  <p class="ap-state__description">첫 지시를 보내면 여기에 쌓입니다.</p>
+  <div class="ap-state__actions">
+    <button type="button">새 세션</button>
+    <button type="button">에이전트 보기</button>
+  </div>
+</div>"
+`;
+
+exports[`ErrorState EmptyState와 다른 모양·다른 역할로 그려진다 1`] = `
+"<div class="ap-state ap-state--error" role="alert" data-code="INTERNAL_ERROR">
+  <p class="ap-state__title">
+    <span class="ap-state__mark" aria-hidden="true">!</span>문제가 생겼습니다</p>
+  <p class="ap-state__guidance">서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.</p>
+  <p class="ap-state__description">boom</p>
+  <div class="ap-state__actions">
+    <code class="ap-state__code">INTERNAL_ERROR</code>
+  </div>
+</div>"
+`;
+
+exports[`Skeleton 줄 수만큼 막대를 만든다 1`] = `
+"<output class="ap-skeleton" data-shape="text" data-animated="true" aria-busy="true">
+  <span class="ap-skeleton__bar">
+  </span>
+  <span class="ap-skeleton__bar">
+  </span>
+  <span class="ap-skeleton__bar">
+  </span>
+  <span class="ap-visually-hidden">불러오는 중</span>
+</output>"
+`;

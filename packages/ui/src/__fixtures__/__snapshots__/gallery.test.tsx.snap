@@ -1,0 +1,1237 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`컴포넌트 갤러리 360px 1`] = `
+"<div class="gallery">
+  <h2>StatusLabel</h2>
+  <section>
+    <h3>admission</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">활성</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="pausing" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="resuming" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">복원 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopping" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관됨</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>turn</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">대기 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">작업 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">답변 대기</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">완료</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">중단됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">취소됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>receipt</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">확정됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>execution</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="execution" data-state="pending" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">준비 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">실행 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">멈춤</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminating" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리됨</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">상태 미확인</span>
+      </span>
+    </div>
+  </section>
+  <div class="gallery__row">
+    <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress" data-stale="true">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        </path>
+      </svg>
+      <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+      </span>
+      <span class="ap-visually-hidden">턴: </span>
+      <span class="ap-status__text">작업 중</span>
+      <span class="ap-status__detail">2분 12초 경과</span>
+      <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
+    </span>
+    <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <rect x="2" y="2" width="10" height="10" rx="3">
+        </rect>
+      </svg>
+      <span class="ap-visually-hidden">세션: </span>
+      <span class="ap-status__text">관리자가 세웠습니다</span>
+    </span>
+  </div>
+  <h2>Receipt</h2>
+  <div class="ap-receipt" data-status="accepted">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">메시지 전송</span>
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>요청</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000C</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+      <a class="ap-receipt-link" href="/receipts/rcpt_01J8Z5" data-tone="progress" data-status="accepted">
+        <span class="ap-receipt-link__dot" aria-hidden="true">
+        </span>
+        <span class="ap-receipt-link__text">접수 내역</span>
+        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
+      </a>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="unknown">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">종료 요청</span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="failed">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">답변 제출</span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+    </dl>
+    <p class="ap-receipt__error">
+      <span class="ap-receipt__guidance">세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.</span>
+      <span class="ap-receipt__detail">SESSION_PAUSED · session is paused</span>
+    </p>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <h2>Empty · Error · Skeleton</h2>
+  <div class="ap-state ap-state--empty">
+    <p class="ap-state__title">아직 세션이 없습니다</p>
+    <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button ap-button--primary">새 세션</button>
+      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+    </div>
+  </div>
+  <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
+    <p class="ap-state__title">
+      <span class="ap-state__mark" aria-hidden="true">!</span>문제가 생겼습니다</p>
+    <p class="ap-state__guidance">보관된 세션입니다 — 새 세션으로 이어가세요.</p>
+    <p class="ap-state__description">session is closed</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button">다시 시도</button>
+      <a class="ap-button ap-button--quiet" href="/sessions/01J8Z5/journal">기록 보기</a>
+      <code class="ap-state__code">SESSION_CLOSED</code>
+    </div>
+  </div>
+  <output class="ap-skeleton" data-shape="text" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="circle" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="block" data-animated="true" style="height: 6rem;" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <h2>Dialog</h2>
+</div>"
+`;
+
+exports[`컴포넌트 갤러리 768px 1`] = `
+"<div class="gallery">
+  <h2>StatusLabel</h2>
+  <section>
+    <h3>admission</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">활성</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="pausing" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="resuming" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">복원 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopping" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관됨</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>turn</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">대기 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">작업 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">답변 대기</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">완료</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">중단됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">취소됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>receipt</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">확정됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>execution</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="execution" data-state="pending" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">준비 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">실행 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">멈춤</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminating" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리됨</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">상태 미확인</span>
+      </span>
+    </div>
+  </section>
+  <div class="gallery__row">
+    <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress" data-stale="true">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        </path>
+      </svg>
+      <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+      </span>
+      <span class="ap-visually-hidden">턴: </span>
+      <span class="ap-status__text">작업 중</span>
+      <span class="ap-status__detail">2분 12초 경과</span>
+      <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
+    </span>
+    <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <rect x="2" y="2" width="10" height="10" rx="3">
+        </rect>
+      </svg>
+      <span class="ap-visually-hidden">세션: </span>
+      <span class="ap-status__text">관리자가 세웠습니다</span>
+    </span>
+  </div>
+  <h2>Receipt</h2>
+  <div class="ap-receipt" data-status="accepted">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">메시지 전송</span>
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>요청</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000C</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+      <a class="ap-receipt-link" href="/receipts/rcpt_01J8Z5" data-tone="progress" data-status="accepted">
+        <span class="ap-receipt-link__dot" aria-hidden="true">
+        </span>
+        <span class="ap-receipt-link__text">접수 내역</span>
+        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
+      </a>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="unknown">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">종료 요청</span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="failed">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">답변 제출</span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+    </dl>
+    <p class="ap-receipt__error">
+      <span class="ap-receipt__guidance">세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.</span>
+      <span class="ap-receipt__detail">SESSION_PAUSED · session is paused</span>
+    </p>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <h2>Empty · Error · Skeleton</h2>
+  <div class="ap-state ap-state--empty">
+    <p class="ap-state__title">아직 세션이 없습니다</p>
+    <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button ap-button--primary">새 세션</button>
+      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+    </div>
+  </div>
+  <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
+    <p class="ap-state__title">
+      <span class="ap-state__mark" aria-hidden="true">!</span>문제가 생겼습니다</p>
+    <p class="ap-state__guidance">보관된 세션입니다 — 새 세션으로 이어가세요.</p>
+    <p class="ap-state__description">session is closed</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button">다시 시도</button>
+      <a class="ap-button ap-button--quiet" href="/sessions/01J8Z5/journal">기록 보기</a>
+      <code class="ap-state__code">SESSION_CLOSED</code>
+    </div>
+  </div>
+  <output class="ap-skeleton" data-shape="text" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="circle" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="block" data-animated="true" style="height: 6rem;" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <h2>Dialog</h2>
+</div>"
+`;
+
+exports[`컴포넌트 갤러리 1440px 1`] = `
+"<div class="gallery">
+  <h2>StatusLabel</h2>
+  <section>
+    <h3>admission</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">활성</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="pausing" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">일시정지됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="resuming" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">복원 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopping" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료 중</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">종료됨</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관됨</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>turn</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">대기 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">작업 중</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">답변 대기</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">완료</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">중단됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">취소됨</span>
+      </span>
+      <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">턴: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>receipt</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">확정됨</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+  </section>
+  <section>
+    <h3>execution</h3>
+    <div class="gallery__row">
+      <span class="ap-status" data-axis="execution" data-state="pending" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">준비 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="running" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">실행 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">멈춤</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminating" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리 중</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">정리됨</span>
+      </span>
+      <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">실행: </span>
+        <span class="ap-status__text">상태 미확인</span>
+      </span>
+    </div>
+  </section>
+  <div class="gallery__row">
+    <span class="ap-status" data-axis="turn" data-state="running" data-tone="progress" data-stale="true">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        </path>
+      </svg>
+      <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+      </span>
+      <span class="ap-visually-hidden">턴: </span>
+      <span class="ap-status__text">작업 중</span>
+      <span class="ap-status__detail">2분 12초 경과</span>
+      <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
+    </span>
+    <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
+      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <rect x="2" y="2" width="10" height="10" rx="3">
+        </rect>
+      </svg>
+      <span class="ap-visually-hidden">세션: </span>
+      <span class="ap-status__text">관리자가 세웠습니다</span>
+    </span>
+  </div>
+  <h2>Receipt</h2>
+  <div class="ap-receipt" data-status="accepted">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">메시지 전송</span>
+      <span class="ap-status" data-axis="receipt" data-state="accepted" data-tone="progress">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">접수됨</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>요청</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000C</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+      <a class="ap-receipt-link" href="/receipts/rcpt_01J8Z5" data-tone="progress" data-status="accepted">
+        <span class="ap-receipt-link__dot" aria-hidden="true">
+        </span>
+        <span class="ap-receipt-link__text">접수 내역</span>
+        <span class="ap-visually-hidden"> (접수됨, 접수 번호 rcpt_01J8Z5)</span>
+        <span class="ap-receipt-link__id">rcpt_01J8Z5</span>
+      </a>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="unknown">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">종료 요청</span>
+      <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">결과 미확정</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+    </dl>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <div class="ap-receipt" data-status="failed">
+    <div class="ap-receipt__head">
+      <span class="ap-receipt__operation">답변 제출</span>
+      <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+          </path>
+        </svg>
+        <span class="ap-visually-hidden">접수: </span>
+        <span class="ap-status__text">실패</span>
+      </span>
+    </div>
+    <dl class="ap-receipt__target">
+      <div class="ap-receipt__field">
+        <dt>세션</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000A</dd>
+      </div>
+      <div class="ap-receipt__field">
+        <dt>턴</dt>
+        <dd class="ap-receipt__id">01J8Z5T7Q0000000000000000B</dd>
+      </div>
+    </dl>
+    <p class="ap-receipt__error">
+      <span class="ap-receipt__guidance">세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.</span>
+      <span class="ap-receipt__detail">SESSION_PAUSED · session is paused</span>
+    </p>
+    <div class="ap-receipt__foot">
+      <span class="ap-receipt__times">접수 <time datetime="2026-09-21T02:15:00.000Z">2026. 9. 21. 오전 11:15</time> · 갱신 <time datetime="2026-09-21T02:15:42.000Z">2026. 9. 21. 오전 11:15</time>
+      </span>
+    </div>
+  </div>
+  <h2>Empty · Error · Skeleton</h2>
+  <div class="ap-state ap-state--empty">
+    <p class="ap-state__title">아직 세션이 없습니다</p>
+    <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button ap-button--primary">새 세션</button>
+      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+    </div>
+  </div>
+  <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
+    <p class="ap-state__title">
+      <span class="ap-state__mark" aria-hidden="true">!</span>문제가 생겼습니다</p>
+    <p class="ap-state__guidance">보관된 세션입니다 — 새 세션으로 이어가세요.</p>
+    <p class="ap-state__description">session is closed</p>
+    <div class="ap-state__actions">
+      <button type="button" class="ap-button">다시 시도</button>
+      <a class="ap-button ap-button--quiet" href="/sessions/01J8Z5/journal">기록 보기</a>
+      <code class="ap-state__code">SESSION_CLOSED</code>
+    </div>
+  </div>
+  <output class="ap-skeleton" data-shape="text" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="circle" data-animated="true" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <output class="ap-skeleton" data-shape="block" data-animated="true" style="height: 6rem;" aria-busy="true">
+    <span class="ap-skeleton__bar">
+    </span>
+    <span class="ap-visually-hidden">불러오는 중</span>
+  </output>
+  <h2>Dialog</h2>
+</div>"
+`;
+
+exports[`컴포넌트 갤러리 열린 다이얼로그까지 포함한 좁은 화면 1`] = `
+"<div role="dialog" id="radix-_r_1e_" data-state="open" class="ap-dialog" data-tone="danger" tabindex="-1" aria-describedby="radix-_r_1g_" aria-labelledby="radix-_r_1f_" style="pointer-events: auto;">
+  <h2 id="radix-_r_1f_" class="ap-dialog__title">에이전트를 해고할까요?</h2>
+  <p id="radix-_r_1g_" class="ap-dialog__consequence">카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다.</p>
+  <div class="ap-dialog__match">
+    <label class="ap-dialog__match-label" for="_r_1d_">계속하려면 <b>결제 담당</b> 을(를) 그대로 입력하세요</label>
+    <input id="_r_1d_" class="ap-input" autocomplete="off" type="text" value="">
+  </div>
+  <div class="ap-dialog__actions">
+    <button type="button" class="ap-button ap-button--quiet">취소</button>
+    <button type="button" class="ap-button ap-button--danger" disabled="">삭제</button>
+  </div>
+</div>"
+`;
