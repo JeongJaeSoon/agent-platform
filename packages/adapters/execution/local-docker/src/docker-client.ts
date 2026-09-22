@@ -106,6 +106,27 @@ export type ContainerSummary = {
   State: string;
 };
 
+/**
+ * Splits an image reference the way `/images/create` wants it: registry
+ * ports (`host:5000/x`) belong to the name, a digest (`@sha256:…`) or the
+ * last `:` after the final `/` is the tag.
+ */
+export function parseImageReference(image: string): {
+  name: string;
+  tag: string;
+} {
+  const at = image.indexOf("@");
+  if (at >= 0) {
+    return { name: image.slice(0, at), tag: image.slice(at + 1) };
+  }
+  const slash = image.lastIndexOf("/");
+  const colon = image.lastIndexOf(":");
+  if (colon > slash) {
+    return { name: image.slice(0, colon), tag: image.slice(colon + 1) };
+  }
+  return { name: image, tag: "latest" };
+}
+
 export class DockerClient {
   private readonly endpoint: DockerEndpoint;
   private readonly prefix: string;
@@ -147,10 +168,10 @@ export class DockerClient {
    * daemon can run them.
    */
   async pullImage(image: string): Promise<void> {
-    const [name, tag = "latest"] = image.split(":");
+    const { name, tag } = parseImageReference(image);
     const response = await this.request(
       "POST",
-      `/images/create?fromImage=${encodeURIComponent(name ?? image)}&tag=${encodeURIComponent(tag)}`,
+      `/images/create?fromImage=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`,
     );
     // The pull streams progress JSON until it is done; drain it.
     await response.text();

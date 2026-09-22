@@ -194,7 +194,7 @@ describe("PostgresSchedulerStore", () => {
     expect(after.eligibleSessionIds).toContain(ids[0] ?? "");
   });
 
-  test("listActiveExecutions returns stored intents and skips rows without one", async () => {
+  test("listActiveExecutions returns stored intents and, for this backend, legacy rows without one", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
       backend: "local_docker",
@@ -212,6 +212,15 @@ describe("PostgresSchedulerStore", () => {
       observedState: "running",
       sessionId: foreign,
     });
+    const legacySession = await insertUnassigned();
+    await db.insert(executions).values({
+      backend: "local_docker",
+      desiredState: "running",
+      generation: 1,
+      id: "exec-legacy",
+      observedState: "running",
+      sessionId: legacySession,
+    });
 
     const active = await store.listActiveExecutions("local_docker");
     expect(active).toEqual([
@@ -225,10 +234,20 @@ describe("PostgresSchedulerStore", () => {
         providerRef: null,
         sessionId,
       },
+      {
+        backend: "local_docker",
+        bootstrapNonce: null,
+        executionId: "exec-legacy",
+        generation: 1,
+        observedState: "running",
+        operationId: null,
+        providerRef: null,
+        sessionId: legacySession,
+      },
     ]);
-    // The foreign row still holds a slot.
+    // The foreign and legacy rows still hold slots.
     expect((await store.inspectDemand({ limit: 1 })).activeExecutionCount).toBe(
-      2,
+      3,
     );
   });
 

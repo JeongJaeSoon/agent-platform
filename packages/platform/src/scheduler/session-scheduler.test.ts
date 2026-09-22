@@ -88,11 +88,19 @@ class MemoryStore implements SchedulerStore {
           .filter((e) => e.sessionId === input.sessionId)
           .map((e) => e.generation),
       ) + 1;
-    return this.seedActive({
+    const seeded = this.seedActive({
       backend: input.backend,
       generation,
       sessionId: input.sessionId,
     });
+    if (seeded.operationId === null || seeded.bootstrapNonce === null) {
+      throw new Error("seeded intent is complete");
+    }
+    return {
+      ...seeded,
+      bootstrapNonce: seeded.bootstrapNonce,
+      operationId: seeded.operationId,
+    };
   }
 
   async listActiveExecutions(backend: ActiveExecution["backend"]) {
@@ -142,6 +150,8 @@ class FakeBackend implements ExecutionBackend {
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
   failEnsureFor = new Set<string>();
+  /** Session ids whose container dies right after start (bad image). */
+  exitOnStartFor = new Set<string>();
   failTerminateFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
 
@@ -166,8 +176,9 @@ class FakeBackend implements ExecutionBackend {
         state: "running",
       };
     }
+    const exited = this.exitOnStartFor.has(intent.sessionId);
     this.containers.set(nameOf(intent), {
-      exited: false,
+      exited,
       generation: intent.generation,
       operationId: intent.operationId,
       sessionId: intent.sessionId,
@@ -175,7 +186,7 @@ class FakeBackend implements ExecutionBackend {
     return {
       created: true,
       providerRef: `ctr-${intent.executionId}`,
-      state: "running",
+      state: exited ? "terminated" : "running",
     };
   }
 
@@ -342,7 +353,7 @@ describe("runScheduler", () => {
     backend.containers.set("exec-1#1", {
       exited: false,
       generation: 1,
-      operationId: row.operationId,
+      operationId: row.operationId ?? "op",
       sessionId: row.sessionId,
       started: false,
     });
@@ -430,7 +441,7 @@ describe("runScheduler", () => {
     backend.containers.set("exec-1#1", {
       exited: true,
       generation: 1,
-      operationId: row.operationId,
+      operationId: row.operationId ?? "op",
       sessionId: row.sessionId,
     });
     const summary = await run();
@@ -537,6 +548,79 @@ describe("runScheduler", () => {
     expect(summary.activeBefore).toBe(0);
     expect(summary.reensured).toEqual([]);
     expect(backend.ensureCalls).toEqual([]);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("a resource that dies right after launch is a failed launch, not a success", async () => {
+    const { backend, records, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.exitOnStartFor.add(sessionId);
+
+    const summary = await run();
+    expect(summary.launched).toEqual([]);
+    expect(summary.failedLaunches).toHaveLength(1);
+    expect(
+      records.some(
+        (r) => r.level === "error" && r.message.includes("right after launch"),
+      ),
+    ).toBe(true);
+    // The dead resource is reclaimed as an orphan of a non-live row next pass.
+    backend.exitOnStartFor.clear();
+    const next = await run();
+    expect(next.orphansTerminated).toHaveLength(1);
+  });
+
+  test("an orphan whose termination throws is unresolved and holds a slot", async () => {
+    const { backend, records, run, store } = harness(1);
+    backend.containers.set("stray#1", {
+      exited: false,
+      generation: 1,
+      operationId: "op-stray",
+      sessionId: "s-stray",
+    });
+    backend.failTerminateFor.add("stray#1");
+    store.addUnassigned(1);
+
+    const summary = await run();
+    expect(summary.orphansUnresolved).toEqual([
+      { executionId: "stray", generation: 1 },
+    ]);
+    expect(summary.launched).toEqual([]);
+    expect(
+      records.some((r) => r.level === "error" && r.message.includes("orphan")),
+    ).toBe(true);
+  });
+
+  test("a legacy row without an intent is inspected and closed, never relaunched", async () => {
+    const { backend, run, store } = harness();
+    const gone = store.seedActive({
+      bootstrapNonce: null,
+      executionId: "legacy-gone",
+      observedState: "running",
+      operationId: null,
+    });
+    const exited = store.seedActive({
+      bootstrapNonce: null,
+      executionId: "legacy-exited",
+      observedState: "running",
+      operationId: null,
+    });
+    backend.containers.set("legacy-exited#1", {
+      exited: true,
+      generation: 1,
+      operationId: "op-old",
+      sessionId: exited.sessionId,
+    });
+
+    const summary = await run();
+    expect(backend.ensureCalls).toEqual([]);
+    expect(summary.terminatedObserved.map((r) => r.executionId).sort()).toEqual(
+      ["legacy-exited", "legacy-gone"],
+    );
+    expect(store.executions.get(gone.executionId)?.observedState).toBe(
+      "terminated",
+    );
     expect(backend.containers.size).toBe(0);
   });
 

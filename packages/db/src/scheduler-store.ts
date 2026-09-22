@@ -189,23 +189,18 @@ export function createPostgresSchedulerStore(
         .from(executions)
         .where(and(isLive(), eq(executions.backend, backend)))
         .orderBy(asc(executions.createdAt), asc(executions.id));
-      const active: ActiveExecution[] = [];
-      for (const row of rows) {
-        // Rows written before these columns existed carry no intent this
-        // scheduler could relaunch; they still count as live via inspectDemand.
-        if (row.operationId === null || row.bootstrapNonce === null) continue;
-        active.push({
-          backend: backendKindOf(row.backend),
-          bootstrapNonce: row.bootstrapNonce,
-          executionId: row.executionId,
-          generation: row.generation,
-          observedState: observedStateOf(row.observedState),
-          operationId: row.operationId,
-          providerRef: row.providerRef,
-          sessionId: row.sessionId,
-        });
-      }
-      return active;
+      // Rows written before the intent columns existed come back with null
+      // intent fields; the scheduler closes them out rather than relaunching.
+      return rows.map((row) => ({
+        backend: backendKindOf(row.backend),
+        bootstrapNonce: row.bootstrapNonce,
+        executionId: row.executionId,
+        generation: row.generation,
+        observedState: observedStateOf(row.observedState),
+        operationId: row.operationId,
+        providerRef: row.providerRef,
+        sessionId: row.sessionId,
+      }));
     },
 
     async filterKnown(refs, backend): Promise<ExecutionRef[]> {

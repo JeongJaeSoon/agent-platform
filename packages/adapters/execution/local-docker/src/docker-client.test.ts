@@ -1,5 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { parseDockerHost } from "./docker-client.ts";
+import { parseDockerHost, parseImageReference } from "./docker-client.ts";
+
+describe("parseImageReference", () => {
+  test("keeps registry ports in the name and reads tags or digests", () => {
+    expect(parseImageReference("busybox:1.36")).toEqual({
+      name: "busybox",
+      tag: "1.36",
+    });
+    expect(parseImageReference("busybox")).toEqual({
+      name: "busybox",
+      tag: "latest",
+    });
+    expect(parseImageReference("localhost:5000/org/worker:tag")).toEqual({
+      name: "localhost:5000/org/worker",
+      tag: "tag",
+    });
+    expect(parseImageReference("localhost:5000/org/worker")).toEqual({
+      name: "localhost:5000/org/worker",
+      tag: "latest",
+    });
+    expect(parseImageReference("ghcr.io/org/worker@sha256:abc")).toEqual({
+      name: "ghcr.io/org/worker",
+      tag: "sha256:abc",
+    });
+  });
+});
 
 describe("parseDockerHost", () => {
   test("accepts the DOCKER_HOST spellings", () => {

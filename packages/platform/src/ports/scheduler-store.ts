@@ -30,8 +30,18 @@ export type ReserveLaunchInput = {
  */
 export type StoredLaunchIntent = Omit<LaunchIntent, "image" | "resources">;
 
-export type ActiveExecution = StoredLaunchIntent & {
+/**
+ * A live row. Rows written before the intent columns existed carry null
+ * `operationId`/`bootstrapNonce`: they are inspected and reclaimed like any
+ * other, but can never be relaunched.
+ */
+export type ActiveExecution = Omit<
+  StoredLaunchIntent,
+  "bootstrapNonce" | "operationId"
+> & {
   backend: ExecutionBackendKind;
+  bootstrapNonce: string | null;
+  operationId: string | null;
   observedState: ExecutionObservation["state"];
   providerRef: string | null;
 };

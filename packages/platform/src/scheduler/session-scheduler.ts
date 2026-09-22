@@ -7,6 +7,7 @@ import type {
   TerminateExecutionResult,
 } from "../ports/execution-backend.ts";
 import type {
+  ActiveExecution,
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
@@ -185,14 +186,43 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     // Row says live but the provider has nothing, or has a resource that was
     // created and never started. The stored intent covers both: ensure is
     // idempotent and starts a pending resource it already owns.
+    const stored = storedIntentOf(execution);
+    if (stored === null) {
+      // Pre-intent row: nothing to relaunch from, so close it out instead of
+      // letting it hold a slot forever.
+      await store.recordObservation(ref, {
+        ...observed,
+        state: "terminated",
+      });
+      summary.terminatedObserved.push(ref);
+      logger.warn(
+        "Execution row has no launch intent; closed without relaunch",
+        {
+          ...fieldsOf(ref),
+          previous_state: execution.observedState,
+          session_id: execution.sessionId,
+        },
+      );
+      continue;
+    }
     try {
-      const ensured = await backend.ensureExecution(intentOf(execution));
+      const ensured = await backend.ensureExecution(intentOf(stored));
       await store.recordObservation(ref, {
         found: true,
         observedAt: now(),
         providerRef: ensured.providerRef,
         state: ensured.state,
       });
+      if (!isLaunched(ensured.state)) {
+        summary.failedLaunches.push(ref);
+        logger.error("Re-created execution resource did not stay up", {
+          ...fieldsOf(ref),
+          provider_ref: ensured.providerRef,
+          session_id: execution.sessionId,
+          state: ensured.state,
+        });
+        continue;
+      }
       summary.reensured.push(ref);
       logger.warn("Execution resource was missing; re-created from intent", {
         ...fieldsOf(ref),
@@ -223,7 +253,20 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       provider_ref: resource.providerRef,
       session_id: resource.sessionId,
     });
-    const outcome = await backend.terminate(refOf(resource));
+    let outcome: TerminateExecutionResult;
+    try {
+      outcome = await backend.terminate(refOf(resource));
+    } catch (error) {
+      // One stuck resource must not stop the rest of the pass; it still
+      // occupies the host, so it is counted against capacity below.
+      logger.error("Terminating orphan resource failed", {
+        ...fieldsOf(resource),
+        error: messageOf(error),
+        provider_ref: resource.providerRef,
+      });
+      summary.orphansUnresolved.push(refOf(resource));
+      continue;
+    }
     if (outcome.outcome !== "terminated") {
       logger.warn("Orphan resource was not terminated", {
         ...fieldsOf(refOf(resource)),
@@ -265,6 +308,19 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         providerRef: ensured.providerRef,
         state: ensured.state,
       });
+      if (!isLaunched(ensured.state)) {
+        // Created, but already dead (bad image, crashing entrypoint). The row
+        // is recorded as observed; next pass reclaims the resource. Not a
+        // success, so the process exits non-zero.
+        summary.failedLaunches.push(ref);
+        logger.error("Execution resource exited right after launch", {
+          ...fieldsOf(ref),
+          provider_ref: ensured.providerRef,
+          session_id: sessionId,
+          state: ensured.state,
+        });
+        continue;
+      }
       summary.launched.push(ref);
       logger.info("Execution launched", {
         ...fieldsOf(ref),
@@ -299,6 +355,24 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     terminated_count: summary.terminatedObserved.length,
   });
   return summary;
+}
+
+/** Only these states mean the launch took; anything else is a failure. */
+function isLaunched(state: ExecutionObservation["state"]): boolean {
+  return state === "running" || state === "pending";
+}
+
+function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
+  if (execution.operationId === null || execution.bootstrapNonce === null) {
+    return null;
+  }
+  return {
+    bootstrapNonce: execution.bootstrapNonce,
+    executionId: execution.executionId,
+    generation: execution.generation,
+    operationId: execution.operationId,
+    sessionId: execution.sessionId,
+  };
 }
 
 function refOf(ref: ExecutionRef): ExecutionRef {
