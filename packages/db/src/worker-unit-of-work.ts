@@ -289,7 +289,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .where(eq(attempts.id, launch.claimedAttemptId))
             .limit(1)
             .for("update");
-          if (!bound || ENDED_ATTEMPT_STATES.includes(bound.attempt.state)) {
+          // "allocated" is what the claim itself wrote: any later state
+          // means the worker already used its token, so this is not a lost
+          // response but a second holder trying to rotate it away.
+          if (!bound || bound.attempt.state !== "allocated") {
             return { outcome: "invalid_credential" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);

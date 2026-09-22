@@ -16,6 +16,7 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -27,6 +28,7 @@ import {
   turns,
   unassignedSessions,
   workerLaunches,
+  workers,
 } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
@@ -704,6 +706,68 @@ integration("worker gateway on PostgreSQL", () => {
       scopeOf(unknown.claimed),
     );
     expect(again.input).toBeNull();
+  });
+
+  test("the pod-based orphan reconciler leaves a gateway-bound session alone", async () => {
+    const partition = partitionFor("reconcile");
+    const { session, launch: l, claimed } = await claimAndDeliver(partition);
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    // The legacy reconciler keys on a missing/stale workers row. Left to it,
+    // it would clear pod_id and requeue while the execution may still run.
+    const reconciled = await reconcileOrphanedSessions(db, {
+      leaseTtlMs: 1_000,
+      now: new Date(clock.getTime() + 60_000),
+    });
+    expect(reconciled.map((row) => row.sessionId)).not.toContain(
+      session.session_id,
+    );
+    const [row] = await db
+      .select({ podId: sessions.podId, status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(row?.podId).toBe(l.executionId);
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, session.session_id)),
+    ).toHaveLength(0);
+    // Sanity: a pod-lifecycle session (no execution_id) is still reconciled.
+    const legacy = await queuedSession(partitionFor("legacy"));
+    await db
+      .update(sessions)
+      .set({ podId: `pod-${crypto.randomUUID()}` })
+      .where(eq(sessions.id, legacy.session_id));
+    const legacyRun = await reconcileOrphanedSessions(db, {
+      leaseTtlMs: 1_000,
+      now: new Date(clock.getTime() + 60_000),
+    });
+    expect(legacyRun.map((r) => r.sessionId)).toContain(legacy.session_id);
+    await db.delete(workers).where(eq(workers.podId, l.executionId));
+  });
+
+  test("a claim replay is refused once the attempt has used its token", async () => {
+    const partition = partitionFor("used");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    // nextInput is the worker using the binding: the claim response was not
+    // lost, so a further exchange is someone else rotating the token away.
+    await gateway.nextInput(principalOf(first), scopeOf(first));
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    const work = createPostgresWorkerUnitOfWork(db);
+    expect(
+      await work.resolveCredential(
+        hashWorkerToken(first.session_credential),
+        clock,
+      ),
+    ).not.toBeNull();
   });
 
   test("writes from a superseded epoch are refused with 409 STALE_EPOCH", async () => {

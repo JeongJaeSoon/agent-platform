@@ -6,13 +6,13 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  acceptAllCheckpoints,
   createSessionService,
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
   isCatalogEmpty,
   ownerScopedPolicy,
   parseSessionCatalogEnv,
+  rejectUnverifiedCheckpoints,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -70,8 +70,10 @@ const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
-  // Storage-backed manifest verification arrives with 94S-124.
-  checkpoints: acceptAllCheckpoints,
+  // Fails closed: until the storage-backed verifier lands (94S-124) a
+  // finalize that carries a checkpoint is refused rather than promoted
+  // unread. Turns without a checkpoint finalize normally.
+  checkpoints: rejectUnverifiedCheckpoints,
   options: {
     leaseTtlMs:
       Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
