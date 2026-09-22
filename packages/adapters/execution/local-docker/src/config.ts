@@ -50,7 +50,10 @@ export type LocalDockerBackendConfig = {
   objectStore: WorkerObjectStoreAccess;
   /** Deadline for each Docker Engine API call. */
   requestTimeoutMs: number;
-  /** Seconds between SIGTERM and SIGKILL on terminate. */
+  /**
+   * Seconds between SIGTERM and SIGKILL on terminate, handed to the worker as
+   * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit. DESIGN §6.6's 120.
+   */
   stopTimeoutSeconds: number;
   tmpfsSizeBytes: number;
   /** `uid:gid`; must not be root. */
@@ -161,9 +164,11 @@ export function localDockerConfigFromEnv(
             environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC,
             "EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC",
           ) * 1_000,
-    stopTimeoutSeconds: positiveInteger(
-      environment.EXECUTION_DOCKER_STOP_TIMEOUT_SEC ?? "10",
-      "EXECUTION_DOCKER_STOP_TIMEOUT_SEC",
+    stopTimeoutSeconds: stopGrace(
+      positiveInteger(
+        environment.EXECUTION_DOCKER_STOP_TIMEOUT_SEC ?? "120",
+        "EXECUTION_DOCKER_STOP_TIMEOUT_SEC",
+      ),
     ),
     tmpfsSizeBytes:
       positiveInteger(
@@ -358,4 +363,21 @@ function positiveInteger(value: string, name: string): number {
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
+}
+
+/**
+ * The worker spends about 12 s of the grace on interrupt, engine exit and
+ * release (`SHUTDOWN_RESERVE_MS` in apps/worker) and drains with the rest. A
+ * grace that leaves no real drain turns every stop of a busy worker into a
+ * turn for the recovery path, so it is refused rather than run quietly.
+ */
+export const MIN_STOP_GRACE_SECONDS = 30;
+
+function stopGrace(seconds: number): number {
+  if (seconds < MIN_STOP_GRACE_SECONDS) {
+    throw new Error(
+      `EXECUTION_DOCKER_STOP_TIMEOUT_SEC must be at least ${MIN_STOP_GRACE_SECONDS}: below that a worker has no time to drain the turn it is running`,
+    );
+  }
+  return seconds;
 }

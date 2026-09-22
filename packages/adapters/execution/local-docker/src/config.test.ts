@@ -30,7 +30,7 @@ describe("localDockerConfigFromEnv", () => {
         secretAccessKey: "test",
       },
       requestTimeoutMs: 30_000,
-      stopTimeoutSeconds: 10,
+      stopTimeoutSeconds: 120,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",
       workspaceDir: "/workspace",
@@ -270,6 +270,21 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: "0",
       }),
     ).toThrow("EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC");
+  });
+
+  test("refuses a stop grace too short for a worker to drain in", () => {
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_DOCKER_STOP_TIMEOUT_SEC: "10",
+      }),
+    ).toThrow("at least 30");
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_DOCKER_STOP_TIMEOUT_SEC: "30",
+      }).stopTimeoutSeconds,
+    ).toBe(30);
   });
 
   test("numeric settings must be positive integers", () => {
