@@ -1,6 +1,7 @@
 import {
   DEFAULT_DOCKER_API_VERSION,
   DEFAULT_DOCKER_HOST,
+  DEFAULT_DOCKER_REQUEST_TIMEOUT_MS,
 } from "./docker-client.ts";
 
 export type LocalDockerBackendConfig = {
@@ -15,6 +16,8 @@ export type LocalDockerBackendConfig = {
   /** Mounted as tmpfs so the read-only rootfs still has a writable HOME. */
   homeDir: string;
   network: string;
+  /** Deadline for each Docker Engine API call. */
+  requestTimeoutMs: number;
   /** Seconds between SIGTERM and SIGKILL on terminate. */
   stopTimeoutSeconds: number;
   tmpfsSizeBytes: number;
@@ -33,6 +36,7 @@ export type LocalDockerBackendEnvironment = {
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
   EXECUTION_DOCKER_NETWORK?: string | undefined;
   EXECUTION_DOCKER_NETWORK_ALLOWLIST?: string | undefined;
+  EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC?: string | undefined;
   EXECUTION_DOCKER_STOP_TIMEOUT_SEC?: string | undefined;
   EXECUTION_DOCKER_TMPFS_SIZE_MB?: string | undefined;
   EXECUTION_DOCKER_USER?: string | undefined;
@@ -68,6 +72,13 @@ export function localDockerConfigFromEnv(
     gatewayUrl,
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
     network,
+    requestTimeoutMs:
+      environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
+        ? DEFAULT_DOCKER_REQUEST_TIMEOUT_MS
+        : positiveInteger(
+            environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC,
+            "EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC",
+          ) * 1_000,
     stopTimeoutSeconds: positiveInteger(
       environment.EXECUTION_DOCKER_STOP_TIMEOUT_SEC ?? "10",
       "EXECUTION_DOCKER_STOP_TIMEOUT_SEC",
@@ -96,9 +107,19 @@ export function validateLocalDockerConfig(
   if (config.network === "host") {
     throw new Error("Docker network host is never allowed for workers");
   }
-  const [uid] = config.user.split(":");
-  if (!uid || uid === "0" || uid === "root") {
-    throw new Error(`Worker user ${config.user} must be a non-root uid[:gid]`);
+  // Docker accepts any decimal spelling of uid 0 ("00", "000:1000"), so
+  // compare the parsed number, not the string.
+  const [uid, gid] = config.user.split(":");
+  if (
+    !uid ||
+    !/^\d+$/.test(uid) ||
+    Number.parseInt(uid, 10) === 0 ||
+    (gid !== undefined &&
+      (!/^\d+$/.test(gid) || Number.parseInt(gid, 10) === 0))
+  ) {
+    throw new Error(
+      `Worker user ${config.user} must be a numeric non-root uid[:gid]`,
+    );
   }
   if (!config.homeDir.startsWith("/") || !config.workspaceDir.startsWith("/")) {
     throw new Error("homeDir and workspaceDir must be absolute paths");

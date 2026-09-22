@@ -57,6 +57,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
       network: "bridge",
+      requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 1,
       tmpfsSizeBytes: 16 * 1024 * 1024,
       user: "1000:1000",
@@ -73,10 +74,9 @@ integration("LocalDockerBackend against a real daemon", () => {
   beforeAll(async () => {
     await client.version();
     // Pull once so create does not 404 on a fresh daemon.
-    const pull = await fetchDocker(
-      `/images/create?fromImage=${encodeURIComponent(IMAGE.split(":")[0] ?? IMAGE)}&tag=${encodeURIComponent(IMAGE.split(":")[1] ?? "latest")}`,
-    );
-    await pull.text();
+    await new DockerClient(dockerHost, "v1.44", {
+      timeoutMs: 110_000,
+    }).pullImage(IMAGE);
   }, 120_000);
 
   afterAll(async () => {

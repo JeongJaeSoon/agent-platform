@@ -16,6 +16,11 @@ export type ReserveLaunchInput = {
   backend: ExecutionBackendKind;
   now: Date;
   sessionId: string;
+  /**
+   * Global cap on live executions, enforced inside the reservation
+   * transaction so concurrent scheduler passes cannot both take the last slot.
+   */
+  slotLimit: number;
 };
 
 /**
@@ -37,12 +42,17 @@ export type ActiveExecution = StoredLaunchIntent & {
 export interface SchedulerStore {
   inspectDemand(input: { limit: number }): Promise<SchedulerDemand>;
   /**
-   * Commits the launch intent for a session that is still eligible, or
-   * returns null when it no longer is (raced by a claim or another launch).
+   * Commits the launch intent for a session that is still eligible and a slot
+   * is free, or returns null when either no longer holds (raced by a claim,
+   * another launch, or another scheduler pass).
    */
   reserveLaunch(input: ReserveLaunchInput): Promise<StoredLaunchIntent | null>;
   listActiveExecutions(): Promise<ActiveExecution[]>;
-  /** The subset of `refs` that have a matching `executions` row. */
+  /**
+   * The subset of `refs` that have a matching *live* `executions` row. A row
+   * already recorded terminated no longer owns its resource, so the resource
+   * is reclaimed as an orphan if it still exists.
+   */
   filterKnown(refs: ExecutionRef[]): Promise<ExecutionRef[]>;
   recordObservation(
     ref: ExecutionRef,

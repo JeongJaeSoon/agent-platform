@@ -94,8 +94,10 @@ export async function runScheduler(
       continue;
     }
     if (observed.found && observed.state === "terminated") {
-      // Reclaim first: if the stop/remove call fails the row stays live and
-      // the next pass retries instead of leaking an exited container.
+      // Mark, reclaim, then record. `terminating` keeps the row live so a
+      // failed or interrupted removal is retried, and tells the next pass
+      // that an absent resource means "reclaimed", not "relaunch me".
+      await store.recordObservation(ref, { ...observed, state: "terminating" });
       try {
         await backend.terminate(ref);
       } catch (error) {
@@ -113,6 +115,12 @@ export async function runScheduler(
         exit_code: observed.exitCode ?? null,
         session_id: execution.sessionId,
       });
+      continue;
+    }
+    if (!observed.found && execution.observedState === "terminating") {
+      // The previous pass removed the resource but crashed before recording.
+      await store.recordObservation(ref, { ...observed, state: "terminated" });
+      summary.terminatedObserved.push(ref);
       continue;
     }
     // Row says live but the provider has nothing, or has a resource that was
@@ -169,6 +177,7 @@ export async function runScheduler(
       backend: backend.kind,
       now: now(),
       sessionId,
+      slotLimit: options.slotLimit,
     });
     if (stored === null) continue;
     free -= 1;

@@ -66,8 +66,17 @@ export function createPostgresSchedulerStore(db: Database): SchedulerStore {
       input: ReserveLaunchInput,
     ): Promise<StoredLaunchIntent | null> {
       return db.transaction(async (tx) => {
-        // The session row lock serializes concurrent schedulers for one
-        // session; everything below re-checks eligibility under it.
+        // One advisory lock serializes every reservation so the capacity
+        // check below cannot be raced by another scheduler pass; the session
+        // row lock then covers the per-session checks.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext('executions:reserve_launch'))`,
+        );
+        const [capacity] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(executions)
+          .where(isLive());
+        if ((capacity?.count ?? 0) >= input.slotLimit) return null;
         const [session] = await tx
           .select({ admissionState: sessions.admissionState })
           .from(sessions)
@@ -156,9 +165,12 @@ export function createPostgresSchedulerStore(db: Database): SchedulerStore {
         .select({ id: executions.id, generation: executions.generation })
         .from(executions)
         .where(
-          inArray(
-            executions.id,
-            refs.map((ref) => ref.executionId),
+          and(
+            inArray(
+              executions.id,
+              refs.map((ref) => ref.executionId),
+            ),
+            isLive(),
           ),
         );
       const generations = new Map(rows.map((r) => [r.id, r.generation]));

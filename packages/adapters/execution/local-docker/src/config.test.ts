@@ -12,6 +12,7 @@ describe("localDockerConfigFromEnv", () => {
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
       network: "bridge",
+      requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 10,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",
@@ -63,7 +64,16 @@ describe("localDockerConfigFromEnv", () => {
   });
 
   test("the worker user must not be root", () => {
-    for (const user of ["0", "0:0", "root", ""]) {
+    for (const user of [
+      "0",
+      "0:0",
+      "00",
+      "000:1000",
+      "1000:0",
+      "root",
+      "worker",
+      "",
+    ]) {
       expect(() =>
         localDockerConfigFromEnv({ ...base, EXECUTION_DOCKER_USER: user }),
       ).toThrow("non-root");
@@ -80,6 +90,21 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_DOCKER_HOME_DIR: "/workspace",
       }),
     ).toThrow("differ");
+  });
+
+  test("the Docker request deadline is configured in seconds", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: "5",
+      }).requestTimeoutMs,
+    ).toBe(5_000);
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: "0",
+      }),
+    ).toThrow("EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC");
   });
 
   test("numeric settings must be positive integers", () => {

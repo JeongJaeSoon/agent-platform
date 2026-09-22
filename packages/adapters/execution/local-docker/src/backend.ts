@@ -76,7 +76,10 @@ export class LocalDockerBackend implements ExecutionBackend {
   constructor(config: LocalDockerBackendConfig, client?: DockerClient) {
     this.config = validateLocalDockerConfig(config);
     this.client =
-      client ?? new DockerClient(config.dockerHost, config.apiVersion);
+      client ??
+      new DockerClient(config.dockerHost, config.apiVersion, {
+        timeoutMs: config.requestTimeoutMs,
+      });
   }
 
   capabilities(): ExecutionBackendCapabilities {

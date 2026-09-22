@@ -10,7 +10,11 @@ import {
   workspaceVolumeFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
-import type { ContainerCreateBody } from "./docker-client.ts";
+import {
+  type ContainerCreateBody,
+  DockerClient,
+  DockerTimeoutError,
+} from "./docker-client.ts";
 
 type FakeContainer = {
   body: ContainerCreateBody;
@@ -183,6 +187,7 @@ function configFor(host: string): LocalDockerBackendConfig {
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     network: "ap-workers",
+    requestTimeoutMs: 5_000,
     stopTimeoutSeconds: 3,
     tmpfsSizeBytes: 64 * 1024 * 1024,
     user: "1000:1000",
@@ -412,6 +417,46 @@ describe("LocalDockerBackend.terminate", () => {
       outcome: "generation_mismatch",
     });
     expect(docker.containers.size).toBe(1);
+  });
+});
+
+describe("a daemon that accepts the connection but never answers", () => {
+  test("every call fails with DockerTimeoutError at the configured deadline", async () => {
+    const stalled = Bun.serve({
+      fetch: () => new Promise<Response>(() => undefined),
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try {
+      const client = new DockerClient(
+        `tcp://127.0.0.1:${stalled.port}`,
+        "v1.44",
+        { timeoutMs: 100 },
+      );
+      const slow = new LocalDockerBackend(
+        configFor(`tcp://127.0.0.1:${stalled.port}`),
+        client,
+      );
+      const started = Date.now();
+      await expect(slow.inspect(intentFor())).rejects.toBeInstanceOf(
+        DockerTimeoutError,
+      );
+      await expect(slow.ensureExecution(intentFor())).rejects.toBeInstanceOf(
+        DockerTimeoutError,
+      );
+      await expect(slow.listManaged()).rejects.toBeInstanceOf(
+        DockerTimeoutError,
+      );
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
+      stalled.stop(true);
+    }
+  });
+
+  test("rejects a non-positive deadline", () => {
+    expect(
+      () => new DockerClient("tcp://127.0.0.1:1", "v1.44", { timeoutMs: 0 }),
+    ).toThrow("timeout");
   });
 });
 

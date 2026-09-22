@@ -31,6 +31,20 @@ export function parseDockerHost(host: string): DockerEndpoint {
   );
 }
 
+export const DEFAULT_DOCKER_REQUEST_TIMEOUT_MS = 30_000;
+
+/** The daemon accepted the connection but did not answer within the deadline. */
+export class DockerTimeoutError extends Error {
+  constructor(
+    readonly method: string,
+    readonly path: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`Docker API ${method} ${path} did not answer within ${timeoutMs}ms`);
+    this.name = "DockerTimeoutError";
+  }
+}
+
 export class DockerApiError extends Error {
   constructor(
     readonly status: number,
@@ -94,13 +108,19 @@ export type ContainerSummary = {
 export class DockerClient {
   private readonly endpoint: DockerEndpoint;
   private readonly prefix: string;
+  private readonly timeoutMs: number;
 
   constructor(
     host: string = DEFAULT_DOCKER_HOST,
     apiVersion: string = DEFAULT_DOCKER_API_VERSION,
+    options: { timeoutMs?: number } = {},
   ) {
     this.endpoint = parseDockerHost(host);
     this.prefix = `/${apiVersion.replace(/^\//, "")}`;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_DOCKER_REQUEST_TIMEOUT_MS;
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error("Docker request timeout must be a positive number");
+    }
   }
 
   async version(): Promise<{ ApiVersion: string; Version: string }> {
@@ -118,6 +138,21 @@ export class DockerClient {
       body,
     );
     return response.json();
+  }
+
+  /**
+   * Pulls `image` if the daemon does not have it. The backend never calls
+   * this (the worker image is provisioned out of band); tests do, so a fresh
+   * daemon can run them.
+   */
+  async pullImage(image: string): Promise<void> {
+    const [name, tag = "latest"] = image.split(":");
+    const response = await this.request(
+      "POST",
+      `/images/create?fromImage=${encodeURIComponent(name ?? image)}&tag=${encodeURIComponent(tag)}`,
+    );
+    // The pull streams progress JSON until it is done; drain it.
+    await response.text();
   }
 
   /** Idempotent: 304 (already started) is success. */
@@ -183,6 +218,9 @@ export class DockerClient {
         : `${this.endpoint.baseUrl}${this.prefix}${path}`;
     const init: RequestInit & { unix?: string } = {
       method,
+      // Every call is bounded: a stalled daemon must fail the pass, not hang
+      // the one-shot scheduler and every launch queued behind it.
+      signal: AbortSignal.timeout(this.timeoutMs),
       ...(body === undefined
         ? {}
         : {
@@ -193,7 +231,15 @@ export class DockerClient {
         ? { unix: this.endpoint.socketPath }
         : {}),
     };
-    const response = await fetch(url, init);
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new DockerTimeoutError(method, path, this.timeoutMs);
+      }
+      throw error;
+    }
     if (!accept.includes(response.status)) {
       throw new DockerApiError(
         response.status,

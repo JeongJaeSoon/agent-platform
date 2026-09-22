@@ -70,6 +70,7 @@ class MemoryStore implements SchedulerStore {
   ): Promise<StoredLaunchIntent | null> {
     if (!this.unassigned.has(input.sessionId)) return null;
     if (this.live().some((e) => e.sessionId === input.sessionId)) return null;
+    if (this.live().length >= input.slotLimit) return null;
     const generation =
       Math.max(
         0,
@@ -87,7 +88,11 @@ class MemoryStore implements SchedulerStore {
   async filterKnown(refs: ExecutionRef[]) {
     return refs.filter((ref) => {
       const row = this.executions.get(ref.executionId);
-      return row !== undefined && row.generation === ref.generation;
+      return (
+        row !== undefined &&
+        row.generation === ref.generation &&
+        row.observedState !== "terminated"
+      );
     });
   }
 
@@ -358,6 +363,57 @@ describe("runScheduler", () => {
     expect(second.terminatedObserved).toHaveLength(1);
     expect(backend.containers.has(name)).toBe(false);
     expect([...store.executions.values()][0]?.observedState).toBe("terminated");
+  });
+
+  test("an absent resource after a terminating mark is recorded terminated, not relaunched", async () => {
+    const { backend, run, store } = harness();
+    // Previous pass: marked terminating, removed the container, then crashed.
+    store.seedActive({ executionId: "exec-1", observedState: "terminating" });
+    const summary = await run();
+    expect(summary.terminatedObserved).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(summary.reensured).toEqual([]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(store.executions.get("exec-1")?.observedState).toBe("terminated");
+  });
+
+  test("a resource whose row is already terminated is reclaimed as an orphan", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "terminated",
+    });
+    backend.containers.set("exec-1#1", {
+      exited: true,
+      generation: 1,
+      operationId: row.operationId,
+      sessionId: row.sessionId,
+    });
+    const summary = await run();
+    expect(summary.orphansTerminated).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("the store refuses a reservation past the slot limit even when the pass thought a slot was free", async () => {
+    const { backend, run, store } = harness(2);
+    store.addUnassigned(3);
+    // Another pass took a slot between this pass's demand check and reserve.
+    const original = store.reserveLaunch.bind(store);
+    let injected = false;
+    store.reserveLaunch = async (input) => {
+      if (!injected) {
+        injected = true;
+        store.seedActive({ observedState: "running" });
+      }
+      return original(input);
+    };
+    const summary = await run();
+    expect(summary.launched).toHaveLength(1);
+    expect(store.executions.size).toBe(2);
+    expect(backend.containers.size).toBe(1);
   });
 
   test("a resource with no launch intent is logged and terminated", async () => {

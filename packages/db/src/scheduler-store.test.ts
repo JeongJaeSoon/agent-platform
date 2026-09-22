@@ -45,6 +45,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     expect(first).toMatchObject({ generation: 1, sessionId });
     expect(first?.executionId).toMatch(/^exec-[0-9a-f-]{36}$/);
@@ -54,6 +55,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     expect(second).toBeNull();
 
@@ -86,6 +88,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     if (!first) throw new Error("no intent");
     await store.recordObservation(first, {
@@ -99,6 +102,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     expect(second).toMatchObject({ generation: 2, sessionId });
     expect(second?.operationId).not.toBe(first.operationId);
@@ -112,6 +116,7 @@ describe("PostgresSchedulerStore", () => {
         backend: "local_docker",
         now: NOW,
         sessionId: paused,
+        slotLimit: 10,
       }),
     ).toBeNull();
 
@@ -124,6 +129,7 @@ describe("PostgresSchedulerStore", () => {
         backend: "local_docker",
         now: NOW,
         sessionId: claimed,
+        slotLimit: 10,
       }),
     ).toBeNull();
 
@@ -132,6 +138,7 @@ describe("PostgresSchedulerStore", () => {
         backend: "local_docker",
         now: NOW,
         sessionId: crypto.randomUUID(),
+        slotLimit: 10,
       }),
     ).toBeNull();
   });
@@ -149,6 +156,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId: ids[0] ?? "",
+      slotLimit: 10,
     });
     if (!launched) throw new Error("no intent");
 
@@ -184,6 +192,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     if (!intent) throw new Error("no intent");
     const foreign = await insertUnassigned();
@@ -220,6 +229,7 @@ describe("PostgresSchedulerStore", () => {
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     if (!intent) throw new Error("no intent");
     const at = new Date("2026-09-22T00:01:00Z");
@@ -260,12 +270,48 @@ describe("PostgresSchedulerStore", () => {
     expect(again).toEqual({ providerRef: "ctr-abc", state: "unknown" });
   });
 
+  test("reserveLaunch refuses once live executions reach the slot limit", async () => {
+    const a = await insertUnassigned();
+    const b = await insertUnassigned();
+    const first = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId: a,
+      slotLimit: 1,
+    });
+    expect(first).not.toBeNull();
+    expect(
+      await store.reserveLaunch({
+        backend: "local_docker",
+        now: NOW,
+        sessionId: b,
+        slotLimit: 1,
+      }),
+    ).toBeNull();
+    if (!first) throw new Error("no intent");
+    await store.recordObservation(first, {
+      found: true,
+      observedAt: NOW,
+      providerRef: "ctr",
+      state: "terminated",
+    });
+    expect(
+      await store.reserveLaunch({
+        backend: "local_docker",
+        now: NOW,
+        sessionId: b,
+        slotLimit: 1,
+      }),
+    ).not.toBeNull();
+  });
+
   test("filterKnown keeps refs whose row exists with the same generation", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
       backend: "local_docker",
       now: NOW,
       sessionId,
+      slotLimit: 10,
     });
     if (!intent) throw new Error("no intent");
     expect(
@@ -276,5 +322,14 @@ describe("PostgresSchedulerStore", () => {
       ]),
     ).toEqual([intent]);
     expect(await store.filterKnown([])).toEqual([]);
+
+    // A terminated row no longer owns its resource.
+    await store.recordObservation(intent, {
+      found: true,
+      observedAt: NOW,
+      providerRef: "ctr",
+      state: "terminated",
+    });
+    expect(await store.filterKnown([intent])).toEqual([]);
   });
 });

@@ -50,6 +50,9 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
   });
 
   beforeAll(async () => {
+    await new DockerClient(dockerHost, "v1.44", {
+      timeoutMs: 110_000,
+    }).pullImage(IMAGE);
     database = await createTempDatabase({ prefix: "scheduler_it" });
     pool = new Pool({ connectionString: database.url });
     db = drizzle(pool, { schema });
@@ -64,7 +67,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       });
       await db.insert(unassignedSessions).values({ sessionId: id });
     }
-  }, 60_000);
+  }, 120_000);
 
   afterAll(async () => {
     const rows = await db
