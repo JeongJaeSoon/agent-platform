@@ -5,6 +5,8 @@ import {
 } from "@agent-platform/contracts";
 import {
   type Database,
+  decodeEventCursor,
+  encodeEventCursor,
   enqueueWithin,
   events,
   queueMessages,
@@ -24,24 +26,6 @@ import type {
 } from "./index.ts";
 
 type NotificationWaiter = (signal?: AbortSignal) => Promise<void>;
-
-function encodeCursor(id: number) {
-  return `ev_${id.toString(36)}`;
-}
-
-function decodeCursor(cursor: string | undefined) {
-  if (!cursor) {
-    return 0;
-  }
-  if (!/^ev_[0-9a-z]+$/.test(cursor)) {
-    throw new Error("Invalid event cursor");
-  }
-  const id = Number.parseInt(cursor.slice(3), 36);
-  if (!Number.isSafeInteger(id) || id < 0) {
-    throw new Error("Invalid event cursor");
-  }
-  return id;
-}
 
 function parsePayload(payload: unknown): QueuePayload {
   const answer = postSessionAnswerRequestSchema.safeParse(payload);
@@ -167,29 +151,42 @@ export class PostgresQueue implements QueueBackend {
       event: input.event,
       data: input.data,
     });
-    const [inserted] = await this.#db
-      .insert(events)
-      .values({
-        sessionId: input.sessionId,
-        type: validated.event,
-        payload: validated.data,
-      })
-      .returning();
+    // Every writer to `events` inserts under the session row lock, so within
+    // one session a row's id is its commit order and a reader that resumes
+    // from the last id it saw (the SSE cursor) cannot skip a row that got a
+    // lower id but committed later. The worker's appendEvents holds the same
+    // lock; this path must not be the one exception.
+    const inserted = await this.#db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, input.sessionId))
+        .for("update");
+      const [row] = await tx
+        .insert(events)
+        .values({
+          sessionId: input.sessionId,
+          type: validated.event,
+          payload: validated.data,
+        })
+        .returning();
+      await tx.execute(
+        sql`SELECT pg_notify('session_events', ${input.sessionId})`,
+      );
+      return row;
+    });
     if (!inserted) {
       throw new Error("Failed to publish event");
     }
-    await this.#db.execute(
-      sql`SELECT pg_notify('session_events', ${input.sessionId})`,
-    );
     return sessionEventSchema.parse({
-      id: encodeCursor(inserted.id),
+      id: encodeEventCursor(inserted.id),
       event: inserted.type,
       data: inserted.payload,
     });
   }
 
   async *subscribe(input: SubscribeInput) {
-    let lastId = decodeCursor(input.after);
+    let lastId = decodeEventCursor(input.after);
     const pollIntervalMs = input.pollIntervalMs ?? 1_000;
     while (!input.signal?.aborted) {
       const rows = await this.#db
@@ -203,7 +200,7 @@ export class PostgresQueue implements QueueBackend {
       for (const row of rows) {
         lastId = row.id;
         yield sessionEventSchema.parse({
-          id: encodeCursor(row.id),
+          id: encodeEventCursor(row.id),
           event: row.type,
           data: row.payload,
         });

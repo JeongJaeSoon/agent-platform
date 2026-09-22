@@ -59,6 +59,7 @@ function app(
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt: async () => null,
+      readEvents: async () => null,
       ...overrides,
     },
   });

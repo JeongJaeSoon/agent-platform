@@ -80,6 +80,31 @@ integration("PostgresQueue on PostgreSQL", () => {
     }
   });
 
+  test("publish waits for the session row lock, so ids follow commit order", async () => {
+    // A writer holding the session row must block publish until it commits:
+    // that is what keeps a lower events.id from committing after a higher one
+    // and lets the SSE reader resume from the last id it saw.
+    const holder = await pool.connect();
+    await holder.query("BEGIN");
+    await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+      sessionId,
+    ]);
+    let published = false;
+    const publishing = queue
+      .publish({ sessionId, event: "status", data: { phase: "running" } })
+      .then((event) => {
+        published = true;
+        return event;
+      });
+    await Bun.sleep(200);
+    expect(published).toBe(false);
+    await holder.query("COMMIT");
+    holder.release();
+    const event = await publishing;
+    expect(published).toBe(true);
+    expect(event.id).toStartWith("ev_");
+  }, 10_000);
+
   test("never loses the unassigned signal when enqueue races with release", async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await db

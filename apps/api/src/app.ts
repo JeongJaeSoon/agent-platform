@@ -20,6 +20,10 @@ import type { ReadinessProbe } from "./readiness.ts";
 export interface ApiVariables {
   ownerId: string;
   requestId: string;
+  // Re-runs the credential check that admitted this request; false once the
+  // key is revoked. Long-lived responses (SSE) call it on their clock so a
+  // revocation ends the stream instead of outliving it.
+  reauthenticate: () => Promise<boolean>;
 }
 
 export interface ApiBindings {
@@ -263,12 +267,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // database work, so the idle clock is off for it.
     setIdleTimeout(0);
     let ownerId: string | null = null;
+    let reauthenticate = async () => true;
     if (authMode === "none") {
       ownerId = context.req.header("X-Owner-Id")?.trim() || null;
     } else {
       const token = bearerToken(context.req.header("Authorization"));
       if (token) {
-        ownerId = await keyStore.findOwner(hashApiKey(token));
+        const keyHash = hashApiKey(token);
+        ownerId = await keyStore.findOwner(keyHash);
+        const admitted = ownerId;
+        reauthenticate = async () =>
+          (await keyStore.findOwner(keyHash)) === admitted;
       }
     }
 
@@ -285,6 +294,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       );
     }
     context.set("ownerId", ownerId);
+    context.set("reauthenticate", reauthenticate);
 
     // Ingest and bound the body under the idle clock, then hand the request
     // to the route with the clock off for its database work. Hono caches the

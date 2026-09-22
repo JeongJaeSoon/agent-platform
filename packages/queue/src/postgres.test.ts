@@ -142,7 +142,7 @@ describe("PostgresQueue", () => {
   test("rejects malformed opaque cursors", async () => {
     const subscription = queue.subscribe({ sessionId, after: "ev_1!" });
     await expect(subscription[Symbol.asyncIterator]().next()).rejects.toThrow(
-      "Invalid event cursor",
+      "Invalid cursor",
     );
   });
 

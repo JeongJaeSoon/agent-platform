@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { buildOpenApiDocument } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
 import { createApiApp, probeRouteErrors, rootRouteErrors } from "./app.ts";
+import { eventRouteErrors, registerEventRoutes } from "./routes/events.ts";
 import {
   receiptRouteErrors,
   registerReceiptRoutes,
@@ -14,7 +15,6 @@ import {
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
 const NOT_YET_IMPLEMENTED = [
-  "GET /v1/sessions/{id}/events",
   "GET /v1/sessions/{id}/pending-requests",
   "POST /v1/sessions/{id}/answers",
   "POST /v1/sessions/{id}/interrupt",
@@ -29,6 +29,9 @@ function honoRoutes(): Set<string> {
     registerRoutes: (router) => {
       registerSessionRoutes(router, {} as SessionService);
       registerReceiptRoutes(router, {} as SessionService);
+      registerEventRoutes(router, {} as SessionService, {
+        wakeup: { wait: async () => {} },
+      });
     },
   });
   // /internal/* is the worker protocol, not part of the public document.
@@ -86,6 +89,7 @@ test("each handler's error statuses match its OpenAPI operation", () => {
         ? rootRouteErrors
         : (probeRouteErrors[route] ??
           receiptRouteErrors[route] ??
+          eventRouteErrors[route] ??
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     const expected = [

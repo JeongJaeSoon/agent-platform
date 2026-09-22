@@ -18,9 +18,11 @@ import {
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
+import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerEventRoutes } from "./routes/events.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -75,6 +77,22 @@ const workers = createWorkerGateway({
         : DEFAULT_LEASE_TTL_MS,
   },
 });
+// An unset or malformed value keeps the route's default rather than
+// disabling the cap.
+function positiveEnv<K extends string>(
+  name: string,
+  key: K,
+): Partial<Record<K, number>> {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0
+    ? ({ [key]: value } as Record<K, number>)
+    : {};
+}
+
+// Wakes SSE streams on NOTIFY; streams still re-read on their keepalive
+// clock, so a listener that is down only adds latency, never loses events.
+const notifier = new PostgresSessionNotifier(databaseUrl, logger);
+void notifier.start();
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -82,6 +100,13 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
+    registerEventRoutes(router, sessions, {
+      wakeup: notifier,
+      logger,
+      ...positiveEnv("SSE_MAX_STREAMS", "maxStreams"),
+      ...positiveEnv("SSE_MAX_STREAMS_PER_OWNER", "maxStreamsPerOwner"),
+      ...positiveEnv("SSE_REPLAY_MAX_BYTES", "batchMaxBytes"),
+    });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
   readiness: createReadinessProbe({

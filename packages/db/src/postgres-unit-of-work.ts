@@ -11,7 +11,9 @@ import {
   type Receipt,
   type ReceiptSessionTarget,
   receiptSchema,
+  SSE_SCHEMA_VERSION,
   sessionIdSchema,
+  sseEventSchema,
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
@@ -21,6 +23,8 @@ import type {
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
+  EventPage,
+  ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
   SessionRecord,
@@ -28,6 +32,11 @@ import type {
 } from "@agent-platform/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
+import {
+  decodeEventCursor,
+  encodeEventCursor,
+  InvalidCursorError,
+} from "./event-cursor.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -301,12 +310,6 @@ function decodeCursor(value: string): Cursor {
   throw new InvalidCursorError();
 }
 
-export class InvalidCursorError extends Error {
-  constructor() {
-    super("Invalid cursor");
-  }
-}
-
 // Turns page in FIFO order; the cursor is the last sequence on the page.
 type TurnCursor = { sequence: number };
 const TURN_ID = /^[1-9]\d{0,9}$/;
@@ -374,6 +377,54 @@ function summarizeTurn(
     ended_at: row.endedAt?.toISOString() ?? null,
   };
 }
+
+// Exported so a test can EXPLAIN it: the work per page must stay bounded
+// by `limit` however long the session history is. The byte total is the
+// serialized length, not pg_column_size: TOAST compresses a repetitive
+// 60 KiB document to under 1 KiB on disk, and it is the serialized form
+// that this process holds.
+export function eventPageQuery(
+  sessionId: string,
+  after: number,
+  limit: number,
+  maxBytes: number,
+) {
+  return sql`
+    SELECT id, type, payload, attempt_id, occurred_ms, turn_sequence,
+           fetched
+    FROM (
+      SELECT c.id, c.type, c.payload, c.attempt_id, c.turn_sequence,
+             c.occurred_ms,
+             sum(octet_length(c.payload::text)) OVER (ORDER BY c.id)
+               AS running_bytes,
+             row_number() OVER (ORDER BY c.id) AS position,
+             count(*) OVER () AS fetched
+      FROM (
+        SELECT e.id, e.type, e.payload, e.attempt_id,
+               t.sequence AS turn_sequence,
+               (extract(epoch FROM coalesce(e.occurred_at, e.created_at))
+                 * 1000)::bigint AS occurred_ms
+        FROM ${events} e
+        LEFT JOIN ${turns} t ON t.id = e.turn_id
+        WHERE e.session_id = ${sessionId} AND e.id > ${after}
+        ORDER BY e.id
+        LIMIT ${limit}
+      ) c
+    ) page
+    WHERE position = 1 OR running_bytes <= ${maxBytes}
+    ORDER BY id
+  `;
+}
+
+type EventPageRow = {
+  id: string;
+  type: string;
+  payload: unknown;
+  attempt_id: string | null;
+  occurred_ms: string;
+  turn_sequence: number | null;
+  fetched: string;
+};
 
 export function createPostgresSessionReader(db: Database): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
@@ -661,6 +712,69 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
       });
+    },
+
+    async readEvents(
+      ownerId: string,
+      sessionId: string,
+      query: ReadEventsQuery,
+    ): Promise<EventPage | null> {
+      const after = decodeEventCursor(query.after);
+      if (!(await ownedSession(ownerId, sessionId))) return null;
+      // events.id is global, so a well-formed cursor from another session
+      // would silently skip this one's history and a forged future cursor
+      // would stream nothing forever. A nonzero cursor must name a row of
+      // this session; alpha never trims, so a miss is a bad request rather
+      // than 410 CURSOR_EXPIRED.
+      if (after > 0) {
+        const [anchor] = await db
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.sessionId, sessionId), eq(events.id, after)))
+          .limit(1);
+        if (!anchor) throw new InvalidCursorError();
+      }
+      // Ordered by row id, which is commit order within one session: every
+      // writer (the worker's appendEvents, PostgresQueue.publish) inserts
+      // under the session row lock, so a lower id can never become visible
+      // after a higher one and a reader that resumes from the last id it saw
+      // misses nothing. A new writer must take the same lock.
+      //
+      // The byte bound is applied in SQL over a running sum of payload sizes
+      // so that Postgres, not this process, holds whatever falls past it.
+      // The candidate set is cut to `limit` rows first, because window
+      // functions run before LIMIT and would otherwise size the whole
+      // remaining history on every page. The first row always comes
+      // through, or an oversized event could never be read at all.
+      // The Database type is generic over the driver, so execute() cannot
+      // name its row shape; pg hands back bigints and counts as strings and
+      // raw timestamps in a driver-dependent form, hence the epoch column.
+      // Rows written outside the worker protocol carry no occurred_at; the
+      // insert time is the closest thing to when it happened.
+      const result = (await db.execute(
+        eventPageQuery(sessionId, after, query.limit, query.maxBytes),
+      )) as { rows: EventPageRow[] };
+      const rows = result.rows;
+      const fetched = Number(rows[0]?.fetched ?? 0);
+      return {
+        items: rows.map((row) =>
+          sseEventSchema.parse({
+            id: encodeEventCursor(Number(row.id)),
+            event: row.type,
+            data: {
+              schema_version: SSE_SCHEMA_VERSION,
+              session_id: sessionId,
+              turn_id:
+                row.turn_sequence === null ? null : String(row.turn_sequence),
+              attempt_id: row.attempt_id,
+              occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
+              data: row.payload,
+            },
+          }),
+        ),
+        // Cut by the row limit, or by the byte bound below the row limit.
+        more: fetched === query.limit || rows.length < fetched,
+      };
     },
   };
 }
