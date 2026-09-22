@@ -29,7 +29,11 @@ import {
   localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
-import { mark, startStallReporter, startStepReporter } from "./s3-diagnostics.ts";
+import {
+  mark,
+  startStallReporter,
+  startStepReporter,
+} from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
 const describeActual = localstackEnabled ? describe : describe.skip;
@@ -469,7 +473,10 @@ async function runChild(
 ): Promise<{ exitCode: number; value: ChildResult }> {
   const child = startChild(options);
   mark(`runChild:spawned(${child.pid})`);
-  const watchdogMs = Math.max(2_000, testDeadline - Date.now() - WATCHDOG_MARGIN_MS);
+  const watchdogMs = Math.max(
+    2_000,
+    testDeadline - Date.now() - WATCHDOG_MARGIN_MS,
+  );
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
   let exitCode: number | undefined;

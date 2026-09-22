@@ -317,7 +317,9 @@ async function readBodyWithin(
       body.transformToByteArray(),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
-          const error = new Error(`SessionStore part body stalled ${timeoutMs}ms`);
+          const error = new Error(
+            `SessionStore part body stalled ${timeoutMs}ms`,
+          );
           body.destroy?.(error);
           reject(error);
         }, timeoutMs);
