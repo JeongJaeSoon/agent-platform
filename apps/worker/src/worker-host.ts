@@ -434,7 +434,7 @@ export class WorkerHost {
       // reconciler decides it. The draining heartbeat `stop` sends makes the
       // gateway answer the poll empty, so waiting costs one poll interval.
       const next = await this.untilAbandoned(this.nextInput());
-      if (next === undefined || next === null) return;
+      if (next === undefined || next === null || this.ownerLost) return;
       if (next.input === null) {
         const idleFor = this.now().getTime() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
@@ -471,9 +471,10 @@ export class WorkerHost {
     run: AgentRun,
     input: { input_id: string; message: string; turn_id: string },
   ): Promise<void> {
-    // Delivered while the engine was already gone: nothing can run it, so it
-    // is left open for the reconciler rather than sent into the void.
-    if (this.stopKind === "failed") return;
+    // Delivered while the engine was already gone, or to an attempt whose
+    // lease is gone: either way nothing may run it here, so it is left open
+    // for the reconciler. A drain still runs it: that attempt owns it.
+    if (this.stopKind === "failed" || this.stopKind === "lost") return;
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what
     // lets the engine deduplicate a turn it already saw after a crash.
