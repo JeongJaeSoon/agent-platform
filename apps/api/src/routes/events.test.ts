@@ -483,6 +483,80 @@ describe("GET /v1/sessions/{id}/events", () => {
     await response.body?.cancel().catch(() => {});
   });
 
+  test("a key revoked during the initial read never sends a frame", async () => {
+    const store = new FakeStore();
+    const wakeup = new FakeWakeup();
+    store.append(event(1), event(2));
+    let valid = true;
+    let releaseRead: (() => void) | undefined;
+    const service = createSessionService({
+      authorization: ownerScopedPolicy,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: async (ownerId, sessionId, query) => {
+          if (query.after === undefined) {
+            // The first page waits on "the pool" longer than a keepalive.
+            await new Promise<void>((resolve) => {
+              releaseRead = resolve;
+            });
+          }
+          return store.reader()(ownerId, sessionId, query);
+        },
+      },
+    });
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async findOwner() {
+          return valid ? OWNER : null;
+        },
+      },
+      registerRoutes: (router) => {
+        registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 20,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    const pending = open(app, { Authorization: "Bearer csp_test" });
+    for (let i = 0; i < 100 && !releaseRead; i += 1) await Bun.sleep(5);
+    await Bun.sleep(30);
+    valid = false;
+    releaseRead?.();
+    const response = await pending;
+    expect(response.status).toBe(200);
+    const frames = new FrameReader(response);
+    expect(await frames.ended()).toBe(true);
+  });
+
+  test("a blocked keepalive write closes the stream within the bound", async () => {
+    const { app, handle } = harness({ keepaliveMs: 40 });
+    // No events and nobody reads the body: the first keepalive write blocks.
+    const response = await open(app);
+    expect(response.status).toBe(200);
+    await Bun.sleep(20);
+    expect(handle.activeStreams()).toBe(1);
+    for (let i = 0; i < 100 && handle.activeStreams() !== 0; i += 1) {
+      await Bun.sleep(10);
+    }
+    expect(handle.activeStreams()).toBe(0);
+    await response.body?.cancel().catch(() => {});
+  });
+
   test("releases its handle when the client disconnects", async () => {
     const { app, wakeup, handle } = harness();
     const controller = new AbortController();

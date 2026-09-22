@@ -78,6 +78,10 @@ export function registerEventRoutes(
 
   router.get("/sessions/:id/events", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
+    // The middleware's check is the last one that counts; the first-page
+    // read below can wait on the pool, and that wait must count against the
+    // revocation window rather than reset it.
+    const authenticatedAt = Date.now();
     const actor = { ownerId: context.get("ownerId") };
     const reauthenticate = context.get("reauthenticate");
     const after = requireLastEventId(context.req.header("Last-Event-ID"));
@@ -134,7 +138,7 @@ export function registerEventRoutes(
       active += 1;
       let sent = 0;
       let cursor = after;
-      let lastAuthAt = Date.now();
+      let lastAuthAt = authenticatedAt;
       // On the keepalive clock whatever the stream is doing, so neither a
       // long replay nor a steady run of notifications lets a revoked key
       // keep reading past the window.
@@ -142,6 +146,22 @@ export function registerEventRoutes(
         if (Date.now() - lastAuthAt < keepaliveMs) return true;
         lastAuthAt = Date.now();
         return reauthenticate();
+      };
+      // A write blocks on client backpressure. Past one keepalive the
+      // connection is treated as dead: the body is aborted so the pending
+      // write fails instead of holding the credential check hostage. The
+      // timer is cleared when the write wins, so a fast replay does not
+      // leave one pending timer per frame.
+      const writeBounded = async (write: () => Promise<unknown>) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const stalled = new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), keepaliveMs);
+        });
+        try {
+          return await Promise.race([write().then(() => true), stalled]);
+        } finally {
+          clearTimeout(timer);
+        }
       };
       logger.info("SSE stream opened", {
         session_id: params.id,
@@ -159,20 +179,14 @@ export function registerEventRoutes(
               closeWith("credential_revoked");
               break;
             }
-            // A write blocks on client backpressure. Past one keepalive it
-            // is treated as a dead connection: abort the body so the pending
-            // write fails instead of holding the credential check hostage.
-            const written = await Promise.race([
-              stream
-                .writeSSE({
-                  id: event.id,
-                  event: event.event,
-                  data: JSON.stringify(event.data),
-                })
-                .then(() => "written" as const),
-              sleep(keepaliveMs, closed.signal),
-            ]);
-            if (written !== "written") {
+            const written = await writeBounded(() =>
+              stream.writeSSE({
+                id: event.id,
+                event: event.event,
+                data: JSON.stringify(event.data),
+              }),
+            );
+            if (!written) {
               closeWith("write_stalled");
               stream.abort();
               break;
@@ -196,7 +210,13 @@ export function registerEventRoutes(
             ]);
             if (closed.signal.aborted) break;
             if (outcome === "tick") {
-              await stream.write(": keepalive\n\n");
+              if (
+                !(await writeBounded(() => stream.write(": keepalive\n\n")))
+              ) {
+                closeWith("write_stalled");
+                stream.abort();
+                break;
+              }
               if (!(await stillAuthenticated())) {
                 closeWith("credential_revoked");
                 break;
