@@ -260,6 +260,10 @@ describe("upsert-ci-issue.sh", () => {
       const closed = outcome.calls.find((call) => call.startsWith(closedList));
       expect(closed).toContain("--json number,title");
       expect(closed).not.toContain("--jq");
+      // Both lookups fetch up to the same ceiling; a lower one hides titles.
+      expect(closed).toContain("--limit 1000");
+      const open = outcome.calls.find((call) => call.startsWith(openList));
+      expect(open).toContain("--limit 1000");
     } finally {
       await body.dispose();
     }
