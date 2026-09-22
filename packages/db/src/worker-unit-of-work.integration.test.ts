@@ -906,6 +906,85 @@ integration("worker gateway on PostgreSQL", () => {
     expect(stored.map((row) => row.sourceSequence)).toEqual([1, 2, 3]);
   });
 
+  test("a draining attempt is not handed the next input", async () => {
+    const partition = partitionFor("drain");
+    const { session, claimed } = await claimAndDeliver(partition);
+    const scope = scopeOf(claimed, "1");
+    await gateway.finalize(principalOf(claimed), {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "drain-1",
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    const [owner] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      principal: { ownerId: owner?.ownerId ?? "" },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "input the worker will not take",
+    });
+    await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "draining",
+    });
+    // The worker is on its way out, so the queued turn waits for the next
+    // attempt instead of being delivered and then abandoned.
+    const next = await gateway.nextInput(principalOf(claimed), {
+      ...scopeOf(claimed),
+    });
+    expect(next.input).toBeNull();
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.state).toBe("draining");
+    const [waiting] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(
+        and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 2)),
+      );
+    expect(waiting?.status).toBe("queued");
+  });
+
+  test("a heartbeat that commits late cannot shorten a lease already extended", async () => {
+    const { claimed } = await claimAndDeliver();
+    advance(500);
+    const ahead = await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+    });
+    const extended = new Date(ahead.lease_expires_at).getTime();
+    // An overlapping heartbeat carrying an older server timestamp lands
+    // second; it must not undo the extension the first one committed.
+    advance(-400);
+    const late = await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+    });
+    expect(new Date(late.lease_expires_at).getTime()).toBe(extended);
+    const [attempt] = await db
+      .select({
+        leaseExpiresAt: attempts.leaseExpiresAt,
+        lastHeartbeatAt: attempts.lastHeartbeatAt,
+      })
+      .from(attempts)
+      .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.leaseExpiresAt.getTime()).toBe(extended);
+    expect(attempt?.lastHeartbeatAt?.getTime()).toBe(extended - LEASE_TTL_MS);
+    advance(400);
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

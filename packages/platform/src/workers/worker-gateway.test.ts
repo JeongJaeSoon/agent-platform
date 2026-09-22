@@ -39,6 +39,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
     commitEventsAtomic: unimplemented,
+    peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
     releaseAtomic: unimplemented,
     confirmExecutionGoneAtomic: unimplemented,
@@ -209,6 +210,58 @@ describe("WorkerGateway", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
     expect(committed).toBe(0);
+  });
+
+  test("a committed finalize replays without asking the verifier again", async () => {
+    let verified = 0;
+    let committed = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async peekFinalizeAtomic() {
+          return {
+            outcome: "replayed",
+            result: {
+              turnId: "1",
+              status: "completed",
+              checkpointRevision: 3,
+            },
+          };
+        },
+        async finalizeAtomic() {
+          committed += 1;
+          throw new Error("not reached");
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          verified += 1;
+          return { status: "rejected", reason: "storage is unreachable" };
+        },
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    // The turn is already terminal, so a verifier that happens to be down
+    // must not hide a result the worker has no other way to learn.
+    expect(
+      await instance.finalize(principal, {
+        ...scope,
+        turn_id: "1",
+        finalize_key: "f",
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 3,
+          manifest_ref: "ref",
+          manifest_sha256: "0".repeat(64),
+        },
+      }),
+    ).toEqual({ turn_id: "1", status: "completed", checkpoint_revision: 3 });
+    expect([verified, committed]).toEqual([0, 0]);
   });
 
   test("authenticate hashes the bearer token and rejects unknown ones", async () => {

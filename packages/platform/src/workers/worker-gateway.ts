@@ -21,6 +21,7 @@ import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type {
   ConfirmExecutionGoneResult,
   FenceRejection,
+  FinalizeResult,
   ResolvedCredential,
   WorkerFence,
   WorkerUnitOfWork,
@@ -112,6 +113,39 @@ function rejected(rejection: FenceRejection): never {
     "STALE_EPOCH",
     "Another epoch owns this session",
   );
+}
+
+// Both the replay lookup and the commit answer in the same shape.
+function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
+  switch (result.outcome) {
+    case "turn_not_found":
+      throw new WorkerGatewayError(
+        404,
+        "NOT_FOUND",
+        "Turn is not delivered to this attempt",
+      );
+    case "finalize_conflict":
+      throw new WorkerGatewayError(
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "Turn already finalized under a different finalize_key or body",
+      );
+    case "checkpoint_rejected":
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        `Checkpoint rejected: ${result.reason}`,
+      );
+    case "finalized":
+    case "replayed":
+      return {
+        turn_id: result.result.turnId,
+        status: result.result.status,
+        checkpoint_revision: result.result.checkpointRevision,
+      };
+    default:
+      return rejected(result);
+  }
 }
 
 export function createWorkerGateway(deps: {
@@ -403,6 +437,20 @@ export function createWorkerGateway(deps: {
       request: FinalizeRequest,
     ): Promise<FinalizeResponse> {
       const fence = requireScope(principal, request);
+      const attempt = {
+        fence,
+        now: now(),
+        turnId: request.turn_id,
+        finalizeKey: request.finalize_key,
+        terminal: request.terminal,
+        checkpoint: request.checkpoint,
+      };
+      // A finalize that already committed is answered from the stored turn.
+      // Re-verifying its checkpoint could fail for a reason that has nothing
+      // to do with this turn, and the worker has no other way to learn a
+      // result that is already durable.
+      const settled = await work.peekFinalizeAtomic(attempt);
+      if (settled.outcome !== "open") return finalizeAnswer(settled);
       if (request.checkpoint) {
         const verdict = await checkpoints.verify({
           sessionId: request.session_id,
@@ -416,43 +464,7 @@ export function createWorkerGateway(deps: {
           );
         }
       }
-      const result = await work.finalizeAtomic({
-        fence,
-        now: now(),
-        turnId: request.turn_id,
-        finalizeKey: request.finalize_key,
-        terminal: request.terminal,
-        checkpoint: request.checkpoint,
-      });
-      switch (result.outcome) {
-        case "turn_not_found":
-          throw new WorkerGatewayError(
-            404,
-            "NOT_FOUND",
-            "Turn is not delivered to this attempt",
-          );
-        case "finalize_conflict":
-          throw new WorkerGatewayError(
-            409,
-            "IDEMPOTENCY_CONFLICT",
-            "Turn already finalized under a different finalize_key or body",
-          );
-        case "checkpoint_rejected":
-          throw new WorkerGatewayError(
-            409,
-            "CHECKPOINT_UNAVAILABLE",
-            `Checkpoint rejected: ${result.reason}`,
-          );
-        case "finalized":
-        case "replayed":
-          return {
-            turn_id: result.result.turnId,
-            status: result.result.status,
-            checkpoint_revision: result.result.checkpointRevision,
-          };
-        default:
-          return rejected(result);
-      }
+      return finalizeAnswer(await work.finalizeAtomic(attempt));
     },
 
     async release(

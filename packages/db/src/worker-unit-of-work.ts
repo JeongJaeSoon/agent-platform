@@ -18,6 +18,7 @@ import {
   type HeartbeatResult,
   type NextInputInput,
   type NextInputResult,
+  type PeekFinalizeResult,
   payloadHash,
   type RegisterLaunchInput,
   type ReleaseInput,
@@ -199,6 +200,74 @@ function sameEvent(
 // of the unbroken run that starts at sequence 1: a run found further along
 // says nothing about the events before it. A row with no successor ends a
 // run, and the first such row ends the first run.
+// Reads how a finalize stands: already committed (a replay, or a different
+// body wearing the same key), or still open and waiting for this request.
+// finalizeAtomic locks the row; the read-only peek does not.
+async function probeFinalize(
+  tx: Database,
+  fence: WorkerFence,
+  input: FinalizeInput,
+  lock: boolean,
+): Promise<
+  | { state: "open"; turn: typeof turns.$inferSelect; terminalHash: string }
+  | { state: "settled"; result: FinalizeResult }
+> {
+  const sequence = parseTurnId(input.turnId);
+  const query = sequence
+    ? tx
+        .select()
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, fence.sessionId),
+            eq(turns.sequence, sequence),
+          ),
+        )
+        .limit(1)
+    : null;
+  const rows = query ? await (lock ? query.for("update") : query) : [];
+  const [turn] = rows;
+  if (!turn || turn.attemptId !== fence.attemptId) {
+    return { state: "settled", result: { outcome: "turn_not_found" } };
+  }
+  // The checkpoint is part of what finalize commits, so a retry that changes
+  // it is a different request wearing the same key.
+  const terminalHash = payloadHash({
+    terminal: input.terminal,
+    checkpoint: input.checkpoint,
+  });
+  if (OPEN_TURN_STATUSES.includes(turn.status)) {
+    return { state: "open", turn, terminalHash };
+  }
+  const stored = (turn.resultJson ?? {}) as {
+    finalize_key?: unknown;
+    finalize_hash?: unknown;
+  };
+  // A replay carries the same key and the same body; anything else would
+  // report a terminal the stored turn does not have.
+  if (
+    stored.finalize_key !== input.finalizeKey ||
+    stored.finalize_hash !== terminalHash
+  ) {
+    return { state: "settled", result: { outcome: "finalize_conflict" } };
+  }
+  const [checkpoint] = await tx
+    .select({ revision: max(checkpoints.revision) })
+    .from(checkpoints)
+    .where(eq(checkpoints.turnId, turn.id));
+  return {
+    state: "settled",
+    result: {
+      outcome: "replayed",
+      result: {
+        turnId: input.turnId,
+        status: workerTerminalSchema.parse(turn.status),
+        checkpointRevision: checkpoint?.revision ?? null,
+      },
+    },
+  };
+}
+
 async function contiguousThrough(
   tx: Database,
   fence: WorkerFence,
@@ -516,6 +585,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const fenced = await acquireFence(tx, fence, now);
         if (fenced.outcome !== "ok") return fenced;
         const leaseExpiresAt = fenced.attempt.leaseExpiresAt;
+        // A draining attempt is on its way out. Handing it a queued turn
+        // would both walk its state back to running and leave that turn
+        // unfinished once the execution goes, which costs the session a
+        // recovery decision it never needed.
+        const draining = fenced.attempt.state === "draining";
 
         const [head] = await tx
           .select({ message: queueMessages, turn: turns })
@@ -540,6 +614,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) {
+          return { outcome: "ok", input: null, leaseExpiresAt };
+        }
+        if (draining && !redelivery) {
           return { outcome: "ok", input: null, leaseExpiresAt };
         }
 
@@ -599,20 +676,27 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
         const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
+        // Overlapping heartbeats can commit out of order, and the loser must
+        // not shorten a lease the winner already extended, so every clock
+        // here only moves forward.
         const updated = await tx
           .update(attempts)
           .set({
-            leaseExpiresAt: input.leaseExpiresAt,
-            lastHeartbeatAt: now,
+            leaseExpiresAt: sql`GREATEST(${attempts.leaseExpiresAt}, ${input.leaseExpiresAt})`,
+            lastHeartbeatAt: sql`GREATEST(${attempts.lastHeartbeatAt}, ${now})`,
             state:
               reported > current ? input.attemptState : fenced.attempt.state,
           })
           .where(fencedAttempt(fence, now))
           .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
         expectFenced(updated, "attempt");
+        const [beat] = updated;
         await tx
           .update(executions)
-          .set({ observedAt: now, observedState: "running" })
+          .set({
+            observedAt: sql`GREATEST(${executions.observedAt}, ${now})`,
+            observedState: "running",
+          })
           .where(eq(executions.id, fenced.attempt.executionId));
         // The legacy orphan reconciler keys on workers.last_seen by pod_id.
         await tx
@@ -620,11 +704,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .values({ podId: fenced.attempt.executionId, lastSeen: now })
           .onConflictDoUpdate({
             target: workers.podId,
-            set: { lastSeen: now },
+            set: { lastSeen: sql`GREATEST(${workers.lastSeen}, ${now})` },
           });
         return {
           outcome: "ok",
-          leaseExpiresAt: input.leaseExpiresAt,
+          leaseExpiresAt: beat?.leaseExpiresAt ?? input.leaseExpiresAt,
           authRevision: fenced.session.authRevision,
         };
       });
@@ -764,61 +848,25 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       });
     },
 
+    peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult> {
+      const { fence, now } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence, now);
+        if (fenced.outcome !== "ok") return fenced;
+        const probe = await probeFinalize(tx, fence, input, false);
+        return probe.state === "open" ? { outcome: "open" } : probe.result;
+      });
+    },
+
     finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult> {
       const { fence, now } = input;
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence, now);
         if (fenced.outcome !== "ok") return fenced;
 
-        const sequence = parseTurnId(input.turnId);
-        const [turn] = sequence
-          ? await tx
-              .select()
-              .from(turns)
-              .where(
-                and(
-                  eq(turns.sessionId, fence.sessionId),
-                  eq(turns.sequence, sequence),
-                ),
-              )
-              .limit(1)
-              .for("update")
-          : [];
-        if (!turn || turn.attemptId !== fence.attemptId) {
-          return { outcome: "turn_not_found" };
-        }
-        // The checkpoint is part of what finalize commits, so a retry that
-        // changes it is a different request wearing the same key.
-        const terminalHash = payloadHash({
-          terminal: input.terminal,
-          checkpoint: input.checkpoint,
-        });
-        const stored = (turn.resultJson ?? {}) as {
-          finalize_key?: unknown;
-          finalize_hash?: unknown;
-        };
-        if (!OPEN_TURN_STATUSES.includes(turn.status)) {
-          // A replay carries the same key and the same body; anything else
-          // would report a terminal the stored turn does not have.
-          if (
-            stored.finalize_key !== input.finalizeKey ||
-            stored.finalize_hash !== terminalHash
-          ) {
-            return { outcome: "finalize_conflict" };
-          }
-          const [checkpoint] = await tx
-            .select({ revision: max(checkpoints.revision) })
-            .from(checkpoints)
-            .where(eq(checkpoints.turnId, turn.id));
-          return {
-            outcome: "replayed",
-            result: {
-              turnId: input.turnId,
-              status: workerTerminalSchema.parse(turn.status),
-              checkpointRevision: checkpoint?.revision ?? null,
-            },
-          };
-        }
+        const probe = await probeFinalize(tx, fence, input, true);
+        if (probe.state !== "open") return probe.result;
+        const { turn, terminalHash } = probe;
 
         let checkpointRevision: number | null = null;
         if (input.checkpoint) {

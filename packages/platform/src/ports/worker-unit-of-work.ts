@@ -126,6 +126,8 @@ export type FinalizeResult =
   | { outcome: "checkpoint_rejected"; reason: string }
   | FenceRejection;
 
+export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
+
 export type ReleaseInput = { fence: WorkerFence; now: Date; reason: string };
 export type ReleaseResult = { released: boolean };
 
@@ -147,6 +149,9 @@ export interface WorkerUnitOfWork {
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;
+  // The same question finalizeAtomic answers, without committing anything:
+  // it lets a caller settle a replay before doing work that can fail.
+  peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult>;
   finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult>;
   releaseAtomic(input: ReleaseInput): Promise<ReleaseResult>;
   // Called once the backend has observed the execution is gone; only then
