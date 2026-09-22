@@ -273,6 +273,18 @@ export class LocalDockerBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
   private readonly client: DockerClient;
   private readonly config: LocalDockerBackendConfig;
+  /**
+   * The workspace `assertReplaceable` found, per session. Replacement takes
+   * the old container away before it creates the new one, and for that
+   * moment nothing mounts the volume — long enough for a `docker volume
+   * prune` to take it. Creating a fresh one then would start the worker on
+   * an empty tree and call it a launch, so what was validated is remembered
+   * and its absence is an error instead. In memory on purpose: the only
+   * reader is the `ensureExecution` that follows in the same pass, and a
+   * session whose workspace is genuinely gone should be judged from scratch
+   * by the next process rather than from a note this one left.
+   */
+  private readonly replacementWorkspaces = new Map<string, string>();
 
   constructor(config: LocalDockerBackendConfig, client?: DockerClient) {
     this.config = validateLocalDockerConfig(config);
@@ -528,7 +540,10 @@ export class LocalDockerBackend implements ExecutionBackend {
    */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
     await this.inspectedImage(intent.image);
-    await this.assertWorkspaceReplaceable(intent.sessionId);
+    const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
+    if (workspace !== null) {
+      this.replacementWorkspaces.set(intent.sessionId, workspace);
+    }
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
@@ -605,7 +620,18 @@ export class LocalDockerBackend implements ExecutionBackend {
       const problem = workspaceVolumeProblem(existing, sessionId, config);
       if (problem !== null)
         throw new WorkspaceQuotaError(existing.Name, problem);
+      this.replacementWorkspaces.delete(sessionId);
       return existing.Name;
+    }
+    const promised = this.replacementWorkspaces.get(sessionId);
+    if (promised !== undefined) {
+      // Between the teardown and here, the workspace this replacement was
+      // approved against stopped existing. A new one would look like a
+      // successful launch and read as a session that lost its work.
+      throw new WorkspaceQuotaError(
+        promised,
+        "the workspace this replacement was checked against is gone; a new one would start the session on an empty tree",
+      );
     }
     const name = `${workspaceVolumePrefixFor(sessionId, config.installationId)}${crypto.randomUUID().slice(0, 8)}`;
     let volume: VolumeInspect;
@@ -636,13 +662,19 @@ export class LocalDockerBackend implements ExecutionBackend {
     return name;
   }
 
-  /** The workspace half of `assertReplaceable`, read-only like all of it. */
-  private async assertWorkspaceReplaceable(sessionId: string): Promise<void> {
+  /**
+   * The workspace half of `assertReplaceable`, read-only like all of it.
+   * Answers with the volume the replacement must come back to, or null when
+   * the session has none and the replacement is free to make one.
+   */
+  private async assertWorkspaceReplaceable(
+    sessionId: string,
+  ): Promise<string | null> {
     const volume = await this.findWorkspaceVolume(sessionId);
-    // Nothing there is the easy case: the replacement creates it.
-    if (volume === null) return;
+    if (volume === null) return null;
     const problem = workspaceVolumeProblem(volume, sessionId, this.config);
     if (problem !== null) throw new WorkspaceQuotaError(volume.Name, problem);
+    return volume.Name;
   }
 
   /**

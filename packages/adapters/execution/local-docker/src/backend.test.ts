@@ -774,6 +774,52 @@ describe("LocalDockerBackend.inspect", () => {
     expect(await backend.assertReplaceable(intentFor())).toBeUndefined();
   });
 
+  test("a workspace that vanishes during the replacement is not made anew", async () => {
+    // `docker volume prune` between the teardown and the create: for that
+    // moment no container mounts the volume. Creating a fresh one would look
+    // like a launch and read as a session that lost everything it had.
+    const intent = intentFor();
+    const workspace = legacyWorkspaceName(intent.sessionId, "test-a");
+    docker.addVolume(
+      workspace,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await backend.assertReplaceable(intent);
+    docker.volumes.delete(workspace);
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "would start the session on an empty tree",
+    );
+    expect(docker.containers.size).toBe(0);
+    expect(docker.volumes.size).toBe(0);
+  });
+
+  test("a replacement onto the workspace it was checked against launches", async () => {
+    const intent = intentFor();
+    docker.addVolume(
+      legacyWorkspaceName(intent.sessionId, "test-a"),
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await backend.assertReplaceable(intent);
+
+    expect(await backend.ensureExecution(intent)).toMatchObject({
+      created: true,
+      state: "running",
+    });
+  });
+
   test("a container on the current contract is not stale", async () => {
     const intent = intentFor();
     docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));
