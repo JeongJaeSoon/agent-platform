@@ -7,6 +7,7 @@ import {
   agentReleaseIdSchema,
   installationIdSchema,
   opaqueIdSchema,
+  ownerScopeSchema,
   revisionSchema,
   sessionIdSchema,
   sessionLinkIdSchema,
@@ -79,7 +80,7 @@ export const chatInboundEnvelopeSchema = z
 export const scopedSessionBindingSchema = z
   .object({
     workspaceId: workspaceIdSchema,
-    ownerId: opaqueIdSchema,
+    ownerId: ownerScopeSchema,
     surfaceBindingId: surfaceBindingIdSchema,
     bindingRevision: revisionSchema,
     sessionLinkId: sessionLinkIdSchema,

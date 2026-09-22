@@ -279,8 +279,10 @@ describe("MemoryRecord", () => {
       sessionLinkSchema.safeParse({ ...link, thread_id: null }).success,
     ).toBe(false);
     // Components the id schemas accept must have a representable ref, and
-    // asking for one must not throw out of safeParse.
-    const long = "c".repeat(128);
+    // asking for one must not throw out of safeParse. Hangul is the worst
+    // case: one code unit becomes nine percent-encoded characters, so a pair
+    // of maximum-length ids is an order of magnitude longer than the ids.
+    const long = "채".repeat(128);
     expect(() =>
       sessionLinkSchema.safeParse({
         ...link,

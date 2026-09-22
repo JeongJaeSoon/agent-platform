@@ -4,7 +4,9 @@ import {
   agentIdSchema,
   agentReleaseIdSchema,
   installationIdSchema,
+  OPAQUE_ID_MAX_LENGTH,
   opaqueIdSchema,
+  ownerScopeSchema,
   revisionSchema,
   sessionIdSchema,
   sessionLinkIdSchema,
@@ -47,7 +49,7 @@ export const surfaceBindingSchema = z
     id: surfaceBindingIdSchema,
     workspace_id: workspaceIdSchema,
     /** The server-issued service owner, never the chat team id (03b §5). */
-    owner_id: opaqueIdSchema,
+    owner_id: ownerScopeSchema,
     surface: surfaceKindSchema,
     installation_id: installationIdSchema.nullable(),
     /** Channel id as the surface spells it; opaque here. */
@@ -106,11 +108,14 @@ export const sessionLinkVisibilitySchema = z.enum(
  * revocation: a new message on a revoked thread needs an explicit rebind, it
  * does not quietly open a new session (Codex E08).
  */
-// Two 128-character components plus the separator already exceed 256 before
-// encoding, and percent-encoding can triple each one. The cap has to admit
-// every pair the component schemas accept, or a valid conversation would have
-// no representable ref at all.
-export const SURFACE_REF_MAX_LENGTH = 1024;
+// The cap has to admit every pair the component schemas accept, or a valid
+// conversation has no representable ref at all — so it is derived, not picked.
+// `encodeURIComponent` turns one UTF-16 code unit into at most 9 characters
+// (`%EA%B0%80` for a Hangul syllable); a surrogate pair is 2 units and 12
+// characters, so 9 per unit is the ceiling. Two components plus the separator.
+const MAX_PERCENT_ENCODED_EXPANSION = 9;
+export const SURFACE_REF_MAX_LENGTH =
+  OPAQUE_ID_MAX_LENGTH * MAX_PERCENT_ENCODED_EXPANSION * 2 + 1;
 export const surfaceRefSchema = z.string().min(1).max(SURFACE_REF_MAX_LENGTH);
 
 /** The spelling itself, with no validation — what a refinement can compare to. */
@@ -136,7 +141,7 @@ export const sessionLinkSchema = z
   .object({
     id: sessionLinkIdSchema,
     workspace_id: workspaceIdSchema,
-    owner_id: opaqueIdSchema,
+    owner_id: ownerScopeSchema,
     session_id: sessionIdSchema,
     surface: surfaceKindSchema,
     installation_id: installationIdSchema,

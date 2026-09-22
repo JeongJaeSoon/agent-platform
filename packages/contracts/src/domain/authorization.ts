@@ -5,6 +5,7 @@ import {
   grantIdSchema,
   installationIdSchema,
   opaqueIdSchema,
+  ownerScopeSchema,
   revisionSchema,
   timestampSchema,
   userIdSchema,
@@ -81,9 +82,14 @@ export const installationSessionScopeSchema = z.enum(
   INSTALLATION_SESSION_SCOPE_VALUES,
 );
 
-/** Just enough to name who is acting; the full principal carries the ceiling. */
+/**
+ * Just enough to name who is acting; the full principal carries the ceiling.
+ * The id is uncapped because each kind mints its own: a legacy api key is
+ * named by the owner partition, which is unconstrained `text`. A ref narrower
+ * than the thing it names would reject an existing tenant outright.
+ */
 export const principalRefSchema = z
-  .object({ kind: principalKindSchema, id: opaqueIdSchema })
+  .object({ kind: principalKindSchema, id: z.string().min(1) })
   .strict();
 
 export const ACTOR_KIND_VALUES = ["user", "service"] as const;
@@ -106,7 +112,7 @@ export const principalSchema = z
       .object({
         kind: z.literal("api_key"),
         id: opaqueIdSchema,
-        owner_id: opaqueIdSchema,
+        owner_id: ownerScopeSchema,
         // Legacy keys predate workspaces and stay unmapped until an explicit
         // owner_workspace_map row exists (94S-150, Codex B18).
         workspace_id: workspaceIdSchema.nullable(),
@@ -133,7 +139,7 @@ export const principalSchema = z
         kind: z.literal("installation"),
         id: installationIdSchema,
         /** The workspace's server-issued service owner, never the chat team id. */
-        owner_id: opaqueIdSchema,
+        owner_id: ownerScopeSchema,
         workspace_id: workspaceIdSchema,
         scopes: z.array(installationSessionScopeSchema),
       })
@@ -175,7 +181,7 @@ export const authorizationContextSchema = z
      * cannot ask about a grant that names one (03b §4.1).
      */
     service_principal: serviceActorSchema.optional(),
-    owner_scope: opaqueIdSchema,
+    owner_scope: ownerScopeSchema,
     workspace_id: workspaceIdSchema.optional(),
     /** The 94S-132 ceiling carried with the context, never re-derived downstream. */
     scopes: z.array(sessionScopeSchema),

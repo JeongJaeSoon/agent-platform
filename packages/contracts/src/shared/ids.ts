@@ -22,7 +22,15 @@ export const requiredUnknownSchema = z
 // Interface track identifiers (I0). Rows the platform creates are uuids;
 // `opaqueIdSchema` covers identifiers minted elsewhere — API key ids, owner
 // partitions, external surface ids — which are not uuids.
-export const opaqueIdSchema = z.string().min(1).max(128);
+export const OPAQUE_ID_MAX_LENGTH = 128;
+export const opaqueIdSchema = z.string().min(1).max(OPAQUE_ID_MAX_LENGTH);
+/**
+ * The alpha owner partition. `owner_id` is an unconstrained `text` column and
+ * `findOwner()` accepts any non-empty string, so capping it here would lock
+ * out a tenant that already exists — a contract may not be narrower than the
+ * data it is describing.
+ */
+export const ownerScopeSchema = z.string().min(1);
 export const workspaceIdSchema = z.uuid();
 export const userIdSchema = z.uuid();
 export const inviteIdSchema = z.uuid();

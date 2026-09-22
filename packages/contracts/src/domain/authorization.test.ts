@@ -268,10 +268,18 @@ describe("idempotency principal", () => {
     // `owner_id` is unconstrained `text` in alpha, so the formatter has to be
     // total: an id with a space, a slash, a colon or Hangul must produce one
     // principal rather than throw on an existing tenant's first request.
-    for (const ownerId of ["acme corp", "tenants/acme", "a:b", "고객사"]) {
-      const principal = idempotencyPrincipalFor(
-        authorizationContextFromLegacy({ ownerId }),
-      );
+    // The last one is longer than an opaque id may be: the column has no
+    // cap, so a context built from an existing tenant must still parse.
+    for (const ownerId of [
+      "acme corp",
+      "tenants/acme",
+      "a:b",
+      "고객사",
+      "t".repeat(512),
+    ]) {
+      const context = authorizationContextFromLegacy({ ownerId });
+      expect(authorizationContextSchema.safeParse(context).success).toBe(true);
+      const principal = idempotencyPrincipalFor(context);
       expect(idempotencyPrincipalSchema.safeParse(principal).success).toBe(
         true,
       );
