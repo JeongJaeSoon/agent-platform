@@ -1,0 +1,53 @@
+name: Bun setup
+description: Pin the Bun version and restore the matching ~/.bun/install/cache.
+
+inputs:
+  cache-scope:
+    description: >-
+      Which set of lockfiles this job installs. `root` covers bun.lock alone;
+      `spikes` covers bun.lock plus every spikes/*/bun.lock. The scope picks the
+      cache key, so a key never promises more than its writer installed.
+    default: root
+  save-cache:
+    description: >-
+      One job per scope writes its cache; the rest restore it, so that parallel
+      jobs never race on the same key.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.3.10
+
+    - id: key
+      shell: bash
+      # The Bun version and the runner architecture belong in the key: the cache
+      # holds resolved, platform-specific packages.
+      env:
+        ROOT_KEY: bun-root-${{ runner.os }}-${{ runner.arch }}-1.3.10-${{ hashFiles('bun.lock') }}
+        SCOPE: ${{ inputs.cache-scope }}
+        SPIKES_KEY: bun-spikes-${{ runner.os }}-${{ runner.arch }}-1.3.10-${{ hashFiles('bun.lock', 'spikes/*/bun.lock') }}
+      run: |
+        if [ "$SCOPE" = spikes ]; then
+          echo "cache=$SPIKES_KEY" >>"$GITHUB_OUTPUT"
+          echo "restore=bun-spikes-${{ runner.os }}-${{ runner.arch }}-1.3.10-" >>"$GITHUB_OUTPUT"
+        else
+          echo "cache=$ROOT_KEY" >>"$GITHUB_OUTPUT"
+          echo "restore=bun-root-${{ runner.os }}-${{ runner.arch }}-1.3.10-" >>"$GITHUB_OUTPUT"
+        fi
+
+    - if: inputs.save-cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ steps.key.outputs.cache }}
+        restore-keys: ${{ steps.key.outputs.restore }}
+
+    - if: inputs.save-cache != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ steps.key.outputs.cache }}
+        restore-keys: ${{ steps.key.outputs.restore }}

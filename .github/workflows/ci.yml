@@ -1,15 +1,47 @@
 name: CI
 
 on:
+  # Listening to push on every branch as well as pull_request ran each PR commit
+  # twice. A branch with no pull request now gets no automatic run, so
+  # workflow_dispatch is here to cover that case on demand. Tag pushes are not
+  # built; the tagged tree already ran as a main push.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # Per PR, so a new push cancels the run it superseded. Everything else keys on
+  # the run itself: two merges landing back to back, or two manual runs of the
+  # same commit, must not cancel or queue behind each other.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
+  # Fast feedback: no service containers and no opt-in variables, so the tests
+  # gated on those skip here and run in `integration`. Suites that need nothing
+  # external — the SDK adapter against a local fake Messages API, for one — do
+  # run here despite the `integration` in their file names.
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bun-setup
+        with:
+          save-cache: "true"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+
+  # The same suite with every opt-in variable on, so `bun run test` reports
+  # zero skips. Filtering by file name would miss opt-in tests that do not
+  # follow the *.integration.test.ts convention.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -48,23 +80,86 @@ jobs:
       DOCKER_BACKEND_TEST: "1"
       QUEUE_DATABASE_URL: postgresql://postgres:dev@127.0.0.1:5432/sessions
       S3_BUCKET: claude-sessions
-      SESSION_STORE_LOCALSTACK_TEST: "1"
       STORAGE_LOCALSTACK_TEST: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      # Not a *.test.ts file, so `bun test` never picks it up on its own.
+      - run: bun test ./apps/api/src/server.integration.ts
+
+  # Research harnesses, pinned to the SDK and LiteLLM versions under
+  # investigation. Their failures have never been a product regression, so they
+  # report without blocking the run; see README § CI.
+  spikes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    services:
+      localstack:
+        image: localstack/localstack:3
+        env:
+          SERVICES: s3
+          AWS_DEFAULT_REGION: ap-northeast-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_ENDPOINT_URL: http://127.0.0.1:4566
+      AWS_REGION: ap-northeast-1
+      AWS_SECRET_ACCESS_KEY: test
+      S3_BUCKET: claude-sessions
+      SESSION_STORE_LOCALSTACK_TEST: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bun-setup
         with:
-          bun-version: 1.3.10
+          cache-scope: spikes
+          save-cache: "true"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      # Both spikes typecheck across ../../packages/contracts, so they need the
+      # root workspace installed as well as their own lockfile.
       - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun test ./apps/api/src/server.integration.ts
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
+      - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
-      - run: bun run --cwd spikes/94s-91 check
-      - run: bun install --cwd spikes/94s-92 --frozen-lockfile
-      - run: bun run --cwd spikes/94s-92 check
+      - id: spike-91
+        name: spikes/94s-91 check
+        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+      # The two spikes are independent investigations: one failing must not
+      # hide the other's result.
+      - id: spike-92
+        if: '!cancelled()'
+        name: spikes/94s-92 check
+        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+      # continue-on-error leaves the run green, so whoever reads only the run
+      # conclusion never learns a spike broke. State the outcome on the summary
+      # page on every run that was not cancelled.
+      - if: '!cancelled()'
+        name: Report spike outcome
+        env:
+          SPIKE_91: ${{ steps.spike-91.outcome }}
+          SPIKE_92: ${{ steps.spike-92.outcome }}
+        run: |
+          {
+            echo "### spikes (non-blocking)"
+            echo
+            echo "| suite | outcome |"
+            echo "| --- | --- |"
+            echo "| spikes/94s-91 | ${SPIKE_91} |"
+            echo "| spikes/94s-92 | ${SPIKE_92} |"
+            echo
+            echo "This job never fails the run. A \`failure\` above still needs a look."
+          } >>"$GITHUB_STEP_SUMMARY"
