@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceDescriptor } from "@agent-platform/contracts";
@@ -50,6 +57,34 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(scratch, { force: true, recursive: true });
 });
+
+/**
+ * Git's dumb HTTP protocol is plain files, so a static server behind Basic
+ * auth is enough to make a credential load-bearing.
+ */
+function serveOrigin(expected: string | null) {
+  git(["update-server-info"], origin);
+  const seen: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const auth = request.headers.get("authorization");
+      seen.push(auth ?? "anonymous");
+      if (expected !== null && auth !== expected) {
+        return new Response("who?", {
+          status: 401,
+          headers: { "WWW-Authenticate": 'Basic realm="git"' },
+        });
+      }
+      const path = new URL(request.url).pathname.replace(/^\/repo\.git/, "");
+      const file = Bun.file(join(origin, path));
+      return (await file.exists())
+        ? new Response(file)
+        : new Response("missing", { status: 404 });
+    },
+  });
+  return { seen, server };
+}
 
 describe("GitWorkspace", () => {
   test("clones the session's branch into an empty mount", async () => {
@@ -118,29 +153,9 @@ describe("GitWorkspace", () => {
   });
 
   test("clones with the URL's credential but never stores it where the engine can read it", async () => {
-    // Git's dumb HTTP protocol is plain files, so a static server behind
-    // Basic auth is enough to make the credential load-bearing.
-    git(["update-server-info"], origin);
-    const expected = `Basic ${btoa("someone:s3cr3t/pass")}`;
-    const asked: string[] = [];
-    const server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const auth = request.headers.get("authorization");
-        asked.push(auth === null ? "anonymous" : "authorized");
-        if (auth !== expected) {
-          return new Response("who?", {
-            status: 401,
-            headers: { "WWW-Authenticate": 'Basic realm="git"' },
-          });
-        }
-        const path = new URL(request.url).pathname.replace(/^\/repo\.git/, "");
-        const file = Bun.file(join(origin, path));
-        return (await file.exists())
-          ? new Response(file)
-          : new Response("missing", { status: 404 });
-      },
-    });
+    const { seen, server } = serveOrigin(
+      `Basic ${btoa("someone:s3cr3t/pass")}`,
+    );
     try {
       const url = `http://someone:s3cr3t%2Fpass@127.0.0.1:${server.port}/repo.git`;
 
@@ -152,12 +167,56 @@ describe("GitWorkspace", () => {
       expect(git(["config", "--get", "remote.origin.url"], root)).toBe(
         `http://127.0.0.1:${server.port}/repo.git`,
       );
-      expect(asked).toContain("authorized");
+      expect(seen).toContain(`Basic ${btoa("someone:s3cr3t/pass")}`);
 
       // A later attempt reuses it, fetching with the same credential.
       expect(await prepare(descriptor(url))).toBe("reuse");
     } finally {
       server.stop(true);
+    }
+  });
+
+  test("runs none of the hooks a previous engine planted in a reused checkout", async () => {
+    await prepare(descriptor());
+    const marker = join(scratch, "hook-ran");
+    const hooks = join(scratch, "planted-hooks");
+    await mkdir(hooks);
+    for (const dir of [hooks, join(root, ".git", "hooks")]) {
+      const hook = join(dir, "post-checkout");
+      await writeFile(hook, `#!/bin/sh\nenv > "${marker}"\n`);
+      await chmod(hook, 0o755);
+    }
+    git(["config", "core.hooksPath", hooks], root);
+
+    expect(await prepare(descriptor())).toBe("reuse");
+    expect(await Bun.file(marker).exists()).toBe(false);
+  });
+
+  test("hands the credential to no host but the descriptor's, even when origin is rewritten", async () => {
+    const real = serveOrigin(`Basic ${btoa("someone:s3cr3t")}`);
+    const lure = serveOrigin(`Basic ${btoa("someone:s3cr3t")}`);
+    try {
+      const url = `http://someone:s3cr3t@127.0.0.1:${real.server.port}/repo.git`;
+      await prepare(descriptor(url));
+      // What a previous engine could leave behind: every fetch of the real
+      // origin quietly goes to another host.
+      git(
+        [
+          "config",
+          `url.http://127.0.0.1:${lure.server.port}/.insteadOf`,
+          `http://127.0.0.1:${real.server.port}/`,
+        ],
+        root,
+      );
+
+      await expect(prepare(descriptor(url))).rejects.toThrow(
+        "git fetch failed",
+      );
+      expect(lure.seen.length).toBeGreaterThan(0);
+      expect(lure.seen.every((auth) => auth === "anonymous")).toBe(true);
+    } finally {
+      real.server.stop(true);
+      lure.server.stop(true);
     }
   });
 

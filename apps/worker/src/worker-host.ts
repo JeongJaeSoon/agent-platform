@@ -145,6 +145,8 @@ export class WorkerHost {
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
   private stoppedAt: number | undefined;
+  private readonly stopped: Promise<void>;
+  private announceStop: () => void = () => {};
   private released = false;
   private turn: Turn | undefined;
 
@@ -157,6 +159,9 @@ export class WorkerHost {
         this.abandonedNow = true;
         resolve();
       };
+    });
+    this.stopped = new Promise<void>((resolve) => {
+      this.announceStop = resolve;
     });
   }
 
@@ -274,8 +279,9 @@ export class WorkerHost {
         turns: this.turns,
       };
     }
-    const stop = this.stopping ?? { kind: "drain", reason: "loop ended" };
     await this.shutdown(run);
+    // Read after the shutdown: the lease can still be lost while it runs.
+    const stop = this.stopping ?? { kind: "drain", reason: "loop ended" };
     return {
       outcome:
         stop.kind === "lost"
@@ -323,6 +329,7 @@ export class WorkerHost {
       // The launcher's SIGKILL clock starts with its SIGTERM, not a lease loss.
       this.stoppedAt ??= this.now().getTime();
     }
+    this.announceStop();
     this.logger.info("worker.stopping", {
       kind: stop.kind,
       reason: stop.reason,
@@ -380,14 +387,25 @@ export class WorkerHost {
     for (;;) {
       if (this.stopping !== undefined) return null;
       try {
-        return await this.options.gateway.bootstrapClaim({
-          execution_id: this.options.execution.id,
-          execution_generation: this.options.execution.generation,
-          credential: {
-            kind: "launch_nonce",
-            nonce: this.options.execution.bootstrapNonce,
-          },
-        });
+        const claimed = await this.untilStopGraceSpent(
+          this.options.gateway.bootstrapClaim({
+            execution_id: this.options.execution.id,
+            execution_generation: this.options.execution.generation,
+            credential: {
+              kind: "launch_nonce",
+              nonce: this.options.execution.bootstrapNonce,
+            },
+          }),
+        );
+        if (claimed === undefined) {
+          // Past this point the SIGKILL would take the release away anyway;
+          // a claim that lands later is recovered when its lease lapses.
+          this.logger.warn("worker.claim.abandoned", {
+            reason: "The stop grace ran out before the gateway answered",
+          });
+          return null;
+        }
+        return claimed;
       } catch (error) {
         if (!(error instanceof WorkerGatewayRequestError)) throw error;
         // Two claims racing leave one holding the revoked token; before this
@@ -635,10 +653,14 @@ export class WorkerHost {
     return this.checkpoints.capture(preparation);
   }
 
+  /**
+   * Every decision below reads the current stop rather than the one this
+   * began with: a heartbeat, a poll or an event write can each learn the
+   * lease is gone while shutdown waits on something else.
+   */
   private async shutdown(run: AgentRun | undefined): Promise<void> {
-    const stop = this.stopping ?? { kind: "drain", reason: "loop ended" };
     this.pending?.cancelAll(
-      stop.kind === "lost"
+      this.ownerLost
         ? "This worker no longer owns the session"
         : "This worker is shutting down",
     );
@@ -646,7 +668,7 @@ export class WorkerHost {
       // Whatever is still open here has already used up its drain budget, or
       // belongs to a lease this attempt no longer holds.
       const settledInTime =
-        stop.kind !== "lost" && (await settledWithin(this.turn.settled, 0));
+        !this.ownerLost && (await settledWithin(this.turn.settled, 0));
       if (!settledInTime) {
         // Not awaited: a wedged engine may never answer the interrupt, and
         // the terminal frame, bounded below, is what this is waiting for.
@@ -678,12 +700,9 @@ export class WorkerHost {
         this.withinGrace(this.options.timeouts.requestTimeoutMs),
       );
     }
-    if (stop.kind === "lost") {
-      // No durable write survives owner loss: not the event tail, not the
-      // in-flight turn, not the release.
-      this.logger.warn("worker.ownership.lost", { reason: stop.reason });
-      return;
-    }
+    // No durable write survives owner loss: not the event tail, not the
+    // in-flight turn, not the release.
+    if (this.reportedOwnerLost()) return;
     const flushed = await this.untilAbandoned(
       (this.publisher?.idle() ?? Promise.resolve()).then(
         () => true,
@@ -701,9 +720,14 @@ export class WorkerHost {
         reason: "The drain budget ran out",
       });
     }
+    if (this.reportedOwnerLost()) return;
     this.released = true;
     const releasing = this.options.gateway
-      .release({ ...this.scope, turn_id: null, reason: stop.reason })
+      .release({
+        ...this.scope,
+        turn_id: null,
+        reason: this.stopping?.reason ?? "loop ended",
+      })
       .then((response) =>
         this.logger.info("worker.released", { released: response.released }),
       )
@@ -720,6 +744,12 @@ export class WorkerHost {
         reason: "The stop grace ran out before the gateway answered",
       });
     }
+  }
+
+  private reportedOwnerLost(): boolean {
+    if (this.stopping?.kind !== "lost") return false;
+    this.logger.warn("worker.ownership.lost", { reason: this.stopping.reason });
+    return true;
   }
 
   /**
@@ -753,6 +783,26 @@ export class WorkerHost {
     if (grace === undefined || this.stoppedAt === undefined) return ms;
     const left = this.stoppedAt + grace - reserve - this.now().getTime();
     return Math.max(0, Math.min(ms, left));
+  }
+
+  /**
+   * Resolves with the value, or undefined once a stop has come and the
+   * request still has not answered within what the grace leaves for it.
+   * Waiting on a stop at all is deliberate: a claim that lands is one this
+   * worker can still release, rather than one left to lapse.
+   */
+  private async untilStopGraceSpent<T>(
+    work: Promise<T>,
+  ): Promise<T | undefined> {
+    work.catch(() => {});
+    const cut = this.stopped.then(async () => {
+      await settledWithin(
+        work,
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      );
+      return undefined;
+    });
+    return Promise.race([work, cut]);
   }
 
   /** Resolves with the value, or undefined once the turn has to be given up. */
