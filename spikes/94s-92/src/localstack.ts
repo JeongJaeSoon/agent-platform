@@ -4,12 +4,16 @@ import {
   ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { S3CallTracker } from "./s3-diagnostics.ts";
 
 export const localstackEnabled =
   process.env.SESSION_STORE_LOCALSTACK_TEST === "1";
 
+/** Every S3 call this process makes through {@link createLocalstackClient}. */
+export const localstackCalls = new S3CallTracker();
+
 export function createLocalstackClient(): S3Client {
-  return new S3Client({
+  const client = new S3Client({
     credentials: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "test",
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "test",
@@ -18,6 +22,7 @@ export function createLocalstackClient(): S3Client {
     forcePathStyle: true,
     region: process.env.AWS_REGION ?? "ap-northeast-1",
   });
+  return localstackCalls.instrument(client);
 }
 
 export function localstackBucket(): string {

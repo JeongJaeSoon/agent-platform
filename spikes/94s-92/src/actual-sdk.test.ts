@@ -26,11 +26,19 @@ import {
   deletePrefix,
   ensureLocalstackBucket,
   localstackBucket,
+  localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
+import { startStallReporter } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
 const describeActual = localstackEnabled ? describe : describe.skip;
+
+/**
+ * Short of bun's own 30s limit, so a child that never settles is reported with
+ * its state instead of being replaced by a bare `timed out after 30000ms`.
+ */
+const CHILD_WATCHDOG_MS = 20_000;
 
 type ChildResult = {
   readonly appendAttempts: number;
@@ -45,8 +53,10 @@ describeActual("actual SDK SessionStore process contract", () => {
   const prefix = `94s-92/actual-${crypto.randomUUID()}`;
   let root = "";
   let workspace = "";
+  let stopStallReporter = () => {};
 
   beforeAll(async () => {
+    stopStallReporter = startStallReporter("suite", localstackCalls);
     await ensureLocalstackBucket(client);
     root = await mkdtemp(join(tmpdir(), "94s-92-actual-"));
     workspace = join(root, "workspace");
@@ -54,6 +64,7 @@ describeActual("actual SDK SessionStore process contract", () => {
   });
 
   afterAll(async () => {
+    stopStallReporter();
     await deletePrefix(client, prefix);
     client.destroy();
     await rm(root, { force: true, recursive: true });
@@ -429,18 +440,67 @@ async function runChild(
   options: ChildOptions,
 ): Promise<{ exitCode: number; value: ChildResult }> {
   const child = startChild(options);
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+  const stdout = collect(child.stdout);
+  const stderr = collect(child.stderr);
+  let exitCode: number | undefined;
+  const settled = Promise.all([
+    child.exited.then((code) => {
+      exitCode = code;
+    }),
+    stdout.closed,
+    stderr.closed,
   ]);
+
+  const timedOut = await Promise.race([
+    settled.then(() => false),
+    Bun.sleep(CHILD_WATCHDOG_MS).then(() => true),
+  ]);
+  if (timedOut) {
+    // Which of the three is still open is the whole diagnosis: a live child is
+    // a stuck child, while a dead child with an open pipe is a grandchild
+    // still holding the write end.
+    const state = [
+      `child pid=${child.pid} did not settle within ${CHILD_WATCHDOG_MS}ms`,
+      `exit=${exitCode ?? "pending"} stdout=${stdout.state()} stderr=${stderr.state()}`,
+      `parent s3: ${localstackCalls.describe()}`,
+      `child stdout so far: ${JSON.stringify(stdout.text())}`,
+      `child stderr so far: ${JSON.stringify(stderr.text())}`,
+    ];
+    child.kill("SIGTERM");
+    await Promise.race([settled, Bun.sleep(2_000)]);
+    state.push(`after SIGTERM: exit=${exitCode ?? "pending"}`);
+    state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
+    child.kill("SIGKILL");
+    throw new Error(state.join("\n  "));
+  }
+
   const line = stdout
+    .text()
     .split("\n")
     .find((candidate) => candidate.startsWith("CHILD_RESULT:"));
-  if (!line) throw new Error(`Child emitted no result: ${stderr}`);
+  if (!line) throw new Error(`Child emitted no result: ${stderr.text()}`);
   return {
-    exitCode,
+    exitCode: exitCode ?? -1,
     value: JSON.parse(line.slice("CHILD_RESULT:".length)) as ChildResult,
+  };
+}
+
+/** Buffers a child stream so partial output is readable before it closes. */
+function collect(stream: ReadableStream<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let open = true;
+  const closed = (async () => {
+    for await (const chunk of stream) {
+      buffer += decoder.decode(chunk, { stream: true });
+    }
+    buffer += decoder.decode();
+    open = false;
+  })();
+  return {
+    closed,
+    state: () => (open ? "open" : "closed"),
+    text: () => buffer,
   };
 }
 

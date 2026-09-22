@@ -6,6 +6,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { S3Client } from "@aws-sdk/client-s3";
+import { S3CallTracker, startStallReporter } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
 const required = (name: string): string => {
@@ -13,6 +14,12 @@ const required = (name: string): string => {
   if (!value) throw new Error(`Missing ${name}`);
   return value;
 };
+
+const calls = new S3CallTracker();
+// The parent reads this child's stderr incrementally, so a stall reported here
+// survives even when the parent's own wait is cut short.
+startStallReporter("child", calls);
+let stage = "starting";
 
 const client = new S3Client({
   credentials: {
@@ -23,6 +30,7 @@ const client = new S3Client({
   forcePathStyle: true,
   region: required("AWS_REGION"),
 });
+calls.instrument(client);
 const durableStore = new S3SessionStoreProbe({
   bucket: required("S3_BUCKET"),
   client,
@@ -30,6 +38,10 @@ const durableStore = new S3SessionStoreProbe({
 });
 const appendMode = process.env.APPEND_MODE ?? "success";
 let appendAttempts = 0;
+// Writes the adapter has already given up on but that are still on the wire.
+// They keep this process alive after the query loop ends, so a stuck one is
+// indistinguishable from a hung query unless it is accounted for separately.
+const lateWrites = new Set<Promise<void>>();
 const store: SessionStore = {
   append: async (key: SessionKey, entries: SessionStoreEntry[]) => {
     appendAttempts += 1;
@@ -39,6 +51,9 @@ const store: SessionStore = {
       const lateWrite = Bun.sleep(150).then(() =>
         durableStore.append(key, entries),
       );
+      lateWrites.add(lateWrite);
+      const settled = calls.begin(`lateWrite#${appendAttempts}`);
+      lateWrite.then(settled, settled);
       await Promise.race([
         lateWrite,
         Bun.sleep(25).then(() => {
@@ -54,7 +69,19 @@ const store: SessionStore = {
   listSubkeys: (key) => durableStore.listSubkeys(key),
 };
 
+// A parent that gives up on this child asks for its state first; answering on
+// the way out is the only way the reason reaches the log.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    process.stderr.write(
+      `CHILD_DIAG stage=${stage} attempts=${appendAttempts} lateWrites=${lateWrites.size} s3=${calls.describe()}\n`,
+    );
+    process.exit(3);
+  });
+}
+
 try {
+  stage = "query";
   const messages: SDKMessage[] = [];
   const resume = process.env.RESUME_SESSION_ID;
   for await (const message of query({
@@ -102,5 +129,6 @@ try {
   );
   process.exitCode = 1;
 } finally {
+  stage = `draining(${lateWrites.size} late writes)`;
   client.destroy();
 }
