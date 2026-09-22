@@ -23,6 +23,7 @@ import {
   eq,
   inArray,
   isNull,
+  lte,
   max,
   notExists,
   sql,
@@ -242,6 +243,31 @@ export function createPostgresSchedulerStore(
         );
       }
       return nonce;
+    },
+
+    async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+      // Clearing the hash is what shuts the door: `claimAtomic` finds a launch
+      // by hash, and null matches nothing. Both statements take the same row
+      // lock, so a claim commits strictly before or strictly after this — the
+      // loser sees the winner's state and gives up.
+      //
+      // The expiry stays as it was. A teardown that fails after this leaves a
+      // launch with no credential and a past expiry, which is exactly what
+      // brings the next pass back here to try again.
+      const revoked = await db
+        .update(workerLaunches)
+        .set({ nonceHash: null })
+        .where(
+          and(
+            eq(workerLaunches.executionId, ref.executionId),
+            eq(workerLaunches.generation, ref.generation),
+            isNull(workerLaunches.claimedAttemptId),
+            holdsSlot(),
+            lte(workerLaunches.nonceExpiresAt, now),
+          ),
+        )
+        .returning({ executionId: workerLaunches.executionId });
+      return revoked.length === 1;
     },
 
     async listActiveExecutions(backend): Promise<ActiveExecution[]> {

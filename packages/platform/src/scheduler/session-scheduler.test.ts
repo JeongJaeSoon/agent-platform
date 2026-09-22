@@ -123,6 +123,22 @@ class MemoryStore implements SchedulerStore {
     return row.nonce;
   }
 
+  async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.nonceExpiresAt === null ||
+      row.nonceExpiresAt.getTime() > now.getTime()
+    ) {
+      return false;
+    }
+    row.nonce = null;
+    return true;
+  }
+
   async confirmExecutionGone(executionId: string): Promise<void> {
     this.confirmedGone.push(executionId);
     const row = this.executions.get(executionId);
@@ -133,7 +149,11 @@ class MemoryStore implements SchedulerStore {
 
   async listActiveExecutions(backend: ActiveExecution["backend"]) {
     if (this.failList) throw new Error("database down");
-    return this.live().filter((e) => e.backend === backend);
+    // Copies, like a query result: what the caller carries is a snapshot and
+    // stays behind whatever the rows do while the pass runs.
+    return this.live()
+      .filter((e) => e.backend === backend)
+      .map((e) => ({ ...e }));
   }
 
   async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {
@@ -193,6 +213,7 @@ class FakeBackend implements ExecutionBackend {
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
+  duringInspect: ((ref: ExecutionRef) => void) | null = null;
 
   capabilities() {
     return { suspend: false };
@@ -234,6 +255,9 @@ class FakeBackend implements ExecutionBackend {
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
+    // The one place a pass is demonstrably out on the network, and so the
+    // place a test can make the rows move underneath it.
+    this.duringInspect?.(ref);
     if (this.failInspectFor.has(ref.executionId)) {
       throw new Error("ownership conflict");
     }
@@ -520,6 +544,38 @@ describe("runScheduler", () => {
     expect(summary.replaced).toEqual([]);
     expect(store.confirmedGone).toEqual([]);
     expect(backend.terminateCalls).toEqual([]);
+  });
+
+  test("a claim that lands mid-pass keeps its container off the replacement path", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const claimedNonce = container.nonce;
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+    // A worker gets through the door after the pass read the rows and before
+    // it decides: the expiry the pass is holding is already out of date.
+    backend.duringInspect = () => {
+      row.claimed = true;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    // Same container, same credential: the binding it made still stands.
+    expect([...backend.containers.keys()]).toEqual([name]);
+    expect(row.nonce).toBe(claimedNonce ?? null);
+    expect(
+      records.some(
+        (r) => r.level === "info" && r.message.includes("already been claimed"),
+      ),
+    ).toBe(true);
   });
 
   test("a claimed launch whose resource vanished is confirmed gone, never re-created", async () => {

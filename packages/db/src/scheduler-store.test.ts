@@ -7,6 +7,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  attempts,
   executions,
   sessions,
   unassignedSessions,
@@ -449,6 +450,70 @@ describe("PostgresSchedulerStore", () => {
     await expect(store.issueBootstrapNonce(intent, NOW)).rejects.toThrow(
       "no bootstrap credential was issued",
     );
+  });
+
+  test("revokeBootstrapNonce shuts the door only while it is still open", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const nonce = await store.issueBootstrapNonce(intent, NOW);
+    const hashOf = async () => {
+      const [row] = await db
+        .select({ nonceHash: workerLaunches.nonceHash })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      return row?.nonceHash ?? null;
+    };
+
+    // Inside the window there is nothing to revoke: a worker may still be on
+    // its way, and the credential it was built with has to keep working.
+    expect(await store.revokeBootstrapNonce(intent, NOW)).toBe(false);
+    expect(await hashOf()).toEqual(sha256(nonce));
+
+    const expired = new Date(NOW.getTime() + 600_001);
+    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(true);
+    expect(await hashOf()).toBeNull();
+    // Idempotent on purpose: a teardown that fails after the revoke leaves
+    // the launch here, and the next pass has to be able to try again.
+    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(true);
+
+    // A claim that committed first wins outright, however stale the expiry.
+    const claimed = await insertUnassigned();
+    const other = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId: claimed,
+      slotLimit: 10,
+    });
+    if (!other) throw new Error("no intent");
+    await store.issueBootstrapNonce(other, NOW);
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: other.generation,
+      executionId: other.executionId,
+      id: "att-1",
+      leaseEpoch: 1,
+      leaseExpiresAt: expired,
+      sessionId: claimed,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-1" })
+      .where(eq(workerLaunches.executionId, other.executionId));
+    expect(await store.revokeBootstrapNonce(other, expired)).toBe(false);
+
+    // So does a launch whose slot already went back, and a stale generation.
+    expect(
+      await store.revokeBootstrapNonce({ ...intent, generation: 9 }, expired),
+    ).toBe(false);
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    expect(await store.revokeBootstrapNonce(intent, expired)).toBe(false);
   });
 
   test("acquirePassLock hands out the lock once and releases it", async () => {

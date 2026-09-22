@@ -175,15 +175,30 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // cannot be handed a second credential while it runs — the one it holds
       // is fixed in its environment — so leaving it up would keep a slot and
       // a session that nothing can ever bind. It is replaced instead.
-      logger.warn("Launch nonce expired before the resource claimed", {
+      //
+      // `claimed` is a snapshot taken before the provider was inspected, so a
+      // worker may have bound itself since. Revoking decides and shuts the
+      // door in one write: it loses to a claim that got there first, and once
+      // it wins no claim can follow, so the teardown never orphans a binding.
+      if (await store.revokeBootstrapNonce(ref, now())) {
+        logger.warn("Launch nonce expired before the resource claimed", {
+          ...fieldsOf(ref),
+          nonce_expires_at: execution.nonceExpiresAt.toISOString(),
+          provider_ref: observed.providerRef,
+          session_id: execution.sessionId,
+          state: observed.state,
+        });
+        await replace(execution, "nonce_expired");
+        return;
+      }
+      // A worker came through the door while this pass was inspecting. It
+      // owns the session now, so the resource is left alone and handled below
+      // like any other live one.
+      logger.info("Expired launch had already been claimed; left running", {
         ...fieldsOf(ref),
-        nonce_expires_at: execution.nonceExpiresAt.toISOString(),
         provider_ref: observed.providerRef,
         session_id: execution.sessionId,
-        state: observed.state,
       });
-      await replace(execution, "nonce_expired");
-      return;
     }
     if (
       observed.found &&

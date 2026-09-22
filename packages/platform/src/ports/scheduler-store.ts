@@ -82,6 +82,14 @@ export interface SchedulerStore {
    * slot back, so a credential is never issued for a binding that exists.
    */
   issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string>;
+  /**
+   * Shuts this launch's bootstrap door for good and says whether it was still
+   * open: true only when the launch was unclaimed, still held its slot, and
+   * its nonce had expired. Deciding and closing in one write is what makes it
+   * safe to tear the resource down — a claim that commits either side of it
+   * loses or wins outright, never both.
+   */
+  revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,
