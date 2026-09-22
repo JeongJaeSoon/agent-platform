@@ -372,6 +372,7 @@ describe("Claude profile fingerprint", () => {
   test("ignores a rotated MCP header value but not a new header", () => {
     const http = (headers: Record<string, string>) => ({
       ...config,
+      identities: { mcpServers: { notion: "notion:owner-a" } },
       mcpServers: {
         notion: { type: "http", url: "https://mcp.notion.test", headers },
       },
@@ -390,6 +391,7 @@ describe("Claude profile fingerprint", () => {
   test("ignores a rotated stdio environment value but not a new variable", () => {
     const stdio = (env: Record<string, string>) => ({
       ...config,
+      identities: { mcpServers: { github: "github:owner-a" } },
       mcpServers: { github: { command: "github-mcp", env } },
     });
 
@@ -403,9 +405,38 @@ describe("Claude profile fingerprint", () => {
     ).not.toBe(claudeProfileFingerprint(stdio({ GITHUB_TOKEN: "ghp_old" })));
   });
 
+  test("a server whose headers or env carry values needs a declared identity", () => {
+    // Key names cannot tell TENANT=a from TENANT=b; the identity is where
+    // the caller states what those values mean.
+    const stdio = (identity?: string) => ({
+      ...config,
+      ...(identity === undefined
+        ? {}
+        : { identities: { mcpServers: { github: identity } } }),
+      mcpServers: { github: { command: "github-mcp", env: { TENANT: "a" } } },
+    });
+
+    expect(() => claudeProfileFingerprint(stdio())).toThrow(
+      /carries headers or env, whose values the fingerprint does not hash/,
+    );
+    expect(claudeProfileFingerprint(stdio("github:b"))).not.toBe(
+      claudeProfileFingerprint(stdio("github:a")),
+    );
+  });
+
+  test("a serializable server with no credential container needs no identity", () => {
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        mcpServers: { local: { command: "local-mcp", env: {} } },
+      }),
+    ).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   test("still changes when a serializable MCP server is repointed", () => {
     const url = (url: string) => ({
       ...config,
+      identities: { mcpServers: { notion: "notion:owner-a" } },
       mcpServers: {
         notion: { type: "http", url, headers: { Authorization: "Bearer t" } },
       },
@@ -426,11 +457,11 @@ describe("Claude profile fingerprint", () => {
   }
 
   test("hashes an in-process MCP server by its declared identity", () => {
-    const inProcess = (identity: string) => ({
+    const inProcess = (identity: string, name = "review") => ({
       ...config,
       identities: { mcpServers: { review: identity } },
       mcpServers: {
-        review: { type: "sdk", name: "review", instance: new McpServer("r") },
+        review: { type: "sdk", name, instance: new McpServer("r") },
       },
     });
 
@@ -444,6 +475,11 @@ describe("Claude profile fingerprint", () => {
       claudeProfileFingerprint(config),
     );
     expect(claudeProfileFingerprint(inProcess("review@2"))).not.toBe(
+      claudeProfileFingerprint(inProcess("review@1")),
+    );
+    // The wrapper's plain fields still count: the SDK-facing name is part
+    // of the tool surface even when the instance behind it is not hashable.
+    expect(claudeProfileFingerprint(inProcess("review@1", "other"))).not.toBe(
       claudeProfileFingerprint(inProcess("review@1")),
     );
   });
@@ -480,6 +516,47 @@ describe("Claude profile fingerprint", () => {
     expect(error.component).toBe("mcp_server");
     expect(error.name).toBe("review");
     expect(error.detail).toMatch(/MCP server "review" is not plain data/);
+  });
+
+  test("refuses an identity that is not a non-empty string", () => {
+    expect(() =>
+      claudeProfileFingerprint({
+        ...config,
+        identities: { mcpServers: { review: "" } },
+        mcpServers: { review: new McpServer("review") },
+      }),
+    ).toThrow(/must be a non-empty string/);
+  });
+
+  test("does not find an identity on the prototype chain", () => {
+    expect(() =>
+      claudeProfileFingerprint({
+        ...config,
+        identities: { mcpServers: {} },
+        mcpServers: { constructor: new McpServer("constructor") },
+      }),
+    ).toThrow(UnidentifiedComponentError);
+  });
+
+  test("a plain-object cycle is opaque, a shared sub-object is not", () => {
+    // `describeOpaque` (94S-124) only stopped at class instances; a cyclic
+    // plain object still reached JSON.stringify and threw RangeError.
+    const cyclic: Record<string, unknown> = { command: "x" };
+    cyclic.self = cyclic;
+    expect(() =>
+      claudeProfileFingerprint({ ...config, mcpServers: { loop: cyclic } }),
+    ).toThrow(UnidentifiedComponentError);
+
+    const shared = { retries: 2 };
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        mcpServers: {
+          a: { command: "a", shared },
+          b: { command: "b", shared },
+        },
+      }),
+    ).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("treats a function inside an otherwise plain MCP config as opaque", () => {
