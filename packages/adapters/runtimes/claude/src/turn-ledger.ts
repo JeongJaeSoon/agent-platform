@@ -19,9 +19,16 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
  * session-scoped errors) settles nothing: the ledger fails closed rather than
  * guess which input the transcript now holds. Informational frames after a
  * result do not reopen the turn unless input is still pending.
+ *
+ * A `system/mirror_error` frame latches for the run. The SDK emits it once it
+ * has given up on a transcript batch, and then keeps going — the turn can still
+ * come back successful. The mirrored transcript is missing entries nobody can
+ * name, so nothing this run captures is safely resumable, and it refuses to
+ * prepare a checkpoint until a fresh run re-mirrors from the local file.
  */
 export class TurnLedger {
   private consumed = false;
+  private mirrorError: string | undefined;
   private readonly pending = new Set<string>();
   private sessionId: string | undefined;
   private streaming = false;
@@ -51,6 +58,9 @@ export class TurnLedger {
     if (typeof message.session_id === "string") {
       this.sessionId = message.session_id;
     }
+    if (message.type === "system" && message.subtype === "mirror_error") {
+      this.mirrorError ??= mirrorErrorDetail(message);
+    }
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
       return;
@@ -78,11 +88,26 @@ export class TurnLedger {
   }
 
   prepareCheckpoint(): CheckpointPreparation {
+    if (this.mirrorError !== undefined) {
+      return {
+        status: "rejected",
+        reason: "mirror_error",
+        detail: this.mirrorError,
+      };
+    }
     if (this.streaming || this.pending.size > 0) {
-      return { status: "rejected", reason: "A turn is still running" };
+      return {
+        status: "rejected",
+        reason: "turn_in_flight",
+        detail: "A turn is still running",
+      };
     }
     if (this.sessionId === undefined) {
-      return { status: "rejected", reason: "No SDK session has started" };
+      return {
+        status: "rejected",
+        reason: "no_engine_session",
+        detail: "No SDK session has started",
+      };
     }
     return {
       status: "ready",
@@ -93,6 +118,17 @@ export class TurnLedger {
       },
     };
   }
+}
+
+function mirrorErrorDetail(message: NativeSdkMessage): string {
+  const error =
+    typeof message.error === "string" && message.error.length > 0
+      ? message.error
+      : "unspecified error";
+  const key = message.key as { subpath?: unknown } | undefined;
+  const target =
+    typeof key?.subpath === "string" ? `subagent ${key.subpath}` : "root";
+  return `Transcript mirror dropped a ${target} batch: ${error}`;
 }
 
 function consumedUuids(message: NativeSdkMessage): string[] {
