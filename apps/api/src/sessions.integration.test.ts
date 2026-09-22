@@ -308,7 +308,9 @@ integration("sessions API on PostgreSQL", () => {
   });
 
   test("api pool cancels a statement that outlives statement_timeout and maps it to 503", async () => {
-    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+    // The URL tries to switch both limits off; the pool must not let it.
+    const overriding = `${databaseUrl ?? ""}${databaseUrl?.includes("?") ? "&" : "?"}statement_timeout=0&query_timeout=0`;
+    const apiPool = createApiPool(overriding, createLogger(), {
       connectMs: 1_000,
       statementMs: 500,
       queryMs: 1_000,

@@ -1,5 +1,6 @@
 import type { StructuredLogger } from "@agent-platform/observability";
-import { Client, Pool } from "pg";
+import { Client, Pool, type PoolConfig } from "pg";
+import { parseIntoClientConfig } from "pg-connection-string";
 
 export interface PoolTimeouts {
   // Waiting for a connection or a free pooled client.
@@ -96,16 +97,26 @@ export function createApiPool(
   timeouts: PoolTimeouts = API_POOL_TIMEOUTS,
 ): Pool {
   return watchIdleErrors(
-    new Pool({
-      Client: EvictOnReadTimeoutClient,
-      connectionString,
-      connectionTimeoutMillis: timeouts.connectMs,
-      statement_timeout: timeouts.statementMs,
-      query_timeout: timeouts.queryMs,
-    }),
+    new Pool(enforcedConfig(connectionString, timeouts)),
     logger,
     "api",
   );
+}
+
+// pg parses connectionString last, so `?statement_timeout=0&query_timeout=0`
+// in DATABASE_URL would silently switch the limits off. Parse the URL here
+// and lay the limits over it instead.
+export function enforcedConfig(
+  connectionString: string,
+  timeouts: PoolTimeouts,
+): PoolConfig {
+  return {
+    ...parseIntoClientConfig(connectionString),
+    Client: EvictOnReadTimeoutClient,
+    connectionTimeoutMillis: timeouts.connectMs,
+    statement_timeout: timeouts.statementMs,
+    query_timeout: timeouts.queryMs,
+  };
 }
 
 // A pool of its own so probe traffic never competes with API requests for
@@ -117,12 +128,12 @@ export function createProbePool(
 ): Pool {
   return watchIdleErrors(
     new Pool({
-      Client: EvictOnReadTimeoutClient,
-      connectionString,
+      ...enforcedConfig(connectionString, {
+        connectMs: timeoutMs,
+        statementMs: timeoutMs,
+        queryMs: timeoutMs * 2,
+      }),
       max: 1,
-      connectionTimeoutMillis: timeoutMs,
-      statement_timeout: timeoutMs,
-      query_timeout: timeoutMs * 2,
     }),
     logger,
     "probe",
