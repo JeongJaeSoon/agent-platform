@@ -452,6 +452,15 @@ export class LocalDockerBackend implements ExecutionBackend {
       );
     }
     const state = stateOf(container.State.Status);
+    // A stale verdict is a demolition order: the scheduler terminates this
+    // container and launches a replacement. Say so only once the replacement
+    // is known to be launchable, because a workspace the new container cannot
+    // be given would leave the session with neither worker — the old one gone,
+    // the new one refused at volume creation, and nothing to retry into.
+    if (verdict === "stale" && state !== "terminated") {
+      const sessionId = container.Config.Labels?.[LABELS.sessionId];
+      if (sessionId) await this.assertWorkspaceReplaceable(sessionId);
+    }
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
       found: true,
@@ -553,55 +562,25 @@ export class LocalDockerBackend implements ExecutionBackend {
       }
       throw error;
     }
-    const labels = volume.Labels ?? {};
-    const owner = labels[LABELS.installation];
-    // Only a volume that names a *different* owner is an ownership problem.
-    // One that names none is the volume Docker used to conjure out of a mount
-    // spec, and what is wrong with it is the missing ceiling, reported below.
-    if (owner !== undefined && owner !== config.installationId) {
-      throw new WorkspaceQuotaError(
-        name,
-        `belongs to installation ${owner}, not ${config.installationId}`,
-      );
-    }
-    if (labels[LABELS.workspaceQuota] !== stamp) {
-      // Either it predates the quota (implicitly created, unlabelled and
-      // unbounded) or it was created under a different ceiling.
-      throw new WorkspaceQuotaError(
-        name,
-        `was created under quota ${labels[LABELS.workspaceQuota] ?? "<none>"}, not ${stamp}; ` +
-          "a volume's quota cannot be changed in place, so remove it once its " +
-          "workspace is no longer needed (docker volume rm) or restore the previous setting",
-      );
-    }
-    const size = volume.Options?.size;
-    if (
-      quota.mode === "enforced"
-        ? Number(size) !== quota.sizeBytes
-        : size !== undefined
-    ) {
-      throw new WorkspaceQuotaError(
-        name,
-        `carries the quota label ${stamp} but driver option size=${size ?? "<none>"}`,
-      );
-    }
-    // The ceiling is right, which says nothing about whose workspace this is.
-    // A volume that carries the stamp but not the identity was made by hand
-    // or for another session; mounting it would hand a session someone
-    // else's working tree, and GC judges by these same labels, so one that
-    // is missing them would never be reclaimed either.
-    if (
-      owner !== config.installationId ||
-      labels[LABELS.managed] !== "true" ||
-      labels[LABELS.sessionId] !== sessionId
-    ) {
-      throw new WorkspaceQuotaError(
-        name,
-        `is not this session's workspace (managed=${labels[LABELS.managed] ?? "<none>"}, ` +
-          `installation=${owner ?? "<none>"}, session=${labels[LABELS.sessionId] ?? "<none>"})`,
-      );
-    }
+    const problem = workspaceVolumeProblem(volume, sessionId, config);
+    if (problem !== null) throw new WorkspaceQuotaError(name, problem);
     return name;
+  }
+
+  /**
+   * Whether the session's existing workspace could be handed to a new
+   * container, asked without changing anything. The stale-replacement path
+   * destroys a running container before it re-creates one, so it has to know
+   * the answer *before* the teardown: a volume that `ensureWorkspaceVolume`
+   * would reject leaves that session with no worker and no way back to one.
+   */
+  private async assertWorkspaceReplaceable(sessionId: string): Promise<void> {
+    const name = workspaceVolumeFor(sessionId, this.config.installationId);
+    const volume = await this.client.inspectVolume(name);
+    // Nothing there is the easy case: the replacement creates it.
+    if (volume === null) return;
+    const problem = workspaceVolumeProblem(volume, sessionId, this.config);
+    if (problem !== null) throw new WorkspaceQuotaError(name, problem);
   }
 
   /** The container under this name has to be this very launch, or hands off. */
@@ -719,6 +698,62 @@ export class LocalDockerBackend implements ExecutionBackend {
       User: config.user,
     };
   }
+}
+
+/**
+ * What is wrong with an existing volume for `sessionId`, or null when it is
+ * exactly the one this host would create. Shared by the launch path and the
+ * pre-teardown check so the two can never disagree about what is acceptable.
+ */
+function workspaceVolumeProblem(
+  volume: VolumeInspect,
+  sessionId: string,
+  config: LocalDockerBackendConfig,
+): string | null {
+  const labels = volume.Labels ?? {};
+  const owner = labels[LABELS.installation];
+  const quota = config.workspaceQuota;
+  const stamp = quotaStampOf(quota);
+  // Only a volume that names a *different* owner is an ownership problem.
+  // One that names none is the volume Docker used to conjure out of a mount
+  // spec, and what is wrong with it is the missing ceiling, reported below.
+  if (owner !== undefined && owner !== config.installationId) {
+    return `belongs to installation ${owner}, not ${config.installationId}`;
+  }
+  if (labels[LABELS.workspaceQuota] !== stamp) {
+    // Either it predates the quota (implicitly created, unlabelled and
+    // unbounded) or it was created under a different ceiling.
+    return (
+      `was created under quota ${labels[LABELS.workspaceQuota] ?? "<none>"}, not ${stamp}; ` +
+      "a volume's quota cannot be changed in place, so this session keeps whatever " +
+      "worker it still has until the volume is retired deliberately (docker volume rm, " +
+      "once its workspace is no longer needed) or the previous setting is restored"
+    );
+  }
+  const size = volume.Options?.size;
+  if (
+    quota.mode === "enforced"
+      ? Number(size) !== quota.sizeBytes
+      : size !== undefined
+  ) {
+    return `carries the quota label ${stamp} but driver option size=${size ?? "<none>"}`;
+  }
+  // The ceiling is right, which says nothing about whose workspace this is.
+  // A volume that carries the stamp but not the identity was made by hand or
+  // for another session; mounting it would hand a session someone else's
+  // working tree, and GC judges by these same labels, so one that is missing
+  // them would never be reclaimed either.
+  if (
+    owner !== config.installationId ||
+    labels[LABELS.managed] !== "true" ||
+    labels[LABELS.sessionId] !== sessionId
+  ) {
+    return (
+      `is not this session's workspace (managed=${labels[LABELS.managed] ?? "<none>"}, ` +
+      `installation=${owner ?? "<none>"}, session=${labels[LABELS.sessionId] ?? "<none>"})`
+    );
+  }
+  return null;
 }
 
 /**

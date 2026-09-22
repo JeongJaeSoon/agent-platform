@@ -592,6 +592,58 @@ describe("LocalDockerBackend.inspect", () => {
     });
   });
 
+  test("a stale container whose workspace cannot be reused is not condemned", async () => {
+    // The volume an implicit `Mounts` create left behind on the old contract.
+    // Reporting the container stale here would have the scheduler tear it
+    // down, and the replacement would then be refused at volume creation —
+    // one destroyed worker, no way back. Throwing keeps it running.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    docker.addVolume(workspaceVolumeFor(intent.sessionId, "test-a"), {});
+
+    await expect(backend.inspect(intent)).rejects.toThrow(
+      "was created under quota <none>",
+    );
+  });
+
+  test("a stale container whose workspace is already right is still stale", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    docker.addVolume(
+      workspaceVolumeFor(intent.sessionId, "test-a"),
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+
+    expect((await backend.inspect(intent)).stale).toBe(true);
+  });
+
+  test("a stale container that already exited is condemned without a volume check", async () => {
+    // Nothing to protect: the worker is gone either way, and the launch path
+    // is where the volume gets its verdict.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    const container = docker.add(containerNameFor(intent, "test-a"), body);
+    container.status = "exited";
+    container.exitCode = 0;
+    docker.addVolume(workspaceVolumeFor(intent.sessionId, "test-a"), {});
+
+    expect(await backend.inspect(intent)).toMatchObject({
+      stale: true,
+      state: "terminated",
+    });
+  });
+
   test("a container on the current contract is not stale", async () => {
     const intent = intentFor();
     docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));

@@ -52,13 +52,22 @@ export type SchedulerRunSummary = {
   replaced: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
+  /**
+   * true when GC could not even draw up its candidate list — listing the
+   * workspaces or asking the store which sessions are retained threw. Nothing
+   * was removed, and unlike the outcomes below this is a fault, not a
+   * judgement, so the exit code carries it.
+   */
+  workspaceScanFailed: boolean;
+  /** Workspaces whose removal threw; neither reclaimed nor deliberately kept. */
+  workspacesFailed: string[];
   /** Workspaces of finished sessions, reclaimed by this pass. */
   workspacesReclaimed: string[];
   /**
-   * Workspaces GC decided to reclaim but could not: still mounted, no longer
-   * this installation's, or the removal failed. Deliberately not part of the
-   * exit code — disk left behind is not a launch left undone, and a mounted
-   * volume is the normal state during a teardown.
+   * Workspaces GC decided to reclaim and deliberately left alone: still
+   * mounted, or no longer this installation's. Not part of the exit code — a
+   * volume mounted by a container that is still shutting down is the normal
+   * state during a teardown, and the next pass takes it.
    */
   workspacesUnresolved: string[];
 };
@@ -108,6 +117,8 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     skipped: false,
     slotLimit,
     terminatedObserved: [],
+    workspaceScanFailed: false,
+    workspacesFailed: [],
     workspacesReclaimed: [],
     workspacesUnresolved: [],
   };
@@ -448,7 +459,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           : new Set(await store.filterRetainedSessions(labelled));
     } catch (error) {
       // Nothing was removed, so nothing is inconsistent; the next pass
-      // reclaims whatever this one could not even look at.
+      // reclaims whatever this one could not even look at. It is still a
+      // failure, and a pass that keeps failing here keeps leaking disk.
+      summary.workspaceScanFailed = true;
       logger.error("Listing workspaces for reclaim failed; none reclaimed", {
         error: messageOf(error),
       });
@@ -471,7 +484,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       try {
         outcome = (await removeWorkspace.call(backend, id)).outcome;
       } catch (error) {
-        summary.workspacesUnresolved.push(id);
+        summary.workspacesFailed.push(id);
         logger.error("Reclaiming workspace failed", {
           error: messageOf(error),
           session_id: sessionId,
@@ -513,7 +526,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     replaced_count: summary.replaced.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
+    workspace_failed_count: summary.workspacesFailed.length,
     workspace_reclaimed_count: summary.workspacesReclaimed.length,
+    workspace_scan_failed: summary.workspaceScanFailed,
     workspace_unresolved_count: summary.workspacesUnresolved.length,
   });
   return summary;

@@ -16,6 +16,8 @@ const clean: SchedulerRunSummary = {
   skipped: false,
   slotLimit: 10,
   terminatedObserved: [],
+  workspaceScanFailed: false,
+  workspacesFailed: [],
   workspacesReclaimed: [],
   workspacesUnresolved: [],
 };
@@ -32,5 +34,15 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
+  });
+
+  test("a GC fault exits 1, a GC judgement does not", () => {
+    expect(exitCodeFor({ ...clean, workspaceScanFailed: true })).toBe(1);
+    expect(exitCodeFor({ ...clean, workspacesFailed: ["ap-ws-1"] })).toBe(1);
+    // Still mounted, or someone else's: both deliberate, both retried next
+    // pass, neither a reason to wake anyone.
+    expect(exitCodeFor({ ...clean, workspacesUnresolved: ["ap-ws-1"] })).toBe(
+      0,
+    );
   });
 });

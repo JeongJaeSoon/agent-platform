@@ -58,7 +58,12 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.orphansUnresolved.length > 0 ||
     summary.reclaimFailed.length > 0 ||
-    summary.reconcileFailed.length > 0
+    summary.reconcileFailed.length > 0 ||
+    // A GC fault, not a GC judgement: `workspacesUnresolved` is deliberate
+    // and stays out of this, but a scan or a removal that threw means disk
+    // is being left behind for a reason nobody has looked at.
+    summary.workspaceScanFailed ||
+    summary.workspacesFailed.length > 0
     ? 1
     : 0;
 }

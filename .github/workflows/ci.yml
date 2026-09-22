@@ -138,8 +138,13 @@ jobs:
           DOCKER_BACKEND_TEST: "1"
           DOCKER_HOST: unix:///tmp/apq/docker.sock
         run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+      # The daemon's own log is where a create that the suite could not
+      # explain shows up. `|| true` because this step also runs when an
+      # earlier one failed before the container existed.
       - if: always()
-        run: docker logs apq 2>&1 | tail -40; docker rm -f apq || true
+        run: |
+          docker logs apq 2>&1 | tail -40 || true
+          docker rm -f apq || true
 
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they

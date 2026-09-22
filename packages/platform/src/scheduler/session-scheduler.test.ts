@@ -903,7 +903,9 @@ describe("runScheduler workspace GC", () => {
 
     const summary = await run();
 
-    expect(summary.workspacesUnresolved).toEqual(["ap-ws-a"]);
+    // A removal that threw is a fault, not a decision to leave it.
+    expect(summary.workspacesFailed).toEqual(["ap-ws-a"]);
+    expect(summary.workspacesUnresolved).toEqual([]);
     expect(summary.workspacesReclaimed).toEqual(["ap-ws-b"]);
   });
 
@@ -915,6 +917,7 @@ describe("runScheduler workspace GC", () => {
     const summary = await run();
 
     expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspaceScanFailed).toBe(true);
     // The launches still happened; GC is the last step for exactly this reason.
     expect(summary.launched).toHaveLength(1);
   });
@@ -927,6 +930,7 @@ describe("runScheduler workspace GC", () => {
     const summary = await run();
 
     expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspaceScanFailed).toBe(true);
     expect(backend.workspaces.has("ap-ws-done")).toBe(true);
   });
 
