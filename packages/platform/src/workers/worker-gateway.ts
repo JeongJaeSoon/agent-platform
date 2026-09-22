@@ -3,6 +3,7 @@ import type {
   ApiErrorCode,
   AppendEventsRequest,
   AppendEventsResponse,
+  AttemptState,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
   FinalizeRequest,
@@ -26,7 +27,17 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 
-export type WorkerGatewayStatus = 401 | 403 | 404 | 409;
+export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409;
+
+// A heartbeat says the attempt is alive. "allocated" would walk the attempt
+// back to the state a claim leaves behind, which reopens the one-shot
+// bootstrap replay; the terminal states belong to release and to the
+// backend's own observation, not to a self-report.
+const HEARTBEAT_STATES = new Set<AttemptState>([
+  "starting",
+  "running",
+  "draining",
+]);
 
 export class WorkerGatewayError extends Error {
   constructor(
@@ -291,6 +302,13 @@ export function createWorkerGateway(deps: {
       request: HeartbeatRequest,
     ): Promise<HeartbeatResponse> {
       const fence = requireScope(principal, request);
+      if (!HEARTBEAT_STATES.has(request.attempt_state)) {
+        throw new WorkerGatewayError(
+          400,
+          "BAD_REQUEST",
+          `attempt_state ${request.attempt_state} cannot be reported by a heartbeat`,
+        );
+      }
       const at = now();
       const result = await work.heartbeatAtomic({
         fence,

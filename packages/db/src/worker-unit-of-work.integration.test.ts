@@ -1213,23 +1213,85 @@ integration("worker gateway on PostgreSQL", () => {
     expect(redelivered.input?.message).toBe("second input");
   });
 
-  test("an unfinalized delivered turn keeps the session out of the claim pool after the execution is gone", async () => {
+  test("an execution that ends mid-turn leaves an unknown outcome, not work in progress", async () => {
     const partition = partitionFor("unk");
     const { session, launch: l } = await claimAndDeliver(partition);
     expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
       sessionReleased: true,
       slotReleased: true,
     });
+    // Nothing re-signals the session: the delivered input must not run again.
     const signals = await db
       .select()
       .from(unassignedSessions)
       .where(eq(unassignedSessions.sessionId, session.session_id));
     expect(signals).toHaveLength(0);
     const [row] = await db
-      .select({ podId: sessions.podId })
+      .select({
+        podId: sessions.podId,
+        status: sessions.status,
+        admissionState: sessions.admissionState,
+      })
       .from(sessions)
       .where(eq(sessions.id, session.session_id));
-    expect(row?.podId).toBeNull();
+    expect(row).toEqual({
+      podId: null,
+      status: "failed",
+      admissionState: "recovery_required",
+    });
+    const [turn] = await db
+      .select({
+        status: turns.status,
+        outcomeUnknown: turns.outcomeUnknown,
+        terminalReason: turns.terminalReason,
+      })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(turn).toEqual({
+      status: "outcome_unknown",
+      outcomeUnknown: true,
+      terminalReason: "execution_gone",
+    });
+    const [receipt] = await db
+      .select({ status: receipts.status })
+      .from(receipts)
+      .where(eq(receipts.id, session.receipt_id));
+    expect(receipt?.status).toBe("unknown");
+    // The input stays on the queue for the operator decision (94S-140).
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, session.session_id)),
+    ).toHaveLength(1);
+  });
+
+  test("a heartbeat cannot walk the attempt back to allocated or end it", async () => {
+    const partition = partitionFor("hbstate");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const claimed = await claim(l);
+    await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+    for (const state of ["allocated", "exited", "lost"] as const) {
+      expect(
+        await failure(
+          gateway.heartbeat(principalOf(claimed), {
+            ...scopeOf(claimed),
+            attempt_state: state,
+          }),
+        ),
+      ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    }
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.state).toBe("running");
+    // The claim-replay door stays shut, which a regression would reopen.
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
   });
 
   test("launch slots: bootstrapClaim inherits the reservation and each exit returns it exactly once", async () => {

@@ -991,6 +991,49 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         for (const attempt of open) {
           await revokeCredentials(tx, attempt.id, now);
         }
+
+        // A turn that was handed to the execution and never finalized has no
+        // knowable result now that the execution is gone. Saying nothing
+        // would leave it looking like work in progress, so it is recorded as
+        // unknown here and its input stays on the queue until an operator
+        // decides (94S-140). The judgement lives in the same transaction
+        // that removes the binding.
+        const unresolved = await tx
+          .update(turns)
+          .set({
+            status: "outcome_unknown",
+            outcomeUnknown: true,
+            endedAt: now,
+            terminalReason: "execution_gone",
+          })
+          .where(
+            and(
+              eq(turns.sessionId, session.id),
+              inArray(turns.status, OPEN_TURN_STATUSES),
+            ),
+          )
+          .returning({ sequence: turns.sequence });
+        for (const turn of unresolved) {
+          await tx
+            .update(receipts)
+            .set({
+              status: "unknown",
+              error: {
+                code: "RECOVERY_REQUIRED",
+                message: "execution ended before the turn was finalized",
+              },
+              updatedAt: now,
+            })
+            .where(
+              and(
+                inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+                eq(receipts.status, "accepted"),
+                sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+                sql`${receipts.targetRef}->>'turn_id' = ${String(turn.sequence)}`,
+              ),
+            );
+        }
+
         await tx
           .update(sessions)
           .set({
@@ -998,32 +1041,27 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionId: null,
             leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
             updatedAt: now,
+            ...(unresolved.length > 0
+              ? {
+                  status: "failed" as const,
+                  admissionState: "recovery_required" as const,
+                }
+              : {}),
           })
           .where(eq(sessions.id, session.id));
 
-        // Re-signal only when nothing delivered is left unresolved: a turn
-        // that started but never finalized is outcome-unknown and must not
-        // be re-run by the next claim (94S-139 decides it).
+        // Re-signal only when nothing is left unresolved: an unknown turn
+        // must not be re-run by the next claim.
         const [queuedRow] = await tx
           .select({ queued: count() })
           .from(turns)
           .where(
             and(eq(turns.sessionId, session.id), eq(turns.status, "queued")),
           );
-        const [unknownRow] = await tx
-          .select({ unknown: count() })
-          .from(turns)
-          .where(
-            and(
-              eq(turns.sessionId, session.id),
-              inArray(turns.status, OPEN_TURN_STATUSES),
-            ),
-          );
         const queued = queuedRow?.queued ?? 0;
-        const unknown = unknownRow?.unknown ?? 0;
         if (
           queued > 0 &&
-          unknown === 0 &&
+          unresolved.length === 0 &&
           session.admissionState === "active"
         ) {
           await tx
