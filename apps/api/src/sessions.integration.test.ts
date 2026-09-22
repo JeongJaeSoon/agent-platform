@@ -13,6 +13,7 @@ import {
 import * as schema from "@agent-platform/db";
 import {
   checkpoints,
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   idempotencyKeys,
@@ -67,6 +68,7 @@ integration("sessions API on PostgreSQL", () => {
     const service = createSessionService({
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog: {
         profiles: {

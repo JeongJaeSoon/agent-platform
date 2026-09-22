@@ -19,7 +19,6 @@ const NOT_YET_IMPLEMENTED = [
   "POST /v1/sessions/{id}/answers",
   "POST /v1/sessions/{id}/interrupt",
   "POST /v1/sessions/{id}/pause",
-  "POST /v1/sessions/{id}/terminate",
   "POST /v1/sessions/{id}/resume",
   "POST /v1/sessions/{id}/recovery-decisions",
 ];

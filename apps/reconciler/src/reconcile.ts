@@ -1,10 +1,18 @@
-import type { ReconciledOrphan } from "@agent-platform/db";
+import type { ReconciledLease, ReconciledOrphan } from "@agent-platform/db";
 
 export type ReconcileOptions = {
   dryRun: boolean;
   leaseTtlMs: number;
   limit: number;
   now: Date;
+};
+
+export type LeaseReconcileOptions = Omit<ReconcileOptions, "leaseTtlMs">;
+
+export type ReconcilerRun = {
+  orphans: ReconciledOrphan[];
+  leases: ReconciledLease[];
+  terminationsOverdue: number;
 };
 
 export type ReconcilerLogger = {
@@ -22,7 +30,13 @@ export async function runReconciler(input: {
   logger: ReconcilerLogger;
   now?: Date;
   reconcile(options: ReconcileOptions): Promise<ReconciledOrphan[]>;
-}): Promise<ReconciledOrphan[]> {
+  // Gateway-bound sessions: fence the attempt and ask for its execution to
+  // go. Their judgement waits for the scheduler to confirm the removal.
+  reconcileLeases(options: LeaseReconcileOptions): Promise<ReconciledLease[]>;
+  // Terminate receipts past their deadline become unknown. The scheduler
+  // sweeps too, but it may not run at all while Docker is down.
+  expireTerminations(options: { now: Date }): Promise<number>;
+}): Promise<ReconcilerRun> {
   const environment = input.environment ?? process.env;
   const leaseTtlSec = positiveNumber(
     environment.HEARTBEAT_TTL_SEC ?? "30",
@@ -36,11 +50,12 @@ export async function runReconciler(input: {
     environment.RECONCILER_DRY_RUN ?? "false",
     "RECONCILER_DRY_RUN",
   );
+  const now = input.now ?? new Date();
   const reconciled = await input.reconcile({
     dryRun,
     leaseTtlMs: leaseTtlSec * 1_000,
     limit,
-    now: input.now ?? new Date(),
+    now,
   });
   input.logger.info("Orphan session reconciliation completed", {
     blocked_count: reconciled.filter(({ action }) => action === "blocked")
@@ -54,7 +69,22 @@ export async function runReconciler(input: {
       .length,
     session_ids: reconciled.map(({ sessionId }) => sessionId),
   });
-  return reconciled;
+  const leases = await input.reconcileLeases({ dryRun, limit, now });
+  input.logger.info("Expired lease reconciliation completed", {
+    dry_run: dryRun,
+    ended_count: leases.filter(({ action }) => action === "ended").length,
+    fenced_count: leases.filter(({ action }) => action === "fenced").length,
+    reconciled_count: leases.length,
+    session_ids: leases.map(({ sessionId }) => sessionId),
+  });
+  const terminationsOverdue = dryRun
+    ? 0
+    : await input.expireTerminations({ now });
+  input.logger.info("Overdue terminate receipts marked unknown", {
+    dry_run: dryRun,
+    overdue_count: terminationsOverdue,
+  });
+  return { orphans: reconciled, leases, terminationsOverdue };
 }
 
 function positiveNumber(value: string, name: string): number {

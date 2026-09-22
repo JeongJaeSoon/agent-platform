@@ -6,6 +6,8 @@ const clean: SchedulerRunSummary = {
   activeAfter: 0,
   activeBefore: 0,
   failedLaunches: [],
+  killFailed: [],
+  killed: [],
   launched: [],
   orphansTerminated: [],
   orphansUnresolved: [],
@@ -16,6 +18,7 @@ const clean: SchedulerRunSummary = {
   skipped: false,
   slotLimit: 10,
   terminatedObserved: [],
+  terminationsOverdue: 0,
 };
 const ref = { executionId: "exec-1", generation: 1 };
 

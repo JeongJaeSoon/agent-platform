@@ -28,6 +28,7 @@ import {
   notExists,
   sql,
 } from "drizzle-orm";
+import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -275,6 +276,7 @@ export function createPostgresSchedulerStore(
         .select({
           backend: workerLaunches.backend,
           claimedAttemptId: workerLaunches.claimedAttemptId,
+          desiredState: executions.desiredState,
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
@@ -294,6 +296,8 @@ export function createPostgresSchedulerStore(
       return rows.map((row) => ({
         backend: backendKindOf(row.backend),
         claimed: row.claimedAttemptId !== null,
+        desiredState:
+          row.desiredState === "terminated" ? "terminated" : "running",
         executionId: row.executionId,
         generation: row.generation,
         nonceExpiresAt: row.nonceExpiresAt,
@@ -353,6 +357,10 @@ export function createPostgresSchedulerStore(
 
     async confirmExecutionGone(executionId: string, now: Date): Promise<void> {
       await work.confirmExecutionGoneAtomic({ executionId, now });
+    },
+
+    markOverdueTerminations(input): Promise<number> {
+      return expireOverdueTerminations(db, input);
     },
   };
 }

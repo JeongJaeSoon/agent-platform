@@ -59,6 +59,10 @@ export const terminateReceiptResultSchema = z.object({
   execution_gone: z.boolean(),
   checkpoint_revision: revisionSchema.nullable(),
   unconfirmed_turn_id: turnIdSchema.nullable(),
+  // A kill removes the execution; whatever it already did outside (commits,
+  // pushes, API calls) stays done. The receipt says so instead of letting
+  // "succeeded" read as a rollback.
+  external_effects_reverted: z.literal(false),
 });
 
 export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;

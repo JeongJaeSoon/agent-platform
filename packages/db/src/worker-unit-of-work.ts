@@ -41,6 +41,7 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -566,7 +567,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             updatedAt: input.now,
           })
           .where(
-            and(eq(sessions.id, candidate.sessionId), isNull(sessions.podId)),
+            and(
+              eq(sessions.id, candidate.sessionId),
+              isNull(sessions.podId),
+              // The candidate query saw `active`, but a terminate can commit
+              // between that read and this row lock; the write is the check.
+              eq(sessions.admissionState, "active"),
+            ),
           )
           .returning();
         if (!session) return { outcome: "no_session" };
@@ -1229,6 +1236,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             );
         }
 
+        // A session that asked for this kill (terminate, 94S-139) lands in
+        // `stopped`, unless a turn was left unresolved, in which case the
+        // recovery decision takes precedence just as for any other exit.
+        const stopping = session.admissionState === "stopping";
         await tx
           .update(sessions)
           .set({
@@ -1241,9 +1252,37 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   status: "failed" as const,
                   admissionState: "recovery_required" as const,
                 }
-              : {}),
+              : stopping
+                ? {
+                    status: "stopped" as const,
+                    admissionState: "stopped" as const,
+                  }
+                : {}),
           })
           .where(eq(sessions.id, session.id));
+        // The terminate receipt succeeds only here, on the observed absence;
+        // one that already went `unknown` past its deadline is upgraded.
+        await tx
+          .update(receipts)
+          .set({
+            status: "succeeded",
+            error: null,
+            result: terminateReceiptResult({
+              checkpointRevision: session.checkpointRevision,
+              unconfirmedTurnId:
+                unresolved.length > 0
+                  ? String(Math.min(...unresolved.map((t) => t.sequence)))
+                  : null,
+            }),
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(receipts.operation, "terminate"),
+              inArray(receipts.status, ["accepted", "unknown"]),
+              sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+            ),
+          );
 
         // Re-signal only when nothing is left unresolved: an unknown turn
         // must not be re-run by the next claim.

@@ -47,6 +47,7 @@ export async function main(
 /** Non-zero when the pass left work undone, so cron/supervisors notice. */
 export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
+    summary.killFailed.length > 0 ||
     summary.orphansUnresolved.length > 0 ||
     summary.reclaimFailed.length > 0 ||
     summary.reconcileFailed.length > 0
