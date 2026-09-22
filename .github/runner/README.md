@@ -67,18 +67,69 @@ limactl start --name=agent-platform-ci .github/runner/lima.yaml && .github/runne
 
 이 러너는 **arm64**, GitHub-hosted `ubuntu-24.04`는 **amd64**다. `CI_RUNS_ON`을 켜면 amd64에서 도는 실행이 없어진다. 쓰는 이미지(`postgres:16`, `localstack/localstack:3`, `busybox`)와 도구(Bun, uv, Python 3.13)는 전부 multi-arch라 동작 자체는 문제없지만, **아키텍처에 민감한 버그는 걸리지 않는다.** `ci.yml`의 `ponytail:` 주석에 이 선택과 되돌릴 조건을 적어 두었다.
 
+## 리소스
+
+**메모리는 예산이 아니라 상한이다.** 이 guest에는 balloon 장치가 없어서, Linux가 한 번 만진 페이지는 — 페이지 캐시까지 포함해 — VM이 살아 있는 동안 호스트에 계속 잡혀 있는다. `memory`는 VM이 필요할 때 늘렸다 돌려주는 값이 아니라 **유휴 시 점유가 수렴하는 천장**이다. 그래서 맥 사양이 아니라 실측(가장 무거운 job의 guest 피크 4.8 GiB)에 맞춰 잡았다.
+
+VM 메모리는 `limactl`이 아니라 `com.apple.Virtualization.VirtualMachine.xpc` 프로세스에 잡힌다. 실제로 확인할 때 엉뚱한 데를 보지 않도록:
+
+```bash
+ps -Ao rss,command -r | sort -rn | grep -m1 Virtualization | awk '{printf "%.2fGiB\n",$1/1048576}'
+```
+
+**회수하는 유일한 방법은 VM 재시작이다.** 오래 돌린 뒤 되돌리고 싶으면 job이 없는 때에 껐다 켠다(실측으로 7.7 GiB → 1.2 GiB).
+
+```bash
+limactl stop agent-platform-ci && limactl start agent-platform-ci
+```
+
+CPU는 일부러 호스트의 절반 아래로 잡았다. 같은 기계에서 사람이 일하는 동안 job이 도는 구성이기 때문이고, 항상 켜 두는 머신으로 옮기면 `--set`으로 올린다.
+
+디스크는 sparse라 쓴 만큼만 호스트 파일이 커지고, `discard` 마운트 + 배포판의 `fstrim.timer` 덕분에 **VM 안에서 지우면 맥에서도 실제로 줄어든다.** 자라는 쪽을 세 군데에서 막는다.
+
+| | |
+| --- | --- |
+| 컨테이너 로그 | `daemon.json`의 `max-size: 10m`, `max-file: 3`. 기본값은 무제한이라 CI 호스트에서는 아무도 안 보는 디스크 누수다 |
+| 빌드 캐시 | `builder.gc.defaultKeepStorage: 8GB` |
+| 이미지·볼륨·저널 | `ci-reclaim.timer`(매일). 일주일 손대지 않은 이미지와 빌드 캐시를 지우고, 여유가 15 GiB 밑이면 전면 prune으로 올라간다. 끝에 `fstrim` |
+
+이미지를 job마다 지우지 않는 것은 의도적이다 — localstack을 매 실행 다시 받는 비용이 그 이미지가 차지하는 디스크보다 크다.
+
+## job 뒤처리
+
+`ACTIONS_RUNNER_HOOK_JOB_COMPLETED`로 `job-cleanup.sh`가 **모든 job 끝에, 취소된 job 포함해서** 돈다. 취소가 바로 새는 경우다 — 취소된 job은 러너가 띄운 service container를 정리하는 단계까지 가지 못해서 postgres와 localstack이 그대로 살아남고 다음 job이 그걸 물려받는다.
+
+훅이 하는 일은 셋이다. `_work` 아래에 뿌리를 둔 잔여 프로세스를 SIGTERM 후 유예를 두고 SIGKILL, 살아 있는 컨테이너 전부 제거(러너가 job을 한 번에 하나만 받으므로 job이 끝난 시점에 도는 컨테이너는 정의상 고아다), 그리고 컨테이너·네트워크·볼륨 prune. 실패해도 job을 깨뜨리지 않는다.
+
+훅이 아예 못 돈 경우 — VM이 job 도중에 죽은 경우 — 는 위의 `ci-reclaim.timer`가 받는다.
+
+## 전원·재부팅·절전
+
+**맥을 껐다 켜면 VM은 자동으로 돌아오지 않는다.** 그러면 러너가 offline이 되는데, job은 실패하지 않고 **큐에 머문다.** `main`에 `check`와 `integration`이 required이므로 그동안 열려 있는 모든 PR이 pending 체크에 걸려 머지되지 않는다. 에러는 아무 데도 뜨지 않는다.
+
+그래서 로그인 시 자동 기동을 붙여 두는 쪽을 권한다. `launchd.plist`에 설치·제거 절차가 있다.
+
+절전은 다르다. 맥이 자면 VM도 같이 멈추고, 깨면 러너의 long poll이 다시 붙는다. 그 사이 GitHub에는 offline으로 보이고 job은 큐에 머문다 — 복구에 손댈 것은 없다.
+
+`limactl stop`은 VM에 ACPI 종료를 보내고, systemd가 러너 서비스를 멈춘다. 러너는 그때 돌고 있던 job을 GitHub에 취소로 보고하고 정리 훅을 돌린다. 그 시간을 주려고 `TimeoutStopSec=120`을 걸어 두었으므로, job이 도는 중에 stop하면 최대 2분 걸린다. **`--force`는 그 보고를 건너뛰고, job은 GitHub이 타임아웃 낼 때까지 매달려 있는다.**
+
+러너가 살아 있는지 보는 곳:
+
+```bash
+gh api repos/JeongJaeSoon/agent-platform/actions/runners --jq '.runners[]|"\(.name) \(.status) busy=\(.busy)"'
+```
+
+`offline`이 오래 가고 당장 고칠 수 없으면 `gh variable delete CI_RUNS_ON`으로 GitHub-hosted에 되돌린다.
+
 ## 유지보수
 
 ```bash
-limactl shell agent-platform-ci -- sudo -u runner docker system prune -af --volumes   # 디스크 회수
-limactl shell agent-platform-ci -- df -h /                                            # 남은 공간
-.github/runner/install-runner.sh                                                      # 러너 버전 갱신
-gh api repos/JeongJaeSoon/agent-platform/actions/runners --jq '.runners[]|"\(.name) \(.status)"'
+limactl shell agent-platform-ci -- sudo /usr/local/sbin/ci-reclaim   # 정기 회수를 지금 실행
+limactl shell agent-platform-ci -- df -h /                           # 남은 공간
+.github/runner/install-runner.sh                                     # 러너 버전 갱신 + 훅 재설치
 ```
 
 `--disableupdate`로 등록했으므로 러너가 스스로 업데이트하지 않는다. GitHub이 구 버전 거부를 시작하면 위 스크립트를 다시 돌린다.
-
-VM은 `limactl start`로 켜야 job을 받는다. 노트북이 꺼져 있거나 VM이 내려가 있으면 job은 실패하지 않고 **큐에 머문다** — 그 상태가 오래 가면 `CI_RUNS_ON`을 지워 GitHub-hosted로 되돌린다.
 
 ## Mac Studio 이행
 

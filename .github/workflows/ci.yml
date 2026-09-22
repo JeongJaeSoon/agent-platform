@@ -160,16 +160,18 @@ jobs:
         with:
           cache-scope: spikes
           save-cache: "true"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
+      # uv brings its own self-contained Python, so there is no setup-python
+      # step. The one that was here linked litellm against a libpython that
+      # only resolves through LD_LIBRARY_PATH, and the spike spawns the proxy
+      # with a deliberately minimal environment that does not carry it — which
+      # showed up as an exec failure the moment CI moved off GitHub-hosted.
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       # Both spikes typecheck across ../../packages/contracts, so they need the
       # root workspace installed as well as their own lockfile.
       - run: bun install --frozen-lockfile
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
-      - run: uv tool install 'litellm[proxy]==1.100.1'
+      - run: uv tool install --python 3.13 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
       - id: spike-91
         name: spikes/94s-91 check

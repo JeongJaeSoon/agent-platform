@@ -18,10 +18,22 @@ base:
 vmType: vz
 arch: aarch64
 
-# Sized for a 14-core / 48 GiB MacBook Pro. Override per machine without editing
-# this file: limactl start --set '.cpus=10 | .memory="24GiB"' ...
-cpus: 6
-memory: 12GiB
+# Measured: the heaviest job peaks near 4.8 GiB of guest memory. `memory` is not
+# a budget the VM grows into and gives back — this guest has no balloon device,
+# so whatever Linux touches (page cache included) stays charged to the host for
+# the life of the VM. The number below is therefore the idle ceiling, not a
+# reservation, and it is sized to the measurement rather than to the Mac.
+#
+# `cpus` is deliberately under half the host's, because the developer is using
+# that machine while a job runs.
+#
+# Override per machine without editing this file:
+#   limactl start --set '.cpus=8 | .memory="16GiB"' ...
+cpus: 4
+memory: 8GiB
+# Sparse: the host file grows to what is used, and `discard` + the distro's
+# fstrim.timer hand freed blocks back, so deleting inside the VM really does
+# shrink it on the Mac.
 disk: 80GiB
 
 mounts: []
@@ -115,9 +127,69 @@ provision:
     script: |
       #!/bin/bash
       set -euo pipefail
-      command -v docker >/dev/null 2>&1 && exit 0
-      curl -fsSL https://get.docker.com | sh
-      systemctl enable --now docker
+      if ! command -v docker >/dev/null 2>&1; then
+        curl -fsSL https://get.docker.com | sh
+      fi
+      # Container logs default to an unbounded json file, which on a CI host is
+      # a slow disk leak nobody looks at. The builder cache is the other one.
+      install -d /etc/docker
+      cat >/etc/docker/daemon.json <<'EOF'
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" },
+        "builder": { "gc": { "enabled": true, "defaultKeepStorage": "8GB" } }
+      }
+      EOF
+      systemctl enable docker
+      systemctl restart docker
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      # Second line of defence. The per-job hook handles containers, networks
+      # and volumes; this ages out the images and build cache it deliberately
+      # keeps, and runs even if the hook never fired because the VM was killed
+      # mid-job.
+      cat >/usr/local/sbin/ci-reclaim <<'EOF'
+      #!/bin/bash
+      set -uo pipefail
+      avail() { df -BG --output=avail / | tail -1 | tr -dc '0-9'; }
+      before=$(avail)
+      docker image prune -af --filter until=168h >/dev/null 2>&1
+      docker builder prune -af --filter until=168h >/dev/null 2>&1
+      docker volume prune -f >/dev/null 2>&1
+      # Below this the next `integration` run cannot pull its services, so stop
+      # being polite about the week-old cutoff.
+      if [ "$(avail)" -lt 15 ]; then
+        docker system prune -af --volumes >/dev/null 2>&1
+      fi
+      journalctl --vacuum-size=200M >/dev/null 2>&1
+      # Hands the freed blocks back to the sparse disk file on the Mac.
+      fstrim -a >/dev/null 2>&1
+      logger -t ci-reclaim "free / : ${before}GiB -> $(avail)GiB"
+      EOF
+      chmod 0755 /usr/local/sbin/ci-reclaim
+      cat >/etc/systemd/system/ci-reclaim.service <<'EOF'
+      [Unit]
+      Description=Reclaim CI disk (images, build cache, journal, fstrim)
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/ci-reclaim
+      EOF
+      cat >/etc/systemd/system/ci-reclaim.timer <<'EOF'
+      [Unit]
+      Description=Daily CI disk reclaim
+      [Timer]
+      OnCalendar=daily
+      Persistent=true
+      RandomizedDelaySec=30m
+      [Install]
+      WantedBy=timers.target
+      EOF
+      systemctl daemon-reload
+      systemctl enable --now ci-reclaim.timer
+      systemctl enable --now fstrim.timer
 
   - mode: system
     script: |

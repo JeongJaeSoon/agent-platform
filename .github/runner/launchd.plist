@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Starts the runner VM at login. Optional, and off until you install it.
+
+  Without it a Mac reboot leaves the runner offline with no error anywhere:
+  jobs queue instead of failing, and with `check` and `integration` required on
+  `main`, every open PR sits on pending checks until someone notices.
+
+  Install (the label must match the file name):
+    cp .github/runner/launchd.plist ~/Library/LaunchAgents/dev.agent-platform.ci-runner.plist
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/dev.agent-platform.ci-runner.plist
+
+  Remove:
+    launchctl bootout gui/$UID/dev.agent-platform.ci-runner
+    rm ~/Library/LaunchAgents/dev.agent-platform.ci-runner.plist
+
+  RunAtLoad only. Not KeepAlive: `limactl start` returns once the VM is up, and
+  a KeepAlive agent would read that as a crash and restart it forever.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.agent-platform.ci-runner</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/limactl</string>
+    <string>start</string>
+    <string>agent-platform-ci</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/agent-platform-ci-runner.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/agent-platform-ci-runner.log</string>
+
+  <!-- limactl is in Homebrew's prefix, which a launchd agent does not inherit. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

@@ -72,7 +72,27 @@ read -r token
 cd "$DIR"
 ./config.sh --unattended --replace --url "$URL" --token "$token" --name "$NAME" --labels "$LABELS" --work _work --disableupdate >/dev/null'
 
+limactl copy .github/runner/job-cleanup.sh "$VM":/tmp/job-cleanup.sh
+limactl shell "$VM" sudo bash -c "
+  install -d -o runner -g runner $RUNNER_DIR/hooks
+  install -o runner -g runner -m 0755 /tmp/job-cleanup.sh $RUNNER_DIR/hooks/job-cleanup.sh
+  rm -f /tmp/job-cleanup.sh
+  # runsvc.sh sources .env, and this is the runner's own name for the hook.
+  install -o runner -g runner -m 0644 /dev/stdin $RUNNER_DIR/.env <<'ENV'
+ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$RUNNER_DIR/hooks/job-cleanup.sh
+ENV
+" >/dev/null
+
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh install runner && ./svc.sh start" >/dev/null
+
+# Stopping the VM must let the runner tell GitHub the job is gone, and let the
+# hook clean up, instead of the job hanging until GitHub times it out.
+limactl shell "$VM" sudo bash -c "
+  unit=\$(systemctl list-units --type=service --no-legend 'actions.runner.*' | awk '{print \$1; exit}')
+  install -d /etc/systemd/system/\${unit}.d
+  printf '[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' >/etc/systemd/system/\${unit}.d/graceful.conf
+  systemctl daemon-reload
+" >/dev/null
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh status" | sed -n '1,6p'
 
 echo
