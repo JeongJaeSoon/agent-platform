@@ -9,15 +9,22 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      allow_parallel:
+        description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  # Per PR, so a new push cancels the run it superseded. Everything else keys on
-  # the run itself: two merges landing back to back, or two manual runs of the
-  # same commit, must not cancel or queue behind each other.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  # PR updates supersede older runs of that PR. Push runs remain independent.
+  # Manual runs of the same ref and commit share a group by default; opt in to
+  # independent parallel runs only when deliberately collecting flake samples.
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && !inputs.allow_parallel && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +36,7 @@ jobs:
     # One variable for all three jobs. A self-hosted runner is arm64 and
     # GitHub-hosted is amd64, so whichever is off duty stops being exercised;
     # split this per event once something proves arch-sensitive.
-    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +50,9 @@ jobs:
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
   integration:
-    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
+    # Do not provision services when the fast checks already failed.
+    needs: check
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
     timeout-minutes: 20
     services:
       postgres:
@@ -96,7 +105,8 @@ jobs:
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
   spikes:
-    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
+    needs: check
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
     timeout-minutes: 20
     continue-on-error: true
     services:
