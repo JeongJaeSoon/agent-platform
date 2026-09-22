@@ -1,0 +1,222 @@
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  CheckpointObjectStore,
+  ObjectRef,
+  TranscriptEntry,
+  TranscriptKey,
+  TranscriptMirror,
+  TranscriptRevision,
+} from "@agent-platform/runtime-core";
+
+export type ClaudeSessionStoreOptions = {
+  readonly now?: () => number;
+  readonly objects: CheckpointObjectStore;
+  /** Key namespace; one session's transcripts never share it with another. */
+  readonly prefix: string;
+};
+
+/**
+ * Mirrors the engine's root and subagent transcripts to the object store, and
+ * pins them as exact revisions.
+ *
+ * Two properties carry the design (see spikes/94s-92):
+ *
+ * - Parts are write-once under unique keys, so an append that times out and is
+ *   retried stores both copies. Reads deduplicate by entry `uuid`: an entry
+ *   seen twice with an identical body is restored once, and the same `uuid`
+ *   carrying a different body is corruption and is refused rather than
+ *   silently resolved.
+ * - `captureRevision` freezes the part list and each part's digest. Whatever
+ *   the mirror appends afterwards is invisible to `loadRevision`, which is what
+ *   makes "the mirror is current" and "this checkpoint is resumable" different
+ *   statements.
+ */
+export class ClaudeSessionStore implements TranscriptMirror {
+  readonly #objects: CheckpointObjectStore;
+  readonly #prefix: string;
+  readonly #now: () => number;
+  #lastTimestamp = 0;
+  #appendFailures = 0;
+
+  constructor(options: ClaudeSessionStoreOptions) {
+    this.#objects = options.objects;
+    this.#prefix = options.prefix.replace(/^\/+|\/+$/g, "");
+    this.#now = options.now ?? Date.now;
+  }
+
+  /**
+   * Appends this store itself rejected. The SDK retries and then emits
+   * `system/mirror_error`, which is the authoritative signal; this counter is
+   * for the case where the host never consumed the frames.
+   */
+  get appendFailures(): number {
+    return this.#appendFailures;
+  }
+
+  async append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+    const timestamp = Math.max(this.#now(), this.#lastTimestamp + 1);
+    this.#lastTimestamp = timestamp;
+    const name = `part-${String(timestamp).padStart(13, "0")}-${randomUUID()}.jsonl`;
+    try {
+      await this.#objects.put(
+        `${this.#keyPrefix(key)}${name}`,
+        new TextEncoder().encode(body),
+      );
+    } catch (error) {
+      this.#appendFailures += 1;
+      throw error;
+    }
+  }
+
+  async load(key: TranscriptKey): Promise<TranscriptEntry[] | null> {
+    const parts = await this.#listParts(key);
+    if (parts.length === 0) return null;
+    const bodies = await Promise.all(parts.map((part) => this.#read(part)));
+    return deduplicate(bodies.flatMap(parseEntries));
+  }
+
+  async listSubkeys(key: {
+    projectKey: string;
+    sessionId: string;
+  }): Promise<string[]> {
+    const prefix = this.#joinPrefix(key.projectKey, key.sessionId, "subpaths");
+    const subpaths = new Set<string>();
+    for (const objectKey of await this.#objects.list(prefix)) {
+      const relative = objectKey.slice(prefix.length);
+      const marker = relative.lastIndexOf("/part-");
+      if (marker > 0) subpaths.add(relative.slice(0, marker));
+    }
+    return [...subpaths].sort();
+  }
+
+  /** null when the engine has mirrored nothing for this key yet. */
+  async captureRevision(
+    key: TranscriptKey,
+  ): Promise<TranscriptRevision | null> {
+    const parts = await this.#listParts(key);
+    if (parts.length === 0) return null;
+    const bodies = await Promise.all(parts.map((part) => this.#read(part)));
+    const refs: ObjectRef[] = parts.map((part, index) => ({
+      key: part,
+      sha256: sha256(bodies[index] ?? new Uint8Array()),
+    }));
+    return {
+      entryCount: deduplicate(bodies.flatMap(parseEntries)).length,
+      parts: refs,
+      sha256: digestParts(refs),
+    };
+  }
+
+  /** Restores exactly the parts the revision names, or throws. */
+  async loadRevision(revision: TranscriptRevision): Promise<TranscriptEntry[]> {
+    if (digestParts(revision.parts) !== revision.sha256) {
+      throw new Error("Transcript revision digest mismatch");
+    }
+    const bodies = await Promise.all(
+      revision.parts.map(async (part) => {
+        const body = await this.#read(part.key);
+        if (sha256(body) !== part.sha256) {
+          throw new Error(`Transcript revision integrity failure: ${part.key}`);
+        }
+        return body;
+      }),
+    );
+    const entries = deduplicate(bodies.flatMap(parseEntries));
+    if (entries.length !== revision.entryCount) {
+      throw new Error("Transcript revision entry count mismatch");
+    }
+    return entries;
+  }
+
+  /** Parts written directly under the key, excluding any nested subpath. */
+  async #listParts(key: TranscriptKey): Promise<string[]> {
+    const prefix = this.#keyPrefix(key);
+    return (await this.#objects.list(prefix))
+      .filter((objectKey) => !objectKey.slice(prefix.length).includes("/"))
+      .sort();
+  }
+
+  async #read(key: string): Promise<Uint8Array> {
+    const bytes = await this.#objects.get(key);
+    if (bytes === undefined) throw new Error(`Missing transcript part: ${key}`);
+    return bytes;
+  }
+
+  #keyPrefix(key: TranscriptKey): string {
+    return key.subpath === undefined
+      ? this.#joinPrefix(key.projectKey, key.sessionId, "main")
+      : this.#joinPrefix(
+          key.projectKey,
+          key.sessionId,
+          "subpaths",
+          ...safeSubpath(key.subpath),
+        );
+  }
+
+  #joinPrefix(...segments: string[]): string {
+    return `${[this.#prefix, ...segments.map(safeSegment)].filter(Boolean).join("/")}/`;
+  }
+}
+
+function deduplicate(entries: readonly TranscriptEntry[]): TranscriptEntry[] {
+  const seen = new Map<string, string>();
+  return entries.filter((entry) => {
+    if (typeof entry.uuid !== "string") return true;
+    const encoded = JSON.stringify(canonical(entry));
+    const previous = seen.get(entry.uuid);
+    if (previous !== undefined) {
+      if (previous !== encoded) {
+        throw new Error(`Conflicting transcript entry uuid: ${entry.uuid}`);
+      }
+      return false;
+    }
+    seen.set(entry.uuid, encoded);
+    return true;
+  });
+}
+
+/** Key order is not meaningful in JSON, so compare entries independently of it. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, canonical(nested)]),
+  );
+}
+
+function parseEntries(bytes: Uint8Array): TranscriptEntry[] {
+  return new TextDecoder()
+    .decode(bytes)
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as TranscriptEntry);
+}
+
+function digestParts(parts: readonly ObjectRef[]): string {
+  return sha256(new TextEncoder().encode(JSON.stringify(parts)));
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function safeSegment(value: string): string {
+  if (!value || value === "." || value === ".." || value.includes("/")) {
+    throw new Error(`Unsafe transcript key segment: ${value}`);
+  }
+  return value;
+}
+
+function safeSubpath(value: string): string[] {
+  const segments = value.split("/");
+  if (
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error(`Unsafe transcript subpath: ${value}`);
+  }
+  return segments;
+}

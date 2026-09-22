@@ -87,6 +87,15 @@ export function buildSdkOptions(
     ...(config.plugins === undefined ? {} : { plugins: config.plugins }),
     pluginDelivery: "initialize",
     ...(config.mode === "resume" ? { resume: config.resume } : {}),
+    // "eager" so a batch is durable within a frame of the local write: a
+    // checkpoint taken at the end of a turn should not be waiting on a flush
+    // the SDK would otherwise defer.
+    ...(config.sessionStore === undefined
+      ? {}
+      : {
+          sessionStore: config.sessionStore,
+          sessionStoreFlush: "eager" as const,
+        }),
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,
     systemPrompt: {

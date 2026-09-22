@@ -8,7 +8,8 @@ const ready = {
 };
 const running = {
   status: "rejected" as const,
-  reason: "A turn is still running",
+  reason: "turn_in_flight" as const,
+  detail: "A turn is still running",
 };
 
 describe("turn ledger", () => {
@@ -16,7 +17,8 @@ describe("turn ledger", () => {
     const ledger = new TurnLedger();
     expect(ledger.prepareCheckpoint()).toEqual({
       status: "rejected",
-      reason: "No SDK session has started",
+      reason: "no_engine_session",
+      detail: "No SDK session has started",
     });
     ledger.queued("a");
     ledger.queued("b");
@@ -126,6 +128,56 @@ describe("turn ledger", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
     ledger.queued("a");
     expect(ledger.prepareCheckpoint()).toEqual(running);
+  });
+
+  test("refuses to checkpoint a run whose mirror dropped a batch, however the turn ended", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.observe({
+      type: "system",
+      subtype: "mirror_error",
+      session_id: "s1",
+      error: "append rejected",
+      key: { projectKey: "-workspace", sessionId: "s1" },
+    });
+    // The SDK keeps going and the turn comes back successful; the transcript in
+    // the store is still short the entries that batch carried.
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
+
+    expect(ledger.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "mirror_error",
+      detail: "Transcript mirror dropped a root batch: append rejected",
+    });
+  });
+
+  test("names the subagent whose mirror failed and keeps the first failure", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "mirror_error",
+      session_id: "s1",
+      error: "timed out",
+      key: { projectKey: "-workspace", sessionId: "s1", subpath: "agents/rev" },
+    });
+    ledger.observe({
+      type: "system",
+      subtype: "mirror_error",
+      session_id: "s1",
+      error: "second failure",
+      key: { projectKey: "-workspace", sessionId: "s1" },
+    });
+
+    expect(ledger.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "mirror_error",
+      detail:
+        "Transcript mirror dropped a subagent agents/rev batch: timed out",
+    });
   });
 
   test("allows exactly one event consumer", () => {
