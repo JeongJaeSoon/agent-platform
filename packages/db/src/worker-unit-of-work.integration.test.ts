@@ -2245,6 +2245,7 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
       finalize_key: "fin-desc",
+      final_source_sequence: 0,
       terminal: {
         status: "completed",
         reason: null,

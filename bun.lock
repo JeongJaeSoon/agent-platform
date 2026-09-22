@@ -71,6 +71,9 @@
         "@agent-platform/runtime-core": "workspace:*",
         "@agent-platform/storage": "workspace:*",
       },
+      "devDependencies": {
+        "@agent-platform/testkit": "workspace:*",
+      },
     },
     "packages/adapters/execution/local-docker": {
       "name": "@agent-platform/execution-local-docker",

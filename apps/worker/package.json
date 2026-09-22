@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "start": "bun run src/main.ts",
-    "test:unit": "bun test src/config.test.ts src/composition.test.ts src/main.test.ts src/gateway-client.test.ts src/event-publisher.test.ts src/heartbeat.test.ts src/engine-processes.test.ts src/pending-requests.test.ts src/worker-host.test.ts src/index.test.ts && bun run --cwd ../../packages/adapters/runtimes/claude test:unit",
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts' && bun run --cwd ../../packages/adapters/runtimes/claude test:unit",
     "test:direct-local": "bun test src/worker-host.integration.test.ts && bun run --cwd ../../packages/adapters/runtimes/claude test:direct-local"
   },
   "dependencies": {

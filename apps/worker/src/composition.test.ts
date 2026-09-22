@@ -22,14 +22,6 @@ const config: WorkerConfig = {
     claudeConfigDir: "/home/worker/.claude",
     cwd: "/workspace",
     home: "/home/worker",
-    model: "claude-sonnet-4-5",
-    permissionMode: "default",
-    profile: {
-      kind: "litellm",
-      endpoint: "http://litellm:4000",
-      auth: { kind: "api_key", value: "placeholder" },
-    },
-    tools: [],
   },
   timeouts: {
     answerPollIntervalMs: 1_000,

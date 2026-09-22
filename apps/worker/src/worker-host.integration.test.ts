@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { RuntimeConfig } from "@agent-platform/contracts";
 import { ClaudeSdkRuntime } from "@agent-platform/runtime-claude";
 import type { CheckpointPreparation } from "@agent-platform/runtime-core";
 import {
@@ -21,6 +22,7 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "./worker-host.ts";
+import { noWorkspace } from "./workspace.ts";
 
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const MODEL = "claude-sonnet-4-5";
@@ -110,21 +112,19 @@ describe("WorkerHost against the actual Claude SDK", () => {
       );
       return {
         launcherFor: () => ({
-          start: (launch, hooks) =>
+          // What to run comes from the claim, as in composition.
+          start: ({ runtimeConfig, ...launch }, hooks) =>
             runtime.start(
               {
                 claudeConfigDir: home,
                 cwd: workspace,
                 home,
                 maxTurns: 4,
-                model: MODEL,
-                profile: {
-                  kind: "anthropic",
-                  endpoint: server?.url ?? "",
-                  auth: { kind: "api_key", value: "placeholder-local" },
-                },
+                model: runtimeConfig.model,
+                permissionMode: runtimeConfig.permission_mode,
+                profile: runtimeConfig.provider,
                 settingSources: ["project"],
-                tools: [],
+                tools: runtimeConfig.tools,
                 ...launch,
               },
               hooks,
@@ -133,8 +133,22 @@ describe("WorkerHost against the actual Claude SDK", () => {
       };
     };
 
+    const runtimeConfig: RuntimeConfig = {
+      model: MODEL,
+      tools: [],
+      permission_mode: "default",
+      provider: {
+        kind: "anthropic",
+        endpoint: server.url,
+        auth: { kind: "api_key", value: "placeholder-local" },
+      },
+    };
+
     // First process: claim, two turns, release.
-    const firstGateway = new FakeWorkerGateway({ sessionId: SESSION_ID });
+    const firstGateway = new FakeWorkerGateway({
+      runtimeConfig,
+      sessionId: SESSION_ID,
+    });
     const firstCheckpoints = new RecordingCheckpoints({ mode: "new" });
     firstGateway.enqueue("first turn");
     firstGateway.enqueue("second turn");
@@ -146,6 +160,8 @@ describe("WorkerHost against the actual Claude SDK", () => {
       logger: recording,
       runtimes: registry(),
       timeouts,
+      // The scratch directory is no checkout; preparing one is workspace.test.ts's.
+      workspace: noWorkspace,
     });
 
     const firstSummary = await first.runLoop();
@@ -184,6 +200,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
 
     // Second process: a fresh host, opening the same engine session.
     const secondGateway = new FakeWorkerGateway({
+      runtimeConfig,
       sessionId: SESSION_ID,
       attemptId: "att_fake_2",
       // Turn numbering is session-scoped, so a new process continues it; a
@@ -205,6 +222,8 @@ describe("WorkerHost against the actual Claude SDK", () => {
       logger: silent,
       runtimes: registry(),
       timeouts,
+      // The scratch directory is no checkout; preparing one is workspace.test.ts's.
+      workspace: noWorkspace,
     });
 
     const secondSummary = await second.runLoop();
