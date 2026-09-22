@@ -127,7 +127,7 @@ describe("localDockerConfigFromEnv", () => {
     ).toThrow("http://");
   });
 
-  test("object store access is required and the endpoint optional", () => {
+  test("object store access is required and the endpoint an http URL", () => {
     for (const name of [
       "AWS_ACCESS_KEY_ID",
       "AWS_REGION",
@@ -141,8 +141,21 @@ describe("localDockerConfigFromEnv", () => {
         name,
       );
     }
-    const aws = localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" });
-    expect("endpoint" in aws.objectStore).toBe(false);
+    // Real AWS (no endpoint) and https endpoints are refused here, before a
+    // launch intent exists, for the same reason the worker refuses them: the
+    // egress proxy rejects the GREASE ECH in Bun's node:https (94S-254).
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" }),
+    ).toThrow("94S-254");
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: undefined }),
+    ).toThrow("94S-254");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
+      }),
+    ).toThrow("must be an http://");
     expect(() =>
       localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
     ).toThrow("AWS_ENDPOINT_URL");
@@ -151,18 +164,24 @@ describe("localDockerConfigFromEnv", () => {
         ...base,
         AWS_ENDPOINT_URL: "ftp://localstack:4566",
       }),
-    ).toThrow("http(s)://");
-    let message = "";
-    try {
-      localDockerConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "http://user:hunter2@localstack:4566",
-      });
-    } catch (error) {
-      message = (error as Error).message;
+    ).toThrow("http://");
+    // Whatever else is wrong with the URL, a credential in it never reaches
+    // a message — the https refusal quotes the URL, so it must come after.
+    for (const url of [
+      "http://user:hunter2@localstack:4566",
+      "https://user:hunter2@s3.example",
+      // Malformed, so the parse itself fails and must not quote the value.
+      "http://user:hunter2@",
+    ]) {
+      let message = "";
+      try {
+        localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain("AWS_ENDPOINT_URL");
+      expect(message).not.toContain("hunter2");
     }
-    expect(message).toContain("credentials");
-    expect(message).not.toContain("hunter2");
   });
 
   test("a refused object store value is named, never quoted", () => {

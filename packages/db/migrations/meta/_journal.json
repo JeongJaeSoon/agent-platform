@@ -61,8 +61,22 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1790114370859,
-      "tag": "0008_greedy_phantom_reporter",
+      "when": 1790102084484,
+      "tag": "0008_even_barracuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1790114154729,
+      "tag": "0100_auth_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790115715875,
+      "tag": "0101_familiar_paibok",
       "breakpoints": true
     }
   ]

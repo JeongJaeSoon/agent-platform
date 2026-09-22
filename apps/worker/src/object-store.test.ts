@@ -7,6 +7,7 @@ import {
 
 const base = {
   AWS_ACCESS_KEY_ID: "AKIATEST",
+  AWS_ENDPOINT_URL: "http://localstack:4566",
   AWS_REGION: "ap-northeast-1",
   AWS_SECRET_ACCESS_KEY: "not-a-real-secret",
   S3_BUCKET: "claude-sessions",
@@ -15,12 +16,7 @@ const base = {
 
 describe("objectStoreConfigFromEnv", () => {
   test("reads the control host's storage variables plus the session prefix", () => {
-    expect(
-      objectStoreConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "http://localstack:4566",
-      }),
-    ).toEqual({
+    expect(objectStoreConfigFromEnv(base)).toEqual({
       accessKeyId: "AKIATEST",
       bucket: "claude-sessions",
       endpoint: "http://localstack:4566",
@@ -28,7 +24,34 @@ describe("objectStoreConfigFromEnv", () => {
       scope: "sessions/s1/",
       secretAccessKey: "not-a-real-secret",
     });
-    expect("endpoint" in objectStoreConfigFromEnv(base)).toBe(false);
+  });
+
+  test("an https or absent endpoint is refused at startup, not on the first request", () => {
+    // Bun's node:https sends GREASE ECH and the egress proxy refuses it
+    // (94S-219); until 94S-254 lands the only endpoint the worker can reach
+    // is a plaintext one behind the proxy.
+    expect(() =>
+      objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: undefined }),
+    ).toThrow("94S-254");
+    expect(() =>
+      objectStoreConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
+      }),
+    ).toThrow("must be http");
+    for (const url of [
+      "https://user:hunter2@s3.example",
+      "http://u:hunter2@",
+    ]) {
+      let message = "";
+      try {
+        objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain("AWS_ENDPOINT_URL");
+      expect(message).not.toContain("hunter2");
+    }
   });
 
   test("every variable is required and the prefix must be a key prefix", () => {
