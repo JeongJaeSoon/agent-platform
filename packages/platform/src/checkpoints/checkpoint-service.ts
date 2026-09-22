@@ -9,6 +9,7 @@ import type {
   CompatibilityMismatch,
   ObjectRef,
   RuntimeFingerprint,
+  WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 
 import type {
@@ -57,12 +58,19 @@ export type FinalizeCheckpointResult =
   | { outcome: "rejected"; reason: string }
   | { outcome: "stale_epoch" | "lease_expired" };
 
-export type RestoreArtifact = {
-  /** The subagent subpath, or "" for the root transcript. */
-  label: string;
-  objects: readonly ObjectRef[];
-  kind: "transcript_root" | "transcript_subagent" | "workspace_untracked";
-};
+export type RestoreArtifact =
+  | {
+      /** The subagent subpath, or "" for the root transcript. */
+      label: string;
+      objects: readonly ObjectRef[];
+      kind: "transcript_root" | "transcript_subagent";
+    }
+  // Each object names the workspace-relative path it is restored to.
+  | {
+      label: string;
+      objects: readonly WorkspaceArtifact[];
+      kind: "workspace_untracked";
+    };
 
 export type RestorePlan = {
   artifacts: readonly RestoreArtifact[];
@@ -221,6 +229,14 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         return `manifest references an object outside ${prefix}: ${ref.key}`;
       }
     }
+    // The key says where the object is stored; `path` says where restoring
+    // writes it. A safe key with a climbing path lands outside the workspace,
+    // so both are checked, and here rather than in whatever later unpacks it.
+    for (const artifact of manifest.workspace.untracked) {
+      if (!safeWorkspacePath(artifact.path)) {
+        return `manifest restores ${artifact.key} to an unsafe path: ${artifact.path}`;
+      }
+    }
     // Bounded, because with eager mirroring a long session accumulates
     // thousands of parts and firing a request per part at once turns a valid
     // checkpoint into a throttled one.
@@ -244,6 +260,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       return undefined;
     });
     return problems.find((problem) => problem !== undefined);
+  }
+
+  function safeWorkspacePath(path: string): boolean {
+    if (path.length === 0 || path.startsWith("/") || path.includes("\\")) {
+      return false;
+    }
+    return !path
+      .split("/")
+      .some((segment) => segment === ".." || segment === "");
   }
 
   /**

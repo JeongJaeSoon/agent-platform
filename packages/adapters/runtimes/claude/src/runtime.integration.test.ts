@@ -141,6 +141,9 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       {
         ...runtimeConfig,
         correlationId: "actual-resume",
+        // This run has no checkpoint behind it: the resume handle points at the
+        // transcript the first run just wrote to this container's own disk.
+        localTranscriptResume: true,
         mode: "resume",
         resume: sessionId,
       },

@@ -26,6 +26,20 @@ const objectRefSchema = z
     sha256: sha256Schema,
   })
   .strict();
+// Restoring writes these paths into a workspace, so the manifest is where
+// traversal is refused — not the code that later unpacks it.
+const workspaceArtifactSchema = objectRefSchema
+  .extend({ path: z.string().min(1) })
+  .strict()
+  .refine(
+    (artifact) =>
+      !artifact.path.startsWith("/") &&
+      !artifact.path.includes("\\") &&
+      !artifact.path
+        .split("/")
+        .some((segment) => segment === ".." || segment === ""),
+    { message: "workspace path must be relative and free of .. segments" },
+  );
 const transcriptRevisionSchema = z
   .object({
     entryCount: z.number().int().nonnegative(),
@@ -64,7 +78,7 @@ const manifestSchema = z
     workspace: z
       .object({
         gitCommit: z.string().regex(/^[0-9a-f]{40}$/),
-        untracked: z.array(objectRefSchema),
+        untracked: z.array(workspaceArtifactSchema),
       })
       .strict(),
   })

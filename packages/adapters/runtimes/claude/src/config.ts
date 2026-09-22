@@ -50,5 +50,12 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
    * outlive.
    */
   sessionStore?: TranscriptMirror;
+  /**
+   * Resume from the transcript on this container's own disk instead of from a
+   * checkpoint. Only a local tool has any business setting it: a restore that
+   * forgot to bind its mirror would otherwise look exactly like this and
+   * silently replay whatever the disk happens to hold.
+   */
+  localTranscriptResume?: true;
   settingSources?: [] | ["project"];
 };

@@ -36,7 +36,17 @@ function manifest(
       subagents: { "agents/reviewer": revision("sub/part-1.jsonl") },
     },
     version: 1,
-    workspace: { gitCommit: "0".repeat(40), untracked: [] },
+    workspace: {
+      gitCommit: "0".repeat(40),
+      untracked: [
+        {
+          bytes: 7,
+          key: "sessions/s1/workspace/n",
+          path: "notes.md",
+          sha256: "b".repeat(64),
+        },
+      ],
+    },
     ...overrides,
   };
 }

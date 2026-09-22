@@ -52,6 +52,29 @@ describe("runtime profiles", () => {
     ).toThrow(/revision-scoped/);
   });
 
+  test("refuses to resume with no mirror at all", () => {
+    // The omission is the dangerous case: nothing here says "restore", the
+    // engine falls back to the container's own CLAUDE_CONFIG_DIR, and the
+    // session silently continues from whatever that disk happens to hold.
+    expect(() =>
+      validateRuntimeConfig(
+        { ...baseConfig, mode: "resume", resume: "sdk-session-1" },
+        policy,
+      ),
+    ).toThrow(/revision-scoped/);
+  });
+
+  test("resumes from local disk only when the caller says so", () => {
+    const config = {
+      ...baseConfig,
+      localTranscriptResume: true as const,
+      mode: "resume" as const,
+      resume: "sdk-session-1",
+    };
+
+    expect(validateRuntimeConfig(config, policy)).toBe(config);
+  });
+
   test("resumes against a mirror pinned to the restored revision", () => {
     const config = {
       ...baseConfig,

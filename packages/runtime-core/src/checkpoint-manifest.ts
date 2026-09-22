@@ -35,10 +35,21 @@ export type RuntimeFingerprint = {
   readonly sdkVersion: string;
 };
 
+/**
+ * An object plus where it goes back. A digest alone cannot restore a
+ * workspace: two untracked files are indistinguishable without the path they
+ * were captured from, so the path travels in the manifest rather than being
+ * reconstructed from a storage key.
+ */
+export type WorkspaceArtifact = ObjectRef & {
+  /** Destination relative to the workspace root; never absolute, never `..`. */
+  readonly path: string;
+};
+
 export type CheckpointWorkspace = {
   readonly gitCommit: string;
   /** Files git does not track, uploaded individually so restore is exact. */
-  readonly untracked: readonly ObjectRef[];
+  readonly untracked: readonly WorkspaceArtifact[];
 };
 
 export type CheckpointTranscripts = {

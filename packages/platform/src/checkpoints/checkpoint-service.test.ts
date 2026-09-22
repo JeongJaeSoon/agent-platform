@@ -5,6 +5,7 @@ import type {
   CheckpointManifest,
   ObjectRef,
   RuntimeFingerprint,
+  WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -93,6 +94,10 @@ function ref(key: string): ObjectRef {
   return { bytes: encode(body).byteLength, key, sha256: sha256(body) };
 }
 
+function fileRef(key: string, path: string): WorkspaceArtifact {
+  return { ...ref(key), path };
+}
+
 function manifest(
   overrides: Partial<CheckpointManifest> = {},
 ): CheckpointManifest {
@@ -121,7 +126,7 @@ function manifest(
     version: 1,
     workspace: {
       gitCommit: "f".repeat(40),
-      untracked: [ref(UNTRACKED)],
+      untracked: [fileRef(UNTRACKED, "notes.md")],
     },
     ...overrides,
   };
@@ -786,7 +791,7 @@ describe("getRestorePlan", () => {
           {
             kind: "workspace_untracked",
             label: "",
-            objects: [ref(UNTRACKED)],
+            objects: [fileRef(UNTRACKED, "notes.md")],
           },
         ],
         cwd: "/workspace",
@@ -798,6 +803,23 @@ describe("getRestorePlan", () => {
         revision: 0,
       },
     });
+  });
+
+  test("refuses an untracked file whose path escapes the workspace", async () => {
+    // The key is inside the session prefix, so the storage-side check passes;
+    // what is unsafe here is the destination the restore would write to.
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: {
+          gitCommit: "f".repeat(40),
+          untracked: [fileRef(UNTRACKED, "../../etc/notes.md")],
+        },
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "rejected" });
   });
 
   test("leaves out the untracked artifact when there is nothing untracked", async () => {

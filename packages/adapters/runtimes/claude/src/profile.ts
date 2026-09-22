@@ -49,13 +49,16 @@ export function validateRuntimeConfig(
   }
   if (
     config.mode === "resume" &&
-    config.sessionStore !== undefined &&
-    config.sessionStore.revisionScoped !== true
+    config.localTranscriptResume !== true &&
+    config.sessionStore?.revisionScoped !== true
   ) {
-    // The live mirror holds whatever was written after the checkpoint that is
-    // being resumed. Replaying that is not a degraded restore, it is a
-    // different conversation, so refuse rather than approximate. A store bound
-    // to a restore plan declares `revisionScoped` (94S-203).
+    // Two ways to get this wrong, and they look identical from here: handing
+    // over the live mirror, which holds whatever was written after the
+    // checkpoint being resumed, or handing over nothing at all, which leaves
+    // the engine replaying the container's local disk. Either is a different
+    // conversation than the one that was committed. A store bound to a
+    // restore plan declares `revisionScoped` (94S-203); a genuinely local
+    // resume has to say so out loud.
     throw new Error("Resume needs a revision-scoped transcript mirror");
   }
   if (config.permissionMode === undefined) return config;
