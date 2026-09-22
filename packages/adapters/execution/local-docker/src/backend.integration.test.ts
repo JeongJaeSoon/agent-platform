@@ -56,6 +56,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       dockerHost,
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
+      installationId: `it-${crypto.randomUUID().slice(0, 8)}`,
       network: "bridge",
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 1,

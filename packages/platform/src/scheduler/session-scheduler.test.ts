@@ -21,7 +21,16 @@ const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 class MemoryStore implements SchedulerStore {
   readonly executions = new Map<string, ActiveExecution>();
   readonly unassigned = new Set<string>();
+  locked = false;
   private sequence = 0;
+
+  async acquirePassLock() {
+    if (this.locked) return null;
+    this.locked = true;
+    return async () => {
+      this.locked = false;
+    };
+  }
 
   addUnassigned(count: number): string[] {
     const ids: string[] = [];
@@ -483,6 +492,35 @@ describe("runScheduler", () => {
     expect(second.launched).toHaveLength(0);
     expect(store.executions.size).toBe(1);
     expect(backend.containers.size).toBe(1);
+  });
+
+  test("a pass that cannot take the lock does nothing and says so", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(2);
+    store.locked = true;
+    const summary = await run();
+    expect(summary.skipped).toBe(true);
+    expect(summary.launched).toEqual([]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(records.some((r) => r.message.includes("holds the lock"))).toBe(
+      true,
+    );
+
+    store.locked = false;
+    const next = await run();
+    expect(next.skipped).toBe(false);
+    expect(next.launched).toHaveLength(2);
+    expect(store.locked).toBe(false);
+  });
+
+  test("the lock is released even when the pass throws", async () => {
+    const { backend, run, store } = harness();
+    store.seedActive({ executionId: "exec-1" });
+    backend.inspect = async () => {
+      throw new Error("daemon down");
+    };
+    await expect(run()).rejects.toThrow("daemon down");
+    expect(store.locked).toBe(false);
   });
 
   test("rejects a negative or fractional slot limit", async () => {

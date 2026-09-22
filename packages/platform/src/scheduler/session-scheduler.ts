@@ -29,6 +29,8 @@ export type SchedulerOptions = {
 };
 
 export type SchedulerRunSummary = {
+  /** true when another pass held the lock and this one did nothing. */
+  skipped: boolean;
   activeAfter: number;
   activeBefore: number;
   /** Executions whose row lists them as live but the provider had lost. */
@@ -57,6 +59,33 @@ export async function runScheduler(
   if (!Number.isInteger(options.slotLimit) || options.slotLimit < 0) {
     throw new Error("slotLimit must be a non-negative integer");
   }
+  const release = await options.store.acquirePassLock();
+  if (release === null) {
+    options.logger.warn("Another scheduling pass holds the lock; skipping");
+    return { ...emptySummary(options.slotLimit), skipped: true };
+  }
+  try {
+    return await pass(options);
+  } finally {
+    await release();
+  }
+}
+
+function emptySummary(slotLimit: number): SchedulerRunSummary {
+  return {
+    activeAfter: 0,
+    activeBefore: 0,
+    failedLaunches: [],
+    launched: [],
+    orphansTerminated: [],
+    reensured: [],
+    skipped: false,
+    slotLimit,
+    terminatedObserved: [],
+  };
+}
+
+async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
   const { backend, logger, store } = options;
   const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
@@ -68,16 +97,7 @@ export async function runScheduler(
     resources: options.resources,
     sessionId: stored.sessionId,
   });
-  const summary: SchedulerRunSummary = {
-    activeAfter: 0,
-    activeBefore: 0,
-    failedLaunches: [],
-    launched: [],
-    orphansTerminated: [],
-    reensured: [],
-    slotLimit: options.slotLimit,
-    terminatedObserved: [],
-  };
+  const summary = emptySummary(options.slotLimit);
 
   // 1. Reconcile rows against the provider.
   const active = await store.listActiveExecutions();
@@ -97,7 +117,10 @@ export async function runScheduler(
       // Mark, reclaim, then record. `terminating` keeps the row live so a
       // failed or interrupted removal is retried, and tells the next pass
       // that an absent resource means "reclaimed", not "relaunch me".
-      await store.recordObservation(ref, { ...observed, state: "terminating" });
+      await store.recordObservation(ref, {
+        ...observed,
+        state: "terminating",
+      });
       try {
         await backend.terminate(ref);
       } catch (error) {
@@ -119,7 +142,10 @@ export async function runScheduler(
     }
     if (!observed.found && execution.observedState === "terminating") {
       // The previous pass removed the resource but crashed before recording.
-      await store.recordObservation(ref, { ...observed, state: "terminated" });
+      await store.recordObservation(ref, {
+        ...observed,
+        state: "terminated",
+      });
       summary.terminatedObserved.push(ref);
       continue;
     }

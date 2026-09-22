@@ -23,6 +23,8 @@ import {
 export const LABELS = {
   executionId: "agent-platform.session-execution-id",
   generation: "agent-platform.generation",
+  /** Which control host owns the container; two installations may share a daemon. */
+  installation: "agent-platform.installation",
   managed: "agent-platform.managed",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
@@ -128,6 +130,7 @@ export class LocalDockerBackend implements ExecutionBackend {
   async listManaged(): Promise<ManagedExecution[]> {
     const containers = await this.client.listContainers([
       `${LABELS.managed}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
     ]);
     const managed: ManagedExecution[] = [];
     for (const container of containers) {
@@ -154,6 +157,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       // same execution lives under another name. Find it only to report it.
       const siblings = await this.client.listContainers([
         `${LABELS.executionId}=${ref.executionId}`,
+        `${LABELS.installation}=${this.config.installationId}`,
       ]);
       const other = siblings
         .map((c) => Number(c.Labels?.[LABELS.generation]))
@@ -161,6 +165,10 @@ export class LocalDockerBackend implements ExecutionBackend {
       return other === undefined
         ? { outcome: "absent" }
         : { foundGeneration: other, outcome: "generation_mismatch" };
+    }
+    const owner = container.Config.Labels?.[LABELS.installation];
+    if (owner !== this.config.installationId) {
+      throw new ExecutionConflictError(ref, this.config.installationId, owner);
     }
     const labelled = Number(container.Config.Labels?.[LABELS.generation]);
     if (labelled !== ref.generation) {
@@ -178,7 +186,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     container: ContainerInspect,
   ): Promise<EnsureExecutionResult> {
     const operationId = container.Config.Labels?.[LABELS.operationId];
-    if (operationId !== intent.operationId) {
+    const owner = container.Config.Labels?.[LABELS.installation];
+    if (
+      operationId !== intent.operationId ||
+      owner !== this.config.installationId
+    ) {
       throw new ExecutionConflictError(intent, intent.operationId, operationId);
     }
     let state = stateOf(container.State.Status);
@@ -224,6 +236,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       Labels: {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
+        [LABELS.installation]: config.installationId,
         [LABELS.managed]: "true",
         [LABELS.operationId]: intent.operationId,
         [LABELS.sessionId]: intent.sessionId,

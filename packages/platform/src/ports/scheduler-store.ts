@@ -40,6 +40,12 @@ export type ActiveExecution = StoredLaunchIntent & {
  * provider call always happens after the intent is committed.
  */
 export interface SchedulerStore {
+  /**
+   * Serializes whole scheduling passes. Returns a release function, or null
+   * when another pass holds the lock, so overlapping runs never reconcile the
+   * same rows from different snapshots.
+   */
+  acquirePassLock(): Promise<(() => Promise<void>) | null>;
   inspectDemand(input: { limit: number }): Promise<SchedulerDemand>;
   /**
    * Commits the launch intent for a session that is still eligible and a slot

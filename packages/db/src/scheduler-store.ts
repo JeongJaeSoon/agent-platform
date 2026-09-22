@@ -12,6 +12,22 @@ import { and, asc, eq, inArray, max, ne, notExists, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { executions, sessions, unassignedSessions } from "./schema.ts";
 
+/** A connection the pass lock can live on for as long as the pass runs. */
+export type PassLockClient = {
+  query(text: string): Promise<{ rows: Array<Record<string, unknown>> }>;
+  release(): void;
+};
+
+export type PostgresSchedulerStoreOptions = {
+  /**
+   * Hands out a dedicated client for the session-level advisory lock; the
+   * pool's regular clients would return the lock to the pool with them.
+   */
+  connectForLock: () => Promise<PassLockClient>;
+};
+
+const PASS_LOCK_KEY = "scheduler:pass";
+
 const DESIRED_RUNNING = "running";
 const OBSERVED_TERMINATED = "terminated";
 
@@ -23,8 +39,36 @@ function isLive() {
   );
 }
 
-export function createPostgresSchedulerStore(db: Database): SchedulerStore {
+export function createPostgresSchedulerStore(
+  db: Database,
+  options: PostgresSchedulerStoreOptions,
+): SchedulerStore {
   return {
+    async acquirePassLock() {
+      const client = await options.connectForLock();
+      try {
+        const result = await client.query(
+          `SELECT pg_try_advisory_lock(hashtext('${PASS_LOCK_KEY}')) AS locked`,
+        );
+        if (result.rows[0]?.locked !== true) {
+          client.release();
+          return null;
+        }
+      } catch (error) {
+        client.release();
+        throw error;
+      }
+      return async () => {
+        try {
+          await client.query(
+            `SELECT pg_advisory_unlock(hashtext('${PASS_LOCK_KEY}'))`,
+          );
+        } finally {
+          client.release();
+        }
+      };
+    },
+
     async inspectDemand({ limit }): Promise<SchedulerDemand> {
       const [active] = await db
         .select({ count: sql<number>`count(*)::int` })

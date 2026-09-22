@@ -15,6 +15,12 @@ export type LocalDockerBackendConfig = {
   gatewayUrl: string;
   /** Mounted as tmpfs so the read-only rootfs still has a writable HOME. */
   homeDir: string;
+  /**
+   * Identifies this control host on a daemon shared with other installations
+   * (another database, another environment). Only containers carrying the
+   * same id are ever listed, adopted or reaped.
+   */
+  installationId: string;
   network: string;
   /** Deadline for each Docker Engine API call. */
   requestTimeoutMs: number;
@@ -34,6 +40,7 @@ export type LocalDockerBackendEnvironment = {
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
   EXECUTION_DOCKER_COMMAND?: string | undefined;
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
+  EXECUTION_INSTALLATION_ID?: string | undefined;
   EXECUTION_DOCKER_NETWORK?: string | undefined;
   EXECUTION_DOCKER_NETWORK_ALLOWLIST?: string | undefined;
   EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC?: string | undefined;
@@ -46,6 +53,8 @@ export type LocalDockerBackendEnvironment = {
 };
 
 export const DEFAULT_WORKER_USER = "1000:1000";
+export const DEFAULT_INSTALLATION_ID = "local";
+const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 export const DEFAULT_WORKER_NETWORK = "bridge";
 
 export function localDockerConfigFromEnv(
@@ -71,6 +80,8 @@ export function localDockerConfigFromEnv(
     dockerHost: environment.DOCKER_HOST ?? DEFAULT_DOCKER_HOST,
     gatewayUrl,
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
+    installationId:
+      environment.EXECUTION_INSTALLATION_ID ?? DEFAULT_INSTALLATION_ID,
     network,
     requestTimeoutMs:
       environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
@@ -126,6 +137,11 @@ export function validateLocalDockerConfig(
   }
   if (config.homeDir === config.workspaceDir) {
     throw new Error("homeDir and workspaceDir must differ");
+  }
+  if (!INSTALLATION_ID.test(config.installationId)) {
+    throw new Error(
+      `EXECUTION_INSTALLATION_ID ${config.installationId} must be a short label-safe id`,
+    );
   }
   try {
     new URL(config.gatewayUrl);

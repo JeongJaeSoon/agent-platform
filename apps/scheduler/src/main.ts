@@ -31,7 +31,9 @@ export async function main(
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
-      store: createPostgresSchedulerStore(db),
+      store: createPostgresSchedulerStore(db, {
+        connectForLock: () => pool.connect(),
+      }),
     });
   } finally {
     await pool.end();

@@ -29,8 +29,26 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     await database.drop();
   });
 
+  test("only one of two overlapping passes gets the pass lock", async () => {
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    const [first, second] = await Promise.all([
+      store.acquirePassLock(),
+      store.acquirePassLock(),
+    ]);
+    const held = [first, second].filter((r) => r !== null);
+    expect(held).toHaveLength(1);
+    await held[0]?.();
+    const again = await store.acquirePassLock();
+    expect(again).not.toBeNull();
+    await again?.();
+  });
+
   test("15 concurrent reservations from an empty pool yield exactly slotLimit intents", async () => {
-    const store = createPostgresSchedulerStore(db);
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
     const ids: string[] = [];
     for (let i = 0; i < 15; i += 1) {
       const id = crypto.randomUUID();

@@ -11,6 +11,7 @@ describe("localDockerConfigFromEnv", () => {
       dockerHost: "unix:///var/run/docker.sock",
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
+      installationId: "local",
       network: "bridge",
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 10,
@@ -90,6 +91,16 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_DOCKER_HOME_DIR: "/workspace",
       }),
     ).toThrow("differ");
+  });
+
+  test("the installation id must be label-safe", () => {
+    expect(
+      localDockerConfigFromEnv({ ...base, EXECUTION_INSTALLATION_ID: "prod-a" })
+        .installationId,
+    ).toBe("prod-a");
+    expect(() =>
+      localDockerConfigFromEnv({ ...base, EXECUTION_INSTALLATION_ID: "a b" }),
+    ).toThrow("EXECUTION_INSTALLATION_ID");
   });
 
   test("the Docker request deadline is configured in seconds", () => {

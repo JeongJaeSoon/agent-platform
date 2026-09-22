@@ -31,7 +31,15 @@ beforeEach(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
-  store = createPostgresSchedulerStore(db);
+  store = createPostgresSchedulerStore(db, {
+    connectForLock: async () => ({
+      query: async (text: string) => {
+        const result = await client.query<Record<string, unknown>>(text);
+        return { rows: result.rows };
+      },
+      release: () => undefined,
+    }),
+  });
 });
 
 afterEach(async () => {
@@ -303,6 +311,15 @@ describe("PostgresSchedulerStore", () => {
         slotLimit: 1,
       }),
     ).not.toBeNull();
+  });
+
+  test("acquirePassLock hands out the lock once and releases it", async () => {
+    const release = await store.acquirePassLock();
+    expect(release).not.toBeNull();
+    // PGlite is one session, so the same session re-acquires; the real
+    // Postgres race is covered in scheduler-store.integration.test.ts.
+    await release?.();
+    expect(await store.acquirePassLock()).not.toBeNull();
   });
 
   test("filterKnown keeps refs whose row exists with the same generation", async () => {

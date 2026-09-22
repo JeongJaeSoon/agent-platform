@@ -186,6 +186,7 @@ function configFor(host: string): LocalDockerBackendConfig {
     dockerHost: host,
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
+    installationId: "test-a",
     network: "ap-workers",
     requestTimeoutMs: 5_000,
     stopTimeoutSeconds: 3,
@@ -229,6 +230,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(body.Labels).toEqual({
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
+      [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
       [LABELS.operationId]: "op-1",
       [LABELS.sessionId]: intent.sessionId,
@@ -366,6 +368,30 @@ describe("LocalDockerBackend.listManaged", () => {
         state: "running",
       },
     ]);
+  });
+});
+
+describe("two installations sharing one daemon", () => {
+  test("neither lists, adopts nor terminates the other's containers", async () => {
+    const intent = intentFor();
+    const other = new LocalDockerBackend({
+      ...configFor(docker.host),
+      installationId: "test-b",
+    });
+    await backend.ensureExecution(intent);
+
+    expect(await other.listManaged()).toEqual([]);
+    expect((await backend.listManaged()).map((m) => m.executionId)).toEqual([
+      intent.executionId,
+    ]);
+    await expect(other.ensureExecution(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+    await expect(other.terminate(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+    expect(docker.containers.size).toBe(1);
+    expect(docker.requests.some((r) => r.method === "DELETE")).toBe(false);
   });
 });
 
