@@ -37,7 +37,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "reconcile_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-  });
+  }, 60_000);
 
   afterEach(async () => {
     if (sessionIds.length > 0) {

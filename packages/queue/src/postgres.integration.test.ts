@@ -37,7 +37,7 @@ integration("PostgresQueue on PostgreSQL", () => {
       repoUrl: "https://example.invalid/repo.git",
       branch: `session/${sessionId}`,
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
     try {
