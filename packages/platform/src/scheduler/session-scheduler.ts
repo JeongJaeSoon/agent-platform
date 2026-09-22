@@ -255,7 +255,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     image: options.image,
     // Only the create path calls this, so the credential a running worker
     // holds is never rotated out from under it.
-    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored), now()),
+    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored)),
     operationId: stored.operationId,
     resources: options.resources,
     sessionId: stored.sessionId,
@@ -313,7 +313,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       observed.state !== "terminated" &&
       !execution.claimed &&
       execution.nonceExpiresAt !== null &&
-      execution.nonceExpiresAt.getTime() <= now().getTime()
+      execution.nonceExpired
     ) {
       // The bootstrap door shut before anyone came through it. The resource
       // cannot be handed a second credential while it runs — the one it holds
@@ -324,7 +324,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // worker may have bound itself since. Revoking decides and shuts the
       // door in one write: it loses to a claim that got there first, and once
       // it wins no claim can follow, so the teardown never orphans a binding.
-      if (await store.revokeBootstrapNonce(ref, now())) {
+      if (await store.revokeBootstrapNonce(ref)) {
         logger.warn("Launch nonce expired before the resource claimed", {
           ...fieldsOf(ref),
           nonce_expires_at: execution.nonceExpiresAt.toISOString(),

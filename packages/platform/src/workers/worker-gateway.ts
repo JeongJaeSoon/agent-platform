@@ -297,7 +297,7 @@ export function createWorkerGateway(deps: {
         sessionId: input.sessionId ?? null,
         backend: backend.data,
         nonceHash: hashWorkerToken(nonce),
-        nonceExpiresAt: new Date(now().getTime() + nonceTtlMs),
+        nonceTtlMs,
       });
       return {
         nonce: result.outcome === "registered" ? nonce : null,
