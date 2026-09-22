@@ -732,6 +732,84 @@ describe("egress proxy", () => {
     }
   }, 30_000);
 
+  test("bytes from an attempt we gave up on never reach the client", async () => {
+    // A server-first upstream speaks the moment it accepts. Attempt A is
+    // dialled first and reports back too late: its banner arrives while the
+    // attempt is still pending, and once B carries the tunnel that banner
+    // (and any pause or stall it caused) must stay with A.
+    let banners = 0;
+    const banner = (n: number): string => `server-first-banner-${n}`.repeat(8);
+    const talker = Bun.listen<EchoState>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket, chunk) {
+          socket.data.pending = socket.data.pending
+            ? concatBytes(socket.data.pending, chunk)
+            : chunk;
+          echoDrain(socket);
+        },
+        drain(socket) {
+          echoDrain(socket);
+        },
+        open(socket) {
+          banners += 1;
+          socket.data = { pending: null };
+          socket.write(banner(banners));
+        },
+      },
+    });
+    let first = true;
+    const stallMs = 300;
+    const late = await startEgressProxy({
+      connectTimeoutMs: 200,
+      connect: async (opts) => {
+        const socket = await Bun.connect(opts);
+        if (first) {
+          first = false;
+          await Bun.sleep(600);
+        }
+        return socket;
+      },
+      logger: silent,
+      // Smaller than one banner, so the pending attempt crosses the cap the
+      // way a stall would; that must not arm the connection's timer.
+      maxBufferedBytes: 64,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "tunnel.test", port: talker.port }],
+      },
+      port: 0,
+      resolve: async () => ["127.0.0.1", "127.0.0.1"],
+      stallTimeoutMs: stallMs,
+    });
+    try {
+      const talk = await connect(late.port);
+      talk.send(request(`CONNECT tunnel.test:${talker.port} HTTP/1.1`));
+      expect(
+        await talk.waitFor("200 Connection Established", 10_000),
+      ).toContain("200");
+      // The winner's banner is what the client gets, and only after the 200.
+      const seen = await talk.waitFor(banner(2), 10_000);
+      expect(seen.indexOf("200 Connection Established")).toBeLessThan(
+        seen.indexOf(banner(2)),
+      );
+      talk.sendBytes(clientHello({ serverNames: ["tunnel.test"] }));
+      talk.send("before");
+      expect(await talk.waitFor("before", 10_000)).toContain("before");
+
+      // Past A's own arrival and past the stall deadline, the tunnel holds.
+      await Bun.sleep(800 + stallMs);
+      talk.send("after");
+      expect(await talk.waitFor("after", 10_000)).toContain("after");
+      expect(talk.text()).not.toContain(banner(1));
+      talk.close();
+    } finally {
+      late.stop();
+      talker.stop(true);
+    }
+  }, 30_000);
+
   test("a dead address does not fail a destination with a live one", async () => {
     const failover = await startEgressProxy({
       connectTimeoutMs: 2_000,
