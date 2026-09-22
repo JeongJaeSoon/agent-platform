@@ -5,7 +5,11 @@ import {
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
-
+import {
+  defaultGitRunner,
+  type GitCommandResult,
+  type GitCommandRunner,
+} from "./git-runner.ts";
 import {
   BoundedNodeHttpHandler,
   concatBytes,
@@ -18,6 +22,8 @@ import {
 } from "./s3.ts";
 
 export * from "./checkpoint-objects.ts";
+export * from "./git-runner.ts";
+export * from "./git-workspace-bundle-verifier.ts";
 export {
   BodyLimitError,
   type BodyReadBounds,
@@ -62,17 +68,6 @@ export interface StorageConfig {
     readonly secretAccessKey: string;
   };
 }
-
-export interface GitCommandResult {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
-
-export type GitCommandRunner = (
-  args: readonly string[],
-  options: { readonly cwd?: string; readonly env: Record<string, string> },
-) => Promise<GitCommandResult>;
 
 export interface SessionStorageDependencies {
   readonly gitRunner?: GitCommandRunner;
@@ -531,24 +526,6 @@ function assertSafeIdentifier(value: string, label: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) {
     throw new Error(`${label} contains unsupported characters: ${value}`);
   }
-}
-
-async function defaultGitRunner(
-  args: readonly string[],
-  options: { readonly cwd?: string; readonly env: Record<string, string> },
-): Promise<GitCommandResult> {
-  const processHandle = Bun.spawn(["git", ...args], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: { ...process.env, ...options.env },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [exitCode, stderr, stdout] = await Promise.all([
-    processHandle.exited,
-    new Response(processHandle.stderr).text(),
-    new Response(processHandle.stdout).text(),
-  ]);
-  return { exitCode, stderr, stdout };
 }
 
 async function retry<T>(
