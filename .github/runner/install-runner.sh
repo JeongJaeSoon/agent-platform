@@ -90,7 +90,7 @@ limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh install runner && .
 limactl shell "$VM" sudo bash -c "
   unit=\$(systemctl list-units --type=service --no-legend 'actions.runner.*' | awk '{print \$1; exit}')
   install -d /etc/systemd/system/\${unit}.d
-  printf '[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' >/etc/systemd/system/\${unit}.d/graceful.conf
+  printf '[Unit]\nRequires=ci-isolation.service\nAfter=ci-isolation.service docker.service\n\n[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' >/etc/systemd/system/\${unit}.d/graceful.conf
   systemctl daemon-reload
 " >/dev/null
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh status" | sed -n '1,6p'

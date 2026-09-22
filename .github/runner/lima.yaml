@@ -84,8 +84,14 @@ provision:
       # internet and nothing private, so refuse new connections leaving eth0 for
       # private space. Established flows stay open or the SSH that limactl runs
       # on would answer into a rejected route.
+      #
+      # Not /etc/nftables.conf, and nftables.service is masked below. That unit
+      # owns the whole ruleset — its ExecStop is `nft flush ruleset`, so a stop
+      # or restart of it deletes Docker's filter table too, and the next
+      # `docker network create` dies on "No chain/target/match by that name".
+      # This table gets its own unit that only ever touches this table.
       gw=$(ip route show default | awk '/default/{print $3; exit}')
-      cat >/etc/nftables.conf <<EOF
+      cat >/etc/ci-isolation.nft <<EOF
       #!/usr/sbin/nft -f
       # Declare-then-delete only this table: Docker's own tables must survive.
       table inet ci_isolation
@@ -119,9 +125,27 @@ provision:
         }
       }
       EOF
-      chmod 0755 /etc/nftables.conf
-      systemctl enable nftables
-      systemctl restart nftables
+      chmod 0755 /etc/ci-isolation.nft
+      cat >/etc/systemd/system/ci-isolation.service <<'EOF'
+      [Unit]
+      Description=CI runner network isolation (deny private destinations off eth0)
+      After=network-pre.target
+      Before=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/ci-isolation.nft
+      # Only this table, never `flush ruleset`.
+      ExecStop=/usr/sbin/nft delete table inet ci_isolation
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      systemctl daemon-reload
+      systemctl disable --now nftables.service 2>/dev/null || true
+      systemctl mask nftables.service
+      systemctl enable --now ci-isolation.service
 
   - mode: system
     script: |
