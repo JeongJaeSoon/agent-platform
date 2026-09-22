@@ -1432,6 +1432,47 @@ integration("worker gateway on PostgreSQL", () => {
     expect(next.input?.turn_id).toBe("1");
   });
 
+  test("a claim that waits out the nonce window on the launch row is refused and binds nothing", async () => {
+    const partition = partitionFor("noncewait");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    // The deadline is set on the database clock so that it passes while the
+    // claim is blocked on the row, not before it asks for the lock.
+    await db
+      .update(workerLaunches)
+      .set({
+        nonceExpiresAt: sql`clock_timestamp() + interval '200 milliseconds'`,
+      })
+      .where(eq(workerLaunches.executionId, l.executionId));
+    const blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+      [l.executionId],
+    );
+    const pending = failure(claim(l));
+    try {
+      await sleep(400);
+      await blocker.query("COMMIT");
+    } finally {
+      blocker.release();
+    }
+    // Judged once the lock is granted: the window closed while waiting, so
+    // the claim is refused however fresh it was when it arrived.
+    expect(await pending).toEqual({ status: 401, code: "UNAUTHORIZED" });
+    const [row] = await db
+      .select({ claimedAttemptId: workerLaunches.claimedAttemptId })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(row?.claimedAttemptId).toBeNull();
+    expect(
+      await db
+        .select({ n: count() })
+        .from(attempts)
+        .where(eq(attempts.sessionId, session.session_id)),
+    ).toEqual([{ n: 0 }]);
+  });
+
   test("a finalize that waits out its lease on the turn row commits nothing", async () => {
     const partition = partitionFor("finwait");
     const session = await queuedSession(partition);
@@ -1743,7 +1784,10 @@ integration("worker gateway on PostgreSQL", () => {
         .from(workerLaunches)
         .where(eq(workerLaunches.executionId, executionId));
       const expiresAt = row?.nonceExpiresAt?.getTime() ?? Number.NaN;
-      expect(expiresAt).toBeGreaterThanOrEqual(floor + DEFAULT_NONCE_TTL_MS);
+      // The column keeps microseconds; the Date read back is floored to ms.
+      expect(expiresAt).toBeGreaterThanOrEqual(
+        Math.floor(floor) + DEFAULT_NONCE_TTL_MS,
+      );
       expect(expiresAt).toBeLessThanOrEqual(ceiling + DEFAULT_NONCE_TTL_MS);
       return { executionId, nonce: registered.nonce, generation: 1 };
     };

@@ -530,9 +530,9 @@ describe("PostgresSchedulerStore", () => {
     expect(await store.revokeBootstrapNonce(other)).toBe(false);
 
     // So does a launch whose slot already went back, and a stale generation.
-    expect(
-      await store.revokeBootstrapNonce({ ...intent, generation: 9 }),
-    ).toBe(false);
+    expect(await store.revokeBootstrapNonce({ ...intent, generation: 9 })).toBe(
+      false,
+    );
     await store.confirmExecutionGone(intent.executionId, NOW);
     expect(await store.revokeBootstrapNonce(intent)).toBe(false);
   });
