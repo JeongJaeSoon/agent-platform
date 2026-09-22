@@ -162,11 +162,11 @@ docker compose -f infra/docker-compose.yml --profile apps up -d --build      # m
 curl -s http://127.0.0.1:3000/readyz
 ```
 
-`apps` profile의 값은 전부 기본값이 있어 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)과 `gitea:3000`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다. object store endpoint는 아직 allowlist에 없다(94S-244).
+`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. API 포트는 `127.0.0.1:3000`에만 바인드한다(`AUTH_MODE=none`에서는 `X-Owner-Id`가 곧 신원이라 다른 호스트에서 닿으면 안 된다). 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)과 `gitea:3000`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다. object store endpoint는 아직 allowlist에 없다(94S-244).
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`·`EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`를 설치마다 다르게 준다. compose의 worker 네트워크 이름은 `EXECUTION_DOCKER_NETWORK`를 따른다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 
-`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag push에서만 `ghcr.io/<owner>/agent-platform-<app>`으로 push하며 그때의 registry digest가 release manifest의 기준이다. registry CD는 D5다.
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag push에서만 `publish` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 push한다. 이 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). push한 digest를 다시 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시킨 뒤 artifact에 기록하므로 artifact의 digest는 검증된 바로 그 이미지다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 D5다.
 
 `FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
 

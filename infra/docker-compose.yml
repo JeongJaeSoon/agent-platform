@@ -27,11 +27,11 @@ services:
     working_dir: /app
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
-      # A DATABASE_URL in the shell (or passed with --env-file) wins; the
-      # default is the compose postgres. An `environment` entry beats
-      # env_file, so a URL that only lives in the env file must come in
-      # through interpolation.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}}
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
     volumes:
       - ..:/app:ro
     depends_on:
@@ -113,16 +113,18 @@ services:
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
     ports:
-      - "3000:3000"
+      # Loopback only: AUTH_MODE defaults to none, where any X-Owner-Id is an
+      # identity, so this must not be reachable from other hosts.
+      - "127.0.0.1:3000:3000"
     env_file:
       - path: ../.env
         required: false
     environment:
-      # A DATABASE_URL in the shell (or passed with --env-file) wins; the
-      # default is the compose postgres. An `environment` entry beats
-      # env_file, so a URL that only lives in the env file must come in
-      # through interpolation.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}}
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
       AUTH_MODE: ${AUTH_MODE:-none}
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -190,11 +192,11 @@ services:
       - path: ../.env
         required: false
     environment:
-      # A DATABASE_URL in the shell (or passed with --env-file) wins; the
-      # default is the compose postgres. An `environment` entry beats
-      # env_file, so a URL that only lives in the env file must come in
-      # through interpolation.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}}
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
       DOCKER_HOST: unix:///var/run/docker.sock
       # Workers reach the API only through the proxy; `api` resolves on the
       # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).

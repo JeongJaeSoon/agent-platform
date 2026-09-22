@@ -69,24 +69,7 @@ jobs:
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
-        run: |
-          image="${NAME}:sha-${GITHUB_SHA::12}"
-          case "$APP" in
-            worker)
-              # The ticket's check: the bundled executable resolves and is the
-              # version the SDK pin promises. Also non-root and git present.
-              version="$(docker run --rm "$image" claude --version)"
-              echo "claude --version: $version"
-              echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
-              docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
-              ;;
-            api)
-              docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && bun --version'
-              ;;
-            scheduler)
-              docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'
-              ;;
-          esac
+        run: .github/scripts/image-smoke.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
       # One JSON per image. `digest` is the manifest digest buildx computed;
       # a tag run's `publish` job overwrites the file with the registry one.
@@ -124,14 +107,19 @@ jobs:
           path: digests/${{ matrix.app }}.json
           if-no-files-found: error
 
-  # Tag pushes only. Rebuilds from the gha cache the `build` job filled (the
-  # Dockerfiles are deterministic for a given lockfile and base digest) and
-  # pushes; the digest artifact is replaced with the registry manifest digest.
+  # Tag pushes only, and only for a commit that main already contains: a tag
+  # is not a review, so an unmerged commit must not become an official image
+  # however it got tagged. The `release` environment is where the repository
+  # adds required reviewers or a deployment branch rule on top of that.
+  # Rebuilds from the gha cache the `build` job filled, pushes, then pulls
+  # the digest it pushed and smokes that — the artifact records what was
+  # actually verified, not a sibling build.
   publish:
     needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -141,6 +129,15 @@ jobs:
         app: [api, worker, scheduler]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tagged commit must be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main"
+            exit 1
+          fi
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - id: meta
         env:
@@ -164,6 +161,14 @@ jobs:
           push: true
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}
+      - name: Smoke the pushed digest
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          docker pull "${NAME}@${DIGEST}"
+          .github/scripts/image-smoke.sh "$APP" "${NAME}@${DIGEST}"
       - name: Record registry digest
         env:
           APP: ${{ matrix.app }}

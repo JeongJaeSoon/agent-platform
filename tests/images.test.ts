@@ -75,5 +75,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(publishJob).toContain("if: github.ref_type == 'tag'");
     expect(publishJob).toContain("packages: write");
     expect(publishJob).toContain("push: true");
+    expect(publishJob).toContain("environment: release");
+    expect(publishJob).toContain("git merge-base --is-ancestor");
+    // Both jobs smoke through the same script; publish smokes what it pushed.
+    expect(buildJob).toContain(".github/scripts/image-smoke.sh");
+    expect(publishJob).toContain('image-smoke.sh "$APP" "$' + '{NAME}@$' + '{DIGEST}"');
+  });
+
+  test("the API is bound to loopback in compose", () => {
+    expect(compose).toContain('- "127.0.0.1:3000:3000"');
+    // `up` runs migrate, so no service may take an ambient DATABASE_URL.
+    expect(compose).not.toMatch(/\$\{DATABASE_URL/);
   });
 });
