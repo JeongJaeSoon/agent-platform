@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import type { Socket, TCPSocketListener } from "bun";
 import type { ProxyLogger } from "./logger.ts";
 import { createProxyLogger } from "./logger.ts";
@@ -49,14 +50,10 @@ type ClientState = {
   counted: boolean;
   /** Read from the client while the upstream connection was still opening. */
   early: Uint8Array[];
+  earlyBytes: number;
   phase: "head" | "connecting" | "piping" | "closed";
   toUpstream: Queue;
-  upstream: Socket<UpstreamState> | null;
-};
-
-type UpstreamState = {
-  client: Socket<ClientState>;
-  toClient: Queue;
+  upstream: Socket<undefined> | null;
 };
 
 export async function startEgressProxy(
@@ -96,6 +93,7 @@ export async function startEgressProxy(
           buffer: new Uint8Array(0),
           counted: true,
           early: [],
+          earlyBytes: 0,
           phase: "head",
           toUpstream: { bytes: 0, chunks: [] },
           upstream: null,
@@ -115,6 +113,14 @@ export async function startEgressProxy(
     const state = socket.data;
     if (state.phase === "closed") return;
     if (state.phase === "connecting") {
+      // The client can keep sending while we resolve and connect; that
+      // window is bounded in time but not in bytes unless we bound it.
+      state.earlyBytes += chunk.byteLength;
+      if (state.earlyBytes > maxBuffered) {
+        logger.warn("Dropping a connection that outran the upstream handshake");
+        drop(socket);
+        return;
+      }
       state.early.push(chunk);
       return;
     }
@@ -162,7 +168,17 @@ export async function startEgressProxy(
       return;
     }
     state.phase = "connecting";
-    if (rest.byteLength > 0) state.early.push(rest);
+    if (rest.byteLength > 0) {
+      // Bytes pipelined in the same segment as the head are early bytes too,
+      // and count against the same cap.
+      state.early.push(rest);
+      state.earlyBytes += rest.byteLength;
+      if (state.earlyBytes > maxBuffered) {
+        logger.warn("Dropping a connection that outran the upstream handshake");
+        drop(socket);
+        return;
+      }
+    }
     const decision = await decideEgress(
       options.policy,
       { host: request.host, port: request.port },
@@ -184,7 +200,7 @@ export async function startEgressProxy(
       reply(socket, 502, "no address to connect to");
       return;
     }
-    let upstream: Socket<UpstreamState>;
+    let upstream: Socket<undefined>;
     try {
       upstream = await connectUpstream(socket, address, request.port);
     } catch (error) {
@@ -221,6 +237,7 @@ export async function startEgressProxy(
         maxBuffered,
       );
     }
+    state.earlyBytes = 0;
     for (const pending of state.early.splice(0)) {
       if (!push(upstream, state.toUpstream, pending, maxBuffered)) {
         drop(socket);
@@ -233,32 +250,31 @@ export async function startEgressProxy(
     client: Socket<ClientState>,
     address: string,
     port: number,
-  ): Promise<Socket<UpstreamState>> {
-    const pending = Bun.connect<UpstreamState>({
+  ): Promise<Socket<undefined>> {
+    // The client socket and the queue live in this closure rather than in
+    // `socket.data`: a connection that fails before `open` never gets its
+    // data assigned, and the handlers still have to be able to clean up.
+    const toClient: Queue = { bytes: 0, chunks: [] };
+    const pending = Bun.connect<undefined>({
       hostname: address,
       port,
       socket: {
-        close(socket) {
+        close() {
           // The upstream closing is how a forwarded response ends.
-          socket.data.client.end();
+          client.end();
         },
-        data(socket, chunk) {
-          if (
-            !push(socket.data.client, socket.data.toClient, chunk, maxBuffered)
-          ) {
+        data(_socket, chunk) {
+          if (!push(client, toClient, chunk, maxBuffered)) {
             logger.warn("Dropping a connection whose client fell behind");
-            drop(socket.data.client);
+            drop(client);
           }
         },
-        drain(socket) {
-          flush(socket.data.client, socket.data.toClient);
+        drain() {
+          flush(client, toClient);
         },
-        error(socket, error) {
+        error(_socket, error) {
           logger.warn("Upstream connection failed", { error: error.message });
-          socket.data.client.end();
-        },
-        open(socket) {
-          socket.data = { client, toClient: { bytes: 0, chunks: [] } };
+          client.end();
         },
       },
     });
@@ -335,7 +351,6 @@ function describe(destination: { host: string; port: number }): string {
 }
 
 const systemResolver: EgressResolver = async (host) => {
-  const { lookup } = await import("node:dns/promises");
   const entries = await lookup(host, { all: true, verbatim: true });
   return entries.map((entry) => entry.address);
 };
@@ -370,7 +385,8 @@ function push(
 ): boolean {
   let remainder = chunk;
   if (queue.chunks.length === 0) {
-    const written = target.write(chunk);
+    // A closed socket reports -1, which must not be read as an offset.
+    const written = Math.max(0, target.write(chunk));
     if (written >= chunk.byteLength) return true;
     remainder = chunk.subarray(written);
   }
@@ -383,7 +399,8 @@ function flush(target: Socket<unknown>, queue: Queue): void {
   while (queue.chunks.length > 0) {
     const head = queue.chunks[0];
     if (head === undefined) return;
-    const written = target.write(head);
+    const written = Math.max(0, target.write(head));
+    if (written === 0) return;
     queue.bytes -= written;
     if (written < head.byteLength) {
       queue.chunks[0] = head.subarray(written);

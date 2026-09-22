@@ -149,6 +149,35 @@ describe("egress proxy", () => {
     other.close();
   });
 
+  test("a client that outruns the upstream handshake is dropped", async () => {
+    // The connecting window is bounded in time, not in bytes, unless the
+    // proxy bounds it; a slow resolver makes that window observable.
+    const slow = await startEgressProxy({
+      logger: silent,
+      maxBufferedBytes: 64,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "tunnel.test", port: echo.port }],
+      },
+      port: 0,
+      resolve: async (host) => {
+        await Bun.sleep(300);
+        return resolve(host);
+      },
+    });
+    try {
+      const talk = await connect(slow.port);
+      talk.send(
+        `${request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`)}${"x".repeat(200)}`,
+      );
+      await Bun.sleep(800);
+      expect(talk.text()).not.toContain("200 Connection Established");
+      expect(talk.isClosed()).toBe(true);
+    } finally {
+      slow.stop();
+    }
+  }, 10_000);
+
   test("an oversized request head is refused instead of buffered", async () => {
     const talk = await connect(proxy.port);
     talk.send(
@@ -165,16 +194,22 @@ function request(...lines: string[]): string {
 
 type Conversation = {
   close(): void;
+  isClosed(): boolean;
   send(text: string): void;
+  text(): string;
   waitFor(needle: string, timeoutMs?: number): Promise<string>;
 };
 
 async function connect(port: number): Promise<Conversation> {
   let received = "";
+  let closed = false;
   const socket = await Bun.connect({
     hostname: "127.0.0.1",
     port,
     socket: {
+      close() {
+        closed = true;
+      },
       data(_socket, chunk) {
         received += new TextDecoder().decode(chunk);
       },
@@ -184,8 +219,14 @@ async function connect(port: number): Promise<Conversation> {
     close(): void {
       socket.end();
     },
+    isClosed(): boolean {
+      return closed;
+    },
     send(text: string): void {
       socket.write(text);
+    },
+    text(): string {
+      return received;
     },
     async waitFor(needle: string, timeoutMs = 5_000): Promise<string> {
       const deadline = Date.now() + timeoutMs;
