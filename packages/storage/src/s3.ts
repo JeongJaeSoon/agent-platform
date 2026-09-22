@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 export interface S3ClientLike {
-  send(command: unknown): Promise<unknown>;
+  send(
+    command: unknown,
+    options?: { readonly requestTimeout?: number },
+  ): Promise<unknown>;
 }
 
 export type S3RequestBounds = {
@@ -13,20 +16,31 @@ export type S3RequestBounds = {
 
 /**
  * Request-stage bounds for every S3 client this package builds. The SDK's node
- * handler ships without either timeout, so a peer that completes the handshake
- * and then never answers leaves `send()` pending forever.
+ * handler ships with neither, so a peer that completes the handshake and then
+ * never answers leaves `send()` pending forever.
+ *
+ * `requestTimeout` runs from `send()` until the response *headers* arrive, the
+ * upload included, and it does not care whether bytes are moving. The default
+ * therefore has to cover the largest object this client carries — a 128 MiB
+ * workspace bundle — which at five minutes means a floor of ~437 KiB/s. A
+ * snappier value would abort healthy checkpoint uploads on a slow link, three
+ * times over, and still fail. Reads do not upload anything and so do not wait
+ * on that budget: they pass {@link BodyReadBounds.requestTimeoutMs} per
+ * request instead.
  *
  * `throwOnRequestTimeout` is not optional dressing: without it
  * @smithy/node-http-handler 4.12.1 logs a warning when `requestTimeout`
  * expires and keeps waiting.
  *
- * `requestTimeout` runs from `send()` until the response headers arrive, the
- * request upload included, so it has to cover the largest object that travels
- * through this client — a 128 MiB workspace bundle.
+ * `socketTimeout` is deliberately absent. It would be the better bound — plain
+ * inactivity — but it is installed through `ClientRequest.setTimeout`, which
+ * bun's `node:http` does not honour: measured against a peer that accepts and
+ * never answers, a 500ms `socketTimeout` was still pending after 4s while the
+ * same case under `requestTimeout` failed in 509ms.
  */
 export const S3_REQUEST_BOUNDS: S3RequestBounds = {
   connectionTimeout: 3_000,
-  requestTimeout: 60_000,
+  requestTimeout: 300_000,
   throwOnRequestTimeout: true,
 };
 
@@ -40,6 +54,12 @@ export type BodyReadBounds = {
   readonly maxBytes: number;
   /** Budget for one whole body, however steadily it trickles. */
   readonly maxReadMs: number;
+  /**
+   * Per-request bound for the GetObject itself, in place of the client's
+   * upload-sized {@link S3_REQUEST_BOUNDS.requestTimeout}. A read sends almost
+   * nothing, so waiting minutes for its response headers only holds the turn.
+   */
+  readonly requestTimeoutMs: number;
   /** How long a body may deliver nothing before the read is abandoned. */
   readonly stallMs: number;
 };
@@ -67,6 +87,7 @@ export const DEFAULT_BODY_READ_BOUNDS: BodyReadBounds = {
   attempts: 3,
   maxBytes: 256 * 1024 * 1024,
   maxReadMs: 300_000,
+  requestTimeoutMs: 30_000,
   stallMs: 10_000,
 };
 
@@ -159,6 +180,7 @@ export async function getObjectBytes(
     try {
       const response = (await client.send(
         new GetObjectCommand({ Bucket: bucket, Key: key }),
+        { requestTimeout: bounds.requestTimeoutMs },
       )) as { Body?: unknown };
       if (response.Body === undefined) {
         throw new Error(`S3 object has no body: ${key}`);
