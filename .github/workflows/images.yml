@@ -272,7 +272,12 @@ jobs:
           done
           for file in staged/*.json; do
             name="$(jq -r .image "$file")"; digest="$(jq -r .digest "$file")"
-            docker buildx imagetools create -t "${name}:${version}" -t "${name}:${short}" "${name}@${digest}"
+            # The staged image is a single manifest (provenance off); without
+            # --prefer-index=false buildx wraps it in a new index, the tag
+            # gets a digest the readback below would reject, and the written
+            # tag then blocks every rerun. Verified against registry:2.
+            docker buildx imagetools create --prefer-index=false \
+              -t "${name}:${version}" -t "${name}:${short}" "${name}@${digest}"
           done
           # Read back what the registry now says, and only then call it
           # published. The artifact describes the tags, not the intention.

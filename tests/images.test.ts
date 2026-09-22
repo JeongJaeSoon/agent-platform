@@ -97,6 +97,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(promoteJob).toContain("docker buildx imagetools create");
     expect(promoteJob).toContain("refusing to move it");
     expect(promoteJob).toContain("after promotion");
+    // A single-manifest source must be retagged as is, not wrapped in an
+    // index whose digest differs from the staged one.
+    expect(promoteJob).toContain("imagetools create --prefer-index=false");
     // A lookup that fails for any reason but "not found" must abort, not
     // read as "tag absent".
     expect(promoteJob).toContain("could not look up");
