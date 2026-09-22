@@ -105,7 +105,7 @@ describeActual("actual SDK SessionStore process contract", () => {
         prompt: "remember the first turn",
         workspace,
       });
-      expect(first.exitCode).toBe(0);
+      expectCleanExit("resumes: first child", first);
       expect(first.value.result?.subtype).toBe("success");
       expect(first.value.mirrorErrors).toBe(0);
       const sessionId = first.value.result?.session_id;
@@ -124,7 +124,7 @@ describeActual("actual SDK SessionStore process contract", () => {
         resumeSessionId: sessionId,
         workspace,
       });
-      expect(second.exitCode).toBe(0);
+      expectCleanExit("resumes: second child", second);
       expect(second.value.result?.subtype).toBe("success");
       expect(second.value.mirrorErrors).toBe(0);
       expect(server.requests).toHaveLength(2);
@@ -164,7 +164,7 @@ describeActual("actual SDK SessionStore process contract", () => {
         prompt: "finish despite mirror failure",
         workspace,
       });
-      expect(failed.exitCode).toBe(0);
+      expectCleanExit("mirror_error child", failed);
       expect(failed.value.result?.subtype).toBe("success");
       expect(failed.value.appendAttempts).toBeGreaterThanOrEqual(3);
       expect(failed.value.mirrorErrors).toBeGreaterThanOrEqual(1);
@@ -189,7 +189,7 @@ describeActual("actual SDK SessionStore process contract", () => {
         prompt: "finish after an ambiguous append timeout",
         workspace,
       });
-      expect(timedOut.exitCode).toBe(0);
+      expectCleanExit("dedup child", timedOut);
       expect(timedOut.value.appendAttempts).toBeGreaterThanOrEqual(3);
       expect(timedOut.value.mirrorErrors).toBeGreaterThanOrEqual(1);
       const sessionId = timedOut.value.result?.session_id;
@@ -460,6 +460,23 @@ describeActual("actual SDK SessionStore process contract", () => {
   }, 30_000);
 });
 
+type ChildRun = {
+  readonly exitCode: number;
+  readonly stderr: string;
+  readonly value: ChildResult;
+};
+
+/**
+ * Asserts a clean exit while keeping the reason. `expect(exitCode).toBe(0)`
+ * reports `Received: 1` and discards everything the child said about why.
+ */
+function expectCleanExit(label: string, run: ChildRun): void {
+  if (run.exitCode === 0) return;
+  throw new Error(
+    `${label} exited ${run.exitCode}\n  result: ${JSON.stringify(run.value)}\n  stderr: ${run.stderr}`,
+  );
+}
+
 type ChildOptions = {
   readonly apiUrl: string;
   readonly appendMode?: "fail" | "hang" | "success" | "timeout";
@@ -470,9 +487,7 @@ type ChildOptions = {
   readonly workspace: string;
 };
 
-async function runChild(
-  options: ChildOptions,
-): Promise<{ exitCode: number; value: ChildResult }> {
+async function runChild(options: ChildOptions): Promise<ChildRun> {
   const child = startChild(options);
   mark(`runChild:spawned(${child.pid})`);
   const watchdogMs = Math.max(
@@ -542,6 +557,7 @@ async function runChild(
   if (!line) throw new Error(`Child emitted no result: ${stderr.text()}`);
   return {
     exitCode: exitCode ?? -1,
+    stderr: stderr.text(),
     value: JSON.parse(line.slice("CHILD_RESULT:".length)) as ChildResult,
   };
 }
