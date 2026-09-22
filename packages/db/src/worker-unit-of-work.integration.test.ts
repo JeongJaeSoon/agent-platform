@@ -956,6 +956,17 @@ integration("worker gateway on PostgreSQL", () => {
     expect(done.status).toBe("completed");
     // A retry of the finalize that went through is still a replay.
     expect(await gateway.finalize(principalOf(claimed), request)).toEqual(done);
+    // One naming another tail is not: the gate ran for the first one only.
+    for (const other of [0, 100]) {
+      expect(
+        await failure(
+          gateway.finalize(principalOf(claimed), {
+            ...request,
+            final_source_sequence: other,
+          }),
+        ),
+      ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+    }
   });
 
   test("append and finalize racing in either order never lose the tail (94S-218)", async () => {
