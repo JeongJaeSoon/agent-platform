@@ -40,6 +40,8 @@ export const ENV = {
   executionGeneration: "WORKER_EXECUTION_GENERATION",
   executionId: "WORKER_EXECUTION_ID",
   gatewayUrl: "WORKER_GATEWAY_URL",
+  /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
+  home: "HOME",
 } as const;
 
 /** Lets `host.docker.internal` resolve on native Linux daemons too. */
@@ -259,7 +261,10 @@ export class LocalDockerBackend implements ExecutionBackend {
     if (!Number.isInteger(pidsLimit) || pidsLimit < 1) {
       throw new Error(`pidsLimit ${pidsLimit} is not a positive limit`);
     }
-    const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes}`;
+    // tmpfs mounts are root-owned unless told otherwise; the worker is not
+    // root, so hand both of its writable dirs to its uid/gid.
+    const [uid, gid = uid] = config.user.split(":");
+    const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes},uid=${uid},gid=${gid}`;
     return {
       ...(config.command ? { Cmd: config.command } : {}),
       Env: [
@@ -267,6 +272,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=${config.gatewayUrl}`,
+        `${ENV.home}=${config.homeDir}`,
       ],
       HostConfig: {
         CapDrop: ["ALL"],

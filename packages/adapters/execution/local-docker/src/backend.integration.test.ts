@@ -7,6 +7,7 @@ import {
   LocalDockerBackend,
   workspaceVolumeFor,
 } from "./backend.ts";
+import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
 
 /**
@@ -49,24 +50,22 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
 integration("LocalDockerBackend against a real daemon", () => {
   const client = new DockerClient(dockerHost);
   const installationId = `it-${crypto.randomUUID().slice(0, 8)}`;
-  const backend = new LocalDockerBackend(
-    {
-      allowedNetworks: ["bridge"],
-      apiVersion: "v1.44",
-      command: ["sleep", "600"],
-      dockerHost,
-      gatewayUrl: "http://host.docker.internal:3000",
-      homeDir: "/home/worker",
-      installationId,
-      network: "bridge",
-      requestTimeoutMs: 30_000,
-      stopTimeoutSeconds: 1,
-      tmpfsSizeBytes: 16 * 1024 * 1024,
-      user: "1000:1000",
-      workspaceDir: "/workspace",
-    },
-    client,
-  );
+  const backendConfig = (): LocalDockerBackendConfig => ({
+    allowedNetworks: ["bridge"],
+    apiVersion: "v1.44",
+    command: ["sleep", "600"],
+    dockerHost,
+    gatewayUrl: "http://host.docker.internal:3000",
+    homeDir: "/home/worker",
+    installationId,
+    network: "bridge",
+    requestTimeoutMs: 30_000,
+    stopTimeoutSeconds: 1,
+    tmpfsSizeBytes: 16 * 1024 * 1024,
+    user: "1000:1000",
+    workspaceDir: "/workspace",
+  });
+  const backend = new LocalDockerBackend(backendConfig(), client);
   const created: LaunchIntent[] = [];
   const track = (intent: LaunchIntent) => {
     created.push(intent);
@@ -143,6 +142,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(
       (inspected.Config.Env ?? []).filter((e) => !imageEnv.has(e)).sort(),
     ).toEqual([
+      `${ENV.home}=/home/worker`,
       `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
       `${ENV.executionGeneration}=${intent.generation}`,
       `${ENV.executionId}=${intent.executionId}`,
@@ -217,6 +217,27 @@ integration("LocalDockerBackend against a real daemon", () => {
       outcome: "terminated",
     });
     expect(await backend.terminate(gen2)).toEqual({ outcome: "absent" });
+  }, 60_000);
+
+  test("the non-root worker can write to HOME and /tmp", async () => {
+    // busybox has no uid 1000 in /etc/passwd, so a writable HOME must come
+    // from the mount options and the HOME env, not from the image.
+    const probe = new LocalDockerBackend(
+      {
+        ...backendConfig(),
+        command: [
+          "sh",
+          "-c",
+          'echo ok > "$HOME/probe" && echo ok > /tmp/probe && sleep 600',
+        ],
+      },
+      client,
+    );
+    const intent = track(intentFor());
+    await probe.ensureExecution(intent);
+    await Bun.sleep(1_500);
+    const observed = await probe.inspect(intent);
+    expect(observed.state).toBe("running");
   }, 60_000);
 
   test("listManaged sees every container this backend made", async () => {

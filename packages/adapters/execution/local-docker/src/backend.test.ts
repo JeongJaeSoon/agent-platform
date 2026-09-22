@@ -225,8 +225,9 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const { body } = container;
     expect(body.Image).toBe("worker:test");
     expect(body.User).toBe("1000:1000");
-    // Exactly the two variables the ticket allows, nothing else leaks in.
+    // Exactly the variables the worker contract needs, nothing else leaks in.
     expect(body.Env.sort()).toEqual([
+      `${ENV.home}=/home/worker`,
       `${ENV.bootstrapNonce}=nonce-abc`,
       `${ENV.executionGeneration}=1`,
       `${ENV.executionId}=${intent.executionId}`,
@@ -258,8 +259,8 @@ describe("LocalDockerBackend.ensureExecution", () => {
       RestartPolicy: { Name: "no" },
       SecurityOpt: ["no-new-privileges"],
       Tmpfs: {
-        "/home/worker": "rw,nosuid,nodev,size=67108864",
-        "/tmp": "rw,nosuid,nodev,size=67108864",
+        "/home/worker": "rw,nosuid,nodev,size=67108864,uid=1000,gid=1000",
+        "/tmp": "rw,nosuid,nodev,size=67108864,uid=1000,gid=1000",
       },
     });
     // No bind mounts at all: no Docker socket, no host HOME.
