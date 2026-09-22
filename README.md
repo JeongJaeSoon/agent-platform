@@ -119,7 +119,13 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 ## CI에서 실행되는 것
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 세 job을 **병렬로** 돌린다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한하고, 새 push가 오면 `concurrency`가 이전 run을 취소한다. bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있고, 캐시 쓰기는 `check` job만 한다(세 job이 같은 키로 동시에 저장하는 것을 피한다).
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 세 job을 **병렬로** 돌린다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+
+그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
+
+`concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소하고, 그 외(`main` push·수동 실행)는 run 단위로 묶어 서로 취소하거나 대기하지 않는다.
+
+bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check`가 쓰는 `bun-root-*`는 root lockfile만, `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
@@ -131,9 +137,13 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
-`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 신호까지 없애지는 않는다 — `spikes` check 자체는 실패로 남아 PR checks 목록에 빨갛게 보이고, run 전체의 결론만 성공이다(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`). 두 suite는 `.github/scripts/retry-flaky.sh`가 1회 재시도하고, 한쪽이 실패해도 다른 쪽은 그대로 실행한다. 재시도는 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. flaky 원인 수정은 별도 티켓이다.
+`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 두 suite는 `.github/scripts/retry-flaky.sh`가 1회 재시도하고, 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
 
-`main` branch protection은 아직 설정되어 있지 않다. 켠다면 required status check를 `check`·`integration`으로 두고 `spikes`는 제외한다.
+**이 설정이 무엇을 숨기는지 분명히 해둔다.** `spikes` check-run 자체는 실패로 남아 PR checks 목록에 빨갛게 보이지만(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`), run 결론만 읽는 소비자 — 알림, 대시보드, release automation — 에게는 spike 회귀가 보이지 않는다. 그래서 job 마지막에 두 suite의 outcome을 항상 run summary에 적는다. 그래도 **spike 회귀를 자동으로 알려주는 장치는 없다**. 사람이 Checks를 열어야 한다.
+
+재시도 역시 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. 다만 재시도는 같은 workspace에서 도는 것이라 **독립 재현이 아니다**: 첫 시도가 남긴 LocalStack 객체나 subprocess 때문에 cleanup·idempotency 버그가 두 번째에 우연히 통과할 수 있다. 신호로 종료된 경우(exit 코드 128 이상)는 재시도하지 않는다 — 취소된 workflow를 다시 시작하지 않기 위해서다. flaky 원인 수정은 별도 티켓이다.
+
+`main` branch protection은 아직 설정되어 있지 않다(`gh api repos/JeongJaeSoon/agent-platform/branches/main/protection` → 404). 켤 때 **`check`와 `integration`을 모두 required로 지정한다.** 재구성 전 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
 
 ## SDK와 LiteLLM 방향
 

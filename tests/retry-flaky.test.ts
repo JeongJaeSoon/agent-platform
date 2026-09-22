@@ -116,6 +116,30 @@ describe("retry-flaky.sh", () => {
     expect(stdout).toContain("failed all 2 attempts (exit 4)");
   });
 
+  test("does not retry a command killed by a signal", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "retry-flaky-signal-"));
+    const marker = join(directory, "attempts");
+    try {
+      // 130 is what a shell reports for a child terminated by SIGINT; a
+      // cancelled workflow must not restart the suite.
+      const outcome = await run([
+        "3",
+        "cancelled",
+        "bash",
+        "-c",
+        `attempts=$(cat "${marker}" 2>/dev/null || echo 0); echo $((attempts + 1)) > "${marker}"; kill -INT $$`,
+      ]);
+
+      expect(outcome.exitCode).toBe(130);
+      expect(await readFile(marker, "utf8")).toBe("1\n");
+      expect(outcome.stdout).toContain("::error title=spike cancelled::");
+      expect(outcome.stdout).not.toContain("failed (exit 130); retrying");
+      expect(outcome.summary).toContain("terminated by a signal");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("rejects a missing command or a non-numeric attempt count", async () => {
     expect((await run(["2", "no-command"])).exitCode).toBe(2);
     expect((await run(["abc", "label", "true"])).exitCode).toBe(2);

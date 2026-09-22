@@ -47,6 +47,15 @@ while :; do
     exit 0
   fi
 
+  # A shell reports a signalled child as 128+signum. Cancelling a workflow, or
+  # Ctrl-C locally, must stop here — restarting the suite would fight the
+  # cancellation.
+  if [ "$status" -ge 128 ]; then
+    echo "::error title=spike cancelled::${label} was terminated by a signal (exit ${status}); not retrying"
+    record "⛔ \`${label}\` — terminated by a signal (exit ${status}), not retried"
+    exit "$status"
+  fi
+
   if [ "$attempt" -ge "$attempts" ]; then
     echo "::error title=spike failure::${label} failed all ${attempts} attempts (exit ${status})"
     record "❌ \`${label}\` — failed all ${attempts} attempts (exit ${status})"

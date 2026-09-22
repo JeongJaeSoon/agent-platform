@@ -1,20 +1,23 @@
 name: CI
 
 on:
-  # Only main needs a push run: every other branch is covered by its pull
-  # request, and listening to both events ran each PR commit twice.
+  # Listening to push on every branch as well as pull_request ran each PR commit
+  # twice. A branch with no pull request now gets no automatic run, so
+  # workflow_dispatch is here to cover that case on demand. Tag pushes are not
+  # built; the tagged tree already ran as a main push.
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Per PR, so a new push cancels the run it superseded. Pushes to main key on
-  # the commit instead: every merge keeps its own run rather than cancelling or
-  # queueing behind the previous one.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  # Per PR, so a new push cancels the run it superseded. Everything else keys on
+  # the run itself: two merges landing back to back, or two manual runs of the
+  # same commit, must not cancel or queue behind each other.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -116,6 +119,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/bun-setup
+        with:
+          cache-scope: spikes
+          save-cache: "true"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -127,10 +133,31 @@ jobs:
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
-      - name: spikes/94s-91 check
+      - id: spike-91
+        name: spikes/94s-91 check
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
       # The two spikes are independent investigations: one failing must not
       # hide the other's result.
-      - name: spikes/94s-92 check
+      - id: spike-92
         if: '!cancelled()'
+        name: spikes/94s-92 check
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+      # continue-on-error leaves the run green, so whoever reads only the run
+      # conclusion never learns a spike broke. State the outcome on the summary
+      # page unconditionally.
+      - if: '!cancelled()'
+        name: Report spike outcome
+        env:
+          SPIKE_91: ${{ steps.spike-91.outcome }}
+          SPIKE_92: ${{ steps.spike-92.outcome }}
+        run: |
+          {
+            echo "### spikes (non-blocking)"
+            echo
+            echo "| suite | outcome |"
+            echo "| --- | --- |"
+            echo "| spikes/94s-91 | ${SPIKE_91} |"
+            echo "| spikes/94s-92 | ${SPIKE_92} |"
+            echo
+            echo "This job never fails the run. A \`failure\` above still needs a look."
+          } >>"$GITHUB_STEP_SUMMARY"

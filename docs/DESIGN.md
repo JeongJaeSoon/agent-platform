@@ -631,7 +631,7 @@ agent-platform/
         └── images.yml           # apps/*/Dockerfile 빌드·푸시
 ```
 
-`ci.yml`은 opt-in 변수를 켜지 않는 `check`(typecheck·Biome·unit), 변수를 전부 켠 `integration`(Postgres·LocalStack·Docker), 조사 harness 전용 `spikes`(머지를 막지 않음)로 나눈다. job별 변수와 근거는 README § CI에서 실행되는 것에 있다.
+`ci.yml`은 opt-in 변수를 켜지 않는 `check`(typecheck·Biome·unit), 변수를 켜고 같은 스위트를 skip 0으로 다시 도는 `integration`(Postgres·LocalStack), 조사 harness 전용 `spikes`(머지를 막지 않음)로 나눈다. opt-in 변수는 그것을 읽는 코드가 들어오는 PR에서 함께 켠다. job별 변수와 한계는 README § CI에서 실행되는 것에 있다.
 
 ### 8.1 의존 방향
 
