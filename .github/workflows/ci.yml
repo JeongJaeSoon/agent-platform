@@ -21,8 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Fast feedback: no service containers, no opt-in variables, so every
-  # integration test deliberately skips here and runs in `integration`.
+  # Fast feedback: no service containers and no opt-in variables, so the tests
+  # gated on those skip here and run in `integration`. Suites that need nothing
+  # external — the SDK adapter against a local fake Messages API, for one — do
+  # run here despite the `integration` in their file names.
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15

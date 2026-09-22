@@ -32,19 +32,58 @@ record() {
   fi
 }
 
-# Cancelling a workflow signals the whole process group, so this wrapper is
-# signalled too. That, not the child's exit code, is what tells cancellation
-# apart from a command that merely exits 128-255 on its own.
+# The runner signals this wrapper, not the suite it launched, when a job is
+# cancelled. Catching that is what tells cancellation apart from a command that
+# merely exits 128-255 on its own.
 cancelled=0
-note_signal() { cancelled=1; }
-trap note_signal HUP INT TERM
+child=0
+
+stop() {
+  cancelled=1
+  if [ "$child" -ne 0 ]; then
+    kill -TERM "$child" 2>/dev/null
+  fi
+}
+trap stop HUP INT TERM
+
+# Runs "$@" so that a trapped signal is handled while it is still running. Bash
+# defers a trap until a *foreground* command returns, so the command goes to the
+# background and the script blocks in `wait`, which a signal does interrupt.
+run_attempt() {
+  "$@" &
+  child=$!
+
+  local result=0
+  while :; do
+    result=0
+    wait "$child" || result=$?
+    # An interrupted `wait` returns before the child does; only a reaped child
+    # means `result` is really the command's status.
+    kill -0 "$child" 2>/dev/null || break
+  done
+
+  child=0
+  return "$result"
+}
 
 attempt=1
 while :; do
-  # `if "$@"; then` would lose the exit code: a failed condition with no else
-  # branch leaves $? at 0.
   status=0
-  "$@" || status=$?
+  run_attempt "$@" || status=$?
+
+  # Checked before the success path: a suite that happened to finish cleanly
+  # while the job was being torn down is still a cancellation, not a pass.
+  interrupted=$cancelled
+  case "$status" in
+  129 | 130 | 137 | 143) interrupted=1 ;;
+  esac
+
+  if [ "$interrupted" -eq 1 ]; then
+    [ "$status" -eq 0 ] && status=143
+    echo "::error title=spike cancelled::${label} was interrupted (exit ${status}); not retrying"
+    record "⛔ \`${label}\` — interrupted (exit ${status}), not retried"
+    exit "$status"
+  fi
 
   if [ "$status" -eq 0 ]; then
     if [ "$attempt" -gt 1 ]; then
@@ -52,22 +91,6 @@ while :; do
       record "⚠️ \`${label}\` — flaky: passed on attempt ${attempt}/${attempts}"
     fi
     exit 0
-  fi
-
-  # Restarting the suite while something is trying to tear the job down would
-  # fight the cancellation. The trap above is the reliable signal; the exit
-  # codes are the narrow fallback for a child that was signalled alone, and are
-  # limited to the ones that mean teardown (SIGHUP/SIGINT/SIGKILL/SIGTERM) so
-  # that a command exiting 200 on its own is still treated as a normal failure.
-  interrupted=$cancelled
-  case "$status" in
-  129 | 130 | 137 | 143) interrupted=1 ;;
-  esac
-
-  if [ "$interrupted" -eq 1 ]; then
-    echo "::error title=spike cancelled::${label} was interrupted (exit ${status}); not retrying"
-    record "⛔ \`${label}\` — interrupted (exit ${status}), not retried"
-    exit "$status"
   fi
 
   if [ "$attempt" -ge "$attempts" ]; then

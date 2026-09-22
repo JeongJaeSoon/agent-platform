@@ -120,20 +120,20 @@ describe("retry-flaky.sh", () => {
     const directory = await mkdtemp(join(tmpdir(), "retry-flaky-signal-"));
     const marker = join(directory, "attempts");
     try {
-      // 130 is what a shell reports for a child terminated by SIGINT; a
-      // cancelled workflow must not restart the suite.
+      // The exit-code fallback, for a suite signalled without the wrapper
+      // hearing about it. 143 is what a shell reports for SIGTERM.
       const outcome = await run([
         "3",
         "cancelled",
         "bash",
         "-c",
-        `attempts=$(cat "${marker}" 2>/dev/null || echo 0); echo $((attempts + 1)) > "${marker}"; kill -INT $$`,
+        `attempts=$(cat "${marker}" 2>/dev/null || echo 0); echo $((attempts + 1)) > "${marker}"; kill -TERM $$`,
       ]);
 
-      expect(outcome.exitCode).toBe(130);
+      expect(outcome.exitCode).toBe(143);
       expect(await readFile(marker, "utf8")).toBe("1\n");
       expect(outcome.stdout).toContain("::error title=spike cancelled::");
-      expect(outcome.stdout).not.toContain("failed (exit 130); retrying");
+      expect(outcome.stdout).not.toContain("failed (exit 143); retrying");
       expect(outcome.summary).toContain("interrupted");
     } finally {
       await rm(directory, { force: true, recursive: true });
@@ -162,6 +162,53 @@ describe("retry-flaky.sh", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  test("stops when the wrapper itself is signalled mid-attempt", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "retry-flaky-wrapper-"));
+    const marker = join(directory, "attempts");
+    const summaryPath = join(directory, "summary.md");
+    try {
+      // The runner signals the wrapper, not the suite, so this is the path that
+      // matters. A foreground child would defer the trap until it exits, and
+      // the long sleep here would then run to completion.
+      const wrapper = Bun.spawn(
+        [
+          script,
+          "2",
+          "wrapper-signal",
+          "bash",
+          "-c",
+          // exec so the signal reaches the sleep itself: a bash parent would
+          // sit on its own foreground child and outlive the forwarded TERM.
+          `echo x >> "${marker}"; exec sleep 20`,
+        ],
+        {
+          env: { ...Bun.env, GITHUB_STEP_SUMMARY: summaryPath },
+          stdout: "pipe",
+        },
+      );
+
+      while (!(await Bun.file(marker).exists())) {
+        await Bun.sleep(20);
+      }
+      const started = Date.now();
+      wrapper.kill("SIGTERM");
+
+      const exitCode = await wrapper.exited;
+      // The wrapper must give up long before the child's own sleep would end.
+      const elapsed = Date.now() - started;
+      const stdout = await new Response(wrapper.stdout).text();
+
+      expect(exitCode).toBe(143);
+      expect(elapsed).toBeLessThan(8_000);
+      expect(stdout).toContain("::error title=spike cancelled::");
+      expect(stdout).not.toContain("; retrying");
+      expect(await readFile(marker, "utf8")).toBe("x\n");
+      expect(await readFile(summaryPath, "utf8")).toContain("interrupted");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
 
   test("rejects a missing command or a non-numeric attempt count", async () => {
     expect((await run(["2", "no-command"])).exitCode).toBe(2);
