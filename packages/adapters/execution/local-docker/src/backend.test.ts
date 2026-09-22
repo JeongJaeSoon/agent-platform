@@ -50,6 +50,8 @@ class FakeDocker {
     [];
   /** Image name → the `VOLUME` paths it declares. */
   readonly images = new Map<string, string[]>([["worker:test", []]]);
+  /** A `docker volume prune` that lands between the check and the create. */
+  pruneVolumesOnCreate = false;
   private nextId = 1;
   private server: ReturnType<typeof Bun.serve> | undefined;
   /** When set, the next create returns 409 without creating anything. */
@@ -118,6 +120,7 @@ class FakeDocker {
 
     if (request.method === "POST" && path === "/containers/create") {
       const name = url.searchParams.get("name") ?? "";
+      if (this.pruneVolumesOnCreate) this.volumes.clear();
       if (this.conflictEveryCreate) {
         return json({ message: "Conflict. Lost the create race" }, 409);
       }
@@ -239,6 +242,7 @@ class FakeDocker {
               ? null
               : Object.fromEntries(declared.map((v) => [v, {}])),
         },
+        Id: `sha256:${name.replace(/[^a-z0-9]/g, "")}`,
       });
     }
     const network = path.match(/^\/networks\/([^/]+)$/);
@@ -363,7 +367,8 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).toBe(container.id);
 
     const { body } = container;
-    expect(body.Image).toBe("worker:test");
+    // The id the inspect resolved, not the tag it was asked for.
+    expect(body.Image).toBe("sha256:workertest");
     expect(body.User).toBe("1000:1000");
     // Exactly the variables the worker contract needs, nothing else leaks in.
     expect(body.Env.sort()).toEqual(
@@ -690,6 +695,27 @@ describe("LocalDockerBackend.inspect", () => {
     await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
       created: true,
     });
+  });
+
+  test("the container is created from the image id that was inspected", async () => {
+    // A tag can be repointed between the two calls; the id cannot.
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+
+    const created = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(created?.body.Image).toBe("sha256:workertest");
+  });
+
+  test("a workspace pruned between the check and the create is not started", async () => {
+    // Docker conjures a replacement for the mount — unlabelled, unbounded —
+    // and the container would come up on it. Nothing has run in it yet, so it
+    // is removed rather than started.
+    docker.pruneVolumesOnCreate = true;
+
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "disappeared between the check and the container",
+    );
+    expect(docker.containers.size).toBe(0);
   });
 
   test("an image the daemon does not have yet is left to the create", async () => {

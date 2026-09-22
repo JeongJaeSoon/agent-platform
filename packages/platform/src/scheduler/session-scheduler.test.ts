@@ -16,7 +16,11 @@ import type {
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
-import { runScheduler, type SchedulerLogger } from "./session-scheduler.ts";
+import {
+  reclaimWorkspaces,
+  runScheduler,
+  type SchedulerLogger,
+} from "./session-scheduler.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 
@@ -329,7 +333,8 @@ function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
       slotLimit,
       store,
     });
-  return { backend, records, run, store };
+  const reclaim = () => reclaimWorkspaces({ backend, logger, store });
+  return { backend, reclaim, records, run, store };
 }
 
 describe("runScheduler", () => {
@@ -827,6 +832,59 @@ describe("runScheduler", () => {
         }),
       ).rejects.toThrow("slotLimit");
     }
+  });
+});
+
+describe("reclaimWorkspaces", () => {
+  test("frees finished workspaces without starting or replacing anything", async () => {
+    // The caller has just been refused admission. A pass with no free slots
+    // would still re-ensure the missing container below and replace the stale
+    // one; this must do neither.
+    const { backend, reclaim, store } = harness();
+    store.addUnassigned(2);
+    await harness().run();
+    const [live] = store.addUnassigned(1);
+    if (live === undefined) throw new Error("fixture has no session");
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: new Date(),
+      sessionId: live,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    backend.ensureCalls.length = 0;
+    backend.workspaces.set("ap-ws-done", "session-done");
+    backend.workspaces.set("ap-ws-live", live);
+    store.retainedSessions.add(live);
+
+    const summary = await reclaim();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
+    expect(backend.workspaces.has("ap-ws-live")).toBe(true);
+    // Nothing was launched, adopted or torn down.
+    expect(backend.ensureCalls).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(summary.launched).toEqual([]);
+    expect(summary.reensured).toEqual([]);
+    expect(summary.replaced).toEqual([]);
+  });
+
+  test("a held lock skips it, as it does a whole pass", async () => {
+    const { backend, reclaim, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    await store.acquirePassLock();
+
+    const summary = await reclaim();
+
+    expect(summary.skipped).toBe(true);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
+  });
+
+  test("a failed scan is reported, not swallowed", async () => {
+    const { backend, reclaim } = harness();
+    backend.failListWorkspaces = true;
+
+    expect((await reclaim()).workspaceScanFailed).toBe(true);
   });
 });
 

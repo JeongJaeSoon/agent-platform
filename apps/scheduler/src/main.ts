@@ -3,6 +3,7 @@ import { createPostgresSchedulerStore } from "@agent-platform/db";
 import { LocalDockerBackend } from "@agent-platform/execution-local-docker";
 import { createLogger } from "@agent-platform/observability";
 import {
+  reclaimWorkspaces,
   runScheduler,
   type SchedulerRunSummary,
 } from "@agent-platform/platform";
@@ -40,41 +41,43 @@ export async function main(
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
     });
-    const pass = (slotLimit: number) =>
-      runScheduler({
-        backend,
-        image: config.image,
-        logger,
-        resources: config.resources,
-        slotLimit,
-        store,
-      });
     try {
       await backend.verifyWorkspaceQuota();
     } catch (error) {
       // The probe needs a little disk of its own, so a daemon that is already
       // full fails it — and that is exactly when the workspaces of finished
-      // sessions are worth reclaiming. Launching nothing (slot limit 0) while
-      // still running the pass breaks that deadlock; the error is rethrown
-      // afterwards, so this process still refuses to admit work.
+      // sessions are worth reclaiming. `reclaimWorkspaces` frees them without
+      // starting or replacing anything, which a pass with no free slots would
+      // still do; the error is rethrown afterwards, so this process refuses to
+      // admit work either way.
       logger.error(
         "Workspace quota preflight failed; reclaiming workspaces before giving up",
-        { error: error instanceof Error ? error.message : String(error) },
+        { error: messageOf(error) },
       );
-      await pass(0).catch((reclaimError: unknown) => {
-        logger.error("Reclaim-only pass failed", {
-          error:
-            reclaimError instanceof Error
-              ? reclaimError.message
-              : String(reclaimError),
-        });
-      });
+      await reclaimWorkspaces({ backend, logger, store }).catch(
+        (reclaimError: unknown) => {
+          logger.error("Workspace reclaim failed", {
+            error: messageOf(reclaimError),
+          });
+        },
+      );
       throw error;
     }
-    return await pass(config.slotLimit);
+    return await runScheduler({
+      backend,
+      image: config.image,
+      logger,
+      resources: config.resources,
+      slotLimit: config.slotLimit,
+      store,
+    });
   } finally {
     await pool.end();
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Non-zero when the pass left work undone, so cron/supervisors notice. */

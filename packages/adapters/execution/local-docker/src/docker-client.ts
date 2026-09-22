@@ -128,6 +128,8 @@ export type ImageInspect = {
     /** Declared `VOLUME` paths, as a set with empty values. */
     Volumes?: Record<string, unknown> | null;
   };
+  /** `sha256:…`; the only name for an image that cannot be repointed. */
+  Id: string;
 };
 
 export type VolumeInspect = {

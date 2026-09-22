@@ -401,10 +401,11 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
-    await this.assertImageDeclaresNoVolumes(intent.image);
-    // Before the container, because naming a volume in `Mounts` is enough for
-    // Docker to conjure one — unlabelled, and with no ceiling on it.
-    await this.ensureWorkspaceVolume(intent.sessionId);
+    // A tag is mutable: the image inspected here and the image a later create
+    // resolves need not be the same one. Creating from the id that was
+    // actually inspected closes that window.
+    const image = await this.inspectedImage(intent.image);
+    const volume = await this.ensureWorkspaceVolume(intent.sessionId);
     // Two passes at most. The second is the one that follows a lost create
     // race, and it judges the winner by the same rules — a container that
     // appeared out of a race is not more trustworthy than one that was
@@ -431,7 +432,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
       }
       try {
-        await this.client.createContainer(name, this.createBody(intent));
+        await this.client.createContainer(name, this.createBody(intent, image));
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
@@ -439,6 +440,11 @@ export class LocalDockerBackend implements ExecutionBackend {
         }
         continue;
       }
+      // The volume was checked before the create; a prune in between would
+      // have had Docker silently conjure an unlabelled, unbounded one for the
+      // mount. Nothing has run in the container yet, so this is the last
+      // moment the container can still be thrown away instead of bounded.
+      await this.assertWorkspaceStillBounded(name, intent.sessionId, volume);
       await this.client.startContainer(name);
       const started = await this.client.inspectContainer(name);
       return {
@@ -606,26 +612,53 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   /**
-   * The read-only rootfs and the bounded mounts are the whole of what a
-   * worker may write to — unless its image declares a `VOLUME`, which Docker
-   * honours by attaching a writable anonymous volume outside all of it.
+   * The image to launch, named by its id, once it is known to declare no
+   * volumes of its own. The read-only rootfs and the bounded mounts are the
+   * whole of what a worker may write to — unless its image declares a
+   * `VOLUME`, which Docker honours by attaching a writable anonymous volume
+   * outside all of it. Falls back to the reference when the daemon does not
+   * have the image: the create then answers with its own 404.
    */
-  private async assertImageDeclaresNoVolumes(image: string): Promise<void> {
+  private async inspectedImage(reference: string): Promise<string> {
     let inspected: ImageInspect | null;
     try {
-      inspected = await this.client.inspectImage(image);
+      inspected = await this.client.inspectImage(reference);
     } catch (error) {
-      if (error instanceof DockerApiError && error.status === 404) return;
+      if (error instanceof DockerApiError && error.status === 404) {
+        return reference;
+      }
       throw error;
     }
-    // Not pulled yet: the create that follows answers with its own 404, and
-    // the next attempt inspects an image that exists.
-    if (inspected === null) return;
+    if (inspected === null) return reference;
     const declared = Object.keys(inspected.Config.Volumes ?? {});
     // The workspace path is ours; the image declaring it changes nothing,
     // because the mount spec names a volume for exactly that target.
     const extra = declared.filter((path) => path !== this.config.workspaceDir);
-    if (extra.length > 0) throw new ImageVolumeError(image, extra.sort());
+    if (extra.length > 0) throw new ImageVolumeError(reference, extra.sort());
+    return inspected.Id || reference;
+  }
+
+  /**
+   * The workspace this container was created against is still the bounded one
+   * it was checked as. Between the check and the create, a `docker volume
+   * prune` removes it and the create silently conjures a replacement with no
+   * labels and no ceiling; the container is removed rather than started.
+   */
+  private async assertWorkspaceStillBounded(
+    container: string,
+    sessionId: string,
+    name: string,
+  ): Promise<void> {
+    const volume = await this.client.inspectVolume(name);
+    const problem =
+      volume === null
+        ? "disappeared between the check and the container"
+        : workspaceVolumeProblem(volume, sessionId, this.config);
+    if (problem === null) return;
+    await this.client
+      .stopAndRemoveContainer(container, this.config.stopTimeoutSeconds)
+      .catch(() => undefined);
+    throw new WorkspaceQuotaError(name, problem);
   }
 
   /** The container under this name has to be this very launch, or hands off. */
@@ -672,7 +705,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { created: false, providerRef: container.Id, state };
   }
 
-  private createBody(intent: LaunchIntent): ContainerCreateBody {
+  private createBody(intent: LaunchIntent, image: string): ContainerCreateBody {
     const { config } = this;
     // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
     // says every worker is bounded, so refuse anything that would drop one.
@@ -730,7 +763,7 @@ export class LocalDockerBackend implements ExecutionBackend {
           [config.homeDir]: tmpfsOptions,
         },
       },
-      Image: intent.image,
+      Image: image,
       Labels: {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
