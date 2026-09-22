@@ -99,9 +99,9 @@ jobs:
               ;;
           esac
 
-      # One JSON per image. `digest` is the registry manifest digest and is
-      # only set when the image was pushed; the image id (config digest) is
-      # there on every run so a PR can still be compared to main.
+      # One JSON per image. `digest` is the manifest digest buildx computed;
+      # it names something in the registry only when `pushed` is true. The
+      # image id (config digest) is what a local `docker images` shows.
       - name: Record digests
         env:
           APP: ${{ matrix.app }}
