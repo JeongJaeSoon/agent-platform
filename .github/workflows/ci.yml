@@ -10,6 +10,18 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      only:
+        description: 'Which job to run. Anything but `all` skips the rest — use it when a manual run only needs one of them.'
+        type: choice
+        required: false
+        default: all
+        options: [all, check, integration, spikes]
+      samples:
+        description: 'Run each spike suite this many times in ONE job instead of once. Flake sampling without one run per sample.'
+        type: choice
+        required: false
+        default: '1'
+        options: ['1', '10', '25', '50']
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -23,8 +35,13 @@ concurrency:
   # PR updates supersede older runs of that PR. Push runs remain independent.
   # Manual runs of the same ref and commit share a group by default; opt in to
   # independent parallel runs only when deliberately collecting flake samples.
+  #
+  # `github.event.inputs.*`, not `inputs.*`: a dispatch through the API sends
+  # input values as strings, so a declared boolean can arrive as the *string*
+  # "false", which `!inputs.allow_parallel` would read as truthy and silently
+  # turn the default into independent parallel runs.
   group: >-
-    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && !inputs.allow_parallel && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && github.event.inputs.allow_parallel != 'true' && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -33,11 +50,15 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   check:
+    # A non-dispatch event has no `only`, so it reads as `all` and everything runs.
+    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     # One variable for all three jobs. A self-hosted runner is arm64 and
     # GitHub-hosted is amd64, so whichever is off duty stops being exercised;
     # split this per event once something proves arch-sensitive.
     runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    # The slowest run on record took 6m. A ceiling near that turns a hang into a
+    # few wasted minutes instead of a quarter hour of billed idling.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/bun-setup
@@ -50,10 +71,14 @@ jobs:
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
   integration:
-    # Do not provision services when the fast checks already failed.
+    # Do not provision services when the fast checks already failed. `skipped`
+    # is not `failure`: `only=integration` skips `check` and must still run this.
     needs: check
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 12
     services:
       postgres:
         image: postgres:16
@@ -106,8 +131,18 @@ jobs:
   # report without blocking the run; see README § CI.
   spikes:
     needs: check
+    # Because a spike failure never blocks anything, running it on every PR
+    # commit buys no signal the main-push run does not already give. It stays on
+    # main pushes and on demand (`-f only=spikes`), which is also how a PR that
+    # actually touches spikes/ gets its answer.
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && github.event_name != 'pull_request'
+      && contains(fromJSON('["all","spikes"]'), github.event.inputs.only || 'all')
     runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    # Sampling deliberately runs the suites many times over in this one job;
+    # that is the whole point, so it gets a wider ceiling than a normal run.
+    timeout-minutes: ${{ (github.event.inputs.samples || '1') == '1' && 15 || 60 }}
     continue-on-error: true
     services:
       localstack:
@@ -131,6 +166,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       S3_BUCKET: claude-sessions
       SESSION_STORE_LOCALSTACK_TEST: "1"
+      SAMPLES: ${{ github.event.inputs.samples || '1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/bun-setup
@@ -148,15 +184,28 @@ jobs:
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
+      # One dispatch, N samples: sampling shares this job's checkout, installs
+      # and LiteLLM setup instead of paying for them once per sample, and the
+      # per-job round-up to a whole minute lands once instead of N times.
       - id: spike-91
         name: spikes/94s-91 check
-        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+        run: |
+          if [ "$SAMPLES" = 1 ]; then
+            .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+          else
+            .github/scripts/sample-flaky.sh "$SAMPLES" 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+          fi
       # The two spikes are independent investigations: one failing must not
       # hide the other's result.
       - id: spike-92
         if: '!cancelled()'
         name: spikes/94s-92 check
-        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+        run: |
+          if [ "$SAMPLES" = 1 ]; then
+            .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+          else
+            .github/scripts/sample-flaky.sh "$SAMPLES" 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
+          fi
       # continue-on-error leaves the run green, so whoever reads only the run
       # conclusion never learns a spike broke. State the outcome on the summary
       # page on every run that was not cancelled.
