@@ -4,6 +4,7 @@ import type {
   BootstrapClaimResponse,
   CheckpointRef,
   NextInputResponse,
+  RuntimeConfig,
   SessionRuntime,
   TerminalTurnStatus,
   WorkerScope,
@@ -28,6 +29,7 @@ import {
 } from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { PendingRequestRegistry } from "./pending-requests.ts";
+import type { WorkspacePreparer } from "./workspace.ts";
 
 /** The gateway client plus the one thing a claim changes about it. */
 export interface WorkerGatewaySession extends WorkerGatewayClient {
@@ -35,7 +37,11 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
   useCredential(credential: string): void;
 }
 
-export type RuntimeLaunch = RuntimeResumePlan & { correlationId: string };
+/** `runtimeConfig` is the claim's: the server resolved it from the session's profile. */
+export type RuntimeLaunch = RuntimeResumePlan & {
+  correlationId: string;
+  runtimeConfig: RuntimeConfig;
+};
 
 export type RuntimeLauncher = {
   start(launch: RuntimeLaunch, hooks: RuntimeHooks): AgentRun;
@@ -73,6 +79,7 @@ export type WorkerHostOptions = {
   gateway: WorkerGatewaySession;
   runtimes: RuntimeRegistry;
   timeouts: WorkerTimeouts;
+  workspace: WorkspacePreparer;
   logger?: WorkerLogger;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -135,6 +142,8 @@ export class WorkerHost {
   private readonly abandoned: Promise<void>;
   private announceAbandon: () => void = () => {};
   private abandonedNow = false;
+  /** Aborted by any stop: a clone in progress is not worth finishing. */
+  private readonly preparation = new AbortController();
   private stoppedAt: number | undefined;
   private turn: Turn | undefined;
 
@@ -214,29 +223,50 @@ export class WorkerHost {
     let run: AgentRun | undefined;
     try {
       const launcher = this.options.runtimes.launcherFor(claim.runtime);
-      const plan = await this.checkpoints.restorePlan(claim.restore);
-      run = launcher.start(
-        { ...plan, correlationId: `${claim.session_id}:${claim.attempt_id}` },
-        { onPermission: (request) => this.onPermission(request) },
-      );
-      this.attemptState = "running";
+      // From here on: a clone can take longer than the lease the claim gave.
       this.heartbeat.start();
-      this.pumping = this.pump(run);
-      await this.turnLoop(run);
-    } catch (error) {
-      // A worker that failed but still owns the session gives it back, so
-      // recovery does not have to wait for the lease to lapse.
-      this.stop({
-        kind: isOwnershipLost(error) ? "lost" : "failed",
-        reason: describe(error),
+      const prepared = await this.options.workspace.prepare({
+        descriptor: claim.workspace,
+        restore: claim.restore,
+        signal: this.preparation.signal,
       });
-      this.logger.error("worker.failed", { reason: describe(error) });
-      await this.shutdown(run);
-      return {
-        outcome: this.stopping?.kind === "lost" ? "lease_lost" : "failed",
-        reason: describe(error),
-        turns: this.turns,
-      };
+      this.logger.info("worker.workspace.prepared", {
+        action: prepared,
+        repository_id: claim.workspace.repository.id,
+        branch: claim.workspace.repository.branch,
+      });
+      const plan = await this.checkpoints.restorePlan(claim.restore);
+      if (this.stopping === undefined) {
+        run = launcher.start(
+          {
+            ...plan,
+            correlationId: `${claim.session_id}:${claim.attempt_id}`,
+            runtimeConfig: claim.runtime_config,
+          },
+          { onPermission: (request) => this.onPermission(request) },
+        );
+        this.attemptState = "running";
+        this.pumping = this.pump(run);
+        await this.turnLoop(run);
+      }
+    } catch (error) {
+      // A stop while the workspace was being prepared aborts it; that is the
+      // stop's outcome, not a failure of its own.
+      if (!(this.preparation.signal.aborted && this.stopping !== undefined)) {
+        // A worker that failed but still owns the session gives it back, so
+        // recovery does not have to wait for the lease to lapse.
+        this.stop({
+          kind: isOwnershipLost(error) ? "lost" : "failed",
+          reason: describe(error),
+        });
+        this.logger.error("worker.failed", { reason: describe(error) });
+        await this.shutdown(run);
+        return {
+          outcome: this.stopping?.kind === "lost" ? "lease_lost" : "failed",
+          reason: describe(error),
+          turns: this.turns,
+        };
+      }
     }
     const stop = this.stopping ?? { kind: "drain", reason: "loop ended" };
     await this.shutdown(run);
@@ -281,6 +311,7 @@ export class WorkerHost {
   private stop(stop: Stop): void {
     if (this.stopping !== undefined) return;
     this.stopping = stop;
+    this.preparation.abort();
     if (stop.kind !== "lost") {
       this.attemptState = "draining";
       // The launcher's SIGKILL clock starts with its SIGTERM, not a lease loss.
@@ -590,7 +621,9 @@ export class WorkerHost {
       const settledInTime =
         stop.kind !== "lost" && (await settledWithin(this.turn.settled, 0));
       if (!settledInTime) {
-        await run.interrupt().catch((error) => {
+        // Not awaited: a wedged engine may never answer the interrupt, and
+        // the terminal frame, bounded below, is what this is waiting for.
+        run.interrupt().catch((error) => {
           this.logger.warn("worker.interrupt.failed", {
             reason: describe(error),
           });
@@ -606,7 +639,11 @@ export class WorkerHost {
     // worker leaves the last committed checkpoint as the one to resume from.
     // A session-level checkpoint commit would change that, and alpha has none.
     run?.close();
-    await this.pumping;
+    // Bounded for the same reason: a wedged engine may never end its stream,
+    // and the exit check below is what deals with that.
+    if (this.pumping !== undefined) {
+      await settledWithin(this.pumping, this.withinGrace(ENGINE_EXIT_GRACE_MS));
+    }
     await this.confirmEngineExit();
     await this.heartbeat?.stop();
     if (stop.kind === "lost") {

@@ -16,6 +16,7 @@ import type {
   PostSessionAnswerRequest,
   ReleaseRequest,
   ReleaseResponse,
+  RuntimeConfig,
   SessionRuntime,
   WorkerEvent,
 } from "@agent-platform/contracts";
@@ -30,6 +31,7 @@ export type FakeWorkerGatewayOptions = {
   leaseTtlMs?: number;
   restore?: CheckpointRef | null;
   runtime?: SessionRuntime;
+  runtimeConfig?: RuntimeConfig;
   sessionId?: string;
 };
 
@@ -92,6 +94,16 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         version: "0.3.270",
         profile_id: "fake-profile",
       },
+      runtimeConfig: options.runtimeConfig ?? {
+        model: "fake-model",
+        tools: [],
+        permission_mode: "default",
+        provider: {
+          kind: "anthropic",
+          endpoint: "http://127.0.0.1:4000",
+          auth: { kind: "api_key", value: "placeholder" },
+        },
+      },
       sessionId: options.sessionId ?? "11111111-1111-4111-8111-111111111111",
     };
   }
@@ -134,6 +146,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
       runtime: this.options.runtime,
+      runtime_config: this.options.runtimeConfig,
+      workspace: {
+        repository: {
+          id: "fake-repository",
+          url: "https://git.example.test/fake.git",
+          branch: "main",
+        },
+      },
       restore: this.options.restore ?? null,
     };
   }

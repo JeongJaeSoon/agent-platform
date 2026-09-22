@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { RuntimeConfig } from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
   type FakeStep,
 } from "@agent-platform/runtime-claude";
-import type { NativeSdkMessage } from "@agent-platform/runtime-core";
+import type { AgentRun, NativeSdkMessage } from "@agent-platform/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
@@ -16,6 +17,7 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "./worker-host.ts";
+import { noWorkspace, type WorkspacePreparer } from "./workspace.ts";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -69,29 +71,33 @@ function harness(
     gateway?: FakeWorkerGateway;
     logger?: WorkerLogger;
     timeouts?: Partial<WorkerTimeouts>;
+    workspace?: WorkspacePreparer;
+    wrap?: (run: AgentRun) => AgentRun;
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
   const runtime = new FakeAgentRuntime(steps);
+  const launched: RuntimeConfig[] = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: (launch, hooks) =>
-        runtime.start(
-          {
-            claudeConfigDir: "/tmp/fake/config",
-            cwd: "/tmp/fake/workspace",
-            home: "/tmp/fake/home",
-            model: "fake-model",
-            profile: {
-              kind: "anthropic",
-              endpoint: "http://127.0.0.1:4000",
-              auth: { kind: "api_key", value: "placeholder" },
+      start: ({ runtimeConfig, ...launch }, hooks) => {
+        launched.push(runtimeConfig);
+        const wrap = overrides.wrap ?? ((run: AgentRun) => run);
+        return wrap(
+          runtime.start(
+            {
+              claudeConfigDir: "/tmp/fake/config",
+              cwd: "/tmp/fake/workspace",
+              home: "/tmp/fake/home",
+              model: runtimeConfig.model,
+              profile: runtimeConfig.provider,
+              tools: runtimeConfig.tools,
+              ...launch,
             },
-            tools: [],
-            ...launch,
-          },
-          hooks,
-        ),
+            hooks,
+          ),
+        );
+      },
     }),
   };
   const host = new WorkerHost({
@@ -101,9 +107,10 @@ function harness(
     logger: overrides.logger ?? silent,
     runtimes,
     timeouts: { ...timeouts, ...overrides.timeouts },
+    workspace: overrides.workspace ?? noWorkspace,
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
   });
-  return { gateway, host, runtime };
+  return { gateway, host, launched, runtime };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -766,4 +773,165 @@ describe("inputUuid", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
   });
+});
+
+describe("WorkerHost before the engine starts", () => {
+  test("runs the engine the claim resolved, not one of its own", async () => {
+    const gateway = new FakeWorkerGateway({
+      runtimeConfig: {
+        model: "claimed-model",
+        tools: ["Read"],
+        permission_mode: "plan",
+        provider: {
+          kind: "litellm",
+          endpoint: "http://litellm.internal:4000",
+          auth: { kind: "bearer", value: "claimed" },
+        },
+      },
+    });
+    const { host, launched } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("hello");
+
+    await host.runLoop();
+
+    expect(launched).toEqual([
+      {
+        model: "claimed-model",
+        tools: ["Read"],
+        permission_mode: "plan",
+        provider: {
+          kind: "litellm",
+          endpoint: "http://litellm.internal:4000",
+          auth: { kind: "bearer", value: "claimed" },
+        },
+      },
+    ]);
+  });
+
+  test("prepares the claimed workspace before the engine starts, and never logs its URL", async () => {
+    const order: string[] = [];
+    const logged: string[] = [];
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        logger: {
+          info: (event, fields) => logged.push(event, JSON.stringify(fields)),
+          warn: (event, fields) => logged.push(event, JSON.stringify(fields)),
+          error: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        },
+        workspace: {
+          async prepare({ descriptor }) {
+            order.push(`prepare ${descriptor.repository.branch}`);
+            expect(runtime.inputs).toHaveLength(0);
+            return "clone";
+          },
+        },
+      },
+    );
+    gateway.enqueue("hello");
+
+    await host.runLoop();
+
+    expect(order).toEqual(["prepare main"]);
+    expect(logged).toContain("worker.workspace.prepared");
+    expect(logged.join("\n")).not.toContain("git.example.test");
+  });
+
+  test("gives the session back without starting an engine when the workspace is refused", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      workspace: {
+        async prepare() {
+          throw new Error("Workspace /workspace refused: not a git checkout");
+        },
+      },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary).toMatchObject({ outcome: "failed", turns: [] });
+    expect(summary.reason).toContain("refused");
+    expect(launched).toEqual([]);
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a drain during preparation aborts it and releases, with no engine", async () => {
+    const gateway = new FakeWorkerGateway();
+    let aborted = false;
+    let started!: () => void;
+    const preparing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      workspace: {
+        prepare: ({ signal }) =>
+          new Promise((_, reject) => {
+            started();
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              reject(signal.reason);
+            });
+          }),
+      },
+    });
+    const loop = host.runLoop();
+    await preparing;
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(aborted).toBe(true);
+    expect(summary.outcome).toBe("drained");
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+});
+
+describe("WorkerHost shutdown with a wedged engine", () => {
+  test("does not wait on an interrupt that never answers", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 30_000 }],
+      {
+        gateway,
+        timeouts: { drainTimeoutMs: 20, stopGraceMs: 2_500 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn the engine will sit on");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "the input to be sent");
+    const began = Date.now();
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(gateway.releases).toHaveLength(1);
+    // The grace minus the release reserve, not the interrupt's forever.
+    expect(Date.now() - began).toBeLessThan(2_500);
+  }, 10_000);
 });

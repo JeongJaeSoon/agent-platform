@@ -18,6 +18,7 @@ import {
   WorkerHost,
   type WorkerLogger,
 } from "./worker-host.ts";
+import { GitWorkspace, type WorkspacePreparer } from "./workspace.ts";
 
 export type WorkerComposition = {
   checkpoints?: WorkerCheckpointPort;
@@ -26,6 +27,7 @@ export type WorkerComposition = {
   logger?: WorkerLogger;
   objectStore?: CheckpointObjectStore;
   runtimes?: RuntimeRegistry;
+  workspace?: WorkspacePreparer;
 };
 
 /**
@@ -58,6 +60,7 @@ export function createWorkerHost(
       }),
     runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
     timeouts: config.timeouts,
+    workspace: overrides.workspace ?? new GitWorkspace(config.runtime.cwd),
     ...(overrides.logger === undefined ? {} : { logger: overrides.logger }),
   });
 }
@@ -72,26 +75,30 @@ export function claudeRuntimeRegistry(
   config: WorkerConfig,
   engines: EngineProcesses,
 ): RuntimeRegistry {
-  const runtime = new ClaudeSdkRuntime(
-    {
-      endpoints: [config.runtime.profile.endpoint],
-      models: [config.runtime.model],
-    },
-    engines,
-  );
   const launcher: RuntimeLauncher = {
     start(launch, hooks) {
-      const { correlationId, ...plan } = launch;
+      const { correlationId, runtimeConfig, ...plan } = launch;
+      // The claim is the only source of what to run, so the adapter's
+      // allowlist is that one endpoint and model. Left out: an allowlist
+      // baked into the image to check the server against — worth adding
+      // once one image serves tenants that must not share a provider.
+      const runtime = new ClaudeSdkRuntime(
+        {
+          endpoints: [runtimeConfig.provider.endpoint],
+          models: [runtimeConfig.model],
+        },
+        engines,
+      );
       return runtime.start(
         {
           claudeConfigDir: config.runtime.claudeConfigDir,
           correlationId,
           cwd: config.runtime.cwd,
           home: config.runtime.home,
-          model: config.runtime.model,
-          permissionMode: config.runtime.permissionMode,
-          profile: config.runtime.profile,
-          tools: config.runtime.tools,
+          model: runtimeConfig.model,
+          permissionMode: runtimeConfig.permission_mode,
+          profile: runtimeConfig.provider,
+          tools: runtimeConfig.tools,
           ...plan,
         },
         hooks,
