@@ -16,12 +16,6 @@ on:
         required: false
         default: all
         options: [all, check, integration, spikes]
-      samples:
-        description: 'Run each spike suite this many times in ONE job instead of once. Flake sampling without one run per sample.'
-        type: choice
-        required: false
-        default: '1'
-        options: ['1', '10', '25', '50']
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -136,7 +130,7 @@ jobs:
       && github.event_name != 'pull_request'
       && contains(fromJSON('["all","spikes"]'), github.event.inputs.only || 'all')
     runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ (github.event.inputs.samples || '1') == '1' && 15 || 60 }}
+    timeout-minutes: 15
     continue-on-error: true
     services:
       localstack:
@@ -160,7 +154,6 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       S3_BUCKET: claude-sessions
       SESSION_STORE_LOCALSTACK_TEST: "1"
-      SAMPLES: ${{ github.event.inputs.samples || '1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/bun-setup
@@ -178,27 +171,15 @@ jobs:
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
-      # Sampling in one job pays for the checkout, installs and LiteLLM setup
-      # once instead of once per sample, and rounds up to a whole minute once.
       - id: spike-91
         name: spikes/94s-91 check
-        run: |
-          if [ "$SAMPLES" = 1 ]; then
-            .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
-          else
-            .github/scripts/sample-flaky.sh "$SAMPLES" 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
-          fi
+        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
       # The two spikes are independent investigations: one failing must not
       # hide the other's result.
       - id: spike-92
         if: '!cancelled()'
         name: spikes/94s-92 check
-        run: |
-          if [ "$SAMPLES" = 1 ]; then
-            .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
-          else
-            .github/scripts/sample-flaky.sh "$SAMPLES" 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
-          fi
+        run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
       # continue-on-error leaves the run green, so whoever reads only the run
       # conclusion never learns a spike broke. State the outcome on the summary
       # page on every run that was not cancelled.
