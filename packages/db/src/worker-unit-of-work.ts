@@ -145,16 +145,21 @@ type Fenced =
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
+// Everything between the caller reading its clock and this row lock —
+// waiting for a pool connection, BEGIN, the lock itself — is real time the
+// lease kept burning. It is added to the caller's clock rather than read from
+// the database so an injected clock still governs the test suite.
+function since(now: Date, startedAt: number): Date {
+  const waited = Math.max(0, Date.now() - startedAt);
+  return waited === 0 ? now : new Date(now.getTime() + waited);
+}
+
 async function acquireFence(
   tx: Database,
   fence: WorkerFence,
   now: Date,
+  startedAt: number,
 ): Promise<Fenced> {
-  // Waiting for the row lock takes real time, and a request that blocked
-  // through the end of its lease must not write as if it had not. The wait is
-  // added to the caller's clock rather than read from the database so an
-  // injected clock still governs the test suite.
-  const startedAt = Date.now();
   const [row] = await tx
     .select({ session: sessions, attempt: attempts })
     .from(sessions)
@@ -164,8 +169,7 @@ async function acquireFence(
     )
     .limit(1)
     .for("update");
-  const waited = Math.max(0, Date.now() - startedAt);
-  const at = waited === 0 ? now : new Date(now.getTime() + waited);
+  const at = since(now, startedAt);
   if (!row) return { outcome: "stale_epoch" };
   const { session, attempt } = row;
   const epochMatches =
@@ -589,9 +593,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     nextInputAtomic(input: NextInputInput): Promise<NextInputResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         if (fenced.outcome !== "ok") return fenced;
         const leaseExpiresAt = fenced.attempt.leaseExpiresAt;
         // A draining attempt is on its way out. Handing it a queued turn
@@ -679,9 +684,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         if (fenced.outcome !== "ok") return fenced;
         const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
         const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
@@ -735,9 +741,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         if (fenced.outcome !== "ok") return fenced;
 
         // One batch must not carry two different events under one sequence:
@@ -874,6 +881,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     // there turns a settled turn into an unknown outcome. Nothing is written
     // here, and an open turn still goes through the fenced commit below.
     peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
         const probe = await probeFinalize(tx, fence, input, false);
@@ -881,7 +889,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // Only a settled turn is readable without the fence. An open one
         // belongs to whoever holds the lease, and saying "open" to anyone
         // else would have the gateway verify a checkpoint on their behalf.
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         // Waiting for that lock is exactly when a competing finalize commits,
         // so the turn is read again before this one is called open.
         const settled = await probeFinalize(tx, fence, input, false);
@@ -891,9 +899,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         if (fenced.outcome !== "ok") return fenced;
 
         const probe = await probeFinalize(tx, fence, input, true);
@@ -1012,12 +1021,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     },
 
     releaseAtomic(input: ReleaseInput): Promise<ReleaseResult> {
+      const startedAt = Date.now();
       const { fence, now } = input;
       return db.transaction(async (tx) => {
         // An expired lease on the current epoch may still release: the
         // worker is giving the binding up, which only advances the fence.
         // A superseded epoch cannot; that binding is not its to release.
-        const fenced = await acquireFence(tx, fence, now);
+        const fenced = await acquireFence(tx, fence, now, startedAt);
         if (fenced.outcome === "stale_epoch") return { released: false };
         const [attempt] = await tx
           .update(attempts)

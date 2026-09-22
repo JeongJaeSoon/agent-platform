@@ -374,5 +374,44 @@ describe("/internal/worker", () => {
         }),
       ),
     ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    // These columns are int4, so a larger number is a bad request rather
+    // than a failed insert surfacing as 500.
+    expect(
+      await errorOf(
+        await post("append-events", binding.session_credential, {
+          ...scope(binding),
+          turn_id: "1",
+          batch_key: "b",
+          events: [
+            {
+              event: "status",
+              data: { phase: "running" },
+              source_sequence: 2_147_483_648,
+              occurred_at: clock.toISOString(),
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    expect(
+      await errorOf(
+        await post("finalize", binding.session_credential, {
+          ...scope(binding),
+          turn_id: "1",
+          finalize_key: "f",
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: {
+            revision: 2_147_483_648,
+            manifest_ref: "s3://bucket/m.json",
+            manifest_sha256: "a".repeat(64),
+          },
+        }),
+      ),
+    ).toEqual({ status: 400, code: "BAD_REQUEST" });
   });
 });

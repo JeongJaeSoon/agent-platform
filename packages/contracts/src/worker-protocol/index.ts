@@ -11,6 +11,7 @@ import {
   attemptIdSchema,
   epochSchema,
   executionIdSchema,
+  INT4_MAX,
   opaqueCursorSchema,
   revisionSchema,
   sessionIdSchema,
@@ -91,7 +92,7 @@ const v = sessionEventVariants;
 // worker resends from the acknowledged prefix.
 function sourced<V extends (typeof v)[keyof typeof v]>(variant: V) {
   return variant.extend({
-    source_sequence: z.number().int().positive(),
+    source_sequence: z.number().int().positive().max(INT4_MAX),
     occurred_at: timestampSchema,
   });
 }
