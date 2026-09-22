@@ -621,6 +621,74 @@ describe("GET /v1/sessions/{id}/events", () => {
     expect(handle?.activeStreams()).toBe(0);
   });
 
+  test("a stalled re-verification cannot stretch the revocation window", async () => {
+    const store = new FakeStore();
+    const wakeup = new FakeWakeup();
+    store.append(event(1));
+    // The middleware's lookup answers; every later lookup hangs, as a slow
+    // key store would after a revocation. The stream must still end within
+    // one keepalive of the last check that answered.
+    let lookups = 0;
+    const service = createSessionService({
+      authorization: ownerScopedPolicy,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: store.reader(),
+      },
+    });
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        findOwner() {
+          lookups += 1;
+          return lookups === 1 ? Promise.resolve(OWNER) : new Promise(() => {});
+        },
+      },
+      registerRoutes: (router) => {
+        registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 100,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    const openedAt = Date.now();
+    const response = await open(app, { Authorization: "Bearer csp_test" });
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.id).toBe("ev_1");
+    // Live events keep arriving; none may be written past the expiry.
+    const feeder = setInterval(() => {
+      store.append(event(store.events.length + 1));
+      wakeup.notify();
+    }, 10);
+    let last: Frame | null = null;
+    let lastAt = openedAt;
+    for (;;) {
+      const frame = await frames.next(1_000);
+      if (frame === null) break;
+      last = frame;
+      lastAt = Date.now();
+    }
+    clearInterval(feeder);
+    expect(last?.id).not.toBeNull();
+    expect(lastAt - openedAt).toBeLessThan(100 + 30);
+    expect(Date.now() - openedAt).toBeLessThan(100 + 50);
+    expect(lookups).toBe(2);
+  });
+
   test("admission caps per owner and per process answer 429 before any read", async () => {
     const { app, store, handle } = harness({
       maxStreams: 3,

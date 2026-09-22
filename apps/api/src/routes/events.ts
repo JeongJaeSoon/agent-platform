@@ -14,7 +14,8 @@ import type { SessionEventWakeup } from "../events/notifications.ts";
 import { mapped, requireParams } from "./sessions.ts";
 
 // api.md § 이벤트: 15 s keepalive, and a revoked key ends the stream within
-// the same window.
+// the same window: a credential check is re-run every half interval and a
+// stream never outlives its last successful check by more than one.
 export const SSE_KEEPALIVE_MS = 15_000;
 // Rows held in memory per connection between writes; also the page size, so
 // a full page means "read again", a short one means "wait for more".
@@ -155,33 +156,45 @@ export function registerEventRoutes(
     };
     // Credential watchdog, independent of whatever the loop is awaiting: a
     // read can span several pool timeouts and a write can sit on
-    // backpressure, and neither may stretch the revocation window. Every
-    // keepalive it re-runs the middleware's check; a "no", or a check that
-    // does not answer within another keepalive, ends the stream. The clock
-    // starts at the middleware's own check, before the first read.
+    // backpressure, and neither may stretch the revocation window. A
+    // verification is good for one keepalive from the moment it started;
+    // the next one starts halfway through and has the remaining half to
+    // answer, so the stream is never more than one keepalive past a check
+    // that would have said no. Nothing is written past `verifiedUntil`, and
+    // a check that has not answered by then closes the stream. The first
+    // verification is the middleware's, before the first read.
     let onRevoked: (() => void) | undefined;
+    let verifiedUntil = Date.now() + keepaliveMs;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const armWatchdog = () => {
-      watchdog = setTimeout(async () => {
-        let verdict: boolean;
-        try {
-          verdict = await Promise.race([
-            reauthenticate(),
-            new Promise<boolean>((resolve) =>
-              setTimeout(() => resolve(false), keepaliveMs),
-            ),
-          ]);
-        } catch {
-          verdict = false;
-        }
-        if (closed.signal.aborted) return;
-        if (!verdict) {
-          closeWith("credential_revoked");
-          onRevoked?.();
-          return;
-        }
-        armWatchdog();
-      }, keepaliveMs);
+      watchdog = setTimeout(
+        async () => {
+          const startedAt = Date.now();
+          let verdict: boolean;
+          try {
+            verdict = await Promise.race([
+              reauthenticate(),
+              new Promise<boolean>((resolve) =>
+                setTimeout(
+                  () => resolve(false),
+                  Math.max(0, verifiedUntil - Date.now()),
+                ),
+              ),
+            ]);
+          } catch {
+            verdict = false;
+          }
+          if (closed.signal.aborted) return;
+          if (!verdict) {
+            closeWith("credential_revoked");
+            onRevoked?.();
+            return;
+          }
+          verifiedUntil = startedAt + keepaliveMs;
+          armWatchdog();
+        },
+        Math.max(0, verifiedUntil - Date.now() - keepaliveMs / 2),
+      );
     };
     const disarmWatchdog = () => clearTimeout(watchdog);
     armWatchdog();
@@ -249,6 +262,12 @@ export function registerEventRoutes(
         while (!closed.signal.aborted) {
           for (const event of page) {
             if (closed.signal.aborted) break;
+            // The watchdog closes the stream at expiry; this guard keeps a
+            // frame from slipping out on the same tick before it does.
+            if (Date.now() > verifiedUntil) {
+              closeWith("credential_revoked");
+              break;
+            }
             const written = await writeBounded(() =>
               stream.writeSSE({
                 id: event.id,

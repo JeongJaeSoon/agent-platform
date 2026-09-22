@@ -362,8 +362,8 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       if (chunk.value === undefined && !chunk.done) throw new Error("hung");
       done = chunk.done;
     }
-    // One interval plus the re-check's own query, never a second interval.
-    expect(Date.now() - revokedAt).toBeLessThan(KEEPALIVE_MS * 1.5);
+    // The re-check runs every half interval, so one interval is the bound.
+    expect(Date.now() - revokedAt).toBeLessThan(KEEPALIVE_MS + 50);
     expect(
       sink.records.some(
         (record) =>
