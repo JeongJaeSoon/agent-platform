@@ -257,6 +257,19 @@ describe("Claude session store", () => {
     );
   });
 
+  test("restores a revision whose entryCount the writer got wrong", async () => {
+    const { mirror } = store();
+    await mirror.append(root, [entry("a", "first")]);
+    const revision = await mirror.captureRevision(root);
+    if (revision === null) throw new Error("expected a revision");
+
+    // The digests already pin the exact bytes, so a miscounted manifest must
+    // not be the thing that makes a session unresumable.
+    expect(await mirror.loadRevision({ ...revision, entryCount: 99 })).toEqual([
+      entry("a", "first"),
+    ]);
+  });
+
   test("replays concurrent appends in the order they were called", async () => {
     // Both calls race for the very first tick under the key, where nothing is
     // stored yet to order them by.

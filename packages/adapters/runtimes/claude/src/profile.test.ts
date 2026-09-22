@@ -21,7 +21,54 @@ const baseConfig: ClaudeRuntimeConfig = {
   tools: ["Read", "Edit"],
 };
 
+const policy = {
+  endpoints: ["https://api.anthropic.com"],
+  models: ["primary"],
+};
+const mirror = {
+  async append() {},
+  async listSubkeys() {
+    return [];
+  },
+  async load() {
+    return null;
+  },
+};
+
 describe("runtime profiles", () => {
+  test("refuses to resume against a mirror that is not revision-scoped", () => {
+    // The live mirror still holds whatever was written after the checkpoint
+    // being resumed; replaying that is a different conversation.
+    expect(() =>
+      validateRuntimeConfig(
+        {
+          ...baseConfig,
+          mode: "resume",
+          resume: "sdk-session-1",
+          sessionStore: mirror,
+        },
+        policy,
+      ),
+    ).toThrow(/revision-scoped/);
+  });
+
+  test("resumes against a mirror pinned to the restored revision", () => {
+    const config = {
+      ...baseConfig,
+      mode: "resume" as const,
+      resume: "sdk-session-1",
+      sessionStore: { ...mirror, revisionScoped: true },
+    };
+
+    expect(validateRuntimeConfig(config, policy)).toBe(config);
+  });
+
+  test("a fresh run may take the live mirror", () => {
+    const config = { ...baseConfig, sessionStore: mirror };
+
+    expect(validateRuntimeConfig(config, policy)).toBe(config);
+  });
+
   test("accepts only approved endpoints and model aliases", () => {
     expect(
       validateRuntimeConfig(baseConfig, {

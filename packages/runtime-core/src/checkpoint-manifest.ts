@@ -135,6 +135,16 @@ export type TranscriptKey = {
  */
 export interface TranscriptMirror {
   append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void>;
+  /**
+   * True when `load` answers with exactly the parts a committed checkpoint
+   * pinned, rather than everything the mirror currently holds.
+   *
+   * A plain mirror is deliberately not revision-scoped: it keeps recording
+   * after a checkpoint, and those entries are not part of it. Handing such a
+   * mirror to a resumed engine replays a conversation that was never
+   * committed, so a resume refuses a mirror that does not declare this.
+   */
+  readonly revisionScoped?: boolean;
   listSubkeys(key: {
     projectKey: string;
     sessionId: string;

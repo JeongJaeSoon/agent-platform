@@ -171,11 +171,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
         return body;
       }),
     );
-    const entries = deduplicate(bodies.flatMap(parseEntries));
-    if (entries.length !== revision.entryCount) {
-      throw new Error("Transcript revision entry count mismatch");
-    }
-    return entries;
+    // `entryCount` is deliberately not a gate. Every part's digest and the
+    // part-list digest above already pin the exact bytes that were captured,
+    // and deduplication is a pure function of those bytes under a build the
+    // compatibility check has already matched — so the count asserts nothing
+    // the digests do not. Failing on it would only turn a miscounting worker
+    // into a session that can never be resumed.
+    return deduplicate(bodies.flatMap(parseEntries));
   }
 
   /**

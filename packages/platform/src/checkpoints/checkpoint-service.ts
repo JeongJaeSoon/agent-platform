@@ -221,27 +221,28 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         return `manifest references an object outside ${prefix}: ${ref.key}`;
       }
     }
-    const problems = await Promise.all(
-      refs.map(async (ref) => {
-        const head = await objects.head(ref.key);
-        if (head === undefined) {
-          return `manifest references a missing object: ${ref.key}`;
-        }
-        if (head.bytes !== ref.bytes) {
-          return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
-        }
-        if (verified.has(refToken(ref))) return undefined;
-        const body = await objects.get(ref.key);
-        if (body === undefined) {
-          return `manifest references a missing object: ${ref.key}`;
-        }
-        const digest = sha256(body);
-        if (digest !== ref.sha256) {
-          return `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`;
-        }
-        return undefined;
-      }),
-    );
+    // Bounded, because with eager mirroring a long session accumulates
+    // thousands of parts and firing a request per part at once turns a valid
+    // checkpoint into a throttled one.
+    const problems = await inBatches(refs, 32, async (ref) => {
+      const head = await objects.head(ref.key);
+      if (head === undefined) {
+        return `manifest references a missing object: ${ref.key}`;
+      }
+      if (head.bytes !== ref.bytes) {
+        return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
+      }
+      if (verified.has(refToken(ref))) return undefined;
+      const body = await objects.get(ref.key);
+      if (body === undefined) {
+        return `manifest references a missing object: ${ref.key}`;
+      }
+      const digest = sha256(body);
+      if (digest !== ref.sha256) {
+        return `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`;
+      }
+      return undefined;
+    });
     return problems.find((problem) => problem !== undefined);
   }
 
@@ -497,6 +498,21 @@ function engineOf(bytes: Uint8Array): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Maps `items` in fixed-size waves, keeping the results in input order. */
+async function inBatches<T, R>(
+  items: readonly T[],
+  size: number,
+  map: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let start = 0; start < items.length; start += size) {
+    results.push(
+      ...(await Promise.all(items.slice(start, start + size).map(map))),
+    );
+  }
+  return results;
 }
 
 // Key and digest together: the same key carrying different bytes is exactly

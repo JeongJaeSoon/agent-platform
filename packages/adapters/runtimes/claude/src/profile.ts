@@ -47,6 +47,17 @@ export function validateRuntimeConfig(
   if (!policy.models.includes(config.model)) {
     throw new Error("Runtime model is not approved");
   }
+  if (
+    config.mode === "resume" &&
+    config.sessionStore !== undefined &&
+    config.sessionStore.revisionScoped !== true
+  ) {
+    // The live mirror holds whatever was written after the checkpoint that is
+    // being resumed. Replaying that is not a degraded restore, it is a
+    // different conversation, so refuse rather than approximate. A store bound
+    // to a restore plan declares `revisionScoped` (94S-203).
+    throw new Error("Resume needs a revision-scoped transcript mirror");
+  }
   if (config.permissionMode === undefined) return config;
   if (config.permissionMode === "default") return config;
   if (["acceptEdits", "dontAsk", "plan"].includes(config.permissionMode)) {
