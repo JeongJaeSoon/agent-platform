@@ -30,26 +30,18 @@ import {
   localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
-import { isAlive, reapDescendants } from "./process-tree.ts";
 import {
   mark,
   startStallReporter,
   startStepReporter,
 } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
+import { reapStuckChild, WATCHDOG_MARGIN_MS } from "./stuck-child.ts";
 
 const describeActual = localstackEnabled ? describe : describe.skip;
 
-/** Every test in this file runs on the same budget. */
+/** Every test in this file runs on the same budget — bun's own default. */
 const TEST_BUDGET_MS = 30_000;
-/**
- * How long before bun's own limit `runChild` gives up and reports. A fixed
- * per-child watchdog cannot work here: a test that runs two children in
- * sequence would need twice the budget, so the second child's watchdog could
- * never fire and the test would die as a bare `timed out after 30000ms`.
- * The deadline belongs to the test, not to one child.
- */
-const WATCHDOG_MARGIN_MS = 4_000;
 
 let testDeadline = Number.POSITIVE_INFINITY;
 
@@ -496,8 +488,11 @@ type ChildOptions = {
 async function runChild(options: ChildOptions): Promise<ChildRun> {
   const child = startChild(options);
   mark(`runChild:spawned(${child.pid})`);
+  // No floor: if the budget is already spent, the watchdog fires at once and
+  // says so. Borrowing from the cleanup margin instead would leave bun's own
+  // timeout to cut the diagnosis off, which is what this replaced.
   const watchdogMs = Math.max(
-    2_000,
+    0,
     testDeadline - Date.now() - WATCHDOG_MARGIN_MS,
   );
   const stdout = collect(child.stdout);
@@ -528,31 +523,9 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
       `child stdout so far: ${JSON.stringify(stdout.text())}`,
       `child stderr so far: ${JSON.stringify(stderr.text())}`,
     ];
-    // The Agent SDK spawns the Claude CLI below this child with its own pipes,
-    // so a survivor does not hold stdout open — it just keeps talking to the
-    // fake API and to LocalStack while the next test is already using them.
-    // Descendants go first, while the child is still alive to point at them.
-    const reaped =
-      child.pid === undefined ? [] : await reapDescendants(child.pid);
-    state.push(`descendants reaped: ${reaped.join(", ") || "none"}`);
-
-    child.kill("SIGTERM");
-    const grace = deadline(2_000);
-    await Promise.race([settled, grace.expired]);
-    grace.cancel();
-    state.push(`after SIGTERM: exit=${exitCode ?? "pending"}`);
+    state.push(...(await reapStuckChild(child, settled)));
+    state.push(`final exit=${exitCode ?? "pending"}`);
     state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
-
-    child.kill("SIGKILL");
-    const reap = deadline(2_000);
-    const settledAfterKill = await Promise.race([
-      settled.then(() => true),
-      reap.expired.then(() => false),
-    ]);
-    reap.cancel();
-    state.push(
-      `after SIGKILL: settled=${settledAfterKill} alive=${reaped.filter(isAlive).join(", ") || "none"}`,
-    );
     throw new Error(state.join("\n  "));
   }
 
