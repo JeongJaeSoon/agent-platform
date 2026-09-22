@@ -67,6 +67,21 @@ export function isPreconditionFailed(error: unknown): boolean {
   );
 }
 
+/**
+ * The other answer a conditional write can get. S3 returns 409
+ * `ConditionalRequestConflict` when two conditional writes to one key overlap,
+ * and its contract says to retry — unlike 412, it is not a verdict about who
+ * won. Treating it as fatal turns an ordinary race into a mirror failure.
+ */
+export function isConditionalConflict(error: unknown): boolean {
+  const value = awsError(error);
+  return (
+    value?.name === "ConditionalRequestConflict" ||
+    value?.Code === "ConditionalRequestConflict" ||
+    value?.$metadata?.httpStatusCode === 409
+  );
+}
+
 function awsError(error: unknown) {
   if (typeof error !== "object" || error === null) return undefined;
   return error as {

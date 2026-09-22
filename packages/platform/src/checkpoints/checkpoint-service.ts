@@ -232,10 +232,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // The key says where the object is stored; `path` says where restoring
     // writes it. A safe key with a climbing path lands outside the workspace,
     // so both are checked, and here rather than in whatever later unpacks it.
+    const destinations = new Set<string>();
     for (const artifact of manifest.workspace.untracked) {
       if (!safeWorkspacePath(artifact.path)) {
         return `manifest restores ${artifact.key} to an unsafe path: ${artifact.path}`;
       }
+      if (destinations.has(artifact.path)) {
+        return `manifest restores two objects to ${artifact.path}`;
+      }
+      destinations.add(artifact.path);
     }
     // Bounded, because with eager mirroring a long session accumulates
     // thousands of parts and firing a request per part at once turns a valid

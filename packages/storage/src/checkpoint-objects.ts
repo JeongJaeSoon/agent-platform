@@ -11,11 +11,16 @@ import {
 
 import {
   bodyBytes,
+  isConditionalConflict,
   isMissingObject,
   isPreconditionFailed,
   type S3ClientLike,
   sha256,
 } from "./s3.ts";
+
+// Bounded: a 409 means retry, but an endpoint that answers 409 forever must
+// surface as a failure rather than an unbounded loop inside a mirror write.
+const CONFLICT_ATTEMPTS = 4;
 
 export type CheckpointObjectStoreOptions = {
   readonly bucket: string;
@@ -111,25 +116,37 @@ export function createCheckpointObjectStore(
       // late upload into an overwrite outside the narrow concurrent window.
       const existing = await get(key);
       if (existing !== undefined) return compare(existing, expected);
-      try {
-        await client.send(
-          new PutObjectCommand({
-            Body: bytes,
-            Bucket: bucket,
-            IfNoneMatch: "*",
-            Key: key,
-          }),
-        );
-      } catch (error) {
-        if (!isPreconditionFailed(error)) throw error;
-        const stored = await get(key);
-        // Rejected, yet nothing is stored: a lifecycle rule or a delete, not a
-        // second writer. Refuse rather than retry; the caller keeps its pointer.
-        return stored === undefined
-          ? { outcome: "conflict", sha256: "" }
-          : compare(stored, expected);
+      for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt += 1) {
+        try {
+          await client.send(
+            new PutObjectCommand({
+              Body: bytes,
+              Bucket: bucket,
+              IfNoneMatch: "*",
+              Key: key,
+            }),
+          );
+          return { outcome: "created" };
+        } catch (error) {
+          if (isPreconditionFailed(error)) {
+            const stored = await get(key);
+            // Rejected, yet nothing is stored: a lifecycle rule or a delete,
+            // not a second writer. Refuse rather than retry; the caller keeps
+            // its pointer.
+            return stored === undefined
+              ? { outcome: "conflict", sha256: "" }
+              : compare(stored, expected);
+          }
+          if (!isConditionalConflict(error)) throw error;
+          // 409 says the write overlapped another conditional write, not that
+          // this one lost. If the winner already stored something, that is the
+          // answer; otherwise nobody holds the key yet and the retry stands.
+          const stored = await get(key);
+          if (stored !== undefined) return compare(stored, expected);
+        }
       }
-      return { outcome: "created" };
+      // Never report "created" for a write that was not observed to land.
+      throw new Error(`Conditional write to ${key} kept conflicting`);
     },
   };
 }

@@ -822,6 +822,26 @@ describe("getRestorePlan", () => {
     ).toMatchObject({ status: "rejected" });
   });
 
+  test("refuses two untracked objects claiming one destination", async () => {
+    // Restoring both would leave whichever landed second, so the manifest does
+    // not describe one workspace.
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: {
+          gitCommit: "f".repeat(40),
+          untracked: [
+            fileRef(UNTRACKED, "notes.md"),
+            fileRef(ROOT_PART, "notes.md"),
+          ],
+        },
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "rejected" });
+  });
+
   test("leaves out the untracked artifact when there is nothing untracked", async () => {
     const { checkpoint } = await upload(
       manifest({ workspace: { gitCommit: "f".repeat(40), untracked: [] } }),

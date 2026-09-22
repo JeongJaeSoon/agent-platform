@@ -14,11 +14,15 @@ type Command = {
  * `If-None-Match: *` fails with 412 when the key exists, and a missing key
  * fails with NoSuchKey.
  */
-function fakeS3(initial: Record<string, string> = {}) {
+function fakeS3(
+  initial: Record<string, string> = {},
+  options: { conflicts?: number } = {},
+) {
   const objects = new Map<string, Uint8Array>(
     Object.entries(initial).map(([key, body]) => [key, encode(body)]),
   );
   const calls: string[] = [];
+  let conflicts = options.conflicts ?? 0;
   const client: S3ClientLike = {
     async send(command) {
       const { input } = command as Command;
@@ -27,6 +31,13 @@ function fakeS3(initial: Record<string, string> = {}) {
       const key = input.Key as string;
       switch (name) {
         case "PutObjectCommand": {
+          if (input.IfNoneMatch === "*" && conflicts > 0) {
+            conflicts -= 1;
+            throw Object.assign(new Error("conditional request conflict"), {
+              name: "ConditionalRequestConflict",
+              $metadata: { httpStatusCode: 409 },
+            });
+          }
           if (input.IfNoneMatch === "*" && objects.has(key)) {
             throw Object.assign(
               new Error("At least one of the pre-conditions"),
@@ -102,6 +113,49 @@ describe("checkpoint object store", () => {
     expect(await store.putImmutable("m.json", encode("first"))).toEqual({
       outcome: "duplicate",
     });
+  });
+
+  test("retries a conditional write the endpoint answered with 409", async () => {
+    // S3 answers overlapping conditional writes with 409
+    // ConditionalRequestConflict, which its contract says to retry. Treating
+    // it as fatal would surface an ordinary slot race as a mirror failure.
+    const s3 = fakeS3({}, { conflicts: 2 });
+    const store = createCheckpointObjectStore({
+      bucket: "b",
+      client: s3.client,
+    });
+
+    expect(await store.putImmutable("m.json", encode("first"))).toEqual({
+      outcome: "created",
+    });
+    expect(await store.get("m.json")).toEqual(encode("first"));
+  });
+
+  test("takes the winner's bytes when a 409 race was already settled", async () => {
+    const s3 = fakeS3({}, { conflicts: 1 });
+    const store = createCheckpointObjectStore({
+      bucket: "b",
+      client: s3.client,
+    });
+    // The writer that won the race stores its body while this one is retrying.
+    s3.objects.set("m.json", encode("winner"));
+
+    expect(await store.putImmutable("m.json", encode("loser"))).toEqual({
+      outcome: "conflict",
+      sha256: sha256("winner"),
+    });
+  });
+
+  test("never reports created when 409 never stops", async () => {
+    const s3 = fakeS3({}, { conflicts: 99 });
+    const store = createCheckpointObjectStore({
+      bucket: "b",
+      client: s3.client,
+    });
+
+    expect(store.putImmutable("m.json", encode("first"))).rejects.toThrow(
+      /kept conflicting/,
+    );
   });
 
   test("refuses different bytes under a key that already exists", async () => {
