@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./checkpoint-objects": "./src/checkpoint-objects.ts",
     "./fake-anthropic": "./src/fake-anthropic.ts",
     "./localstack": "./src/localstack.ts",
     "./postgres": "./src/postgres.ts",
@@ -15,6 +16,7 @@
   },
   "dependencies": {
     "@agent-platform/db": "workspace:*",
+    "@agent-platform/runtime-core": "workspace:*",
     "@aws-sdk/client-s3": "^3.888.0",
     "@types/pg": "8.15.5",
     "pg": "8.16.3"

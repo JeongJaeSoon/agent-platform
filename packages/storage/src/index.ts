@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -7,6 +6,17 @@ import {
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
+
+import {
+  bodyBytes,
+  concatBytes,
+  isMissingObject,
+  type S3ClientLike,
+  sha256,
+} from "./s3.ts";
+
+export * from "./checkpoint-objects.ts";
+export type { S3ClientLike } from "./s3.ts";
 
 export const DEFAULT_TRANSCRIPT_CHUNK_BYTES = 5 * 1024 * 1024;
 const META_VERSION = 1;
@@ -39,10 +49,6 @@ export interface StorageConfig {
     readonly region: string;
     readonly secretAccessKey: string;
   };
-}
-
-export interface S3ClientLike {
-  send(command: unknown): Promise<unknown>;
 }
 
 export interface GitCommandResult {
@@ -556,60 +562,6 @@ function splitBytes(bytes: Uint8Array, chunkBytes: number): Uint8Array[] {
     );
   }
   return chunks;
-}
-
-function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
-  const combined = new Uint8Array(
-    parts.reduce((sum, part) => sum + part.byteLength, 0),
-  );
-  let offset = 0;
-  for (const part of parts) {
-    combined.set(part, offset);
-    offset += part.byteLength;
-  }
-  return combined;
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-async function bodyBytes(body: unknown): Promise<Uint8Array> {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "transformToByteArray" in body &&
-    typeof body.transformToByteArray === "function"
-  ) {
-    return new Uint8Array(await body.transformToByteArray());
-  }
-  if (body instanceof Uint8Array) return body;
-  if (typeof body === "string") return new TextEncoder().encode(body);
-  if (Symbol.asyncIterator in Object(body)) {
-    const parts: Uint8Array[] = [];
-    for await (const part of body as AsyncIterable<Uint8Array | string>) {
-      parts.push(
-        typeof part === "string"
-          ? new TextEncoder().encode(part)
-          : new Uint8Array(part),
-      );
-    }
-    return concatBytes(parts);
-  }
-  throw new Error("Unsupported S3 response body");
-}
-
-function isMissingObject(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const value = error as {
-    $metadata?: { httpStatusCode?: number };
-    name?: string;
-  };
-  return (
-    value.name === "NoSuchKey" ||
-    value.name === "NotFound" ||
-    value.$metadata?.httpStatusCode === 404
-  );
 }
 
 function parseTranscriptMeta(bytes: Uint8Array): TranscriptMeta {

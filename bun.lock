@@ -96,7 +96,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "zod": "4.6.5",
+      },
+      "devDependencies": {
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/queue": {
@@ -125,6 +129,7 @@
       "name": "@agent-platform/storage",
       "version": "0.0.0",
       "dependencies": {
+        "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
       },
       "devDependencies": {
@@ -136,6 +141,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@agent-platform/db": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@types/pg": "8.15.5",
         "pg": "8.16.3",

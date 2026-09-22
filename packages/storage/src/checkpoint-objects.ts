@@ -1,0 +1,122 @@
+import type {
+  CheckpointObjectStore,
+  PutImmutableResult,
+} from "@agent-platform/runtime-core";
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+
+import {
+  bodyBytes,
+  isMissingObject,
+  isPreconditionFailed,
+  type S3ClientLike,
+  sha256,
+} from "./s3.ts";
+
+export type CheckpointObjectStoreOptions = {
+  readonly bucket: string;
+  readonly client: S3ClientLike;
+};
+
+/**
+ * S3-backed checkpoint objects.
+ *
+ * `putImmutable` is the reason this exists: a worker whose lease has already
+ * been taken over may still be holding a manifest upload. `If-None-Match: *`
+ * makes that upload fail instead of replacing the body the live worker wrote,
+ * and the 412 path reads the stored bytes back so a retry of the *same* body
+ * reports `duplicate` rather than a false conflict.
+ */
+export function createCheckpointObjectStore(
+  options: CheckpointObjectStoreOptions,
+): CheckpointObjectStore {
+  const { bucket, client } = options;
+
+  async function get(key: string): Promise<Uint8Array | undefined> {
+    try {
+      const response = (await client.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      )) as { Body?: unknown };
+      if (response.Body === undefined) {
+        throw new Error(`S3 object has no body: ${key}`);
+      }
+      return bodyBytes(response.Body);
+    } catch (error) {
+      if (isMissingObject(error)) return undefined;
+      throw error;
+    }
+  }
+
+  function compare(stored: Uint8Array, expected: string): PutImmutableResult {
+    const found = sha256(stored);
+    return found === expected
+      ? { outcome: "duplicate" }
+      : { outcome: "conflict", sha256: found };
+  }
+
+  return {
+    get,
+
+    async list(prefix) {
+      const keys: string[] = [];
+      let continuationToken: string | undefined;
+      do {
+        const page = (await client.send(
+          new ListObjectsV2Command({
+            Bucket: bucket,
+            ContinuationToken: continuationToken,
+            Prefix: prefix,
+          }),
+        )) as {
+          Contents?: Array<{ Key?: string }>;
+          IsTruncated?: boolean;
+          NextContinuationToken?: string;
+        };
+        for (const object of page.Contents ?? []) {
+          if (object.Key !== undefined) keys.push(object.Key);
+        }
+        continuationToken = page.IsTruncated
+          ? page.NextContinuationToken
+          : undefined;
+      } while (continuationToken !== undefined);
+      return keys.sort();
+    },
+
+    async put(key, bytes) {
+      await client.send(
+        new PutObjectCommand({ Body: bytes, Bucket: bucket, Key: key }),
+      );
+    },
+
+    async putImmutable(key, bytes) {
+      const expected = sha256(bytes);
+      // The read is not the guarantee — the precondition below is — but it
+      // keeps an endpoint that silently ignores If-None-Match from turning a
+      // late upload into an overwrite outside the narrow concurrent window.
+      const existing = await get(key);
+      if (existing !== undefined) return compare(existing, expected);
+      try {
+        await client.send(
+          new PutObjectCommand({
+            Body: bytes,
+            Bucket: bucket,
+            IfNoneMatch: "*",
+            Key: key,
+          }),
+        );
+      } catch (error) {
+        if (!isPreconditionFailed(error)) throw error;
+        const stored = await get(key);
+        // Rejected, yet nothing is stored: a lifecycle rule or a delete, not a
+        // second writer. Refuse rather than retry; the caller keeps its pointer.
+        return stored === undefined
+          ? { outcome: "conflict", sha256: "" }
+          : compare(stored, expected);
+      }
+      return { outcome: "created" };
+    },
+  };
+}
