@@ -460,6 +460,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // The backend already observed this execution end and took its slot
           // back, so a straggler must not claim a session with its nonce.
           launch.slotReleasedAt !== null ||
+          // A reservation that never had a container created for it holds no
+          // credential at all; the lookup above cannot match one, and this
+          // says so rather than reading a null expiry.
+          launch.nonceExpiresAt === null ||
           // Applies to the replay path too: after the nonce lifetime the
           // bootstrap door is shut, and re-entering it would revoke the
           // session token of the worker that is still running.

@@ -273,9 +273,6 @@ export const executions = pgTable(
     backend: text().notNull(),
     providerRef: text("provider_ref"),
     launchOperationId: text("launch_operation_id"),
-    // One-time worker bootstrap credential; only the launched container and
-    // the gateway's bootstrapClaim ever read it.
-    bootstrapNonce: text("bootstrap_nonce"),
     generation: integer().notNull(),
     desiredState: text("desired_state").notNull(),
     observedState: text("observed_state").notNull(),
@@ -325,8 +322,11 @@ export const attempts = pgTable(
   ],
 );
 
-// A launch intent: the slot reserved when the backend was asked to start an
-// execution, plus the one-time nonce the worker trades for its binding.
+// The one launch registry: a row is the reserved slot, and it carries the
+// hash of the one-time nonce the worker trades for its binding. The row is
+// written when the slot is taken; the nonce columns stay null until a
+// container is actually created for it, so a reservation nobody launched
+// hands out no credential at all.
 export const workerLaunches = pgTable(
   "worker_launches",
   {
@@ -339,10 +339,10 @@ export const workerLaunches = pgTable(
     // head, so an execution built for B can never run A.
     sessionId: uuid("session_id").references(() => sessions.id),
     backend: text().notNull(),
-    nonceHash: bytea("nonce_hash").notNull().unique(),
-    nonceExpiresAt: timestamp("nonce_expires_at", {
-      withTimezone: true,
-    }).notNull(),
+    // Null until the credential is issued. A null never matches a lookup by
+    // hash, which is what makes an unlaunched reservation unclaimable.
+    nonceHash: bytea("nonce_hash").unique(),
+    nonceExpiresAt: timestamp("nonce_expires_at", { withTimezone: true }),
     claimedAttemptId: text("claimed_attempt_id").references(() => attempts.id),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
@@ -356,6 +356,12 @@ export const workerLaunches = pgTable(
     index("worker_launches_open_slot_idx")
       .on(table.partition)
       .where(sql`${table.slotReleasedAt} IS NULL`),
+    // Every reservation asks whether this session already holds a launch.
+    index("worker_launches_open_session_idx")
+      .on(table.sessionId)
+      .where(
+        sql`${table.slotReleasedAt} IS NULL AND ${table.sessionId} IS NOT NULL`,
+      ),
   ],
 );
 

@@ -11,9 +11,9 @@ export type ExecutionResources = {
 };
 
 /**
- * A durable launch intent: the `executions` row committed before any provider
- * call. The same intent handed to `ensureExecution` twice must yield one
- * provider resource, so every field the provider needs is derived from it.
+ * A durable launch intent: the row committed before any provider call. The
+ * same intent handed to `ensureExecution` twice must yield one provider
+ * resource, so every field the provider needs is derived from it.
  */
 export type LaunchIntent = {
   executionId: string;
@@ -21,10 +21,16 @@ export type LaunchIntent = {
   operationId: string;
   sessionId: string;
   generation: number;
-  /** Plaintext nonce; only the provider resource ever sees it. */
-  bootstrapNonce: string;
   image: string;
   resources: ExecutionResources;
+  /**
+   * Mints the one-time bootstrap credential for a resource that is about to
+   * be created, and returns the plaintext. Only the resource ever holds it;
+   * the registry keeps a hash. A backend calls this from the create path
+   * alone — issuing invalidates whatever the launch held before, so adopting
+   * a resource that already exists must not cut its worker off.
+   */
+  issueBootstrapNonce: () => Promise<string>;
 };
 
 export type ExecutionRef = {

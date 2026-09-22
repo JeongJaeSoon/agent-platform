@@ -103,10 +103,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
   const { backend, logger, store } = options;
   const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
-    bootstrapNonce: stored.bootstrapNonce,
     executionId: stored.executionId,
     generation: stored.generation,
     image: options.image,
+    // Only the create path calls this, so the credential a running worker
+    // holds is never rotated out from under it.
+    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored), now()),
     operationId: stored.operationId,
     resources: options.resources,
     sessionId: stored.sessionId,
@@ -179,7 +181,18 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         return;
       }
       summary.replaced.push(ref);
-      await reensure(execution, unknownObservation(now()), "stale_isolation");
+      if (execution.claimed) {
+        // The container is gone and its worker held a binding; a replacement
+        // cannot be given the nonce that worker already spent.
+        await store.confirmExecutionGone(ref.executionId, now());
+        summary.terminatedObserved.push(ref);
+        logger.warn("Replaced a claimed execution; binding released", {
+          ...fieldsOf(ref),
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+      await reensure(execution, "stale_isolation");
       return;
     }
     if (
@@ -224,7 +237,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         summary.reclaimFailed.push(ref);
         return;
       }
-      await store.recordObservation(ref, observed);
+      // The one place the slot and the session come back, so an exit the
+      // scheduler sees is accounted exactly like one the gateway sees.
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
       logger.info("Execution exited; resource reclaimed", {
         ...fieldsOf(ref),
@@ -235,22 +250,31 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     }
     if (!observed.found && execution.observedState === "terminating") {
       // The previous pass removed the resource but crashed before recording.
-      await store.recordObservation(ref, {
-        ...observed,
-        state: "terminated",
-      });
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
+      return;
+    }
+    if (!observed.found && execution.claimed) {
+      // A worker traded this launch's nonce for a binding and its resource
+      // is gone. Re-creating it would put a second container on a session an
+      // attempt still owns, so the binding is ended instead.
+      await store.confirmExecutionGone(ref.executionId, now());
+      summary.terminatedObserved.push(ref);
+      logger.warn("Claimed execution resource vanished; binding released", {
+        ...fieldsOf(ref),
+        previous_state: execution.observedState,
+        session_id: execution.sessionId,
+      });
       return;
     }
     // Row says live but the provider has nothing, or has a resource that was
     // created and never started. The stored intent covers both: ensure is
     // idempotent and starts a pending resource it already owns.
-    await reensure(execution, observed, "missing");
+    await reensure(execution, "missing");
   }
 
   async function reensure(
     execution: ActiveExecution,
-    observed: ExecutionObservation,
     reason: "missing" | "stale_isolation",
   ): Promise<void> {
     const ref = refOf(execution);
@@ -258,10 +282,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
       // letting it hold a slot forever.
-      await store.recordObservation(ref, {
-        ...observed,
-        state: "terminated",
-      });
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
       logger.warn(
         "Execution row has no launch intent; closed without relaunch",
@@ -434,11 +455,8 @@ function isLaunched(state: ExecutionObservation["state"]): boolean {
 }
 
 function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
-  if (execution.operationId === null || execution.bootstrapNonce === null) {
-    return null;
-  }
+  if (execution.operationId === null) return null;
   return {
-    bootstrapNonce: execution.bootstrapNonce,
     executionId: execution.executionId,
     generation: execution.generation,
     operationId: execution.operationId,

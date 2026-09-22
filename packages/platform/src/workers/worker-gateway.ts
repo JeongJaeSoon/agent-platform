@@ -72,7 +72,7 @@ export type WorkerGatewayOptions = {
 
 export const DEFAULT_LEASE_TTL_MS = 30_000;
 const DEFAULT_SESSION_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
-const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_WAIT_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
