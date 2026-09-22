@@ -57,7 +57,12 @@ GUEST
 limactl shell "$VM" sudo "$RUNNER_DIR/bin/installdependencies.sh" >/dev/null
 
 # Otherwise the old service keeps running against the registration this
-# replaces.
+# replaces. From here until the new service is up there is no runner: jobs
+# queue instead of failing, so a failure in between has to say so out loud.
+trap 'echo "
+FAILED with no runner registered. Jobs will queue, not fail. Either re-run this
+script, or fall back to GitHub-hosted with: gh variable delete CI_RUNS_ON" >&2' ERR
+
 limactl shell "$VM" sudo bash -c \
   "cd $RUNNER_DIR && ./svc.sh stop 2>/dev/null; ./svc.sh uninstall 2>/dev/null; true" >/dev/null
 
@@ -86,14 +91,27 @@ ENV
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh install runner && ./svc.sh start" >/dev/null
 
 # Stopping the VM must let the runner tell GitHub the job is gone, and let the
-# hook clean up, instead of the job hanging until GitHub times it out.
-limactl shell "$VM" sudo bash -c "
-  unit=\$(systemctl list-units --type=service --no-legend 'actions.runner.*' | awk '{print \$1; exit}')
-  install -d /etc/systemd/system/\${unit}.d
-  printf '[Unit]\nRequires=ci-isolation.service\nAfter=ci-isolation.service docker.service\n\n[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' >/etc/systemd/system/\${unit}.d/graceful.conf
-  systemctl daemon-reload
-" >/dev/null
+# hook clean up, instead of the job hanging until GitHub times it out. The
+# isolation dependency belongs here too: no ruleset, no jobs.
+limactl shell "$VM" sudo bash -s <<'GUEST' >/dev/null
+set -euo pipefail
+mapfile -t units < <(systemctl list-units --type=service --all --no-legend 'actions.runner.*' | awk '{print $1}')
+# An empty name would write to a literal `.d` directory that daemon-reload
+# ignores without a word, leaving the runner with none of this — including the
+# isolation dependency. Two names and the drop-in could land on the dead one.
+if [ "${#units[@]}" -ne 1 ]; then
+  echo "expected exactly one actions.runner.* unit, found ${#units[@]}: ${units[*]:-none}" >&2
+  exit 1
+fi
+unit=${units[0]}
+install -d "/etc/systemd/system/${unit}.d"
+printf '[Unit]\nRequires=ci-isolation.service\nAfter=ci-isolation.service docker.service\n\n[Service]\nTimeoutStopSec=120\nKillMode=mixed\n' \
+  >"/etc/systemd/system/${unit}.d/graceful.conf"
+systemctl daemon-reload
+systemctl restart "$unit"
+GUEST
 limactl shell "$VM" sudo bash -c "cd $RUNNER_DIR && ./svc.sh status" | sed -n '1,6p'
+trap - ERR
 
 echo
 gh api "repos/${REPO}/actions/runners" \

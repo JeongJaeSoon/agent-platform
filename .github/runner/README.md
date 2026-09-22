@@ -39,6 +39,8 @@ VM을 띄우는 것만으로는 격리되지 않는다. Lima 기본값 두 가�
 
 **안으로 — 맥이 VM에 닿는 것.** Lima는 listen 중인 guest 포트를 호스트 `127.0.0.1`에 자동 공개한다. 그대로 두면 service container의 5432가 개발자 본인의 postgres를 가린다. `portForwards`의 `ignore` 규칙으로 끈다. 규칙은 bind 주소별로 따로 써야 한다 — `guestIP` 기본값(`127.0.0.1`)만 쓴 규칙은 `0.0.0.0`에 bind된 포트, 즉 공개된 컨테이너 포트를 잡지 못한다.
 
+**규칙을 싣는 유닛.** 배포판의 `nftables.service`는 쓰지 않고 mask한다. 그 유닛은 ruleset 전체를 소유한다 — `ExecStop`이 `nft flush ruleset`이라, 한 번 stop/restart하면 Docker가 기동할 때 만든 `filter` 테이블까지 같이 사라지고 다음 `docker network create`가 `DOCKER-FORWARD: No chain/target/match by that name`으로 죽는다. 규칙은 `/etc/ci-isolation.nft`에 두고, 자기 테이블 하나만 지우는 `ci-isolation.service`가 싣는다. `Before=docker.service`와 러너 서비스의 `Requires=ci-isolation.service`가 순서를 고정한다 — 격리가 서기 전에는 job을 받지 않는다.
+
 | | |
 | --- | --- |
 | 격리 경계 | VM. 호스트 마운트 없음, 호스트 Docker 소켓 접근 없음 |
