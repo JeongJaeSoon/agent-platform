@@ -428,6 +428,61 @@ describe("GET /v1/sessions/{id}/events", () => {
     expect(await frames.ended()).toBe(true);
   });
 
+  test("a revoked credential ends a stream whose writes are blocked", async () => {
+    const store = new FakeStore();
+    const wakeup = new FakeWakeup();
+    for (let i = 1; i <= 300; i += 1) store.append(event(i));
+    let valid = true;
+    const service = createSessionService({
+      authorization: ownerScopedPolicy,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: store.reader(),
+      },
+    });
+    let handle: ReturnType<typeof registerEventRoutes> | undefined;
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async findOwner() {
+          return valid ? OWNER : null;
+        },
+      },
+      registerRoutes: (router) => {
+        handle = registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 50,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    // Nobody reads the body: backpressure blocks the writes mid-page.
+    const response = await open(app, { Authorization: "Bearer csp_test" });
+    expect(response.status).toBe(200);
+    await Bun.sleep(30);
+    expect(handle?.activeStreams()).toBe(1);
+    valid = false;
+    for (let i = 0; i < 100 && handle?.activeStreams() !== 0; i += 1) {
+      await Bun.sleep(10);
+    }
+    // Two keepalives at most: one for the stalled write, one for the check.
+    expect(handle?.activeStreams()).toBe(0);
+    await response.body?.cancel().catch(() => {});
+  });
+
   test("releases its handle when the client disconnects", async () => {
     const { app, wakeup, handle } = harness();
     const controller = new AbortController();

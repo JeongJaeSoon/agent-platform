@@ -151,20 +151,33 @@ export class PostgresQueue implements QueueBackend {
       event: input.event,
       data: input.data,
     });
-    const [inserted] = await this.#db
-      .insert(events)
-      .values({
-        sessionId: input.sessionId,
-        type: validated.event,
-        payload: validated.data,
-      })
-      .returning();
+    // Every writer to `events` inserts under the session row lock, so within
+    // one session a row's id is its commit order and a reader that resumes
+    // from the last id it saw (the SSE cursor) cannot skip a row that got a
+    // lower id but committed later. The worker's appendEvents holds the same
+    // lock; this path must not be the one exception.
+    const inserted = await this.#db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, input.sessionId))
+        .for("update");
+      const [row] = await tx
+        .insert(events)
+        .values({
+          sessionId: input.sessionId,
+          type: validated.event,
+          payload: validated.data,
+        })
+        .returning();
+      await tx.execute(
+        sql`SELECT pg_notify('session_events', ${input.sessionId})`,
+      );
+      return row;
+    });
     if (!inserted) {
       throw new Error("Failed to publish event");
     }
-    await this.#db.execute(
-      sql`SELECT pg_notify('session_events', ${input.sessionId})`,
-    );
     return sessionEventSchema.parse({
       id: encodeEventCursor(inserted.id),
       event: inserted.type,

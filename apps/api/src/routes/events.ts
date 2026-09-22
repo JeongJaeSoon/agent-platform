@@ -153,11 +153,30 @@ export function registerEventRoutes(
         while (!closed.signal.aborted) {
           for (const event of page) {
             if (closed.signal.aborted) break;
-            await stream.writeSSE({
-              id: event.id,
-              event: event.event,
-              data: JSON.stringify(event.data),
-            });
+            // Before every frame, not per page: a page is up to 100 events
+            // and a slow reader can hold each write for a while.
+            if (!(await stillAuthenticated())) {
+              closeWith("credential_revoked");
+              break;
+            }
+            // A write blocks on client backpressure. Past one keepalive it
+            // is treated as a dead connection: abort the body so the pending
+            // write fails instead of holding the credential check hostage.
+            const written = await Promise.race([
+              stream
+                .writeSSE({
+                  id: event.id,
+                  event: event.event,
+                  data: JSON.stringify(event.data),
+                })
+                .then(() => "written" as const),
+              sleep(keepaliveMs, closed.signal),
+            ]);
+            if (written !== "written") {
+              closeWith("write_stalled");
+              stream.abort();
+              break;
+            }
             cursor = event.id;
             sent += 1;
           }

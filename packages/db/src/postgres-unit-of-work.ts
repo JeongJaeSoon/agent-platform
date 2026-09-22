@@ -673,10 +673,11 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     ): Promise<SseEvent[] | null> {
       const after = decodeEventCursor(query.after);
       if (!(await ownedSession(ownerId, sessionId))) return null;
-      // Ordered by row id, which is commit order within one session: the
-      // worker's appendEvents inserts under the session row lock, so a lower
-      // id can never become visible after a higher one and a reader that
-      // resumes from the last id it saw misses nothing.
+      // Ordered by row id, which is commit order within one session: every
+      // writer (the worker's appendEvents, PostgresQueue.publish) inserts
+      // under the session row lock, so a lower id can never become visible
+      // after a higher one and a reader that resumes from the last id it saw
+      // misses nothing. A new writer must take the same lock.
       const rows = await db
         .select({
           id: events.id,
