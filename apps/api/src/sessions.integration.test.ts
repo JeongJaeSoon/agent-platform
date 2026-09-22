@@ -329,6 +329,35 @@ integration("sessions API on PostgreSQL", () => {
     }
   });
 
+  test("api pool evicts a client whose query_timeout fired instead of returning it busy", async () => {
+    // statement_timeout high so only the client-side read timeout can fire,
+    // as it does when the server is frozen and never sends the cancel reply.
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 30_000,
+      queryMs: 500,
+    });
+    const db = drizzle(apiPool, { schema });
+    try {
+      const started = Date.now();
+      const failure = await db
+        .transaction(async (tx) => {
+          await tx.execute("SELECT pg_sleep(5)");
+        })
+        .then(() => null)
+        .catch((error: unknown) => error);
+      // drizzle's ROLLBACK after the failure must not wait another queryMs on
+      // the same dead socket; the poisoned client is gone from the pool.
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(isStorageUnavailable(failure)).toBe(true);
+      await Bun.sleep(50);
+      expect(apiPool.totalCount).toBe(0);
+      expect((await apiPool.query("SELECT 1 AS ok")).rows).toEqual([{ ok: 1 }]);
+    } finally {
+      await apiPool.end();
+    }
+  });
+
   test("survives the backend of an idle probe connection being terminated", async () => {
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.idleCount).toBe(1);

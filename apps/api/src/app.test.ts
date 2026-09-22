@@ -151,6 +151,12 @@ describe("API authentication", () => {
       }),
     ],
     ["pg client query_timeout", new Error("Query read timeout")],
+    [
+      "statement queued behind an evicted client",
+      new Error(
+        "Client has encountered a connection error and is not queryable",
+      ),
+    ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {
       async findOwner() {

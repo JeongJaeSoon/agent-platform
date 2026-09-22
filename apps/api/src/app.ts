@@ -60,7 +60,7 @@ const SOCKET_ERROR_CODES = new Set([
 // pg raises these without a code when a socket drops, a timeout fires, or a
 // saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
 const PG_CONNECTION_MESSAGES =
-  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect)/;
+  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect|Client has encountered a connection error)/;
 
 // Postgres connection (08xxx), insufficient-resources (53xxx: too many
 // connections, disk full) and operator-intervention (57xxx: admin shutdown,

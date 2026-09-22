@@ -43,8 +43,10 @@ function configProblems(
 ): string[] {
   return required.flatMap((entry) => {
     const name = typeof entry === "string" ? entry : entry.name;
-    const value = environment[name]?.trim();
-    if (!value) return [`missing ${name}`];
+    const value = environment[name];
+    if (!value?.trim()) return [`missing ${name}`];
+    // app.ts compares the raw string, so " none " would run in api-key mode;
+    // judge exactly what the process will see.
     if (typeof entry !== "string" && !entry.allowed.includes(value)) {
       return [`${name} must be one of ${entry.allowed.join("|")}`];
     }
