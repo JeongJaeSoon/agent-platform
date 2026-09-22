@@ -236,6 +236,13 @@ services:
       EXECUTION_DOCKER_NETWORK_ALLOWLIST: ${EXECUTION_DOCKER_NETWORK_ALLOWLIST:-agent-platform-worker}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
       EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      # Object store the scheduler hands each worker (94S-244): the compose
+      # LocalStack, same values the localstack service is started with.
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
       SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
       SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-60}
@@ -250,6 +257,8 @@ services:
       api:
         condition: service_healthy
       egress-proxy:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
 
 networks:
