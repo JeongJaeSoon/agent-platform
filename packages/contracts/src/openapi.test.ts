@@ -53,4 +53,25 @@ describe("OpenAPI document", () => {
       JSON.stringify(document.paths["/v1/sessions/{id}/events"]?.get),
     ).toContain("text/event-stream");
   });
+
+  test("widening the receipt target keeps every alpha response valid", () => {
+    const receipt = buildOpenApiDocument().components.schemas.Receipt as {
+      required: string[];
+      properties: {
+        target_ref: { anyOf: { required: string[] }[] };
+      };
+    };
+    // A client written against alpha still validates: the session shape is a
+    // branch of the union, and the new actor field is not required.
+    expect(receipt.properties.target_ref.anyOf[0]?.required).toEqual([
+      "session_id",
+      "turn_id",
+      "request_id",
+    ]);
+    expect(receipt.properties.target_ref.anyOf[1]?.required).toEqual([
+      "resource",
+      "workspace_id",
+    ]);
+    expect(receipt.required).not.toContain("actor");
+  });
 });
