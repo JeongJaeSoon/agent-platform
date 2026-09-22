@@ -5,13 +5,19 @@ import { groupMembers, killGroup } from "./process-group.ts";
 export const SIGNAL_GRACE_MS = 2_000;
 
 /**
+ * How many `SIGNAL_GRACE_MS` waits the timeout path can stack: SIGTERM and
+ * SIGKILL here, plus the unconditional discard in `runChild`'s `finally`.
+ */
+export const CLEANUP_WAITS = 3;
+
+/**
  * What the watchdog must keep in hand when it fires.
  *
  * Derived, not chosen: a margin smaller than the cleanup it guards would let
  * bun's own test timeout cut off the diagnosis — which is the one thing the
  * watchdog exists to prevent. The slack covers `pgrep` and process bookkeeping.
  */
-export const WATCHDOG_MARGIN_MS = 2 * SIGNAL_GRACE_MS + 2_000;
+export const WATCHDOG_MARGIN_MS = CLEANUP_WAITS * SIGNAL_GRACE_MS + 2_000;
 
 export type StuckChild = {
   readonly pid?: number | undefined;

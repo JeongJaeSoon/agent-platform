@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { groupMembers, isAlive } from "./process-group.ts";
-import { reapStuckChild, WATCHDOG_MARGIN_MS } from "./stuck-child.ts";
+import {
+  CLEANUP_WAITS,
+  reapStuckChild,
+  SIGNAL_GRACE_MS,
+  WATCHDOG_MARGIN_MS,
+} from "./stuck-child.ts";
 
 /**
  * Two things have to hold at once. The watchdog fires `WATCHDOG_MARGIN_MS`
@@ -43,6 +48,13 @@ describe("reapStuckChild", () => {
     expect(groupMembers(pgid)).toEqual([]);
     expect(members.filter(isAlive)).toEqual([]);
   }, 20_000);
+
+  test("keeps a margin wider than every wait the timeout path can stack", () => {
+    // Arithmetic, not runtime: this is what breaks if someone adds another
+    // bounded wait to the cleanup without widening the budget that guards it.
+    // The watchdog fires this early, so the whole path has to fit inside it.
+    expect(WATCHDOG_MARGIN_MS).toBeGreaterThan(CLEANUP_WAITS * SIGNAL_GRACE_MS);
+  });
 
   test("reports a child that is already gone without waiting out the grace periods", async () => {
     const child = spawn("sh", ["-c", "exit 0"], {
