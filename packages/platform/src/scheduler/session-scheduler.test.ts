@@ -22,6 +22,8 @@ class MemoryStore implements SchedulerStore {
   readonly executions = new Map<string, ActiveExecution>();
   readonly unassigned = new Set<string>();
   locked = false;
+  /** Models the store itself failing, distinct from one row's provider. */
+  failList = false;
   private sequence = 0;
 
   async acquirePassLock() {
@@ -104,6 +106,7 @@ class MemoryStore implements SchedulerStore {
   }
 
   async listActiveExecutions(backend: ActiveExecution["backend"]) {
+    if (this.failList) throw new Error("database down");
     return this.live().filter((e) => e.backend === backend);
   }
 
@@ -152,6 +155,8 @@ class FakeBackend implements ExecutionBackend {
   failEnsureFor = new Set<string>();
   /** Session ids whose container dies right after start (bad image). */
   exitOnStartFor = new Set<string>();
+  /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
+  failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
 
@@ -191,6 +196,9 @@ class FakeBackend implements ExecutionBackend {
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
+    if (this.failInspectFor.has(ref.executionId)) {
+      throw new Error("ownership conflict");
+    }
     const container = this.containers.get(nameOf(ref));
     if (!container) {
       return {
@@ -667,13 +675,42 @@ describe("runScheduler", () => {
   });
 
   test("the lock is released even when the pass throws", async () => {
-    const { backend, run, store } = harness();
-    store.seedActive({ executionId: "exec-1" });
-    backend.inspect = async () => {
-      throw new Error("daemon down");
-    };
-    await expect(run()).rejects.toThrow("daemon down");
+    const { run, store } = harness();
+    store.failList = true;
+    await expect(run()).rejects.toThrow("database down");
     expect(store.locked).toBe(false);
+  });
+
+  test("one row's inspect failure does not stop the rest of the pass", async () => {
+    const { backend, records, run, store } = harness();
+    const bad = store.seedActive({
+      executionId: "exec-bad",
+      observedState: "running",
+    });
+    const good = store.seedActive({
+      executionId: "exec-good",
+      observedState: "running",
+    });
+    backend.containers.set("exec-good#1", {
+      exited: false,
+      generation: 1,
+      operationId: good.operationId ?? "op",
+      sessionId: good.sessionId,
+    });
+    backend.failInspectFor.add(bad.executionId);
+    store.addUnassigned(1);
+
+    const summary = await run();
+    expect(summary.reconcileFailed).toEqual([
+      { executionId: "exec-bad", generation: 1 },
+    ]);
+    expect(summary.launched).toHaveLength(1);
+    expect(store.executions.get("exec-bad")?.observedState).toBe("running");
+    expect(
+      records.some(
+        (r) => r.level === "error" && r.message.includes("Reconciling"),
+      ),
+    ).toBe(true);
   });
 
   test("rejects a negative or fractional slot limit", async () => {

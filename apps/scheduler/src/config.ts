@@ -38,6 +38,11 @@ export function schedulerConfigFromEnv(
   }
   const image = environment.WORKER_IMAGE;
   if (!image) throw new Error("WORKER_IMAGE is required");
+  // The adapter defaults this for tests; a real scheduler must say which
+  // installation it is, or two installations on one daemon reap each other.
+  if (!environment.EXECUTION_INSTALLATION_ID) {
+    throw new Error("EXECUTION_INSTALLATION_ID is required");
+  }
   return {
     databaseUrl,
     docker: localDockerConfigFromEnv(environment),

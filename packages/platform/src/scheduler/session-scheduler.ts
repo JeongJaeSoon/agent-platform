@@ -43,6 +43,8 @@ export type SchedulerRunSummary = {
   orphansUnresolved: ExecutionRef[];
   /** Exited resources whose reclaim failed; each row stays `terminating`. */
   reclaimFailed: ExecutionRef[];
+  /** Rows whose reconcile threw; they stay live and are retried next pass. */
+  reconcileFailed: ExecutionRef[];
   /** Intents re-ensured after the resource was missing or not yet observed. */
   reensured: ExecutionRef[];
   slotLimit: number;
@@ -86,6 +88,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     orphansTerminated: [],
     orphansUnresolved: [],
     reclaimFailed: [],
+    reconcileFailed: [],
     reensured: [],
     skipped: false,
     slotLimit,
@@ -112,6 +115,23 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   summary.activeBefore = active.length;
   for (const execution of active) {
     const ref = refOf(execution);
+    try {
+      await reconcile(execution);
+    } catch (error) {
+      // A resource-local failure (ownership conflict, a stuck inspect) must
+      // not take the rest of the pass down with it. The row stays live, so
+      // it keeps its slot until a later pass resolves it.
+      summary.reconcileFailed.push(ref);
+      logger.error("Reconciling execution failed; row left as is", {
+        ...fieldsOf(ref),
+        error: messageOf(error),
+        session_id: execution.sessionId,
+      });
+    }
+  }
+
+  async function reconcile(execution: ActiveExecution): Promise<void> {
+    const ref = refOf(execution);
     if (execution.backend !== backend.kind) {
       // The store is scoped; a row leaking through anyway must never be
       // recreated on this provider.
@@ -120,7 +140,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         row_backend: execution.backend,
         session_id: execution.sessionId,
       });
-      continue;
+      return;
     }
     const observed = await backend.inspect(ref);
     if (
@@ -129,7 +149,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       observed.state !== "pending"
     ) {
       await store.recordObservation(ref, observed);
-      continue;
+      return;
     }
     if (observed.found && observed.state === "terminated") {
       // Mark, reclaim, then record. `terminating` keeps the row live so a
@@ -149,7 +169,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           session_id: execution.sessionId,
         });
         summary.reclaimFailed.push(ref);
-        continue;
+        return;
       }
       if (outcome.outcome === "generation_mismatch") {
         // The resource was left untouched, so the slot stays occupied; the
@@ -163,7 +183,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           },
         );
         summary.reclaimFailed.push(ref);
-        continue;
+        return;
       }
       await store.recordObservation(ref, observed);
       summary.terminatedObserved.push(ref);
@@ -172,7 +192,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         exit_code: observed.exitCode ?? null,
         session_id: execution.sessionId,
       });
-      continue;
+      return;
     }
     if (!observed.found && execution.observedState === "terminating") {
       // The previous pass removed the resource but crashed before recording.
@@ -181,7 +201,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         state: "terminated",
       });
       summary.terminatedObserved.push(ref);
-      continue;
+      return;
     }
     // Row says live but the provider has nothing, or has a resource that was
     // created and never started. The stored intent covers both: ensure is
@@ -203,7 +223,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           session_id: execution.sessionId,
         },
       );
-      continue;
+      return;
     }
     try {
       const ensured = await backend.ensureExecution(intentOf(stored));
@@ -221,7 +241,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           session_id: execution.sessionId,
           state: ensured.state,
         });
-        continue;
+        return;
       }
       summary.reensured.push(ref);
       logger.warn("Execution resource was missing; re-created from intent", {
@@ -350,6 +370,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
     reclaim_failed_count: summary.reclaimFailed.length,
+    reconcile_failed_count: summary.reconcileFailed.length,
     reensured_count: summary.reensured.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,

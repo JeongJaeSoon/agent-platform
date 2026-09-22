@@ -246,10 +246,18 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   private createBody(intent: LaunchIntent): ContainerCreateBody {
     const { config } = this;
-    const nanoCpus = Math.round(intent.resources.cpus * 1_000_000_000);
-    if (nanoCpus < 1) {
-      // Docker reads NanoCpus 0 as "no quota", which would silently drop the limit.
-      throw new Error(`cpus ${intent.resources.cpus} rounds to no CPU limit`);
+    // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
+    // says every worker is bounded, so refuse anything that would drop one.
+    const { cpus, memoryBytes, pidsLimit } = intent.resources;
+    const nanoCpus = Math.round(cpus * 1_000_000_000);
+    if (!Number.isFinite(cpus) || nanoCpus < 1) {
+      throw new Error(`cpus ${cpus} rounds to no CPU limit`);
+    }
+    if (!Number.isInteger(memoryBytes) || memoryBytes < 1) {
+      throw new Error(`memoryBytes ${memoryBytes} is not a positive limit`);
+    }
+    if (!Number.isInteger(pidsLimit) || pidsLimit < 1) {
+      throw new Error(`pidsLimit ${pidsLimit} is not a positive limit`);
     }
     const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes}`;
     return {

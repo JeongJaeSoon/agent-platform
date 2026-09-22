@@ -10,6 +10,7 @@ const clean: SchedulerRunSummary = {
   orphansTerminated: [],
   orphansUnresolved: [],
   reclaimFailed: [],
+  reconcileFailed: [],
   reensured: [],
   skipped: false,
   slotLimit: 10,
@@ -27,5 +28,6 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, failedLaunches: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
   });
 });

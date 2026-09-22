@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { LaunchIntent } from "@agent-platform/platform";
+import type {
+  ExecutionResources,
+  LaunchIntent,
+} from "@agent-platform/platform";
 import {
   containerNameFor,
   ENV,
@@ -389,14 +392,19 @@ describe("two installations sharing one daemon", () => {
     );
   });
 
-  test("cpus that round to zero NanoCpus are refused", async () => {
-    const intent = {
-      ...intentFor(),
-      resources: { cpus: 1e-10, memoryBytes: 1024, pidsLimit: 8 },
-    };
-    await expect(backend.ensureExecution(intent)).rejects.toThrow(
-      "no CPU limit",
-    );
+  test("resources Docker would read as unlimited are refused", async () => {
+    const base = intentFor();
+    const cases: Array<[ExecutionResources, string]> = [
+      [{ cpus: 1e-10, memoryBytes: 1024, pidsLimit: 8 }, "no CPU limit"],
+      [{ cpus: 1, memoryBytes: 0, pidsLimit: 8 }, "memoryBytes"],
+      [{ cpus: 1, memoryBytes: 1024, pidsLimit: 0 }, "pidsLimit"],
+      [{ cpus: 1, memoryBytes: 1024, pidsLimit: -1 }, "pidsLimit"],
+    ];
+    for (const [resources, message] of cases) {
+      await expect(
+        backend.ensureExecution({ ...base, resources }),
+      ).rejects.toThrow(message);
+    }
     expect(docker.containers.size).toBe(0);
   });
 

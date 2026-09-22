@@ -44,7 +44,8 @@ export async function main(
 export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.orphansUnresolved.length > 0 ||
-    summary.reclaimFailed.length > 0
+    summary.reclaimFailed.length > 0 ||
+    summary.reconcileFailed.length > 0
     ? 1
     : 0;
 }

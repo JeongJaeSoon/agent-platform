@@ -3,6 +3,7 @@ import { schedulerConfigFromEnv } from "./config.ts";
 
 const base = {
   DATABASE_URL: "postgresql://postgres:dev@127.0.0.1:5432/sessions",
+  EXECUTION_INSTALLATION_ID: "dev-a",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "agent-platform-worker:dev",
 };
@@ -45,6 +46,9 @@ describe("schedulerConfigFromEnv", () => {
   });
 
   test("rejects missing or malformed settings by name", () => {
+    expect(() =>
+      schedulerConfigFromEnv({ ...base, EXECUTION_INSTALLATION_ID: undefined }),
+    ).toThrow("EXECUTION_INSTALLATION_ID");
     expect(() =>
       schedulerConfigFromEnv({ ...base, DATABASE_URL: undefined }),
     ).toThrow("DATABASE_URL");
