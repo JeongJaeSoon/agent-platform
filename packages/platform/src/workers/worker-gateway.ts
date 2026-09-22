@@ -387,6 +387,7 @@ export function createWorkerGateway(deps: {
       }
       const at = now();
       const result = await work.heartbeatAtomic({
+        credentialExpiresAt: new Date(at.getTime() + sessionTokenTtlMs),
         fence,
         now: at,
         leaseExpiresAt: new Date(at.getTime() + leaseTtlMs),

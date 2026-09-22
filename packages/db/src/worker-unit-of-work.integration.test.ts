@@ -1109,6 +1109,124 @@ integration("worker gateway on PostgreSQL", () => {
     }
   });
 
+  test("a finalize that committed is still readable once the lease lapsed", async () => {
+    const { claimed } = await claimAndDeliver(partitionFor("late"));
+    const request = {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "late-1",
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    };
+    const first = await gateway.finalize(principalOf(claimed), request);
+    advance(LEASE_TTL_MS + 1);
+    // The response was lost and the retry arrives too late to write. It must
+    // still learn that the turn is settled: answering LEASE_EXPIRED would
+    // turn a committed result into an unknown outcome.
+    expect(await gateway.finalize(principalOf(claimed), request)).toEqual(
+      first,
+    );
+    // The same key with a different body is still a conflict.
+    expect(
+      await failure(
+        gateway.finalize(principalOf(claimed), {
+          ...request,
+          terminal: {
+            status: "failed" as const,
+            reason: "other story",
+            result: null,
+            usage: null,
+          },
+        }),
+      ),
+    ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+  });
+
+  test("a heartbeat keeps the session credential alive with the lease", async () => {
+    const partition = partitionFor("cred");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const uow = createPostgresWorkerUnitOfWork(db);
+    const short = createWorkerGateway({
+      work: uow,
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: LEASE_TTL_MS,
+        sessionTokenTtlMs: 1_000,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+    const claimed = await short.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    const token = hashWorkerToken(claimed.session_credential);
+    advance(600);
+    await short.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+    });
+    advance(600);
+    // Past the horizon the claim set, but the heartbeat pushed it out: a
+    // worker that is alive does not lose its token mid-attempt.
+    expect(await uow.resolveCredential(token, clock)).toMatchObject({
+      kind: "session",
+      attemptId: claimed.attempt_id,
+    });
+    advance(1_500);
+    expect(await uow.resolveCredential(token, clock)).toBeNull();
+  });
+
+  test("a worker holding the token that lost a claim race recovers by claiming again", async () => {
+    const partition = partitionFor("lostrace");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    const second = await claim(l);
+    // The worker received the responses out of order and kept the first
+    // token, which the second claim already revoked.
+    expect(
+      await failure(
+        gateway.nextInput(principalOf(first), { ...scopeOf(first) }),
+      ),
+    ).toEqual({ status: 409, code: "STALE_EPOCH" });
+    expect(
+      await createPostgresWorkerUnitOfWork(db).resolveCredential(
+        hashWorkerToken(first.session_credential),
+        clock,
+      ),
+    ).toBeNull();
+    // Nothing has been done under this attempt yet, so another claim hands
+    // back the same binding with a credential that works.
+    const third = await claim(l);
+    expect(third.attempt_id).toBe(second.attempt_id);
+    expect(third.auth_revision).toBe(second.auth_revision + 1);
+    const next = await gateway.nextInput(principalOf(third), {
+      ...scopeOf(third),
+    });
+    expect(next.input?.turn_id).toBe("1");
+  });
+
   test("a late heartbeat cannot walk the reported phase backwards", async () => {
     const partition = partitionFor("hborder");
     await queuedSession(partition);

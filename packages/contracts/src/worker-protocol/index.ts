@@ -48,6 +48,11 @@ export const bootstrapClaimRequestSchema = z
     ]),
   })
   .strict();
+// Retrying bootstrapClaim issues a new credential and revokes the previous
+// one, so two retries in flight at once can leave a worker holding the token
+// that lost. Before its first accepted call a worker that is answered 401
+// claims again: while the attempt has not used a token, the same binding
+// comes back with a working credential.
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,

@@ -81,6 +81,10 @@ export type NextInputResult =
   | FenceRejection;
 
 export type HeartbeatInput = {
+  // A worker that keeps heartbeating keeps its token: the credential's
+  // lifetime follows the lease instead of cutting a healthy attempt off at a
+  // fixed horizon.
+  credentialExpiresAt: Date;
   fence: WorkerFence;
   now: Date;
   leaseExpiresAt: Date;

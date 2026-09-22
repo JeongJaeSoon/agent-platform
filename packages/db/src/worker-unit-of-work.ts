@@ -699,6 +699,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             observedState: "running",
           })
           .where(eq(executions.id, fenced.attempt.executionId));
+        await tx
+          .update(workerCredentials)
+          .set({
+            expiresAt: sql`GREATEST(${workerCredentials.expiresAt}, ${input.credentialExpiresAt})`,
+          })
+          .where(
+            and(
+              eq(workerCredentials.attemptId, fence.attemptId),
+              isNull(workerCredentials.revokedAt),
+            ),
+          );
         // The legacy orphan reconciler keys on workers.last_seen by pod_id.
         await tx
           .insert(workers)
@@ -849,11 +860,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       });
     },
 
+    // Deliberately unfenced: this only reads back what the attempt itself
+    // already committed. A retry that arrives after the lease lapsed still
+    // has to learn whether its finalize landed — answering LEASE_EXPIRED
+    // there turns a settled turn into an unknown outcome. Nothing is written
+    // here, and an open turn still goes through the fenced commit below.
     peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult> {
-      const { fence, now } = input;
+      const { fence } = input;
       return db.transaction(async (tx) => {
-        const fenced = await acquireFence(tx, fence, now);
-        if (fenced.outcome !== "ok") return fenced;
         const probe = await probeFinalize(tx, fence, input, false);
         return probe.state === "open" ? { outcome: "open" } : probe.result;
       });
