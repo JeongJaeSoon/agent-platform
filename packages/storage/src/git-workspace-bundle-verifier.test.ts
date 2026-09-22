@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -408,6 +409,35 @@ describe("git workspace bundle verifier", () => {
     expect(await verifier.verify({ bytes, commit, key: "k" })).toEqual({
       status: "restorable",
     });
+  });
+
+  test("a pack padded after its objects, with the trailer recomputed, is refused by git and reported as unusable", async () => {
+    // Passes every byte-level check: the header is intact and the trailing
+    // sha1 covers the padded body. Only index-pack notices.
+    const text = new TextDecoder("latin1").decode(bundle.bytes);
+    const packOffset = text.indexOf("\n\n") + 2;
+    const body = Buffer.concat([
+      bundle.bytes.subarray(packOffset, bundle.bytes.byteLength - 20),
+      Buffer.from("JUNKJUNK"),
+    ]);
+    const bytes = new Uint8Array(
+      Buffer.concat([
+        bundle.bytes.subarray(0, packOffset),
+        body,
+        createHash("sha1").update(body).digest(),
+      ]),
+    );
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+    const verdict = await verifier.verify({
+      bytes,
+      commit: bundle.commit,
+      key: "k",
+    });
+    expect(verdict.status).toBe("unusable");
+    if (verdict.status === "unusable") {
+      expect(verdict.reason).toContain("git fetch failed");
+    }
+    expect(await readdir(tempRoot)).toEqual([]);
   });
 
   test("a git that outlives the timeout is killed and reported as a fault, not a verdict", async () => {

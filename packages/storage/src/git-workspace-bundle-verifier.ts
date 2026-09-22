@@ -168,6 +168,7 @@ export function createGitWorkspaceBundleVerifier(
  * here.
  */
 const GIT_REFUSALS = [
+  // fetch: connectivity and fsck.
   "did not send all necessary objects",
   "bad object",
   "missing blob",
@@ -175,16 +176,30 @@ const GIT_REFUSALS = [
   "missing commit",
   "missing tag",
   "fsck error",
+  "not all child objects",
+  "object of unexpected type",
+  "did not receive expected object",
+  // index-pack: the pack itself, as builtin/index-pack.c words it.
   "pack signature mismatch",
   "pack version",
   "premature end of pack file",
+  "pack has junk at the end",
+  "pack is corrupted",
   "pack has bad object",
   "bad pack",
-  "pack is corrupt",
   "is corrupt",
   "inflate returned",
+  "serious inflate inconsistency",
+  "unresolved deltas",
   "delta base offset",
+  "bad object header",
+  "bad object type",
+  "unknown object type",
+  "invalid object",
   "not a valid object",
+  "sha1 collision",
+  "pack too large",
+  // rev-list: the pinned commit never arrived.
   "bad revision",
   "does not appear to be a git repository",
   // Belt and braces behind SAFE_REF_NAME: a ref the gate let through and git
