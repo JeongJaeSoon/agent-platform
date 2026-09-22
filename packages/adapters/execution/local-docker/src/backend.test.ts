@@ -924,6 +924,41 @@ describe("LocalDockerBackend workspace volumes", () => {
     );
   });
 
+  test("the right ceiling on the wrong session's volume refuses the launch", async () => {
+    // Mounting it would hand this session someone else's working tree, and
+    // GC reads the same label, so the mislabelled volume would also outlive
+    // the session it actually belongs to.
+    docker.addVolume(
+      volumeName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: "some-other-session",
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "is not this session's workspace",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a volume that is not managed refuses the launch", async () => {
+    docker.addVolume(
+      volumeName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.sessionId]: intentFor().sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "managed=<none>",
+    );
+  });
+
   test("with the quota off the volume is created without a size", async () => {
     const off = backendWith({ workspaceQuota: { mode: "off" } });
     await off.ensureExecution(intentFor());
@@ -962,20 +997,49 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     // Docker hands an existing name straight back, so a leftover probe would
     // otherwise look like a create that succeeded on a daemon that cannot.
     docker.quotaSupported = false;
-    docker.addVolume(probe, {}, { size: String(QUOTA_BYTES) });
+    docker.addVolume(
+      probe,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.quotaProbe]: "true",
+      },
+      { size: String(QUOTA_BYTES) },
+    );
     await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
       "cannot put a size quota",
     );
+  });
+
+  test("a volume under the probe's name that is not a probe is left alone", async () => {
+    // The name is not proof of ownership, and the preflight is not a licence
+    // to delete a stranger's data on a shared daemon.
+    docker.addVolume(probe, { "com.example.owner": "someone-else" });
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "is not this host's quota probe",
+    );
+    expect(docker.volumes.has(probe)).toBe(true);
+  });
+
+  test("another installation's probe is not this one's to remove", async () => {
+    docker.addVolume(probe, {
+      [LABELS.installation]: "test-b",
+      [LABELS.quotaProbe]: "true",
+    });
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "is not this host's quota probe",
+    );
+    expect(docker.volumes.has(probe)).toBe(true);
   });
 
   test("the probe volume carries no managed label for GC to trip over", async () => {
     // Nothing to assert after the fact — it is removed — so the record of
     // what was asked for is the request the daemon saw.
     await backend.verifyWorkspaceQuota();
-    expect(
-      docker.requests.filter((r) => r.path === "/volumes/create"),
-    ).toHaveLength(1);
+    const created = docker.requests.filter((r) => r.path === "/volumes/create");
+    expect(created).toHaveLength(1);
     expect(docker.volumes.size).toBe(0);
+    // And it is invisible to the reaper, which lists by the managed label.
+    expect(await backend.listWorkspaces()).toEqual([]);
   });
 
   test("the opt-out asks the daemon nothing", async () => {

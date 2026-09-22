@@ -35,6 +35,13 @@ export const LABELS = {
   managed: "agent-platform.managed",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
+  /**
+   * On the preflight's throwaway volume. Deliberately *not* `managed`: GC
+   * judges by that label, and a probe has no session for it to match, so
+   * labelling it managed would hand the reaper something it can only ever
+   * leave alone. This label is what makes the probe ours to delete.
+   */
+  quotaProbe: "agent-platform.quota-probe",
   /** On the workspace volume: which ceiling it was created under. */
   workspaceQuota: "agent-platform.workspace-quota",
 } as const;
@@ -106,11 +113,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
-/**
- * The preflight probe's volume. Deliberately *not* carrying the managed
- * label: GC judges by label, and a probe volume has no session to match, so
- * labelling it would hand the reaper something it can only ever leave alone.
- */
+/** The preflight probe's volume; see `LABELS.quotaProbe` for its labels. */
 const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
 /** Docker's own wording when the volume driver cannot honour `size`. */
 const NO_QUOTA_SUPPORT = "no quota support";
@@ -151,11 +154,12 @@ export function quotaStampOf(quota: WorkspaceQuota): string {
 }
 
 /**
- * The workspace volume is not the one this host would create. Reported
- * rather than fixed: the volume carries the session's working tree across
+ * The volume under this session's workspace name is not the one this host
+ * would create — wrong ceiling, wrong owner, or wrong session. Reported
+ * rather than fixed: the volume carries a session's working tree across
  * generations, a quota cannot be changed on an existing volume, and deleting
- * it to re-create it under the right ceiling would throw that tree away. So
- * the launch stops and says which volume and what is wrong with it.
+ * it to re-create it would throw that tree away. So the launch stops and
+ * says which volume and what is wrong with it.
  */
 export class WorkspaceQuotaError extends Error {
   constructor(
@@ -164,6 +168,20 @@ export class WorkspaceQuotaError extends Error {
   ) {
     super(`Workspace volume ${volume} ${reason}`);
     this.name = "WorkspaceQuotaError";
+  }
+}
+
+/**
+ * The preflight's own name is taken by something it did not create. Deleting
+ * it would destroy a volume this host has no claim on, and reusing it would
+ * let a volume made elsewhere stand in for the proof the daemon owes.
+ */
+export class QuotaProbeNameTakenError extends Error {
+  constructor(readonly volume: string) {
+    super(
+      `Volume ${volume} is not this host's quota probe. The preflight needs that name and will not remove a volume it did not create; rename or remove it deliberately.`,
+    );
+    this.name = "QuotaProbeNameTakenError";
   }
 }
 
@@ -266,15 +284,31 @@ export class LocalDockerBackend implements ExecutionBackend {
     const quota = this.config.workspaceQuota;
     if (quota.mode === "off") return;
     const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}`;
+    const labels = {
+      [LABELS.installation]: this.config.installationId,
+      [LABELS.quotaProbe]: "true",
+    };
     // A leftover from an interrupted probe would come back from create
-    // unchanged, and the probe would pass without the daemon proving a thing.
-    await this.client.removeVolume(name);
+    // unchanged, and the probe would pass without the daemon proving a
+    // thing — so it has to go first. But the name is not proof of ownership:
+    // a volume this host did not make is not this host's to delete, however
+    // it came to be called that.
+    const existing = await this.client.inspectVolume(name);
+    if (existing !== null) {
+      if (
+        existing.Labels?.[LABELS.quotaProbe] !== "true" ||
+        existing.Labels?.[LABELS.installation] !== this.config.installationId
+      ) {
+        throw new QuotaProbeNameTakenError(name);
+      }
+      await this.client.removeVolume(name);
+    }
     let volume: VolumeInspect;
     try {
       volume = await this.client.createVolume({
         Driver: "local",
         DriverOpts: { size: String(quota.sizeBytes) },
-        Labels: {},
+        Labels: labels,
         Name: name,
       });
     } catch (error) {
@@ -551,10 +585,21 @@ export class LocalDockerBackend implements ExecutionBackend {
         `carries the quota label ${stamp} but driver option size=${size ?? "<none>"}`,
       );
     }
-    if (owner !== config.installationId) {
-      // The stamp matched but nothing says whose it is: hand-made, and not
-      // something to mount a session's working tree from.
-      throw new WorkspaceQuotaError(name, "names no owning installation");
+    // The ceiling is right, which says nothing about whose workspace this is.
+    // A volume that carries the stamp but not the identity was made by hand
+    // or for another session; mounting it would hand a session someone
+    // else's working tree, and GC judges by these same labels, so one that
+    // is missing them would never be reclaimed either.
+    if (
+      owner !== config.installationId ||
+      labels[LABELS.managed] !== "true" ||
+      labels[LABELS.sessionId] !== sessionId
+    ) {
+      throw new WorkspaceQuotaError(
+        name,
+        `is not this session's workspace (managed=${labels[LABELS.managed] ?? "<none>"}, ` +
+          `installation=${owner ?? "<none>"}, session=${labels[LABELS.sessionId] ?? "<none>"})`,
+      );
     }
     return name;
   }
