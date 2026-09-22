@@ -124,6 +124,11 @@ function harness(
   const wakeup = new FakeWakeup();
   const service = createSessionService({
     authorization: ownerScopedPolicy,
+    controls: {
+      terminateAtomic: async () => {
+        throw new Error("not reached");
+      },
+    },
     catalog: { profiles: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
@@ -356,6 +361,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -451,6 +461,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -500,6 +515,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -556,6 +576,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -618,6 +643,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -689,6 +719,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let lookups = 0;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -774,6 +809,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let lookups = 0;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {

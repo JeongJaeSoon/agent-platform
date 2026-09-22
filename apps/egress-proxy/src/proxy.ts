@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import type { Socket, TCPSocketListener } from "bun";
 import type { ProxyLogger } from "./logger.ts";
 import { createProxyLogger } from "./logger.ts";
@@ -8,11 +9,22 @@ import {
   type EgressResolver,
 } from "./policy.ts";
 import { type ProxyRequest, parseRequestHead } from "./request.ts";
+import {
+  type ClientHelloCursor,
+  MAX_CLIENT_HELLO_BYTES,
+  parseClientHelloSni,
+} from "./tls.ts";
 
 /**
  * A forward proxy that speaks exactly two things: `CONNECT host:port` for
  * TLS, and absolute-form HTTP for the plaintext gateway. Everything else is
  * refused, because everything else is a way to be surprised.
+ *
+ * A CONNECT tunnel carries TLS and nothing else: the first bytes the client
+ * sends through it must be a ClientHello whose server name is the authority
+ * the proxy judged. On a shared CDN edge the authority alone binds nothing —
+ * the same address serves every name behind it — so the name in the
+ * handshake is what the allowlist is really held to.
  *
  * It is the only member of the worker network that can route off it, so the
  * allowlist it enforces is the whole of a worker's reachable world — and one
@@ -33,6 +45,12 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPATCH_TIMEOUT_MS = 20_000;
 const DEFAULT_HEAD_TIMEOUT_MS = 15_000;
 /**
+ * How long a CONNECT client has, after `200`, to finish its ClientHello.
+ * Past its request head nothing else reaps a connection, so a client that
+ * takes the tunnel and never speaks would otherwise hold its slot for good.
+ */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
+/**
  * How long a peer may leave a queue over its cap before the pair is dropped.
  * Pausing the fast side answers a peer that is merely slow; this answers one
  * that has stopped reading altogether, which nothing else reaps once the
@@ -50,6 +68,8 @@ export type EgressProxyOptions = {
   dispatchTimeoutMs?: number;
   /** How long a client may take to finish its request head. */
   headTimeoutMs?: number;
+  /** How long a CONNECT client may take to finish its TLS ClientHello. */
+  handshakeTimeoutMs?: number;
   hostname?: string;
   logger?: ProxyLogger;
   /** Bytes a slow peer may leave queued before the proxy stops reading. */
@@ -98,6 +118,20 @@ export type UpstreamDialer = (options: {
   socket: NonNullable<Parameters<typeof Bun.connect<undefined>>[0]>["socket"];
 }) => Promise<Socket<undefined>>;
 
+/**
+ * One dialled address. Until `adopt` names it the tunnel's upstream, its
+ * handlers touch nothing on the client: what the upstream sends first is
+ * held here, and a hold past the cap only pauses this socket. The client's
+ * queues and stall timer belong to the attempt that won, and to it alone.
+ */
+type UpstreamAttempt = {
+  socket: Socket<undefined>;
+  /** Wires the attempt into the client and delivers what it held. */
+  adopt(): void;
+  /** Discards what it held and closes it; the client never hears of it. */
+  abandon(): void;
+};
+
 type ClientState = {
   buffer: Uint8Array;
   /** The upstream is done; end the client once its queue has drained. */
@@ -108,11 +142,28 @@ type ClientState = {
   dispatching: boolean;
   /** The client went away mid-dispatch; free its slot once that finishes. */
   releaseDeferred: boolean;
-  /** Read from the client while the upstream connection was still opening. */
+  /**
+   * Read from the client before the tunnel was open: while the upstream
+   * connection was still opening, and then while the ClientHello was being
+   * judged. Nothing here reaches the upstream until that verdict.
+   */
   early: Uint8Array[];
   earlyBytes: number;
   headTimer: ReturnType<typeof setTimeout> | undefined;
-  phase: "head" | "connecting" | "piping" | "closed";
+  /**
+   * The ClientHello as received so far, in one buffer sized to the cap, so
+   * that a client dripping it a byte at a time costs one copy per byte and
+   * not a fresh copy of everything before it.
+   */
+  hello: Uint8Array | null;
+  helloBytes: number;
+  /** Where the last incomplete parse stopped, so no record is walked twice. */
+  helloCursor: ClientHelloCursor | undefined;
+  /** Armed while a CONNECT client owes us its ClientHello. */
+  helloTimer: ReturnType<typeof setTimeout> | undefined;
+  phase: "head" | "connecting" | "inspecting" | "piping" | "closed";
+  /** The CONNECT authority the ClientHello's server name is held to. */
+  tunnelHost: string | null;
   remote: string;
   /** Armed while a queue sits over its cap; a peer that never drains dies. */
   stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -137,6 +188,8 @@ export async function startEgressProxy(
   const dispatchTimeoutMs =
     options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
   const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
+  const handshakeTimeoutMs =
+    options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxPerClient =
     options.maxConnectionsPerClient ?? DEFAULT_MAX_CONNECTIONS_PER_CLIENT;
@@ -185,6 +238,10 @@ export async function startEgressProxy(
           early: [],
           earlyBytes: 0,
           headTimer: undefined,
+          hello: null,
+          helloBytes: 0,
+          helloCursor: undefined,
+          helloTimer: undefined,
           phase: "head",
           releaseDeferred: false,
           remote,
@@ -192,6 +249,7 @@ export async function startEgressProxy(
           stallTimer: undefined,
           toClient: { bytes: 0, chunks: [] },
           toUpstream: { bytes: 0, chunks: [] },
+          tunnelHost: null,
           upstream: null,
         };
         open += 1;
@@ -238,6 +296,13 @@ export async function startEgressProxy(
         return;
       }
       state.early.push(chunk);
+      return;
+    }
+    if (state.phase === "inspecting") {
+      state.earlyBytes += chunk.byteLength;
+      state.early.push(chunk);
+      absorbHello(socket, chunk);
+      inspectTunnel(socket);
       return;
     }
     if (state.phase === "piping") {
@@ -358,7 +423,7 @@ export async function startEgressProxy(
     // answer (dual stack, round robin) is a reason to try the next one, not
     // to fail the request.
     const candidates = decision.addresses.slice(0, MAX_CONNECT_ATTEMPTS);
-    let upstream: Socket<undefined> | null = null;
+    let upstream: UpstreamAttempt | null = null;
     let lastError = "no address to connect to";
     for (const address of candidates) {
       const budget = Math.min(connectTimeoutMs, left());
@@ -366,7 +431,7 @@ export async function startEgressProxy(
         lastError = `dispatch deadline of ${dispatchTimeoutMs}ms exceeded`;
         break;
       }
-      let attempt: Socket<undefined>;
+      let attempt: UpstreamAttempt;
       try {
         attempt = await connectUpstream(socket, address, request.port, budget);
       } catch (error) {
@@ -381,7 +446,7 @@ export async function startEgressProxy(
         continue;
       }
       if (closed()) {
-        attempt.end();
+        attempt.abandon();
         return;
       }
       logger.info("Egress allowed", {
@@ -398,18 +463,52 @@ export async function startEgressProxy(
       reply(socket, 502, `upstream connection failed: ${lastError}`);
       return;
     }
-    state.upstream = upstream;
-    state.phase = "piping";
+    state.upstream = upstream.socket;
     if (request.kind === "connect") {
+      // The client only starts its handshake once it has the 200, and the
+      // tunnel only starts carrying bytes once that handshake names the
+      // authority we judged. Bytes pipelined behind the CONNECT are already
+      // in `early` and go through the same gate.
+      state.phase = "inspecting";
+      state.tunnelHost = request.host;
+      state.hello = new Uint8Array(MAX_CLIENT_HELLO_BYTES);
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-    } else {
-      push(
-        upstream,
-        state.toUpstream,
-        new TextEncoder().encode(request.head),
-        maxBuffered,
-      );
+      // Adopted after the 200: an upstream that spoke first is delivered
+      // behind the status line, never in front of it.
+      upstream.adopt();
+      state.helloTimer = setTimeout(() => {
+        if (socket.data.phase !== "inspecting") return;
+        logger.warn(
+          "Dropping a tunnel whose client never finished its ClientHello",
+          {
+            host: request.host,
+            port: request.port,
+          },
+        );
+        drop(socket);
+      }, handshakeTimeoutMs);
+      // Bytes pipelined behind the CONNECT are already in `early`.
+      for (const pending of state.early) absorbHello(socket, pending);
+      inspectTunnel(socket);
+      return;
     }
+    state.phase = "piping";
+    upstream.adopt();
+    push(
+      upstream.socket,
+      state.toUpstream,
+      new TextEncoder().encode(request.head),
+      maxBuffered,
+    );
+    releaseEarly(socket, upstream.socket);
+  }
+
+  /** Hands the client's early bytes to the upstream once it may have them. */
+  function releaseEarly(
+    socket: Socket<ClientState>,
+    upstream: Socket<undefined>,
+  ): void {
+    const state = socket.data;
     state.earlyBytes = 0;
     // Every early chunk was already accepted from the client, so all of them
     // are queued whatever the cap says; only the reading stops.
@@ -422,36 +521,132 @@ export async function startEgressProxy(
     }
   }
 
+  /**
+   * Copies a chunk into the hello buffer, up to the cap. What does not fit
+   * is still forwarded from `early` once the gate opens: a small hello
+   * followed by early data in the same segment is a hello that fits, and
+   * the verdict must not depend on how the socket cut the bytes. A hello
+   * still incomplete once the buffer is full is what `inspectTunnel` drops.
+   */
+  function absorbHello(socket: Socket<ClientState>, chunk: Uint8Array): void {
+    const state = socket.data;
+    if (state.hello === null) return;
+    const room = state.hello.byteLength - state.helloBytes;
+    const take = chunk.subarray(0, Math.min(room, chunk.byteLength));
+    state.hello.set(take, state.helloBytes);
+    state.helloBytes += take.byteLength;
+  }
+
+  /**
+   * The gate on a CONNECT tunnel: the client's first bytes have to be a
+   * ClientHello for the authority it asked for. Every other outcome is a
+   * drop, including a hello that never finishes — a check that lets the
+   * unparseable through is a check that can be routed around.
+   */
+  function inspectTunnel(socket: Socket<ClientState>): void {
+    const state = socket.data;
+    const upstream = state.upstream;
+    const host = state.tunnelHost;
+    if (upstream === null || host === null || state.hello === null) return;
+    const verdict = parseClientHelloSni(
+      state.hello.subarray(0, state.helloBytes),
+      state.helloCursor,
+    );
+    const refuse = (reason: string): void => {
+      logger.warn("Dropping a tunnel whose ClientHello failed the gate", {
+        host,
+        reason,
+      });
+      drop(socket);
+    };
+    if (verdict.kind === "incomplete") {
+      state.helloCursor = verdict.cursor;
+      if (state.helloBytes >= state.hello.byteLength) {
+        refuse(`no ClientHello within ${MAX_CLIENT_HELLO_BYTES} bytes`);
+      }
+      return;
+    }
+    if (verdict.kind === "reject") {
+      refuse(verdict.reason);
+      return;
+    }
+    // A TLS client does not send a server name for an IP literal (RFC 6066
+    // §3), and an allowlist entry that is an address already pins the
+    // address itself; there is nothing further for the name to bind. One
+    // that does send a name is asking for something we did not judge.
+    if (isIP(host) !== 0) {
+      if (verdict.kind === "sni") {
+        refuse(`server name ${verdict.host} sent to the address ${host}`);
+        return;
+      }
+    } else if (verdict.kind === "no-sni") {
+      refuse("ClientHello carries no server name");
+      return;
+    } else if (verdict.host.toLowerCase() !== host) {
+      refuse(
+        `server name ${verdict.host} is not the CONNECT authority ${host}`,
+      );
+      return;
+    }
+    clearHelloTimer(state);
+    state.hello = null;
+    state.phase = "piping";
+    releaseEarly(socket, upstream);
+  }
+
   function connectUpstream(
     client: Socket<ClientState>,
     address: string,
     port: number,
     timeoutMs: number,
-  ): Promise<Socket<undefined>> {
+  ): Promise<UpstreamAttempt> {
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
     // and the handlers still have to be able to clean up.
     //
-    // An attempt we gave up on can still open afterwards. By then another
-    // address may be carrying the tunnel, so the abandoned one must touch
-    // nothing: its own close would otherwise end a healthy client.
-    let abandoned = false;
+    // An attempt we gave up on can still open afterwards, and one that
+    // opened can speak before the dial reports back. By then another address
+    // may be carrying the tunnel, so nothing here reaches the client until
+    // `adopt`: bytes are held, a close or error is remembered, and a hold
+    // past the cap pauses this socket alone. The connect deadline bounds how
+    // long any of it can sit.
+    let phase: "pending" | "adopted" | "abandoned" = "pending";
+    const held: Queue = { bytes: 0, chunks: [] };
+    let closedEarly = false;
+    let failedEarly: Error | null = null;
+    const onClose = (): void => {
+      // The upstream closing is how a forwarded response ends — but the
+      // tail of that response may still be queued for a slow client.
+      if (client.data.toClient.chunks.length > 0) {
+        client.data.closeWhenDrained = true;
+        return;
+      }
+      client.end();
+    };
+    const onError = (error: Error): void => {
+      logger.warn("Upstream connection failed", { error: error.message });
+      client.end();
+    };
     const pending = dial({
       hostname: address,
       port,
       socket: {
         close() {
-          if (abandoned) return;
-          // The upstream closing is how a forwarded response ends — but the
-          // tail of that response may still be queued for a slow client.
-          if (client.data.toClient.chunks.length > 0) {
-            client.data.closeWhenDrained = true;
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            closedEarly = true;
             return;
           }
-          client.end();
+          onClose();
         },
         data(socket, chunk) {
-          if (abandoned) return;
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            held.chunks.push(chunk);
+            held.bytes += chunk.byteLength;
+            if (held.bytes > maxBuffered) reader(socket).pause();
+            return;
+          }
           if (!push(client, client.data.toClient, chunk, maxBuffered)) {
             stall(
               client,
@@ -461,7 +656,7 @@ export async function startEgressProxy(
           }
         },
         drain(socket) {
-          if (abandoned) return;
+          if (phase !== "adopted") return;
           // The upstream became writable, so what drains is what it is owed.
           flush(socket, client.data.toUpstream);
           if (client.data.toUpstream.chunks.length > 0) return;
@@ -469,10 +664,41 @@ export async function startEgressProxy(
           unstall(client);
         },
         error(_socket, error) {
-          if (abandoned) return;
-          logger.warn("Upstream connection failed", { error: error.message });
-          client.end();
+          if (phase === "abandoned") return;
+          if (phase === "pending") {
+            failedEarly = error;
+            return;
+          }
+          onError(error);
         },
+      },
+    });
+    const attempt = (socket: Socket<undefined>): UpstreamAttempt => ({
+      socket,
+      adopt() {
+        if (phase !== "pending") return;
+        phase = "adopted";
+        let keepingUp = true;
+        for (const chunk of held.chunks.splice(0)) {
+          keepingUp = push(client, client.data.toClient, chunk, maxBuffered);
+        }
+        held.bytes = 0;
+        if (keepingUp) reader(socket).resume();
+        else
+          stall(
+            client,
+            socket,
+            "Dropping a connection whose client fell behind",
+          );
+        if (failedEarly !== null) onError(failedEarly);
+        else if (closedEarly) onClose();
+      },
+      abandon() {
+        if (phase !== "pending") return;
+        phase = "abandoned";
+        held.chunks.length = 0;
+        held.bytes = 0;
+        socket.end();
       },
     });
     // Bun.connect has no deadline of its own; a black-holed address would
@@ -482,7 +708,9 @@ export async function startEgressProxy(
       timer = setTimeout(() => {
         // The connect may still succeed after we gave up on it; close it
         // rather than leak a socket nobody is reading.
-        abandoned = true;
+        phase = "abandoned";
+        held.chunks.length = 0;
+        held.bytes = 0;
         pending.then((late) => late.end()).catch(() => undefined);
         reject(
           new Error(
@@ -494,7 +722,7 @@ export async function startEgressProxy(
     });
     // Without the clear, every short-lived request leaves a live timer and
     // its closure registered for the full deadline.
-    return Promise.race([pending, deadline]).finally(() => {
+    return Promise.race([pending.then(attempt), deadline]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
     });
   }
@@ -571,6 +799,12 @@ export async function startEgressProxy(
     state.stallTimer = undefined;
   }
 
+  function clearHelloTimer(state: ClientState): void {
+    if (state.helloTimer === undefined) return;
+    clearTimeout(state.helloTimer);
+    state.helloTimer = undefined;
+  }
+
   function clearHeadTimer(state: ClientState): void {
     if (state.headTimer === undefined) return;
     clearTimeout(state.headTimer);
@@ -579,6 +813,7 @@ export async function startEgressProxy(
 
   function release(socket: Socket<ClientState>): void {
     clearHeadTimer(socket.data);
+    clearHelloTimer(socket.data);
     clearStallTimer(socket.data);
     if (!socket.data.counted) return;
     if (socket.data.dispatching) {

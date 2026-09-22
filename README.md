@@ -32,7 +32,8 @@
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 bare Bun 이미지에 자기 디렉터리만 마운트해 기동한다 |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps`·`worker` profile은 아직 없는 이미지 정의를 가리키므로 기동하지 않는다(94S-125) |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
+| `apps/*/Dockerfile` | api(+reconciler)·worker·scheduler 이미지. base는 `oven/bun:1.3.10` digest pin, `bun install --frozen-lockfile --production` multi-stage. `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`에 있으나 어떤 composition root도 이를 만들지 않는다 — Gateway는 checkpoint를 실은 finalize를 계속 거절한다(94S-201). typed pending requests와 SDK 기반 resume은 D3다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
@@ -72,7 +73,7 @@ HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
-scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(선택)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 다섯 값이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(http 필수 — 94S-254 전까지, 아래 egress 절)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 값들이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -91,12 +92,15 @@ worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: t
 
 차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway, gitea, 그리고 워커의 object store인 localstack)다. compose의 localstack은 이 때문에 S3만 켠다 — 허용된 port 위의 서비스는 전부 워커가 부를 수 있는 서비스다. 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
-**이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 두 가지가 남아 있다.
+CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
-1. 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다.
-2. CONNECT 터널의 실제 TLS SNI는 검사하지 않는다. proxy는 요청자가 제시한 hostname만 대조하고 터널을 연 뒤에는 바이트를 그대로 흘리므로, allowlist에 있는 CDN hostname으로 CONNECT한 뒤 같은 edge IP의 다른 SNI를 쓰는 경로가 남는다.
+이 관문의 한계:
 
-둘 다 후속 티켓이다. 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이 둘이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
+* 검사 대상은 평문으로 보이는 **바깥** ClientHello의 SNI다. TLS를 종단하지 않으므로 그 안의 HTTP `Host`·경로·본문, 허용된 서비스가 다시 중계하는 곳은 보지 못한다. domain fronting을 CDN 쪽에서 막는 것은 별개의 통제다.
+* IP literal allowlist는 `IP:port` 접근 권한이지 hostname 보장이 아니다. 공유 CDN edge 주소를 IP로 allowlist에 올리지 않는다.
+* **Bun 1.3의 `fetch`·`node:https`는 GREASE ECH를 보내므로 이 proxy로 CONNECT하면 거부된다**(Bun `node:tls`·`Bun.connect({tls})`, Node, curl, 그리고 worker의 SDK가 spawn하는 Claude Code 바이너리는 보내지 않는다 — 2026-09-23 실측). 따라서 worker 안에서 Bun의 HTTP 클라이언트로 https upstream을 부르는 코드는 현재 지원하지 않는다. compose의 object store(localstack)는 http absolute-form이라 무관하지만, https S3 endpoint는 ECH를 보내지 않는 transport와 worker 네트워크 안 실제 PUT/GET 검증이 있기 전까지 지원 범위 밖이고, 그때까지 워커의 `objectStoreConfigFromEnv`와 scheduler의 `localDockerConfigFromEnv`는 `AWS_ENDPOINT_URL`이 없거나 http가 아니면 시작 단계에서 거부한다(94S-254) — launch intent가 예약되기 전에 실패하도록 두 곳이 같은 규칙을 본다. 런타임·클라이언트 버전을 올리면 다시 측정한다.
+
+**이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 하나가 남아 있다: 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다(94S-216). 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이것이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
 
 scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
 
@@ -136,7 +140,7 @@ docker network inspect agent-platform-worker \
   --format '{{.Name}} internal={{.Internal}}'
 ```
 
-실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 internal 네트워크·바깥 네트워크·upstream 두 개·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`로 확인하며 인터넷을 쓰지 않는다. scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
 
 ```bash
 DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
@@ -171,9 +175,34 @@ AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-Compose의 `apps`·`worker` profile은 아직 없는 이미지 정의를 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122), 이미지 빌드 workflow(94S-125)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
+### 이미지와 Compose `apps` profile
+
+세 앱 이미지는 `apps/{api,worker,scheduler}/Dockerfile`이 정의한다. 셋 다 저장소 루트를 context로 `oven/bun:1.3.10`의 multi-arch index digest 하나를 base로 pin하고(`tests/images.test.ts`가 세 파일의 digest 일치를 검사), `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사한다.
+
+| 이미지 | 내용 | 실행 주체 |
+|---|---|---|
+| `agent-platform-api` | `apps/api` 서버 + `apps/reconciler` one-shot. `--filter`로 두 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). uid 1000 | `bun run apps/api/src/server.ts` (reconciler는 `bun run apps/reconciler/src/main.ts`) |
+| `agent-platform-worker` | SDK 0.3.270과 번들 Claude Code 2.1.270, git, non-root(uid 1000), `/workspace`를 1000 소유로 미리 생성(LocalDockerBackend의 volume 계약). 빌드 시 `resolvePinnedClaudeExecutable()`로 executable 경로를 확정해 `/usr/local/bin/claude`로 걸고 `claude --version`을 실행한다 | 94S-122 전까지는 `apps/worker/src/index.ts`(재수출뿐이라 즉시 종료) — Dockerfile `CMD` 주석 참고 |
+| `agent-platform-scheduler` | `apps/scheduler` one-shot. Docker socket을 mount하는 유일한 서비스이며 root로 실행한다(socket 소유자는 어차피 daemon host의 root와 같고, socket gid는 daemon마다 달라 고정 uid가 이식성을 깎기만 한다) | compose에서는 `sh` 루프가 `SCHEDULER_INTERVAL_SEC`(기본 5초)마다 한 pass를 실행. 앱 자체는 one-shot 계약을 유지한다. 실패 pass가 `SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)번 이어지면 루프가 exit 1 해 `restart: unless-stopped`가 재시작하고(`compose ps`에 드러남), `SCHEDULER_HEALTH_STALE_SEC`(60초) 동안 성공 pass가 없으면 healthcheck가 unhealthy가 된다. 멈춘 pass는 `SCHEDULER_PASS_TIMEOUT_SEC`(120초)에 kill돼 실패로 센다(unhealthy만으로는 Docker가 재시작하지 않는다; pool 자체의 deadline은 94S-255) |
+
+```bash
+docker compose -f infra/docker-compose.yml --profile worker build          # WORKER_IMAGE(agent-platform-worker:dev)
+docker compose -f infra/docker-compose.yml --profile worker run --rm worker claude --version
+docker compose -f infra/docker-compose.yml --profile apps up -d --build      # migrate → api(/readyz healthcheck) → scheduler 루프
+curl -s http://127.0.0.1:3000/readyz
+```
+
+`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `docker compose -f infra/docker-compose.yml exec api bun run apps/api/src/keys.ts create <owner>`로 발급한다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로(94S-215) 로컬 스택은 무제한 workspace를 감수하고 기동 로그에 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)·`gitea:3000`·`localstack:4566`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
+
+같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`·`EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`를 설치마다 다르게 준다. compose의 worker 네트워크 이름은 `EXECUTION_DOCKER_NETWORK`를 따른다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
+
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag의 **push 이벤트**에서만(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 게시한다. 두 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 D5이며, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 D5다.
+
+`FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
 
 ## CI에서 실행되는 것
+
+`.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([§ 이미지와 Compose `apps` profile](#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
 `.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 먼저 `check`를 실행하고, 성공하면 `integration`을 돌린다. 기본 검사 실패·취소 시에는 무거운 서비스 컨테이너를 시작하지 않는다. 성공한 변경의 테스트 범위는 그대로지만, 실패한 변경에서는 통합 진단 결과를 얻으려면 먼저 `check`를 고쳐야 한다. 성공 경로의 대기 시간은 `check` 실행 시간만큼 늘어날 수 있다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
 
@@ -218,7 +247,11 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 `spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
 
-**이 설정이 무엇을 숨기는지 분명히 해둔다.** `spikes` check-run 자체는 실패로 남아 PR checks 목록에 빨갛게 보이지만(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`), run 결론만 읽는 소비자 — 알림, 대시보드, release automation — 에게는 spike 회귀가 보이지 않는다. 그래서 job 마지막에 두 suite의 outcome을 run summary에 적는다(취소되지 않은 run이면 언제나 — 취소·timeout으로 job이 끊기면 이 표도 남지 않는다). 그래도 **spike 회귀를 자동으로 알려주는 장치는 없다**. 사람이 Checks를 열어야 한다.
+**이 설정이 무엇을 숨기는지 분명히 해둔다.** `spikes` check-run 자체는 실패로 남아 PR checks 목록에 빨갛게 보이지만(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`), run 결론만 읽는 소비자 — 알림, 대시보드, release automation — 에게는 spike 회귀가 보이지 않는다. 그래서 job 마지막에 두 suite의 outcome을 run summary에 적는다(취소되지 않은 run이면 언제나 — 취소·timeout으로 job이 끊기면 이 표도 남지 않는다). 여기에 더해 **어느 한 suite의 outcome이 `success`가 아니면 GitHub 이슈를 연다**(setup이 깨져 suite가 돌지 못한 경우 포함; job timeout·cancel과 이슈 호출 자체의 실패는 아직 못 잡는다 — 후속 티켓)(이 job은 PR에서 돌지 않으므로 `main` push와 수동 실행이 대상이고, 이슈 본문에 ref·SHA·run이 적힌다)(94S-238, label `ci-spikes-failure`). 같은 label로 열린 이슈가 있으면 새로 만들지 않고 그 이슈에 코멘트를 붙이므로 반복 실패가 이슈로 쌓이지 않는다. 사람이 닫으면 다음 실패는 새 이슈가 된다. `.github/scripts/upsert-ci-issue.sh`가 이 upsert를 맡고, 이슈 조회는 search API가 아니라 list API로 한다 — search는 인덱싱이 늦어 몇 분 간격의 두 run이 각자 이슈를 만든다. 같은 순간에 두 run이 실패하면 둘 다 빈 목록을 보고 각자 만들 수 있으므로, 만든 뒤 다시 조회해 자기 것이 가장 오래된 열린 이슈가 아니면 중복으로 닫고 본문을 그쪽에 붙인다.
+
+**`spikes`를 required로 올리지 않는 이유**도 여기 적어 둔다(`ci.yml`의 job 주석과 같다). (1) PR에서 돌지 않는 context를 required로 걸면 모든 PR이 `Expected — Waiting for status`로 멈춘다. (2) PR에서 다시 돌리면 94S-232가 걷어낸 비용이 되살아난다 — 세 job 중 가장 비싼 job이다. (3) 모든 `main` push에서 이미 돌아 회귀가 한 커밋 안에 잡히므로 PR 게이팅이 더해 주는 것이 없다. 남는 위험은 "회귀가 들어간다"가 아니라 "들어간 걸 아무도 모른다"였고, 그것을 위 이슈가 메운다.
+
+**push run 자체가 누락되는 경우**는 `ci.yml`이 감지할 수 없다 — run이 없으니 아무것도 돌지 않는다(실측: `70139eb`에 `event=push` run 0건). `.github/workflows/main-push-run.yml`이 하루 두 번 최근 36시간의 `main` 커밋 각각에 `ci.yml`의 `event=push` run이 있는지 `.github/scripts/check-main-push-run.sh`로 확인하고(tip만 보면 누락 커밋 뒤에 정상 push가 오는 순간 영영 못 본다), 없으면 label `ci-missing-push-run`으로 **커밋마다** 이슈를 연다(같은 upsert의 `--by-title` 모드: label + 정확한 제목이 식별자이고 제목에 커밋 SHA가 있다). 커밋은 나중에 push run이 생기지 않으므로 사람이 닫은 이슈는 그 커밋의 확인으로 간주해 다시 열지 않고, 다른 커밋의 누락을 거기에 덧붙이지도 않는다. 조회 실패(API 오류)는 `missing`과 exit code가 달라(2 vs 1) 워크플로가 실패로 남는다 — 일부만 판정한 목록을 답으로 치지 않는다. 갓 push된 커밋은 run이 생기기까지 시간이 걸리므로 15분 미만은 판정하지 않는다. `gh workflow run 'main push run' -f sha=<commit>`으로 특정 커밋을 검사할 수 있다.
 
 **재시도 wrapper는 94S-217에서 걷어냈다.** 이 job은 `continue-on-error`라 실패가 머지를 막지 않으므로 재시도가 사는 것은 안전이 아니라 flaky가 보일 확률의 감소뿐이었다 — 재현율 14%가 2%가 된다. 94s-92의 LocalStack timeout이 233 run 동안 숨어 있던 방식이 정확히 그것이다. 두 suite는 이제 자기가 어디서 멈췄는지 stderr로 말하므로(`STEP_STUCK`, 테스트 단위 deadline watchdog) 첫 발생에서 바로 이름이 찍혀야 의미가 있다. `.github/scripts/retry-flaky.sh`와 `tests/retry-flaky.test.ts`는 계약 그대로 남겨 두었다 — 호출하는 job만 없앴다.
 

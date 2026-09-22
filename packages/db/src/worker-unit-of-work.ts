@@ -41,6 +41,10 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import {
+  earliestUnknownTurn,
+  terminateReceiptResult,
+} from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { encodeEventCursor } from "./event-cursor.ts";
 import type { Database } from "./queries.ts";
@@ -49,6 +53,7 @@ import {
   checkpoints,
   events,
   executions,
+  pendingRequests,
   queueMessages,
   receipts,
   sessions,
@@ -551,7 +556,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             updatedAt: input.now,
           })
           .where(
-            and(eq(sessions.id, candidate.sessionId), isNull(sessions.podId)),
+            and(
+              eq(sessions.id, candidate.sessionId),
+              isNull(sessions.podId),
+              // The candidate query saw `active`, but a terminate can commit
+              // between that read and this row lock; the write is the check.
+              eq(sessions.admissionState, "active"),
+            ),
           )
           .returning();
         if (!session) return { outcome: "no_session" };
@@ -1111,11 +1122,29 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       const { executionId, now } = input;
       return db.transaction(async (tx) => {
         const [launch] = await tx
-          .select({ partition: workerLaunches.partition })
+          .select({
+            claimedAttemptId: workerLaunches.claimedAttemptId,
+            partition: workerLaunches.partition,
+            replacementReason: workerLaunches.replacementReason,
+          })
           .from(workerLaunches)
           .where(eq(workerLaunches.executionId, executionId))
           .limit(1)
           .for("update");
+        if (
+          launch &&
+          launch.replacementReason !== null &&
+          launch.claimedAttemptId === null
+        ) {
+          // The scheduler has committed to rebuilding this launch from its
+          // intent and may be between the teardown and the create right
+          // now. Its resource being gone is that plan in progress, not an
+          // exit: releasing here would hand the session a new launch under
+          // a new generation, which is exactly what the record exists to
+          // prevent. A claimed launch is never rebuilt, so it stays
+          // confirmable whatever the column says.
+          return { sessionReleased: false, slotReleased: false };
+        }
         // One slot returns per launch, however many times the exit is seen.
         const slot = await tx
           .update(workerLaunches)
@@ -1184,6 +1213,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ),
           )
           .returning({ sequence: turns.sequence });
+        // Requests the gone worker raised can never be answered by it; left
+        // open they would keep the session reporting pending input forever.
+        await tx
+          .update(pendingRequests)
+          .set({ resolvedAt: now })
+          .where(
+            and(
+              eq(pendingRequests.sessionId, session.id),
+              isNull(pendingRequests.resolvedAt),
+            ),
+          );
         for (const turn of unresolved) {
           await tx
             .update(receipts)
@@ -1205,6 +1245,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             );
         }
 
+        // A session that asked for this kill (terminate, 94S-139) lands in
+        // `stopped`, unless a turn was left unresolved, in which case the
+        // recovery decision takes precedence just as for any other exit.
+        const stopping = session.admissionState === "stopping";
         await tx
           .update(sessions)
           .set({
@@ -1217,9 +1261,36 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   status: "failed" as const,
                   admissionState: "recovery_required" as const,
                 }
-              : {}),
+              : stopping
+                ? {
+                    status: "stopped" as const,
+                    admissionState: "stopped" as const,
+                  }
+                : {}),
           })
           .where(eq(sessions.id, session.id));
+        // The terminate receipt succeeds only here, on the observed absence;
+        // one that already went `unknown` past its deadline is upgraded. The
+        // turn it names is the earliest still unknown, whether it became so
+        // just now or in an earlier exit the session is still recovering from.
+        await tx
+          .update(receipts)
+          .set({
+            status: "succeeded",
+            error: null,
+            result: terminateReceiptResult({
+              checkpointRevision: session.checkpointRevision,
+              unconfirmedTurnId: await earliestUnknownTurn(tx, session.id),
+            }),
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(receipts.operation, "terminate"),
+              inArray(receipts.status, ["accepted", "unknown"]),
+              sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+            ),
+          );
 
         // Re-signal only when nothing is left unresolved: an unknown turn
         // must not be re-run by the next claim.

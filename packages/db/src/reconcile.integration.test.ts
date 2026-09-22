@@ -6,6 +6,12 @@ import {
   expect,
   test,
 } from "bun:test";
+import type { WorkerScope } from "@agent-platform/contracts";
+import {
+  createWorkerGateway,
+  type WorkerGateway,
+  type WorkerPrincipal,
+} from "@agent-platform/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -14,17 +20,30 @@ import {
 import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { reconcileExpiredLeases } from "./lease-reconcile.ts";
+import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { claim, reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
+  attempts,
+  executions,
+  pendingRequests,
   queueMessages,
   sessions,
   turns,
   unassignedSessions,
+  workerLaunches,
   workers,
 } from "./schema.ts";
+import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+// Leases end on the database clock (94S-211), so these tests wait for real
+// time to pass; short enough to keep the file quick, long enough that a
+// slow round trip does not cross a boundary on its own.
+const LEASE_TTL_MS = 600;
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 integration("orphan reconciliation on PostgreSQL", () => {
   let database: TempDatabase;
@@ -241,5 +260,285 @@ integration("orphan reconciliation on PostgreSQL", () => {
       claimedBy: null,
       claimToken: null,
     });
+  });
+});
+
+// 94S-139: the lease-expiry reconciler for gateway-bound sessions. It fences
+// the silent worker and asks for its execution to go; what happens to the
+// turn is decided by confirmExecutionGone once the backend says it is gone.
+integration("expired lease reconciliation on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let gateway: WorkerGateway;
+  // Audit stamps only: expiry is judged on the database clock.
+  const clock = new Date("2026-09-23T00:00:00.000Z");
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "lease_it" });
+    pool = new Pool({ connectionString: database.url, max: 12 });
+    db = drizzle(pool, { schema });
+    gateway = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: LEASE_TTL_MS,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  async function bound(name: string) {
+    const partition = `${name}-${crypto.randomUUID()}`;
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+      message: "first input",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const sessionId = accepted.response.session_id;
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, sessionId));
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const registered = await gateway.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      sessionId,
+      backend: "local_docker",
+    });
+    if (registered.nonce === null) throw new Error("launch already registered");
+    await db.insert(executions).values({
+      backend: "local_docker",
+      desiredState: "running",
+      generation: 1,
+      id: executionId,
+      observedState: "running",
+      sessionId,
+    });
+    await db
+      .update(sessions)
+      .set({ executionId })
+      .where(eq(sessions.id, sessionId));
+    const claimed = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: executionId,
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: registered.nonce },
+      },
+    );
+    const principal: WorkerPrincipal = {
+      kind: "session",
+      attemptId: claimed.attempt_id,
+      sessionId: claimed.session_id,
+      leaseEpoch: claimed.lease_epoch,
+      executionGeneration: claimed.execution_generation,
+      authRevision: claimed.auth_revision,
+    };
+    const scope: WorkerScope = {
+      session_id: claimed.session_id,
+      turn_id: null,
+      attempt_id: claimed.attempt_id,
+      lease_epoch: claimed.lease_epoch,
+      execution_generation: claimed.execution_generation,
+      auth_revision: claimed.auth_revision,
+    };
+    return { sessionId, executionId, claimed, principal, scope };
+  }
+
+  async function sessionRow(id: string) {
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, id));
+    if (!row) throw new Error("session vanished");
+    return row;
+  }
+
+  test("lease expired before delivery: the worker is fenced, the kill requested, and the input runs again once the execution is confirmed gone", async () => {
+    const b = await bound("before");
+    await sleep(LEASE_TTL_MS * 2);
+
+    const dry = await reconcileExpiredLeases(db, { now: clock, dryRun: true });
+    expect(dry).toEqual([
+      expect.objectContaining({
+        action: "fenced",
+        attemptId: b.claimed.attempt_id,
+        dryRun: true,
+        executionId: b.executionId,
+        sessionId: b.sessionId,
+      }),
+    ]);
+    expect((await sessionRow(b.sessionId)).leaseEpoch).toBe(
+      b.claimed.lease_epoch,
+    );
+
+    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
+      expect.objectContaining({ action: "fenced", dryRun: false }),
+    ]);
+    // Idempotent: the attempt is ended, so a second pass finds nothing.
+    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
+
+    const fenced = await sessionRow(b.sessionId);
+    expect(fenced.leaseEpoch).toBe(b.claimed.lease_epoch + 1);
+    expect(fenced.executionId).toBe(b.executionId);
+    expect(fenced.admissionState).toBe("active");
+    const [attempt] = await db
+      .select({ state: attempts.state, endReason: attempts.endReason })
+      .from(attempts)
+      .where(eq(attempts.id, b.claimed.attempt_id));
+    expect(attempt).toEqual({ state: "lost", endReason: "lease_expired" });
+    const [execution] = await db
+      .select({ desiredState: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, b.executionId));
+    expect(execution?.desiredState).toBe("terminated");
+    // Nothing is re-queued while the container may still be running, and
+    // the worker that went quiet cannot come back on its old binding.
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, b.sessionId)),
+    ).toHaveLength(0);
+    await expect(
+      gateway.heartbeat(b.principal, { ...b.scope, attempt_state: "running" }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+    const [launchRow] = await db
+      .select({ slotReleasedAt: workerLaunches.slotReleasedAt })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, b.executionId));
+    expect(launchRow?.slotReleasedAt).toBeNull();
+
+    // The backend confirms the removal: the undelivered input goes back.
+    expect(await gateway.confirmExecutionGone(b.executionId)).toEqual({
+      sessionReleased: true,
+      slotReleased: true,
+    });
+    const released = await sessionRow(b.sessionId);
+    expect(released.executionId).toBeNull();
+    expect(released.admissionState).toBe("active");
+    const [turn] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, b.sessionId));
+    expect(turn?.status).toBe("queued");
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, b.sessionId)),
+    ).toHaveLength(1);
+  });
+
+  test("lease expired after delivery: the turn ends outcome_unknown and the session waits for recovery", async () => {
+    const b = await bound("after");
+    const next = await gateway.nextInput(b.principal, b.scope);
+    expect(next.input?.turn_id).toBe("1");
+    await sleep(LEASE_TTL_MS * 2);
+
+    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
+      expect.objectContaining({ action: "fenced", sessionId: b.sessionId }),
+    ]);
+    // Still undecided until the execution is confirmed gone.
+    const [open] = await db
+      .select({ id: turns.id, status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, b.sessionId));
+    expect(open?.status).toBe("running");
+    if (!open) throw new Error("turn missing");
+    // A request the lost worker raised and nobody can answer any more.
+    await db.insert(pendingRequests).values({
+      requestId: `req-${crypto.randomUUID()}`,
+      sessionId: b.sessionId,
+      turnId: open.id,
+      attemptId: b.claimed.attempt_id,
+      kind: "permission",
+      payload: {},
+      inputHash: "h",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await gateway.confirmExecutionGone(b.executionId);
+    const [request] = await db
+      .select({ resolvedAt: pendingRequests.resolvedAt })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.sessionId, b.sessionId));
+    expect(request?.resolvedAt).not.toBeNull();
+    const [turn] = await db
+      .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
+      .from(turns)
+      .where(eq(turns.sessionId, b.sessionId));
+    expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
+    const session = await sessionRow(b.sessionId);
+    expect(session.admissionState).toBe("recovery_required");
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, b.sessionId)),
+    ).toHaveLength(0);
+  });
+
+  test("a heartbeat that lands first keeps the lease; an attempt already released is only closed", async () => {
+    const alive = await bound("alive");
+    await sleep(LEASE_TTL_MS / 2);
+    await gateway.heartbeat(alive.principal, {
+      ...alive.scope,
+      attempt_state: "running",
+    });
+    // Past the original lease, inside the extended one.
+    await sleep((LEASE_TTL_MS * 2) / 3);
+    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
+
+    const gone = await bound("released");
+    await gateway.release(gone.principal, { ...gone.scope, reason: "idle" });
+    await sleep(LEASE_TTL_MS * 2);
+    // release already moved the epoch and ended the attempt: nothing to do
+    // for it (the still-bound session from above expires here instead).
+    expect(await reconcileExpiredLeases(db, { now: clock })).not.toContainEqual(
+      expect.objectContaining({ attemptId: gone.claimed.attempt_id }),
+    );
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, gone.claimed.attempt_id));
+    expect(attempt?.state).toBe("exited");
   });
 });

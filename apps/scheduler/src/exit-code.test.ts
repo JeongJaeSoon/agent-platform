@@ -6,6 +6,8 @@ const clean: SchedulerRunSummary = {
   activeAfter: 0,
   activeBefore: 0,
   failedLaunches: [],
+  killFailed: [],
+  killed: [],
   launched: [],
   orphansTerminated: [],
   orphansUnresolved: [],
@@ -13,9 +15,11 @@ const clean: SchedulerRunSummary = {
   reconcileFailed: [],
   reensured: [],
   replaced: [],
+  replacementsExhausted: [],
   skipped: false,
   slotLimit: 10,
   terminatedObserved: [],
+  terminationsOverdue: 0,
   workspaceScanFailed: false,
   workspacesFailed: [],
   workspacesReclaimed: [],
@@ -34,6 +38,7 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...clean, replacementsExhausted: [ref] })).toBe(1);
   });
 
   test("a GC fault exits 1, a GC judgement does not", () => {

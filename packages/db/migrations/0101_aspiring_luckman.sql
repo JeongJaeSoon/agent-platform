@@ -1,0 +1,2 @@
+CREATE INDEX "attempts_open_lease_idx" ON "attempts" USING btree ("lease_expires_at","id") WHERE "attempts"."state" NOT IN ('exited', 'lost');--> statement-breakpoint
+CREATE INDEX "receipts_open_terminate_idx" ON "receipts" USING btree ("created_at") WHERE "receipts"."operation" = 'terminate' AND "receipts"."status" = 'accepted';

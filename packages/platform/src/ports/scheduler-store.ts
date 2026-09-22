@@ -5,6 +5,9 @@ import type {
   LaunchIntent,
 } from "./execution-backend.ts";
 
+/** Why a resource that exists is torn down and built again. */
+export type ReplaceReason = "nonce_expired" | "stale_isolation";
+
 export type SchedulerDemand = {
   /** Reserved launch slots: rows that have not given their slot back. */
   activeExecutionCount: number;
@@ -41,6 +44,13 @@ export type StoredLaunchIntent = Omit<
 export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
   backend: ExecutionBackendKind;
   operationId: string | null;
+  /**
+   * `terminated` is the kill outbox: a terminate command or the lease-expiry
+   * reconciler asked for this generation to go, and the pass tears it down
+   * before anything else. The row keeps its slot until the resource is
+   * confirmed gone.
+   */
+  desiredState: "running" | "terminated";
   observedState: ExecutionObservation["state"];
   providerRef: string | null;
   /**
@@ -62,6 +72,20 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * would replace a resource whose credential is still good.
    */
   nonceExpired: boolean;
+  /**
+   * A replacement the scheduler committed to before tearing the resource
+   * down, until the one built from the intent is observed up. It survives a
+   * teardown that only half happened and a control host that died between
+   * the two halves: the next pass finishes it with the same intent instead
+   * of reading the stopped resource as an ordinary exit.
+   */
+  pendingReplacement: ReplaceReason | null;
+  /**
+   * How many replacements this launch has ever been asked for. Never reset,
+   * so a launch whose fresh resource keeps being judged replaceable runs into
+   * the scheduler's limit instead of being rebuilt forever.
+   */
+  replacementCount: number;
 };
 
 /**
@@ -96,6 +120,30 @@ export interface SchedulerStore {
    * loses or wins outright, never both.
    */
   revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean>;
+  /**
+   * Records, before anything is torn down, that this launch is to be rebuilt
+   * from its stored intent, counts the request, and shuts the launch's
+   * bootstrap door in the same write — the resource about to go must not
+   * bind a worker between here and the teardown, and the one built next
+   * gets a credential of its own. Returns the new count, or null when the
+   * launch has bound a worker, given its slot back, or been asked since the
+   * rows were read (`expectedCount` no longer matches): there is then
+   * nothing to rebuild from this snapshot, and the caller must not tear
+   * down. The count check is what stops a pass that lost its lock — a
+   * dropped lock connection — from tearing down what a later pass built.
+   */
+  requestReplacement(
+    ref: ExecutionRef,
+    reason: ReplaceReason,
+    expectedCount: number,
+  ): Promise<number | null>;
+  /**
+   * The replacement landed: the resource built from the intent is up. Clears
+   * the pending reason and keeps the count. An operator who wants an
+   * exhausted launch retried resets the count alone: clearing the reason as
+   * well would turn its stopped resource back into an ordinary exit.
+   */
+  settleReplacement(ref: ExecutionRef): Promise<void>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,
@@ -116,8 +164,29 @@ export interface SchedulerStore {
   /**
    * The provider resource is gone for good: the one place a launch slot and
    * its session are handed back. Idempotent, however many passes see it.
+   * Refused, changing nothing, while an unclaimed launch has a replacement
+   * pending: its resource being gone is the rebuild in progress, not an
+   * exit.
    */
   confirmExecutionGone(executionId: string, now: Date): Promise<void>;
+  /**
+   * The row's kill intent as it stands now, not as the pass's snapshot had
+   * it. A terminate can commit while the pass is out at the provider, and
+   * the pass must not re-create a resource that was just asked to go.
+   */
+  desiredStateOf(
+    ref: ExecutionRef,
+  ): Promise<ActiveExecution["desiredState"] | null>;
+  /**
+   * Terminate receipts still `accepted` after `deadlineMs` become `unknown`:
+   * the caller is told the kill was not observed in time. The execution row
+   * keeps its kill intent, so reconciliation goes on and a later
+   * confirmation still settles the receipt. Returns the receipts flipped.
+   */
+  markOverdueTerminations(input: {
+    now: Date;
+    deadlineMs: number;
+  }): Promise<number>;
 
   /**
    * The subset of `sessionIds` whose workspace must be kept: a session row

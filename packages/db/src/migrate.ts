@@ -6,7 +6,7 @@ import {
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 const migrationsFolder = join(import.meta.dir, "../migrations");
 const expectedLegacyTables = [
@@ -134,20 +134,13 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
-        id SERIAL PRIMARY KEY,
-        hash text NOT NULL,
-        created_at bigint
-      )
-    `);
-    for (const migration of applied) {
-      await client.query(
-        'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
-        [migration.hash, migration.folderMillis],
-      );
-    }
+    await recordAppliedMigrations(
+      client,
+      applied.map((migration) => ({
+        hash: migration.hash,
+        when: migration.folderMillis,
+      })),
+    );
     await client.query("COMMIT");
     return applied.length;
   } catch (error) {
@@ -155,6 +148,31 @@ async function adoptLegacyM0Schema(pool: Pool): Promise<number> {
     throw error;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Writes journal rows for migrations that were applied by hand, in the shape
+ * Drizzle's migrator reads (`hash`, `created_at` = folder millis). Also used
+ * by tests that need a database standing at one exact migration.
+ */
+export async function recordAppliedMigrations(
+  client: Pick<PoolClient, "query">,
+  migrations: readonly { hash: string; when: number }[],
+): Promise<void> {
+  await client.query('CREATE SCHEMA IF NOT EXISTS "drizzle"');
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
+      id SERIAL PRIMARY KEY,
+      hash text NOT NULL,
+      created_at bigint
+    )
+  `);
+  for (const migration of migrations) {
+    await client.query(
+      'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
+      [migration.hash, migration.when],
+    );
   }
 }
 

@@ -9,14 +9,22 @@ import type {
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  ReplaceReason,
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
 
 export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
+/** api.md: a kill not observed within this is reported unknown. */
+export const TERMINATE_DEADLINE_MS = 30_000;
 
-/** Why a resource that exists is torn down and built again. */
-type ReplaceReason = "nonce_expired" | "stale_isolation";
+/**
+ * How many times one launch may be rebuilt before the scheduler gives up on
+ * it. Three covers a teardown that needed a retry and a create that failed
+ * once; a launch that needs more is being judged replaceable by something
+ * that will judge its replacement the same way.
+ */
+export const DEFAULT_REPLACEMENT_LIMIT = 3;
 
 export type SchedulerLogger = {
   error(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -29,6 +37,8 @@ export type SchedulerOptions = {
   image: string;
   logger: SchedulerLogger;
   now?: () => Date;
+  /** Replacements per launch before it is closed instead; see the default. */
+  replacementLimit?: number;
   resources: ExecutionResources;
   slotLimit: number;
   store: SchedulerStore;
@@ -58,8 +68,22 @@ export type SchedulerRunSummary = {
   reensured: ExecutionRef[];
   /** Resources torn down and built again; see `ReplaceReason` for why. */
   replaced: ExecutionRef[];
+  /**
+   * Launches that have been rebuilt as many times as the limit allows and
+   * would need it again. Each is left exactly as it is — its slot, its
+   * resource — and reported every pass until someone looks: something keeps
+   * rejecting what the scheduler builds, and building it once more is not
+   * the answer.
+   */
+  replacementsExhausted: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
+  /** Kill intents carried out this pass; each is also in terminatedObserved. */
+  killed: ExecutionRef[];
+  /** Kill intents the provider did not carry out; each row keeps its slot. */
+  killFailed: ExecutionRef[];
+  /** Terminate receipts flipped to unknown because the kill took too long. */
+  terminationsOverdue: number;
   /**
    * true when GC could not even draw up its candidate list — listing the
    * workspaces or asking the store which sessions are retained threw. Nothing
@@ -85,10 +109,13 @@ export type SchedulerRunSummary = {
  * between them leaves only intents the next pass can pick up again:
  *
  * 1. Every live execution row is inspected; a missing resource is re-ensured
- *    from the stored intent, an exited one is recorded and reclaimed.
+ *    from the stored intent, an exited one is recorded and reclaimed, and
+ *    one with a kill intent is torn down.
  * 2. Provider resources without a matching row are logged and terminated.
  * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
  *    the transaction.
+ * Terminate receipts whose kill was not confirmed within the deadline are
+ * reported unknown once the rows have been reconciled.
  * 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
  *    so a slow daemon listing never delays a launch.
  */
@@ -97,6 +124,11 @@ export async function runScheduler(
 ): Promise<SchedulerRunSummary> {
   if (!Number.isInteger(options.slotLimit) || options.slotLimit < 0) {
     throw new Error("slotLimit must be a non-negative integer");
+  }
+  const replacementLimit =
+    options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
+  if (!Number.isInteger(replacementLimit) || replacementLimit < 1) {
+    throw new Error("replacementLimit must be a positive integer");
   }
   const release = await options.store.acquirePassLock();
   if (release === null) {
@@ -234,11 +266,15 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     orphansUnresolved: [],
     reclaimFailed: [],
     reconcileFailed: [],
+    killFailed: [],
+    killed: [],
     reensured: [],
     replaced: [],
+    replacementsExhausted: [],
     skipped: false,
     slotLimit,
     terminatedObserved: [],
+    terminationsOverdue: 0,
     workspaceScanFailed: false,
     workspacesFailed: [],
     workspacesReclaimed: [],
@@ -248,6 +284,8 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
 
 async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
+  const replacementLimit =
+    options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
   const { backend, logger, store } = options;
   const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
     executionId: stored.executionId,
@@ -294,8 +332,20 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
       return;
     }
+    if (await killRequested(execution)) {
+      await kill(execution);
+      return;
+    }
     const observed = await backend.inspect(ref);
-    if (observed.found && observed.stale && observed.state !== "terminated") {
+    const up = observed.found && observed.state !== "terminated";
+    if (up && (await killRequested(execution))) {
+      // A terminate that committed while the pass was out at the provider
+      // must not wait for the next pass: the receipt's deadline is running
+      // and the resource is still doing work.
+      await kill(execution);
+      return;
+    }
+    if (up && observed.stale) {
       // The resource runs under an isolation contract this host no longer
       // promises, and an upgrade cannot reach inside a running resource. It
       // is torn down here and re-created from the stored intent.
@@ -305,12 +355,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         session_id: execution.sessionId,
         state: observed.state,
       });
-      await replace(execution, "stale_isolation");
+      await replace(execution, "stale_isolation", observed);
       return;
     }
     if (
-      observed.found &&
-      observed.state !== "terminated" &&
+      up &&
       !execution.claimed &&
       execution.nonceExpiresAt !== null &&
       execution.nonceExpired
@@ -332,7 +381,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           session_id: execution.sessionId,
           state: observed.state,
         });
-        await replace(execution, "nonce_expired");
+        await replace(execution, "nonce_expired", observed);
         return;
       }
       // A worker came through the door while this pass was inspecting. It
@@ -344,11 +393,45 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         session_id: execution.sessionId,
       });
     }
-    if (
-      observed.found &&
-      observed.state !== "terminated" &&
-      observed.state !== "pending"
-    ) {
+    const running = up && observed.state !== "pending";
+    // A replacement an earlier pass committed to and did not get to finish:
+    // its teardown half happened, or the host died between the two halves.
+    // A claimed launch is never rebuilt, so its flag says nothing.
+    const pending = execution.claimed ? null : execution.pendingReplacement;
+    if (pending !== null) {
+      // Whatever is up here is neither stale nor past its credential, or it
+      // would have been taken above: it is the replacement itself, built by
+      // a pass that died before it could say so.
+      if (observed.state === "pending") {
+        // Created and never started. Ensure adopts and starts it, and
+        // settles on success; it is not a rebuild, so it is not counted.
+        await reensure(execution, pending);
+        return;
+      }
+      if (observed.state === "running" || observed.state === "suspended") {
+        // Only a state that proves the replacement viable settles it. A
+        // resource on its way out (`terminating`) or in a state the provider
+        // cannot name would be settled straight into the ordinary exit path,
+        // which is the loss this record exists to prevent.
+        await store.settleReplacement(ref);
+        await store.recordObservation(ref, observed);
+        logger.info("Pending replacement found already running; settled", {
+          ...fieldsOf(ref),
+          provider_ref: observed.providerRef,
+          reason: pending,
+          replacement_count: execution.replacementCount,
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+      // Stopped, going, unknown, or already gone: whatever is there is the
+      // old resource or nothing, and the intent still has to be rebuilt.
+      // Reading an exited one as an ordinary exit here is exactly what would
+      // lose the replacement and hand the session a new launch.
+      await replace(execution, pending, observed);
+      return;
+    }
+    if (running) {
       await store.recordObservation(ref, observed);
       return;
     }
@@ -422,6 +505,54 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     await reensure(execution, "missing");
   }
 
+  // The snapshot is checked first, then the row: a terminate that committed
+  // after listActiveExecutions still gets its kill this pass.
+  async function killRequested(execution: ActiveExecution): Promise<boolean> {
+    if (execution.desiredState === "terminated") return true;
+    return (await store.desiredStateOf(refOf(execution))) === "terminated";
+  }
+
+  /**
+   * Carries out a kill intent. The resource is removed whatever it was
+   * doing; the store then decides what its session's turns become. A
+   * provider that will not remove it leaves the row as is, so the next pass
+   * tries again and the receipt's deadline keeps running.
+   */
+  async function kill(
+    execution: ExecutionRef & { sessionId: string },
+  ): Promise<void> {
+    const ref = refOf(execution);
+    let outcome: TerminateExecutionResult;
+    try {
+      outcome = await backend.terminate(ref);
+    } catch (error) {
+      summary.killFailed.push(ref);
+      logger.error("Killing execution failed; intent kept for retry", {
+        ...fieldsOf(ref),
+        error: messageOf(error),
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (outcome.outcome === "generation_mismatch") {
+      summary.killFailed.push(ref);
+      logger.error("Killing execution hit a generation mismatch", {
+        ...fieldsOf(ref),
+        found_generation: outcome.foundGeneration,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    await store.confirmExecutionGone(ref.executionId, now());
+    summary.killed.push(ref);
+    summary.terminatedObserved.push(ref);
+    logger.info("Execution killed on request; resource removed", {
+      ...fieldsOf(ref),
+      previously_present: outcome.outcome === "terminated",
+      session_id: execution.sessionId,
+    });
+  }
+
   /**
    * Tears the resource down and builds it again from the stored intent. The
    * new one gets a new bootstrap credential, which is why the launch must not
@@ -431,28 +562,105 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   async function replace(
     execution: ActiveExecution,
     reason: ReplaceReason,
+    observed: ExecutionObservation,
   ): Promise<void> {
     const ref = refOf(execution);
     const stored = storedIntentOf(execution);
+    if (execution.claimed || stored === null) {
+      // Nothing to rebuild from: a claimed launch spent its credential on a
+      // binding, a pre-intent row never had one. Teardown and close.
+      if (!(await teardown(execution, reason, observed))) return;
+      summary.replaced.push(ref);
+      await store.confirmExecutionGone(ref.executionId, now());
+      summary.terminatedObserved.push(ref);
+      logger.warn("Replaced an execution nothing can rebuild; closed", {
+        ...fieldsOf(ref),
+        claimed: execution.claimed,
+        reason,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (execution.replacementCount >= replacementLimit) {
+      // Whatever gets built keeps being rejected, so building it once more
+      // is not the answer. Nothing is touched: the resource stays, the slot
+      // stays, and the pass fails loudly until someone looks. Closing the
+      // launch instead would hand the session a fresh launch with a fresh
+      // count, and move the loop one generation along.
+      summary.replacementsExhausted.push(ref);
+      logger.error(
+        "Replacement limit reached; launch left as it is. Reset " +
+          "replacement_count on its worker_launches row to let the " +
+          "scheduler try again; leave replacement_reason set, or the " +
+          "stopped resource reads as an ordinary exit",
+        {
+          ...fieldsOf(ref),
+          limit: replacementLimit,
+          reason,
+          replacement_count: execution.replacementCount,
+          session_id: execution.sessionId,
+        },
+      );
+      return;
+    }
     // Replacement is a teardown followed by a create, and only the create can
     // fail on what the provider knows. Asked here that costs a pass; asked
-    // after the terminate it costs the worker. A claimed resource is not
-    // re-created at all, and a row with no intent cannot be, so neither has
-    // anything to protect.
-    if (backend.assertReplaceable && stored !== null && !execution.claimed) {
+    // after the terminate it costs the worker. Asked before the record, a
+    // refusal leaves the resource with its credential intact.
+    if (backend.assertReplaceable) {
       try {
         await backend.assertReplaceable(intentOf(stored));
       } catch (error) {
         summary.reconcileFailed.push(ref);
-        logger.error("Replacement would not launch; resource left running", {
+        logger.error("Replacement would not launch; resource left as is", {
           ...fieldsOf(ref),
           error: messageOf(error),
           reason,
+          replacement_count: execution.replacementCount,
           session_id: execution.sessionId,
         });
         return;
       }
     }
+    // Committed before anything is torn down, so a teardown that half
+    // happens or a host that dies after it leaves a row the next pass
+    // rebuilds from the same intent, never one it reads as an exit. The same
+    // write shuts the bootstrap door, so a worker cannot bind to the
+    // resource while it is on its way out.
+    const attempts = await store.requestReplacement(
+      ref,
+      reason,
+      execution.replacementCount,
+    );
+    if (attempts === null) {
+      // A worker claimed, the launch gave its slot back, or another pass
+      // got here first, since the rows were read. Either way the resource
+      // is not this pass's to tear down.
+      logger.info("Replacement refused; launch moved on since it was read", {
+        ...fieldsOf(ref),
+        reason,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (!(await teardown(execution, reason, observed))) return;
+    summary.replaced.push(ref);
+    await reensure(execution, reason);
+  }
+
+  /**
+   * The teardown half of a replacement. True once nothing of the old
+   * resource is left, which includes there having been nothing to begin
+   * with; false leaves the row as it is — its slot, and any pending
+   * replacement — for the next pass to retry.
+   */
+  async function teardown(
+    execution: ActiveExecution,
+    reason: ReplaceReason,
+    observed: ExecutionObservation,
+  ): Promise<boolean> {
+    const ref = refOf(execution);
+    if (!observed.found) return true;
     let outcome: TerminateExecutionResult;
     try {
       outcome = await backend.terminate(ref);
@@ -464,35 +672,20 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         reason,
         session_id: execution.sessionId,
       });
-      return;
+      return false;
     }
-    if (outcome.outcome !== "terminated") {
-      // Left untouched, so the row keeps its slot and the next pass retries.
-      summary.reconcileFailed.push(ref);
-      logger.error(
-        "An execution resource would not terminate for replacement",
-        {
-          ...fieldsOf(ref),
-          outcome: outcome.outcome,
-          reason,
-          session_id: execution.sessionId,
-        },
-      );
-      return;
+    if (outcome.outcome === "terminated" || outcome.outcome === "absent") {
+      return true;
     }
-    summary.replaced.push(ref);
-    if (execution.claimed) {
-      // Its worker held a binding, so there is nothing to re-create it with.
-      await store.confirmExecutionGone(ref.executionId, now());
-      summary.terminatedObserved.push(ref);
-      logger.warn("Replaced a claimed execution; binding released", {
-        ...fieldsOf(ref),
-        reason,
-        session_id: execution.sessionId,
-      });
-      return;
-    }
-    await reensure(execution, reason);
+    // Left untouched, so the row keeps its slot and the next pass retries.
+    summary.reconcileFailed.push(ref);
+    logger.error("An execution resource would not terminate for replacement", {
+      ...fieldsOf(ref),
+      outcome: outcome.outcome,
+      reason,
+      session_id: execution.sessionId,
+    });
+    return false;
   }
 
   async function reensure(
@@ -500,6 +693,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reason: "missing" | ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
+    if (await killRequested(execution)) {
+      // Asked to go while this pass was out at the provider: building it
+      // again would hand the kill a fresh target. It is killed instead.
+      await kill(execution);
+      return;
+    }
     const stored = storedIntentOf(execution);
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
@@ -534,6 +733,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         });
         return;
       }
+      // `pending` is launched but not yet proven: a start the daemon took
+      // and could not show. The intent stays until a pass sees it running,
+      // or a container that dies right here would read as an ordinary exit.
+      if (reason !== "missing" && ensured.state !== "pending") {
+        await store.settleReplacement(ref);
+      }
       summary.reensured.push(ref);
       logger.warn("Execution resource re-created from intent", {
         ...fieldsOf(ref),
@@ -542,6 +747,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         reason,
         session_id: execution.sessionId,
       });
+      if (await killRequested(execution)) {
+        // Asked to go while it was being built: it is taken down in the
+        // same pass rather than left running until the next one.
+        await kill(execution);
+      }
     } catch (error) {
       summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
@@ -552,6 +762,13 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
     }
   }
+
+  // Every kill intent had its chance this pass; what is still unconfirmed
+  // past the deadline is reported to its caller as unknown, not as pending.
+  summary.terminationsOverdue = await store.markOverdueTerminations({
+    now: now(),
+    deadlineMs: TERMINATE_DEADLINE_MS,
+  });
 
   // 2. Resources nobody owns.
   const managed = await backend.listManaged();
@@ -640,6 +857,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         provider_ref: ensured.providerRef,
         session_id: sessionId,
       });
+      if ((await store.desiredStateOf(ref)) === "terminated") {
+        // A terminate that committed between the reservation and the
+        // resource coming up: this row was not in the pass's snapshot, so
+        // nothing else would kill it before the receipt's deadline.
+        await kill({ ...ref, sessionId });
+      }
     } catch (error) {
       // The intent stays committed; step 1 of the next pass retries it.
       summary.failedLaunches.push(ref);
@@ -661,6 +884,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     active_after: summary.activeAfter,
     active_before: summary.activeBefore,
     failed_count: summary.failedLaunches.length,
+    kill_failed_count: summary.killFailed.length,
+    killed_count: summary.killed.length,
     launched_count: summary.launched.length,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
@@ -668,8 +893,10 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reconcile_failed_count: summary.reconcileFailed.length,
     reensured_count: summary.reensured.length,
     replaced_count: summary.replaced.length,
+    replacement_exhausted_count: summary.replacementsExhausted.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
+    terminations_overdue_count: summary.terminationsOverdue,
     workspace_failed_count: summary.workspacesFailed.length,
     workspace_reclaimed_count: summary.workspacesReclaimed.length,
     workspace_scan_failed: summary.workspaceScanFailed,

@@ -7,6 +7,7 @@ import {
 import * as schema from "@agent-platform/db";
 import {
   apiKeys,
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   eventPageQuery,
@@ -114,6 +115,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     const service = createSessionService({
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog: {
         profiles: {

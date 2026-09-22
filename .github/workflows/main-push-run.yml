@@ -1,0 +1,63 @@
+name: main push run
+
+# ci.yml cannot notice its own absence: when GitHub drops the push event for a
+# main commit (observed on 70139eb, 2026-09-22) no run exists to complain. This
+# workflow wakes on its own clock, asks whether every recent commit on main has
+# a push run of ci.yml, and opens an issue for each one that does not. `spikes`
+# runs only on main pushes, so a dropped run is also a commit with no spike
+# signal at all.
+on:
+  schedule:
+    # Twice a day, judging a 36-hour window each time (see the script), so a
+    # commit is seen by at least two checks even if one of them is late.
+    - cron: '23 3,15 * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'A single commit to check instead of the recent window. 70139eb is a known missing case, 10e58fb a normal one.'
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          SHA: ${{ github.event.inputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # The script's exit 1 means "something is missing", not an error; any
+        # other non-zero exit is a failed lookup and fails this run (a partial
+        # list of verdicts is not an answer). Each missing commit gets its own
+        # issue.
+        run: |
+          rc=0
+          verdicts=$(.github/scripts/check-main-push-run.sh "$SHA") || rc=$?
+          echo "$verdicts"
+          [ "$rc" -le 1 ] || exit "$rc"
+          # A quiet window prints nothing and is fine; a lookup that could
+          # not happen already left with exit 2 above.
+          while read -r verdict short; do
+            [ "$verdict" = missing ] || continue
+            {
+              echo "<!-- ci-missing-push-run -->"
+              echo "ci.yml has no \`event=push\` run for \`${short}\` on main (found by [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+              echo
+              echo "Without that run the commit never ran \`spikes\`, and \`check\`/\`integration\` only ran on the PR head, not on the merge commit. Re-run by hand with \`gh workflow run CI --ref main\` and close this issue. A closed issue for this commit is not reopened; another commit gets its own."
+            } >body.md
+            # One issue per commit (--by-title, the title carries the SHA): the
+            # commit cannot grow a push run after the fact, so closing its issue
+            # acknowledges that gap only, and the next scheduled check neither
+            # reopens it nor appends another commit's gap to it.
+            .github/scripts/upsert-ci-issue.sh --by-title ci-missing-push-run \
+              "CI: main commit ${short} has no push run" body.md
+          done <<<"$verdicts"
