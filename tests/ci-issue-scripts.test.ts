@@ -49,7 +49,7 @@ answer() {
   echo $((n + 1)) >"$counter"
   [ "$n" -ge "$#" ] && n=$(($# - 1))
   shift "$n"
-  printf '%s\\n' "$1"
+  printf '%b\\n' "$1"
 }
 case "$*" in
 ${cases}
@@ -230,7 +230,12 @@ describe("upsert-ci-issue.sh", () => {
           "CI: main tip 70139eb has no push run",
           body.path,
         ],
-        { "label create": "", [openList]: "", [closedList]: "40" },
+        {
+          "label create": "",
+          [openList]: "",
+          [closedList]:
+            '[{"number":39,"title":"CI: main tip 70139eb has no push run"},{"number":40,"title":"CI: main tip 70139eb has no push run"},{"number":50,"title":"CI: main tip 1111111 has no push run"}]',
+        },
       );
 
       expect(outcome.exitCode).toBe(0);
@@ -238,10 +243,11 @@ describe("upsert-ci-issue.sh", () => {
       expect(
         outcome.calls.some((call) => call.startsWith("issue create")),
       ).toBe(false);
+      // The title match happens in jq, on the JSON gh returned; gh itself
+      // only lists by label and state.
       const closed = outcome.calls.find((call) => call.startsWith(closedList));
-      expect(closed).toContain(
-        "--arg title CI: main tip 70139eb has no push run",
-      );
+      expect(closed).toContain("--json number,title");
+      expect(closed).not.toContain("--jq");
     } finally {
       await body.dispose();
     }
@@ -250,8 +256,6 @@ describe("upsert-ci-issue.sh", () => {
   test("with --skip-if-closed, no matching closed title still creates the issue", async () => {
     const body = await bodyFile();
     try {
-      // The jq title filter runs inside the real gh; the fake stands in for
-      // its result, which is empty when no closed title matches.
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
@@ -263,7 +267,9 @@ describe("upsert-ci-issue.sh", () => {
         {
           "label create": "",
           [openList]: ["", "41"],
-          [closedList]: "",
+          // A closed issue for another commit must not count.
+          [closedList]:
+            '[{"number":50,"title":"CI: main tip 1111111 has no push run"}]',
           "issue create": "https://github.com/octo/repo/issues/41",
         },
       );
@@ -339,15 +345,35 @@ describe("check-main-push-run.sh", () => {
     expect(outcome.stdout).toBe("missing 70139eb\n");
   });
 
-  test("checks the main tip when no sha is given", async () => {
+  test("judges every main commit in the lookback window when no sha is given", async () => {
     const outcome = await run("check-main-push-run.sh", [], {
-      "api repos/octo/repo/commits/main": oldCommit("abcdef0123"),
-      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=abcdef0123&per_page=1":
+      "api repos/octo/repo/commits?sha=main&since=": [
+        `${oldCommit("bbbbbbb222")}\\n${oldCommit("aaaaaaa111")}`,
+      ],
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
         "1",
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=aaaaaaa111&per_page=1":
+        "0",
+    });
+
+    // The tip is fine; the commit under it lost its run and is still reported.
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stdout).toBe("present bbbbbbb\nmissing aaaaaaa\n");
+    const [window] = outcome.calls.filter((call) =>
+      call.startsWith("api repos/octo/repo/commits?sha=main&since="),
+    );
+    expect(window).toMatch(
+      /since=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z&per_page=100/,
+    );
+  });
+
+  test("an empty window is not an error", async () => {
+    const outcome = await run("check-main-push-run.sh", [], {
+      "api repos/octo/repo/commits?sha=main&since=": "",
     });
 
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.stdout).toBe("present abcdef0\n");
+    expect(outcome.stdout).toBe("");
   });
 
   test("does not judge a commit younger than the grace period", async () => {

@@ -282,13 +282,18 @@ jobs:
       # The summary table is only seen by whoever opens the run. A failure
       # also lands in an issue, one per open signal: repeats append to it.
       # `steps.*.outcome` rather than the run conclusion, which
-      # continue-on-error keeps green. Not gated on `push` or on main: the job
-      # already never runs on pull_request, a manual run is a person asking,
-      # and the body names the ref. Gating on main would also leave the step
-      # untestable from a branch.
+      # continue-on-error keeps green; `!= 'success'` rather than
+      # `== 'failure'` so a suite that never ran because setup broke counts
+      # too. Not gated on `push` or on main: the job already never runs on
+      # pull_request, a manual run is a person asking, and the body names the
+      # ref. Gating on main would also leave the step untestable from a branch.
+      # Not covered: a job timeout or cancellation (no step runs) and a
+      # failure of the issue call itself; both stay hidden behind
+      # continue-on-error until a reconciler reads job conclusions (94S-238
+      # follow-up).
       - if: >-
           !cancelled()
-          && (steps.spike-91.outcome == 'failure' || steps.spike-92.outcome == 'failure')
+          && (steps.spike-91.outcome != 'success' || steps.spike-92.outcome != 'success')
         name: Open or update the spike failure issue
         env:
           GH_REPO: ${{ github.repository }}

@@ -60,9 +60,11 @@ if [ -n "$number" ]; then
 fi
 
 if [ "$skip_if_closed" -eq 1 ]; then
+  # `gh --jq` takes a bare expression and no `--arg`; the exact-title match
+  # goes through jq itself so the title never has to be escaped into a filter.
   closed=$(gh issue list --repo "$GH_REPO" --label "$label" --state closed \
     --limit 100 --json number,title \
-    --jq --arg title "$title" '[.[] | select(.title == $title) | .number] | max // empty')
+    | jq -r --arg title "$title" '[.[] | select(.title == $title) | .number] | max // empty')
   if [ -n "$closed" ]; then
     echo "acknowledged #${closed}"
     exit 0
