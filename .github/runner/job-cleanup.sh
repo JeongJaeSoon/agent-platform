@@ -46,10 +46,10 @@ fi
 
 # Anything still running after the job ends is an orphan by definition: this
 # runner takes one job at a time, so nothing else is legitimately using Docker.
-# ponytail: that premise is not enforced anywhere — it is a property of how this
-# VM is set up, not of this script. Filter by the job's own labels instead the
-# moment a second runner is registered in this VM, or a job needs a container
-# that outlives it (a persistent buildx builder is the likely first one).
+# That premise is not enforced anywhere — it is a property of how this VM is set
+# up, not of this script. Filter by the job's own labels instead the moment a
+# second runner is registered in this VM, or a job needs a container that
+# outlives it (a persistent buildx builder is the likely first one).
 orphans=$(docker ps -q 2>/dev/null || true)
 if [ -n "$orphans" ]; then
   note "stopping containers still running after the job"

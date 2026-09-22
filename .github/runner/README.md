@@ -60,9 +60,9 @@ VM을 띄우는 것만으로는 격리되지 않는다. Lima 기본값 두 가�
 
 **단, private을 전제로 한다.** [GitHub은 public 저장소에 self-hosted 러너를 쓰지 말라고 명시한다](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners#self-hosted-runner-security) — fork가 보낸 코드가 이 머신에서 돌 수 있기 때문이다. **이 저장소를 public으로 바꾸기 전에 `gh variable delete CI_RUNS_ON`으로 GitHub-hosted에 먼저 돌려놓는다.**
 
-<!-- ponytail: ephemeral 러너를 쓰지 않았다. 매 job마다 재등록하려면 VM에 장기 PAT를 두어야 하는데, 지금 막는 위협보다 그 토큰이 더 큰 노출이다. 이 저장소에 다른 기여자가 생기거나 이 러너를 다른 저장소와 공유하는 순간 `--ephemeral` + repo 범위 fine-grained PAT로 올린다. -->
+**ephemeral 러너를 쓰지 않았다.** 매 job마다 재등록하려면 VM에 장기 PAT를 두어야 하는데, 지금 막는 위협보다 그 토큰이 더 큰 노출이다. 이 저장소에 다른 기여자가 생기거나 이 러너를 다른 저장소와 공유하는 순간 `--ephemeral` + repo 범위 fine-grained PAT로 올린다.
 
-<!-- ponytail: 러너 설정을 별도 저장소로 떼지 않았다. 지금 이 VM을 쓰는 저장소가 하나뿐이라, 떼면 `ci.yml`과 `lima.yaml`이 한 PR에서 같이 움직이지 못하게 되는 것만 잃는다 — 이 VM의 크기·아키텍처·"job은 한 번에 하나"는 전부 이 저장소 CI에 대한 사실이다. 두 번째 저장소가 이 러너를 쓰는 순간 뗀다. 그때는 등록도 repo 단위에서 user 단위로 올라가야 하므로 위의 ephemeral 승급과 같은 변경이다. -->
+**러너 설정을 별도 저장소로 떼지 않았다.** 지금 이 VM을 쓰는 저장소가 하나뿐이라, 떼면 `ci.yml`과 `lima.yaml`이 한 PR에서 같이 움직이지 못하게 되는 것만 잃는다 — 이 VM의 크기·아키텍처·"job은 한 번에 하나"는 전부 이 저장소 CI에 대한 사실이다. 두 번째 저장소가 이 러너를 쓰는 순간 뗀다. 그때는 등록도 repo 단위에서 user 단위로 올라가야 하므로 위의 ephemeral 승급과 같은 변경이다.
 
 상태가 의심스러우면 VM을 통째로 버린다. 30분이면 재구축된다.
 
@@ -73,7 +73,7 @@ limactl start --name=agent-platform-ci .github/runner/lima.yaml && .github/runne
 
 ## 아키텍처 차이
 
-이 러너는 **arm64**, GitHub-hosted `ubuntu-24.04`는 **amd64**다. `CI_RUNS_ON`을 켜면 amd64에서 도는 실행이 없어진다. 쓰는 이미지(`postgres:16`, `localstack/localstack:3`, `busybox`)와 도구(Bun, uv, Python 3.13)는 전부 multi-arch라 동작 자체는 문제없지만, **아키텍처에 민감한 버그는 걸리지 않는다.** `ci.yml`의 `ponytail:` 주석에 이 선택과 되돌릴 조건을 적어 두었다.
+이 러너는 **arm64**, GitHub-hosted `ubuntu-24.04`는 **amd64**다. `CI_RUNS_ON`을 켜면 amd64에서 도는 실행이 없어진다. 쓰는 이미지(`postgres:16`, `localstack/localstack:3`, `busybox`)와 도구(Bun, uv, Python 3.13)는 전부 multi-arch라 동작 자체는 문제없지만, **아키텍처에 민감한 버그는 걸리지 않는다.** `ci.yml`의 `runs-on` 주석에 이 선택과 되돌릴 조건을 적어 두었다.
 
 ## 리소스
 
