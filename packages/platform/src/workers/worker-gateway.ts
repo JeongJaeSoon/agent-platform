@@ -142,8 +142,10 @@ export function createWorkerGateway(deps: {
     };
   }
 
-  // The bearer token must name the same binding the body claims to act
-  // for; anything else is a worker reaching for another session.
+  // The write fence comes from the token, not from the body. Checking the
+  // body against it closes the race where a holder of a token that is about
+  // to be revoked sends the next revision's numbers ahead of time and has
+  // them accepted once the rotation lands.
   function requireScope(principal: WorkerPrincipal, scope: WorkerScope) {
     if (principal.kind !== "session") {
       throw new WorkerGatewayError(
@@ -152,9 +154,10 @@ export function createWorkerGateway(deps: {
         "Bootstrap credentials may only call bootstrapClaim",
       );
     }
+    const fence = fenceOf(scope);
     if (
-      principal.sessionId !== scope.session_id ||
-      principal.attemptId !== scope.attempt_id
+      principal.sessionId !== fence.sessionId ||
+      principal.attemptId !== fence.attemptId
     ) {
       throw new WorkerGatewayError(
         403,
@@ -162,7 +165,31 @@ export function createWorkerGateway(deps: {
         "Token does not match the requested binding",
       );
     }
-    return fenceOf(scope);
+    const behind =
+      fence.leaseEpoch < principal.leaseEpoch ||
+      fence.executionGeneration < principal.executionGeneration ||
+      fence.authRevision < principal.authRevision;
+    const ahead =
+      fence.leaseEpoch > principal.leaseEpoch ||
+      fence.executionGeneration > principal.executionGeneration ||
+      fence.authRevision > principal.authRevision;
+    if (behind) {
+      throw new WorkerGatewayError(
+        409,
+        "STALE_EPOCH",
+        "The request carries an epoch older than the token's binding",
+      );
+    }
+    if (ahead) {
+      throw new WorkerGatewayError(
+        403,
+        "FORBIDDEN",
+        "The request claims an epoch the token was not issued for",
+      );
+    }
+    // The token's own view can still be stale against the row; the fenced
+    // SQL below is what decides that.
+    return fence;
   }
 
   return {
@@ -348,6 +375,13 @@ export function createWorkerGateway(deps: {
           409,
           "IDEMPOTENCY_CONFLICT",
           "Turn is already finalized; its event stream is closed",
+        );
+      }
+      if (result.outcome === "sequence_gap") {
+        throw new WorkerGatewayError(
+          400,
+          "BAD_REQUEST",
+          `Events must continue the durable prefix; resume from source_sequence ${result.acceptedThrough + 1}`,
         );
       }
       if (result.outcome === "event_conflict") {

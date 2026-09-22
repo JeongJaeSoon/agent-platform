@@ -57,8 +57,11 @@ export type ClaimResult =
   | { outcome: "invalid_credential" }
   | { outcome: "no_session" };
 
+// The fence as it stood when the token was issued. A request body may not
+// name any other one: the numbers are guessable, so without this a holder of
+// a token that is about to be revoked could pre-address the next revision.
 export type ResolvedCredential =
-  | { kind: "session"; attemptId: string; sessionId: string }
+  | ({ kind: "session" } & WorkerFence)
   // A launch nonce: valid only for bootstrapClaim.
   | { kind: "bootstrap" }
   | null;
@@ -97,6 +100,9 @@ export type CommitEventsResult =
   | { outcome: "event_conflict" }
   // New events for a turn that already reached its terminal.
   | { outcome: "turn_finalized" }
+  // The batch does not continue the durable prefix; acceptedThrough says
+  // where the worker has to resume.
+  | { outcome: "sequence_gap"; acceptedThrough: number }
   | FenceRejection;
 
 export type FinalizeInput = {

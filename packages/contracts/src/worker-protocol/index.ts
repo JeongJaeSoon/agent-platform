@@ -80,9 +80,10 @@ export const heartbeatResponseSchema = z.object({
 });
 
 const v = sessionEventVariants;
-// Per attempt, source_sequence starts at 1 and increases by one. The gateway
-// acknowledges the unbroken prefix, so a worker that numbers its events any
-// other way is told that nothing is durable yet.
+// Per attempt, source_sequence starts at 1 and increases by one. Subscribers
+// read the stream back in the order it was stored, so an event whose
+// predecessor is missing is refused rather than written out of order: the
+// worker resends from the acknowledged prefix.
 function sourced<V extends (typeof v)[keyof typeof v]>(variant: V) {
   return variant.extend({
     source_sequence: z.number().int().positive(),

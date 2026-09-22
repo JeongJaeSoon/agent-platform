@@ -22,6 +22,9 @@ const principal = {
   kind: "session",
   attemptId: "att_1",
   sessionId: scope.session_id,
+  leaseEpoch: scope.lease_epoch,
+  executionGeneration: scope.execution_generation,
+  authRevision: scope.auth_revision,
 } as const;
 
 function unimplemented(): never {

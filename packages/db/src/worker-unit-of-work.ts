@@ -57,6 +57,15 @@ import {
 } from "./schema.ts";
 
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
+
+// Heartbeats travel over a network and can land out of order. The durable
+// state is the furthest phase the attempt has been reported to reach, so a
+// late "starting" cannot walk a running attempt backwards for readers.
+const ATTEMPT_PHASE_ORDER: Record<string, number> = {
+  starting: 0,
+  running: 1,
+  draining: 2,
+};
 const OPEN_TURN_STATUSES = ["running", "needs_input"];
 const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 const TURN_ID = /^[1-9]\d{0,9}$/;
@@ -474,7 +483,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       now: Date,
     ): Promise<ResolvedCredential> {
       const [session] = await db
-        .select({ attemptId: attempts.id, sessionId: attempts.sessionId })
+        .select({
+          attemptId: attempts.id,
+          sessionId: attempts.sessionId,
+          leaseEpoch: attempts.leaseEpoch,
+          executionGeneration: attempts.executionGeneration,
+          authRevision: attempts.authRevision,
+        })
         .from(workerCredentials)
         .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
         .where(
@@ -582,12 +597,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence, now);
         if (fenced.outcome !== "ok") return fenced;
+        const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
+        const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
         const updated = await tx
           .update(attempts)
           .set({
             leaseExpiresAt: input.leaseExpiresAt,
             lastHeartbeatAt: now,
-            state: input.attemptState,
+            state:
+              reported > current ? input.attemptState : fenced.attempt.state,
           })
           .where(fencedAttempt(fence, now))
           .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
@@ -702,6 +720,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           !OPEN_TURN_STATUSES.includes(turnStatus)
         ) {
           return { outcome: "turn_finalized" };
+        }
+        // Events are published in insertion order, so one may only be written
+        // once its predecessor is durable: a hole here would be permanent in
+        // the order every subscriber reads.
+        fresh.sort((a, b) => a.source_sequence - b.source_sequence);
+        const durable = await contiguousThrough(tx, fence);
+        for (const [index, event] of fresh.entries()) {
+          if (event.source_sequence !== durable + 1 + index) {
+            return { outcome: "sequence_gap", acceptedThrough: durable };
+          }
         }
         if (fresh.length > 0) {
           await tx.insert(events).values(

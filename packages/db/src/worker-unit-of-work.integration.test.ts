@@ -146,6 +146,9 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: claimed.attempt_id,
       sessionId: claimed.session_id,
+      leaseEpoch: claimed.lease_epoch,
+      executionGeneration: claimed.execution_generation,
+      authRevision: claimed.auth_revision,
     };
   }
 
@@ -238,6 +241,9 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: first.attempt_id,
       sessionId: first.session_id,
+      leaseEpoch: retry.lease_epoch,
+      executionGeneration: retry.execution_generation,
+      authRevision: retry.auth_revision,
     });
   });
 
@@ -590,16 +596,19 @@ integration("worker gateway on PostgreSQL", () => {
       events: [event(1), event(2)],
     });
     expect(extended.accepted_through).toBe(2);
-    // A batch that skips ahead is stored but only acknowledged up to the gap,
-    // so the worker keeps sequence 3 in its buffer.
-    const ahead = await gateway.appendEvents(principalOf(claimed), {
-      ...base,
-      events: [event(4)],
-    });
-    expect(ahead.accepted_through).toBe(2);
+    // A batch that skips ahead is refused, not buffered: subscribers read the
+    // stream back in the order it was written, so a hole would be permanent.
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [event(4)],
+        }),
+      ),
+    ).toEqual({ status: 400, code: "BAD_REQUEST" });
     const closed = await gateway.appendEvents(principalOf(claimed), {
       ...base,
-      events: [event(3)],
+      events: [event(3), event(4)],
     });
     expect(closed.accepted_through).toBe(4);
     const [storedRow] = await db
@@ -866,20 +875,59 @@ integration("worker gateway on PostgreSQL", () => {
     expect(afterFinalize?.stored).toBe(1);
   });
 
-  test("nothing is acknowledged while sequence 1 is missing", async () => {
-    const { claimed } = await claimAndDeliver();
+  test("a batch that does not continue the durable prefix is refused", async () => {
+    const { session, claimed } = await claimAndDeliver();
     const base = { ...scopeOf(claimed, "1"), batch_key: "b" };
-    // A run that starts past 1 says nothing about the events before it.
-    const ahead = await gateway.appendEvents(principalOf(claimed), {
+    expect(
+      await failure(
+        gateway.appendEvents(principalOf(claimed), {
+          ...base,
+          events: [event(2), event(3)],
+        }),
+      ),
+    ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    const [empty] = await db
+      .select({ stored: count() })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id));
+    expect(empty?.stored).toBe(0);
+    // Inside one batch the order of arrival does not matter: the rows are
+    // written by source_sequence, which is the order they are read back in.
+    const ordered = await gateway.appendEvents(principalOf(claimed), {
       ...base,
-      events: [event(2), event(3)],
+      events: [event(3), event(1), event(2)],
     });
-    expect(ahead.accepted_through).toBe(0);
-    const closed = await gateway.appendEvents(principalOf(claimed), {
-      ...base,
-      events: [event(1)],
-    });
-    expect(closed.accepted_through).toBe(3);
+    expect(ordered.accepted_through).toBe(3);
+    const stored = await db
+      .select({ sourceSequence: events.sourceSequence })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id))
+      .orderBy(events.id);
+    expect(stored.map((row) => row.sourceSequence)).toEqual([1, 2, 3]);
+  });
+
+  test("a late heartbeat cannot walk the reported phase backwards", async () => {
+    const partition = partitionFor("hborder");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const claimed = await claim(l);
+    const beat = (attempt_state: "starting" | "running" | "draining") =>
+      gateway.heartbeat(principalOf(claimed), {
+        ...scopeOf(claimed),
+        attempt_state,
+      });
+    const phase = async () => {
+      const [row] = await db
+        .select({ state: attempts.state })
+        .from(attempts)
+        .where(eq(attempts.id, claimed.attempt_id));
+      return row?.state;
+    };
+    await beat("running");
+    await beat("starting");
+    expect(await phase()).toBe("running");
+    await beat("draining");
+    expect(await phase()).toBe("draining");
   });
 
   test("a replayed claim moves the auth revision so an older token's requests are fenced", async () => {
@@ -893,16 +941,22 @@ integration("worker gateway on PostgreSQL", () => {
     // A request authenticated before the rotation carries the old revision.
     expect(
       await failure(
-        gateway.heartbeat(
-          {
-            kind: "session",
-            attemptId: first.attempt_id,
-            sessionId: first.session_id,
-          },
-          { ...scopeOf(first), attempt_state: "running" },
-        ),
+        gateway.heartbeat(principalOf(first), {
+          ...scopeOf(first),
+          attempt_state: "running",
+        }),
       ),
     ).toEqual({ status: 409, code: "STALE_EPOCH" });
+    // ...and it cannot address the new revision either: the token it
+    // authenticated with was issued for the old one.
+    expect(
+      await failure(
+        gateway.heartbeat(principalOf(first), {
+          ...scopeOf(second),
+          attempt_state: "running",
+        }),
+      ),
+    ).toEqual({ status: 403, code: "FORBIDDEN" });
     const beat = await gateway.heartbeat(principalOf(second), {
       ...scopeOf(second),
       attempt_state: "running",
