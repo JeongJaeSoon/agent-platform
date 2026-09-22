@@ -72,9 +72,12 @@ const app = createApiApp({
 
 export default {
   port: Number(process.env.PORT ?? 3000),
-  // Bun closes a response that has produced no bytes for idleTimeout seconds
-  // (default 10). A request waiting on the pool's query_timeout must still
-  // get its 503, so leave room above API_POOL_TIMEOUTS.queryMs.
-  idleTimeout: Math.ceil(API_POOL_TIMEOUTS.queryMs / 1000) + 10,
+  // Bun resets a connection whose response has produced no bytes for
+  // idleTimeout seconds (default 10), and a reset carries no status, no
+  // request id and no retry hint. A request runs several database stages in
+  // sequence (key lookup, pool wait, BEGIN, statements, ROLLBACK), each with
+  // its own timeout, so the budget must cover a handful of the longest one,
+  // not just one; the per-request deadline is a follow-up (see 94S-200).
+  idleTimeout: Math.ceil((API_POOL_TIMEOUTS.queryMs * 5) / 1000),
   fetch: app.fetch,
 };
