@@ -758,8 +758,12 @@ describe("egress proxy", () => {
         },
         open(socket) {
           banners += 1;
-          socket.data = { pending: null };
-          socket.write(banner(banners));
+          // Queued like the echo, so a banner past the socket buffer is
+          // delivered whole instead of cut at the first partial write.
+          socket.data = {
+            pending: new TextEncoder().encode(banner(banners)),
+          };
+          echoDrain(socket);
         },
       },
     });
@@ -797,7 +801,7 @@ describe("egress proxy", () => {
       talk.resumeReading();
       expect(
         await talk.waitFor("200 Connection Established", 10_000),
-      ).toContain("200");
+      ).toStartWith("HTTP/1.1 200 Connection Established");
       // The winner's banner is what the client gets, and only after the 200.
       const seen = await talk.waitFor(banner(2), 10_000);
       expect(seen.indexOf("200 Connection Established")).toBeLessThan(
@@ -808,7 +812,9 @@ describe("egress proxy", () => {
       expect(await talk.waitFor("before", 10_000)).toContain("before");
       talk.send("after");
       expect(await talk.waitFor("after", 10_000)).toContain("after");
-      expect(talk.text()).not.toContain(banner(1));
+      // Not one fragment of A: the sentinel is short enough that a partial
+      // leak could not hide behind the client's transcript cap.
+      expect(talk.text()).not.toContain("server-first-banner-1");
       expect(talk.isClosed()).toBe(false);
       talk.close();
     } finally {
