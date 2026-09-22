@@ -38,7 +38,11 @@ import {
   startStepReporter,
 } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
-import { reapStuckChild, WATCHDOG_MARGIN_MS } from "./stuck-child.ts";
+import {
+  reapStuckChild,
+  SIGNAL_GRACE_MS,
+  WATCHDOG_MARGIN_MS,
+} from "./stuck-child.ts";
 
 const describeActual = localstackEnabled ? describe : describe.skip;
 
@@ -251,20 +255,27 @@ describeActual("actual SDK SessionStore process contract", () => {
         prompt: "block the mirror",
         workspace,
       });
-      await waitForRequestCount(server.requests, 1);
-      await Bun.sleep(500);
-      // The group, not the pid: this child is blocked in `append` with the SDK
-      // and its CLI still running below it.
+      // Registered before the first await: anything that throws between here
+      // and the kill must still leave a detached group behind, and `exit`
+      // fires once — a listener added later waits for an event already gone.
       const exited = childExit(child);
-      killGroup(child.pid ?? 0, "SIGKILL");
-      expect(await exited).not.toBe(0);
+      try {
+        await waitForRequestCount(server.requests, 1);
+        await Bun.sleep(500);
+        // The group, not the pid: this child is blocked in `append` with the
+        // SDK and its CLI still running below it.
+        killGroup(child.pid ?? 0, "SIGKILL");
+        expect(await exited).not.toBe(0);
 
-      const store = new S3SessionStoreProbe({
-        bucket: localstackBucket(),
-        client,
-        prefix: hangingPrefix,
-      });
-      expect(await store.listSessions("tenant-workspace")).toEqual([]);
+        const store = new S3SessionStoreProbe({
+          bucket: localstackBucket(),
+          client,
+          prefix: hangingPrefix,
+        });
+        expect(await store.listSessions("tenant-workspace")).toEqual([]);
+      } finally {
+        await discardChild(child, exited);
+      }
     } finally {
       server.stop();
     }
@@ -493,6 +504,12 @@ type ChildOptions = {
 async function runChild(options: ChildOptions): Promise<ChildRun> {
   const child = startChild(options);
   mark(`runChild:spawned(${child.pid})`);
+  if (!child.stdout || !child.stderr) {
+    // Before anything else can throw: a detached child with no pipes to read
+    // would otherwise be left running with no handle on it.
+    killGroup(child.pid ?? 0, "SIGKILL");
+    throw new Error("child has no pipes");
+  }
   // No floor: if the budget is already spent, the watchdog fires at once and
   // says so. Borrowing from the cleanup margin instead would leave bun's own
   // timeout to cut the diagnosis off, which is what this replaced.
@@ -500,7 +517,6 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
     0,
     testDeadline - Date.now() - WATCHDOG_MARGIN_MS,
   );
-  if (!child.stdout || !child.stderr) throw new Error("child has no pipes");
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
   let exitCode: number | undefined;
@@ -512,39 +528,65 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
     stderr.closed,
   ]);
 
-  const watchdog = deadline(watchdogMs);
-  const timedOut = await Promise.race([
-    settled.then(() => false),
-    watchdog.expired.then(() => true),
-  ]);
-  watchdog.cancel();
-  if (timedOut) {
-    // Which of the three is still open is the whole diagnosis: a live child is
-    // stuck somewhere, while a dead child with an open pipe means nobody drained
-    // it. Both readings need the S3 accounting next to them.
-    const state = [
-      `child pid=${child.pid} did not settle within ${watchdogMs}ms`,
-      `exit=${exitCode ?? "pending"} stdout=${stdout.state()} stderr=${stderr.state()}`,
-      `parent s3: ${localstackCalls.describe()}`,
-      `child stdout so far: ${JSON.stringify(stdout.text())}`,
-      `child stderr so far: ${JSON.stringify(stderr.text())}`,
-    ];
-    state.push(...(await reapStuckChild(child, settled)));
-    state.push(`final exit=${exitCode ?? "pending"}`);
-    state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
-    throw new Error(state.join("\n  "));
+  try {
+    return await awaitChild();
+  } finally {
+    // Whatever happened above — a result, a watchdog, a parse error — no part
+    // of this child's group outlives the call that started it.
+    await discardChild(child, settled);
   }
 
-  const line = stdout
-    .text()
-    .split("\n")
-    .find((candidate) => candidate.startsWith("CHILD_RESULT:"));
-  if (!line) throw new Error(`Child emitted no result: ${stderr.text()}`);
-  return {
-    exitCode: exitCode ?? -1,
-    stderr: stderr.text(),
-    value: JSON.parse(line.slice("CHILD_RESULT:".length)) as ChildResult,
-  };
+  async function awaitChild(): Promise<ChildRun> {
+    const watchdog = deadline(watchdogMs);
+    const timedOut = await Promise.race([
+      settled.then(() => false),
+      watchdog.expired.then(() => true),
+    ]);
+    watchdog.cancel();
+    if (timedOut) {
+      // Which of the three is still open is the whole diagnosis: a live child is
+      // stuck somewhere, while a dead child with an open pipe means nobody drained
+      // it. Both readings need the S3 accounting next to them.
+      const state = [
+        `child pid=${child.pid} did not settle within ${watchdogMs}ms`,
+        `exit=${exitCode ?? "pending"} stdout=${stdout.state()} stderr=${stderr.state()}`,
+        `parent s3: ${localstackCalls.describe()}`,
+        `child stdout so far: ${JSON.stringify(stdout.text())}`,
+        `child stderr so far: ${JSON.stringify(stderr.text())}`,
+      ];
+      state.push(...(await reapStuckChild(child, settled)));
+      state.push(`final exit=${exitCode ?? "pending"}`);
+      state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
+      throw new Error(state.join("\n  "));
+    }
+
+    const line = stdout
+      .text()
+      .split("\n")
+      .find((candidate) => candidate.startsWith("CHILD_RESULT:"));
+    if (!line) throw new Error(`Child emitted no result: ${stderr.text()}`);
+    return {
+      exitCode: exitCode ?? -1,
+      stderr: stderr.text(),
+      value: JSON.parse(line.slice("CHILD_RESULT:".length)) as ChildResult,
+    };
+  }
+}
+
+/**
+ * Last rites for a detached child: kill its group and wait briefly for it to
+ * go. A no-op once the child exited on its own, which is the common case.
+ */
+async function discardChild(
+  child: ChildProcess,
+  settled: Promise<unknown>,
+): Promise<void> {
+  const pgid = child.pid;
+  if (pgid === undefined || pgid <= 0) return;
+  if (!killGroup(pgid, "SIGKILL")) return;
+  const reap = deadline(SIGNAL_GRACE_MS);
+  await Promise.race([settled, reap.expired]);
+  reap.cancel();
 }
 
 /**
