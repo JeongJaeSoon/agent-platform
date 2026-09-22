@@ -46,6 +46,11 @@ export class Heartbeat {
     this.running ??= this.loop();
   }
 
+  /** Beats at once instead of waiting out the interval; no-op mid-beat. */
+  beatNow(): void {
+    this.wake?.();
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     this.wake?.();

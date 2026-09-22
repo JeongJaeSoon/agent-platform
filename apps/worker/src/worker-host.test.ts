@@ -119,6 +119,8 @@ describe("WorkerHost turn loop", () => {
       { type: "await-input" },
       { type: "emit", message: assistantMessage("second answer") },
       { type: "emit", message: resultMessage(uuidForTurn(2)) },
+      // A live engine keeps its stream open between turns.
+      { type: "await-input" },
     ]);
     gateway.enqueue("first message");
     gateway.enqueue("second message");
@@ -426,18 +428,52 @@ describe("WorkerHost ownership and shutdown", () => {
     const loop = host.runLoop();
 
     await waitFor(() => gateway.finalized.length === 1, "the first finalize");
-    gateway.enqueue("second message");
     host.drain("received SIGTERM");
+    // The gateway hears about the drain at once, not at the next beat.
+    await waitFor(
+      () =>
+        gateway.heartbeats.some((beat) => beat.attempt_state === "draining"),
+      "the draining heartbeat",
+    );
+    gateway.enqueue("second message");
 
     const summary = await loop;
 
     expect(summary.outcome).toBe("drained");
     expect(summary.reason).toBe("received SIGTERM");
-    // The queued second message was never started: draining stops new input.
+    // The second message was never started: draining stops new input.
     expect(gateway.finalized).toHaveLength(1);
     expect(gateway.releases[0]?.reason).toBe("received SIGTERM");
     expect(gateway.calls.indexOf("release")).toBeGreaterThan(
       gateway.calls.lastIndexOf("finalize"),
+    );
+  });
+
+  test("finishes an input the gateway handed over as the drain began", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { drainTimeoutMs: 2_000, idleTimeoutMs: 60_000 } },
+    );
+    // The poll in flight read the queue before the drain reached the
+    // gateway: the turn is this attempt's now, and dropping it would leave it
+    // open for the reconciler.
+    gateway.refuseDraining = false;
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("nextInput"), "the first poll");
+    host.drain("received SIGTERM");
+    gateway.enqueue("first message");
+
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(gateway.finalized.map((request) => request.turn_id)).toEqual(["1"]);
+    expect(gateway.calls.indexOf("release")).toBeGreaterThan(
+      gateway.calls.lastIndexOf("nextInput"),
     );
   });
 
@@ -457,6 +493,95 @@ describe("WorkerHost ownership and shutdown", () => {
 
     expect(summary.outcome).toBe("drained");
     // Nothing is finalized: an infrastructure stop leaves the turn retryable.
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("takes no further input once the engine stream has ended", async () => {
+    const gateway = new FakeWorkerGateway();
+    // The fake's stream ends after its last step, the way an engine that
+    // crashed would: nothing will ever answer an input sent after it.
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("first message");
+    gateway.enqueue("second message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toBe("The engine stream ended");
+    expect(runtime.inputs).toHaveLength(1);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("stops at once when an event write says the lease is gone", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.appendFailure = new WorkerGatewayRequestError(
+      409,
+      "LEASE_EXPIRED",
+      "Lease expired; the attempt must stop writing",
+      false,
+    );
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: assistantMessage("working") },
+        { type: "delay", delayMs: 5_000 },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("a turn whose events are fenced out");
+    const started = Date.now();
+
+    const summary = await host.runLoop();
+
+    // Not the heartbeat (10s away) and not the end of the turn (5s away).
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("Lease expired");
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toEqual([]);
+  });
+
+  test("gives up events the gateway keeps refusing once the drain budget is spent", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.appendFailure = new WorkerGatewayRequestError(
+      503,
+      null,
+      "gateway unavailable",
+      true,
+    );
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: assistantMessage("done") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { drainTimeoutMs: 30 } },
+    );
+    gateway.enqueue("a turn whose events never land");
+    const loop = host.runLoop();
+
+    await waitFor(() => runtime.inputs.length === 1, "the input to be sent");
+    await waitFor(
+      () => gateway.calls.includes("appendEvents"),
+      "the first refused append",
+    );
+    host.drain("received SIGTERM");
+    const started = Date.now();
+
+    const summary = await loop;
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(summary.outcome).toBe("drained");
+    // A turn whose events are not durable is never declared over.
     expect(gateway.finalized).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
   });

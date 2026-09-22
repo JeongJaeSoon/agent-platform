@@ -14,6 +14,11 @@ export type EventPublisherOptions = {
   gateway: Pick<WorkerGatewayClient, "appendEvents">;
   /** The fence as it stands now; the turn id moves with the turn loop. */
   scope: () => WorkerScope;
+  /**
+   * Told the moment a write is refused for good, so the host stops the engine
+   * then instead of at the end of the turn — an owner-loss refusal especially.
+   */
+  onFailed?: (error: unknown) => void;
   maxBatchSize?: number;
   now?: () => Date;
   retryDelayMs?: number;
@@ -35,6 +40,7 @@ const DEFAULT_RETRY_DELAY_MS = 500;
 export class EventPublisher {
   private readonly gateway: Pick<WorkerGatewayClient, "appendEvents">;
   private readonly scope: () => WorkerScope;
+  private readonly onFailed: (error: unknown) => void;
   private readonly maxBatchSize: number;
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
@@ -48,6 +54,7 @@ export class EventPublisher {
   constructor(options: EventPublisherOptions) {
     this.gateway = options.gateway;
     this.scope = options.scope;
+    this.onFailed = options.onFailed ?? (() => {});
     this.maxBatchSize = options.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -122,6 +129,7 @@ export class EventPublisher {
       } catch (error) {
         if (!isRetryable(error)) {
           this.failure = error;
+          this.onFailed(error);
           return;
         }
         // The same batch_key and the same sequences: a replay of what already
