@@ -1,0 +1,54 @@
+name: main push run
+
+# ci.yml cannot notice its own absence: when GitHub drops the push event for a
+# main commit (observed on 70139eb, 2026-09-22) no run exists to complain. This
+# workflow wakes on its own clock, asks whether the tip of main has a push run
+# of ci.yml, and opens an issue when it does not. `spikes` runs only on main
+# pushes, so a dropped run is also a commit with no spike signal at all.
+on:
+  schedule:
+    # Twice a day. A day-old gap is still worth a look; more often costs
+    # minutes for a condition seen once.
+    - cron: '23 3,15 * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit to check instead of the main tip. 70139eb is a known missing case, 10e58fb a normal one.'
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: run
+        env:
+          SHA: ${{ github.event.inputs.sha }}
+        # The script's exit 1 is the signal, not an error; the next step reads it.
+        run: |
+          verdict=$(.github/scripts/check-main-push-run.sh "$SHA") || true
+          echo "verdict=${verdict}" >>"$GITHUB_OUTPUT"
+          echo "main push run check: ${verdict:-<no verdict>}"
+          [ -n "$verdict" ]
+      - if: steps.run.outputs.verdict == 'missing'
+        env:
+          SHA: ${{ github.event.inputs.sha }}
+        run: |
+          {
+            echo "<!-- ci-missing-push-run -->"
+            echo "ci.yml has no \`event=push\` run for \`${SHA:-the main tip}\` (checked by [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
+            echo
+            echo "Without that run the commit never ran \`spikes\`, and \`check\`/\`integration\` only ran on the PR head, not on the merge commit. Re-run by hand with \`gh workflow run CI --ref main\` and close this issue once the gap is understood."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-missing-push-run \
+            "CI: main tip has no push run" body.md

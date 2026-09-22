@@ -180,8 +180,22 @@ jobs:
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
+  #
+  # Deliberately NOT a required status check (94S-238), for three reasons:
+  #   1. It does not run on pull_request, so a required `spikes` context would
+  #      leave every PR waiting for a status that never arrives.
+  #   2. Running it on every PR commit would bring back the cost 94S-232
+  #      removed: this is the most expensive job (LocalStack, python, uv,
+  #      litellm[proxy], real CLI runs), right after a month's minutes ran out.
+  #   3. It already runs on every main push, so a regression is caught within
+  #      one commit of merging; gating PRs adds nothing. The gap that remained
+  #      was nobody noticing, which the issue step at the end closes.
   spikes:
     needs: check
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
     # Because a spike failure never blocks anything, running it on every PR
     # commit buys no signal the main-push run does not already give. It stays on
     # main pushes and on demand (`-f only=spikes`), which is also how a PR that
@@ -265,3 +279,32 @@ jobs:
             echo
             echo "This job never fails the run. A \`failure\` above still needs a look."
           } >>"$GITHUB_STEP_SUMMARY"
+      # The summary table is only seen by whoever opens the run. A failure on
+      # main also lands in an issue, one per open signal: repeats append to it.
+      # `steps.*.outcome` rather than the run conclusion, which
+      # continue-on-error keeps green. Not gated on `push`: a manual run on
+      # main that breaks a spike is the same signal.
+      - if: >-
+          !cancelled() && github.ref == 'refs/heads/main'
+          && (steps.spike-91.outcome == 'failure' || steps.spike-92.outcome == 'failure')
+        name: Open or update the spike failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          SPIKE_91: ${{ steps.spike-91.outcome }}
+          SPIKE_92: ${{ steps.spike-92.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- ci-spikes-failure -->"
+            echo "\`spikes\` failed on \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo
+            echo "| suite | outcome |"
+            echo "| --- | --- |"
+            echo "| spikes/94s-91 | ${SPIKE_91} |"
+            echo "| spikes/94s-92 | ${SPIKE_92} |"
+            echo
+            echo "The run itself is green (\`continue-on-error\`). Close this issue once the failure is understood; the next failure reopens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-spikes-failure \
+            "CI: spikes failed on main" body.md
