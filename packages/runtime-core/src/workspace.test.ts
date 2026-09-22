@@ -3,6 +3,7 @@ import {
   planWorkspacePreparation,
   sameRepository,
   type WorkspaceObservation,
+  type WorkspacePlan,
 } from "./workspace.ts";
 
 const workspace = {
@@ -49,7 +50,7 @@ describe("planWorkspacePreparation", () => {
   });
 
   test("a sound checkout of the same origin is reused, dirty or not, whatever the credentials or .git spelling", () => {
-    const expected = {
+    const expected: WorkspacePlan = {
       action: "reuse",
       url: workspace.repository.url,
       branch: "main",
