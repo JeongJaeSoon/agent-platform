@@ -197,6 +197,7 @@ export function registerEventRoutes(
       return verdict;
     };
     const armWatchdog = () => {
+      if (closed.signal.aborted) return;
       watchdog = setTimeout(
         async () => {
           inflight = verify();
@@ -231,6 +232,9 @@ export function registerEventRoutes(
         );
       }
     } catch (error) {
+      // Abort first: a verification in flight would otherwise re-arm the
+      // watchdog after this request is gone and keep polling the key store.
+      closeWith("read_failed");
       armed.release();
       disarmWatchdog();
       release();

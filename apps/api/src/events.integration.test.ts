@@ -318,6 +318,35 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     expect(all?.items[0]?.data.occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
+  test("the byte bound counts serialized size, not TOAST-compressed size", async () => {
+    const sessionId = await createdSession();
+    // A repetitive 60 KiB document compresses to well under 1 KiB on disk;
+    // the page must still count it at its serialized size.
+    const filler = "x".repeat(60_000);
+    await db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .for("update");
+      await tx.insert(events).values(
+        Array.from({ length: 20 }, (_, i) => ({
+          sessionId,
+          type: "status",
+          payload: { phase: "running", n: i, filler },
+          attemptId: "a1",
+        })),
+      );
+    });
+    const reader = createPostgresSessionReader(db);
+    const page = await reader.readEvents(owner, sessionId, {
+      limit: 100,
+      maxBytes: 256 * 1024,
+    });
+    expect(page?.items.length).toBe(4);
+    expect(page?.more).toBe(true);
+  });
+
   test("a page over a long history scans only `limit` candidate rows", async () => {
     const sessionId = await createdSession();
     for (let i = 0; i < 50; i += 1) await appendLikeWorker(sessionId, 100);

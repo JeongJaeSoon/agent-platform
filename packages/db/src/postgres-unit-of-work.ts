@@ -379,7 +379,10 @@ function summarizeTurn(
 }
 
 // Exported so a test can EXPLAIN it: the work per page must stay bounded
-// by `limit` however long the session history is.
+// by `limit` however long the session history is. The byte total is the
+// serialized length, not pg_column_size: TOAST compresses a repetitive
+// 60 KiB document to under 1 KiB on disk, and it is the serialized form
+// that this process holds.
 export function eventPageQuery(
   sessionId: string,
   after: number,
@@ -392,7 +395,7 @@ export function eventPageQuery(
     FROM (
       SELECT c.id, c.type, c.payload, c.attempt_id, c.turn_sequence,
              c.occurred_ms,
-             sum(pg_column_size(c.payload)) OVER (ORDER BY c.id)
+             sum(octet_length(c.payload::text)) OVER (ORDER BY c.id)
                AS running_bytes,
              row_number() OVER (ORDER BY c.id) AS position,
              count(*) OVER () AS fetched
