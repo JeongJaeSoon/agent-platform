@@ -50,6 +50,8 @@ export class EventPublisher {
   private draining: Promise<void> | undefined;
   private failure: unknown;
   private nextSequence = 1;
+  /** Set while a turn boundary is being committed: nothing past it is sent. */
+  private heldAfter: number | undefined;
 
   constructor(options: EventPublisherOptions) {
     this.gateway = options.gateway;
@@ -97,14 +99,43 @@ export class EventPublisher {
     this.queue.length = 0;
   }
 
-  /** Resolves once everything queued is durable, or rejects with what stopped it. */
+  /**
+   * Freezes the stream at what has been numbered so far and returns that
+   * number. A finalize has to name the exact end of the durable stream, and
+   * the engine keeps emitting after its result, so anything published from
+   * here on waits in the queue until `release`.
+   */
+  hold(): number {
+    this.heldAfter ??= this.published;
+    return this.heldAfter;
+  }
+
+  release(): void {
+    if (this.heldAfter === undefined) return;
+    this.heldAfter = undefined;
+    this.kick();
+  }
+
+  /**
+   * Resolves once everything that may be sent is durable — everything, or up
+   * to the hold — or rejects with what stopped it.
+   */
   async idle(): Promise<void> {
-    while (this.queue.length > 0 || this.draining !== undefined) {
+    while (this.sendable() || this.draining !== undefined) {
       if (this.failure !== undefined) throw this.failure;
       await this.draining;
-      if (this.draining === undefined && this.queue.length > 0) this.kick();
+      if (this.draining === undefined && this.sendable()) this.kick();
     }
     if (this.failure !== undefined) throw this.failure;
+  }
+
+  private sendable(): boolean {
+    const head = this.queue[0];
+    if (head === undefined) return false;
+    return (
+      this.heldAfter === undefined ||
+      head.event.source_sequence <= this.heldAfter
+    );
   }
 
   private kick(): void {
@@ -115,7 +146,7 @@ export class EventPublisher {
   }
 
   private async drain(): Promise<void> {
-    while (this.queue.length > 0) {
+    while (this.sendable()) {
       const batch = this.leadingBatch();
       try {
         const response = await this.gateway.appendEvents({
@@ -147,6 +178,12 @@ export class EventPublisher {
     for (const entry of this.queue) {
       if (entry.turnId !== head.turnId) break;
       if (batch.length >= this.maxBatchSize) break;
+      if (
+        this.heldAfter !== undefined &&
+        entry.event.source_sequence > this.heldAfter
+      ) {
+        break;
+      }
       batch.push(entry);
     }
     return batch;
