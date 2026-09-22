@@ -17,6 +17,45 @@ function loggerWithMemory(): {
 }
 
 describe("API authentication", () => {
+  test("releases the server idle clock after the body is in and bounded, before auth", async () => {
+    const app = createApiApp({
+      authMode: "none",
+      logger: loggerWithMemory().logger,
+      registerRoutes: (router) => {
+        router.get("/echo", (context) => context.json({ ok: true }));
+      },
+    });
+    let released = 0;
+    const env = { releaseIdleTimeout: () => released++ };
+
+    const ok = await app.request(
+      "/v1/echo",
+      { headers: { "X-Owner-Id": "local-owner" } },
+      env,
+    );
+    expect(ok.status).toBe(200);
+    expect(released).toBe(1);
+
+    // Unauthenticated: the clock is still released (the key lookup that
+    // follows is database work), but nothing else runs.
+    const anonymous = await app.request("/v1/echo", undefined, env);
+    expect(anonymous.status).toBe(401);
+    expect(released).toBe(2);
+
+    // Oversized: rejected while the clock is still running.
+    const oversized = await app.request(
+      "/v1/echo",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "x".repeat(65 * 1024),
+      },
+      env,
+    );
+    expect(oversized.status).toBe(413);
+    expect(released).toBe(2);
+  });
+
   test("fails closed when AUTH_MODE is missing and ignores X-Owner-Id", async () => {
     const previous = process.env.AUTH_MODE;
     delete process.env.AUTH_MODE;

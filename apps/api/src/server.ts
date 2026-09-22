@@ -1,3 +1,4 @@
+import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createPostgresSessionReader,
@@ -74,25 +75,21 @@ const app = createApiApp({
 // reset carries no status, no request id and no retry hint. A /v1 request runs
 // several database stages in sequence (key lookup, pool wait, BEGIN,
 // statements, ROLLBACK), each bounded by its own pool timeout but together
-// longer than 10 seconds, so once the body is in, the idle clock is switched
-// off for that request: the database timeouts are what bound it from there.
-// Ingesting the body stays under the default clock, so a client feeding bytes
-// slowly still gets cut off. An absolute per-request deadline is 94S-205.
-const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-
+// longer than 10 seconds. The app calls releaseIdleTimeout once the body is
+// received and bounded, right before its first database work, so the idle
+// clock covers ingestion (slow senders are still cut off) and the database
+// timeouts bound the rest. An absolute per-request deadline is 94S-205.
 export default {
   port: Number(process.env.PORT ?? 3000),
-  async fetch(
+  // Bun's own cap (default 128 MiB) applies before any handler runs; keep it
+  // at the API contract so an unauthenticated upload cannot buffer more.
+  maxRequestBodySize: REQUEST_BODY_MAX_BYTES,
+  fetch(
     request: Request,
     server: { timeout(r: Request, seconds: number): void },
-  ): Promise<Response> {
-    if (!new URL(request.url).pathname.startsWith("/v1")) {
-      return app.fetch(request);
-    }
-    const body = BODYLESS_METHODS.has(request.method)
-      ? null
-      : await request.arrayBuffer();
-    server.timeout(request, 0);
-    return app.fetch(body === null ? request : new Request(request, { body }));
+  ): Response | Promise<Response> {
+    return app.fetch(request, {
+      releaseIdleTimeout: () => server.timeout(request, 0),
+    });
   },
 };
