@@ -88,16 +88,39 @@ export function registerEventRoutes(
           limit: batchSize,
         }),
       );
+    // A waiter is armed before every read, this first one included, so a
+    // NOTIFY that lands between the read and the decision to wait is not
+    // lost; the notifier only wakes waiters that exist when it fires.
+    const armWait = (closed: AbortSignal) => {
+      const wake = new AbortController();
+      const unlink = () => wake.abort();
+      closed.addEventListener("abort", unlink, { once: true });
+      return {
+        signal: wake.signal,
+        notified: options.wakeup.wait(params.id, wake.signal),
+        release() {
+          closed.removeEventListener("abort", unlink);
+          wake.abort();
+        },
+      };
+    };
+    const closed = new AbortController();
+    let armed = armWait(closed.signal);
     // The first page is read before the response commits to a stream, so an
     // unknown session, a foreign owner, a bad cursor and a storage outage are
     // still ordinary HTTP errors with the API envelope.
-    const firstPage = await read(after);
+    let firstPage: SseEvent[];
+    try {
+      firstPage = await read(after);
+    } catch (error) {
+      armed.release();
+      throw error;
+    }
 
     // Reverse proxies buffer responses by default; nginx honours this header
     // and the Cache-Control that streamSSE sets.
     context.header("X-Accel-Buffering", "no");
     return streamSSE(context, async (stream) => {
-      const closed = new AbortController();
       const closeWith = (reason: string) => {
         if (!closed.signal.aborted) closed.abort(reason);
       };
@@ -111,6 +134,15 @@ export function registerEventRoutes(
       active += 1;
       let sent = 0;
       let cursor = after;
+      let lastAuthAt = Date.now();
+      // On the keepalive clock whatever the stream is doing, so neither a
+      // long replay nor a steady run of notifications lets a revoked key
+      // keep reading past the window.
+      const stillAuthenticated = async () => {
+        if (Date.now() - lastAuthAt < keepaliveMs) return true;
+        lastAuthAt = Date.now();
+        return reauthenticate();
+      };
       logger.info("SSE stream opened", {
         session_id: params.id,
         after: after ?? null,
@@ -118,7 +150,6 @@ export function registerEventRoutes(
       });
       try {
         let page: SseEvent[] = firstPage;
-        let lastAuthAt = Date.now();
         while (!closed.signal.aborted) {
           for (const event of page) {
             if (closed.signal.aborted) break;
@@ -131,36 +162,30 @@ export function registerEventRoutes(
             sent += 1;
           }
           if (closed.signal.aborted) break;
-          if (page.length >= batchSize) {
-            // Still replaying; the high-watermark is simply the last id sent.
-            page = await read(cursor);
-            continue;
+          if (!(await stillAuthenticated())) {
+            closeWith("credential_revoked");
+            break;
           }
-          // Caught up. Arm the wakeup before the wait so a NOTIFY that lands
-          // between this read and the wait still fires, and bound the wait by
-          // the keepalive so a lost notification costs at most one interval.
-          const wake = new AbortController();
-          const unlink = () => wake.abort();
-          closed.signal.addEventListener("abort", unlink, { once: true });
-          const outcome = await Promise.race([
-            options.wakeup.wait(params.id, wake.signal).then(() => "notify"),
-            sleep(keepaliveMs, wake.signal),
-          ]);
-          closed.signal.removeEventListener("abort", unlink);
-          wake.abort();
-          if (closed.signal.aborted) break;
-          if (outcome === "tick") {
-            await stream.write(": keepalive\n\n");
-          }
-          // A stream of notifications must not starve the revocation check:
-          // re-verify on the clock, whatever woke us.
-          if (Date.now() - lastAuthAt >= keepaliveMs) {
-            lastAuthAt = Date.now();
-            if (!(await reauthenticate())) {
-              closeWith("credential_revoked");
-              break;
+          // A short page means the high-watermark is reached: wait for a
+          // NOTIFY, bounded by the keepalive so a lost notification costs at
+          // most one interval. A full page means keep replaying; the
+          // high-watermark is simply the last id sent.
+          if (page.length < batchSize) {
+            const outcome = await Promise.race([
+              armed.notified.then(() => "notify" as const),
+              sleep(keepaliveMs, armed.signal),
+            ]);
+            if (closed.signal.aborted) break;
+            if (outcome === "tick") {
+              await stream.write(": keepalive\n\n");
+              if (!(await stillAuthenticated())) {
+                closeWith("credential_revoked");
+                break;
+              }
             }
           }
+          armed.release();
+          armed = armWait(closed.signal);
           page = await read(cursor);
         }
       } catch (error) {
@@ -172,6 +197,7 @@ export function registerEventRoutes(
         });
         closeWith("read_failed");
       } finally {
+        armed.release();
         active -= 1;
         logger.info("SSE stream closed", {
           session_id: params.id,

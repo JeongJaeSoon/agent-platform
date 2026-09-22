@@ -38,6 +38,9 @@ class FakeStore {
   events: SseEvent[] = [];
   reads: ReadEventsQuery[] = [];
   owner = OWNER;
+  // Runs after a page is computed and before it is returned: a commit that
+  // lands while the read is in flight.
+  onRead: ((query: ReadEventsQuery) => void) | undefined;
 
   append(...items: SseEvent[]) {
     this.events.push(...items);
@@ -53,9 +56,11 @@ class FakeStore {
       const afterId = query.after
         ? Number.parseInt(query.after.slice(3), 36)
         : 0;
-      return this.events
+      const page = this.events
         .filter((item) => Number.parseInt(item.id.slice(3), 36) > afterId)
         .slice(0, query.limit);
+      this.onRead?.(query);
+      return page;
     };
   }
 }
@@ -235,14 +240,16 @@ describe("GET /v1/sessions/{id}/events", () => {
   });
 
   test("resumes after Last-Event-ID and pages through the backlog", async () => {
-    const { app, store, wakeup } = harness({ batchSize: 2 });
+    const { app, store } = harness({ batchSize: 2 });
     store.append(event(1), event(2), event(3), event(4), event(5));
     const response = await open(app, { "Last-Event-ID": "ev_1" });
     const frames = new FrameReader(response);
     const ids: string[] = [];
     for (let i = 0; i < 4; i += 1) ids.push((await frames.next())?.id ?? "");
     expect(ids).toEqual(["ev_2", "ev_3", "ev_4", "ev_5"]);
-    await wakeup.armed();
+    for (let i = 0; i < 50 && store.reads.length < 3; i += 1) {
+      await Bun.sleep(5);
+    }
     // Three pages: after ev_1, after ev_3 (full), after ev_5 (short, then wait).
     expect(store.reads.map((read) => read.after)).toEqual([
       "ev_1",
@@ -250,6 +257,89 @@ describe("GET /v1/sessions/{id}/events", () => {
       "ev_5",
     ]);
     await frames.cancel();
+  });
+
+  test("a NOTIFY that lands during a read is not lost", async () => {
+    const { app, store, wakeup } = harness({ keepaliveMs: 5_000 });
+    store.append(event(1));
+    // The commit fires while the caught-up read is in flight: the waiter
+    // must already exist, or the stream idles until the keepalive.
+    store.onRead = (query) => {
+      if (query.after === "ev_1" && store.events.length === 1) {
+        store.append(event(2));
+        expect(wakeup.waiters).toHaveLength(1);
+        wakeup.notify();
+      }
+    };
+    const response = await open(app);
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.id).toBe("ev_1");
+    await wakeup.armed();
+    wakeup.notify();
+    // Read after ev_1 returns a short page, but the mid-read notify already
+    // resolved the armed waiter, so ev_2 arrives well before the keepalive.
+    expect((await frames.next(1_000))?.id).toBe("ev_2");
+    await frames.cancel();
+  });
+
+  test("a revoked credential ends a stream that is still replaying", async () => {
+    const store = new FakeStore();
+    const wakeup = new FakeWakeup();
+    // Every page is full: the backlog never drains, so the only chance to
+    // notice the revocation is the clock check during replay.
+    for (let i = 1; i <= 5_000; i += 1) store.append(event(i));
+    let valid = true;
+    const service = createSessionService({
+      authorization: ownerScopedPolicy,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: async (ownerId, sessionId, query) => {
+          await Bun.sleep(2);
+          return store.reader()(ownerId, sessionId, query);
+        },
+      },
+    });
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async findOwner() {
+          return valid ? OWNER : null;
+        },
+      },
+      registerRoutes: (router) => {
+        registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 20,
+          batchSize: 10,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    const response = await open(app, { Authorization: "Bearer csp_test" });
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.id).toBe("ev_1");
+    valid = false;
+    let received = 1;
+    for (;;) {
+      const frame = await frames.next();
+      if (frame === null) break;
+      received += 1;
+    }
+    expect(received).toBeLessThan(5_000);
+    expect(await frames.ended()).toBe(true);
   });
 
   test("switches to live on NOTIFY without skipping or repeating", async () => {
