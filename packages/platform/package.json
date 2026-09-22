@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/runtime-core": "workspace:*",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*"
   }
 }
