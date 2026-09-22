@@ -494,8 +494,15 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       ...alive.scope,
       attempt_state: "running",
     });
-    // Past the original lease, inside the extended one.
-    advance(LEASE_TTL_MS);
+    // Past the original lease, inside the extended one — with a margin on
+    // both sides, since a claim measures its lease from the row lock, not
+    // from the injected clock, and the sweep compares strictly.
+    advance((LEASE_TTL_MS * 3) / 4);
+    const [beat] = await db
+      .select({ leaseExpiresAt: attempts.leaseExpiresAt })
+      .from(attempts)
+      .where(eq(attempts.id, alive.claimed.attempt_id));
+    expect(beat?.leaseExpiresAt.getTime()).toBeGreaterThan(clock.getTime());
     expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
 
     const gone = await bound("released");
