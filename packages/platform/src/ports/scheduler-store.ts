@@ -49,6 +49,13 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * only confirming the execution gone can give either one back.
    */
   claimed: boolean;
+  /**
+   * When this launch's bootstrap credential stops being accepted, or null
+   * while no container has been created for it. Past it and unclaimed, the
+   * resource can never bind: the credential it holds is fixed in its
+   * environment, so it has to be replaced rather than waited on.
+   */
+  nonceExpiresAt: Date | null;
 };
 
 /**

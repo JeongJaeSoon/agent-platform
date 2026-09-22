@@ -268,6 +268,7 @@ describe("PostgresSchedulerStore", () => {
         claimed: false,
         executionId: intent.executionId,
         generation: 1,
+        nonceExpiresAt: null,
         observedState: "pending",
         operationId: intent.operationId,
         providerRef: null,
@@ -278,6 +279,7 @@ describe("PostgresSchedulerStore", () => {
         claimed: false,
         executionId: "exec-legacy",
         generation: 1,
+        nonceExpiresAt: null,
         observedState: "running",
         operationId: null,
         providerRef: null,
@@ -425,6 +427,10 @@ describe("PostgresSchedulerStore", () => {
     expect(stored?.nonceExpiresAt).toEqual(new Date(NOW.getTime() + 600_000));
     // Nothing anywhere holds the plaintext.
     expect(JSON.stringify(stored)).not.toContain(first);
+    // The scheduler reads the expiry back to decide when a resource that
+    // never claimed has to be replaced rather than waited on.
+    const [active] = await store.listActiveExecutions("local_docker");
+    expect(active?.nonceExpiresAt).toEqual(new Date(NOW.getTime() + 600_000));
 
     const second = await store.issueBootstrapNonce(intent, NOW);
     expect(second).not.toBe(first);

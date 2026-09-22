@@ -17,6 +17,7 @@ import type {
 import { runScheduler, type SchedulerLogger } from "./session-scheduler.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
+const NONCE_TTL_MS = 10 * 60 * 1000;
 
 /** A launch row: the slot it holds and the credential it has handed out. */
 type Launch = ActiveExecution & { slotReleased: boolean; nonce: string | null };
@@ -56,6 +57,7 @@ class MemoryStore implements SchedulerStore {
       executionId: `exec-${++this.sequence}`,
       generation: 1,
       nonce: null,
+      nonceExpiresAt: null,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       providerRef: null,
@@ -106,7 +108,7 @@ class MemoryStore implements SchedulerStore {
     return { ...seeded, operationId: seeded.operationId };
   }
 
-  async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
+  async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
@@ -117,6 +119,7 @@ class MemoryStore implements SchedulerStore {
       throw new Error(`no credential for ${ref.executionId}`);
     }
     row.nonce = `nonce-${crypto.randomUUID()}`;
+    row.nonceExpiresAt = new Date(now.getTime() + NONCE_TTL_MS);
     return row.nonce;
   }
 
@@ -470,6 +473,53 @@ describe("runScheduler", () => {
     // Adopting is not creating: the container's own nonce is still the only
     // credential for this launch, so nothing was issued behind its back.
     expect(store.executions.get("exec-1")?.nonce).toBeNull();
+  });
+
+  test("a running resource whose nonce expired before it claimed is replaced", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const first = container.nonce;
+
+    // The bootstrap door shut and nobody came through it. The container still
+    // runs, so without this it would hold its slot and its session for good.
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(summary.reensured).toHaveLength(1);
+    expect(store.confirmedGone).toEqual([]);
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.nonce).not.toBe(first);
+    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(
+      records.some(
+        (r) => r.level === "warn" && r.message.includes("Launch nonce expired"),
+      ),
+    ).toBe(true);
+  });
+
+  test("an expired nonce on a claimed launch is left alone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name] = [...backend.containers.keys()];
+    const row = store.executions.get(name?.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    // A worker already traded the nonce: its expiry says nothing any more.
+    row.claimed = true;
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
   });
 
   test("a claimed launch whose resource vanished is confirmed gone, never re-created", async () => {
