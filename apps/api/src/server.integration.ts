@@ -12,16 +12,19 @@ const integration = databaseUrl ? describe : describe.skip;
 // Idle this whole test runs in ~0.4s (bun 1.3.11, 14-core M-series), but a
 // loaded 4-core GitHub runner has pushed server startup past the old 5s wall
 // (94S-256). 30s is the ratio 94S-241 chose: far above any observed startup,
-// well below "hung", and the test timeout leaves room for the assertions
-// that follow.
+// well below "hung". The test timeout is a separate total budget: key CLI
+// spawn + DB insert before the wait, the full 30s allowance, then the
+// remaining requests and teardown, each of which the same load slows.
 const SERVER_START_DEADLINE_MS = 30_000;
-const TEST_TIMEOUT_MS = 60_000;
+const TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 100;
 
 // Polls `url` until the server answers, the server exits, or the deadline
 // passes. Exit and deadline both fail with the server's stderr attached, so
 // a startup error (bad DATABASE_URL, port in use) is readable from the
-// assertion instead of surfacing as an `undefined` status.
+// assertion instead of surfacing as an `undefined` status. Each fetch is
+// aborted at the deadline so a server that accepts the connection but never
+// answers still ends here, not at the test timeout.
 async function waitForServer(
   server: Bun.Subprocess,
   stderr: Promise<string>,
@@ -31,7 +34,10 @@ async function waitForServer(
   const deadline = Date.now() + SERVER_START_DEADLINE_MS;
   while (true) {
     const outcome = await Promise.race([
-      fetch(request.url, { headers: request.headers }).then(
+      fetch(request.url, {
+        headers: request.headers,
+        signal: AbortSignal.timeout(Math.max(deadline - Date.now(), 1)),
+      }).then(
         (response) => ({ response }),
         (error: unknown) => ({ error }),
       ),
