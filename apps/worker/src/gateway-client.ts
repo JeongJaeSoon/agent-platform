@@ -82,7 +82,9 @@ export type HttpWorkerGatewayClientOptions = {
 };
 
 /**
- * The client half of the `/worker` protocol 94S-121 serves. The worker
+ * The client half of the worker protocol 94S-121 serves. The API mounts it
+ * under `/internal`, and the launcher hands out the bare origin, so the
+ * prefix is this client's to add. The worker
  * container reaches the gateway through the egress proxy, which fetch reads
  * out of the proxy environment variables the launcher sets; nothing here
  * addresses the daemon host.
@@ -144,7 +146,7 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   ): Promise<T> {
     let response: Response;
     try {
-      response = await this.call(`${this.baseUrl}/worker${path}`, {
+      response = await this.call(`${this.baseUrl}/internal/worker${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.credential}`,

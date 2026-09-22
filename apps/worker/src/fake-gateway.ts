@@ -57,6 +57,15 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   heartbeatFailure: ApiErrorCode | undefined;
   /** Reported back by every heartbeat; raising it fences the worker out. */
   authRevision = 0;
+  /**
+   * What the gateway does for a draining attempt: hand it no new input.
+   * Cleared, it stands in for a poll that read the queue before the draining
+   * heartbeat committed.
+   */
+  refuseDraining = true;
+  private draining = false;
+  /** Thrown by every append while set. */
+  appendFailure: WorkerGatewayRequestError | undefined;
 
   private readonly answers: Array<{
     answer: PostSessionAnswerRequest;
@@ -137,7 +146,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         Bun.sleep(request.wait_ms ?? 0),
       ]);
     }
-    const next = this.queue.shift();
+    const next =
+      this.draining && this.refuseDraining ? undefined : this.queue.shift();
     return {
       input:
         next === undefined
@@ -155,6 +165,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   async heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
     this.calls.push("heartbeat");
     this.heartbeats.push(request);
+    if (request.attempt_state === "draining") this.draining = true;
     if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
         409,
@@ -174,6 +185,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     request: AppendEventsRequest,
   ): Promise<AppendEventsResponse> {
     this.calls.push("appendEvents");
+    if (this.appendFailure !== undefined) throw this.appendFailure;
     for (const event of request.events) {
       if (event.source_sequence !== this.acceptedThrough + 1) {
         throw new WorkerGatewayRequestError(
