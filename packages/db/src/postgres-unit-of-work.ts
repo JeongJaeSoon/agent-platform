@@ -51,9 +51,9 @@ type IdempotencyScope = {
   key: string;
 };
 
-// ponytail: an advisory lock serializes same-key races; SELECT FOR UPDATE
-// cannot lock a row that does not exist yet. Always taken before any row
-// lock so every transaction acquires locks in the same order.
+// An advisory lock serializes same-key races; SELECT FOR UPDATE cannot lock a
+// row that does not exist yet. Always taken before any row lock so every
+// transaction acquires locks in the same order.
 async function lockIdempotencyScope(tx: Database, scope: IdempotencyScope) {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, scope.operation, scope.resource, scope.key])}))`,
