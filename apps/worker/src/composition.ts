@@ -4,11 +4,13 @@ import {
   CLAUDE_CODE_VERSION,
   ClaudeSdkRuntime,
 } from "@agent-platform/runtime-claude";
+import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
 
-import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
+import { checkpointsOn, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
+import { createWorkerObjectStore } from "./object-store.ts";
 import {
   type RuntimeLauncher,
   type RuntimeRegistry,
@@ -22,21 +24,25 @@ export type WorkerComposition = {
   engines?: EngineProcesses;
   gateway?: WorkerGatewaySession;
   logger?: WorkerLogger;
+  objectStore?: CheckpointObjectStore;
   runtimes?: RuntimeRegistry;
 };
 
 /**
- * The worker's composition root. It builds the gateway transport and the one
- * runtime this image ships; it never opens a database pool or talks to an
- * execution backend, which is what `tests/architecture` holds it to.
+ * The worker's composition root. It builds the gateway transport, the
+ * session-scoped object store and the one runtime this image ships; it never
+ * opens a database pool or talks to an execution backend, which is what
+ * `tests/architecture` holds it to.
  */
 export function createWorkerHost(
   config: WorkerConfig,
   overrides: WorkerComposition = {},
 ): WorkerHost {
   const engines = overrides.engines ?? new EngineProcesses();
+  const objectStore =
+    overrides.objectStore ?? createWorkerObjectStore(config.objectStore);
   return new WorkerHost({
-    checkpoints: overrides.checkpoints ?? unwiredCheckpoints,
+    checkpoints: overrides.checkpoints ?? checkpointsOn(objectStore),
     engines,
     execution: {
       bootstrapNonce: config.bootstrapNonce,
