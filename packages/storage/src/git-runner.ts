@@ -6,6 +6,8 @@ export interface GitCommandResult {
   readonly signal?: string;
   /** Set when this runner killed git for running past `timeoutMs`. */
   readonly timedOut?: true;
+  /** Set when a stream ran past `GIT_OUTPUT_LIMIT_BYTES` and was cut. */
+  readonly truncated?: true;
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -38,6 +40,13 @@ export type GitCommandRunner = (
 export const GIT_TIMEOUT_EXIT_CODE = 124;
 
 /**
+ * Most of each stream kept, per invocation. Everything past it is drained
+ * and dropped: a pack that makes fsck complain about every one of a million
+ * objects must not be able to grow this process by what it says about them.
+ */
+export const GIT_OUTPUT_LIMIT_BYTES = 64 * 1024;
+
+/**
  * Runs git and hands back exit code and both streams.
  *
  * git is started in its own process group because it forks helpers
@@ -62,10 +71,10 @@ export function defaultGitRunner(
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    const stdout = boundedCollector();
+    const stderr = boundedCollector();
+    child.stdout.on("data", stdout.push);
+    child.stderr.on("data", stderr.push);
     let settled = false;
     let timedOut = false;
     const timer =
@@ -101,11 +110,39 @@ export function defaultGitRunner(
         // Killed by a signal: no code, and not a success.
         exitCode: code ?? 128,
         ...(signal === null ? {} : { signal }),
-        stderr: Buffer.concat(stderr).toString(),
-        stdout: Buffer.concat(stdout).toString(),
+        stderr: stderr.text(),
+        stdout: stdout.text(),
+        ...(stdout.truncated || stderr.truncated ? { truncated: true } : {}),
       })),
     );
   });
+}
+
+function boundedCollector() {
+  const chunks: Buffer[] = [];
+  let kept = 0;
+  const collector = {
+    truncated: false,
+    push(chunk: Buffer) {
+      if (kept >= GIT_OUTPUT_LIMIT_BYTES) {
+        collector.truncated = true;
+        return;
+      }
+      const room = GIT_OUTPUT_LIMIT_BYTES - kept;
+      if (chunk.byteLength > room) {
+        chunks.push(chunk.subarray(0, room));
+        kept = GIT_OUTPUT_LIMIT_BYTES;
+        collector.truncated = true;
+      } else {
+        chunks.push(chunk);
+        kept += chunk.byteLength;
+      }
+    },
+    text() {
+      return Buffer.concat(chunks).toString();
+    },
+  };
+  return collector;
 }
 
 function withoutGitVariables(env: NodeJS.ProcessEnv): Record<string, string> {
