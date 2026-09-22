@@ -153,6 +153,7 @@ jq -n \
   --arg head_tag "$HEAD_TAG" \
   --argjson applied "$APPLIED_JSON" \
   --arg pg_db "$PG_DB" \
+  --arg pg_user "$PG_USER" \
   --arg bucket "$BUCKET" \
   --argjson object_count "$OBJECT_COUNT" \
   --argjson repos "$REPOS_JSON" \
@@ -163,7 +164,7 @@ jq -n \
     created_at: $created_at,
     source: { project: $source_project, checkout_commit: $source_commit, checkout_dirty: $source_dirty },
     schema: { head_tag: $head_tag, applied: $applied },
-    db: { name: $pg_db, file: "db.sql", server: $pg_version },
+    db: { name: $pg_db, user: $pg_user, file: "db.sql", server: $pg_version },
     gitea: { version: $gitea_version, dir: "gitea" },
     objects: { bucket: $bucket, count: $object_count, dir: "objects" },
     repos: { bundled: $repos, empty: $empty_repos, dir: "repos" },

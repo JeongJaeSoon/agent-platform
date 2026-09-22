@@ -57,7 +57,9 @@ fail() {
 # One pinned object: exists and hashes to what the manifest says.
 check_ref() {
   local label="$1" key="$2" expected="$3" out="$4"
-  if ! fetch_object "$key" > "$out" || [ ! -s "$out" ]; then
+  # Presence is the fetch's exit status: a zero-byte object (an empty untracked
+  # file, bytes: 0) is a valid artifact and still gets hashed.
+  if ! fetch_object "$key" > "$out"; then
     fail "$label: object missing $key"
     return 1
   fi
@@ -74,6 +76,9 @@ QUERY="SELECT c.session_id, c.revision, c.manifest_ref, c.manifest_sha256,
               (s.checkpoint_revision IS NOT DISTINCT FROM c.revision)::int
        FROM checkpoints c JOIN sessions s ON s.id = c.session_id
        ORDER BY c.session_id, c.revision"
+# Read the rows up front: a query that fails inside a process substitution
+# would look like an empty database and let the run exit 0.
+ROWS_TEXT="$(psql_in "$PROJECT" -Atc "$QUERY")" || die "could not read checkpoints from project '$PROJECT'"
 while IFS='|' read -r session revision ref expected is_pointer; do
   [ -n "$session" ] || continue
   ROWS=$((ROWS + 1))
@@ -113,7 +118,7 @@ while IFS='|' read -r session revision ref expected is_pointer; do
     PASSED=$((PASSED + 1))
     printf 'PASS %s (%s)\n' "$tag" "$expected"
   fi
-done < <(psql_in "$PROJECT" -Atc "$QUERY")
+done <<< "$ROWS_TEXT"
 
 # The restored store must still refuse to replace an object: a scratch key is
 # written once, then again with If-None-Match, which has to fail with 412.

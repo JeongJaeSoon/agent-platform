@@ -63,6 +63,10 @@ if [ "$CHECK_ONLY" = 1 ]; then
 fi
 
 BUCKET="$(jq -r '.objects.bucket' "$MANIFEST")"
+# The fresh postgres must create the database the dump was taken from, not
+# whatever POSTGRES_DB/POSTGRES_USER the restoring shell happens to carry.
+export POSTGRES_DB="$(jq -r '.db.name' "$MANIFEST")"
+export POSTGRES_USER="$(jq -r '.db.user // "postgres"' "$MANIFEST")"
 export RESTORE_POSTGRES_PORT="$PORT_BASE"
 export RESTORE_LOCALSTACK_PORT="$((PORT_BASE + 1))"
 export RESTORE_GITEA_HTTP_PORT="$((PORT_BASE + 2))"
@@ -178,6 +182,6 @@ restore: done — project '$INTO'
   postgres   postgresql://127.0.0.1:${RESTORE_POSTGRES_PORT}/$(jq -r '.db.name' "$MANIFEST")
   localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)
   gitea      http://127.0.0.1:${RESTORE_GITEA_HTTP_PORT}
-  verify     scripts/verify-restore.sh --project $INTO
+  verify     scripts/verify-restore.sh --project $INTO --bucket $BUCKET
   tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
 EOF
