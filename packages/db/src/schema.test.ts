@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   ADMISSION_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
@@ -19,6 +20,9 @@ import {
 } from "./schema.ts";
 
 const databases: PGlite[] = [];
+const journal = JSON.parse(
+  readFileSync(`${import.meta.dir}/../migrations/meta/_journal.json`, "utf8"),
+) as { entries: { when: number }[] };
 
 async function migratedDatabase() {
   const client = new PGlite();
@@ -42,6 +46,17 @@ describe("database schema", () => {
     expect(receiptStatus.enumValues).toEqual([...RECEIPT_STATUS_VALUES]);
   });
 
+  test("journal entries are ordered by their folder timestamp", () => {
+    // Lanes number their files by band (I0 1xx, I2 2xx, ...), but Drizzle
+    // applies by `when` and skips anything older than the last applied row.
+    // A branch rebased under a newer migration must regenerate its `when`,
+    // or the entry it adds would be silently skipped on every database that
+    // already ran the newer one.
+    const whens = journal.entries.map(({ when }) => when);
+    expect([...whens].sort((a, b) => a - b)).toEqual(whens);
+    expect(new Set(whens).size).toBe(whens.length);
+  });
+
   test("applies the migration twice without changing the schema", async () => {
     const { client, db } = await migratedDatabase();
     await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
@@ -55,7 +70,11 @@ describe("database schema", () => {
       "checkpoints",
       "events",
       "executions",
+      "grants",
       "idempotency_keys",
+      "invites",
+      "memberships",
+      "owner_workspace_map",
       "pending_requests",
       "pull_requests",
       "queue_messages",
@@ -63,9 +82,12 @@ describe("database schema", () => {
       "sessions",
       "turns",
       "unassigned_sessions",
+      "users",
+      "web_sessions",
       "worker_credentials",
       "worker_launches",
       "workers",
+      "workspaces",
     ]);
   });
 
@@ -200,6 +222,8 @@ describe("database schema", () => {
       "key_hash",
       "owner_id",
       "revoked_at",
+      "scopes",
+      "workspace_id",
     ]);
     const index = await client.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE indexname = 'sessions_pod_uniq'",

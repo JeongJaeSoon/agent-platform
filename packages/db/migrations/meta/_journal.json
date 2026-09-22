@@ -64,6 +64,13 @@
       "when": 1790102084484,
       "tag": "0008_even_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1790114154729,
+      "tag": "0100_auth_identity",
+      "breakpoints": true
     }
   ]
 }

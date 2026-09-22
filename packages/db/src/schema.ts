@@ -18,6 +18,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -31,6 +32,325 @@ const bytea = customType<{ data: Uint8Array }>({
 export const sessionStatus = pgEnum("session_status", SESSION_STATUS_VALUES);
 export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
 export const receiptStatus = pgEnum("receipt_status", RECEIPT_STATUS_VALUES);
+
+// Vocabularies the CHECK constraints below pin. They mirror 94S-148's
+// SESSION_SCOPE_VALUES and AUTHORIZATION_ACTION_VALUES; once that package
+// is on main, schema.test.ts should assert the two lists are equal, the way
+// it already does for sessionStatus.
+export const SESSION_SCOPE_VALUES = [
+  "sessions:read",
+  "sessions:write",
+  "sessions:approve",
+  "sessions:control",
+  "sessions:recover",
+] as const;
+export const AUTHORIZATION_ACTION_VALUES = [
+  "workspace.read",
+  "workspace.manage",
+  "agent.manage",
+  "binding.manage",
+  "routine.manage",
+  "session.read",
+  "session.submit",
+  "session.approve",
+  "session.control",
+  "session.recover",
+  "memory.read",
+  "memory.write",
+  "artifact.read",
+  "delivery.send",
+] as const;
+export const RESOURCE_KIND_VALUES = [
+  "workspace",
+  "session",
+  "invite",
+  "agent",
+  "agent_release",
+  "surface_binding",
+  "session_link",
+  "dispatch",
+  "memory",
+  "routine",
+  "artifact",
+] as const;
+export const AUDIENCE_KIND_VALUES = [
+  "workspace",
+  "surface_binding",
+  "session_link",
+  "session",
+] as const;
+// Which resource kinds each action may be granted on (94S-148
+// ACTION_RESOURCE_KINDS, ported from Kollegium): `session.read` on a
+// workspace would be a workspace-wide read smuggled in through the resource.
+const ACTION_RESOURCE_KINDS: Record<
+  (typeof AUTHORIZATION_ACTION_VALUES)[number],
+  readonly (typeof RESOURCE_KIND_VALUES)[number][]
+> = {
+  "workspace.read": ["workspace"],
+  "workspace.manage": ["workspace"],
+  "agent.manage": ["workspace", "agent"],
+  "binding.manage": ["workspace", "agent", "surface_binding"],
+  "routine.manage": ["workspace", "agent", "routine"],
+  "session.read": ["session", "session_link"],
+  "session.submit": ["session", "session_link", "surface_binding"],
+  "session.approve": ["session", "session_link"],
+  "session.control": ["session", "session_link"],
+  "session.recover": ["session"],
+  "memory.read": ["workspace", "agent", "memory"],
+  "memory.write": ["workspace", "agent", "memory"],
+  "artifact.read": ["artifact", "session"],
+  "delivery.send": ["session", "session_link", "surface_binding"],
+};
+const sqlList = (values: readonly string[]) =>
+  values.map((value) => `'${value}'`).join(",");
+const textArrayLiteral = (values: readonly string[]) =>
+  sql.raw(`ARRAY[${sqlList(values)}]::text[]`);
+const SESSION_SCOPES_SQL = textArrayLiteral(SESSION_SCOPE_VALUES);
+const AUTHORIZATION_ACTIONS_SQL = textArrayLiteral(AUTHORIZATION_ACTION_VALUES);
+const RESOURCE_KINDS_SQL = sql.raw(sqlList(RESOURCE_KIND_VALUES));
+const AUDIENCE_KINDS_SQL = sql.raw(sqlList(AUDIENCE_KIND_VALUES));
+// `actions` must be a subset of what the row's resource kind admits.
+const ACTIONS_FOR_RESOURCE_SQL = sql.raw(
+  `CASE "resource_kind" ${RESOURCE_KIND_VALUES.map((kind) => {
+    const allowed = AUTHORIZATION_ACTION_VALUES.filter((action) =>
+      ACTION_RESOURCE_KINDS[action].includes(kind),
+    );
+    return `WHEN '${kind}' THEN ARRAY[${sqlList(allowed)}]::text[]`;
+  }).join(" ")} ELSE ARRAY[]::text[] END`,
+);
+// `<@` ignores dimensions, so a nested array would pass containment and come
+// back where TypeScript expects string[]. Empty arrays have no dimensions.
+const oneDimensional = (column: unknown) =>
+  sql`coalesce(array_ndims(${column}), 1) = 1`;
+
+// Identity (I0-2, 03 §3.1). One workspace per installation for now; every
+// row added by the interface track carries a workspace_id. Vocabularies are
+// CHECK constraints rather than pg enums so that widening one is a plain
+// additive migration, and rather than contracts imports so that the schema
+// does not depend on a package that is still landing (94S-148).
+export const workspaces = pgTable("workspaces", {
+  id: uuid().primaryKey(),
+  slug: text().notNull().unique(),
+  name: text().notNull(),
+  settings: jsonb().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid().primaryKey(),
+    email: text().notNull().unique(),
+    /** argon2id. */
+    passwordHash: text("password_hash").notNull(),
+    displayName: text("display_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Account suspension. Losing one workspace is memberships.disabled_at, a
+    // different thing (Codex A03).
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  },
+  (table) => [
+    // The unique above is case-sensitive, so lower-casing has to be a fact of
+    // the row rather than a promise of the caller (contracts normalizeEmail).
+    check(
+      "users_email_lower_check",
+      sql`${table.email} = lower(${table.email})`,
+    ),
+  ],
+);
+
+export const memberships = pgTable(
+  "memberships",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: text().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.userId] }),
+    // Login resolves a user's workspaces; the PK leads with workspace_id.
+    index("memberships_user_idx").on(table.userId),
+    check("memberships_role_check", sql`${table.role} IN ('owner', 'member')`),
+  ],
+);
+
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    email: text().notNull(),
+    role: text().notNull(),
+    /** sha256 of the one-time token; the token itself is never stored. */
+    tokenHash: bytea("token_hash").notNull().unique(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One redeemable invite per address and workspace: re-inviting revokes
+    // the old row first, and two owners cannot each hand out a live token.
+    // An expired-but-unrevoked row still counts here, on purpose.
+    uniqueIndex("invites_live_email_uniq")
+      .on(table.workspaceId, table.email)
+      .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
+    check("invites_role_check", sql`${table.role} IN ('owner', 'member')`),
+    // Same rule as users.email, or the live-invite unique above would let
+    // two spellings of one address stay redeemable at once.
+    check(
+      "invites_email_lower_check",
+      sql`${table.email} = lower(${table.email})`,
+    ),
+    // An invite is consumed once: accepted or revoked, never both.
+    check(
+      "invites_single_outcome_check",
+      sql`${table.acceptedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+export const webSessions = pgTable(
+  "web_sessions",
+  {
+    id: uuid().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    /** sha256 of the cookie value. */
+    tokenHash: bytea("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    userAgent: text("user_agent"),
+  },
+  (table) => [
+    // Logout-everywhere and the login lockout both walk a user's live sessions.
+    index("web_sessions_user_live_idx")
+      .on(table.userId)
+      .where(sql`${table.revokedAt} IS NULL`),
+  ],
+);
+
+// One Grant row per 94S-148 `grantSchema`; the refs are stored as
+// (kind, id) column pairs so the evaluator (I0-5a) matches them exactly in
+// SQL without unpacking JSON. `service_principal_id` is always a service
+// actor, so it carries no kind column.
+export const grants = pgTable(
+  "grants",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    actorKind: text("actor_kind").notNull(),
+    actorId: text("actor_id").notNull(),
+    servicePrincipalId: text("service_principal_id"),
+    actions: text().array().notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceId: text("resource_id").notNull(),
+    audienceKind: text("audience_kind").notNull(),
+    audienceId: text("audience_id").notNull(),
+    /** Narrows the 94S-132 key scope; never widens it. */
+    scopes: text().array().notNull().default([]),
+    revision: integer().notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Evaluation is one query by actor and resource (94S-152); revoked rows
+    // are kept as history and never match.
+    index("grants_lookup_idx")
+      .on(
+        table.workspaceId,
+        table.actorKind,
+        table.actorId,
+        table.resourceKind,
+        table.resourceId,
+      )
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "grants_actor_kind_check",
+      sql`${table.actorKind} IN ('user', 'service')`,
+    ),
+    check(
+      "grants_resource_kind_check",
+      sql`${table.resourceKind} IN (${RESOURCE_KINDS_SQL})`,
+    ),
+    check(
+      "grants_audience_kind_check",
+      sql`${table.audienceKind} IN (${AUDIENCE_KINDS_SQL})`,
+    ),
+    check(
+      "grants_actions_check",
+      sql`cardinality(${table.actions}) > 0 AND ${oneDimensional(table.actions)} AND ${table.actions} <@ ${AUTHORIZATION_ACTIONS_SQL}`,
+    ),
+    check(
+      "grants_actions_resource_check",
+      sql`${table.actions} <@ ${ACTIONS_FOR_RESOURCE_SQL}`,
+    ),
+    check(
+      "grants_scopes_check",
+      sql`${oneDimensional(table.scopes)} AND ${table.scopes} <@ ${SESSION_SCOPES_SQL}`,
+    ),
+    check("grants_revision_check", sql`${table.revision} >= 0`),
+    // Same bounds as 94S-148 opaqueIdSchema (1..128) and resource/audience
+    // refs (1..512), so an empty id cannot be stored and then never matched.
+    check(
+      "grants_id_length_check",
+      sql`length(${table.actorId}) BETWEEN 1 AND 128 AND (${table.servicePrincipalId} IS NULL OR length(${table.servicePrincipalId}) BETWEEN 1 AND 128) AND length(${table.resourceId}) BETWEEN 1 AND 512 AND length(${table.audienceId}) BETWEEN 1 AND 512`,
+    ),
+    // A grant stored under workspace A must not name workspace B (94S-148
+    // grantSchema): the evaluator compares the request's workspace with
+    // workspace_id, so such a row would match across the boundary.
+    check(
+      "grants_workspace_ref_check",
+      sql`(${table.resourceKind} <> 'workspace' OR ${table.resourceId} = ${table.workspaceId}::text) AND (${table.audienceKind} <> 'workspace' OR ${table.audienceId} = ${table.workspaceId}::text)`,
+    ),
+  ],
+);
+
+// Legacy owner_id strings are never backfilled into a workspace (Codex B18):
+// a row here is an operator's explicit statement that this owner's sessions
+// and keys belong to that workspace. An unmapped owner stays visible only on
+// the api-key path.
+export const ownerWorkspaceMap = pgTable("owner_workspace_map", {
+  ownerId: text("owner_id").primaryKey(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id),
+  mappedBy: uuid("mapped_by")
+    .notNull()
+    .references(() => users.id),
+  mappedAt: timestamp("mapped_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const sessions = pgTable(
   "sessions",
@@ -64,11 +384,31 @@ export const sessions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Interface track (I0-2). Null on every row from before it: legacy
+    // sessions are not backfilled, see owner_workspace_map.
+    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    // agent_releases lands with I0-5b (94S-154); the FK is added there. Not
+    // a uuid: release ids are derived hashes (94S-148 agentReleaseIdSchema).
+    agentReleaseId: text("agent_release_id"),
   },
   (table) => [
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
       .where(sql`${table.podId} IS NOT NULL`),
+    index("sessions_workspace_idx")
+      .on(table.workspaceId)
+      .where(sql`${table.workspaceId} IS NOT NULL`),
+    // Lets a later table reference (session_id, owner_id, workspace_id) as
+    // one FK. That only pins the row to its session's workspace when the
+    // referencing side declares workspace_id NOT NULL (or MATCH FULL): with
+    // MATCH SIMPLE a NULL there skips the check. Legacy sessions, whose
+    // workspace_id is NULL, are unreachable through such an FK by design.
+    unique("sessions_id_owner_workspace_uniq").on(
+      table.id,
+      table.ownerId,
+      table.workspaceId,
+    ),
   ],
 );
 
@@ -93,6 +433,8 @@ export const turns = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** The human whose input started the turn; null on the api-key path. */
+    actorId: uuid("actor_id").references(() => users.id),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(
@@ -192,6 +534,8 @@ export const receipts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** 94S-148 `receiptActorSchema`: principal plus the human behind it. */
+    actor: jsonb(),
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
@@ -413,12 +757,29 @@ export const workers = pgTable("workers", {
     .defaultNow(),
 });
 
-export const apiKeys = pgTable("api_keys", {
-  id: uuid().primaryKey(),
-  keyHash: bytea("key_hash").notNull().unique(),
-  ownerId: text("owner_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-});
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid().primaryKey(),
+    keyHash: bytea("key_hash").notNull().unique(),
+    ownerId: text("owner_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** Null on legacy keys until an owner_workspace_map row exists. */
+    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    /** Null means the pre-94S-132 "everything" key. */
+    scopes: text().array(),
+  },
+  (table) => [
+    index("api_keys_workspace_idx")
+      .on(table.workspaceId)
+      .where(sql`${table.workspaceId} IS NOT NULL`),
+    // Same vocabulary as grants.scopes, which may only narrow a key's.
+    check(
+      "api_keys_scopes_check",
+      sql`${table.scopes} IS NULL OR (${oneDimensional(table.scopes)} AND ${table.scopes} <@ ${SESSION_SCOPES_SQL})`,
+    ),
+  ],
+);
