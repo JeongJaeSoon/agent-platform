@@ -92,6 +92,40 @@ export function startStallReporter(
   return () => clearInterval(timer);
 }
 
+let currentStep = "none";
+let currentStepSince = Date.now();
+
+/** Records where the suite is, so a hang can name the step it stopped on. */
+export function mark(step: string): void {
+  currentStep = step;
+  currentStepSince = Date.now();
+}
+
+/**
+ * Names the step the suite has been sitting on once it outlives `stuckMs`,
+ * and keeps naming it until it moves. bun reports a timed-out test as a bare
+ * `timed out after 30000ms`; this is what says which await it was.
+ *
+ * No output at all during a hang is itself a result: it means the event loop
+ * stopped running, not that one await never returned.
+ */
+export function startStepReporter(
+  label: string,
+  tracker: S3CallTracker,
+  options: { intervalMs?: number; stuckMs?: number } = {},
+): () => void {
+  const intervalMs = options.intervalMs ?? 2_000;
+  const stuckMs = options.stuckMs ?? 6_000;
+  const timer = setInterval(() => {
+    const held = Date.now() - currentStepSince;
+    if (held < stuckMs) return;
+    process.stderr.write(
+      `STEP_STUCK[${label}] step=${currentStep} held=${held}ms s3=${tracker.describe()}\n`,
+    );
+  }, intervalMs);
+  return () => clearInterval(timer);
+}
+
 function describeCommand(command: unknown): string {
   const name = (command as { constructor?: { name?: string } })?.constructor
     ?.name;

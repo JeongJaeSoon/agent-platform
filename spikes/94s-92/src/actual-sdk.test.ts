@@ -29,16 +29,29 @@ import {
   localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
-import { startStallReporter } from "./s3-diagnostics.ts";
+import { mark, startStallReporter, startStepReporter } from "./s3-diagnostics.ts";
 import { S3SessionStoreProbe } from "./s3-session-store.ts";
 
 const describeActual = localstackEnabled ? describe : describe.skip;
 
+/** Every test in this file runs on the same budget. */
+const TEST_BUDGET_MS = 30_000;
 /**
- * Short of bun's own 30s limit, so a child that never settles is reported with
- * its state instead of being replaced by a bare `timed out after 30000ms`.
+ * How long before bun's own limit `runChild` gives up and reports. A fixed
+ * per-child watchdog cannot work here: a test that runs two children in
+ * sequence would need twice the budget, so the second child's watchdog could
+ * never fire and the test would die as a bare `timed out after 30000ms`.
+ * The deadline belongs to the test, not to one child.
  */
-const CHILD_WATCHDOG_MS = 20_000;
+const WATCHDOG_MARGIN_MS = 4_000;
+
+let testDeadline = Number.POSITIVE_INFINITY;
+
+/** Opens a test's budget and names it for the stuck-step reporter. */
+function beginTest(name: string): void {
+  testDeadline = Date.now() + TEST_BUDGET_MS;
+  mark(name);
+}
 
 type ChildResult = {
   readonly appendAttempts: number;
@@ -54,9 +67,11 @@ describeActual("actual SDK SessionStore process contract", () => {
   let root = "";
   let workspace = "";
   let stopStallReporter = () => {};
+  let stopStepReporter = () => {};
 
   beforeAll(async () => {
     stopStallReporter = startStallReporter("suite", localstackCalls);
+    stopStepReporter = startStepReporter("94s-92", localstackCalls);
     await ensureLocalstackBucket(client);
     root = await mkdtemp(join(tmpdir(), "94s-92-actual-"));
     workspace = join(root, "workspace");
@@ -64,6 +79,7 @@ describeActual("actual SDK SessionStore process contract", () => {
   });
 
   afterAll(async () => {
+    stopStepReporter();
     stopStallReporter();
     await deletePrefix(client, prefix);
     client.destroy();
@@ -75,6 +91,7 @@ describeActual("actual SDK SessionStore process contract", () => {
       index === 0 ? "TURN_ONE_CONTEXT" : "TURN_TWO_RESUMED",
     );
     try {
+      beginTest("resumes:first-child");
       const first = await runChild({
         apiUrl: server.url,
         configDir: join(root, "config-first"),
@@ -92,6 +109,7 @@ describeActual("actual SDK SessionStore process contract", () => {
       if (!sessionId) throw new Error("First process returned no session ID");
 
       const secondConfig = join(root, "config-second");
+      mark("resumes:second-child");
       const second = await runChild({
         apiUrl: server.url,
         configDir: secondConfig,
@@ -107,7 +125,9 @@ describeActual("actual SDK SessionStore process contract", () => {
       const resumedRequest = JSON.stringify(server.requests[1]?.body);
       expect(resumedRequest).toContain("TURN_ONE_CONTEXT");
       expect(resumedRequest).toContain("remember the first turn");
+      mark("resumes:findJsonl");
       expect(await findJsonl(secondConfig)).toEqual([]);
+      mark("resumes:captureRevision");
 
       const store = new S3SessionStoreProbe({
         bucket: localstackBucket(),
@@ -119,7 +139,9 @@ describeActual("actual SDK SessionStore process contract", () => {
         sessionId,
       });
       expect(revision?.entryCount).toBeGreaterThan(0);
+      mark("resumes:done");
     } finally {
+      mark("resumes:server-stop");
       server.stop();
     }
   }, 30_000);
@@ -127,6 +149,7 @@ describeActual("actual SDK SessionStore process contract", () => {
   test("emits mirror_error after three rejected attempts but still yields result", async () => {
     const server = startFakeAnthropicServer(() => "MIRROR_FAILURE_RESULT");
     try {
+      beginTest("mirror_error:child");
       const failed = await runChild({
         apiUrl: server.url,
         appendMode: "fail",
@@ -151,6 +174,7 @@ describeActual("actual SDK SessionStore process contract", () => {
     const server = startFakeAnthropicServer(() => "MIRROR_TIMEOUT_RESULT");
     const timeoutPrefix = `${prefix}/timeout`;
     try {
+      beginTest("dedup:child");
       const timedOut = await runChild({
         apiUrl: server.url,
         appendMode: "timeout",
@@ -167,6 +191,7 @@ describeActual("actual SDK SessionStore process contract", () => {
         throw new Error("Timed-out process returned no session ID");
       // No settling delay: the child drains its late writes before it exits,
       // so its exit is the synchronisation point.
+      mark("dedup:load");
       const store = new S3SessionStoreProbe({
         bucket: localstackBucket(),
         client,
@@ -180,7 +205,9 @@ describeActual("actual SDK SessionStore process contract", () => {
         typeof entry.uuid === "string" ? [entry.uuid] : [],
       );
       expect(new Set(uuids).size).toBe(uuids.length);
+      mark("dedup:done");
     } finally {
+      mark("dedup:server-stop");
       server.stop();
     }
   }, 30_000);
@@ -189,6 +216,7 @@ describeActual("actual SDK SessionStore process contract", () => {
     const server = startFakeAnthropicServer(() => "MUST_NOT_RUN");
     try {
       const before = server.requests.length;
+      beginTest("missing:child");
       const missing = await runChild({
         apiUrl: server.url,
         configDir: join(root, "config-missing"),
@@ -440,6 +468,8 @@ async function runChild(
   options: ChildOptions,
 ): Promise<{ exitCode: number; value: ChildResult }> {
   const child = startChild(options);
+  mark(`runChild:spawned(${child.pid})`);
+  const watchdogMs = Math.max(2_000, testDeadline - Date.now() - WATCHDOG_MARGIN_MS);
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
   let exitCode: number | undefined;
@@ -453,14 +483,14 @@ async function runChild(
 
   const timedOut = await Promise.race([
     settled.then(() => false),
-    Bun.sleep(CHILD_WATCHDOG_MS).then(() => true),
+    Bun.sleep(watchdogMs).then(() => true),
   ]);
   if (timedOut) {
     // Which of the three is still open is the whole diagnosis: a live child is
     // a stuck child, while a dead child with an open pipe is a grandchild
     // still holding the write end.
     const state = [
-      `child pid=${child.pid} did not settle within ${CHILD_WATCHDOG_MS}ms`,
+      `child pid=${child.pid} did not settle within ${watchdogMs}ms`,
       `exit=${exitCode ?? "pending"} stdout=${stdout.state()} stderr=${stderr.state()}`,
       `parent s3: ${localstackCalls.describe()}`,
       `child stdout so far: ${JSON.stringify(stdout.text())}`,

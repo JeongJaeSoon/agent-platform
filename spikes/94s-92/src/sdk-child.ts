@@ -47,6 +47,30 @@ let appendAttempts = 0;
 const lateWrites = new Set<Promise<void>>();
 /** Longer than a bounded S3 attempt chain, so a real write is never cut off. */
 const LATE_WRITE_DRAIN_MS = 15_000;
+
+/**
+ * Waits for `promises`, giving up after `ms`. The timer is cleared either way:
+ * a `Bun.sleep` left running in a lost `Promise.race` still holds the event
+ * loop open, which would keep this process alive long after it has printed its
+ * result — indistinguishable, from the parent, from a child that hung.
+ */
+async function settleWithin(
+  promises: readonly Promise<unknown>[],
+  ms: number,
+): Promise<void> {
+  if (promises.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(promises),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 const store: SessionStore = {
   append: async (key: SessionKey, entries: SessionStoreEntry[]) => {
     appendAttempts += 1;
@@ -140,10 +164,7 @@ try {
   // happens to outlive them — but bound the wait, or one stuck write turns
   // this process into a child that never exits.
   stage = `draining(${lateWrites.size} late writes)`;
-  await Promise.race([
-    Promise.allSettled([...lateWrites]),
-    Bun.sleep(LATE_WRITE_DRAIN_MS),
-  ]);
+  await settleWithin([...lateWrites], LATE_WRITE_DRAIN_MS);
   stage = "done";
   client.destroy();
 }
