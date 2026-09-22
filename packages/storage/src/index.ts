@@ -1,22 +1,33 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
-  GetObjectCommand,
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 
 import {
-  bodyBytes,
+  BoundedNodeHttpHandler,
   concatBytes,
-  isMissingObject,
+  getObjectBytes,
+  S3_MAX_ATTEMPTS,
+  S3_REQUEST_BOUNDS,
   type S3ClientLike,
+  type S3RequestBounds,
   sha256,
 } from "./s3.ts";
 
 export * from "./checkpoint-objects.ts";
-export type { S3ClientLike } from "./s3.ts";
+export {
+  BodyLimitError,
+  type BodyReadBounds,
+  BodyStallError,
+  DEFAULT_BODY_READ_BOUNDS,
+  S3_MAX_ATTEMPTS,
+  S3_REQUEST_BOUNDS,
+  type S3ClientLike,
+  type S3RequestBounds,
+} from "./s3.ts";
 
 export const DEFAULT_TRANSCRIPT_CHUNK_BYTES = 5 * 1024 * 1024;
 const META_VERSION = 1;
@@ -165,21 +176,37 @@ export function storageConfigFromEnv(
   };
 }
 
-export function createSessionStorageFromEnv(
-  environment: StorageEnvironment = process.env as StorageEnvironment,
-): SessionStorage {
-  const config = storageConfigFromEnv(environment);
+/**
+ * The one place this package builds an S3 client, so the bounds it runs under
+ * are the ones in {@link S3_REQUEST_BOUNDS}. `bounds` exists for tests that
+ * cannot wait out the shipped values.
+ */
+export function createStorageS3Client(
+  config: StorageConfig,
+  bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
+): S3Client {
   const s3Config: S3ClientConfig = {
     credentials: {
       accessKeyId: config.s3.accessKeyId,
       secretAccessKey: config.s3.secretAccessKey,
     },
+    maxAttempts: S3_MAX_ATTEMPTS,
     region: config.s3.region,
+    requestHandler: new BoundedNodeHttpHandler(bounds),
     ...(config.s3.endpoint === undefined
       ? {}
       : { endpoint: config.s3.endpoint, forcePathStyle: true }),
   };
-  return createSessionStorage(config, { s3Client: new S3Client(s3Config) });
+  return new S3Client(s3Config);
+}
+
+export function createSessionStorageFromEnv(
+  environment: StorageEnvironment = process.env as StorageEnvironment,
+): SessionStorage {
+  const config = storageConfigFromEnv(environment);
+  return createSessionStorage(config, {
+    s3Client: createStorageS3Client(config),
+  });
 }
 
 export function encodeClaudeProjectDirectory(cwd: string): string {
@@ -288,18 +315,7 @@ export function createSessionStorage(
   }
 
   async function getObject(key: string): Promise<Uint8Array | undefined> {
-    try {
-      const response = (await dependencies.s3Client.send(
-        new GetObjectCommand({ Bucket: config.bucket, Key: key }),
-      )) as { Body?: unknown };
-      if (response.Body === undefined) {
-        throw new Error(`S3 object has no body: ${key}`);
-      }
-      return bodyBytes(response.Body);
-    } catch (error) {
-      if (isMissingObject(error)) return undefined;
-      throw error;
-    }
+    return getObjectBytes(dependencies.s3Client, config.bucket, key);
   }
 
   async function uploadTranscript(

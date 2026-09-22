@@ -3,14 +3,14 @@ import type {
   PutImmutableResult,
 } from "@agent-platform/runtime-core";
 import {
-  GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
 import {
-  bodyBytes,
+  type BodyReadBounds,
+  getObjectBytes,
   isConditionalConflict,
   isMissingObject,
   isPreconditionFailed,
@@ -23,6 +23,8 @@ import {
 const CONFLICT_ATTEMPTS = 4;
 
 export type CheckpointObjectStoreOptions = {
+  /** Defaults to `DEFAULT_BODY_READ_BOUNDS`; tests pin shorter bounds. */
+  readonly bodyRead?: BodyReadBounds;
   readonly bucket: string;
   readonly client: S3ClientLike;
 };
@@ -39,21 +41,10 @@ export type CheckpointObjectStoreOptions = {
 export function createCheckpointObjectStore(
   options: CheckpointObjectStoreOptions,
 ): CheckpointObjectStore {
-  const { bucket, client } = options;
+  const { bodyRead, bucket, client } = options;
 
   async function get(key: string): Promise<Uint8Array | undefined> {
-    try {
-      const response = (await client.send(
-        new GetObjectCommand({ Bucket: bucket, Key: key }),
-      )) as { Body?: unknown };
-      if (response.Body === undefined) {
-        throw new Error(`S3 object has no body: ${key}`);
-      }
-      return bodyBytes(response.Body);
-    } catch (error) {
-      if (isMissingObject(error)) return undefined;
-      throw error;
-    }
+    return getObjectBytes(client, bucket, key, bodyRead);
   }
 
   function compare(stored: Uint8Array, expected: string): PutImmutableResult {

@@ -160,6 +160,7 @@
       "dependencies": {
         "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
+        "@smithy/node-http-handler": "^4.12.1",
       },
       "devDependencies": {
         "@agent-platform/testkit": "workspace:*",
