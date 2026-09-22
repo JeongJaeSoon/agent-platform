@@ -184,7 +184,10 @@ services:
   # is kept observable two ways: the loop gives up after
   # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
   # engages and `compose ps` shows it restarting, and the healthcheck goes
-  # unhealthy when no pass has succeeded for SCHEDULER_HEALTH_STALE_SEC.
+  # unhealthy when no pass has succeeded for SCHEDULER_HEALTH_STALE_SEC. A
+  # pass that hangs (the pool has no query deadline yet, 94S-255) is killed
+  # after SCHEDULER_PASS_TIMEOUT_SEC and counts as a failure, since Docker
+  # never restarts a container for being unhealthy.
   scheduler:
     build:
       context: ..
@@ -197,7 +200,7 @@ services:
       - |
         fails=0
         while :; do
-          if bun run apps/scheduler/src/main.ts; then
+          if timeout -k 10 "$${SCHEDULER_PASS_TIMEOUT_SEC:-120}" bun run apps/scheduler/src/main.ts; then
             fails=0
             touch /tmp/scheduler-last-ok
           else
@@ -246,6 +249,7 @@ services:
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
       SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
       SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-60}
+      SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-120}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

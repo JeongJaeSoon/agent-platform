@@ -60,6 +60,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
     expect(schedulerBlock).toContain("SCHEDULER_MAX_CONSECUTIVE_FAILURES");
     expect(schedulerBlock).toMatch(/exit 1/);
+    // A hung pass must count as a failure; unhealthy alone never restarts.
+    expect(schedulerBlock).toContain("timeout -k 10");
     expect(schedulerBlock).toContain("touch /tmp/scheduler-last-ok");
     expect(schedulerBlock).toContain("find /tmp/scheduler-last-ok -newermt");
   });
@@ -93,7 +95,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       publishJob.slice(0, publishJob.indexOf("\n  promote:\n")),
     ).not.toContain('GITHUB_REF_NAME}"');
     expect(promoteJob).toContain("docker buildx imagetools create");
-    expect(promoteJob).toContain("keeping it, not moving it");
+    expect(promoteJob).toContain("refusing to move it");
+    expect(promoteJob).toContain("after promotion");
     // A lookup that fails for any reason but "not found" must abort, not
     // read as "tag absent".
     expect(promoteJob).toContain("could not look up");
