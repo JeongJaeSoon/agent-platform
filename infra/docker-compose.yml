@@ -174,8 +174,8 @@ services:
       - -c
       - |
         while :; do
-          bun run apps/scheduler/src/main.ts || echo "scheduler pass failed (exit $?)" >&2
-          sleep "${SCHEDULER_INTERVAL_SEC:-5}"
+          bun run apps/scheduler/src/main.ts || echo "scheduler pass failed (exit $$?)" >&2
+          sleep "$${SCHEDULER_INTERVAL_SEC:-5}"
         done
     restart: unless-stopped
     env_file:
