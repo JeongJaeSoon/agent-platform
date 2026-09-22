@@ -131,7 +131,7 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
-`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않고, 두 suite는 `.github/scripts/retry-flaky.sh`가 1회 재시도한다. 재시도는 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. flaky 원인 수정은 별도 티켓이다.
+`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 신호까지 없애지는 않는다 — `spikes` check 자체는 실패로 남아 PR checks 목록에 빨갛게 보이고, run 전체의 결론만 성공이다(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`). 두 suite는 `.github/scripts/retry-flaky.sh`가 1회 재시도하고, 한쪽이 실패해도 다른 쪽은 그대로 실행한다. 재시도는 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. flaky 원인 수정은 별도 티켓이다.
 
 `main` branch protection은 아직 설정되어 있지 않다. 켠다면 required status check를 `check`·`integration`으로 두고 `spikes`는 제외한다.
 

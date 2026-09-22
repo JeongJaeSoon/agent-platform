@@ -11,7 +11,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Per PR, so a new push cancels the run it superseded. Pushes to main key on
+  # the commit instead: every merge keeps its own run rather than cancelling or
+  # queueing behind the previous one.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
