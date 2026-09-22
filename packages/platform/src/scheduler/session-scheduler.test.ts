@@ -497,6 +497,31 @@ describe("runScheduler", () => {
     ]);
   });
 
+  test("an orphan the provider will not terminate still occupies a slot", async () => {
+    const { backend, run, store } = harness(1);
+    backend.containers.set("stray#1", {
+      exited: false,
+      generation: 1,
+      operationId: "op-stray",
+      sessionId: "s-stray",
+    });
+    backend.mismatchTerminateFor.add("stray#1");
+    store.addUnassigned(1);
+
+    const summary = await run();
+    expect(summary.orphansTerminated).toEqual([]);
+    expect(summary.orphansUnresolved).toEqual([
+      { executionId: "stray", generation: 1 },
+    ]);
+    expect(summary.launched).toEqual([]);
+    expect(backend.containers.size).toBe(1);
+
+    backend.mismatchTerminateFor.clear();
+    const next = await run();
+    expect(next.orphansTerminated).toHaveLength(1);
+    expect(next.launched).toHaveLength(1);
+  });
+
   test("a failed launch keeps the intent and is retried next pass", async () => {
     const { backend, records, run, store } = harness();
     const [sessionId] = store.addUnassigned(1);

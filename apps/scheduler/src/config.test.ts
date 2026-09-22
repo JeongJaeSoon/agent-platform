@@ -54,6 +54,9 @@ describe("schedulerConfigFromEnv", () => {
     expect(() =>
       schedulerConfigFromEnv({ ...base, EXECUTION_SLOT_LIMIT: "-1" }),
     ).toThrow("EXECUTION_SLOT_LIMIT");
+    expect(() =>
+      schedulerConfigFromEnv({ ...base, WORKER_CPUS: "0.001" }),
+    ).toThrow("at least 0.01");
     expect(() => schedulerConfigFromEnv({ ...base, WORKER_CPUS: "0" })).toThrow(
       "WORKER_CPUS",
     );

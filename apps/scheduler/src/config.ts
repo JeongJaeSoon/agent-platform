@@ -44,7 +44,7 @@ export function schedulerConfigFromEnv(
     image,
     logLevel: environment.LOG_LEVEL,
     resources: {
-      cpus: positiveNumber(environment.WORKER_CPUS ?? "1", "WORKER_CPUS"),
+      cpus: cpuShare(environment.WORKER_CPUS ?? "1"),
       memoryBytes:
         positiveInteger(
           environment.WORKER_MEMORY_MB ?? "2048",
@@ -62,6 +62,17 @@ export function schedulerConfigFromEnv(
       "EXECUTION_SLOT_LIMIT",
     ),
   };
+}
+
+/** Docker's smallest CPU quota is 0.01 CPU; below that NanoCpus rounds to "no limit". */
+const MIN_CPUS = 0.01;
+
+function cpuShare(value: string): number {
+  const parsed = positiveNumber(value, "WORKER_CPUS");
+  if (parsed < MIN_CPUS) {
+    throw new Error(`WORKER_CPUS must be at least ${MIN_CPUS}`);
+  }
+  return parsed;
 }
 
 function positiveNumber(value: string, name: string): number {

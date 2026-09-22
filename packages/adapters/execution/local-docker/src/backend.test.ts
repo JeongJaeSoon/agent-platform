@@ -213,7 +213,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
     expect(result.created).toBe(true);
     expect(result.state).toBe("running");
-    const name = containerNameFor(intent);
+    const name = containerNameFor(intent, "test-a");
     const container = docker.containers.get(name);
     expect(container).toBeDefined();
     if (!container) throw new Error("missing");
@@ -243,7 +243,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {
-          Source: workspaceVolumeFor(intent.sessionId),
+          Source: workspaceVolumeFor(intent.sessionId, "test-a"),
           Target: "/workspace",
           Type: "volume",
         },
@@ -294,7 +294,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const intent = intentFor();
     const body = await createBodyOf(intent);
     body.Labels[LABELS.operationId] = "someone-else";
-    docker.add(containerNameFor(intent), body);
+    docker.add(containerNameFor(intent, "test-a"), body);
     await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
       ExecutionConflictError,
     );
@@ -303,7 +303,11 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
   test("a created-but-never-started container is started on the retry", async () => {
     const intent = intentFor();
-    docker.add(containerNameFor(intent), await createBodyOf(intent), "created");
+    docker.add(
+      containerNameFor(intent, "test-a"),
+      await createBodyOf(intent),
+      "created",
+    );
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
   });
@@ -318,7 +322,7 @@ describe("LocalDockerBackend.inspect", () => {
       state: "unknown",
     });
     const container = docker.add(
-      containerNameFor(intent),
+      containerNameFor(intent, "test-a"),
       await createBodyOf(intent),
     );
     expect(await backend.inspect(intent)).toMatchObject({
@@ -350,7 +354,7 @@ describe("LocalDockerBackend.inspect", () => {
 describe("LocalDockerBackend.listManaged", () => {
   test("returns only containers carrying the managed label with parsable ids", async () => {
     const ours = intentFor();
-    docker.add(containerNameFor(ours), await createBodyOf(ours));
+    docker.add(containerNameFor(ours, "test-a"), await createBodyOf(ours));
     const foreign = await createBodyOf(
       intentFor({ executionId: "exec-foreign" }),
     );
@@ -375,6 +379,27 @@ describe("LocalDockerBackend.listManaged", () => {
 });
 
 describe("two installations sharing one daemon", () => {
+  test("a same-named foreign container is never reported as ours", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.installation] = "test-b";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    await expect(backend.inspect(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+  });
+
+  test("cpus that round to zero NanoCpus are refused", async () => {
+    const intent = {
+      ...intentFor(),
+      resources: { cpus: 1e-10, memoryBytes: 1024, pidsLimit: 8 },
+    };
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "no CPU limit",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
   test("neither lists, adopts nor terminates the other's containers", async () => {
     const intent = intentFor();
     const other = new LocalDockerBackend({
@@ -387,14 +412,28 @@ describe("two installations sharing one daemon", () => {
     expect((await backend.listManaged()).map((m) => m.executionId)).toEqual([
       intent.executionId,
     ]);
-    await expect(other.ensureExecution(intent)).rejects.toBeInstanceOf(
-      ExecutionConflictError,
+    // Same ids (a cloned database) land on distinct names and volumes, so
+    // the other installation gets its own container instead of adopting ours.
+    const theirs = await other.ensureExecution(intent);
+    expect(theirs.created).toBe(true);
+    expect(docker.containers.size).toBe(2);
+    expect(docker.containers.has(containerNameFor(intent, "test-b"))).toBe(
+      true,
     );
-    await expect(other.terminate(intent)).rejects.toBeInstanceOf(
-      ExecutionConflictError,
+    const theirBody = docker.containers.get(containerNameFor(intent, "test-b"));
+    expect(theirBody?.body.HostConfig.Mounts[0]?.Source).toBe(
+      workspaceVolumeFor(intent.sessionId, "test-b"),
     );
-    expect(docker.containers.size).toBe(1);
-    expect(docker.requests.some((r) => r.method === "DELETE")).toBe(false);
+    expect(await other.inspect(intent)).toMatchObject({ found: true });
+
+    expect(await other.terminate(intent)).toMatchObject({
+      outcome: "terminated",
+    });
+    expect(docker.containers.has(containerNameFor(intent, "test-a"))).toBe(
+      true,
+    );
+    expect(await other.listManaged()).toEqual([]);
+    expect(await backend.listManaged()).toHaveLength(1);
   });
 });
 
@@ -402,13 +441,16 @@ describe("LocalDockerBackend.terminate", () => {
   test("stops and removes the matching generation only", async () => {
     const gen1 = intentFor({ generation: 1, operationId: "op-1" });
     const gen2 = intentFor({ generation: 2, operationId: "op-2" });
-    docker.add(containerNameFor(gen1), await createBodyOf(gen1));
-    const kept = docker.add(containerNameFor(gen2), await createBodyOf(gen2));
+    docker.add(containerNameFor(gen1, "test-a"), await createBodyOf(gen1));
+    const kept = docker.add(
+      containerNameFor(gen2, "test-a"),
+      await createBodyOf(gen2),
+    );
 
     const result = await backend.terminate(gen1);
     expect(result.outcome).toBe("terminated");
-    expect(docker.containers.has(containerNameFor(gen1))).toBe(false);
-    expect(docker.containers.get(containerNameFor(gen2))).toBe(kept);
+    expect(docker.containers.has(containerNameFor(gen1, "test-a"))).toBe(false);
+    expect(docker.containers.get(containerNameFor(gen2, "test-a"))).toBe(kept);
     expect(kept.status).toBe("running");
     expect(
       docker.requests.filter(
@@ -420,7 +462,7 @@ describe("LocalDockerBackend.terminate", () => {
   test("reports a generation mismatch without touching the other generation", async () => {
     const live = intentFor({ generation: 3 });
     const container = docker.add(
-      containerNameFor(live),
+      containerNameFor(live, "test-a"),
       await createBodyOf(live),
     );
     const result = await backend.terminate({ ...live, generation: 2 });
@@ -440,7 +482,7 @@ describe("LocalDockerBackend.terminate", () => {
     const intent = intentFor({ generation: 1 });
     const body = await createBodyOf(intent);
     body.Labels[LABELS.generation] = "7";
-    docker.add(containerNameFor(intent), body);
+    docker.add(containerNameFor(intent, "test-a"), body);
     expect(await backend.terminate(intent)).toEqual({
       foundGeneration: 7,
       outcome: "generation_mismatch",
@@ -491,14 +533,14 @@ describe("a daemon that accepts the connection but never answers", () => {
 
 describe("names", () => {
   test("container and volume names are deterministic and validated", () => {
-    expect(containerNameFor({ executionId: "exec-1", generation: 2 })).toBe(
-      "ap-worker-exec-1-g2",
-    );
-    expect(workspaceVolumeFor("s-1")).toBe("ap-ws-s-1");
+    expect(
+      containerNameFor({ executionId: "exec-1", generation: 2 }, "test-a"),
+    ).toBe("ap-worker-test-a-exec-1-g2");
+    expect(workspaceVolumeFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1");
     expect(() =>
-      containerNameFor({ executionId: "../x", generation: 1 }),
+      containerNameFor({ executionId: "../x", generation: 1 }, "test-a"),
     ).toThrow();
-    expect(() => workspaceVolumeFor("a b")).toThrow();
+    expect(() => workspaceVolumeFor("a b", "test-a")).toThrow();
   });
 });
 

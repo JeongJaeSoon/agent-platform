@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@agent-platform/db";
 import { executions, sessions, unassignedSessions } from "@agent-platform/db";
 import {
+  containerNameFor,
   DockerClient,
   LABELS,
   workspaceVolumeFor,
@@ -40,6 +41,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     ...process.env,
     DATABASE_URL: database.url,
     DOCKER_HOST: dockerHost,
+    EXECUTION_INSTALLATION_ID: runLabel,
     EXECUTION_DOCKER_COMMAND: "sleep 600",
     EXECUTION_SLOT_LIMIT: "10",
     WORKER_CPUS: "0.25",
@@ -76,12 +78,18 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       .where(inArray(executions.sessionId, sessionIds));
     for (const row of rows) {
       await client
-        .stopAndRemoveContainer(`ap-worker-${row.id}-g${row.generation}`, 1)
+        .stopAndRemoveContainer(
+          containerNameFor(
+            { executionId: row.id, generation: row.generation },
+            runLabel,
+          ),
+          1,
+        )
         .catch(() => undefined);
     }
     for (const sessionId of sessionIds) {
       await fetch(
-        `http://docker/v1.44/volumes/${workspaceVolumeFor(sessionId)}?force=true`,
+        `http://docker/v1.44/volumes/${workspaceVolumeFor(sessionId, runLabel)}?force=true`,
         {
           method: "DELETE",
           unix: dockerHost.replace("unix://", ""),

@@ -51,20 +51,31 @@ const VOLUME_PREFIX = "ap-ws-";
 const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
 /** Deterministic per intent, so a retried create collides instead of doubling. */
-export function containerNameFor(ref: ExecutionRef): string {
+/**
+ * Container and volume names are daemon-global, so both carry the
+ * installation id: two installations sharing a daemon (or a cloned database
+ * with the same ids) never collide on names or mount each other's workspace.
+ */
+export function containerNameFor(
+  ref: ExecutionRef,
+  installationId: string,
+): string {
   if (!SAFE_NAME.test(ref.executionId)) {
     throw new Error(
       `Execution id ${ref.executionId} cannot be used as a Docker name`,
     );
   }
-  return `${CONTAINER_NAME_PREFIX}${ref.executionId}-g${ref.generation}`;
+  return `${CONTAINER_NAME_PREFIX}${installationId}-${ref.executionId}-g${ref.generation}`;
 }
 
-export function workspaceVolumeFor(sessionId: string): string {
+export function workspaceVolumeFor(
+  sessionId: string,
+  installationId: string,
+): string {
   if (!SAFE_NAME.test(sessionId)) {
     throw new Error(`Session id ${sessionId} cannot be used as a volume name`);
   }
-  return `${VOLUME_PREFIX}${sessionId}`;
+  return `${VOLUME_PREFIX}${installationId}-${sessionId}`;
 }
 
 export class ExecutionConflictError extends Error {
@@ -99,7 +110,7 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
-    const name = containerNameFor(intent);
+    const name = containerNameFor(intent, this.config.installationId);
     const existing = await this.client.inspectContainer(name);
     if (existing) return this.adopt(intent, existing);
     try {
@@ -122,11 +133,17 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
-    const container = await this.client.inspectContainer(containerNameFor(ref));
+    const container = await this.client.inspectContainer(
+      containerNameFor(ref, this.config.installationId),
+    );
     const observedAt = new Date();
     if (!container) {
       return { found: false, observedAt, providerRef: null, state: "unknown" };
     }
+    // Fail closed: a same-named container that is not ours (other
+    // installation, other generation, other execution) must never be
+    // reported as this execution's healthy resource.
+    this.assertOwned(ref, container);
     const state = stateOf(container.State.Status);
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
@@ -160,7 +177,7 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   async terminate(ref: ExecutionRef): Promise<TerminateExecutionResult> {
-    const name = containerNameFor(ref);
+    const name = containerNameFor(ref, this.config.installationId);
     const container = await this.client.inspectContainer(name);
     if (!container) {
       // The name encodes the generation, so a different generation of the
@@ -191,6 +208,21 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { outcome: "terminated", providerRef: container.Id };
   }
 
+  private assertOwned(ref: ExecutionRef, container: ContainerInspect): void {
+    const labels = container.Config.Labels ?? {};
+    if (
+      labels[LABELS.installation] !== this.config.installationId ||
+      labels[LABELS.executionId] !== ref.executionId ||
+      Number(labels[LABELS.generation]) !== ref.generation
+    ) {
+      throw new ExecutionConflictError(
+        ref,
+        `${this.config.installationId}/${ref.executionId}/g${ref.generation}`,
+        `${labels[LABELS.installation]}/${labels[LABELS.executionId]}/g${labels[LABELS.generation]}`,
+      );
+    }
+  }
+
   private async adopt(
     intent: LaunchIntent,
     container: ContainerInspect,
@@ -214,6 +246,11 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   private createBody(intent: LaunchIntent): ContainerCreateBody {
     const { config } = this;
+    const nanoCpus = Math.round(intent.resources.cpus * 1_000_000_000);
+    if (nanoCpus < 1) {
+      // Docker reads NanoCpus 0 as "no quota", which would silently drop the limit.
+      throw new Error(`cpus ${intent.resources.cpus} rounds to no CPU limit`);
+    }
     const tmpfsOptions = `rw,nosuid,nodev,size=${config.tmpfsSizeBytes}`;
     return {
       ...(config.command ? { Cmd: config.command } : {}),
@@ -229,12 +266,12 @@ export class LocalDockerBackend implements ExecutionBackend {
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {
-            Source: workspaceVolumeFor(intent.sessionId),
+            Source: workspaceVolumeFor(intent.sessionId, config.installationId),
             Target: config.workspaceDir,
             Type: "volume",
           },
         ],
-        NanoCpus: Math.round(intent.resources.cpus * 1_000_000_000),
+        NanoCpus: nanoCpus,
         NetworkMode: config.network,
         PidsLimit: intent.resources.pidsLimit,
         ReadonlyRootfs: true,

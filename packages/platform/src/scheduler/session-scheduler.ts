@@ -38,6 +38,8 @@ export type SchedulerRunSummary = {
   failedLaunches: ExecutionRef[];
   launched: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
+  /** Orphans the provider would not terminate; each still holds a slot. */
+  orphansUnresolved: ExecutionRef[];
   /** Intents re-ensured after the resource was missing or not yet observed. */
   reensured: ExecutionRef[];
   slotLimit: number;
@@ -79,6 +81,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     failedLaunches: [],
     launched: [],
     orphansTerminated: [],
+    orphansUnresolved: [],
     reensured: [],
     skipped: false,
     slotLimit,
@@ -211,6 +214,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         ...fieldsOf(refOf(resource)),
         outcome: outcome.outcome,
       });
+      if (outcome.outcome === "generation_mismatch") {
+        summary.orphansUnresolved.push(refOf(resource));
+      }
       continue;
     }
     summary.orphansTerminated.push(refOf(resource));
@@ -218,7 +224,13 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
 
   // 3. Fill free slots.
   const demand = await store.inspectDemand({ limit: options.slotLimit });
-  let free = Math.max(0, options.slotLimit - demand.activeExecutionCount);
+  // Rows are the ledger, but a still-running orphan occupies the host too.
+  let free = Math.max(
+    0,
+    options.slotLimit -
+      demand.activeExecutionCount -
+      summary.orphansUnresolved.length,
+  );
   for (const sessionId of demand.eligibleSessionIds) {
     if (free <= 0) break;
     const stored = await store.reserveLaunch({
@@ -265,6 +277,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     failed_count: summary.failedLaunches.length,
     launched_count: summary.launched.length,
     orphan_count: summary.orphansTerminated.length,
+    orphan_unresolved_count: summary.orphansUnresolved.length,
     reensured_count: summary.reensured.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,

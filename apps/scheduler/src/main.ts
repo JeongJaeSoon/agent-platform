@@ -40,6 +40,14 @@ export async function main(
   }
 }
 
+/** Non-zero when the pass left work undone, so cron/supervisors notice. */
+export function exitCodeFor(summary: SchedulerRunSummary): number {
+  return summary.failedLaunches.length > 0 ||
+    summary.orphansUnresolved.length > 0
+    ? 1
+    : 0;
+}
+
 if (import.meta.main) {
-  await main();
+  process.exitCode = exitCodeFor(await main());
 }

@@ -48,6 +48,7 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
 
 integration("LocalDockerBackend against a real daemon", () => {
   const client = new DockerClient(dockerHost);
+  const installationId = `it-${crypto.randomUUID().slice(0, 8)}`;
   const backend = new LocalDockerBackend(
     {
       allowedNetworks: ["bridge"],
@@ -56,7 +57,7 @@ integration("LocalDockerBackend against a real daemon", () => {
       dockerHost,
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
-      installationId: `it-${crypto.randomUUID().slice(0, 8)}`,
+      installationId,
       network: "bridge",
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 1,
@@ -85,13 +86,13 @@ integration("LocalDockerBackend against a real daemon", () => {
       for (const generation of [1, 2, 3]) {
         await client
           .stopAndRemoveContainer(
-            containerNameFor({ ...intent, generation }),
+            containerNameFor({ ...intent, generation }, installationId),
             1,
           )
           .catch(() => undefined);
       }
       await fetchDocker(
-        `/volumes/${workspaceVolumeFor(intent.sessionId)}?force=true`,
+        `/volumes/${workspaceVolumeFor(intent.sessionId, installationId)}?force=true`,
         "DELETE",
       ).catch(() => undefined);
     }
@@ -158,7 +159,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(host.Binds ?? null).toBeNull();
     expect(host.Mounts).toEqual([
       expect.objectContaining({
-        Source: workspaceVolumeFor(intent.sessionId),
+        Source: workspaceVolumeFor(intent.sessionId, installationId),
         Target: "/workspace",
         Type: "volume",
       }),
