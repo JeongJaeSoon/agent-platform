@@ -100,20 +100,32 @@ integration("LocalDockerBackend against a real daemon", () => {
     // alone used to eat bun's 5s hook budget.
     const owned = [`${LABELS.installation}=${installationId}`];
     const t0 = performance.now();
-    const containers = await client.listContainers(owned).catch(() => []);
+    // A failed listing is itself a cleanup failure, not an empty daemon:
+    // it goes into `failed` instead of quietly skipping everything it owned.
+    const [containers, volumes] = await Promise.allSettled([
+      client.listContainers(owned),
+      client.listVolumes(owned),
+    ]);
     const stops = await Promise.allSettled(
-      containers.map((c) => client.stopAndRemoveContainer(c.Id, 1)),
+      (containers.status === "fulfilled" ? containers.value : []).map((c) =>
+        client.stopAndRemoveContainer(c.Id, 1),
+      ),
     );
-    const volumes = await client.listVolumes(owned).catch(() => []);
     const removes = await Promise.allSettled(
-      volumes.map((v) => client.removeVolume(v.Name)),
+      (volumes.status === "fulfilled" ? volumes.value : []).map((v) =>
+        client.removeVolume(v.Name),
+      ),
     );
     const network = await Promise.allSettled([
       client.removeNetwork(workerNetwork),
     ]);
-    const failed = [...stops, ...removes, ...network].filter(
-      (r): r is PromiseRejectedResult => r.status === "rejected",
-    );
+    const failed = [
+      containers,
+      volumes,
+      ...stops,
+      ...removes,
+      ...network,
+    ].filter((r): r is PromiseRejectedResult => r.status === "rejected");
     // Leftovers are a daemon hygiene problem, not a contract violation:
     // report them and let the suite's verdict stand.
     if (failed.length > 0) {
