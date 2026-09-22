@@ -41,6 +41,22 @@
         "@types/pg": "8.15.5",
       },
     },
+    "apps/scheduler": {
+      "name": "@agent-platform/scheduler",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "drizzle-orm": "0.44.5",
+        "pg": "8.16.3",
+      },
+      "devDependencies": {
+        "@agent-platform/testkit": "workspace:*",
+        "@types/pg": "8.15.5",
+      },
+    },
     "apps/worker": {
       "name": "@agent-platform/worker",
       "version": "0.0.0",
@@ -48,6 +64,14 @@
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/runtime-claude": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
+      },
+    },
+    "packages/adapters/execution/local-docker": {
+      "name": "@agent-platform/execution-local-docker",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude": {
@@ -155,6 +179,8 @@
 
     "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
+    "@agent-platform/execution-local-docker": ["@agent-platform/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
+
     "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
     "@agent-platform/platform": ["@agent-platform/platform@workspace:packages/platform"],
@@ -166,6 +192,8 @@
     "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
     "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
+
+    "@agent-platform/scheduler": ["@agent-platform/scheduler@workspace:apps/scheduler"],
 
     "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 

@@ -15,6 +15,7 @@ const testkit = "@agent-platform/testkit";
 const claudeSdk = "@anthropic-ai/claude-agent-sdk";
 const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
+const dockerBackend = join("packages", "adapters", "execution", "local-docker");
 const worker = join("apps", "worker");
 
 type Manifest = {
@@ -185,6 +186,7 @@ describe("architecture", () => {
     const names = (await workspacePackages()).map((d) => relative(root, d));
     expect(names).toContain(runtimeCore);
     expect(names).toContain(claudeAdapter);
+    expect(names).toContain(dockerBackend);
     expect(names).toContain(worker);
   });
 
@@ -321,6 +323,31 @@ describe("architecture", () => {
     const imported = await packageImports(directory);
     expect(forbidden.filter((name) => declared.has(name))).toEqual([]);
     expect(forbidden.filter((name) => imported.has(name))).toEqual([]);
+  });
+
+  test("the Docker backend depends on platform and contracts only and never on db, pg or Docker SDKs", async () => {
+    const directory = join(root, dockerBackend);
+    const allowed = new Set([
+      "@agent-platform/contracts",
+      "@agent-platform/platform",
+    ]);
+    const declared = [...declaredDependencies(await manifest(directory))];
+    const imported = [...(await packageImports(directory))];
+    expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
+    expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+  });
+
+  test("worker containers never get the Docker socket or a host bind mount", async () => {
+    // The Engine API body is the contract: a bind mount would be a `Binds`
+    // key or a `Type: "bind"` mount, and neither may appear in the backend.
+    const offenders: string[] = [];
+    for (const file of await sourceFiles(join(root, dockerBackend, "src"))) {
+      const source = await readFile(file, "utf8");
+      if (/\bBinds\b/.test(source) || /Type:\s*"bind"/.test(source)) {
+        offenders.push(relative(root, file));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("the worker imports runtime-core, the Claude adapter and contracts only", async () => {
