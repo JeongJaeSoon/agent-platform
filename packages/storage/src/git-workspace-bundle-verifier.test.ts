@@ -476,6 +476,36 @@ describe("git workspace bundle verifier", () => {
     expect(await readdir(tempRoot)).toEqual([]);
   });
 
+  test("a pack declaring more objects than the ceiling is refused before git", async () => {
+    const text = new TextDecoder("latin1").decode(bundle.bytes);
+    const packOffset = text.indexOf("\n\n") + 2;
+    const body = Buffer.from(
+      bundle.bytes.subarray(packOffset, bundle.bytes.byteLength - 20),
+    );
+    body.writeUInt32BE(5_000_000, 8);
+    const bytes = new Uint8Array(
+      Buffer.concat([
+        bundle.bytes.subarray(0, packOffset),
+        body,
+        createHash("sha1").update(body).digest(),
+      ]),
+    );
+    const calls: string[][] = [];
+    const gitRunner: GitCommandRunner = async (args) => {
+      calls.push([...args]);
+      return { exitCode: 0, stderr: "", stdout: "" };
+    };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    expect(
+      await verifier.verify({ bytes, commit: bundle.commit, key: "k" }),
+    ).toEqual({
+      status: "unusable",
+      reason:
+        "git bundle declares 5000000 objects, over the 1000000 the control plane will index",
+    });
+    expect(calls).toEqual([]);
+  });
+
   test("a git that outlives the timeout is killed and reported as a fault, not a verdict", async () => {
     // A stand-in git on PATH that never returns is the one way to make the
     // real runner wait; the init call still runs the real binary.

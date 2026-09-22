@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceBundleVerifier } from "@agent-platform/platform";
-import { gitBundleOffers } from "@agent-platform/runtime-core";
+import {
+  gitBundleOffers,
+  readGitBundleHeader,
+} from "@agent-platform/runtime-core";
 
 import {
   defaultGitRunner,
@@ -12,6 +15,14 @@ import {
 
 export type GitWorkspaceBundleVerifierOptions = {
   readonly gitRunner?: GitCommandRunner;
+  /**
+   * Most objects a pack may declare before it is refused unread. The byte
+   * ceiling the service applies bounds the input, not the work: a pack of
+   * tiny deltas can declare millions of objects, and index-pack's memory
+   * and index size grow with the count, not the bytes. Real workspaces at
+   * the byte ceiling hold thousands, so the default leaves a wide margin.
+   */
+  readonly maxPackObjects?: number;
   /**
    * Where the throwaway repository lives; defaults to the OS temp directory.
    * Tests point it at a directory they can list to prove nothing is left.
@@ -26,6 +37,20 @@ export type GitWorkspaceBundleVerifierOptions = {
 };
 
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
+export const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
+
+// Deliberately minimal: the count ceiling and the timeout are what bounds a
+// hostile pack today; git still shares this process's memory and temp disk.
+// Running it under its own memory, CPU and disk quotas is 94S-259.
+
+/** The object count from the 12-byte pack header the bundle header precedes. */
+function packObjectCount(bytes: Uint8Array): number | undefined {
+  const header = readGitBundleHeader(bytes);
+  if (header === undefined) return undefined;
+  const offset = header.packOffset + 8;
+  if (offset + 4 > bytes.byteLength) return undefined;
+  return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0);
+}
 
 /**
  * `git check-ref-format`'s rules, so that any name git itself would write
@@ -85,6 +110,7 @@ export function createGitWorkspaceBundleVerifier(
 ): WorkspaceBundleVerifier {
   const gitRunner = options.gitRunner ?? defaultGitRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_VERIFY_TIMEOUT_MS;
+  const maxPackObjects = options.maxPackObjects ?? DEFAULT_MAX_PACK_OBJECTS;
   return {
     async verify({ bytes, commit }) {
       // The structural read is the cheap gate: no git process for bytes that
@@ -105,6 +131,13 @@ export function createGitWorkspaceBundleVerifier(
         return {
           status: "unusable",
           reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
+        };
+      }
+      const objects = packObjectCount(bytes);
+      if (objects === undefined || objects > maxPackObjects) {
+        return {
+          status: "unusable",
+          reason: `git bundle declares ${objects ?? "an unreadable number of"} objects, over the ${maxPackObjects} the control plane will index`,
         };
       }
       const directory = await mkdtemp(
