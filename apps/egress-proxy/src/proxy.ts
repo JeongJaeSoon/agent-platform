@@ -116,6 +116,8 @@ type ClientState = {
   remote: string;
   /** Armed while a queue sits over its cap; a peer that never drains dies. */
   stallTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Queue depth when the current deadline was armed, to measure progress. */
+  stallBytes: number;
   /** Bytes owed to the client; flushed from the client's own drain. */
   toClient: Queue;
   /** Bytes owed to the upstream; flushed from the upstream's drain. */
@@ -186,6 +188,7 @@ export async function startEgressProxy(
           phase: "head",
           releaseDeferred: false,
           remote,
+          stallBytes: 0,
           stallTimer: undefined,
           toClient: { bytes: 0, chunks: [] },
           toUpstream: { bytes: 0, chunks: [] },
@@ -527,11 +530,30 @@ export async function startEgressProxy(
   ): void {
     reader(source).pause();
     if (socket.data.stallTimer !== undefined) return;
+    arm(socket, reason);
+  }
+
+  /**
+   * The deadline measures a window with no progress, not the age of the
+   * stall. A peer reading at a steady trickle can take longer than the
+   * timeout to clear a full queue, and cutting it there would be the
+   * truncation this exists to remove.
+   */
+  function arm(socket: Socket<ClientState>, reason: string): void {
+    socket.data.stallBytes = owed(socket.data);
     socket.data.stallTimer = setTimeout(() => {
+      if (owed(socket.data) < socket.data.stallBytes) {
+        arm(socket, reason);
+        return;
+      }
       socket.data.stallTimer = undefined;
       logger.warn(reason);
       drop(socket);
     }, stallTimeoutMs);
+  }
+
+  function owed(state: ClientState): number {
+    return state.toClient.bytes + state.toUpstream.bytes;
   }
 
   /** Both queues drained, so neither side is owed anything: disarm. */
