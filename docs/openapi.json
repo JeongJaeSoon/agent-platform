@@ -344,6 +344,7 @@
                 "enum": [
                   "BAD_REQUEST",
                   "UNAUTHORIZED",
+                  "FORBIDDEN",
                   "NOT_FOUND",
                   "PAYLOAD_TOO_LARGE",
                   "UNSUPPORTED_CAPABILITY",
@@ -2294,6 +2295,7 @@
                     "enum": [
                       "BAD_REQUEST",
                       "UNAUTHORIZED",
+                      "FORBIDDEN",
                       "NOT_FOUND",
                       "PAYLOAD_TOO_LARGE",
                       "UNSUPPORTED_CAPABILITY",

@@ -33,6 +33,9 @@ export interface CreateApiAppOptions {
   keyStore?: ApiKeyStore;
   logger?: StructuredLogger;
   registerRoutes?: (router: ApiRouter) => void;
+  // Mounted under /internal, outside the /v1 API-key middleware; each
+  // internal route family brings its own authentication.
+  registerInternalRoutes?: (router: ApiRouter) => void;
   // Backs GET /readyz; without one the process reports 503 NOT_READY, so a
   // build that forgot to wire the probe is never routed traffic.
   readiness?: ReadinessProbe;
@@ -275,6 +278,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   v1.get("/", rootHandler);
   options.registerRoutes?.(v1);
   app.route("/v1", v1);
+  if (options.registerInternalRoutes) {
+    const internal = new Hono<ApiEnvironment>({ strict: false });
+    options.registerInternalRoutes(internal);
+    app.route("/internal", internal);
+  }
 
   app.notFound((context) =>
     errorResponse(context, 404, "NOT_FOUND", "Resource not found"),

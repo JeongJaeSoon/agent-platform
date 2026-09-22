@@ -45,6 +45,8 @@ export const sessions = pgTable(
       .default("active"),
     revision: integer().notNull().default(0),
     leaseEpoch: integer("lease_epoch").notNull().default(0),
+    executionGeneration: integer("execution_generation").notNull().default(0),
+    authRevision: integer("auth_revision").notNull().default(0),
     executionId: text("execution_id"),
     profileId: text("profile_id"),
     repositoryId: text("repository_id"),
@@ -286,6 +288,77 @@ export const executions = pgTable(
     ),
   ],
 );
+
+// One worker binding to a session: the fenced identity every post-claim
+// write carries (lease_epoch, execution_generation, auth_revision).
+export const attempts = pgTable(
+  "attempts",
+  {
+    id: text().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    executionId: text("execution_id").notNull(),
+    leaseEpoch: integer("lease_epoch").notNull(),
+    executionGeneration: integer("execution_generation").notNull(),
+    authRevision: integer("auth_revision").notNull(),
+    state: text().notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason"),
+  },
+  (table) => [
+    index("attempts_session_started_idx").on(table.sessionId, table.startedAt),
+  ],
+);
+
+// A launch intent: the slot reserved when the backend was asked to start an
+// execution, plus the one-time nonce the worker trades for its binding.
+export const workerLaunches = pgTable(
+  "worker_launches",
+  {
+    executionId: text("execution_id").primaryKey(),
+    generation: integer().notNull(),
+    partition: text().notNull().default("default"),
+    backend: text().notNull(),
+    nonceHash: bytea("nonce_hash").notNull().unique(),
+    nonceExpiresAt: timestamp("nonce_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    claimedAttemptId: text("claimed_attempt_id").references(() => attempts.id),
+    slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    slotReleasedAt: timestamp("slot_released_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("worker_launches_open_slot_idx")
+      .on(table.partition)
+      .where(sql`${table.slotReleasedAt} IS NULL`),
+  ],
+);
+
+// Session credential handed out by bootstrapClaim; only its hash is stored.
+export const workerCredentials = pgTable("worker_credentials", {
+  tokenHash: bytea("token_hash").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const workers = pgTable("workers", {
   podId: text("pod_id").primaryKey(),

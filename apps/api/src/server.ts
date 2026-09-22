@@ -2,10 +2,14 @@ import * as schema from "@agent-platform/db";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  acceptAllCheckpoints,
   createSessionService,
+  createWorkerGateway,
+  DEFAULT_LEASE_TTL_MS,
   isCatalogEmpty,
   ownerScopedPolicy,
   parseSessionCatalogEnv,
@@ -21,6 +25,7 @@ import {
 } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerWorkerRoutes } from "./routes/worker.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -59,6 +64,21 @@ const sessions = createSessionService({
   reader: createPostgresSessionReader(db),
   catalog,
 });
+// Seconds so an operator can shorten it in a test deployment; the worker
+// heartbeats at a fraction of this.
+const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
+const workers = createWorkerGateway({
+  work: createPostgresWorkerUnitOfWork(db),
+  catalog,
+  // Storage-backed manifest verification arrives with 94S-124.
+  checkpoints: acceptAllCheckpoints,
+  options: {
+    leaseTtlMs:
+      Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
+        ? heartbeatTtlSec * 1000
+        : DEFAULT_LEASE_TTL_MS,
+  },
+});
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -67,6 +87,7 @@ const app = createApiApp({
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
   },
+  registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
   readiness: createReadinessProbe({
     db: createProbePool(databaseUrl, logger),
     // AUTH_MODE unset still fails closed (every /v1 call is 401), which is a

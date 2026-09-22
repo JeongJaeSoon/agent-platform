@@ -51,6 +51,7 @@ describe("database schema", () => {
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "api_keys",
+      "attempts",
       "checkpoints",
       "events",
       "executions",
@@ -62,6 +63,8 @@ describe("database schema", () => {
       "sessions",
       "turns",
       "unassigned_sessions",
+      "worker_credentials",
+      "worker_launches",
       "workers",
     ]);
   });

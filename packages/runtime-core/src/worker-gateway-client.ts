@@ -1,0 +1,39 @@
+import type {
+  AppendEventsRequest,
+  AppendEventsResponse,
+  BootstrapClaimRequest,
+  BootstrapClaimResponse,
+  FinalizeRequest,
+  FinalizeResponse,
+  HeartbeatRequest,
+  HeartbeatResponse,
+  NextInputRequest,
+  NextInputResponse,
+  ReleaseRequest,
+  ReleaseResponse,
+} from "@agent-platform/contracts";
+
+// The worker's only door to the control plane. The HTTP implementation
+// arrives with the WorkerHost loop (94S-122); the port stays transport-free
+// so gRPC can replace it without touching the loop.
+export interface WorkerGatewayClient {
+  /** Trades the bootstrap credential for a binding and a session credential. */
+  bootstrapClaim(
+    request: BootstrapClaimRequest,
+  ): Promise<BootstrapClaimResponse>;
+  nextInput(request: NextInputRequest): Promise<NextInputResponse>;
+  heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse>;
+  appendEvents(request: AppendEventsRequest): Promise<AppendEventsResponse>;
+  finalize(request: FinalizeRequest): Promise<FinalizeResponse>;
+  release(request: ReleaseRequest): Promise<ReleaseResponse>;
+}
+
+export type WorkerGatewayErrorCode =
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "LEASE_EXPIRED"
+  | "STALE_EPOCH"
+  | "NOT_FOUND"
+  | "IDEMPOTENCY_CONFLICT"
+  | "CHECKPOINT_UNAVAILABLE"
+  | "BACKEND_UNAVAILABLE";
