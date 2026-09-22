@@ -236,6 +236,8 @@ type Container = {
    */
   nonce?: string;
   operationId: string;
+  /** true models Docker `removing`: a teardown the daemon has not finished. */
+  removing?: boolean;
   sessionId: string;
   /** false models Docker `created`: create succeeded, start never ran. */
   started?: boolean;
@@ -366,9 +368,11 @@ class FakeBackend implements ExecutionBackend {
       providerRef: `ctr-${ref.executionId}`,
       state: container.exited
         ? "terminated"
-        : container.started === false
-          ? "pending"
-          : "running",
+        : container.removing
+          ? "terminating"
+          : container.started === false
+            ? "pending"
+            : "running",
     };
   }
 
@@ -766,6 +770,63 @@ describe("runScheduler", () => {
     expect(backend.ensureCalls).toEqual([]);
     expect(row.pendingReplacement).toBeNull();
     expect(row.replacementCount).toBe(1);
+  });
+
+  test("a replacement caught on its way out is rebuilt, not settled into an exit", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+      pendingReplacement: "stale_isolation",
+      replacementCount: 1,
+    });
+    // Docker `removing`: the half-torn-down old container, still visible.
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      removing: true,
+      sessionId: row.sessionId,
+    });
+    const ref = { executionId: "exec-1", generation: 1 };
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([ref]);
+    expect(summary.reensured).toEqual([ref]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(2);
+    expect(backend.containers.get("exec-1#1")?.removing).toBeUndefined();
+  });
+
+  test("a replacement created but never started is started, not rebuilt or counted", async () => {
+    const { backend, run, store } = harness();
+    // The host died between Docker create and start, with the count already
+    // at the limit: tearing this one down would strand a startable
+    // container behind an exhausted launch.
+    const row = store.seedActive({
+      executionId: "exec-1",
+      observedState: "running",
+      pendingReplacement: "stale_isolation",
+      replacementCount: 3,
+    });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+      started: false,
+    });
+    const ref = { executionId: "exec-1", generation: 1 };
+
+    const summary = await run();
+    expect(summary.reensured).toEqual([ref]);
+    expect(summary.replaced).toEqual([]);
+    expect(summary.replacementsExhausted).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.containers.get("exec-1#1")?.started).toBe(true);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(3);
   });
 
   test("a claimed launch ignores a pending replacement and is closed like any exit", async () => {

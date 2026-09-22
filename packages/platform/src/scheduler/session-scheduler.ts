@@ -373,10 +373,20 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     // A claimed launch is never rebuilt, so its flag says nothing.
     const pending = execution.claimed ? null : execution.pendingReplacement;
     if (pending !== null) {
-      if (running) {
-        // Neither stale nor past its credential, or it would have been taken
-        // above: this is the replacement itself, built by a pass that died
-        // before it could say so.
+      // Whatever is up here is neither stale nor past its credential, or it
+      // would have been taken above: it is the replacement itself, built by
+      // a pass that died before it could say so.
+      if (observed.state === "pending") {
+        // Created and never started. Ensure adopts and starts it, and
+        // settles on success; it is not a rebuild, so it is not counted.
+        await reensure(execution, pending);
+        return;
+      }
+      if (observed.state === "running" || observed.state === "suspended") {
+        // Only a state that proves the replacement viable settles it. A
+        // resource on its way out (`terminating`) or in a state the provider
+        // cannot name would be settled straight into the ordinary exit path,
+        // which is the loss this record exists to prevent.
         await store.settleReplacement(ref);
         await store.recordObservation(ref, observed);
         logger.info("Pending replacement found already running; settled", {
@@ -388,10 +398,10 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         });
         return;
       }
-      // Stopped, never started, or already gone: whatever is there is the old
-      // resource or nothing, and the intent still has to be rebuilt. Reading
-      // an exited one as an ordinary exit here is exactly what would lose the
-      // replacement and hand the session a new launch.
+      // Stopped, going, unknown, or already gone: whatever is there is the
+      // old resource or nothing, and the intent still has to be rebuilt.
+      // Reading an exited one as an ordinary exit here is exactly what would
+      // lose the replacement and hand the session a new launch.
       await replace(execution, pending, observed);
       return;
     }
