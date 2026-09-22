@@ -9,6 +9,7 @@
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
+    "demo": "bun src/__fixtures__/demo.html",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

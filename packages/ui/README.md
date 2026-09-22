@@ -56,3 +56,13 @@ Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커�
 
 레이아웃 엔진이 없는 환경이라 "360px에서 가로 스크롤 없음"과 "`prefers-reduced-motion` 존중"은
 렌더로 관측할 수 없다. 둘 다 `src/styles.test.ts`가 스타일시트의 성질로 검사한다.
+
+## 눈으로 보기
+
+```bash
+bun run --cwd packages/ui demo   # http://localhost:3000
+```
+
+`?theme=dark`·`?theme=light`로 테마를, `?dialog=confirm`·`?dialog=destructive`로 다이얼로그를 연다.
+스타일시트 검사가 못 보는 것(실제 폭에서의 넘침, 대비, 모션)은 여기서 본다 —
+실제로 이 미리보기가 360px에서 다이얼로그가 18px 넘치던 `box-sizing` 문제를 잡았다.

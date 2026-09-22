@@ -7,6 +7,17 @@
 
 @import "./tokens.css";
 
+/*
+ * Widths here are outer widths. Without this, the dialog's padding and border
+ * pushed its 360px cap out to 378px and scrolled the page sideways — a browser
+ * found that, no jsdom test could. `:where()` keeps the specificity at zero so
+ * the host app can still override, and the attribute match scopes it to this
+ * package's own elements.
+ */
+:where([class^="ap-"], [class*=" ap-"]) {
+  box-sizing: border-box;
+}
+
 /* Tone plumbing: a component asks for a tone, the tone resolves to tokens. */
 [data-tone="neutral"] {
   --ap-tone-fg: var(--ap-tone-neutral-fg);
@@ -381,8 +392,10 @@
   flex-direction: column;
   gap: var(--ap-space-4);
   /* Fits 360px: the viewport cap wins before the rem cap does. */
-  width: min(30rem, calc(100vw - 2 * var(--ap-space-4)));
-  max-height: calc(100vh - 2 * var(--ap-space-4));
+  /* Percentages, not vw/vh: the dialog is fixed, so these resolve against the
+     viewport *minus* the scrollbar, which `100vw` would include. */
+  width: min(30rem, calc(100% - 2 * var(--ap-space-4)));
+  max-height: calc(100% - 2 * var(--ap-space-4));
   overflow-y: auto;
   padding: var(--ap-space-6);
   transform: translate(-50%, -50%);
@@ -420,6 +433,17 @@
 
 .ap-dialog__match-label {
   font-size: var(--ap-text-sm);
+}
+
+.ap-dialog__match-target {
+  padding: var(--ap-space-1) var(--ap-space-2);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-sm);
+  background: var(--ap-color-surface-sunken);
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-sm);
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 
 .ap-dialog__actions {
