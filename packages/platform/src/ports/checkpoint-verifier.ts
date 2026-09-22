@@ -31,9 +31,9 @@ export const acceptAllCheckpoints: CheckpointVerifier = {
   },
 };
 
-// The default a composition root gets until 94S-124 supplies the
-// storage-backed verifier: finalize without a checkpoint still commits, and
-// a checkpoint is refused rather than trusted.
+// The default a composition root gets until 94S-201 binds the storage-backed
+// verifier that 94S-124 built: finalize without a checkpoint still commits,
+// and a checkpoint is refused rather than trusted.
 export const rejectUnverifiedCheckpoints: CheckpointVerifier = {
   async verify() {
     return { status: "rejected", reason: "no checkpoint verifier configured" };

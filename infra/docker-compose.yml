@@ -96,6 +96,9 @@ services:
       retries: 12
       start_period: 5s
 
+  # The three app profiles below name image definitions the repository does
+  # not have yet; they arrive with 94S-125. Until then only the default profile
+  # (postgres, migrate, localstack, gitea, egress-proxy) starts.
   api:
     build:
       context: ..
@@ -133,10 +136,11 @@ services:
       gitea:
         condition: service_healthy
 
-  scaler:
+  # Renamed from local-scaler when the app became apps/scheduler (94S-123).
+  scheduler:
     build:
       context: ..
-      dockerfile: Dockerfile.local-scaler
+      dockerfile: Dockerfile.scheduler
     profiles: ["apps"]
     env_file: ../.env
     volumes:
