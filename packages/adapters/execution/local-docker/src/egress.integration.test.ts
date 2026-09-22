@@ -12,9 +12,9 @@ import {
 } from "@agent-platform/testkit";
 import {
   ENV,
+  LABELS,
   LocalDockerBackend,
   workerEnvironmentFor,
-  workspaceVolumeFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
@@ -93,6 +93,11 @@ integration("worker egress is confined to the proxy allowlist", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    workspaceGcMinAgeMs: 0,
+    // Neither Docker Desktop nor a stock Linux runner puts its storage on a
+    // quota-capable filesystem; the quota itself is covered by
+    // workspace.integration.test.ts, which probes for one first.
+    workspaceQuota: { mode: "off" },
   });
 
   beforeAll(async () => {
@@ -523,7 +528,11 @@ integration("worker egress is confined to the proxy allowlist", () => {
     };
     const launched = await backend.ensureExecution(intent);
     created.push(launched.providerRef);
-    volumes.push(workspaceVolumeFor(intent.sessionId, installationId));
+    for (const volume of await client.listVolumes([
+      `${LABELS.sessionId}=${intent.sessionId}`,
+    ])) {
+      volumes.push(volume.Name);
+    }
     const inspected = await client.inspectContainer(launched.providerRef);
     expect(inspected?.Config.Env ?? []).toContain(`HTTP_PROXY=${proxyUrl}`);
     expect(inspected?.Config.Env ?? []).toContain(`http_proxy=${proxyUrl}`);

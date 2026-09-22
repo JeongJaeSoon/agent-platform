@@ -9,6 +9,7 @@ import {
   type PostSessionMessageResponse,
   postSessionMessageResponseSchema,
   type Receipt,
+  type ReceiptSessionTarget,
   receiptSchema,
   sessionIdSchema,
   type TurnDetail,
@@ -641,7 +642,9 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       if (!row) return null;
-      const target = (row.targetRef ?? {}) as Partial<Receipt["target_ref"]>;
+      // Every operation this unit of work writes targets a session; the
+      // resource variant of the union belongs to the interface-track routes.
+      const target = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
       // operation/error are stored untyped; a row this reader cannot
       // represent is a bug in the writer, so let the parse throw.
       return receiptSchema.parse({

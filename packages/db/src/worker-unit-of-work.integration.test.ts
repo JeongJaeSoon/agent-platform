@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { WorkerEvent, WorkerScope } from "@agent-platform/contracts";
 import {
   createWorkerGateway,
+  DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
   type WorkerGateway,
   WorkerGatewayError,
@@ -59,6 +60,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -87,6 +96,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -162,6 +179,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -262,6 +287,26 @@ integration("worker gateway on PostgreSQL", () => {
     });
     expect(first.restore).toBeNull();
     expect(first.session_credential.startsWith("wsc_")).toBe(true);
+    // The repository comes from the row: this gateway's catalog lists no
+    // repositories at all, which is exactly the drift the descriptor must
+    // survive. The profile comes from the catalog, resolved at claim time.
+    expect(first.workspace).toEqual({
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+    });
+    expect(first.runtime_config).toEqual({
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: { kind: "api_key", value: "catalog-provider-key" },
+      },
+    });
 
     const retry = await claim(l);
     expect(retry.session_id).toBe(first.session_id);
@@ -335,7 +380,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 401, code: "UNAUTHORIZED" });
     await db
       .update(workerLaunches)
-      .set({ nonceExpiresAt: new Date(clock.getTime() - 1) })
+      .set({ nonceExpiresAt: new Date(Date.now() - 1) })
       .where(eq(workerLaunches.executionId, l.executionId));
     expect(await failure(claim(l))).toEqual({
       status: 401,
@@ -529,7 +574,7 @@ integration("worker gateway on PostgreSQL", () => {
     // The attempt is alive, but the bootstrap door closes with the nonce.
     await db
       .update(workerLaunches)
-      .set({ nonceExpiresAt: new Date(clock.getTime() - 1) })
+      .set({ nonceExpiresAt: new Date(Date.now() - 1) })
       .where(eq(workerLaunches.executionId, l.executionId));
     expect(await failure(claim(l))).toEqual({
       status: 401,
@@ -1073,6 +1118,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -1236,6 +1289,14 @@ integration("worker gateway on PostgreSQL", () => {
           "claude-coding-v1": {
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
           },
         },
         repositories: {},
@@ -1369,6 +1430,47 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(claimed),
     });
     expect(next.input?.turn_id).toBe("1");
+  });
+
+  test("a claim that waits out the nonce window on the launch row is refused and binds nothing", async () => {
+    const partition = partitionFor("noncewait");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    // The deadline is set on the database clock so that it passes while the
+    // claim is blocked on the row, not before it asks for the lock.
+    await db
+      .update(workerLaunches)
+      .set({
+        nonceExpiresAt: sql`clock_timestamp() + interval '200 milliseconds'`,
+      })
+      .where(eq(workerLaunches.executionId, l.executionId));
+    const blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+      [l.executionId],
+    );
+    const pending = failure(claim(l));
+    try {
+      await sleep(400);
+      await blocker.query("COMMIT");
+    } finally {
+      blocker.release();
+    }
+    // Judged once the lock is granted: the window closed while waiting, so
+    // the claim is refused however fresh it was when it arrived.
+    expect(await pending).toEqual({ status: 401, code: "UNAUTHORIZED" });
+    const [row] = await db
+      .select({ claimedAttemptId: workerLaunches.claimedAttemptId })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(row?.claimedAttemptId).toBeNull();
+    expect(
+      await db
+        .select({ n: count() })
+        .from(attempts)
+        .where(eq(attempts.sessionId, session.session_id)),
+    ).toEqual([{ n: 0 }]);
   });
 
   test("a finalize that waits out its lease on the turn row commits nothing", async () => {
@@ -1659,6 +1761,63 @@ integration("worker gateway on PostgreSQL", () => {
     expect(attempt?.leaseExpiresAt.getTime()).toBe(extended);
   });
 
+  test("the database clock judges the launch nonce, not the clock of the replica that registered or claims it", async () => {
+    const partition = partitionFor("nonce-skew");
+    await queuedSession(partition);
+    const behind = skewedGateway(-60_000, 300);
+    const ahead = skewedGateway(60_000, 300);
+    const launchFrom = async (from: ReturnType<typeof skewedGateway>) => {
+      const executionId = `exec-${crypto.randomUUID()}`;
+      const floor = await dbNowMs();
+      const registered = await from.registerLaunch({
+        executionId,
+        generation: 1,
+        partition,
+        backend: "local_docker",
+      });
+      const ceiling = await dbNowMs();
+      if (registered.nonce === null) throw new Error("already registered");
+      // The stored deadline follows the database clock plus the TTL, not the
+      // registering replica's clock.
+      const [row] = await db
+        .select({ nonceExpiresAt: workerLaunches.nonceExpiresAt })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, executionId));
+      const expiresAt = row?.nonceExpiresAt?.getTime() ?? Number.NaN;
+      // The column keeps microseconds; the Date read back is floored to ms.
+      expect(expiresAt).toBeGreaterThanOrEqual(
+        Math.floor(floor) + DEFAULT_NONCE_TTL_MS,
+      );
+      expect(expiresAt).toBeLessThanOrEqual(ceiling + DEFAULT_NONCE_TTL_MS);
+      return { executionId, nonce: registered.nonce, generation: 1 };
+    };
+    const claimWith = (
+      from: ReturnType<typeof skewedGateway>,
+      l: Awaited<ReturnType<typeof launchFrom>>,
+    ) =>
+      from.bootstrapClaim(bootstrap, {
+        execution_id: l.executionId,
+        execution_generation: l.generation,
+        credential: { kind: "launch_nonce", nonce: l.nonce },
+      });
+
+    // Registered a minute behind, claimed a minute ahead: on either replica's
+    // clock the ten-minute window is still open, and so it is in the database.
+    const first = await launchFrom(behind);
+    expect((await claimWith(ahead, first)).attempt_id).toMatch(/^att_/);
+
+    // A deadline that the database has passed is refused even by the replica
+    // whose own clock would still call it open.
+    const second = await launchFrom(ahead);
+    await db
+      .update(workerLaunches)
+      .set({ nonceExpiresAt: new Date(Date.now() - 1) })
+      .where(eq(workerLaunches.executionId, second.executionId));
+    expect(await failure(claimWith(behind, second))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+  });
   test("any accepted call closes the claim replay window, not just the first input", async () => {
     const partition = partitionFor("used");
     await queuedSession(partition);
@@ -1931,6 +2090,69 @@ integration("worker gateway on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.id, session.receipt_id));
     expect(receipt?.status).toBe("accepted");
+  });
+
+  test("the workspace descriptor rides every claim, with and without a restore pointer, and for legacy rows", async () => {
+    const partition = partitionFor("descriptor");
+    const { session, launch: l, claimed } = await claimAndDeliver(partition);
+    expect(claimed.restore).toBeNull();
+    const checkpoint = {
+      revision: 1,
+      manifest_ref: "s3://bucket/descriptor-manifest-1.json",
+      manifest_sha256: "b".repeat(64),
+    };
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin-desc",
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint,
+    });
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    await gateway.confirmExecutionGone(l.executionId);
+    // A pre-catalog row: no key, but the URL and branch it was created with.
+    await db
+      .update(sessions)
+      .set({ repositoryId: null })
+      .where(eq(sessions.id, session.session_id));
+    await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      principal: {
+        ownerId:
+          (
+            await db
+              .select()
+              .from(sessions)
+              .where(eq(sessions.id, session.session_id))
+          )[0]?.ownerId ?? "",
+      },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "second input",
+    });
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, session.session_id));
+    const again = await claim(await launch(partition, session.session_id));
+    expect(again.session_id).toBe(session.session_id);
+    expect(again.restore).toEqual(checkpoint);
+    expect(again.workspace).toEqual({
+      repository: {
+        id: null,
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+    });
+    expect(again.runtime_config.model).toBe("claude-sonnet-5");
   });
 
   test("a failed terminal marks the receipt failed and the session failed", async () => {

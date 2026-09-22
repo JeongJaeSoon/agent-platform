@@ -3,6 +3,7 @@ import { createPostgresSchedulerStore } from "@agent-platform/db";
 import { LocalDockerBackend } from "@agent-platform/execution-local-docker";
 import { createLogger } from "@agent-platform/observability";
 import {
+  reclaimWorkspaces,
   runScheduler,
   type SchedulerRunSummary,
 } from "@agent-platform/platform";
@@ -29,19 +30,54 @@ export async function main(
     // Before anything is launched: the egress policy is only worth what the
     // worker network's `internal` flag is worth, and only the daemon knows.
     await backend.verifyNetworkIsolation();
+    if (config.docker.workspaceQuota.mode === "off") {
+      // The one warning the opt-out costs. Losing the quota by accident —
+      // a daemon that cannot carry one — stops the process instead.
+      logger.warn(
+        "Worker workspaces have no disk quota (EXECUTION_WORKSPACE_QUOTA=off); " +
+          "a runaway worker can fill this daemon's disk",
+      );
+    }
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    try {
+      await backend.verifyWorkspaceQuota();
+    } catch (error) {
+      // The probe needs a little disk of its own, so a daemon that is already
+      // full fails it — and that is exactly when the workspaces of finished
+      // sessions are worth reclaiming. `reclaimWorkspaces` frees them without
+      // starting or replacing anything, which a pass with no free slots would
+      // still do; the error is rethrown afterwards, so this process refuses to
+      // admit work either way.
+      logger.error(
+        "Workspace quota preflight failed; reclaiming workspaces before giving up",
+        { error: messageOf(error) },
+      );
+      await reclaimWorkspaces({ backend, logger, store }).catch(
+        (reclaimError: unknown) => {
+          logger.error("Workspace reclaim failed", {
+            error: messageOf(reclaimError),
+          });
+        },
+      );
+      throw error;
+    }
     return await runScheduler({
       backend,
       image: config.image,
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
-      store: createPostgresSchedulerStore(db, {
-        connectForLock: () => pool.connect(),
-      }),
+      store,
     });
   } finally {
     await pool.end();
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Non-zero when the pass left work undone, so cron/supervisors notice. */
@@ -49,7 +85,12 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.orphansUnresolved.length > 0 ||
     summary.reclaimFailed.length > 0 ||
-    summary.reconcileFailed.length > 0
+    summary.reconcileFailed.length > 0 ||
+    // A GC fault, not a GC judgement: `workspacesUnresolved` is deliberate
+    // and stays out of this, but a scan or a removal that threw means disk
+    // is being left behind for a reason nobody has looked at.
+    summary.workspaceScanFailed ||
+    summary.workspacesFailed.length > 0
     ? 1
     : 0;
 }

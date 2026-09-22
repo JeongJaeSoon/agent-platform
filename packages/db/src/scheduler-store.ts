@@ -21,13 +21,17 @@ import {
   and,
   asc,
   eq,
+  exists,
   inArray,
   isNull,
   lte,
   max,
   notExists,
+  notInArray,
+  or,
   sql,
 } from "drizzle-orm";
+import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -56,6 +60,22 @@ export type PostgresSchedulerStoreOptions = {
 const PASS_LOCK_KEY = "scheduler:pass";
 
 const DESIRED_RUNNING = "running";
+
+/**
+ * The one admission state a session never comes back from. Everything else,
+ * `stopped` included, is resumed into the *same* workspace — the API's resume
+ * takes only an expected revision, so the session id, and with it the volume
+ * name, is unchanged. Reclaiming a stopped session's workspace would hand the
+ * resume an empty working tree. A stopped session therefore keeps its disk
+ * until it is closed; expiring those deliberately needs a claim serialized
+ * with resume, which is 94S-225.
+ */
+const FINAL_ADMISSION_STATES: Array<
+  (typeof sessions.admissionState.enumValues)[number]
+> = ["closed"];
+
+/** `sessions.id` is a uuid column; anything else cannot be asked about. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The one ledger. A launch holds its slot — and its session — from the
@@ -217,13 +237,14 @@ export function createPostgresSchedulerStore(
       });
     },
 
-    async issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string> {
+    async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
       const nonce = generateLaunchNonce();
       const rotated = await db
         .update(workerLaunches)
         .set({
           nonceHash: hashWorkerToken(nonce),
-          nonceExpiresAt: new Date(now.getTime() + nonceTtlMs),
+          // Written on the database clock, where `claimAtomic` judges it.
+          nonceExpiresAt: fromDbNow(nonceTtlMs),
         })
         .where(
           and(
@@ -245,7 +266,7 @@ export function createPostgresSchedulerStore(
       return nonce;
     },
 
-    async revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean> {
+    async revokeBootstrapNonce(ref: ExecutionRef): Promise<boolean> {
       // Clearing the hash is what shuts the door: `claimAtomic` finds a launch
       // by hash, and null matches nothing. Both statements take the same row
       // lock, so a claim commits strictly before or strictly after this — the
@@ -263,7 +284,7 @@ export function createPostgresSchedulerStore(
             eq(workerLaunches.generation, ref.generation),
             isNull(workerLaunches.claimedAttemptId),
             holdsSlot(),
-            lte(workerLaunches.nonceExpiresAt, now),
+            lte(workerLaunches.nonceExpiresAt, DB_NOW),
           ),
         )
         .returning({ executionId: workerLaunches.executionId });
@@ -278,6 +299,7 @@ export function createPostgresSchedulerStore(
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
+          nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
           observedState: executions.observedState,
           operationId: executions.launchOperationId,
           providerRef: executions.providerRef,
@@ -297,6 +319,8 @@ export function createPostgresSchedulerStore(
         executionId: row.executionId,
         generation: row.generation,
         nonceExpiresAt: row.nonceExpiresAt,
+        // Null while no credential was issued; the comparison yields null too.
+        nonceExpired: row.nonceExpired === true,
         observedState: observedStateOf(row.observedState),
         operationId: row.operationId,
         providerRef: row.providerRef,
@@ -328,6 +352,38 @@ export function createPostgresSchedulerStore(
       return refs.filter(
         (ref) => generations.get(ref.executionId) === ref.generation,
       );
+    },
+
+    async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+      if (sessionIds.length === 0) return [];
+      // Binding a non-uuid to a uuid column is an error, not a miss, and a
+      // thrown query would take the whole GC step down. They are also
+      // exactly the ids nothing here can judge, so they are retained.
+      const unjudgeable = sessionIds.filter((id) => !UUID.test(id));
+      const judgeable = sessionIds.filter((id) => UUID.test(id));
+      if (judgeable.length === 0) return unjudgeable;
+      const rows = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(
+          and(
+            inArray(sessions.id, judgeable),
+            or(
+              notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+              // A launch holds its session until `confirmExecutionGone`, so
+              // that is also how long the workspace may still be mounted.
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(workerLaunches)
+                  .where(
+                    and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
+                  ),
+              ),
+            ),
+          ),
+        );
+      return [...unjudgeable, ...rows.map((row) => row.id)];
     },
 
     async recordObservation(

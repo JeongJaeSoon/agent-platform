@@ -4,6 +4,7 @@ import { postSessionAnswerRequestSchema } from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
 import {
   attemptStateSchema,
+  permissionModeSchema,
   sessionRuntimeSchema,
   terminalTurnStatusSchema,
 } from "../api/session.ts";
@@ -54,12 +55,92 @@ export const bootstrapClaimRequestSchema = z
 // that lost. Before its first accepted call a worker that is answered 401
 // claims again: while the attempt has not used a token, the same binding
 // comes back with a working credential.
+// What the session was created against. It is copied from the session row,
+// not looked up in the catalog at claim time, so a repository that has since
+// left the catalog still describes the workspace this session lives in.
+export const workspaceRepositorySchema = z
+  .object({
+    // Catalog key at creation; null for rows that predate the catalog (94S-147).
+    id: z.string().min(1).nullable(),
+    // Verbatim, userinfo included: stripping it would break the private
+    // clones that have no other credential path yet. The worker treats the
+    // whole URL as a secret. Credential delivery proper is a separate ticket.
+    url: z.string().min(1),
+    branch: z.string().min(1),
+  })
+  .strict();
+export const workspaceDescriptorSchema = z
+  .object({ repository: workspaceRepositorySchema })
+  .strict();
+
+const apiKeyAuthSchema = z
+  .object({ kind: z.literal("api_key"), value: z.string().min(1) })
+  .strict();
+const bearerAuthSchema = z
+  .object({ kind: z.literal("bearer"), value: z.string().min(1) })
+  .strict();
+export const runtimeProviderSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("anthropic"),
+      endpoint: z.url(),
+      auth: apiKeyAuthSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("litellm"),
+      endpoint: z.url(),
+      auth: z.discriminatedUnion("kind", [apiKeyAuthSchema, bearerAuthSchema]),
+    })
+    .strict(),
+]);
+// Everything the engine needs beyond the identity in `runtime`: resolved by
+// the server from the profile the session was created with. The provider
+// credential rides here. The claim that carries it can be replayed only
+// until the attempt's first accepted call, and it is the platform's write
+// fence that is scoped to the binding, not the credential's own validity:
+// a shared provider key handed out this way is still a shared key. Nothing
+// here may reach an event, a manifest or a log — see `loggableBootstrapClaim`.
+export const runtimeConfigSchema = z
+  .object({
+    model: z.string().min(1),
+    tools: z.array(z.string().min(1)),
+    permission_mode: permissionModeSchema,
+    provider: runtimeProviderSchema,
+  })
+  .strict();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
   runtime: sessionRuntimeSchema,
+  runtime_config: runtimeConfigSchema,
+  workspace: workspaceDescriptorSchema,
   restore: checkpointRefSchema.nullable(),
 });
+
+// The claim as a log line may carry it: an allowlist of identifiers, never
+// the whole response minus the secrets. The session token, the provider
+// credential and the repository URL (which may embed one) are what a leak
+// would consist of.
+export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
+  return {
+    session_id: response.session_id,
+    attempt_id: response.attempt_id,
+    lease_epoch: response.lease_epoch,
+    execution_generation: response.execution_generation,
+    auth_revision: response.auth_revision,
+    lease_expires_at: response.lease_expires_at,
+    runtime: response.runtime,
+    model: response.runtime_config.model,
+    permission_mode: response.runtime_config.permission_mode,
+    provider_kind: response.runtime_config.provider.kind,
+    repository_id: response.workspace.repository.id,
+    branch: response.workspace.repository.branch,
+    restore_revision: response.restore?.revision ?? null,
+  };
+}
 
 export const nextInputRequestSchema = workerScopeSchema
   .extend({ wait_ms: z.number().int().nonnegative().optional() })
@@ -169,6 +250,10 @@ export type BootstrapClaimRequest = z.infer<typeof bootstrapClaimRequestSchema>;
 export type BootstrapClaimResponse = z.infer<
   typeof bootstrapClaimResponseSchema
 >;
+export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
+export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
+export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
+export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;
 export type HeartbeatRequest = z.infer<typeof heartbeatRequestSchema>;

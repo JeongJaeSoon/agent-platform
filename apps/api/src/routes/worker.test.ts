@@ -50,6 +50,14 @@ beforeEach(async () => {
         "claude-coding-v1": {
           runtime_kind: "claude_agent_sdk",
           runtime_version: "0.3.270",
+          model: "claude-sonnet-5",
+          tools: ["Read", "Edit", "Bash"],
+          permission_mode: "default",
+          provider: {
+            kind: "litellm",
+            endpoint: "https://litellm.invalid",
+            auth: { kind: "api_key", value: "catalog-provider-key" },
+          },
         },
       },
       repositories: {},
@@ -214,6 +222,14 @@ describe("/internal/worker", () => {
     const seeded = await seedSession();
     const { binding } = await claimed();
     const token = binding.session_credential;
+    expect(binding.workspace.repository).toEqual({
+      id: "sample-app",
+      url: "https://example.invalid/app.git",
+      branch: "main",
+    });
+    expect(binding.runtime_config.provider.auth.value).toBe(
+      "catalog-provider-key",
+    );
 
     const next = nextInputResponseSchema.parse(
       await (await post("next-input", token, scope(binding))).json(),

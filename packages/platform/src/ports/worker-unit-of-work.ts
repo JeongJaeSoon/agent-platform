@@ -4,6 +4,7 @@ import type {
   ExecutionBackend,
   FinalizeRequest,
   WorkerEvent,
+  WorkspaceRepository,
 } from "@agent-platform/contracts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
@@ -29,7 +30,9 @@ export type RegisterLaunchInput = {
   sessionId: string | null;
   backend: ExecutionBackend;
   nonceHash: Uint8Array;
-  nonceExpiresAt: Date;
+  // A lifetime, not a deadline: the storage clock decides when the nonce
+  // stops being accepted, so the caller's clock never enters the judgment.
+  nonceTtlMs: number;
 };
 
 export type WorkerBinding = {
@@ -40,6 +43,8 @@ export type WorkerBinding = {
   authRevision: number;
   leaseExpiresAt: Date;
   profileId: string | null;
+  // As fixed when the session was accepted; the catalog is not consulted.
+  repository: WorkspaceRepository;
   restore: CheckpointRef | null;
 };
 

@@ -12,7 +12,8 @@ import {
 } from "@agent-platform/db";
 import {
   DockerClient,
-  workspaceVolumeFor,
+  LABELS,
+  workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
 import {
   acceptAllCheckpoints,
@@ -141,6 +142,10 @@ integration(
       EXECUTION_EGRESS_PROXY_URL: proxyUrl,
       EXECUTION_INSTALLATION_ID: installationId,
       EXECUTION_SLOT_LIMIT: "1",
+      // The runner's data root is ext4, so this daemon cannot put a ceiling
+      // on a volume and the preflight refuses to start without the opt-out.
+      // The ceiling itself is covered by the `workspace-quota` job.
+      EXECUTION_WORKSPACE_QUOTA: "off",
       S3_BUCKET: "claude-sessions",
       WORKER_CPUS: "0.5",
       WORKER_GATEWAY_URL: gatewayUrl,
@@ -170,6 +175,14 @@ integration(
             [PROFILE_ID]: {
               runtime_kind: "claude_agent_sdk",
               runtime_version: "0.3.270",
+              model: "claude-sonnet-5",
+              tools: ["Read", "Edit", "Bash"],
+              permission_mode: "default",
+              provider: {
+                kind: "litellm",
+                endpoint: "https://litellm.invalid",
+                auth: { kind: "api_key", value: "catalog-provider-key" },
+              },
             },
           },
           repositories: {},
@@ -206,7 +219,7 @@ integration(
 
       // The backend mounts this volume at /workspace, so seeding it is how the
       // worker gets its script without the backend ever taking a bind mount.
-      const volume = workspaceVolumeFor(sessionId, installationId);
+      const volume = `${workspaceVolumePrefixFor(sessionId, installationId)}seed`;
       volumes.push(volume);
       await seedWorkspace(volume);
     }, 600_000);
@@ -322,6 +335,19 @@ integration(
 
     /** Writes the worker script into the session's volume before it is used. */
     async function seedWorkspace(volume: string): Promise<void> {
+      // Labelled as the backend labels its own, because that is what it
+      // looks the workspace up by; an unlabelled one would be passed over
+      // and the worker would start on an empty tree with no script in it.
+      await client.createVolume({
+        Driver: "local",
+        Labels: {
+          [LABELS.installation]: installationId,
+          [LABELS.managed]: "true",
+          [LABELS.sessionId]: sessionId,
+          [LABELS.workspaceQuota]: "off",
+        },
+        Name: volume,
+      });
       const name = `ap-lc-seed-${suffix}`;
       const response = await raw("POST", `/containers/create?name=${name}`, {
         Cmd: ["sh", "-c", 'printf "%s" "$SCRIPT" > /workspace/claim.js'],
