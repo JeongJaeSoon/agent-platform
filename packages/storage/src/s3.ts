@@ -215,7 +215,14 @@ async function withStallBound<T>(
           const error = new BodyStallError(
             `S3 response body delivered nothing for ${stallMs}ms`,
           );
-          close(error);
+          try {
+            close(error);
+          } catch {
+            // Letting go of the socket is best effort. A throw here must not
+            // escape a timer callback and must not cost us the rejection —
+            // that would leave the read pending, which is the hang this
+            // whole bound exists to prevent.
+          }
           reject(error);
         }, stallMs);
       }),

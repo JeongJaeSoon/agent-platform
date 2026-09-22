@@ -93,6 +93,19 @@ describe("bodyBytes bounds", () => {
     expect(destroyed?.name).toBe("BodyStallError");
   }, 10_000);
 
+  test("still rejects when letting go of the socket throws", async () => {
+    const body = {
+      destroy: () => {
+        throw new Error("the socket was already gone");
+      },
+      transformToByteArray: () => new Promise<Uint8Array>(() => undefined),
+    };
+
+    await expect(bodyBytes(body, 200)).rejects.toThrow(
+      "delivered nothing for 200ms",
+    );
+  }, 10_000);
+
   test("closes an async iterable that has no destroy", async () => {
     let closed = false;
     const body = {
