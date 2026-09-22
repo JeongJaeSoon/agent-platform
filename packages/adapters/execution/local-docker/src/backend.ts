@@ -89,6 +89,11 @@ export const ENV = {
   objectPrefix: "WORKER_OBJECT_PREFIX",
   objectRegion: "AWS_REGION",
   objectSecretAccessKey: "AWS_SECRET_ACCESS_KEY",
+  /**
+   * The seconds `terminate` gives between SIGTERM and SIGKILL, so the worker
+   * sizes its drain to what it will actually get.
+   */
+  stopGrace: "WORKER_STOP_GRACE_SEC",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -1076,6 +1081,7 @@ export function workerEnvironmentFor(
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
+    `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
   ];
 }
 

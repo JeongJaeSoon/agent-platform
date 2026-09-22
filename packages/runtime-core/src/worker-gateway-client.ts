@@ -10,12 +10,13 @@ import type {
   HeartbeatResponse,
   NextInputRequest,
   NextInputResponse,
+  PendingControlRequest,
+  PendingControlResponse,
   ReleaseRequest,
   ReleaseResponse,
 } from "@agent-platform/contracts";
 
-// The worker's only door to the control plane. The HTTP implementation
-// arrives with the WorkerHost loop (94S-122); the port stays transport-free
+// The worker's only door to the control plane. The port stays transport-free
 // so gRPC can replace it without touching the loop.
 export interface WorkerGatewayClient {
   /** Trades the bootstrap credential for a binding and a session credential. */
@@ -25,6 +26,14 @@ export interface WorkerGatewayClient {
   nextInput(request: NextInputRequest): Promise<NextInputResponse>;
   heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse>;
   appendEvents(request: AppendEventsRequest): Promise<AppendEventsResponse>;
+  /**
+   * Answers to the pending requests this attempt registered, plus any control
+   * intent aimed at it. The worker polls it while a permission or question is
+   * outstanding; `heartbeat.control_pending` is the other trigger.
+   */
+  pendingControl(
+    request: PendingControlRequest,
+  ): Promise<PendingControlResponse>;
   finalize(request: FinalizeRequest): Promise<FinalizeResponse>;
   release(request: ReleaseRequest): Promise<ReleaseResponse>;
 }

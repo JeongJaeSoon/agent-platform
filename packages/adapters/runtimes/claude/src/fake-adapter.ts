@@ -19,6 +19,8 @@ import { frameFromNativeMessage } from "./mapper.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 export type FakeStep =
+  /** Hold until one more input has been sent, the way a real engine waits. */
+  | { type: "await-input" }
   | { delayMs: number; type: "delay" }
   | { message: NativeSdkMessage; type: "emit" }
   | { error: Error; type: "error" }
@@ -44,9 +46,11 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
 
 class FakeRun implements AgentRun {
   private readonly abortController = new AbortController();
+  private readonly arrivals: Array<() => void> = [];
   private readonly interruptController = new AbortController();
   private readonly ledger: TurnLedger;
   private closed = false;
+  private consumedInputs = 0;
   // First accepted terminal action wins: an interrupt that already returned
   // its receipt still yields its terminal result even if abort() follows.
   private terminal: "aborted" | "interrupted" | undefined;
@@ -67,10 +71,12 @@ class FakeRun implements AgentRun {
     if (this.closed) throw new Error("Input stream is closed");
     this.ledger.queued(input.uuid);
     this.runtime.inputs.push(input);
+    this.wakeArrivals();
   }
 
   finishInput(): void {
     this.closed = true;
+    this.wakeArrivals();
   }
 
   async interrupt(): Promise<{ stillQueued: string[] }> {
@@ -112,7 +118,9 @@ class FakeRun implements AgentRun {
           return;
         }
         try {
-          if (step.type === "delay") {
+          if (step.type === "await-input") {
+            await raceAbort(this.awaitInput(), controlSignal);
+          } else if (step.type === "delay") {
             await raceAbort(Bun.sleep(step.delayMs), controlSignal);
           } else if (step.type === "error") {
             throw step.error;
@@ -154,6 +162,18 @@ class FakeRun implements AgentRun {
     } finally {
       this.ledger.streamEnded();
     }
+  }
+
+  private wakeArrivals(): void {
+    for (const wake of this.arrivals.splice(0)) wake();
+  }
+
+  /** Resolves on the next unconsumed input, or once the stream is closed. */
+  private async awaitInput(): Promise<void> {
+    while (this.runtime.inputs.length <= this.consumedInputs && !this.closed) {
+      await new Promise<void>((resolve) => this.arrivals.push(resolve));
+    }
+    this.consumedInputs += 1;
   }
 
   private interruptedFrame(cursor: string): AgentFrame {
