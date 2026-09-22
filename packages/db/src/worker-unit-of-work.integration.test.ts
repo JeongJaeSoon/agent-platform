@@ -1363,6 +1363,90 @@ integration("worker gateway on PostgreSQL", () => {
     expect(after?.status).toBe("running");
   });
 
+  test("a nextInput that waits out its lease on the queue head delivers nothing", async () => {
+    const partition = partitionFor("headwait");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    const brief = briefGateway(400);
+    const claimed = await brief.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+    });
+    const blocker = await pool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT 1 FROM queue_messages WHERE session_id = $1 FOR UPDATE",
+      [session.session_id],
+    );
+    // The fence held when it was taken. By the time the head is free the
+    // lease is gone, and handing the turn over would start work on a session
+    // this attempt no longer owns.
+    const blocked = failure(
+      brief.nextInput(principalOf(claimed), { ...scopeOf(claimed) }),
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await blocker.query("COMMIT");
+    } finally {
+      blocker.release();
+    }
+    expect(await blocked).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+    const [turn] = await db
+      .select({ status: turns.status, attemptId: turns.attemptId })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(turn).toEqual({ status: "queued", attemptId: null });
+  });
+
+  test("a claim replayed on a host without the profile rotates nothing", async () => {
+    const partition = partitionFor("replayprofile");
+    await queuedSession(partition);
+    const l = await launch(partition);
+    const claimed = await claim(l);
+    const stranger = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        leaseTtlMs: LEASE_TTL_MS,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+    expect(
+      await failure(
+        stranger.bootstrapClaim(bootstrap, {
+          execution_id: l.executionId,
+          execution_generation: l.generation,
+          credential: { kind: "launch_nonce", nonce: l.nonce },
+        }),
+      ),
+    ).toEqual({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    // The worker that holds the first token is untouched: same revision,
+    // same token, and it can still take its turn.
+    const [attempt] = await db
+      .select({ authRevision: attempts.authRevision })
+      .from(attempts)
+      .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.authRevision).toBe(0);
+    const work = createPostgresWorkerUnitOfWork(db);
+    expect(
+      await work.resolveCredential(
+        hashWorkerToken(claimed.session_credential),
+        clock,
+      ),
+    ).toMatchObject({ kind: "session", attemptId: claimed.attempt_id });
+    const next = await gateway.nextInput(principalOf(claimed), {
+      ...scopeOf(claimed),
+    });
+    expect(next.input?.turn_id).toBe("1");
+  });
+
   test("two finalizes of the same turn in flight agree on one result", async () => {
     const { session, claimed } = await claimAndDeliver(partitionFor("dblfin"));
     const request = {

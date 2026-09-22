@@ -340,6 +340,13 @@ export function createWorkerGateway(deps: {
             "No session is waiting in this partition",
             true,
           );
+        case "profile_unavailable":
+          throw new WorkerGatewayError(
+            409,
+            "BACKEND_UNAVAILABLE",
+            "The session's runtime profile is not in this host's catalog",
+            true,
+          );
         default: {
           const binding = result.binding;
           return {

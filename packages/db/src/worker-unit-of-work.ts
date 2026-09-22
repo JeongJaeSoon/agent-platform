@@ -156,10 +156,10 @@ function since(now: Date, startedAt: number): Date {
 
 // The fence is taken once, but the checks that follow it are several round
 // trips and any of them can block on a lock. The lease is therefore judged
-// again just before the first write, so nothing commits under a lease that
-// ended mid-transaction.
-function leaseHeld(attempt: AttemptRow, now: Date, startedAt: number): boolean {
-  return attempt.leaseExpiresAt.getTime() > since(now, startedAt).getTime();
+// again just before the first write, so nothing commits — and no work is
+// handed out — under a lease that ended mid-transaction.
+function leaseHeld(attempt: AttemptRow, at: Date): boolean {
+  return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
@@ -485,6 +485,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!bound || bound.attempt.state !== "allocated") {
             return { outcome: "invalid_credential" };
           }
+          // A retry can land on a replica whose catalog lost this profile.
+          // Rotating the token first would revoke the old one, bump the
+          // revision and then fail on the way out, leaving a binding nobody
+          // holds a token for and a retry that mutates again.
+          if (
+            bound.session.profileId === null ||
+            !input.runnableProfiles.includes(bound.session.profileId)
+          ) {
+            return { outcome: "profile_unavailable" };
+          }
           await revokeCredentials(tx, bound.attempt.id, input.now);
           await issueCredential(tx, {
             attemptId: bound.attempt.id,
@@ -659,6 +669,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .orderBy(asc(queueMessages.id))
           .limit(1)
           .for("update");
+        // Whoever held that row may have held it past this lease. Handing the
+        // turn over now would start work on a session this attempt no longer
+        // owns, which is the one thing the fence exists to prevent.
+        const at = since(now, startedAt);
+        if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         if (!head) return { outcome: "ok", input: null, leaseExpiresAt };
         const { message, turn } = head;
 
@@ -706,7 +721,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             await tx
               .update(attempts)
               .set({ state: "running" })
-              .where(fencedAttempt(fence, fenced.at))
+              .where(fencedAttempt(fence, at))
               .returning({ id: attempts.id }),
             "attempt",
           );
@@ -883,7 +898,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "sequence_gap", acceptedThrough: durable };
           }
         }
-        if (fresh.length > 0 && !leaseHeld(fenced.attempt, now, startedAt)) {
+        if (
+          fresh.length > 0 &&
+          !leaseHeld(fenced.attempt, since(now, startedAt))
+        ) {
           return { outcome: "lease_expired" };
         }
         if (fresh.length > 0) {
@@ -952,7 +970,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
-        if (!leaseHeld(fenced.attempt, now, startedAt)) {
+        if (!leaseHeld(fenced.attempt, since(now, startedAt))) {
           return { outcome: "lease_expired" };
         }
 

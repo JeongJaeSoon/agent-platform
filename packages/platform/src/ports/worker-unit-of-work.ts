@@ -59,6 +59,9 @@ export type ClaimResult =
   | { outcome: "claimed" | "replayed"; binding: WorkerBinding }
   // Unknown, expired, or presented for a different execution identity.
   | { outcome: "invalid_credential" }
+  // The bound session's profile is not in this host's catalog, so the replay
+  // is refused before it rotates anything.
+  | { outcome: "profile_unavailable" }
   | { outcome: "no_session" };
 
 // The fence as it stood when the token was issued. A request body may not
