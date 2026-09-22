@@ -31,6 +31,7 @@ export type ReserveLaunchInput = {
 export type StoredLaunchIntent = Omit<LaunchIntent, "image" | "resources">;
 
 export type ActiveExecution = StoredLaunchIntent & {
+  backend: ExecutionBackendKind;
   observedState: ExecutionObservation["state"];
   providerRef: string | null;
 };
@@ -53,13 +54,19 @@ export interface SchedulerStore {
    * another launch, or another scheduler pass).
    */
   reserveLaunch(input: ReserveLaunchInput): Promise<StoredLaunchIntent | null>;
-  listActiveExecutions(): Promise<ActiveExecution[]>;
+  /** Live rows reserved for `backend` only; other backends' rows are theirs. */
+  listActiveExecutions(
+    backend: ExecutionBackendKind,
+  ): Promise<ActiveExecution[]>;
   /**
    * The subset of `refs` that have a matching *live* `executions` row. A row
    * already recorded terminated no longer owns its resource, so the resource
    * is reclaimed as an orphan if it still exists.
    */
-  filterKnown(refs: ExecutionRef[]): Promise<ExecutionRef[]>;
+  filterKnown(
+    refs: ExecutionRef[],
+    backend: ExecutionBackendKind,
+  ): Promise<ExecutionRef[]>;
   recordObservation(
     ref: ExecutionRef,
     observation: ExecutionObservation,

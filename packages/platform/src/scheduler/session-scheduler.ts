@@ -40,6 +40,8 @@ export type SchedulerRunSummary = {
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];
+  /** Exited resources whose reclaim failed; each row stays `terminating`. */
+  reclaimFailed: ExecutionRef[];
   /** Intents re-ensured after the resource was missing or not yet observed. */
   reensured: ExecutionRef[];
   slotLimit: number;
@@ -82,6 +84,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     launched: [],
     orphansTerminated: [],
     orphansUnresolved: [],
+    reclaimFailed: [],
     reensured: [],
     skipped: false,
     slotLimit,
@@ -104,10 +107,20 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   const summary = emptySummary(options.slotLimit);
 
   // 1. Reconcile rows against the provider.
-  const active = await store.listActiveExecutions();
+  const active = await store.listActiveExecutions(backend.kind);
   summary.activeBefore = active.length;
   for (const execution of active) {
     const ref = refOf(execution);
+    if (execution.backend !== backend.kind) {
+      // The store is scoped; a row leaking through anyway must never be
+      // recreated on this provider.
+      logger.error("Execution row belongs to another backend; skipping", {
+        ...fieldsOf(ref),
+        row_backend: execution.backend,
+        session_id: execution.sessionId,
+      });
+      continue;
+    }
     const observed = await backend.inspect(ref);
     if (
       observed.found &&
@@ -134,6 +147,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           error: messageOf(error),
           session_id: execution.sessionId,
         });
+        summary.reclaimFailed.push(ref);
         continue;
       }
       if (outcome.outcome === "generation_mismatch") {
@@ -147,6 +161,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
             session_id: execution.sessionId,
           },
         );
+        summary.reclaimFailed.push(ref);
         continue;
       }
       await store.recordObservation(ref, observed);
@@ -199,7 +214,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   // 2. Resources nobody owns.
   const managed = await backend.listManaged();
   const known = new Set(
-    (await store.filterKnown(managed.map(refOf))).map(keyOf),
+    (await store.filterKnown(managed.map(refOf), backend.kind)).map(keyOf),
   );
   for (const resource of managed) {
     if (known.has(keyOf(resource))) continue;
@@ -278,6 +293,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     launched_count: summary.launched.length,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
+    reclaim_failed_count: summary.reclaimFailed.length,
     reensured_count: summary.reensured.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,

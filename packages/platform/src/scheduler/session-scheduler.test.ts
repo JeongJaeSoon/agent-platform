@@ -45,6 +45,7 @@ class MemoryStore implements SchedulerStore {
   seedActive(overrides: Partial<ActiveExecution> = {}): ActiveExecution {
     const sessionId = overrides.sessionId ?? crypto.randomUUID();
     const execution: ActiveExecution = {
+      backend: "local_docker",
       bootstrapNonce: "nonce",
       executionId: `exec-${++this.sequence}`,
       generation: 1,
@@ -87,18 +88,23 @@ class MemoryStore implements SchedulerStore {
           .filter((e) => e.sessionId === input.sessionId)
           .map((e) => e.generation),
       ) + 1;
-    return this.seedActive({ generation, sessionId: input.sessionId });
+    return this.seedActive({
+      backend: input.backend,
+      generation,
+      sessionId: input.sessionId,
+    });
   }
 
-  async listActiveExecutions() {
-    return this.live();
+  async listActiveExecutions(backend: ActiveExecution["backend"]) {
+    return this.live().filter((e) => e.backend === backend);
   }
 
-  async filterKnown(refs: ExecutionRef[]) {
+  async filterKnown(refs: ExecutionRef[], backend: ActiveExecution["backend"]) {
     return refs.filter((ref) => {
       const row = this.executions.get(ref.executionId);
       return (
         row !== undefined &&
+        row.backend === backend &&
         row.generation === ref.generation &&
         row.observedState !== "terminated"
       );
@@ -359,6 +365,7 @@ describe("runScheduler", () => {
 
     const first = await run();
     expect(first.terminatedObserved).toEqual([]);
+    expect(first.reclaimFailed).toHaveLength(1);
     expect(backend.containers.has(name)).toBe(true);
     expect([...store.executions.values()][0]?.observedState).not.toBe(
       "terminated",
@@ -389,6 +396,7 @@ describe("runScheduler", () => {
 
     const summary = await run();
     expect(summary.terminatedObserved).toEqual([]);
+    expect(summary.reclaimFailed).toHaveLength(1);
     expect(summary.launched).toEqual([]);
     expect([...store.executions.values()][0]?.observedState).toBe(
       "terminating",
@@ -520,6 +528,16 @@ describe("runScheduler", () => {
     const next = await run();
     expect(next.orphansTerminated).toHaveLength(1);
     expect(next.launched).toHaveLength(1);
+  });
+
+  test("another backend's intent is never recreated on this provider", async () => {
+    const { backend, run, store } = harness();
+    store.seedActive({ backend: "eks_job", observedState: "running" });
+    const summary = await run();
+    expect(summary.activeBefore).toBe(0);
+    expect(summary.reensured).toEqual([]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(backend.containers.size).toBe(0);
   });
 
   test("a failed launch keeps the intent and is retried next pass", async () => {

@@ -1,4 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+  type ExecutionBackend as ExecutionBackendKind,
+  executionBackendSchema,
+} from "@agent-platform/contracts";
 import type {
   ActiveExecution,
   ExecutionObservation,
@@ -170,9 +174,10 @@ export function createPostgresSchedulerStore(
       });
     },
 
-    async listActiveExecutions(): Promise<ActiveExecution[]> {
+    async listActiveExecutions(backend): Promise<ActiveExecution[]> {
       const rows = await db
         .select({
+          backend: executions.backend,
           bootstrapNonce: executions.bootstrapNonce,
           executionId: executions.id,
           generation: executions.generation,
@@ -182,15 +187,15 @@ export function createPostgresSchedulerStore(
           sessionId: executions.sessionId,
         })
         .from(executions)
-        .where(isLive())
+        .where(and(isLive(), eq(executions.backend, backend)))
         .orderBy(asc(executions.createdAt), asc(executions.id));
       const active: ActiveExecution[] = [];
       for (const row of rows) {
-        // Rows written by other backends (or before this column existed)
-        // carry no intent this scheduler could relaunch; they still count as
-        // live via inspectDemand but are not reconciled here.
+        // Rows written before these columns existed carry no intent this
+        // scheduler could relaunch; they still count as live via inspectDemand.
         if (row.operationId === null || row.bootstrapNonce === null) continue;
         active.push({
+          backend: backendKindOf(row.backend),
           bootstrapNonce: row.bootstrapNonce,
           executionId: row.executionId,
           generation: row.generation,
@@ -203,7 +208,7 @@ export function createPostgresSchedulerStore(
       return active;
     },
 
-    async filterKnown(refs: ExecutionRef[]): Promise<ExecutionRef[]> {
+    async filterKnown(refs, backend): Promise<ExecutionRef[]> {
       if (refs.length === 0) return [];
       const rows = await db
         .select({ id: executions.id, generation: executions.generation })
@@ -215,6 +220,7 @@ export function createPostgresSchedulerStore(
               refs.map((ref) => ref.executionId),
             ),
             isLive(),
+            eq(executions.backend, backend),
           ),
         );
       const generations = new Map(rows.map((r) => [r.id, r.generation]));
@@ -254,6 +260,14 @@ const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([
   "terminated",
   "unknown",
 ]);
+
+function backendKindOf(value: string): ExecutionBackendKind {
+  const parsed = executionBackendSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`executions.backend holds unknown value ${value}`);
+  }
+  return parsed.data;
+}
 
 function observedStateOf(value: string): ExecutionObservation["state"] {
   return OBSERVED_STATES.has(value as ExecutionObservation["state"])

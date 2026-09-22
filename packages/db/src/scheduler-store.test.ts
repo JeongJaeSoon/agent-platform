@@ -213,9 +213,10 @@ describe("PostgresSchedulerStore", () => {
       sessionId: foreign,
     });
 
-    const active = await store.listActiveExecutions();
+    const active = await store.listActiveExecutions("local_docker");
     expect(active).toEqual([
       {
+        backend: "local_docker",
         bootstrapNonce: intent.bootstrapNonce,
         executionId: intent.executionId,
         generation: 1,
@@ -229,6 +230,20 @@ describe("PostgresSchedulerStore", () => {
     expect((await store.inspectDemand({ limit: 1 })).activeExecutionCount).toBe(
       2,
     );
+  });
+
+  test("another backend's intent, even with operation id and nonce, is not ours", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "eks_job",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    expect(await store.listActiveExecutions("local_docker")).toEqual([]);
+    expect(await store.filterKnown([intent], "local_docker")).toEqual([]);
+    expect(await store.filterKnown([intent], "eks_job")).toEqual([intent]);
   });
 
   test("recordObservation updates state, time and provider ref for the exact generation", async () => {
@@ -332,13 +347,16 @@ describe("PostgresSchedulerStore", () => {
     });
     if (!intent) throw new Error("no intent");
     expect(
-      await store.filterKnown([
-        intent,
-        { executionId: intent.executionId, generation: 2 },
-        { executionId: "exec-ghost", generation: 1 },
-      ]),
+      await store.filterKnown(
+        [
+          intent,
+          { executionId: intent.executionId, generation: 2 },
+          { executionId: "exec-ghost", generation: 1 },
+        ],
+        "local_docker",
+      ),
     ).toEqual([intent]);
-    expect(await store.filterKnown([])).toEqual([]);
+    expect(await store.filterKnown([], "local_docker")).toEqual([]);
 
     // A terminated row no longer owns its resource.
     await store.recordObservation(intent, {
@@ -347,6 +365,6 @@ describe("PostgresSchedulerStore", () => {
       providerRef: "ctr",
       state: "terminated",
     });
-    expect(await store.filterKnown([intent])).toEqual([]);
+    expect(await store.filterKnown([intent], "local_docker")).toEqual([]);
   });
 });
