@@ -623,10 +623,15 @@ agent-platform/
 │   └── kind/                    # kind 클러스터 설정 + KEDA 설치 스크립트
 ├── docs/
 │   └── DESIGN.md                # 이 문서
-└── .github/workflows/
-    ├── ci.yml                   # bun run check, e2e
-    └── images.yml               # apps/*/Dockerfile 빌드·푸시
+└── .github/
+    ├── actions/bun-setup/       # bun 버전 고정 + ~/.bun/install/cache
+    ├── scripts/retry-flaky.sh   # spike suite 1회 재시도, 재시도를 annotation·summary에 기록
+    └── workflows/
+        ├── ci.yml               # check / integration / spikes 3 job, 후속으로 e2e
+        └── images.yml           # apps/*/Dockerfile 빌드·푸시
 ```
+
+`ci.yml`은 opt-in 변수를 켜지 않는 `check`(typecheck·Biome·unit), 변수를 전부 켠 `integration`(Postgres·LocalStack·Docker), 조사 harness 전용 `spikes`(머지를 막지 않음)로 나눈다. job별 변수와 근거는 README § CI에서 실행되는 것에 있다.
 
 ### 8.1 의존 방향
 
