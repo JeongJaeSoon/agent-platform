@@ -246,8 +246,25 @@ function classifyIpv6(bytes: number[]): AddressClass {
   if (firstTwelveZero && at(10) === 0 && at(11) === 0) {
     return classifyIpv4(bytes.slice(12));
   }
+  // 64:ff9b::/96 (NAT64) and 2002::/16 (6to4) carry an IPv4 destination
+  // that the policy has to judge as the IPv4 address it really is.
+  if (
+    at(0) === 0x00 &&
+    at(1) === 0x64 &&
+    at(2) === 0xff &&
+    at(3) === 0x9b &&
+    bytes.slice(4, 12).every((byte) => byte === 0)
+  ) {
+    return classifyIpv4(bytes.slice(12));
+  }
+  if (at(0) === 0x20 && at(1) === 0x02) {
+    return classifyIpv4(bytes.slice(2, 6));
+  }
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
+  // fec0::/10 is deprecated site-local, but a network that still routes it
+  // is exactly the internal network this proxy must not reach.
+  if (at(0) === 0xfe && (at(1) & 0xc0) === 0xc0) return "private";
   if ((at(0) & 0xfe) === 0xfc) return "private";
   // 2001:db8::/32 documentation, 0100::/64 discard-only.
   if (at(0) === 0x20 && at(1) === 0x01 && at(2) === 0x0d && at(3) === 0xb8) {

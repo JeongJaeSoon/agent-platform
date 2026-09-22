@@ -9,10 +9,29 @@ import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
  * believe `gateway.test` is 127.0.0.1 for a loopback upstream to stand in
  * for the daemon host.
  */
+const BIG = "a".repeat(8 * 1024 * 1024);
+
+type EchoState = { pending: Uint8Array | null };
+
+function echoDrain(socket: {
+  data: EchoState;
+  write(data: Uint8Array): number;
+}): void {
+  while (socket.data.pending !== null) {
+    const written = Math.max(0, socket.write(socket.data.pending));
+    if (written >= socket.data.pending.byteLength) {
+      socket.data.pending = null;
+      return;
+    }
+    if (written === 0) return;
+    socket.data.pending = socket.data.pending.subarray(written);
+  }
+}
+
 describe("egress proxy", () => {
   let upstream: Bun.Server<undefined>;
   let upstreamPort = 0;
-  let echo: TCPSocketListener<undefined>;
+  let echo: TCPSocketListener<EchoState>;
   let proxy: EgressProxyServer;
   const silent = createProxyLogger("error", () => undefined);
 
@@ -33,20 +52,34 @@ describe("egress proxy", () => {
 
   beforeAll(async () => {
     upstream = Bun.serve({
-      fetch: async (request) =>
-        new Response(
-          `upstream ${new URL(request.url).pathname} ${await request.text()}`,
-        ),
+      fetch: async (request) => {
+        const url = new URL(request.url);
+        // A body far past a socket's write buffer, so the proxy has to queue
+        // and drain rather than write it all in one go.
+        if (url.pathname === "/large") return new Response(BIG);
+        return new Response(`upstream ${url.pathname} ${await request.text()}`);
+      },
       hostname: "127.0.0.1",
       port: 0,
     });
     upstreamPort = upstream.port ?? 0;
-    echo = Bun.listen({
+    // An echo server that respects backpressure; one that does not would
+    // drop bytes under load and make the proxy look like the culprit.
+    echo = Bun.listen<EchoState>({
       hostname: "127.0.0.1",
       port: 0,
       socket: {
         data(socket, chunk) {
-          socket.write(chunk);
+          socket.data.pending = socket.data.pending
+            ? concatBytes(socket.data.pending, chunk)
+            : chunk;
+          echoDrain(socket);
+        },
+        drain(socket) {
+          echoDrain(socket);
+        },
+        open(socket) {
+          socket.data = { pending: null };
         },
       },
     });
@@ -178,6 +211,120 @@ describe("egress proxy", () => {
     }
   }, 10_000);
 
+  test("a response far larger than a socket buffer arrives whole", async () => {
+    // With the drain handlers wired to the wrong queues this stalls, and
+    // with an eager close on upstream end it truncates.
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(`GET http://gateway.test:${upstreamPort}/large HTTP/1.1`),
+    );
+    const received = await talk.waitForBytes(BIG.length, 30_000);
+    expect(received).toBeGreaterThanOrEqual(BIG.length);
+    talk.close();
+  }, 60_000);
+
+  test("a large upload through a tunnel comes back whole", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const payload = "b".repeat(2 * 1024 * 1024);
+    talk.send(payload);
+    const received = await talk.waitForBytes(payload.length, 30_000);
+    expect(received).toBeGreaterThanOrEqual(payload.length);
+    talk.close();
+  }, 60_000);
+
+  test("an oversized head is refused even when it arrives all at once", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      `GET http://gateway.test/ HTTP/1.1\r\nx-pad: ${"a".repeat(20_000)}\r\n\r\n`,
+    );
+    expect(await talk.waitFor("431")).toContain("too large");
+    talk.close();
+  });
+
+  test("idle clients cannot hold the connection budget for good", async () => {
+    const small = await startEgressProxy({
+      headTimeoutMs: 300,
+      logger: silent,
+      maxConnections: 2,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      resolve,
+    });
+    try {
+      const idle = [await connect(small.port), await connect(small.port)];
+      const refused = await connect(small.port);
+      expect(await refused.waitFor("503")).toContain("connection limit");
+      refused.close();
+
+      // The head deadline hands the slots back without anyone intervening.
+      for (const one of idle) {
+        expect(await one.waitFor("408")).toContain("timed out");
+      }
+      const after = await connect(small.port);
+      after.send(
+        request(`GET http://gateway.test:${upstreamPort}/ok HTTP/1.1`),
+      );
+      expect(await after.waitFor("upstream /ok")).toContain("HTTP/1.1 200");
+      after.close();
+      for (const one of idle) one.close();
+    } finally {
+      small.stop();
+    }
+  }, 30_000);
+
+  test("one client cannot take more than its share of connections", async () => {
+    const capped = await startEgressProxy({
+      headTimeoutMs: 10_000,
+      logger: silent,
+      maxConnections: 64,
+      maxConnectionsPerClient: 1,
+      policy: { allow: [], allowPrivate: [] },
+      port: 0,
+      resolve,
+    });
+    try {
+      const first = await connect(capped.port);
+      const second = await connect(capped.port);
+      expect(await second.waitFor("503")).toContain("this client");
+      first.close();
+      second.close();
+    } finally {
+      capped.stop();
+    }
+  }, 20_000);
+
+  test("a dead address does not fail a destination with a live one", async () => {
+    const failover = await startEgressProxy({
+      connectTimeoutMs: 2_000,
+      logger: silent,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "dual.test", port: upstreamPort }],
+      },
+      port: 0,
+      // 127.0.0.2 is loopback with nothing listening; both addresses pass
+      // the same policy, so the second must still be tried.
+      resolve: async () => ["127.0.0.2", "127.0.0.1"],
+    });
+    try {
+      const talk = await connect(failover.port);
+      talk.send(
+        request(`GET http://dual.test:${upstreamPort}/failover HTTP/1.1`),
+      );
+      expect(await talk.waitFor("upstream /failover", 15_000)).toContain(
+        "HTTP/1.1 200",
+      );
+      talk.close();
+    } finally {
+      failover.stop();
+    }
+  }, 30_000);
+
   test("an oversized request head is refused instead of buffered", async () => {
     const talk = await connect(proxy.port);
     talk.send(
@@ -188,21 +335,50 @@ describe("egress proxy", () => {
   });
 });
 
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const out = new Uint8Array(left.byteLength + right.byteLength);
+  out.set(left, 0);
+  out.set(right, left.byteLength);
+  return out;
+}
+
 function request(...lines: string[]): string {
   return `${lines.join("\r\n")}\r\n\r\n`;
 }
 
 type Conversation = {
+  byteCount(): number;
   close(): void;
   isClosed(): boolean;
   send(text: string): void;
   text(): string;
   waitFor(needle: string, timeoutMs?: number): Promise<string>;
+  waitForBytes(count: number, timeoutMs?: number): Promise<number>;
 };
 
-async function connect(port: number): Promise<Conversation> {
+/**
+ * `slowReadMs` burns CPU inside the data handler so the client stops
+ * draining its socket: that is what forces the proxy into a partial write
+ * and makes the drain path run at all.
+ */
+async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
   let received = "";
+  let bytes = 0;
   let closed = false;
+  // The client has to respect backpressure too, or a megabyte-scale send
+  // silently truncates and the test blames the proxy.
+  let outbox: Uint8Array | null = null;
+  const drainOutbox = (target: { write(data: Uint8Array): number }): void => {
+    while (outbox !== null) {
+      const written = Math.max(0, target.write(outbox));
+      if (written >= outbox.byteLength) {
+        outbox = null;
+        return;
+      }
+      if (written === 0) return;
+      outbox = outbox.subarray(written);
+    }
+  };
   const socket = await Bun.connect({
     hostname: "127.0.0.1",
     port,
@@ -210,12 +386,28 @@ async function connect(port: number): Promise<Conversation> {
       close() {
         closed = true;
       },
+      drain(peer) {
+        drainOutbox(peer);
+      },
       data(_socket, chunk) {
-        received += new TextDecoder().decode(chunk);
+        if (slowReadMs > 0) {
+          const until = Bun.nanoseconds() + slowReadMs * 1_000_000;
+          while (Bun.nanoseconds() < until) {
+            // spin
+          }
+        }
+        bytes += chunk.byteLength;
+        // A megabyte-scale transfer is measured, not accumulated.
+        if (received.length < 64 * 1024) {
+          received += new TextDecoder().decode(chunk);
+        }
       },
     },
   });
   return {
+    byteCount(): number {
+      return bytes;
+    },
     close(): void {
       socket.end();
     },
@@ -223,10 +415,21 @@ async function connect(port: number): Promise<Conversation> {
       return closed;
     },
     send(text: string): void {
-      socket.write(text);
+      const encoded = new TextEncoder().encode(text);
+      outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
+      drainOutbox(socket);
     },
     text(): string {
       return received;
+    },
+    async waitForBytes(count: number, timeoutMs = 20_000): Promise<number> {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (bytes >= count) return bytes;
+        if (closed) return bytes;
+        await Bun.sleep(10);
+      }
+      throw new Error(`timed out after ${bytes} of ${count} bytes`);
     },
     async waitFor(needle: string, timeoutMs = 5_000): Promise<string> {
       const deadline = Date.now() + timeoutMs;

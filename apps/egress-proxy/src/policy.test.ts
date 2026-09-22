@@ -31,6 +31,12 @@ describe("classifyAddress", () => {
     ["2001:db8::1", "reserved"],
     ["::ffff:169.254.169.254", "link_local"],
     ["::ffff:10.0.0.1", "private"],
+    ["fec0::1", "private"],
+    ["fecf::1", "private"],
+    ["64:ff9b::a00:1", "private"],
+    ["64:ff9b::808:808", "public"],
+    ["2002:a00:1::1", "private"],
+    ["2002:0808:0808::1", "public"],
   ])("%s is %s", (address, expected) => {
     expect(classifyAddress(address)).toBe(expected);
   });
