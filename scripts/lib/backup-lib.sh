@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Shared by scripts/backup.sh, scripts/restore.sh and scripts/verify-restore.sh.
+# Everything that talks to PostgreSQL, S3 or git runs inside the compose
+# containers, so the host needs only docker (compose v2.24+),
+# git, jq and a sha256 tool. Compose merges with `!override`, so v2.24+.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+COMPOSE_FILE="${REPO_ROOT}/infra/docker-compose.yml"
+RESTORE_OVERRIDE="${REPO_ROOT}/infra/docker-compose.restore.yml"
+MIGRATIONS_DIR="${REPO_ROOT}/packages/db/migrations"
+BACKUP_MANIFEST_VERSION=1
+
+# Exit codes shared by the three scripts so a caller can tell refusals apart.
+EXIT_USAGE=2
+EXIT_SCHEMA_MISMATCH=3
+EXIT_TARGET_NOT_EMPTY=4
+EXIT_VERIFY_FAILED=5
+
+log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+require_tools() {
+  local tool
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"
+  done
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  else
+    shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
+# `compose <project> args...`: the base file only, for a running installation.
+compose() {
+  local project="$1"
+  shift
+  docker compose -p "$project" -f "$COMPOSE_FILE" "$@"
+}
+
+# Same, with the restore override layered on. Port and network variables come
+# from the caller's environment (restore.sh exports them).
+compose_restore() {
+  local project="$1"
+  shift
+  docker compose -p "$project" -f "$COMPOSE_FILE" -f "$RESTORE_OVERRIDE" "$@"
+}
+
+# The value of one environment variable inside a running service container,
+# so scripts never guess POSTGRES_USER/POSTGRES_DB from the host environment.
+container_env() {
+  local project="$1" service="$2" name="$3"
+  # `exec -T` forwards the caller's stdin; without the redirect this would
+  # swallow the dump a caller is about to feed to psql.
+  compose "$project" exec -T "$service" sh -c "printf '%s' \"\$$name\"" </dev/null
+}
+
+psql_in() {
+  local project="$1"
+  shift
+  local user db
+  user="$(container_env "$project" postgres POSTGRES_USER)"
+  db="$(container_env "$project" postgres POSTGRES_DB)"
+  compose "$project" exec -T postgres psql -v ON_ERROR_STOP=1 -X -q -U "$user" -d "$db" "$@"
+}
+
+# The migrations this checkout expects, one `<hash> <when> <tag>` per line in
+# journal order. The hash is sha256 of the whole SQL file, which is what
+# Drizzle's migrator records in drizzle.__drizzle_migrations (see
+# packages/db/src/migration-head.ts), so it compares directly with a dump.
+expected_migrations() {
+  local journal="${MIGRATIONS_DIR}/meta/_journal.json"
+  [ -r "$journal" ] || die "migration journal not found: $journal"
+  jq -r '.entries[] | "\(.when) \(.tag)"' "$journal" | while read -r when tag; do
+    printf '%s %s %s\n' "$(sha256_file "${MIGRATIONS_DIR}/${tag}.sql")" "$when" "$tag"
+  done
+}
+
+# Refuses a backup whose applied migration list is not exactly this checkout's.
+# Older backups are refused too: restore is meant to reproduce a known state,
+# and running migrations against restored data is a separate, deliberate step
+# (see docs/backup-restore.md). Prints the verdict; returns EXIT_SCHEMA_MISMATCH.
+schema_check() {
+  local manifest="$1"
+  [ -r "$manifest" ] || die "manifest not found: $manifest"
+  local version
+  version="$(jq -r '.version // empty' "$manifest")"
+  if [ "$version" != "$BACKUP_MANIFEST_VERSION" ]; then
+    log "schema: manifest version '${version:-missing}' is not ${BACKUP_MANIFEST_VERSION}"
+    return "$EXIT_SCHEMA_MISMATCH"
+  fi
+  local applied expected
+  applied="$(jq -r '.schema.applied[] | "\(.hash) \(.when)"' "$manifest")"
+  expected="$(expected_migrations | cut -d' ' -f1,2)"
+  if [ "$applied" = "$expected" ]; then
+    log "schema: backup matches checkout head $(jq -r '.schema.head_tag' "$manifest")"
+    return 0
+  fi
+  log "schema: backup applied migrations differ from this checkout"
+  log "schema: backup head = $(jq -r '.schema.head_tag // "?"' "$manifest") ($(printf '%s\n' "$applied" | grep -c . || true) applied)"
+  log "schema: checkout head = $(expected_migrations | tail -n1 | cut -d' ' -f3) ($(expected_migrations | wc -l | tr -d ' ') expected)"
+  diff <(printf '%s\n' "$expected") <(printf '%s\n' "$applied") >&2 || true
+  return "$EXIT_SCHEMA_MISMATCH"
+}
+
+# True when the compose project already owns any container, volume or network.
+# Restore never reuses one: an existing project means existing data.
+project_has_resources() {
+  local project="$1"
+  [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=${project}")" ] && return 0
+  [ -n "$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")" ] && return 0
+  [ -n "$(docker network ls -q --filter "label=com.docker.compose.project=${project}")" ] && return 0
+  return 1
+}
+
+# Writes SHA256SUMS over every regular file under $1 (relative paths), so a
+# bundle that was copied around can be checked before restore.
+write_checksums() {
+  local dir="$1"
+  (
+    cd "$dir"
+    find . -type f ! -name SHA256SUMS -print | LC_ALL=C sort | while read -r file; do
+      printf '%s  %s\n' "$(sha256_file "$file")" "${file#./}"
+    done
+  ) > "${dir}/SHA256SUMS"
+}
+
+verify_checksums() {
+  local dir="$1"
+  [ -r "${dir}/SHA256SUMS" ] || die "SHA256SUMS missing in $dir"
+  (
+    cd "$dir"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum --quiet -c SHA256SUMS
+    else
+      shasum -a 256 -s -c SHA256SUMS
+    fi
+  )
+}
