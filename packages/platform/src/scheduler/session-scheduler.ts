@@ -15,6 +15,9 @@ import type {
 
 export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
 
+/** Why a resource that exists is torn down and built again. */
+type ReplaceReason = "nonce_expired" | "stale_isolation";
+
 export type SchedulerLogger = {
   error(message: string, fields?: Readonly<Record<string, unknown>>): void;
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -53,7 +56,7 @@ export type SchedulerRunSummary = {
   reconcileFailed: ExecutionRef[];
   /** Intents re-ensured after the resource was missing or not yet observed. */
   reensured: ExecutionRef[];
-  /** Resources torn down because they predate the current isolation contract. */
+  /** Resources torn down and built again; see `ReplaceReason` for why. */
   replaced: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
@@ -247,10 +250,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
   const { backend, logger, store } = options;
   const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
-    bootstrapNonce: stored.bootstrapNonce,
     executionId: stored.executionId,
     generation: stored.generation,
     image: options.image,
+    // Only the create path calls this, so the credential a running worker
+    // holds is never rotated out from under it.
+    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored), now()),
     operationId: stored.operationId,
     resources: options.resources,
     sessionId: stored.sessionId,
@@ -300,31 +305,44 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         session_id: execution.sessionId,
         state: observed.state,
       });
-      let outcome: TerminateExecutionResult;
-      try {
-        outcome = await backend.terminate(ref);
-      } catch (error) {
-        summary.reconcileFailed.push(ref);
-        logger.error("Replacing a stale execution resource failed", {
-          ...fieldsOf(ref),
-          error: messageOf(error),
-          session_id: execution.sessionId,
-        });
-        return;
-      }
-      if (outcome.outcome !== "terminated") {
-        // Left untouched, so the row keeps its slot and the next pass retries.
-        summary.reconcileFailed.push(ref);
-        logger.error("A stale execution resource would not terminate", {
-          ...fieldsOf(ref),
-          outcome: outcome.outcome,
-          session_id: execution.sessionId,
-        });
-        return;
-      }
-      summary.replaced.push(ref);
-      await reensure(execution, unknownObservation(now()), "stale_isolation");
+      await replace(execution, "stale_isolation");
       return;
+    }
+    if (
+      observed.found &&
+      observed.state !== "terminated" &&
+      !execution.claimed &&
+      execution.nonceExpiresAt !== null &&
+      execution.nonceExpiresAt.getTime() <= now().getTime()
+    ) {
+      // The bootstrap door shut before anyone came through it. The resource
+      // cannot be handed a second credential while it runs — the one it holds
+      // is fixed in its environment — so leaving it up would keep a slot and
+      // a session that nothing can ever bind. It is replaced instead.
+      //
+      // `claimed` is a snapshot taken before the provider was inspected, so a
+      // worker may have bound itself since. Revoking decides and shuts the
+      // door in one write: it loses to a claim that got there first, and once
+      // it wins no claim can follow, so the teardown never orphans a binding.
+      if (await store.revokeBootstrapNonce(ref, now())) {
+        logger.warn("Launch nonce expired before the resource claimed", {
+          ...fieldsOf(ref),
+          nonce_expires_at: execution.nonceExpiresAt.toISOString(),
+          provider_ref: observed.providerRef,
+          session_id: execution.sessionId,
+          state: observed.state,
+        });
+        await replace(execution, "nonce_expired");
+        return;
+      }
+      // A worker came through the door while this pass was inspecting. It
+      // owns the session now, so the resource is left alone and handled below
+      // like any other live one.
+      logger.info("Expired launch had already been claimed; left running", {
+        ...fieldsOf(ref),
+        provider_ref: observed.providerRef,
+        session_id: execution.sessionId,
+      });
     }
     if (
       observed.found &&
@@ -368,7 +386,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         summary.reclaimFailed.push(ref);
         return;
       }
-      await store.recordObservation(ref, observed);
+      // The one place the slot and the session come back, so an exit the
+      // scheduler sees is accounted exactly like one the gateway sees.
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
       logger.info("Execution exited; resource reclaimed", {
         ...fieldsOf(ref),
@@ -379,33 +399,92 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     }
     if (!observed.found && execution.observedState === "terminating") {
       // The previous pass removed the resource but crashed before recording.
-      await store.recordObservation(ref, {
-        ...observed,
-        state: "terminated",
-      });
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
+      return;
+    }
+    if (!observed.found && execution.claimed) {
+      // A worker traded this launch's nonce for a binding and its resource
+      // is gone. Re-creating it would put a second container on a session an
+      // attempt still owns, so the binding is ended instead.
+      await store.confirmExecutionGone(ref.executionId, now());
+      summary.terminatedObserved.push(ref);
+      logger.warn("Claimed execution resource vanished; binding released", {
+        ...fieldsOf(ref),
+        previous_state: execution.observedState,
+        session_id: execution.sessionId,
+      });
       return;
     }
     // Row says live but the provider has nothing, or has a resource that was
     // created and never started. The stored intent covers both: ensure is
     // idempotent and starts a pending resource it already owns.
-    await reensure(execution, observed, "missing");
+    await reensure(execution, "missing");
+  }
+
+  /**
+   * Tears the resource down and builds it again from the stored intent. The
+   * new one gets a new bootstrap credential, which is why the launch must not
+   * already have bound a worker: that binding spent its credential, and a
+   * replacement could never be given one.
+   */
+  async function replace(
+    execution: ActiveExecution,
+    reason: ReplaceReason,
+  ): Promise<void> {
+    const ref = refOf(execution);
+    let outcome: TerminateExecutionResult;
+    try {
+      outcome = await backend.terminate(ref);
+    } catch (error) {
+      summary.reconcileFailed.push(ref);
+      logger.error("Replacing an execution resource failed", {
+        ...fieldsOf(ref),
+        error: messageOf(error),
+        reason,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (outcome.outcome !== "terminated") {
+      // Left untouched, so the row keeps its slot and the next pass retries.
+      summary.reconcileFailed.push(ref);
+      logger.error(
+        "An execution resource would not terminate for replacement",
+        {
+          ...fieldsOf(ref),
+          outcome: outcome.outcome,
+          reason,
+          session_id: execution.sessionId,
+        },
+      );
+      return;
+    }
+    summary.replaced.push(ref);
+    if (execution.claimed) {
+      // Its worker held a binding, so there is nothing to re-create it with.
+      await store.confirmExecutionGone(ref.executionId, now());
+      summary.terminatedObserved.push(ref);
+      logger.warn("Replaced a claimed execution; binding released", {
+        ...fieldsOf(ref),
+        reason,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    await reensure(execution, reason);
   }
 
   async function reensure(
     execution: ActiveExecution,
-    observed: ExecutionObservation,
-    reason: "missing" | "stale_isolation",
+    reason: "missing" | ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
     const stored = storedIntentOf(execution);
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
       // letting it hold a slot forever.
-      await store.recordObservation(ref, {
-        ...observed,
-        state: "terminated",
-      });
+      await store.confirmExecutionGone(ref.executionId, now());
       summary.terminatedObserved.push(ref);
       logger.warn(
         "Execution row has no launch intent; closed without relaunch",
@@ -585,11 +664,8 @@ function isLaunched(state: ExecutionObservation["state"]): boolean {
 }
 
 function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
-  if (execution.operationId === null || execution.bootstrapNonce === null) {
-    return null;
-  }
+  if (execution.operationId === null) return null;
   return {
-    bootstrapNonce: execution.bootstrapNonce,
     executionId: execution.executionId,
     generation: execution.generation,
     operationId: execution.operationId,

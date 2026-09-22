@@ -6,9 +6,9 @@ import type {
 } from "./execution-backend.ts";
 
 export type SchedulerDemand = {
-  /** Live executions: desired running and not yet observed terminated. */
+  /** Reserved launch slots: rows that have not given their slot back. */
   activeExecutionCount: number;
-  /** Unassigned, admission-active sessions with no live execution. */
+  /** Unassigned, admission-active sessions with no open launch. */
   eligibleSessionIds: string[];
 };
 
@@ -17,33 +17,45 @@ export type ReserveLaunchInput = {
   now: Date;
   sessionId: string;
   /**
-   * Global cap on live executions, enforced inside the reservation
+   * Global cap on reserved launch slots, enforced inside the reservation
    * transaction so concurrent scheduler passes cannot both take the last slot.
    */
   slotLimit: number;
 };
 
 /**
- * What the `executions` row durably holds. Image and resources are host
+ * What the registry durably holds. Image and resources are host
  * configuration, so the scheduler adds them when it turns this into a
  * `LaunchIntent`; a restarted host relaunches with its current settings.
  */
-export type StoredLaunchIntent = Omit<LaunchIntent, "image" | "resources">;
+export type StoredLaunchIntent = Omit<
+  LaunchIntent,
+  "image" | "resources" | "issueBootstrapNonce"
+>;
 
 /**
- * A live row. Rows written before the intent columns existed carry null
- * `operationId`/`bootstrapNonce`: they are inspected and reclaimed like any
- * other, but can never be relaunched.
+ * A launch that still holds its slot. Rows written before the intent columns
+ * existed carry a null `operationId`: they are inspected and reclaimed like
+ * any other, but can never be relaunched.
  */
-export type ActiveExecution = Omit<
-  StoredLaunchIntent,
-  "bootstrapNonce" | "operationId"
-> & {
+export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
   backend: ExecutionBackendKind;
-  bootstrapNonce: string | null;
   operationId: string | null;
   observedState: ExecutionObservation["state"];
   providerRef: string | null;
+  /**
+   * A worker already traded this launch's nonce for a binding. Its resource
+   * is not something to re-create: the session belongs to an attempt, and
+   * only confirming the execution gone can give either one back.
+   */
+  claimed: boolean;
+  /**
+   * When this launch's bootstrap credential stops being accepted, or null
+   * while no container has been created for it. Past it and unclaimed, the
+   * resource can never bind: the credential it holds is fixed in its
+   * environment, so it has to be replaced rather than waited on.
+   */
+  nonceExpiresAt: Date | null;
 };
 
 /**
@@ -64,13 +76,27 @@ export interface SchedulerStore {
    * another launch, or another scheduler pass).
    */
   reserveLaunch(input: ReserveLaunchInput): Promise<StoredLaunchIntent | null>;
-  /** Live rows reserved for `backend` only; other backends' rows are theirs. */
+  /**
+   * Mints this launch's bootstrap nonce, stores only its hash, and returns
+   * the plaintext. Refuses a launch that already bound a worker or gave its
+   * slot back, so a credential is never issued for a binding that exists.
+   */
+  issueBootstrapNonce(ref: ExecutionRef, now: Date): Promise<string>;
+  /**
+   * Shuts this launch's bootstrap door for good and says whether it was still
+   * open: true only when the launch was unclaimed, still held its slot, and
+   * its nonce had expired. Deciding and closing in one write is what makes it
+   * safe to tear the resource down — a claim that commits either side of it
+   * loses or wins outright, never both.
+   */
+  revokeBootstrapNonce(ref: ExecutionRef, now: Date): Promise<boolean>;
+  /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,
   ): Promise<ActiveExecution[]>;
   /**
-   * The subset of `refs` that have a matching *live* `executions` row. A row
-   * already recorded terminated no longer owns its resource, so the resource
+   * The subset of `refs` that have a matching *open* launch. A launch that
+   * already gave its slot back no longer owns its resource, so the resource
    * is reclaimed as an orphan if it still exists.
    */
   filterKnown(
@@ -82,10 +108,16 @@ export interface SchedulerStore {
     observation: ExecutionObservation,
   ): Promise<void>;
   /**
+   * The provider resource is gone for good: the one place a launch slot and
+   * its session are handed back. Idempotent, however many passes see it.
+   */
+  confirmExecutionGone(executionId: string, now: Date): Promise<void>;
+
+  /**
    * The subset of `sessionIds` whose workspace must be kept: a session row
    * that has not reached a terminal admission state — a paused or
    * recovery-required session is resumed into the same workspace — or one
-   * that still has a live execution row. An id with no row at all is not
+   * whose launch still holds its slot. An id with no row at all is not
    * retained: nothing can come back to it.
    *
    * Ids the store cannot judge come back retained, so a workspace labelled

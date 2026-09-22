@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, spikes]
+        options: [all, check, integration, workspace-quota, spikes]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean

@@ -311,12 +311,18 @@ class FakeDocker {
 
 const RESOURCES = { cpus: 1.5, memoryBytes: 2 * 1024 ** 3, pidsLimit: 512 };
 
+/** How often the registry was asked for a credential; only creating asks. */
+let nonceIssues = 0;
+
 function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
   return {
-    bootstrapNonce: "nonce-abc",
     executionId: "exec-11111111-2222-3333-4444-555555555555",
     generation: 1,
     image: "worker:test",
+    issueBootstrapNonce: async () => {
+      nonceIssues += 1;
+      return "nonce-abc";
+    },
     operationId: "op-1",
     resources: RESOURCES,
     sessionId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -353,6 +359,7 @@ beforeEach(() => {
   docker = new FakeDocker();
   docker.start();
   backend = new LocalDockerBackend(configFor(docker.host));
+  nonceIssues = 0;
 });
 
 afterEach(() => {
@@ -460,6 +467,9 @@ describe("LocalDockerBackend.ensureExecution", () => {
       providerRef: first.providerRef,
       state: "running",
     });
+    // Adopting must not mint a second credential: the container already
+    // running holds the first one, and issuing would invalidate it.
+    expect(nonceIssues).toBe(1);
     expect(docker.containers.size).toBe(1);
     expect(
       docker.requests.filter((r) => r.path === "/containers/create"),

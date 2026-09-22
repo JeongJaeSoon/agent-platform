@@ -37,10 +37,10 @@ const RESOURCES = { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 };
 function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
   const suffix = crypto.randomUUID();
   return {
-    bootstrapNonce: `nonce-${suffix}`,
     executionId: `exec-${suffix}`,
     generation: 1,
     image: IMAGE,
+    issueBootstrapNonce: async () => `wln-${suffix}`,
     operationId: `op-${suffix}`,
     resources: RESOURCES,
     sessionId: crypto.randomUUID(),
@@ -161,7 +161,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     ).toEqual(
       [
         `${ENV.home}=/home/worker`,
-        `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+        `${ENV.bootstrapNonce}=${await intent.issueBootstrapNonce()}`,
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=http://host.docker.internal:3000`,

@@ -81,10 +81,10 @@ integration("workspace volumes against a real daemon", () => {
     const sessionId = crypto.randomUUID();
     sessionIds.push(sessionId);
     return {
-      bootstrapNonce: `nonce-${suffix}`,
       executionId: `exec-${suffix}`,
       generation: 1,
       image: IMAGE,
+      issueBootstrapNonce: async () => `wln-${suffix}`,
       operationId: `op-${suffix}`,
       resources: { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 },
       sessionId,

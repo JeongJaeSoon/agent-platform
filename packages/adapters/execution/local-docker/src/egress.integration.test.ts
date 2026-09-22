@@ -344,10 +344,10 @@ integration("worker egress is confined to the proxy allowlist", () => {
 
   test("a worker container launched by the backend gets the proxy variables", async () => {
     const intent: LaunchIntent = {
-      bootstrapNonce: `nonce-${suffix}`,
       executionId: `exec-${suffix}`,
       generation: 1,
       image: IMAGE,
+      issueBootstrapNonce: async () => `wln-${suffix}`,
       operationId: `op-${suffix}`,
       resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },
       sessionId: crypto.randomUUID(),
