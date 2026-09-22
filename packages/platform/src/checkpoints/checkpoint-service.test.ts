@@ -21,7 +21,10 @@ import type {
   CommitCheckpointInput,
   CommitCheckpointResult,
 } from "../ports/checkpoint-store.ts";
-import type { WorkspaceBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
+import {
+  structuralBundleVerifier,
+  type WorkspaceBundleVerifier,
+} from "../ports/workspace-bundle-verifier.ts";
 import {
   createCheckpointService,
   manifestRefFor,
@@ -86,7 +89,6 @@ const codec: CheckpointCodec = {
 const ROOT_PART = `${sessionObjectPrefix(sessionId)}mirror/root-0.jsonl`;
 const SUB_PART = `${sessionObjectPrefix(sessionId)}mirror/sub-0.jsonl`;
 const UNTRACKED = `${sessionObjectPrefix(sessionId)}workspace/notes.md`;
-const BUNDLE = `${sessionObjectPrefix(sessionId)}workspace/workspace.bundle`;
 const ARTIFACTS: Record<string, string> = {
   [ROOT_PART]: '{"type":"user","uuid":"r1"}\n',
   [SUB_PART]: '{"type":"user","uuid":"s1"}\n',
@@ -96,10 +98,18 @@ const ARTIFACTS: Record<string, string> = {
 // Real `git bundle` bytes, so what the service accepts is what git can restore.
 const workspaceBundle = await createGitBundle();
 
-function bundleRef(): ObjectRef {
+/** A bundle lives beside the manifest that names it, in the attempt's own dir. */
+function bundleKeyFor(revision: number, attempt: string): string {
+  const ref = manifestRefFor(sessionId, revision, attempt);
+  return `${ref.slice(0, ref.lastIndexOf("/") + 1)}workspace.bundle`;
+}
+
+const BUNDLE = bundleKeyFor(0, attemptId);
+
+function bundleRef(key = BUNDLE): ObjectRef {
   return {
     bytes: workspaceBundle.bytes.byteLength,
-    key: BUNDLE,
+    key,
     sha256: workspaceBundle.sha256,
   };
 }
@@ -115,7 +125,9 @@ function fileRef(key: string, path: string): WorkspaceArtifact {
 
 function manifest(
   overrides: Partial<CheckpointManifest> = {},
+  attempt = attemptId,
 ): CheckpointManifest {
+  const revision = overrides.revision ?? 0;
   return {
     createdAt: "2026-09-22T00:00:00.000Z",
     cwd: "/workspace",
@@ -139,7 +151,9 @@ function manifest(
       },
     },
     version: 1,
-    workspace: workspace(),
+    workspace: workspace({
+      bundle: bundleRef(bundleKeyFor(revision, attempt)),
+    }),
     ...overrides,
   };
 }
@@ -205,12 +219,21 @@ beforeEach(async () => {
   for (const [key, body] of Object.entries(ARTIFACTS)) {
     await objects.put(key, encode(body));
   }
-  await objects.put(BUNDLE, workspaceBundle.bytes);
+  for (const [revision, attempt] of [
+    [0, attemptId],
+    [1, attemptId],
+    [2, attemptId],
+    [0, "attempt-2"],
+    [0, "attempt-stale"],
+  ] as Array<[number, string]>) {
+    await objects.put(bundleKeyFor(revision, attempt), workspaceBundle.bytes);
+  }
   checkpoints = memoryCheckpointStore();
   service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
     objects,
     store: checkpoints.store,
+    workspaceBundles: structuralBundleVerifier,
   });
 });
 
@@ -223,6 +246,7 @@ function serviceOwnedBy(owner: CheckpointFence) {
       codecs: { [runtime.engine]: codec },
       objects,
       store: store.store,
+      workspaceBundles: structuralBundleVerifier,
     }),
   };
 }
@@ -294,7 +318,7 @@ describe("requestCheckpoint", () => {
     expect(retry.request.revision).toBe(0);
     expect(retry.request.manifestRef).not.toBe(orphan.checkpoint.manifest_ref);
 
-    const second = await upload(manifest(), "attempt-2");
+    const second = await upload(manifest({}, "attempt-2"), "attempt-2");
     expect(second.result).toEqual({ outcome: "created" });
     const replacement = serviceOwnedBy(fence({ attemptId: "attempt-2" }));
     expect(
@@ -586,6 +610,7 @@ describe("validateManifest", () => {
       maxWorkspaceBundleBytes: 16,
       objects,
       store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
     });
     const { checkpoint } = await upload(manifest());
 
@@ -624,6 +649,94 @@ describe("validateManifest", () => {
       reason: `workspace bundle ${BUNDLE} cannot restore ${workspaceBundle.commit}: git says no`,
     });
     expect(asked).toEqual([workspaceBundle.commit]);
+  });
+
+  test("commits nothing when no bundle verifier is configured", async () => {
+    // The default is fail-closed: promoting a pointer on a check nobody chose
+    // only shows up as damage at the next restore, when the execution that
+    // wrote it is gone and the last healthy revision has been superseded.
+    const unconfigured = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects,
+      store: checkpoints.store,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await unconfigured.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/no workspace bundle verifier configured/),
+    });
+  });
+
+  test("refuses a bundle that is not in this attempt's own directory", async () => {
+    // A key the session reuses across revisions is either overwritten — so the
+    // committed checkpoint stops describing what is stored — or refused by
+    // create-only forever after the first one.
+    const shared = `${sessionObjectPrefix(sessionId)}workspace/workspace.bundle`;
+    await objects.put(shared, workspaceBundle.bytes);
+    const { checkpoint } = await upload(
+      manifest({ workspace: workspace({ bundle: bundleRef(shared) }) }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/is not under this attempt's /),
+    });
+  });
+
+  test("refuses another attempt's bundle even inside the same session", async () => {
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: workspace({
+          bundle: bundleRef(bundleKeyFor(0, "attempt-2")),
+        }),
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/is not under this attempt's /),
+    });
+  });
+
+  test("never verifies more bundles at once than it was allowed to", async () => {
+    // The size ceiling bounds one bundle; this is what bounds the process.
+    let inFlight = 0;
+    let peak = 0;
+    const workspaceBundles: WorkspaceBundleVerifier = {
+      async verify() {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return { status: "restorable" };
+      },
+    };
+    const gated = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxConcurrentBundleVerifications: 2,
+      objects,
+      store: checkpoints.store,
+      workspaceBundles,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    const verdicts = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        gated.validateManifest({ checkpoint, sessionId }),
+      ),
+    );
+
+    expect(verdicts.every((verdict) => verdict.status === "verified")).toBe(
+      true,
+    );
+    expect(peak).toBe(2);
   });
 
   test("refuses a manifest naming another session's transcript", async () => {
@@ -819,7 +932,7 @@ describe("finalize", () => {
   test("a worker whose lease was taken over loses even when it uploads first", async () => {
     // The stale execution wins the object-store race for revision 0 …
     const stale = await upload(
-      manifest({ resume: "engine-session-stale" }),
+      manifest({ resume: "engine-session-stale" }, "attempt-stale"),
       "attempt-stale",
     );
     expect(stale.result).toEqual({ outcome: "created" });
