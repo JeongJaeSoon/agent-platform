@@ -631,6 +631,40 @@ describe("PostgresSchedulerStore", () => {
     expect(kept?.nonceHash).toEqual(sha256(nonce));
   });
 
+  test("a launch with a pending replacement cannot be confirmed gone until it settles", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const holdsSlot = async () =>
+      (await store.listActiveExecutions("local_docker")).some(
+        (row) => row.executionId === intent.executionId,
+      );
+
+    expect(await store.requestReplacement(intent, "stale_isolation", NOW)).toBe(
+      1,
+    );
+    // Someone else — a reconciler that saw the old container exit — reports
+    // it gone while the scheduler is between teardown and create. The plan
+    // wins: the slot and the session stay with this launch.
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    expect(await holdsSlot()).toBe(true);
+    const [session] = await db
+      .select({ executionId: sessions.executionId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session?.executionId).toBe(intent.executionId);
+
+    // Once the rebuilt resource is up, an exit is an exit again.
+    await store.settleReplacement(intent);
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    expect(await holdsSlot()).toBe(false);
+  });
+
   test("the schema refuses a replacement reason it does not know", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({

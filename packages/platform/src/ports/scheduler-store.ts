@@ -146,6 +146,9 @@ export interface SchedulerStore {
   /**
    * The provider resource is gone for good: the one place a launch slot and
    * its session are handed back. Idempotent, however many passes see it.
+   * Refused, changing nothing, while an unclaimed launch has a replacement
+   * pending: its resource being gone is the rebuild in progress, not an
+   * exit.
    */
   confirmExecutionGone(executionId: string, now: Date): Promise<void>;
 

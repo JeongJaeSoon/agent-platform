@@ -504,13 +504,18 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // launch instead would hand the session a fresh launch with a fresh
       // count, and move the loop one generation along.
       summary.replacementsExhausted.push(ref);
-      logger.error("Replacement limit reached; launch left as it is", {
-        ...fieldsOf(ref),
-        limit: replacementLimit,
-        reason,
-        replacement_count: execution.replacementCount,
-        session_id: execution.sessionId,
-      });
+      logger.error(
+        "Replacement limit reached; launch left as it is. Clear " +
+          "replacement_reason and replacement_count on its worker_launches " +
+          "row to let the scheduler try again",
+        {
+          ...fieldsOf(ref),
+          limit: replacementLimit,
+          reason,
+          replacement_count: execution.replacementCount,
+          session_id: execution.sessionId,
+        },
+      );
       return;
     }
     // Replacement is a teardown followed by a create, and only the create can
