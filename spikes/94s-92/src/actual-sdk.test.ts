@@ -513,8 +513,8 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
   watchdog.cancel();
   if (timedOut) {
     // Which of the three is still open is the whole diagnosis: a live child is
-    // a stuck child, while a dead child with an open pipe is a grandchild
-    // still holding the write end.
+    // stuck somewhere, while a dead child with an open pipe means nobody drained
+    // it. Both readings need the S3 accounting next to them.
     const state = [
       `child pid=${child.pid} did not settle within ${watchdogMs}ms`,
       `exit=${exitCode ?? "pending"} stdout=${stdout.state()} stderr=${stderr.state()}`,
