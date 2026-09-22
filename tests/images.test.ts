@@ -56,6 +56,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
   });
 
+  test("the scheduler loop surfaces persistent failure", () => {
+    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
+    expect(schedulerBlock).toContain("SCHEDULER_MAX_CONSECUTIVE_FAILURES");
+    expect(schedulerBlock).toMatch(/exit 1/);
+    expect(schedulerBlock).toContain("touch /tmp/scheduler-last-ok");
+    expect(schedulerBlock).toContain("find /tmp/scheduler-last-ok -newermt");
+  });
+
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
@@ -84,8 +92,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
-  test("the API is bound to loopback in compose", () => {
+  test("the API is bound to loopback and authenticated in compose", () => {
     expect(compose).toContain('- "127.0.0.1:3000:3000"');
+    // Workers reach api:3000 through the proxy; `none` would let them pick
+    // any owner with X-Owner-Id.
+    expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
     // `up` runs migrate, so no service may take an ambient DATABASE_URL.
     expect(compose).not.toMatch(/\$\{DATABASE_URL/);
   });

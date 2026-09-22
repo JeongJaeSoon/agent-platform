@@ -113,8 +113,8 @@ services:
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
     ports:
-      # Loopback only: AUTH_MODE defaults to none, where any X-Owner-Id is an
-      # identity, so this must not be reachable from other hosts.
+      # Loopback only; a local development listener has no business on
+      # other hosts' interfaces even in api-key mode.
       - "127.0.0.1:3000:3000"
     env_file:
       - path: ../.env
@@ -125,7 +125,13 @@ services:
       # env file must not get migrated by starting the local stack. An
       # external database is run against by the apps outside compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
-      AUTH_MODE: ${AUTH_MODE:-none}
+      # api-key, not none: workers reach this listener through the proxy
+      # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
+      # any X-Owner-Id as the caller's identity, so a compromised worker could
+      # act as any owner. Issue a key with
+      # `docker compose exec api bun run apps/api/src/keys.ts create <owner>`.
+      # /internal routes carry their own worker authentication either way.
+      AUTH_MODE: ${AUTH_MODE:-api-key}
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
@@ -170,9 +176,11 @@ services:
   # Renamed from local-scaler when the app became apps/scheduler (94S-123).
   # apps/scheduler is one pass per process (cron/Job shape); the loop that
   # makes a locally accepted session actually grow a worker lives here, in
-  # compose, so the app keeps its one-shot contract. The interval is also the
-  # backoff after a failed pass (exit 1), and the restart policy covers the
-  # loop shell itself dying.
+  # compose, so the app keeps its one-shot contract. The app's non-zero exit
+  # is kept observable two ways: the loop gives up after
+  # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
+  # engages and `compose ps` shows it restarting, and the healthcheck goes
+  # unhealthy when no pass has succeeded for SCHEDULER_HEALTH_STALE_SEC.
   scheduler:
     build:
       context: ..
@@ -183,11 +191,28 @@ services:
       - sh
       - -c
       - |
+        fails=0
         while :; do
-          bun run apps/scheduler/src/main.ts || echo "scheduler pass failed (exit $$?)" >&2
+          if bun run apps/scheduler/src/main.ts; then
+            fails=0
+            touch /tmp/scheduler-last-ok
+          else
+            fails=$$((fails + 1))
+            echo "scheduler pass failed ($$fails consecutive)" >&2
+            if [ "$$fails" -ge "$${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}" ]; then
+              echo "giving up after $$fails failed passes" >&2
+              exit 1
+            fi
+          fi
           sleep "$${SCHEDULER_INTERVAL_SEC:-5}"
         done
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/scheduler-last-ok -newermt \"$${SCHEDULER_HEALTH_STALE_SEC:-60} seconds ago\" | grep -q ."]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
     env_file:
       - path: ../.env
         required: false
@@ -208,6 +233,8 @@ services:
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
       EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
+      SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
+      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-60}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
