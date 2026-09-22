@@ -57,13 +57,6 @@
       "when": 1790065919468,
       "tag": "0007_typical_butterfly",
       "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1790101393433,
-      "tag": "0008_slippery_selene",
-      "breakpoints": true
     }
   ]
 }
