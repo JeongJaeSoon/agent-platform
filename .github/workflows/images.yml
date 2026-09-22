@@ -217,16 +217,17 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Two passes: first refuse if any target tag already names a different
-      # digest (a rerun of the same tag on the same digests is fine and
-      # completes a set an earlier run left half-tagged), then retag all
-      # three. The lookup fails closed: only a confirmed "not found" counts as
-      # absent; any other lookup failure (auth, rate limit, 5xx) aborts before
-      # a single tag moves. Tags are still applied per repository, so a
-      # failure between repositories leaves the set half-promoted until the
-      # rerun; the set-level commit point (a release manifest consumers
-      # resolve through) is D5, and until then the published-digests artifact
-      # of a green run is that record.
+      # A tag, once written, is never moved: if a target tag already exists
+      # it is kept as is and only recorded, so a rerun of a half-promoted set
+      # completes the missing repositories even though the rebuild produced a
+      # different digest (the worker's apt layer is not pinned). The lookup
+      # fails closed: only a confirmed "not found" counts as absent; any other
+      # lookup failure (auth, rate limit, 5xx) aborts before a single tag is
+      # written. Tags are still applied per repository, so a failure between
+      # repositories leaves the set half-promoted until the rerun; the
+      # set-level commit point (a release manifest consumers resolve through)
+      # is D5, and until then the published-digests artifact of a green run
+      # is that record.
       - name: Promote staged digests to version tags
         run: |
           set -euo pipefail
@@ -252,22 +253,37 @@ jobs:
             echo "::error::could not look up ${ref}: ${err}" >&2
             return 1
           }
+          # Every lookup first, so a registry that cannot answer aborts the
+          # whole promotion before any repository is touched.
+          declare -A keep
           for file in staged/*.json; do
             name="$(jq -r .image "$file")"; digest="$(jq -r .digest "$file")"
             test -n "$digest"
             for tag in "$version" "$short"; do
               existing="$(lookup "${name}:${tag}")"
-              if [ -n "$existing" ] && [ "$existing" != "$digest" ]; then
-                echo "::error::${name}:${tag} already names ${existing}, refusing to move it to ${digest}"
-                exit 1
+              if [ -n "$existing" ]; then
+                keep["${name}:${tag}"]="$existing"
+                if [ "$existing" != "$digest" ]; then
+                  echo "::warning::${name}:${tag} already names ${existing}; keeping it, not moving it to ${digest}"
+                fi
               fi
             done
           done
           mkdir -p digests
           for file in staged/*.json; do
             app="$(jq -r .app "$file")"; name="$(jq -r .image "$file")"; digest="$(jq -r .digest "$file")"
-            docker buildx imagetools create -t "${name}:${version}" -t "${name}:${short}" "${name}@${digest}"
-            jq '.promoted = true | .tags = [$v, $s]' --arg v "$version" --arg s "$short" "$file" >"digests/${app}.json"
+            tags=()
+            for tag in "$version" "$short"; do
+              [ -z "${keep["${name}:${tag}"]:-}" ] && tags+=(-t "${name}:${tag}")
+            done
+            if [ "${#tags[@]}" -gt 0 ]; then
+              docker buildx imagetools create "${tags[@]}" "${name}@${digest}"
+            fi
+            jq '.promoted = true | .tags = [$v, $s] | .kept = $k' \
+              --arg v "$version" --arg s "$short" \
+              --argjson k "$(jq -n --arg a "${keep["${name}:${version}"]:-}" --arg b "${keep["${name}:${short}"]:-}" \
+                '[{tag: "version", digest: $a}, {tag: "sha", digest: $b}] | map(select(.digest != ""))')" \
+              "$file" >"digests/${app}.json"
             {
               echo "### ${app} (published)"
               echo
