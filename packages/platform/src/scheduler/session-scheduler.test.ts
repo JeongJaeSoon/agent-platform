@@ -107,6 +107,8 @@ type Container = {
   generation: number;
   operationId: string;
   sessionId: string;
+  /** false models Docker `created`: create succeeded, start never ran. */
+  started?: boolean;
 };
 
 function nameOf(ref: ExecutionRef): string {
@@ -120,6 +122,7 @@ class FakeBackend implements ExecutionBackend {
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
   failEnsureFor = new Set<string>();
+  failTerminateFor = new Set<string>();
 
   capabilities() {
     return { suspend: false };
@@ -135,6 +138,7 @@ class FakeBackend implements ExecutionBackend {
       if (existing.operationId !== intent.operationId) {
         throw new Error("operation id mismatch");
       }
+      existing.started = true;
       return {
         created: false,
         providerRef: `ctr-${intent.executionId}`,
@@ -169,7 +173,11 @@ class FakeBackend implements ExecutionBackend {
       found: true,
       observedAt: new Date(),
       providerRef: `ctr-${ref.executionId}`,
-      state: container.exited ? "terminated" : "running",
+      state: container.exited
+        ? "terminated"
+        : container.started === false
+          ? "pending"
+          : "running",
     };
   }
 
@@ -185,6 +193,9 @@ class FakeBackend implements ExecutionBackend {
 
   async terminate(ref: ExecutionRef): Promise<TerminateExecutionResult> {
     this.terminateCalls.push(ref);
+    if (this.failTerminateFor.has(nameOf(ref))) {
+      throw new Error("docker stop failed");
+    }
     const container = this.containers.get(nameOf(ref));
     if (!container) {
       const other = [...this.containers.entries()].find(([name]) =>
@@ -299,6 +310,54 @@ describe("runScheduler", () => {
           r.level === "warn" && r.message.includes("re-created from intent"),
       ),
     ).toBe(true);
+  });
+
+  test("a created-but-never-started resource is started through the same intent", async () => {
+    const { backend, run, store } = harness();
+    const row = store.seedActive({ executionId: "exec-1" });
+    backend.containers.set("exec-1#1", {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId,
+      sessionId: row.sessionId,
+      started: false,
+    });
+    const summary = await run();
+    expect(summary.reensured).toEqual([
+      { executionId: "exec-1", generation: 1 },
+    ]);
+    expect(backend.containers.get("exec-1#1")?.started).toBe(true);
+    expect(store.executions.get("exec-1")?.observedState).toBe("running");
+  });
+
+  test("an exited resource whose removal fails stays live and is retried", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    container.exited = true;
+    backend.failTerminateFor.add(name);
+
+    const first = await run();
+    expect(first.terminatedObserved).toEqual([]);
+    expect(backend.containers.has(name)).toBe(true);
+    expect([...store.executions.values()][0]?.observedState).not.toBe(
+      "terminated",
+    );
+    expect(
+      records.some(
+        (r) => r.level === "error" && r.message.includes("Reclaiming"),
+      ),
+    ).toBe(true);
+    // The slot is still held, so nothing new is launched meanwhile.
+    expect(first.launched).toEqual([]);
+
+    backend.failTerminateFor.clear();
+    const second = await run();
+    expect(second.terminatedObserved).toHaveLength(1);
+    expect(backend.containers.has(name)).toBe(false);
+    expect([...store.executions.values()][0]?.observedState).toBe("terminated");
   });
 
   test("a resource with no launch intent is logged and terminated", async () => {

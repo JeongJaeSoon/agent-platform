@@ -85,13 +85,28 @@ export async function runScheduler(
   for (const execution of active) {
     const ref = refOf(execution);
     const observed = await backend.inspect(ref);
-    if (observed.found && observed.state !== "terminated") {
+    if (
+      observed.found &&
+      observed.state !== "terminated" &&
+      observed.state !== "pending"
+    ) {
       await store.recordObservation(ref, observed);
       continue;
     }
-    if (observed.found) {
+    if (observed.found && observed.state === "terminated") {
+      // Reclaim first: if the stop/remove call fails the row stays live and
+      // the next pass retries instead of leaking an exited container.
+      try {
+        await backend.terminate(ref);
+      } catch (error) {
+        logger.error("Reclaiming exited execution resource failed", {
+          ...fieldsOf(ref),
+          error: messageOf(error),
+          session_id: execution.sessionId,
+        });
+        continue;
+      }
       await store.recordObservation(ref, observed);
-      await backend.terminate(ref);
       summary.terminatedObserved.push(ref);
       logger.info("Execution exited; resource reclaimed", {
         ...fieldsOf(ref),
@@ -100,8 +115,9 @@ export async function runScheduler(
       });
       continue;
     }
-    // Row says live, provider has nothing: the create never happened or the
-    // resource vanished. The stored intent is enough to try again.
+    // Row says live but the provider has nothing, or has a resource that was
+    // created and never started. The stored intent covers both: ensure is
+    // idempotent and starts a pending resource it already owns.
     try {
       const ensured = await backend.ensureExecution(intentOf(execution));
       await store.recordObservation(ref, {
