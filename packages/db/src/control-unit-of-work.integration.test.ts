@@ -41,11 +41,8 @@ integration("session terminate on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let gateway: WorkerGateway;
-  let clock = new Date("2026-09-23T00:00:00.000Z");
+  const clock = new Date("2026-09-23T00:00:00.000Z");
   const now = () => clock;
-  const advance = (ms: number) => {
-    clock = new Date(clock.getTime() + ms);
-  };
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "terminate_it" });
@@ -445,15 +442,22 @@ integration("session terminate on PostgreSQL", () => {
     const result = await terminate(session, before.revision);
     if (result.outcome !== "accepted") throw new Error(result.outcome);
 
-    advance(29_000);
-    await store().markOverdueTerminations({ now: clock, deadlineMs: 30_000 });
+    // The receipt is stamped by the database clock, so the sweep is judged
+    // against wall time here, not the injected lease clock.
+    const accepted = (await receiptRow(result.response.receipt_id)).createdAt;
+    await store().markOverdueTerminations({
+      now: new Date(accepted.getTime() + 29_000),
+      deadlineMs: 30_000,
+    });
     let receipt = await receiptRow(result.response.receipt_id);
     expect(receipt.status).toBe("accepted");
-    advance(1_000);
     // Other tests leave their own overdue receipts behind, so the count is
     // at least this one.
     expect(
-      await store().markOverdueTerminations({ now: clock, deadlineMs: 30_000 }),
+      await store().markOverdueTerminations({
+        now: new Date(accepted.getTime() + 30_001),
+        deadlineMs: 30_000,
+      }),
     ).toBeGreaterThanOrEqual(1);
     receipt = await receiptRow(result.response.receipt_id);
     expect(receipt.status).toBe("unknown");
@@ -511,25 +515,43 @@ integration("session terminate on PostgreSQL", () => {
     });
   });
 
-  test("a legacy pod-bound session is not reported terminated on nothing", async () => {
+  test("a legacy pod-bound session is refused, not accepted on a kill nobody can deliver", async () => {
     const session = await queuedSession(`legacy-${crypto.randomUUID()}`);
     await db
       .update(sessions)
       .set({ podId: `pod-${crypto.randomUUID()}`, status: "running" })
       .where(eq(sessions.id, session.session_id));
     const before = await sessionRow(session.session_id);
-    const result = await terminate(session, before.revision);
+    expect(await terminate(session, before.revision)).toEqual({
+      outcome: "unsupported",
+    });
+    const after = await sessionRow(session.session_id);
+    expect(after.admissionState).toBe("active");
+    expect(after.revision).toBe(before.revision);
+  });
+
+  test("the deadline counts from durable acceptance, not from the caller's clock", async () => {
+    const { session, claimed } = await bound("clock");
+    await deliver(claimed);
+    const before = await sessionRow(session.session_id);
+    // A caller whose clock (and lock wait) is far behind wall time.
+    const stale = new Date(Date.now() - 60_000);
+    const result = await controls().terminateAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: "hash-a",
+      expectedRevision: before.revision,
+      reason: "slow",
+      now: stale,
+    });
     if (result.outcome !== "accepted") throw new Error(result.outcome);
-    expect(result.response.receipt_status).toBe("accepted");
-    expect((await sessionRow(session.session_id)).admissionState).toBe(
-      "stopping",
-    );
-    advance(30_000);
-    expect(
-      await store().markOverdueTerminations({ now: clock, deadlineMs: 30_000 }),
-    ).toBeGreaterThanOrEqual(1);
+    await store().markOverdueTerminations({
+      now: new Date(),
+      deadlineMs: 30_000,
+    });
     expect((await receiptRow(result.response.receipt_id)).status).toBe(
-      "unknown",
+      "accepted",
     );
   });
 

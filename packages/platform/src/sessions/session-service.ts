@@ -215,6 +215,11 @@ export function createSessionService(deps: {
           const rejection = ADMISSION_REJECTIONS[result.admissionState];
           throw new SessionServiceError(rejection.code, rejection.message);
         }
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that cannot be force-terminated",
+          );
         default:
           return { ...result.response, external_effects_reverted: false };
       }

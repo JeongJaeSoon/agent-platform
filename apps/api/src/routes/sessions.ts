@@ -79,7 +79,7 @@ export const sessionRouteErrors: Record<string, number[]> = {
   "POST /v1/sessions/{id}/messages": [400, 401, 404, 409, 413, 503],
   "GET /v1/sessions/{id}/turns": [400, 401, 404, 503],
   "GET /v1/sessions/{id}/turns/{turn_id}": [401, 404, 503],
-  "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 503],
+  "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],
 };
 
 function requireIdempotencyKey(context: Context<ApiEnvironment>): string {

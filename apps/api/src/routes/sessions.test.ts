@@ -472,6 +472,12 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
       { terminateAtomic: async () => ({ outcome: "not_found" }) },
     );
     expect(missing.status).toBe(404);
+    const legacy = await terminate(
+      { expected_revision: 1 },
+      { terminateAtomic: async () => ({ outcome: "unsupported" }) },
+    );
+    expect(legacy.status).toBe(422);
+    expect(await errorCode(legacy)).toBe("UNSUPPORTED_CAPABILITY");
     expect(
       (
         await terminate(

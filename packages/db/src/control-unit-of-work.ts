@@ -178,6 +178,13 @@ export function createPostgresSessionControl(db: Database): SessionControl {
             currentRevision: session.revision,
           };
         }
+        // A session on the legacy pod lifecycle (pod_id without an
+        // execution) has no kill outbox and no epoch its worker honours.
+        // Accepting would promise a kill nothing can deliver, so it is
+        // refused with the row untouched.
+        if (session.executionId === null && session.podId !== null) {
+          return { outcome: "unsupported" };
+        }
 
         // Queued input will never run: its turns end as cancelled, its queue
         // rows go, and whoever submitted it learns so through the receipt.
@@ -244,14 +251,8 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 .set({ desiredState: "terminated" })
                 .where(eq(executions.id, session.executionId))
                 .returning({ id: executions.id });
-        // A session on the legacy pod lifecycle (pod_id without an
-        // execution) has no kill outbox and no epoch its worker honours.
-        // Its receipt is not reported succeeded on nothing: it stays
-        // accepted, blocks dispatch, and the deadline sweep reports it
-        // unknown, which is the truth until that path grows a kill.
-        const pendingKill =
-          session.executionId !== null || session.podId !== null;
-        if (session.executionId !== null && outbox.length !== 1) {
+        const pendingKill = session.executionId !== null;
+        if (pendingKill && outbox.length !== 1) {
           // A bound session without its executions row is a broken
           // invariant, not evidence that nothing is running.
           throw new Error(
@@ -299,8 +300,11 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 checkpointRevision: session.checkpointRevision,
                 unconfirmedTurnId: null,
               }),
-          createdAt: now,
-          updatedAt: now,
+          // The deadline counts from durable acceptance, not from when the
+          // caller read its clock: lock waits inside this transaction must
+          // not eat into the kill's observation window.
+          createdAt: sql`clock_timestamp()`,
+          updatedAt: sql`clock_timestamp()`,
         });
         await tx.insert(idempotencyKeys).values({
           principal: scope.principal,

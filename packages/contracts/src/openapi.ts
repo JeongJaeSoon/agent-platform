@@ -232,8 +232,9 @@ const routes: Route[] = [
     scope: "control",
     body: "TerminateSessionRequest",
     success: { status: 202, schema: "TerminateSessionResponse" },
-    // Served: a body over the limit and a database outage are real answers.
-    errors: [...CONFLICTS, 413, 503],
+    // Served: an oversized body, a legacy binding with no kill path, and a
+    // database outage are real answers.
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "post",

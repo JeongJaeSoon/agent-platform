@@ -21,7 +21,10 @@ export type TerminateSessionResult =
   // state it no longer sees.
   | { outcome: "revision_conflict"; currentRevision: number }
   // A closed session has nothing left to terminate.
-  | { outcome: "rejected"; admissionState: Extract<AdmissionState, "closed"> };
+  | { outcome: "rejected"; admissionState: Extract<AdmissionState, "closed"> }
+  // Bound through the legacy pod lifecycle, which has no kill path; the
+  // command is refused rather than accepted on a promise nothing can keep.
+  | { outcome: "unsupported" };
 
 /**
  * api.md § 승인·중단·강제 종료: the terminate transaction blocks dispatch,
