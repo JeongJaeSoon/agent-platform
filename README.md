@@ -27,6 +27,8 @@
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
 | `apps/worker` | runtime-core·Claude adapter·contracts만 조립하는 워커 진입점. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
+| `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
+| `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한 |
 | `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration |
 
 immutable checkpoint manifest와 authoritative pointer, typed pending requests, SDK 기반 resume은 후속 확장이다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
@@ -65,6 +67,24 @@ HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=true \
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
+```
+
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지 ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 `WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL` 둘만 받는다. worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다.
+
+```bash
+DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+WORKER_IMAGE=agent-platform-worker:dev \
+WORKER_GATEWAY_URL=http://host.docker.internal:3000 \
+EXECUTION_SLOT_LIMIT=10 \
+  bun run --cwd apps/scheduler start
+```
+
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+
+```bash
+DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
+DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+  bun test apps/scheduler/src/main.integration.test.ts
 ```
 
 로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001·2222가 이미 사용 중인지 먼저 확인한다.

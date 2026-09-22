@@ -1,0 +1,280 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import * as schema from "./schema.ts";
+import { executions, sessions, unassignedSessions } from "./schema.ts";
+
+let client: PGlite;
+let db: PgliteDatabase<typeof schema>;
+let store: ReturnType<typeof createPostgresSchedulerStore>;
+const NOW = new Date("2026-09-22T00:00:00Z");
+
+async function insertUnassigned(
+  overrides: Partial<typeof sessions.$inferInsert> = {},
+): Promise<string> {
+  const id = overrides.id ?? crypto.randomUUID();
+  await db.insert(sessions).values({
+    id,
+    ownerId: "owner-a",
+    repoUrl: "https://example.invalid/repo.git",
+    branch: `session/${id}`,
+    ...overrides,
+  });
+  await db.insert(unassignedSessions).values({ sessionId: id });
+  return id;
+}
+
+beforeEach(async () => {
+  client = new PGlite();
+  db = drizzle(client, { schema });
+  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
+  store = createPostgresSchedulerStore(db);
+});
+
+afterEach(async () => {
+  await client.close();
+});
+
+describe("PostgresSchedulerStore", () => {
+  test("reserveLaunch commits one intent per session and refuses a second live one", async () => {
+    const sessionId = await insertUnassigned();
+    const first = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    expect(first).toMatchObject({ generation: 1, sessionId });
+    expect(first?.executionId).toMatch(/^exec-[0-9a-f-]{36}$/);
+    expect(first?.bootstrapNonce.length).toBeGreaterThanOrEqual(40);
+
+    const second = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    expect(second).toBeNull();
+
+    const rows = await db
+      .select()
+      .from(executions)
+      .where(eq(executions.sessionId, sessionId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      backend: "local_docker",
+      bootstrapNonce: first?.bootstrapNonce,
+      desiredState: "running",
+      generation: 1,
+      launchOperationId: first?.operationId,
+      observedState: "pending",
+      providerRef: null,
+    });
+    const [session] = await db
+      .select({ executionId: sessions.executionId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session?.executionId).toBe(first?.executionId ?? "");
+    // The signal stays until a worker claims the session.
+    expect(await db.select().from(unassignedSessions)).toHaveLength(1);
+  });
+
+  test("a new generation follows a terminated one", async () => {
+    const sessionId = await insertUnassigned();
+    const first = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    if (!first) throw new Error("no intent");
+    await store.recordObservation(first, {
+      exitCode: 0,
+      found: true,
+      observedAt: NOW,
+      providerRef: "ctr-1",
+      state: "terminated",
+    });
+    const second = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    expect(second).toMatchObject({ generation: 2, sessionId });
+    expect(second?.operationId).not.toBe(first.operationId);
+    expect(second?.bootstrapNonce).not.toBe(first.bootstrapNonce);
+  });
+
+  test("reserveLaunch refuses sessions that are not signalled or not admission-active", async () => {
+    const paused = await insertUnassigned({ admissionState: "paused" });
+    expect(
+      await store.reserveLaunch({
+        backend: "local_docker",
+        now: NOW,
+        sessionId: paused,
+      }),
+    ).toBeNull();
+
+    const claimed = await insertUnassigned();
+    await db
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, claimed));
+    expect(
+      await store.reserveLaunch({
+        backend: "local_docker",
+        now: NOW,
+        sessionId: claimed,
+      }),
+    ).toBeNull();
+
+    expect(
+      await store.reserveLaunch({
+        backend: "local_docker",
+        now: NOW,
+        sessionId: crypto.randomUUID(),
+      }),
+    ).toBeNull();
+  });
+
+  test("inspectDemand lists eligible sessions oldest first and counts live executions", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i += 1) ids.push(await insertUnassigned());
+    await db
+      .update(unassignedSessions)
+      .set({ signaledAt: new Date("2026-09-21T00:00:00Z") })
+      .where(eq(unassignedSessions.sessionId, ids[3] ?? ""));
+    await insertUnassigned({ admissionState: "stopping" });
+
+    const launched = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId: ids[0] ?? "",
+    });
+    if (!launched) throw new Error("no intent");
+
+    const demand = await store.inspectDemand({ limit: 10 });
+    expect(demand.activeExecutionCount).toBe(1);
+    expect(demand.eligibleSessionIds[0]).toBe(ids[3]);
+    expect(demand.eligibleSessionIds).toHaveLength(3);
+    expect(demand.eligibleSessionIds).not.toContain(ids[0]);
+
+    expect(await store.inspectDemand({ limit: 2 })).toMatchObject({
+      activeExecutionCount: 1,
+      eligibleSessionIds: [ids[3], expect.any(String)],
+    });
+    expect(await store.inspectDemand({ limit: 0 })).toEqual({
+      activeExecutionCount: 1,
+      eligibleSessionIds: [],
+    });
+
+    await store.recordObservation(launched, {
+      found: true,
+      observedAt: NOW,
+      providerRef: "ctr",
+      state: "terminated",
+    });
+    const after = await store.inspectDemand({ limit: 10 });
+    expect(after.activeExecutionCount).toBe(0);
+    expect(after.eligibleSessionIds).toContain(ids[0] ?? "");
+  });
+
+  test("listActiveExecutions returns stored intents and skips rows without one", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    if (!intent) throw new Error("no intent");
+    const foreign = await insertUnassigned();
+    await db.insert(executions).values({
+      backend: "eks_job",
+      desiredState: "running",
+      generation: 1,
+      id: "exec-foreign",
+      observedState: "running",
+      sessionId: foreign,
+    });
+
+    const active = await store.listActiveExecutions();
+    expect(active).toEqual([
+      {
+        bootstrapNonce: intent.bootstrapNonce,
+        executionId: intent.executionId,
+        generation: 1,
+        observedState: "pending",
+        operationId: intent.operationId,
+        providerRef: null,
+        sessionId,
+      },
+    ]);
+    // The foreign row still holds a slot.
+    expect((await store.inspectDemand({ limit: 1 })).activeExecutionCount).toBe(
+      2,
+    );
+  });
+
+  test("recordObservation updates state, time and provider ref for the exact generation", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    if (!intent) throw new Error("no intent");
+    const at = new Date("2026-09-22T00:01:00Z");
+    await store.recordObservation(intent, {
+      found: true,
+      observedAt: at,
+      providerRef: "ctr-abc",
+      state: "running",
+    });
+    await store.recordObservation(
+      { ...intent, generation: 9 },
+      { found: false, observedAt: at, providerRef: null, state: "unknown" },
+    );
+    const [row] = await db
+      .select()
+      .from(executions)
+      .where(eq(executions.id, intent.executionId));
+    expect(row).toMatchObject({
+      observedAt: at,
+      observedState: "running",
+      providerRef: "ctr-abc",
+    });
+
+    // A not-found observation keeps the last provider ref for the audit trail.
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: at,
+      providerRef: null,
+      state: "unknown",
+    });
+    const [again] = await db
+      .select({
+        providerRef: executions.providerRef,
+        state: executions.observedState,
+      })
+      .from(executions)
+      .where(eq(executions.id, intent.executionId));
+    expect(again).toEqual({ providerRef: "ctr-abc", state: "unknown" });
+  });
+
+  test("filterKnown keeps refs whose row exists with the same generation", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+    });
+    if (!intent) throw new Error("no intent");
+    expect(
+      await store.filterKnown([
+        intent,
+        { executionId: intent.executionId, generation: 2 },
+        { executionId: "exec-ghost", generation: 1 },
+      ]),
+    ).toEqual([intent]);
+    expect(await store.filterKnown([])).toEqual([]);
+  });
+});

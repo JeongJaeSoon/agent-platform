@@ -1,0 +1,230 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { LaunchIntent } from "@agent-platform/platform";
+import {
+  containerNameFor,
+  ENV,
+  LABELS,
+  LocalDockerBackend,
+  workspaceVolumeFor,
+} from "./backend.ts";
+import { DockerClient } from "./docker-client.ts";
+
+/**
+ * Talks to a real Docker daemon. Opt in with `DOCKER_BACKEND_TEST=1`; the
+ * daemon is whatever `DOCKER_HOST` (or the default socket) points at. Uses a
+ * sleeping busybox in place of the worker image, which is a sibling ticket.
+ */
+const enabled = process.env.DOCKER_BACKEND_TEST === "1";
+const integration = enabled ? describe : describe.skip;
+const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
+const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
+
+async function defaultDockerHost(): Promise<string> {
+  const candidates = [
+    "/var/run/docker.sock",
+    `${process.env.HOME}/.docker/run/docker.sock`,
+  ];
+  for (const path of candidates) {
+    if (await Bun.file(path).exists()) return `unix://${path}`;
+  }
+  return "unix:///var/run/docker.sock";
+}
+
+const RESOURCES = { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 };
+
+function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
+  const suffix = crypto.randomUUID();
+  return {
+    bootstrapNonce: `nonce-${suffix}`,
+    executionId: `exec-${suffix}`,
+    generation: 1,
+    image: IMAGE,
+    operationId: `op-${suffix}`,
+    resources: RESOURCES,
+    sessionId: crypto.randomUUID(),
+    ...overrides,
+  };
+}
+
+integration("LocalDockerBackend against a real daemon", () => {
+  const client = new DockerClient(dockerHost);
+  const backend = new LocalDockerBackend(
+    {
+      allowedNetworks: ["bridge"],
+      apiVersion: "v1.44",
+      command: ["sleep", "600"],
+      dockerHost,
+      gatewayUrl: "http://host.docker.internal:3000",
+      homeDir: "/home/worker",
+      network: "bridge",
+      stopTimeoutSeconds: 1,
+      tmpfsSizeBytes: 16 * 1024 * 1024,
+      user: "1000:1000",
+      workspaceDir: "/workspace",
+    },
+    client,
+  );
+  const created: LaunchIntent[] = [];
+  const track = (intent: LaunchIntent) => {
+    created.push(intent);
+    return intent;
+  };
+
+  beforeAll(async () => {
+    await client.version();
+    // Pull once so create does not 404 on a fresh daemon.
+    const pull = await fetchDocker(
+      `/images/create?fromImage=${encodeURIComponent(IMAGE.split(":")[0] ?? IMAGE)}&tag=${encodeURIComponent(IMAGE.split(":")[1] ?? "latest")}`,
+    );
+    await pull.text();
+  }, 120_000);
+
+  afterAll(async () => {
+    for (const intent of created) {
+      for (const generation of [1, 2, 3]) {
+        await client
+          .stopAndRemoveContainer(
+            containerNameFor({ ...intent, generation }),
+            1,
+          )
+          .catch(() => undefined);
+      }
+      await fetchDocker(
+        `/volumes/${workspaceVolumeFor(intent.sessionId)}?force=true`,
+        "DELETE",
+      ).catch(() => undefined);
+    }
+  });
+
+  async function fetchDocker(path: string, method = "POST"): Promise<Response> {
+    const socket = dockerHost.startsWith("unix://")
+      ? dockerHost.slice("unix://".length)
+      : undefined;
+    const base = socket
+      ? "http://docker"
+      : dockerHost.replace(/^tcp:\/\//, "http://");
+    return fetch(`${base}/v1.44${path}`, {
+      method,
+      ...(socket ? { unix: socket } : {}),
+    } as RequestInit);
+  }
+
+  test("ensure twice → one container; docker inspect shows the isolation contract", async () => {
+    const intent = track(intentFor());
+    const first = await backend.ensureExecution(intent);
+    const second = await backend.ensureExecution(intent);
+    expect(first.created).toBe(true);
+    expect(second).toEqual({
+      created: false,
+      providerRef: first.providerRef,
+      state: "running",
+    });
+
+    const matching = await client.listContainers([
+      `${LABELS.executionId}=${intent.executionId}`,
+    ]);
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.Labels?.[LABELS.generation]).toBe("1");
+
+    const inspected = await client.inspectContainer(first.providerRef);
+    if (!inspected) throw new Error("container vanished");
+    expect(inspected.Config.User).toBe("1000:1000");
+    // Docker merges the image's own Env (PATH etc.) into the container; only
+    // the two variables the backend adds may be left after removing those.
+    const imageEnv = new Set(
+      (
+        (await (
+          await fetchDocker(`/images/${encodeURIComponent(IMAGE)}/json`, "GET")
+        ).json()) as { Config: { Env: string[] | null } }
+      ).Config.Env ?? [],
+    );
+    expect(
+      (inspected.Config.Env ?? []).filter((e) => !imageEnv.has(e)).sort(),
+    ).toEqual([
+      `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+      `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
+    ]);
+    const host = inspected.HostConfig as Record<string, unknown>;
+    expect(host.ReadonlyRootfs).toBe(true);
+    expect(host.Memory).toBe(RESOURCES.memoryBytes);
+    expect(host.PidsLimit).toBe(RESOURCES.pidsLimit);
+    expect(host.NanoCpus).toBe(500_000_000);
+    expect(host.NetworkMode).toBe("bridge");
+    expect(host.CapDrop).toEqual(["ALL"]);
+    expect(host.SecurityOpt).toEqual(["no-new-privileges"]);
+    expect(host.Binds ?? null).toBeNull();
+    expect(host.Mounts).toEqual([
+      expect.objectContaining({
+        Source: workspaceVolumeFor(intent.sessionId),
+        Target: "/workspace",
+        Type: "volume",
+      }),
+    ]);
+    expect(Object.keys(host.Tmpfs as Record<string, string>).sort()).toEqual([
+      "/home/worker",
+      "/tmp",
+    ]);
+    expect(JSON.stringify(inspected)).not.toContain("docker.sock");
+  }, 60_000);
+
+  test("a removed container is re-created from the same intent", async () => {
+    const intent = track(intentFor());
+    const first = await backend.ensureExecution(intent);
+    await client.stopAndRemoveContainer(first.providerRef, 1);
+    expect((await backend.inspect(intent)).found).toBe(false);
+
+    const again = await backend.ensureExecution(intent);
+    expect(again.created).toBe(true);
+    expect(again.providerRef).not.toBe(first.providerRef);
+    expect(await backend.inspect(intent)).toMatchObject({
+      found: true,
+      state: "running",
+    });
+  }, 60_000);
+
+  test("terminate touches only the matching generation", async () => {
+    const base = intentFor();
+    const gen1 = track({
+      ...base,
+      generation: 1,
+      operationId: `${base.operationId}-1`,
+    });
+    const gen2 = {
+      ...base,
+      generation: 2,
+      operationId: `${base.operationId}-2`,
+    };
+    await backend.ensureExecution(gen1);
+    const second = await backend.ensureExecution(gen2);
+
+    expect(await backend.terminate({ ...base, generation: 3 })).toMatchObject({
+      outcome: "generation_mismatch",
+    });
+    expect(await backend.terminate(gen1)).toMatchObject({
+      outcome: "terminated",
+    });
+    expect((await backend.inspect(gen1)).found).toBe(false);
+    expect(await backend.inspect(gen2)).toMatchObject({
+      found: true,
+      providerRef: second.providerRef,
+      state: "running",
+    });
+    expect(await backend.terminate(gen2)).toMatchObject({
+      outcome: "terminated",
+    });
+    expect(await backend.terminate(gen2)).toEqual({ outcome: "absent" });
+  }, 60_000);
+
+  test("listManaged sees every container this backend made", async () => {
+    const intent = track(intentFor());
+    const result = await backend.ensureExecution(intent);
+    const managed = await backend.listManaged();
+    expect(managed).toContainEqual({
+      executionId: intent.executionId,
+      generation: 1,
+      providerRef: result.providerRef,
+      sessionId: intent.sessionId,
+      state: "running",
+    });
+  }, 60_000);
+});
