@@ -142,6 +142,12 @@ limactl shell agent-platform-ci -- sudo nft -f /etc/ci-isolation.nft    # 격리
 
 `--disableupdate`로 등록했으므로 러너가 스스로 업데이트하지 않는다. GitHub이 구 버전 거부를 시작하면 위 스크립트를 다시 돌린다.
 
+러너를 방치하면 GitHub의 거부보다 **action 쪽이 먼저 깨진다.** CI가 쓰는 action은 전부 node24로 도는 버전에 고정돼 있고, node24 action은 러너 **2.327.1 이상**을 요구한다. Dependabot이 action을 올리는 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다. 설치본 확인:
+
+```bash
+limactl shell agent-platform-ci -- cat /opt/actions-runner/.installed-version
+```
+
 ## Mac Studio 이행
 
 이행이 옮기는 것은 **이 디렉터리의 두 파일과 저장소 변수 하나뿐**이다. Mac Studio도 arm64라 아키텍처 이야기가 그대로고, 라벨(`agent-platform-ci`)이 같으므로 `CI_RUNS_ON`은 건드리지 않는다. `ci.yml`도 그대로다.
