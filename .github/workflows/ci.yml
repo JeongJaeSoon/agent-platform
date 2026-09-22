@@ -26,7 +26,10 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   check:
-    runs-on: ubuntu-latest
+    # One variable for all three jobs. A self-hosted runner is arm64 and
+    # GitHub-hosted is amd64, so whichever is off duty stops being exercised;
+    # split this per event once something proves arch-sensitive.
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +43,7 @@ jobs:
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
   integration:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 20
     services:
       postgres:
@@ -93,7 +96,7 @@ jobs:
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
   spikes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 20
     continue-on-error: true
     services:
