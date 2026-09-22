@@ -11,6 +11,8 @@ import {
 } from "./harness.ts";
 
 const LITELLM_VERSION = "1.100.1";
+/** Generous: a loaded runner tearing down a large Python process is not news. */
+const PROXY_REAP_MS = 15_000;
 const PROXY_AUTHORIZATION = "Bearer proxy-contract-placeholder";
 
 describe("actual LiteLLM Anthropic transport", () => {
@@ -18,6 +20,7 @@ describe("actual LiteLLM Anthropic transport", () => {
   let upstream: FakeAnthropicServer;
   let proxy: ChildProcessWithoutNullStreams;
   let proxyUrl: string;
+  let proxyExited: Promise<void> | undefined;
   let proxyLogs = "";
   let upstreamCancellationObserved = false;
   let upstreamTimeoutObserved = false;
@@ -86,6 +89,12 @@ describe("actual LiteLLM Anthropic transport", () => {
       ],
       { env: liteLlmEnvironment(), stdio: "pipe" },
     );
+    // Registered now, not during teardown: `exit` fires once, and a teardown
+    // that subscribes afterwards waits for an event that has already gone by.
+    // Polling `exitCode` is no better — a signalled process leaves it null.
+    proxyExited = new Promise((resolve) => {
+      proxy.once("exit", () => resolve());
+    });
     proxy.stdout.on("data", (chunk) => {
       proxyLogs += chunk.toString();
     });
@@ -106,19 +115,27 @@ describe("actual LiteLLM Anthropic transport", () => {
 
   afterAll(async () => {
     upstream?.stop();
-    if (proxy?.exitCode === null) {
+    if (proxyExited) {
       proxy.kill("SIGKILL");
-      await waitFor(
-        () => proxy.exitCode !== null || proxy.signalCode !== null,
-        5_000,
-      );
+      const reaped = await Promise.race([
+        proxyExited.then(() => true),
+        Bun.sleep(PROXY_REAP_MS).then(() => false),
+      ]);
+      // A SIGKILLed process that is still not reaped is worth seeing, but it
+      // is teardown, not the transport contract: say so without failing the
+      // suite over it.
+      if (!reaped) {
+        console.error(
+          `LiteLLM proxy ${proxy.pid} was not reaped within ${PROXY_REAP_MS}ms`,
+        );
+      }
     }
     proxy?.stdin.destroy();
     proxy?.stdout.destroy();
     proxy?.stderr.destroy();
     proxy?.unref();
     await context?.dispose();
-  }, 10_000);
+  }, 30_000);
 
   test("routes the actual SDK stream and preserves Anthropic transport metadata", async () => {
     const messages = await runSdkQuery(
