@@ -208,6 +208,23 @@ describe("Claude session store", () => {
     }
   });
 
+  test("two stores appending identical uuid-less batches keep both", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const options = { objects, prefix: "sessions/s1/mirror" };
+    const left = new ClaudeSessionStore(options);
+    const right = new ClaudeSessionStore(options);
+
+    // Identical bytes, so the second write finds its slot already holding
+    // exactly what it wanted to store. That is not the same as having stored
+    // it, and nothing downstream could tell the difference afterwards.
+    await Promise.all([
+      left.append(root, [{ type: "title" }]),
+      right.append(root, [{ type: "title" }]),
+    ]);
+
+    expect(await left.load(root)).toHaveLength(2);
+  });
+
   test("two stores racing for the same slot do not lose a batch", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const options = { objects, prefix: "sessions/s1/mirror" };

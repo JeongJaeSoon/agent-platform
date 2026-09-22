@@ -111,13 +111,18 @@ export class ClaudeSessionStore implements TranscriptMirror {
         this.#appendFailures += 1;
         throw error;
       }
-      if (outcome === "conflict") {
-        // Somebody else owns this slot. Re-read the tail rather than guessing.
+      if (outcome !== "created") {
+        // Taken — and "duplicate" counts as taken. A slot holding these exact
+        // bytes is not proof that *this* call put them there: two workers
+        // appending an identical uuid-less batch, say a `{"type":"title"}`
+        // frame, produce identical bytes, and calling that success would drop
+        // one of the two events with nothing downstream able to notice. A
+        // batch that really is a retry of a landed write is instead stored
+        // twice and deduplicated on read, which is the contract the mirror
+        // already documents.
         this.#sequence.delete(prefix);
         continue;
       }
-      // "duplicate" is this exact batch already stored: a retry of a write
-      // that landed. Either way the slot now holds what it should.
       this.#parts.set(key, Promise.resolve(bytes));
       return;
     }
