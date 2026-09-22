@@ -168,6 +168,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 r
 
 `allow_parallel=true`는 수동 실행을 run별로 분리하므로 같은 SHA를 반복 실행해도 서로 취소되지 않는다. flaky 표본은 이것으로 모은다 — `only=spikes`와 함께 N번 dispatch한다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값들이 적용된다.
 
+세 job이 도는 러너는 저장소 변수 `CI_RUNS_ON` 하나로 옮긴다 — 값이 있으면 그 라벨의 self-hosted 러너, 없으면 `ubuntu-24.04`다. 구축·보안 경계·arm64/amd64 차이·Mac Studio 이행은 [`.github/runner/README.md`](.github/runner/README.md)에 있다. self-hosted 실행은 포함 분을 소모하지 않지만, 러너가 내려가 있으면 job은 실패하지 않고 큐에 머문다 — 그럴 때는 변수를 지워 GitHub-hosted로 되돌린다.
+
 예산 `$0`과 사용 중지를 유지한다. 포함 분이 소진되어 GitHub가 job을 시작하지 않으면 재시도해도 복구되지 않는다. 한도 초기화 또는 별도로 승인된 runner 대안이 필요하며, CI 최적화는 이미 사용한 분을 되돌리지 않는다.
 
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.

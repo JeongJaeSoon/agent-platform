@@ -1,0 +1,138 @@
+# Lima VM that hosts the self-hosted Actions runner.
+#
+# A VM, not a container: `integration` starts postgres and localstack as service
+# containers and talks to a Docker daemon directly. Service containers need a
+# Linux runner with its own daemon, so a runner container sharing the host's
+# Docker socket would both fail on the networking and hand every CI job control
+# of the daemon the developer machine uses.
+#
+#   limactl start --name=agent-platform-ci .github/runner/lima.yaml
+#
+# See .github/runner/README.md.
+
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+arch: aarch64
+
+# Sized for a 14-core / 48 GiB MacBook Pro. Override per machine without editing
+# this file: limactl start --set '.cpus=10 | .memory="24GiB"' ...
+cpus: 6
+memory: 12GiB
+disk: 80GiB
+
+mounts: []
+
+# Lima otherwise publishes every listening guest port on the host's 127.0.0.1,
+# so a service container on 5432 would shadow the developer's own postgres.
+# `guestIP` has to be spelled out per bind address: a rule that leaves it at the
+# 127.0.0.1 default does not match a port bound on 0.0.0.0, which is what a
+# published container port looks like.
+portForwards:
+  - guestIP: "0.0.0.0"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: "::"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: "127.0.0.1"
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      # libicu: the runner host process. acl: setfacl, used when restoring a
+      # tool cache. The rest are what workflow steps reach for.
+      apt-get install -y -qq --no-install-recommends \
+        ca-certificates curl git jq unzip zip tar gzip xz-utils \
+        build-essential libicu74 acl rsync nftables
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      # The VM reaches the host and the rest of the LAN through its NAT gateway,
+      # so without this a CI job can open the developer's local postgres — both
+      # on host.lima.internal and on the Mac's LAN address. CI needs the public
+      # internet and nothing private, so refuse new connections leaving eth0 for
+      # private space. Established flows stay open or the SSH that limactl runs
+      # on would answer into a rejected route.
+      gw=$(ip route show default | awk '/default/{print $3; exit}')
+      cat >/etc/nftables.conf <<EOF
+      #!/usr/sbin/nft -f
+      # Declare-then-delete only this table: Docker's own tables must survive.
+      table inet ci_isolation
+      delete table inet ci_isolation
+
+      table inet ci_isolation {
+        set private_v4 {
+          type ipv4_addr
+          flags interval
+          elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+                       169.254.0.0/16, 100.64.0.0/10 }
+        }
+        set private_v6 {
+          type ipv6_addr
+          flags interval
+          elements = { fc00::/7, fe80::/10 }
+        }
+        chain egress_out {
+          type filter hook output priority filter; policy accept;
+          ct state established,related accept
+          ip daddr ${gw} udp dport { 53, 67, 68 } accept
+          ip daddr ${gw} tcp dport 53 accept
+          oifname "eth0" ip daddr @private_v4 reject
+          oifname "eth0" ip6 daddr @private_v6 reject
+        }
+        chain egress_fwd {
+          type filter hook forward priority filter; policy accept;
+          ct state established,related accept
+          oifname "eth0" ip daddr @private_v4 reject
+          oifname "eth0" ip6 daddr @private_v6 reject
+        }
+      }
+      EOF
+      chmod 0755 /etc/nftables.conf
+      systemctl enable nftables
+      systemctl restart nftables
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      command -v docker >/dev/null 2>&1 && exit 0
+      curl -fsSL https://get.docker.com | sh
+      systemctl enable --now docker
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      # `runner` is in the docker group, which is root-equivalent inside the VM.
+      # That is why the VM is the boundary and this user is not.
+      id -u runner >/dev/null 2>&1 || useradd -m -s /bin/bash runner
+      usermod -aG docker runner
+      install -d -o runner -g runner -m 0755 /opt/actions-runner
+
+probes:
+  - description: docker is up
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      timeout 180s bash -c 'until docker info >/dev/null 2>&1; do sleep 3; done'
+    hint: 'See /var/log/cloud-init-output.log in the guest (limactl shell agent-platform-ci)'
