@@ -21,8 +21,11 @@ const POLL_INTERVAL_MS = 100;
 
 // Polls `url` until the server answers, the server exits, or the deadline
 // passes. Exit and deadline both fail with the server's stderr attached, so
-// a startup error (bad DATABASE_URL, port in use) is readable from the
-// assertion instead of surfacing as an `undefined` status. Each fetch is
+// a startup error (missing DATABASE_URL, module failure) is readable from
+// the assertion instead of surfacing as an `undefined` status. A port already
+// held by another listener is not distinguished: its answer fails the status
+// assertion below, without stderr (94S-256 left that out on purpose). Each
+// fetch is
 // aborted at the deadline so a server that accepts the connection but never
 // answers still ends here, not at the test timeout.
 async function waitForServer(
