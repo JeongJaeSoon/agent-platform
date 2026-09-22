@@ -44,6 +44,10 @@ class FakeDocker {
   private server: ReturnType<typeof Bun.serve> | undefined;
   /** When set, the next create returns 409 without creating anything. */
   conflictNextCreate = false;
+  /** Labels the race winner carries, so the winner can be a stale one. */
+  raceWinnerLabels: Record<string, string> = {};
+  /** Every create loses the race and leaves nothing behind. */
+  conflictEveryCreate = false;
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -88,11 +92,16 @@ class FakeDocker {
 
     if (request.method === "POST" && path === "/containers/create") {
       const name = url.searchParams.get("name") ?? "";
+      if (this.conflictEveryCreate) {
+        return json({ message: "Conflict. Lost the create race" }, 409);
+      }
       if (this.conflictNextCreate && !this.containers.has(name)) {
         // The other launcher won the race: its container exists by the time
         // this create is rejected, exactly what Docker reports with 409.
         this.conflictNextCreate = false;
-        this.add(name, (await request.json()) as ContainerCreateBody);
+        const winner = (await request.json()) as ContainerCreateBody;
+        winner.Labels = { ...winner.Labels, ...this.raceWinnerLabels };
+        this.add(name, winner);
         return json({ message: "Conflict. Lost the create race" }, 409);
       }
       if (this.containers.has(name)) {
@@ -323,6 +332,43 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(
       docker.requests.filter((r) => r.path === "/containers/create"),
     ).toHaveLength(1);
+  });
+
+  test("the winner of a create race is judged by the isolation contract too", async () => {
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = { [LABELS.isolation]: "1" };
+
+    const result = await backend.ensureExecution(intent);
+
+    // The winner was stale, so it is replaced rather than adopted.
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(docker.containers.size).toBe(1);
+    const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(fresh?.body.Labels[LABELS.isolation]).toBe(
+      isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a race lost to a newer contract is refused, not adopted", async () => {
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = { [LABELS.isolation]: "9:0123456789abcdef" };
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+  });
+
+  test("a name another launcher keeps taking is a conflict, not a loop", async () => {
+    const intent = intentFor();
+    // Every create loses, and the winner vanishes before it can be judged.
+    docker.conflictEveryCreate = true;
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "taken by another launcher",
+    );
+    expect(
+      docker.requests.filter((r) => r.path === "/containers/create"),
+    ).toHaveLength(2);
   });
 
   test("a container with the same name but another operation id is a conflict, not adopted", async () => {

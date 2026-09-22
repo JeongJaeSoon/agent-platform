@@ -260,6 +260,30 @@ function classifyIpv6(bytes: number[]): AddressClass {
   if (at(0) === 0x20 && at(1) === 0x02) {
     return classifyIpv4(bytes.slice(2, 6));
   }
+  // `::ffff:0:a.b.c.d` (IPv4-translated, ::ffff:0:0:0/96) is the same host
+  // again, one prefix along from the mapped form handled above.
+  if (
+    bytes.slice(0, 8).every((byte) => byte === 0) &&
+    at(8) === 0xff &&
+    at(9) === 0xff &&
+    at(10) === 0 &&
+    at(11) === 0
+  ) {
+    return classifyIpv4(bytes.slice(12));
+  }
+  // 64:ff9b:1::/48 is NAT64 for local use, and RFC 6052 lets the embedded
+  // IPv4 sit at any of six offsets inside it. Rather than guess which, the
+  // whole prefix is refused: nothing legitimate for us lives behind it.
+  if (
+    at(0) === 0x00 &&
+    at(1) === 0x64 &&
+    at(2) === 0xff &&
+    at(3) === 0x9b &&
+    at(4) === 0x00 &&
+    at(5) === 0x01
+  ) {
+    return "reserved";
+  }
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
   // fec0::/10 is deprecated site-local, but a network that still routes it

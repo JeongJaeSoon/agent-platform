@@ -385,6 +385,49 @@ describe("egress proxy", () => {
     }
   }, 20_000);
 
+  test("an attempt that opens after we gave up does not kill the live tunnel", async () => {
+    // Address A is dialled first and answers too late; by then B carries the
+    // tunnel, so A's teardown must not reach the client.
+    let first = true;
+    const late = await startEgressProxy({
+      connectTimeoutMs: 200,
+      // The dial itself is the seam: A connects for real but reports back
+      // after the deadline, which is what a slow path looks like from here.
+      connect: async (opts) => {
+        const socket = await Bun.connect(opts);
+        if (first) {
+          first = false;
+          await Bun.sleep(600);
+        }
+        return socket;
+      },
+      logger: silent,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "tunnel.test", port: echo.port }],
+      },
+      port: 0,
+      resolve: async () => ["127.0.0.1", "127.0.0.1"],
+    });
+    try {
+      const talk = await connect(late.port);
+      talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+      expect(
+        await talk.waitFor("200 Connection Established", 10_000),
+      ).toContain("200");
+      talk.send("before");
+      expect(await talk.waitFor("before", 10_000)).toContain("before");
+
+      // Past the abandoned attempt's own arrival, the tunnel is still there.
+      await Bun.sleep(800);
+      talk.send("after");
+      expect(await talk.waitFor("after", 10_000)).toContain("after");
+      talk.close();
+    } finally {
+      late.stop();
+    }
+  }, 30_000);
+
   test("a dead address does not fail a destination with a live one", async () => {
     const failover = await startEgressProxy({
       connectTimeoutMs: 2_000,

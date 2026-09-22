@@ -154,7 +154,11 @@ networks:
   # is the only way out and the scheduler refuses to launch if this flag is
   # ever lost (`verifyNetworkIsolation`).
   worker:
-    name: agent-platform-worker
+    # Daemon-global, so two installations on one daemon must not share it: a
+    # worker on a shared network reaches the other installation's proxy and
+    # its allowlist. Each installation overrides this to match its own
+    # EXECUTION_DOCKER_NETWORK.
+    name: ${EXECUTION_DOCKER_NETWORK:-agent-platform-worker}
     internal: true
 
 volumes:

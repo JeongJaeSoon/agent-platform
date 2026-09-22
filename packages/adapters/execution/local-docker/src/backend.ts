@@ -195,45 +195,51 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
-    const existing = await this.client.inspectContainer(name);
-    const verdict =
-      existing === null ? null : contractVerdictOf(existing, this.config);
-    if (existing && verdict === "newer") {
-      throw new IsolationContractError(
-        intent,
-        existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
-      );
+    // Two passes at most. The second is the one that follows a lost create
+    // race, and it judges the winner by the same rules — a container that
+    // appeared out of a race is not more trustworthy than one that was
+    // already there. A second clash means another launcher is fighting for
+    // the name, which is a conflict to report, not a loop to spin in.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existing = await this.client.inspectContainer(name);
+      if (existing) {
+        const verdict = contractVerdictOf(existing, this.config);
+        if (verdict === "newer") {
+          throw new IsolationContractError(
+            intent,
+            existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+          );
+        }
+        if (verdict === "current") return this.adopt(intent, existing);
+        // Same intent, older isolation: adopting it would carry the weaker
+        // container forward, so it is removed and created again. Another
+        // operation's container is still a conflict, never ours to destroy.
+        this.assertSameLaunch(intent, existing);
+        await this.client.stopAndRemoveContainer(
+          existing.Id,
+          this.config.stopTimeoutSeconds,
+        );
+      }
+      try {
+        await this.client.createContainer(name, this.createBody(intent));
+      } catch (error) {
+        // Another launcher (or an earlier attempt whose reply was lost) won.
+        if (!(error instanceof DockerApiError) || error.status !== 409) {
+          throw error;
+        }
+        continue;
+      }
+      await this.client.startContainer(name);
+      const started = await this.client.inspectContainer(name);
+      return {
+        created: true,
+        providerRef: started?.Id ?? name,
+        state: started ? stateOf(started.State.Status) : "pending",
+      };
     }
-    if (existing && verdict === "current") {
-      return this.adopt(intent, existing);
-    }
-    if (existing) {
-      // Same intent, older isolation: adopting it would carry the weaker
-      // container forward, so it is removed and created again. Another
-      // operation's container is still a conflict, never ours to destroy.
-      this.assertSameLaunch(intent, existing);
-      await this.client.stopAndRemoveContainer(
-        existing.Id,
-        this.config.stopTimeoutSeconds,
-      );
-    }
-    try {
-      await this.client.createContainer(name, this.createBody(intent));
-    } catch (error) {
-      // Another launcher (or an earlier attempt whose reply was lost) won.
-      if (!(error instanceof DockerApiError) || error.status !== 409)
-        throw error;
-      const raced = await this.client.inspectContainer(name);
-      if (!raced) throw error;
-      return this.adopt(intent, raced);
-    }
-    await this.client.startContainer(name);
-    const started = await this.client.inspectContainer(name);
-    return {
-      created: true,
-      providerRef: started?.Id ?? name,
-      state: started ? stateOf(started.State.Status) : "pending",
-    };
+    throw new Error(
+      `Container ${name} was taken by another launcher on every attempt`,
+    );
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {

@@ -51,6 +51,8 @@ export type EgressProxyOptions = {
   maxConnectionsPerClient?: number;
   policy: EgressPolicy;
   port?: number;
+  /** Injected by tests; production dials with Bun. */
+  connect?: UpstreamDialer;
   /** Injected by tests; production resolves through the OS. */
   resolve?: EgressResolver;
 };
@@ -61,6 +63,13 @@ export type EgressProxyServer = {
 };
 
 type Queue = { bytes: number; chunks: Uint8Array[] };
+
+/** The one thing a test needs to hold open: how an upstream is dialled. */
+export type UpstreamDialer = (options: {
+  hostname: string;
+  port: number;
+  socket: NonNullable<Parameters<typeof Bun.connect<undefined>>[0]>["socket"];
+}) => Promise<Socket<undefined>>;
 
 type ClientState = {
   buffer: Uint8Array;
@@ -90,6 +99,7 @@ export async function startEgressProxy(
 ): Promise<EgressProxyServer> {
   const logger = options.logger ?? createProxyLogger();
   const resolve = options.resolve ?? systemResolver;
+  const dial: UpstreamDialer = options.connect ?? Bun.connect;
   const maxBuffered = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
   const connectTimeoutMs =
     options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
@@ -379,11 +389,17 @@ export async function startEgressProxy(
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
     // and the handlers still have to be able to clean up.
-    const pending = Bun.connect<undefined>({
+    //
+    // An attempt we gave up on can still open afterwards. By then another
+    // address may be carrying the tunnel, so the abandoned one must touch
+    // nothing: its own close would otherwise end a healthy client.
+    let abandoned = false;
+    const pending = dial({
       hostname: address,
       port,
       socket: {
         close() {
+          if (abandoned) return;
           // The upstream closing is how a forwarded response ends — but the
           // tail of that response may still be queued for a slow client.
           if (client.data.toClient.chunks.length > 0) {
@@ -393,16 +409,19 @@ export async function startEgressProxy(
           client.end();
         },
         data(_socket, chunk) {
+          if (abandoned) return;
           if (!push(client, client.data.toClient, chunk, maxBuffered)) {
             logger.warn("Dropping a connection whose client fell behind");
             drop(client);
           }
         },
         drain(socket) {
+          if (abandoned) return;
           // The upstream became writable, so what drains is what it is owed.
           flush(socket, client.data.toUpstream);
         },
         error(_socket, error) {
+          if (abandoned) return;
           logger.warn("Upstream connection failed", { error: error.message });
           client.end();
         },
@@ -415,6 +434,7 @@ export async function startEgressProxy(
       timer = setTimeout(() => {
         // The connect may still succeed after we gave up on it; close it
         // rather than leak a socket nobody is reading.
+        abandoned = true;
         pending.then((late) => late.end()).catch(() => undefined);
         reject(
           new Error(
