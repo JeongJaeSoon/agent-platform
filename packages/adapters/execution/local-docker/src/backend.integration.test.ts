@@ -5,6 +5,7 @@ import {
   ENV,
   LABELS,
   LocalDockerBackend,
+  NO_PROXY_VALUE,
   workspaceVolumeFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
@@ -50,15 +51,19 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
 integration("LocalDockerBackend against a real daemon", () => {
   const client = new DockerClient(dockerHost);
   const installationId = `it-${crypto.randomUUID().slice(0, 8)}`;
+  // Workers only ever run on an internal network; the backend refuses
+  // anything else, so the fixture has to build one.
+  const workerNetwork = `ap-it-net-${crypto.randomUUID().slice(0, 8)}`;
   const backendConfig = (): LocalDockerBackendConfig => ({
-    allowedNetworks: ["bridge"],
+    allowedNetworks: [workerNetwork],
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
+    egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId,
-    network: "bridge",
+    network: workerNetwork,
     requestTimeoutMs: 30_000,
     stopTimeoutSeconds: 1,
     tmpfsSizeBytes: 16 * 1024 * 1024,
@@ -74,6 +79,7 @@ integration("LocalDockerBackend against a real daemon", () => {
 
   beforeAll(async () => {
     await client.version();
+    await client.createNetwork({ Internal: true, Name: workerNetwork });
     // Pull once so create does not 404 on a fresh daemon.
     await new DockerClient(dockerHost, "v1.44", {
       timeoutMs: 110_000,
@@ -95,6 +101,7 @@ integration("LocalDockerBackend against a real daemon", () => {
         "DELETE",
       ).catch(() => undefined);
     }
+    await client.removeNetwork(workerNetwork).catch(() => undefined);
   });
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
@@ -141,19 +148,29 @@ integration("LocalDockerBackend against a real daemon", () => {
     );
     expect(
       (inspected.Config.Env ?? []).filter((e) => !imageEnv.has(e)).sort(),
-    ).toEqual([
-      `${ENV.home}=/home/worker`,
-      `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
-      `${ENV.executionGeneration}=${intent.generation}`,
-      `${ENV.executionId}=${intent.executionId}`,
-      `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
-    ]);
+    ).toEqual(
+      [
+        `${ENV.home}=/home/worker`,
+        `${ENV.bootstrapNonce}=${intent.bootstrapNonce}`,
+        `${ENV.executionGeneration}=${intent.generation}`,
+        `${ENV.executionId}=${intent.executionId}`,
+        `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
+        `${ENV.httpProxy}=http://egress-proxy:3128`,
+        `${ENV.httpProxyLower}=http://egress-proxy:3128`,
+        `${ENV.httpsProxy}=http://egress-proxy:3128`,
+        `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+      ].sort(),
+    );
     const host = inspected.HostConfig as Record<string, unknown>;
     expect(host.ReadonlyRootfs).toBe(true);
     expect(host.Memory).toBe(RESOURCES.memoryBytes);
     expect(host.PidsLimit).toBe(RESOURCES.pidsLimit);
     expect(host.NanoCpus).toBe(500_000_000);
-    expect(host.NetworkMode).toBe("bridge");
+    expect(host.NetworkMode).toBe(workerNetwork);
+    // No route around the proxy to the daemon host.
+    expect(host.ExtraHosts ?? null).toBeNull();
     expect(host.CapDrop).toEqual(["ALL"]);
     expect(host.SecurityOpt).toEqual(["no-new-privileges"]);
     expect(host.Binds ?? null).toBeNull();
@@ -239,6 +256,12 @@ integration("LocalDockerBackend against a real daemon", () => {
     const observed = await probe.inspect(intent);
     expect(observed.state).toBe("running");
   }, 60_000);
+
+  test("the worker network the backend launches onto is internal", async () => {
+    const network = await client.inspectNetwork(workerNetwork);
+    expect(network).toMatchObject({ Internal: true, Name: workerNetwork });
+    await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
+  }, 30_000);
 
   test("listManaged sees every container this backend made", async () => {
     const intent = track(intentFor());

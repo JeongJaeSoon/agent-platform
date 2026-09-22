@@ -12,6 +12,7 @@ const clean: SchedulerRunSummary = {
   reclaimFailed: [],
   reconcileFailed: [],
   reensured: [],
+  replaced: [],
   skipped: false,
   slotLimit: 10,
   terminatedObserved: [],

@@ -11,6 +11,12 @@ export type LocalDockerBackendConfig = {
   /** Overrides the image entrypoint; tests use it to run a sleeping busybox. */
   command?: string[];
   dockerHost: string;
+  /**
+   * The forward proxy that is the worker network's only route off itself.
+   * Handed to the worker as `HTTP_PROXY`/`HTTPS_PROXY`; the destination
+   * allowlist lives in the proxy, not here.
+   */
+  egressProxyUrl: string;
   /** Handed to the worker as `WORKER_GATEWAY_URL`. */
   gatewayUrl: string;
   /** Mounted as tmpfs so the read-only rootfs still has a writable HOME. */
@@ -40,6 +46,7 @@ export type LocalDockerBackendEnvironment = {
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
   EXECUTION_DOCKER_COMMAND?: string | undefined;
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
+  EXECUTION_EGRESS_PROXY_URL?: string | undefined;
   EXECUTION_INSTALLATION_ID?: string | undefined;
   EXECUTION_DOCKER_NETWORK?: string | undefined;
   EXECUTION_DOCKER_NETWORK_ALLOWLIST?: string | undefined;
@@ -55,13 +62,23 @@ export type LocalDockerBackendEnvironment = {
 export const DEFAULT_WORKER_USER = "1000:1000";
 export const DEFAULT_INSTALLATION_ID = "local";
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
-export const DEFAULT_WORKER_NETWORK = "bridge";
+/**
+ * Not `bridge`: a worker must sit on a network with no route off the daemon,
+ * with the egress proxy as its only peer that has one.
+ */
+export const DEFAULT_WORKER_NETWORK = "agent-platform-worker";
+/** Networks that can never satisfy the isolation contract, whatever the allowlist says. */
+const NEVER_ALLOWED_NETWORKS = new Set(["bridge", "default", "host", "none"]);
 
 export function localDockerConfigFromEnv(
   environment: LocalDockerBackendEnvironment,
 ): LocalDockerBackendConfig {
   const gatewayUrl = environment.WORKER_GATEWAY_URL;
   if (!gatewayUrl) throw new Error("WORKER_GATEWAY_URL is required");
+  const egressProxyUrl = environment.EXECUTION_EGRESS_PROXY_URL;
+  if (!egressProxyUrl) {
+    throw new Error("EXECUTION_EGRESS_PROXY_URL is required");
+  }
   const network =
     environment.EXECUTION_DOCKER_NETWORK ?? DEFAULT_WORKER_NETWORK;
   const allowedNetworks = (
@@ -78,6 +95,7 @@ export function localDockerConfigFromEnv(
     apiVersion: environment.DOCKER_API_VERSION ?? DEFAULT_DOCKER_API_VERSION,
     ...(command.length > 0 ? { command } : {}),
     dockerHost: environment.DOCKER_HOST ?? DEFAULT_DOCKER_HOST,
+    egressProxyUrl,
     gatewayUrl,
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
     installationId:
@@ -115,8 +133,10 @@ export function validateLocalDockerConfig(
       `Docker network ${config.network} is not in the allowlist [${config.allowedNetworks.join(", ")}]`,
     );
   }
-  if (config.network === "host") {
-    throw new Error("Docker network host is never allowed for workers");
+  if (NEVER_ALLOWED_NETWORKS.has(config.network)) {
+    throw new Error(
+      `Docker network ${config.network} is never allowed for workers; use a dedicated internal network`,
+    );
   }
   // Docker accepts any decimal spelling of uid 0 ("00", "000:1000"), so
   // compare the parsed number, not the string.
@@ -147,6 +167,21 @@ export function validateLocalDockerConfig(
     new URL(config.gatewayUrl);
   } catch {
     throw new Error(`WORKER_GATEWAY_URL ${config.gatewayUrl} is not a URL`);
+  }
+  // Proxies are addressed over http even when they tunnel TLS, and every
+  // HTTP client reads the variable that way.
+  let proxy: URL;
+  try {
+    proxy = new URL(config.egressProxyUrl);
+  } catch {
+    throw new Error(
+      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} is not a URL`,
+    );
+  }
+  if (proxy.protocol !== "http:") {
+    throw new Error(
+      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must be an http:// URL`,
+    );
   }
   return config;
 }

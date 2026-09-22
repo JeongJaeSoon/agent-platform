@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ExecutionState } from "@agent-platform/contracts";
 import type {
   EnsureExecutionResult,
@@ -23,6 +24,8 @@ import {
 export const LABELS = {
   executionId: "agent-platform.session-execution-id",
   generation: "agent-platform.generation",
+  /** Which isolation contract the container was created under. */
+  isolation: "agent-platform.isolation",
   /** Which control host owns the container; two installations may share a daemon. */
   installation: "agent-platform.installation",
   managed: "agent-platform.managed",
@@ -42,10 +45,52 @@ export const ENV = {
   gatewayUrl: "WORKER_GATEWAY_URL",
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
+  /**
+   * Both spellings, because tools are split on which one they read. They are
+   * a convenience, not the control: the worker network has no route off
+   * itself, so a client that ignores them reaches nothing at all.
+   */
+  httpProxy: "HTTP_PROXY",
+  httpProxyLower: "http_proxy",
+  httpsProxy: "HTTPS_PROXY",
+  httpsProxyLower: "https_proxy",
+  noProxy: "NO_PROXY",
+  noProxyLower: "no_proxy",
 } as const;
 
-/** Lets `host.docker.internal` resolve on native Linux daemons too. */
-export const HOST_GATEWAY_EXTRA_HOST = "host.docker.internal:host-gateway";
+/** The worker's own loopback is the only thing worth not proxying. */
+export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
+
+/**
+ * Bumped whenever the isolation a worker container is created with changes.
+ * A running container that predates the current value keeps whatever it was
+ * created with — an upgrade does not reach inside it — so the scheduler has
+ * to be told to replace it instead of reporting it healthy.
+ *
+ * 1: non-root, read-only rootfs, dropped caps, per-session volume, bridge.
+ * 2: internal worker network and egress proxy, no host-gateway mapping.
+ */
+export const ISOLATION_CONTRACT = 2;
+
+/**
+ * What goes in the label: the contract version and a fingerprint of the
+ * settings that shape the isolation. The version alone would miss a moved
+ * network or a repointed proxy, neither of which needs a code change, and
+ * both of which leave the old container on the old boundary.
+ */
+export function isolationStampFor(config: LocalDockerBackendConfig): string {
+  const shape = JSON.stringify([
+    config.egressProxyUrl,
+    config.homeDir,
+    config.network,
+    NO_PROXY_VALUE,
+    config.tmpfsSizeBytes,
+    config.user,
+    config.workspaceDir,
+  ]);
+  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
+  return `${ISOLATION_CONTRACT}:${digest}`;
+}
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -93,6 +138,23 @@ export class ExecutionConflictError extends Error {
   }
 }
 
+/**
+ * A container built under an isolation contract this host does not know.
+ * Adopting it would trust a boundary we cannot check, replacing it would
+ * swap it for a weaker one, so the pass refuses it and says so.
+ */
+export class IsolationContractError extends Error {
+  constructor(
+    readonly ref: ExecutionRef,
+    readonly found: string,
+  ) {
+    super(
+      `Container for execution ${ref.executionId} generation ${ref.generation} carries isolation ${found}, newer than this control host's ${ISOLATION_CONTRACT}; roll forward or remove it deliberately`,
+    );
+    this.name = "IsolationContractError";
+  }
+}
+
 export class LocalDockerBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
   private readonly client: DockerClient;
@@ -111,27 +173,73 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { suspend: false };
   }
 
+  /**
+   * Refuses to launch onto a network a worker could route off. The whole
+   * egress policy rests on the worker network being `internal`, so this is
+   * checked against the daemon once per process rather than assumed from a
+   * name in the environment.
+   */
+  async verifyNetworkIsolation(): Promise<void> {
+    const network = await this.client.inspectNetwork(this.config.network);
+    if (network === null) {
+      throw new Error(
+        `Docker network ${this.config.network} does not exist; create it before launching workers`,
+      );
+    }
+    if (!network.Internal) {
+      throw new Error(
+        `Docker network ${this.config.network} is not internal; a worker on it can reach the host and the LAN directly`,
+      );
+    }
+  }
+
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
-    const existing = await this.client.inspectContainer(name);
-    if (existing) return this.adopt(intent, existing);
-    try {
-      await this.client.createContainer(name, this.createBody(intent));
-    } catch (error) {
-      // Another launcher (or an earlier attempt whose reply was lost) won.
-      if (!(error instanceof DockerApiError) || error.status !== 409)
-        throw error;
-      const raced = await this.client.inspectContainer(name);
-      if (!raced) throw error;
-      return this.adopt(intent, raced);
+    // Two passes at most. The second is the one that follows a lost create
+    // race, and it judges the winner by the same rules — a container that
+    // appeared out of a race is not more trustworthy than one that was
+    // already there. A second clash means another launcher is fighting for
+    // the name, which is a conflict to report, not a loop to spin in.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existing = await this.client.inspectContainer(name);
+      if (existing) {
+        const verdict = contractVerdictOf(existing, this.config);
+        if (verdict === "newer") {
+          throw new IsolationContractError(
+            intent,
+            existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+          );
+        }
+        if (verdict === "current") return this.adopt(intent, existing);
+        // Same intent, older isolation: adopting it would carry the weaker
+        // container forward, so it is removed and created again. Another
+        // operation's container is still a conflict, never ours to destroy.
+        this.assertSameLaunch(intent, existing);
+        await this.client.stopAndRemoveContainer(
+          existing.Id,
+          this.config.stopTimeoutSeconds,
+        );
+      }
+      try {
+        await this.client.createContainer(name, this.createBody(intent));
+      } catch (error) {
+        // Another launcher (or an earlier attempt whose reply was lost) won.
+        if (!(error instanceof DockerApiError) || error.status !== 409) {
+          throw error;
+        }
+        continue;
+      }
+      await this.client.startContainer(name);
+      const started = await this.client.inspectContainer(name);
+      return {
+        created: true,
+        providerRef: started?.Id ?? name,
+        state: started ? stateOf(started.State.Status) : "pending",
+      };
     }
-    await this.client.startContainer(name);
-    const started = await this.client.inspectContainer(name);
-    return {
-      created: true,
-      providerRef: started?.Id ?? name,
-      state: started ? stateOf(started.State.Status) : "pending",
-    };
+    throw new Error(
+      `Container ${name} was taken by another launcher on every attempt`,
+    );
   }
 
   async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
@@ -146,6 +254,15 @@ export class LocalDockerBackend implements ExecutionBackend {
     // installation, other generation, other execution) must never be
     // reported as this execution's healthy resource.
     this.assertOwned(ref, container);
+    const verdict = contractVerdictOf(container, this.config);
+    if (verdict === "newer") {
+      // Neither healthy nor ours to replace. Throwing leaves the row live and
+      // the pass non-zero, which is the only honest answer.
+      throw new IsolationContractError(
+        ref,
+        container.Config.Labels?.[LABELS.isolation] ?? "<none>",
+      );
+    }
     const state = stateOf(container.State.Status);
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
@@ -153,6 +270,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       observedAt,
       providerRef: container.Id,
       state,
+      ...(verdict === "current" ? {} : { stale: true }),
     };
   }
 
@@ -210,6 +328,21 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { outcome: "terminated", providerRef: container.Id };
   }
 
+  /** The container under this name has to be this very launch, or hands off. */
+  private assertSameLaunch(
+    intent: LaunchIntent,
+    container: ContainerInspect,
+  ): void {
+    const operationId = container.Config.Labels?.[LABELS.operationId];
+    const owner = container.Config.Labels?.[LABELS.installation];
+    if (
+      operationId !== intent.operationId ||
+      owner !== this.config.installationId
+    ) {
+      throw new ExecutionConflictError(intent, intent.operationId, operationId);
+    }
+  }
+
   private assertOwned(ref: ExecutionRef, container: ContainerInspect): void {
     const labels = container.Config.Labels ?? {};
     if (
@@ -229,14 +362,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     intent: LaunchIntent,
     container: ContainerInspect,
   ): Promise<EnsureExecutionResult> {
-    const operationId = container.Config.Labels?.[LABELS.operationId];
-    const owner = container.Config.Labels?.[LABELS.installation];
-    if (
-      operationId !== intent.operationId ||
-      owner !== this.config.installationId
-    ) {
-      throw new ExecutionConflictError(intent, intent.operationId, operationId);
-    }
+    this.assertSameLaunch(intent, container);
     let state = stateOf(container.State.Status);
     if (state === "pending") {
       await this.client.startContainer(container.Id);
@@ -273,10 +399,18 @@ export class LocalDockerBackend implements ExecutionBackend {
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=${config.gatewayUrl}`,
         `${ENV.home}=${config.homeDir}`,
+        `${ENV.httpProxy}=${config.egressProxyUrl}`,
+        `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
+        `${ENV.httpsProxy}=${config.egressProxyUrl}`,
+        `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
       ],
       HostConfig: {
         CapDrop: ["ALL"],
-        ExtraHosts: [HOST_GATEWAY_EXTRA_HOST],
+        // No ExtraHosts: `host.docker.internal` would be a route to the
+        // daemon host that bypasses the proxy, and on an internal network it
+        // would not work anyway. The gateway is reached through the proxy.
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {
@@ -301,6 +435,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
         [LABELS.installation]: config.installationId,
+        [LABELS.isolation]: isolationStampFor(config),
         [LABELS.managed]: "true",
         [LABELS.operationId]: intent.operationId,
         [LABELS.sessionId]: intent.sessionId,
@@ -308,6 +443,23 @@ export class LocalDockerBackend implements ExecutionBackend {
       User: config.user,
     };
   }
+}
+
+/**
+ * `newer` is neither: the label says a control host we do not know built it,
+ * and nothing here can tell whether its network and proxy are the ones this
+ * host would demand. Both adopting it and replacing it are wrong.
+ */
+function contractVerdictOf(
+  container: ContainerInspect,
+  config: LocalDockerBackendConfig,
+): "current" | "newer" | "stale" {
+  const stamp = container.Config.Labels?.[LABELS.isolation];
+  if (stamp === undefined) return "stale";
+  const version = Number(stamp.split(":")[0]);
+  if (!Number.isInteger(version) || version < 1) return "stale";
+  if (version > ISOLATION_CONTRACT) return "newer";
+  return stamp === isolationStampFor(config) ? "current" : "stale";
 }
 
 /** Docker container status → the platform's execution state. */

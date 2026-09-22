@@ -39,6 +39,12 @@ export type ExecutionObservation = {
   providerRef: string | null;
   observedAt: Date;
   exitCode?: number;
+  /**
+   * The resource exists but was created under an older isolation contract,
+   * so it does not have the guarantees this control host now promises. The
+   * scheduler replaces it rather than reporting it healthy.
+   */
+  stale?: boolean;
 };
 
 export type EnsureExecutionResult = {

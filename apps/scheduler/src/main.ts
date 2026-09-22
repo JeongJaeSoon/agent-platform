@@ -25,8 +25,12 @@ export async function main(
   const pool = new Pool({ connectionString: config.databaseUrl });
   try {
     const db = drizzle(pool, { schema });
+    const backend = new LocalDockerBackend(config.docker);
+    // Before anything is launched: the egress policy is only worth what the
+    // worker network's `internal` flag is worth, and only the daemon knows.
+    await backend.verifyNetworkIsolation();
     return await runScheduler({
-      backend: new LocalDockerBackend(config.docker),
+      backend,
       image: config.image,
       logger,
       resources: config.resources,

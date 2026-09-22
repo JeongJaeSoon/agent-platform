@@ -7,8 +7,11 @@ import {
   containerNameFor,
   ENV,
   ExecutionConflictError,
+  IsolationContractError,
+  isolationStampFor,
   LABELS,
   LocalDockerBackend,
+  NO_PROXY_VALUE,
   stateOf,
   workspaceVolumeFor,
 } from "./backend.ts";
@@ -34,11 +37,17 @@ type FakeContainer = {
  */
 class FakeDocker {
   readonly containers = new Map<string, FakeContainer>();
+  /** name -> whether the network is `internal`. */
+  readonly networks = new Map<string, boolean>([["ap-workers", true]]);
   readonly requests: Array<{ method: string; path: string }> = [];
   private nextId = 1;
   private server: ReturnType<typeof Bun.serve> | undefined;
   /** When set, the next create returns 409 without creating anything. */
   conflictNextCreate = false;
+  /** Labels the race winner carries, so the winner can be a stale one. */
+  raceWinnerLabels: Record<string, string> = {};
+  /** Every create loses the race and leaves nothing behind. */
+  conflictEveryCreate = false;
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -83,11 +92,16 @@ class FakeDocker {
 
     if (request.method === "POST" && path === "/containers/create") {
       const name = url.searchParams.get("name") ?? "";
+      if (this.conflictEveryCreate) {
+        return json({ message: "Conflict. Lost the create race" }, 409);
+      }
       if (this.conflictNextCreate && !this.containers.has(name)) {
         // The other launcher won the race: its container exists by the time
         // this create is rejected, exactly what Docker reports with 409.
         this.conflictNextCreate = false;
-        this.add(name, (await request.json()) as ContainerCreateBody);
+        const winner = (await request.json()) as ContainerCreateBody;
+        winner.Labels = { ...winner.Labels, ...this.raceWinnerLabels };
+        this.add(name, winner);
         return json({ message: "Conflict. Lost the create race" }, 409);
       }
       if (this.containers.has(name)) {
@@ -120,6 +134,21 @@ class FakeDocker {
           State: c.status,
         })),
       );
+    }
+    const network = path.match(/^\/networks\/([^/]+)$/);
+    if (request.method === "GET" && network) {
+      const name = decodeURIComponent(network[1] ?? "");
+      const internal = this.networks.get(name);
+      if (internal === undefined) {
+        return json({ message: `network ${name} not found` }, 404);
+      }
+      return json({
+        Containers: {},
+        Driver: "bridge",
+        Id: `net-${name}`,
+        Internal: internal,
+        Name: name,
+      });
     }
     const match = path.match(/^\/containers\/([^/]+)(?:\/(start|stop|json))?$/);
     if (!match) return json({ message: "not found" }, 404);
@@ -184,9 +213,10 @@ let backend: LocalDockerBackend;
 
 function configFor(host: string): LocalDockerBackendConfig {
   return {
-    allowedNetworks: ["ap-workers", "bridge"],
+    allowedNetworks: ["ap-workers", "ap-workers-2"],
     apiVersion: "v1.44",
     dockerHost: host,
+    egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId: "test-a",
@@ -226,24 +256,32 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(body.Image).toBe("worker:test");
     expect(body.User).toBe("1000:1000");
     // Exactly the variables the worker contract needs, nothing else leaks in.
-    expect(body.Env.sort()).toEqual([
-      `${ENV.home}=/home/worker`,
-      `${ENV.bootstrapNonce}=nonce-abc`,
-      `${ENV.executionGeneration}=1`,
-      `${ENV.executionId}=${intent.executionId}`,
-      `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
-    ]);
+    expect(body.Env.sort()).toEqual(
+      [
+        `${ENV.home}=/home/worker`,
+        `${ENV.bootstrapNonce}=nonce-abc`,
+        `${ENV.executionGeneration}=1`,
+        `${ENV.executionId}=${intent.executionId}`,
+        `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
+        `${ENV.httpProxy}=http://egress-proxy:3128`,
+        `${ENV.httpProxyLower}=http://egress-proxy:3128`,
+        `${ENV.httpsProxy}=http://egress-proxy:3128`,
+        `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+      ].sort(),
+    );
     expect(body.Labels).toEqual({
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
       [LABELS.installation]: "test-a",
+      [LABELS.isolation]: isolationStampFor(configFor(docker.host)),
       [LABELS.managed]: "true",
       [LABELS.operationId]: "op-1",
       [LABELS.sessionId]: intent.sessionId,
     });
     expect(body.HostConfig).toEqual({
       CapDrop: ["ALL"],
-      ExtraHosts: ["host.docker.internal:host-gateway"],
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {
@@ -266,6 +304,8 @@ describe("LocalDockerBackend.ensureExecution", () => {
     // No bind mounts at all: no Docker socket, no host HOME.
     expect(JSON.stringify(body)).not.toContain("docker.sock");
     expect("Binds" in body.HostConfig).toBe(false);
+    // The host-gateway mapping would be a route around the proxy.
+    expect(JSON.stringify(body)).not.toContain("host-gateway");
   });
 
   test("the same intent twice yields one container and reports created=false", async () => {
@@ -294,6 +334,43 @@ describe("LocalDockerBackend.ensureExecution", () => {
     ).toHaveLength(1);
   });
 
+  test("the winner of a create race is judged by the isolation contract too", async () => {
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = { [LABELS.isolation]: "1" };
+
+    const result = await backend.ensureExecution(intent);
+
+    // The winner was stale, so it is replaced rather than adopted.
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(docker.containers.size).toBe(1);
+    const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(fresh?.body.Labels[LABELS.isolation]).toBe(
+      isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a race lost to a newer contract is refused, not adopted", async () => {
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = { [LABELS.isolation]: "9:0123456789abcdef" };
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+  });
+
+  test("a name another launcher keeps taking is a conflict, not a loop", async () => {
+    const intent = intentFor();
+    // Every create loses, and the winner vanishes before it can be judged.
+    docker.conflictEveryCreate = true;
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "taken by another launcher",
+    );
+    expect(
+      docker.requests.filter((r) => r.path === "/containers/create"),
+    ).toHaveLength(2);
+  });
+
   test("a container with the same name but another operation id is a conflict, not adopted", async () => {
     const intent = intentFor();
     const body = await createBodyOf(intent);
@@ -303,6 +380,75 @@ describe("LocalDockerBackend.ensureExecution", () => {
       ExecutionConflictError,
     );
     expect(docker.containers.size).toBe(1);
+  });
+
+  test("a container from an older isolation contract is replaced, not adopted", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+    expect(docker.containers.size).toBe(1);
+    const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(fresh?.body.Labels[LABELS.isolation]).toBe(
+      isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a container built on other isolation settings is replaced too", async () => {
+    // Same contract version, but the network moved: the label has to notice.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = isolationStampFor({
+      ...configFor(docker.host),
+      network: "ap-workers-2",
+    });
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+  });
+
+  test("a container from a newer contract is refused, never adopted or replaced", async () => {
+    // A rollback can neither trust a boundary it cannot read nor swap it for
+    // a weaker one, so it refuses and leaves the container standing.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "9:0123456789abcdef";
+    const newer = docker.add(containerNameFor(intent, "test-a"), body);
+
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+    await expect(backend.inspect(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+    expect(docker.containers.get(newer.name)?.id).toBe(newer.id);
+  });
+
+  test("an older container that is not ours is a conflict, not replaced", async () => {
+    const intent = intentFor();
+    for (const [label, value] of [
+      [LABELS.installation, "someone-else"],
+      [LABELS.operationId, "someone-else"],
+    ] as const) {
+      const body = await createBodyOf(intent);
+      body.Labels[LABELS.isolation] = "1";
+      body.Labels[label] = value;
+      const name = containerNameFor(intent, "test-a");
+      docker.containers.clear();
+      docker.add(name, body);
+      await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+        ExecutionConflictError,
+      );
+      expect(docker.containers.get(name)?.body.Labels[label]).toBe(value);
+    }
   });
 
   test("a created-but-never-started container is started on the retry", async () => {
@@ -341,6 +487,24 @@ describe("LocalDockerBackend.inspect", () => {
       found: true,
       state: "terminated",
     });
+  });
+
+  test("a container from an older isolation contract is reported stale", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    expect(await backend.inspect(intent)).toMatchObject({
+      found: true,
+      stale: true,
+      state: "running",
+    });
+  });
+
+  test("a container on the current contract is not stale", async () => {
+    const intent = intentFor();
+    docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));
+    expect((await backend.inspect(intent)).stale).toBeUndefined();
   });
 
   test("status mapping covers every Docker state", () => {
@@ -570,3 +734,25 @@ async function createBodyOf(
     scratch.stop();
   }
 }
+
+describe("LocalDockerBackend.verifyNetworkIsolation", () => {
+  test("an internal worker network passes", async () => {
+    await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
+  });
+
+  test("a network that does not exist refuses the launch", async () => {
+    docker.networks.delete("ap-workers");
+    await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
+      "does not exist",
+    );
+  });
+
+  test("a routable network refuses the launch", async () => {
+    // The allowlist only vouches for the name; only the daemon knows whether
+    // that network can actually reach the host.
+    docker.networks.set("ap-workers", false);
+    await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
+      "is not internal",
+    );
+  });
+});

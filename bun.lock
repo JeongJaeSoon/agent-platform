@@ -29,6 +29,10 @@
         "@types/pg": "8.15.5",
       },
     },
+    "apps/egress-proxy": {
+      "name": "@agent-platform/egress-proxy",
+      "version": "0.0.0",
+    },
     "apps/reconciler": {
       "name": "@agent-platform/reconciler",
       "version": "0.0.0",
@@ -179,6 +183,8 @@
     "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
 
     "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
+
+    "@agent-platform/egress-proxy": ["@agent-platform/egress-proxy@workspace:apps/egress-proxy"],
 
     "@agent-platform/execution-local-docker": ["@agent-platform/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
 

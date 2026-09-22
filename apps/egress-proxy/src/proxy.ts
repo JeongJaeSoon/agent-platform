@@ -1,0 +1,616 @@
+import { lookup } from "node:dns/promises";
+import type { Socket, TCPSocketListener } from "bun";
+import type { ProxyLogger } from "./logger.ts";
+import { createProxyLogger } from "./logger.ts";
+import {
+  decideEgress,
+  type EgressPolicy,
+  type EgressResolver,
+} from "./policy.ts";
+import { type ProxyRequest, parseRequestHead } from "./request.ts";
+
+/**
+ * A forward proxy that speaks exactly two things: `CONNECT host:port` for
+ * TLS, and absolute-form HTTP for the plaintext gateway. Everything else is
+ * refused, because everything else is a way to be surprised.
+ *
+ * It is the only member of the worker network that can route off it, so the
+ * allowlist it enforces is the whole of a worker's reachable world — and one
+ * worker must not be able to take that route away from the others, which is
+ * what the per-client cap and the head deadline are for.
+ */
+
+export const DEFAULT_PROXY_PORT = 3128;
+const MAX_HEAD_BYTES = 16 * 1024;
+const DEFAULT_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+/**
+ * The whole of one dispatch: the name lookup plus every connect attempt. It
+ * bounds how long a client can hold its slot, which matters because the slot
+ * is only returned once the dispatch settles — an OS resolver that never
+ * answers would otherwise retire the slot for good.
+ */
+const DEFAULT_DISPATCH_TIMEOUT_MS = 20_000;
+const DEFAULT_HEAD_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_CONNECTIONS = 256;
+const DEFAULT_MAX_CONNECTIONS_PER_CLIENT = 32;
+/** A destination resolving to more addresses than this is not tried further. */
+const MAX_CONNECT_ATTEMPTS = 4;
+
+export type EgressProxyOptions = {
+  connectTimeoutMs?: number;
+  /** The budget for one request's lookup and connect attempts together. */
+  dispatchTimeoutMs?: number;
+  /** How long a client may take to finish its request head. */
+  headTimeoutMs?: number;
+  hostname?: string;
+  logger?: ProxyLogger;
+  /** Bytes a stalled peer may leave queued before the pair is dropped. */
+  maxBufferedBytes?: number;
+  maxConnections?: number;
+  maxConnectionsPerClient?: number;
+  policy: EgressPolicy;
+  port?: number;
+  /** Injected by tests; production dials with Bun. */
+  connect?: UpstreamDialer;
+  /** Injected by tests; production resolves through the OS. */
+  resolve?: EgressResolver;
+};
+
+export type EgressProxyServer = {
+  readonly port: number;
+  stop(): void;
+};
+
+type Queue = { bytes: number; chunks: Uint8Array[] };
+
+/** The one thing a test needs to hold open: how an upstream is dialled. */
+export type UpstreamDialer = (options: {
+  hostname: string;
+  port: number;
+  socket: NonNullable<Parameters<typeof Bun.connect<undefined>>[0]>["socket"];
+}) => Promise<Socket<undefined>>;
+
+type ClientState = {
+  buffer: Uint8Array;
+  /** The upstream is done; end the client once its queue has drained. */
+  closeWhenDrained: boolean;
+  /** Still counted against the connection caps. */
+  counted: boolean;
+  /** An outbound attempt for this client is in flight. */
+  dispatching: boolean;
+  /** The client went away mid-dispatch; free its slot once that finishes. */
+  releaseDeferred: boolean;
+  /** Read from the client while the upstream connection was still opening. */
+  early: Uint8Array[];
+  earlyBytes: number;
+  headTimer: ReturnType<typeof setTimeout> | undefined;
+  phase: "head" | "connecting" | "piping" | "closed";
+  remote: string;
+  /** Bytes owed to the client; flushed from the client's own drain. */
+  toClient: Queue;
+  /** Bytes owed to the upstream; flushed from the upstream's drain. */
+  toUpstream: Queue;
+  upstream: Socket<undefined> | null;
+};
+
+export async function startEgressProxy(
+  options: EgressProxyOptions,
+): Promise<EgressProxyServer> {
+  const logger = options.logger ?? createProxyLogger();
+  const resolve = options.resolve ?? systemResolver;
+  const dial: UpstreamDialer = options.connect ?? Bun.connect;
+  const maxBuffered = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
+  const connectTimeoutMs =
+    options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const dispatchTimeoutMs =
+    options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
+  const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
+  const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
+  const maxPerClient =
+    options.maxConnectionsPerClient ?? DEFAULT_MAX_CONNECTIONS_PER_CLIENT;
+  let open = 0;
+  // One worker must not be able to spend the global budget on its own.
+  const perClient = new Map<string, number>();
+
+  const listener: TCPSocketListener<ClientState> = Bun.listen<ClientState>({
+    hostname: options.hostname ?? "0.0.0.0",
+    port: options.port ?? DEFAULT_PROXY_PORT,
+    socket: {
+      close(socket) {
+        release(socket);
+        socket.data.phase = "closed";
+        socket.data.upstream?.end();
+      },
+      data(socket, chunk) {
+        onClientData(socket, chunk);
+      },
+      drain(socket) {
+        // This socket became writable, so what drains is what it is owed.
+        flush(socket, socket.data.toClient);
+        if (
+          socket.data.closeWhenDrained &&
+          socket.data.toClient.chunks.length === 0
+        ) {
+          socket.data.phase = "closed";
+          socket.end();
+        }
+      },
+      error(socket, error) {
+        logger.warn("Client connection failed", { error: error.message });
+        release(socket);
+        socket.data.upstream?.end();
+      },
+      open(socket) {
+        const remote = socket.remoteAddress;
+        socket.data = {
+          buffer: new Uint8Array(0),
+          closeWhenDrained: false,
+          counted: true,
+          dispatching: false,
+          early: [],
+          earlyBytes: 0,
+          headTimer: undefined,
+          phase: "head",
+          releaseDeferred: false,
+          remote,
+          toClient: { bytes: 0, chunks: [] },
+          toUpstream: { bytes: 0, chunks: [] },
+          upstream: null,
+        };
+        open += 1;
+        const mine = (perClient.get(remote) ?? 0) + 1;
+        perClient.set(remote, mine);
+        if (open > maxConnections) {
+          logger.warn("Refusing connection over the concurrency cap", {
+            max_connections: maxConnections,
+          });
+          reply(socket, 503, "proxy is at its connection limit");
+          return;
+        }
+        if (mine > maxPerClient) {
+          logger.warn("Refusing connection over this client's cap", {
+            client: remote,
+            max_per_client: maxPerClient,
+          });
+          reply(socket, 503, "too many connections from this client");
+          return;
+        }
+        // A client that opens a socket and never speaks would otherwise hold
+        // its slot forever, which is the whole of the denial of service.
+        socket.data.headTimer = setTimeout(() => {
+          if (socket.data.phase !== "head") return;
+          logger.warn("Client never finished its request head", {
+            client: remote,
+          });
+          reply(socket, 408, "request head timed out");
+        }, headTimeoutMs);
+      },
+    },
+  });
+
+  function onClientData(socket: Socket<ClientState>, chunk: Uint8Array): void {
+    const state = socket.data;
+    if (state.phase === "closed") return;
+    if (state.phase === "connecting") {
+      // The client can keep sending while we resolve and connect; that
+      // window is bounded in time but not in bytes unless we bound it.
+      state.earlyBytes += chunk.byteLength;
+      if (state.earlyBytes > maxBuffered) {
+        logger.warn("Dropping a connection that outran the upstream handshake");
+        drop(socket);
+        return;
+      }
+      state.early.push(chunk);
+      return;
+    }
+    if (state.phase === "piping") {
+      const upstream = state.upstream;
+      if (upstream === null) return;
+      if (!push(upstream, state.toUpstream, chunk, maxBuffered)) {
+        logger.warn("Dropping a connection whose upstream fell behind");
+        drop(socket);
+      }
+      return;
+    }
+    state.buffer = concat(state.buffer, chunk);
+    const end = headEnd(state.buffer);
+    // The cap holds whether or not the terminator arrived in the same chunk
+    // as the bytes that crossed it.
+    if (
+      end < 0
+        ? state.buffer.byteLength > MAX_HEAD_BYTES
+        : end - 4 > MAX_HEAD_BYTES
+    ) {
+      reply(socket, 431, "request head is too large");
+      return;
+    }
+    if (end < 0) return;
+    clearHeadTimer(state);
+    const head = new TextDecoder().decode(state.buffer.subarray(0, end - 4));
+    const rest = state.buffer.slice(end);
+    state.buffer = new Uint8Array(0);
+    void dispatch(socket, parseRequestHead(head), rest);
+  }
+
+  async function dispatch(
+    socket: Socket<ClientState>,
+    request: ProxyRequest,
+    rest: Uint8Array,
+  ): Promise<void> {
+    socket.data.dispatching = true;
+    try {
+      await runDispatch(socket, request, rest);
+    } finally {
+      socket.data.dispatching = false;
+      if (socket.data.releaseDeferred) release(socket);
+    }
+  }
+
+  async function runDispatch(
+    socket: Socket<ClientState>,
+    request: ProxyRequest,
+    rest: Uint8Array,
+  ): Promise<void> {
+    const state = socket.data;
+    // Read through a call so the type checker does not narrow `phase` across
+    // the awaits below: the client can close while we resolve or connect.
+    const closed = (): boolean => socket.data.phase === "closed";
+    if (request.kind === "health") {
+      reply(socket, 200, "ok");
+      return;
+    }
+    if (request.kind === "invalid") {
+      logger.warn("Rejecting a malformed proxy request", {
+        reason: request.reason,
+      });
+      reply(socket, request.status, request.reason);
+      return;
+    }
+    state.phase = "connecting";
+    if (rest.byteLength > 0) {
+      // Bytes pipelined in the same segment as the head are early bytes too,
+      // and count against the same cap.
+      state.early.push(rest);
+      state.earlyBytes += rest.byteLength;
+      if (state.earlyBytes > maxBuffered) {
+        logger.warn("Dropping a connection that outran the upstream handshake");
+        drop(socket);
+        return;
+      }
+    }
+    const expiry = Date.now() + dispatchTimeoutMs;
+    const left = (): number => expiry - Date.now();
+    let decision: Awaited<ReturnType<typeof decideEgress>>;
+    try {
+      // `decideEgress` resolves the name, and a resolver has no deadline of
+      // its own. Without this race a hung lookup holds the slot for ever.
+      decision = await withDeadline(
+        decideEgress(
+          options.policy,
+          { host: request.host, port: request.port },
+          resolve,
+        ),
+        left(),
+        `looking up ${request.host} timed out`,
+      );
+    } catch (error) {
+      if (closed()) return;
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn("Egress lookup timed out", {
+        host: request.host,
+        port: request.port,
+      });
+      reply(socket, 504, reason);
+      return;
+    }
+    if (closed()) return;
+    if (!decision.allowed) {
+      logger.warn("Egress denied", {
+        host: request.host,
+        method: request.kind,
+        port: request.port,
+        reason: decision.reason,
+      });
+      reply(socket, 403, `egress denied: ${decision.reason}`);
+      return;
+    }
+    // Every address in the decision passed the same policy, so a dead first
+    // answer (dual stack, round robin) is a reason to try the next one, not
+    // to fail the request.
+    const candidates = decision.addresses.slice(0, MAX_CONNECT_ATTEMPTS);
+    let upstream: Socket<undefined> | null = null;
+    let lastError = "no address to connect to";
+    for (const address of candidates) {
+      const budget = Math.min(connectTimeoutMs, left());
+      if (budget <= 0) {
+        lastError = `dispatch deadline of ${dispatchTimeoutMs}ms exceeded`;
+        break;
+      }
+      let attempt: Socket<undefined>;
+      try {
+        attempt = await connectUpstream(socket, address, request.port, budget);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (closed()) return;
+        logger.warn("Upstream connection failed", {
+          address,
+          error: lastError,
+          host: request.host,
+          port: request.port,
+        });
+        continue;
+      }
+      if (closed()) {
+        attempt.end();
+        return;
+      }
+      logger.info("Egress allowed", {
+        address,
+        host: request.host,
+        method: request.kind,
+        port: request.port,
+        scope: decision.scope,
+      });
+      upstream = attempt;
+      break;
+    }
+    if (upstream === null) {
+      reply(socket, 502, `upstream connection failed: ${lastError}`);
+      return;
+    }
+    state.upstream = upstream;
+    state.phase = "piping";
+    if (request.kind === "connect") {
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    } else {
+      push(
+        upstream,
+        state.toUpstream,
+        new TextEncoder().encode(request.head),
+        maxBuffered,
+      );
+    }
+    state.earlyBytes = 0;
+    for (const pending of state.early.splice(0)) {
+      if (!push(upstream, state.toUpstream, pending, maxBuffered)) {
+        drop(socket);
+        return;
+      }
+    }
+  }
+
+  function connectUpstream(
+    client: Socket<ClientState>,
+    address: string,
+    port: number,
+    timeoutMs: number,
+  ): Promise<Socket<undefined>> {
+    // The client socket lives in this closure rather than in `socket.data`:
+    // a connection that fails before `open` never gets its data assigned,
+    // and the handlers still have to be able to clean up.
+    //
+    // An attempt we gave up on can still open afterwards. By then another
+    // address may be carrying the tunnel, so the abandoned one must touch
+    // nothing: its own close would otherwise end a healthy client.
+    let abandoned = false;
+    const pending = dial({
+      hostname: address,
+      port,
+      socket: {
+        close() {
+          if (abandoned) return;
+          // The upstream closing is how a forwarded response ends — but the
+          // tail of that response may still be queued for a slow client.
+          if (client.data.toClient.chunks.length > 0) {
+            client.data.closeWhenDrained = true;
+            return;
+          }
+          client.end();
+        },
+        data(_socket, chunk) {
+          if (abandoned) return;
+          if (!push(client, client.data.toClient, chunk, maxBuffered)) {
+            logger.warn("Dropping a connection whose client fell behind");
+            drop(client);
+          }
+        },
+        drain(socket) {
+          if (abandoned) return;
+          // The upstream became writable, so what drains is what it is owed.
+          flush(socket, client.data.toUpstream);
+        },
+        error(_socket, error) {
+          if (abandoned) return;
+          logger.warn("Upstream connection failed", { error: error.message });
+          client.end();
+        },
+      },
+    });
+    // Bun.connect has no deadline of its own; a black-holed address would
+    // otherwise hold the client socket open forever.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // The connect may still succeed after we gave up on it; close it
+        // rather than leak a socket nobody is reading.
+        abandoned = true;
+        pending.then((late) => late.end()).catch(() => undefined);
+        reject(
+          new Error(
+            `connect to ${address}:${port} timed out after ${timeoutMs}ms`,
+          ),
+        );
+      }, timeoutMs);
+      timer.unref();
+    });
+    // Without the clear, every short-lived request leaves a live timer and
+    // its closure registered for the full deadline.
+    return Promise.race([pending, deadline]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+  }
+
+  /** Bounds a promise that has no deadline of its own; the loser is dropped. */
+  function withDeadline<T>(
+    pending: Promise<T>,
+    ms: number,
+    message: string,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), Math.max(0, ms));
+      timer.unref();
+    });
+    return Promise.race([pending, deadline]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+  }
+
+  function clearHeadTimer(state: ClientState): void {
+    if (state.headTimer === undefined) return;
+    clearTimeout(state.headTimer);
+    state.headTimer = undefined;
+  }
+
+  function release(socket: Socket<ClientState>): void {
+    clearHeadTimer(socket.data);
+    if (!socket.data.counted) return;
+    if (socket.data.dispatching) {
+      // The outbound attempt outlives the client socket by up to the connect
+      // deadline. Freeing the slot now would let a client that disconnects
+      // immediately open another one per in-flight connect and walk past
+      // both caps while the dead sockets pile up.
+      socket.data.releaseDeferred = true;
+      return;
+    }
+    socket.data.counted = false;
+    open -= 1;
+    const mine = (perClient.get(socket.data.remote) ?? 1) - 1;
+    if (mine <= 0) perClient.delete(socket.data.remote);
+    else perClient.set(socket.data.remote, mine);
+  }
+
+  function drop(socket: Socket<ClientState>): void {
+    socket.data.upstream?.end();
+    socket.data.phase = "closed";
+    socket.end();
+  }
+
+  function reply(
+    socket: Socket<ClientState>,
+    status: number,
+    message: string,
+  ): void {
+    const body = `${message}\n`;
+    socket.data.phase = "closed";
+    clearHeadTimer(socket.data);
+    socket.end(
+      `HTTP/1.1 ${status} ${reasonPhrase(status)}\r\n` +
+        "content-type: text/plain; charset=utf-8\r\n" +
+        `content-length: ${new TextEncoder().encode(body).byteLength}\r\n` +
+        "connection: close\r\n\r\n" +
+        body,
+    );
+  }
+
+  logger.info("Egress proxy listening", {
+    allow: options.policy.allow.map(describe),
+    allow_private: options.policy.allowPrivate.map(describe),
+    port: listener.port,
+  });
+  return {
+    port: listener.port,
+    stop(): void {
+      listener.stop(true);
+    },
+  };
+}
+
+function describe(destination: { host: string; port: number }): string {
+  return `${destination.host}:${destination.port}`;
+}
+
+const systemResolver: EgressResolver = async (host) => {
+  const entries = await lookup(host, { all: true, verbatim: true });
+  return entries.map((entry) => entry.address);
+};
+
+function reasonPhrase(status: number): string {
+  switch (status) {
+    case 200:
+      return "OK";
+    case 400:
+      return "Bad Request";
+    case 403:
+      return "Forbidden";
+    case 408:
+      return "Request Timeout";
+    case 431:
+      return "Request Header Fields Too Large";
+    case 502:
+      return "Bad Gateway";
+    case 503:
+      return "Service Unavailable";
+    case 505:
+      return "HTTP Version Not Supported";
+    default:
+      return "Error";
+  }
+}
+
+/** false once the queue is past the cap, which the caller answers by closing. */
+function push(
+  target: Socket<unknown>,
+  queue: Queue,
+  chunk: Uint8Array,
+  max: number,
+): boolean {
+  let remainder = chunk;
+  if (queue.chunks.length === 0) {
+    // A closed socket reports -1, which must not be read as an offset.
+    const written = Math.max(0, target.write(chunk));
+    if (written >= chunk.byteLength) return true;
+    remainder = chunk.subarray(written);
+  }
+  queue.chunks.push(remainder);
+  queue.bytes += remainder.byteLength;
+  return queue.bytes <= max;
+}
+
+function flush(target: Socket<unknown>, queue: Queue): void {
+  while (queue.chunks.length > 0) {
+    const head = queue.chunks[0];
+    if (head === undefined) return;
+    const written = Math.max(0, target.write(head));
+    if (written === 0) return;
+    queue.bytes -= written;
+    if (written < head.byteLength) {
+      queue.chunks[0] = head.subarray(written);
+      return;
+    }
+    queue.chunks.shift();
+  }
+}
+
+function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const out = new Uint8Array(left.byteLength + right.byteLength);
+  out.set(left, 0);
+  out.set(right, left.byteLength);
+  return out;
+}
+
+/** Index just past the CRLFCRLF that ends the head, or -1. */
+function headEnd(buffer: Uint8Array): number {
+  for (let i = 3; i < buffer.byteLength; i += 1) {
+    if (
+      buffer[i] === 10 &&
+      buffer[i - 1] === 13 &&
+      buffer[i - 2] === 10 &&
+      buffer[i - 3] === 13
+    ) {
+      return i + 1;
+    }
+  }
+  return -1;
+}

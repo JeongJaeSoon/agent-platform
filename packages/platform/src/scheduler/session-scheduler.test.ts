@@ -158,6 +158,8 @@ class FakeBackend implements ExecutionBackend {
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
+  /** Containers the provider reports as built on an older isolation contract. */
+  staleFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
 
   capabilities() {
@@ -182,6 +184,8 @@ class FakeBackend implements ExecutionBackend {
       };
     }
     const exited = this.exitOnStartFor.has(intent.sessionId);
+    // A fresh container is built on the contract this backend speaks now.
+    this.staleFor.delete(nameOf(intent));
     this.containers.set(nameOf(intent), {
       exited,
       generation: intent.generation,
@@ -210,6 +214,7 @@ class FakeBackend implements ExecutionBackend {
     }
     return {
       ...(container.exited ? { exitCode: 0 } : {}),
+      ...(this.staleFor.has(nameOf(ref)) ? { stale: true } : {}),
       found: true,
       observedAt: new Date(),
       providerRef: `ctr-${ref.executionId}`,
@@ -353,6 +358,57 @@ describe("runScheduler", () => {
           r.level === "warn" && r.message.includes("re-created from intent"),
       ),
     ).toBe(true);
+  });
+
+  test("a running resource on an older isolation contract is replaced", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+
+    // The control host was upgraded; the container it launched was not.
+    backend.staleFor.add(`${intent.executionId}#1`);
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([ref]);
+    expect(summary.reensured).toEqual([ref]);
+    expect(backend.terminateCalls).toEqual([ref]);
+    expect(backend.containers.size).toBe(1);
+    const [again] = backend.ensureCalls.slice(-1);
+    expect(again?.operationId).toBe(intent.operationId);
+    expect(store.executions.get(intent.executionId)?.observedState).toBe(
+      "running",
+    );
+    expect(
+      records.some((r) =>
+        r.message.includes("predates the isolation contract"),
+      ),
+    ).toBe(true);
+
+    // The replacement is current, so the next pass leaves it alone.
+    const after = await run();
+    expect(after.replaced).toHaveLength(0);
+    expect(after.reensured).toHaveLength(0);
+  });
+
+  test("a stale resource the provider will not terminate keeps its slot", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const ref = { executionId: intent.executionId, generation: 1 };
+
+    backend.staleFor.add(`${intent.executionId}#1`);
+    backend.failTerminateFor.add(`${intent.executionId}#1`);
+    const summary = await run();
+
+    expect(summary.reconcileFailed).toEqual([ref]);
+    expect(summary.replaced).toHaveLength(0);
+    expect(backend.containers.size).toBe(1);
+    expect(backend.ensureCalls).toHaveLength(1);
   });
 
   test("a created-but-never-started resource is started through the same intent", async () => {
