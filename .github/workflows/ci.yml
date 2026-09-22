@@ -117,11 +117,17 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      # Both spikes typecheck across ../../packages/contracts, so they need the
+      # root workspace installed as well as their own lockfile.
+      - run: bun install --frozen-lockfile
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd spikes/94s-91 probe:version
       - name: spikes/94s-91 check
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-91 check' bun run --cwd spikes/94s-91 check
+      # The two spikes are independent investigations: one failing must not
+      # hide the other's result.
       - name: spikes/94s-92 check
+        if: '!cancelled()'
         run: .github/scripts/retry-flaky.sh 2 'spikes/94s-92 check' bun run --cwd spikes/94s-92 check
