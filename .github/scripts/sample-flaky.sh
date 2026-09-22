@@ -2,9 +2,7 @@
 # Runs a known-flaky spike suite <samples> times and reports how often it passed.
 #
 # The opposite of retry-flaky.sh: that one stops at the first pass because it
-# wants a verdict, this one keeps going because it wants a rate. Sampling in one
-# job is what keeps a flake hunt off the minute meter — one checkout, one
-# install, one round-up to a whole minute, instead of one of each per sample.
+# wants a verdict, this one keeps going because it wants a rate.
 #
 # usage: sample-flaky.sh <samples> <label> <command> [args...]
 
@@ -33,10 +31,9 @@ record() {
   fi
 }
 
-# Same reasoning as retry-flaky.sh: the runner signals this wrapper, not the
-# suite it launched, so the suite runs in the background and this script blocks
-# in `wait`, which a signal does interrupt. A cancelled job must stop sampling
-# rather than burn the rest of its budget.
+# Signal handling as in retry-flaky.sh — the runner signals this wrapper, not
+# the suite, so the suite goes to the background and this blocks in `wait`.
+# A cancelled job must stop sampling rather than burn the rest of its budget.
 cancelled=0
 child=0
 
@@ -107,6 +104,6 @@ if [ "$cancelled" -ne 0 ]; then
   exit 143
 fi
 
-# A rate of zero failures is the only clean result; anything else is the answer
-# the hunt was after, and the step outcome is how it shows up on the run page.
+# A failed sample is the answer the hunt was after; the step outcome is how it
+# reaches the run page.
 [ "$failed" -eq 0 ] || exit 1
