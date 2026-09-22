@@ -935,3 +935,182 @@ describe("WorkerHost shutdown with a wedged engine", () => {
     expect(Date.now() - began).toBeLessThan(2_500);
   }, 10_000);
 });
+
+describe("WorkerHost outcomes a drain must not hide", () => {
+  function recording() {
+    const lines: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const logger: WorkerLogger = {
+      info: (event, fields = {}) => lines.push({ event, fields }),
+      warn: (event, fields = {}) => lines.push({ event, fields }),
+      error: (event, fields = {}) => lines.push({ event, fields }),
+    };
+    return { lines, logger };
+  }
+
+  test("a finalize refused during the drain reports a failure", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.finalizeFailure = new WorkerGatewayRequestError(
+      409,
+      "REVISION_CONFLICT",
+      "the stream moved",
+      false,
+    );
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 30 },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { drainTimeoutMs: 2_000 } },
+    );
+    gateway.enqueue("a turn that finishes during the drain");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "the input to be sent");
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("the stream moved");
+  });
+
+  test("events refused during the drain report a failure", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 30 },
+        { type: "emit", message: assistantMessage("written after the stop") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { drainTimeoutMs: 2_000 } },
+    );
+    gateway.enqueue("a turn whose tail cannot be stored");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "the input to be sent");
+
+    host.drain("received SIGTERM");
+    gateway.appendFailure = new WorkerGatewayRequestError(
+      400,
+      "BAD_REQUEST",
+      "not storable",
+      false,
+    );
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("failed");
+    expect(gateway.finalized).toEqual([]);
+  });
+
+  test("a lease lost while the checkpoint is captured is never finalized", async () => {
+    const gateway = new FakeWorkerGateway();
+    let host: WorkerHost | undefined;
+    const checkpoints: WorkerCheckpointPort = {
+      restorePlan: async () => ({ mode: "new" }),
+      capture: async () => {
+        // A stop beats at once, and that beat learns the lease is gone.
+        gateway.heartbeatFailure = "LEASE_EXPIRED";
+        const before = gateway.heartbeats.length;
+        host?.drain("received SIGTERM");
+        await waitFor(
+          () => gateway.heartbeats.length > before,
+          "the beat that finds the lease gone",
+        );
+        await Bun.sleep(5);
+        return null;
+      },
+    };
+    const built = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { checkpoints, gateway },
+    );
+    host = built.host;
+    gateway.enqueue("a turn whose lease runs out at the end");
+
+    const summary = await built.host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    // Not even attempted: the write would land on a lease this attempt lost.
+    expect(gateway.calls).not.toContain("finalize");
+  });
+
+  test("a poll that comes back after the release is not a lease loss", async () => {
+    let releaseCalled!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseCalled = resolve;
+    });
+    class StalePoll extends FakeWorkerGateway {
+      override async nextInput(): Promise<never> {
+        await released;
+        throw new WorkerGatewayRequestError(
+          409,
+          "STALE_EPOCH",
+          "the session was given back",
+          false,
+        );
+      }
+      override async release(
+        request: Parameters<FakeWorkerGateway["release"]>[0],
+      ) {
+        const response = await super.release(request);
+        releaseCalled();
+        await Bun.sleep(5);
+        return response;
+      }
+    }
+    const gateway = new StalePoll();
+    const { lines, logger } = recording();
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      logger,
+      timeouts: { drainTimeoutMs: 20 },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("bootstrapClaim"), "the claim");
+    await Bun.sleep(5);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+    await Bun.sleep(10);
+
+    expect(summary.outcome).toBe("drained");
+    expect(
+      lines.filter(
+        (line) =>
+          line.event === "worker.stopping" && line.fields.kind === "lost",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a release the gateway never answers ends with the stop grace", async () => {
+    class SilentRelease extends FakeWorkerGateway {
+      override release(): Promise<never> {
+        this.calls.push("release");
+        return new Promise(() => {});
+      }
+    }
+    const gateway = new SilentRelease();
+    const { lines, logger } = recording();
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      logger,
+      timeouts: { drainTimeoutMs: 20, stopGraceMs: 1_500 },
+    });
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("bootstrapClaim"), "the claim");
+    const began = Date.now();
+
+    host.drain("received SIGTERM");
+    await loop;
+
+    expect(Date.now() - began).toBeLessThan(2_500);
+    expect(gateway.calls).toContain("release");
+    expect(lines.map((line) => line.event)).toContain("worker.release.failed");
+  }, 10_000);
+});

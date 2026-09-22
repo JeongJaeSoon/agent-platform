@@ -68,6 +68,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   private draining = false;
   /** Thrown by every append while set. */
   appendFailure: WorkerGatewayRequestError | undefined;
+  /** Thrown by every first-time finalize while set. */
+  finalizeFailure: WorkerGatewayRequestError | undefined;
 
   private readonly answers: Array<{
     answer: PostSessionAnswerRequest;
@@ -160,7 +162,13 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
 
   async nextInput(request: NextInputRequest): Promise<NextInputResponse> {
     this.calls.push("nextInput");
-    if (this.queue.length === 0 && (request.wait_ms ?? 0) > 0) {
+    // Like the real gateway, a draining attempt's poll comes back at once.
+    const handsNothing = this.draining && this.refuseDraining;
+    if (
+      !handsNothing &&
+      this.queue.length === 0 &&
+      (request.wait_ms ?? 0) > 0
+    ) {
       await Promise.race([
         new Promise<void>((resolve) => this.waiting.push(resolve)),
         Bun.sleep(request.wait_ms ?? 0),
@@ -185,7 +193,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   async heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
     this.calls.push("heartbeat");
     this.heartbeats.push(request);
-    if (request.attempt_state === "draining") this.draining = true;
+    if (request.attempt_state === "draining") {
+      this.draining = true;
+      if (this.refuseDraining) {
+        for (const wake of this.waiting.splice(0)) wake();
+      }
+    }
     if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
         409,
@@ -242,6 +255,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     const replay = this.finalized.find(
       (earlier) => earlier.finalize_key === request.finalize_key,
     );
+    if (replay === undefined && this.finalizeFailure !== undefined) {
+      throw this.finalizeFailure;
+    }
     if (replay === undefined) {
       // The same gate finalizeAtomic applies (94S-218); a replay is answered
       // from what was stored, like the real one.

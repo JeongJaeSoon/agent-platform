@@ -7,6 +7,7 @@ import type {
 } from "@agent-platform/contracts";
 import type { PermissionRequest } from "@agent-platform/runtime-core";
 
+import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import { PendingRequestRegistry, QUESTION_TOOL } from "./pending-requests.ts";
 
 const scope: WorkerScope = {
@@ -216,6 +217,33 @@ describe("PendingRequestRegistry", () => {
     expect(settled.behavior === "deny" ? settled.message : "").toContain(
       message,
     );
+  });
+
+  test("denies at once while the gateway has no route to answer through", async () => {
+    let polls = 0;
+    const instance = new PendingRequestRegistry({
+      gateway: {
+        async pendingControl() {
+          polls += 1;
+          throw new WorkerGatewayRequestError(404, null, "no route", false);
+        },
+      },
+      publish: () => {},
+      scope: () => scope,
+      timeoutMs: 30_000,
+      pollIntervalMs: 1,
+    });
+
+    const first = await instance.request(permission("req-first"));
+    const second = await instance.request(permission("req-second"));
+
+    expect(first).toEqual({
+      behavior: "deny",
+      message: expect.stringContaining("94S-127"),
+    });
+    expect(second.behavior).toBe("deny");
+    // Learned once: the second request does not ask again.
+    expect(polls).toBe(1);
   });
 
   test("holds several requests independently and answers them out of order", async () => {
