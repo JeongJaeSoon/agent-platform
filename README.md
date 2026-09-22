@@ -144,7 +144,7 @@ AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 세션 HTTP endpoint, 이미지 빌드 workflow는 후속 티켓 범위다.
+Compose의 `apps`·`worker` profile은 아직 없는 이미지 정의를 참조하는 placeholder다. 현재 활성화하지 않는다. `FAKE_SDK`, `scripts/dev`, `/ui`, 워커 턴 루프(94S-122), 이미지 빌드 workflow(94S-125)는 후속 티켓 범위다. 세션 HTTP endpoint는 D1에서 구현됐다.
 
 ## CI에서 실행되는 것
 
