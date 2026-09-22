@@ -43,6 +43,12 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       terminateAtomic: async () => {
         throw new Error("not reached");
       },
+      decideRecoveryAtomic: async () => {
+        throw new Error("not reached");
+      },
+      resumeAtomic: async () => {
+        throw new Error("not reached");
+      },
     },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),

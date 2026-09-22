@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { apiErrorResponseSchema } from "@agent-platform/contracts";
+import {
+  type ApiErrorCode,
+  apiErrorResponseSchema,
+} from "@agent-platform/contracts";
 import { InvalidCursorError } from "@agent-platform/db";
 import {
   createSessionService,
@@ -49,6 +52,12 @@ function app(
     },
     controls: {
       terminateAtomic: async () => {
+        throw new Error("not reached");
+      },
+      decideRecoveryAtomic: async () => {
+        throw new Error("not reached");
+      },
+      resumeAtomic: async () => {
         throw new Error("not reached");
       },
       ...overrides,
@@ -498,5 +507,275 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
         )
       ).status,
     ).toBe(404);
+  });
+});
+
+describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
+  const path = `/v1/sessions/${sessionId}/recovery-decisions`;
+  const decide = (
+    body: unknown,
+    overrides: Partial<SessionControl> = {},
+    headers: Record<string, string> = {},
+  ) =>
+    app(overrides).request(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+  const abandon = {
+    decision: "abandon",
+    expected_revision: 3,
+    target_turn_id: "1",
+    reason: "reviewed",
+  };
+
+  test("answers 202 with the decision receipt", async () => {
+    const receiptId = crypto.randomUUID();
+    const response = await decide(abandon, {
+      decideRecoveryAtomic: async (input) => {
+        expect(input).toMatchObject({
+          principal: { ownerId: "owner-a" },
+          sessionId,
+          idempotencyKey: "key-1",
+          decision: abandon,
+        });
+        return {
+          outcome: "accepted",
+          response: { receipt_id: receiptId, receipt_status: "succeeded" },
+        };
+      },
+    });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      receipt_id: receiptId,
+      receipt_status: "succeeded",
+    });
+  });
+
+  test("confirm_completed without evidence_ref, unknown decision and extra fields are 400", async () => {
+    expect(
+      (
+        await decide({
+          decision: "confirm_completed",
+          expected_revision: 1,
+          target_turn_id: "1",
+          reason: "r",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await decide({
+          decision: "retry",
+          expected_revision: 1,
+          target_turn_id: "1",
+          reason: "r",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await decide({
+          decision: "close",
+          expected_revision: 1,
+          reason: "r",
+          target_turn_id: "1",
+        })
+      ).status,
+    ).toBe(400);
+    expect((await decide(abandon, {}, { "Idempotency-Key": "" })).status).toBe(
+      400,
+    );
+  });
+
+  test("maps every refusal to its status and code", async () => {
+    const cases: Array<
+      [
+        Awaited<ReturnType<SessionControl["decideRecoveryAtomic"]>>,
+        number,
+        ApiErrorCode,
+      ]
+    > = [
+      [{ outcome: "conflict" }, 409, "IDEMPOTENCY_CONFLICT"],
+      [{ outcome: "not_found" }, 404, "NOT_FOUND"],
+      [
+        { outcome: "revision_conflict", currentRevision: 4 },
+        409,
+        "REVISION_CONFLICT",
+      ],
+      [
+        { outcome: "rejected", admissionState: "closed" },
+        409,
+        "SESSION_CLOSED",
+      ],
+      [{ outcome: "execution_unconfirmed" }, 409, "RECOVERY_REQUIRED"],
+      [
+        { outcome: "turn_not_unknown", turnStatus: "completed" },
+        409,
+        "REQUEST_STALE",
+      ],
+      [{ outcome: "turn_not_unknown", turnStatus: null }, 404, "NOT_FOUND"],
+      [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+    ];
+    for (const [result, status, code] of cases) {
+      const response = await decide(abandon, {
+        decideRecoveryAtomic: async () => result,
+      });
+      expect(response.status, code).toBe(status);
+      expect(await errorCode(response)).toBe(code);
+    }
+  });
+
+  test("a principal without sessions:recover is 403 FORBIDDEN, not 404", async () => {
+    const service = createSessionService({
+      authorization: {
+        authorize: (actor, action, resource) =>
+          actor.ownerId === resource.ownerId && action !== "sessions:recover",
+      },
+      catalog,
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+        decideRecoveryAtomic: async () => {
+          throw new Error("must not reach the transaction");
+        },
+        resumeAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+      },
+    });
+    const scoped = createApiApp({
+      authMode: "none",
+      registerRoutes: (router) => registerSessionRoutes(router, service),
+    });
+    const response = await scoped.request(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify(abandon),
+    });
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("FORBIDDEN");
+  });
+});
+
+describe("POST /v1/sessions/{id}/resume validation", () => {
+  const path = `/v1/sessions/${sessionId}/resume`;
+  const resume = (body: unknown, overrides: Partial<SessionControl> = {}) =>
+    app(overrides).request(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify(body),
+    });
+
+  test("answers 202 with the receipt", async () => {
+    const receiptId = crypto.randomUUID();
+    const response = await resume(
+      { expected_revision: 7 },
+      {
+        resumeAtomic: async (input) => {
+          expect(input).toMatchObject({
+            principal: { ownerId: "owner-a" },
+            sessionId,
+            idempotencyKey: "key-1",
+            expectedRevision: 7,
+          });
+          return {
+            outcome: "accepted",
+            response: { receipt_id: receiptId, receipt_status: "succeeded" },
+          };
+        },
+      },
+    );
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      receipt_id: receiptId,
+      receipt_status: "succeeded",
+    });
+    expect((await resume({})).status).toBe(400);
+    expect(
+      (await resume({ expected_revision: 1, reason: "extra" })).status,
+    ).toBe(400);
+  });
+
+  test("maps every refusal to its status and code", async () => {
+    const cases: Array<
+      [
+        Awaited<ReturnType<SessionControl["resumeAtomic"]>>,
+        number,
+        ApiErrorCode,
+      ]
+    > = [
+      [
+        { outcome: "recovery_required", unconfirmedTurnId: "1" },
+        409,
+        "RECOVERY_REQUIRED",
+      ],
+      [
+        { outcome: "recovery_required", unconfirmedTurnId: null },
+        409,
+        "RECOVERY_REQUIRED",
+      ],
+      [{ outcome: "checkpoint_unavailable" }, 409, "CHECKPOINT_UNAVAILABLE"],
+      [
+        { outcome: "rejected", admissionState: "closed" },
+        409,
+        "SESSION_CLOSED",
+      ],
+      [{ outcome: "rejected", admissionState: "active" }, 409, "REQUEST_STALE"],
+      [
+        { outcome: "rejected", admissionState: "paused" },
+        422,
+        "UNSUPPORTED_CAPABILITY",
+      ],
+      [
+        { outcome: "rejected", admissionState: "resuming" },
+        409,
+        "SESSION_RESUMING",
+      ],
+      [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "not_found" }, 404, "NOT_FOUND"],
+      [
+        { outcome: "revision_conflict", currentRevision: 2 },
+        409,
+        "REVISION_CONFLICT",
+      ],
+    ];
+    for (const [result, status, code] of cases) {
+      const response = await resume(
+        { expected_revision: 1 },
+        { resumeAtomic: async () => result },
+      );
+      expect(response.status, code).toBe(status);
+      expect(await errorCode(response)).toBe(code);
+    }
   });
 });

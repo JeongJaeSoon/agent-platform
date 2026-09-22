@@ -1,4 +1,5 @@
 import {
+  controlAcceptedResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   getSessionResponseSchema,
@@ -10,6 +11,8 @@ import {
   listTurnsResponseSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
+  recoveryDecisionRequestSchema,
+  resumeSessionRequestSchema,
   sessionIdParamsSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
@@ -40,6 +43,9 @@ const STATUS_BY_CODE: Partial<
   REVISION_CONFLICT: 409,
   UNSUPPORTED_CAPABILITY: 422,
   NOT_FOUND: 404,
+  FORBIDDEN: 403,
+  REQUEST_STALE: 409,
+  CHECKPOINT_UNAVAILABLE: 409,
   SESSION_PAUSED: 409,
   SESSION_RESUMING: 409,
   SESSION_STOPPED: 409,
@@ -81,6 +87,10 @@ export const sessionRouteErrors: Record<string, number[]> = {
   "GET /v1/sessions/{id}/turns": [400, 401, 404, 503],
   "GET /v1/sessions/{id}/turns/{turn_id}": [401, 404, 503],
   "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],
+  "POST /v1/sessions/{id}/resume": [400, 401, 404, 409, 413, 422, 503],
+  "POST /v1/sessions/{id}/recovery-decisions": [
+    400, 401, 403, 404, 409, 413, 422, 503,
+  ],
 };
 
 export function requireIdempotencyKey(
@@ -185,6 +195,42 @@ export function registerSessionRoutes(
     return jsonWithSchema(
       context,
       terminateSessionResponseSchema,
+      accepted,
+      202,
+    );
+  });
+
+  router.post("/sessions/:id/resume", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(context, resumeSessionRequestSchema);
+    const accepted = await mapped(() =>
+      service.resumeSession({ ownerId: context.get("ownerId") }, params.id, {
+        idempotencyKey: key,
+        body,
+      }),
+    );
+    return jsonWithSchema(
+      context,
+      controlAcceptedResponseSchema,
+      accepted,
+      202,
+    );
+  });
+
+  router.post("/sessions/:id/recovery-decisions", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(context, recoveryDecisionRequestSchema);
+    const accepted = await mapped(() =>
+      service.decideRecovery({ ownerId: context.get("ownerId") }, params.id, {
+        idempotencyKey: key,
+        body,
+      }),
+    );
+    return jsonWithSchema(
+      context,
+      controlAcceptedResponseSchema,
       accepted,
       202,
     );

@@ -246,7 +246,9 @@ const routes: Route[] = [
     scope: "control",
     body: "ResumeSessionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    // 422: a paused session (94S-138) or a legacy pod binding; 413/503 as
+    // for every mutation.
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "post",
@@ -256,7 +258,9 @@ const routes: Route[] = [
     scope: "recover",
     body: "RecoveryDecisionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    // 403: the principal owns the session but lacks sessions:recover.
+    // 422: a legacy pod binding, as for terminate.
+    errors: [...CONFLICTS, 403, 413, 422, 503],
   },
   {
     method: "get",

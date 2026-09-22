@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   AdmissionState,
   ApiErrorCode,
+  ControlAcceptedResponse,
   CreateSessionRequest,
   CreateSessionResponse,
   ListSessionsQuery,
@@ -11,6 +12,8 @@ import type {
   PostSessionMessageRequest,
   PostSessionMessageResponse,
   Receipt,
+  RecoveryDecisionRequest,
+  ResumeSessionRequest,
   SessionDetail,
   SessionRuntime,
   TerminateSessionRequest,
@@ -85,6 +88,26 @@ const ADMISSION_REJECTIONS: Record<
   closed: { code: "SESSION_CLOSED", message: "Session is closed" },
 };
 
+// Resume from anything but `stopped`. The pause family belongs to 94S-138
+// and is refused as unsupported rather than half-resumed; an active
+// session has nothing to resume.
+const RESUME_REJECTIONS: Record<
+  Exclude<AdmissionState, "stopped" | "stopping" | "recovery_required">,
+  [ApiErrorCode, string]
+> = {
+  active: ["REQUEST_STALE", "Session is already active"],
+  pausing: [
+    "UNSUPPORTED_CAPABILITY",
+    "Resume from a pausing session is not available yet (94S-138)",
+  ],
+  paused: [
+    "UNSUPPORTED_CAPABILITY",
+    "Resume from a paused session is not available yet (94S-138)",
+  ],
+  resuming: ["SESSION_RESUMING", "Session is already resuming"],
+  closed: ["SESSION_CLOSED", "Session is closed"],
+};
+
 export function payloadHash(payload: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(payload)), "utf8")
@@ -111,14 +134,38 @@ export function createSessionService(deps: {
     };
   }
 
+  // A resource of another owner does not exist as far as this principal
+  // can tell. One the principal owns but may not act on is a 403: the
+  // owner-only policy never says so today, so the branch is the place
+  // 94S-132's scoped keys plug into.
   function requireAuthorized(
     actor: Principal,
     action: SessionAction,
     ownerId: string,
   ) {
-    if (!authorization.authorize(actor, action, { ownerId })) {
+    if (actor.ownerId !== ownerId) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
+    if (!authorization.authorize(actor, action, { ownerId })) {
+      throw new SessionServiceError(
+        "FORBIDDEN",
+        `This API key does not hold ${action}`,
+      );
+    }
+  }
+
+  function idempotencyConflict(): never {
+    throw new SessionServiceError(
+      "IDEMPOTENCY_CONFLICT",
+      "Idempotency-Key was already used with a different payload",
+    );
+  }
+
+  function revisionConflict(currentRevision: number): never {
+    throw new SessionServiceError(
+      "REVISION_CONFLICT",
+      `expected_revision does not match the current revision ${currentRevision}`,
+    );
   }
 
   return {
@@ -212,17 +259,11 @@ export function createSessionService(deps: {
       });
       switch (result.outcome) {
         case "conflict":
-          throw new SessionServiceError(
-            "IDEMPOTENCY_CONFLICT",
-            "Idempotency-Key was already used with a different payload",
-          );
+          return idempotencyConflict();
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "revision_conflict":
-          throw new SessionServiceError(
-            "REVISION_CONFLICT",
-            `expected_revision does not match the current revision ${result.currentRevision}`,
-          );
+          return revisionConflict(result.currentRevision);
         case "rejected": {
           const rejection = ADMISSION_REJECTIONS[result.admissionState];
           throw new SessionServiceError(rejection.code, rejection.message);
@@ -234,6 +275,101 @@ export function createSessionService(deps: {
           );
         default:
           return { ...result.response, external_effects_reverted: false };
+      }
+    },
+
+    async decideRecovery(
+      actor: Principal,
+      sessionId: string,
+      input: { idempotencyKey: string; body: RecoveryDecisionRequest },
+    ): Promise<ControlAcceptedResponse> {
+      requireAuthorized(actor, "sessions:recover", actor.ownerId);
+      const result = await controls.decideRecoveryAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        decision: input.body,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected": {
+          const rejection = ADMISSION_REJECTIONS[result.admissionState];
+          throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        case "execution_unconfirmed":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            "The previous execution has not been confirmed gone; decide once its termination is observed",
+          );
+        case "turn_not_unknown":
+          if (result.turnStatus === null) {
+            throw new SessionServiceError("NOT_FOUND", "Resource not found");
+          }
+          throw new SessionServiceError(
+            "REQUEST_STALE",
+            `target_turn_id names a turn whose outcome is ${result.turnStatus}, not unknown`,
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that has no recovery path",
+          );
+        default:
+          return result.response;
+      }
+    },
+
+    async resumeSession(
+      actor: Principal,
+      sessionId: string,
+      input: { idempotencyKey: string; body: ResumeSessionRequest },
+    ): Promise<ControlAcceptedResponse> {
+      requireAuthorized(actor, "sessions:control", actor.ownerId);
+      const result = await controls.resumeAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected":
+          throw new SessionServiceError(
+            ...RESUME_REJECTIONS[result.admissionState],
+          );
+        case "recovery_required":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            result.unconfirmedTurnId === null
+              ? "The previous execution has not been confirmed gone; an operator recovery decision is required"
+              : `Turn ${result.unconfirmedTurnId} has an unknown outcome; an operator recovery decision is required`,
+          );
+        case "checkpoint_unavailable":
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            "No committed checkpoint to resume from; close the session or create a new one",
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that cannot be resumed",
+          );
+        default:
+          return result.response;
       }
     },
 
