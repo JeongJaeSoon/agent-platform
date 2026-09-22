@@ -267,6 +267,9 @@ export const executions = pgTable(
     backend: text().notNull(),
     providerRef: text("provider_ref"),
     launchOperationId: text("launch_operation_id"),
+    // One-time worker bootstrap credential; only the launched container and
+    // the gateway's bootstrapClaim ever read it.
+    bootstrapNonce: text("bootstrap_nonce"),
     generation: integer().notNull(),
     desiredState: text("desired_state").notNull(),
     observedState: text("observed_state").notNull(),
