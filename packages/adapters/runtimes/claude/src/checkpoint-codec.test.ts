@@ -10,16 +10,14 @@ import {
   validateCompatibility,
 } from "./checkpoint-codec.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { digestParts } from "./transcript-digest.ts";
 
 const profileSha256 = "a".repeat(64);
 const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };
 
 function revision(key: string) {
-  return {
-    entryCount: 1,
-    parts: [{ bytes: 42, key, sha256: "b".repeat(64) }],
-    sha256: "c".repeat(64),
-  };
+  const parts = [{ bytes: 42, key, sha256: "b".repeat(64) }];
+  return { entryCount: 1, parts, sha256: digestParts(parts) };
 }
 
 function manifest(
@@ -108,6 +106,30 @@ describe("Claude checkpoint codec", () => {
       decodeCheckpointManifest(
         new TextEncoder().encode(JSON.stringify(extended)),
       ),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
+  test("refuses a manifest whose part list was edited after capture", () => {
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    body.transcripts.root.parts.push({
+      bytes: 1,
+      key: "smuggled.jsonl",
+      sha256: "d".repeat(64),
+    });
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/part list does not match its digest/);
+  });
+
+  test("refuses a subagent revision whose part list was edited", () => {
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    body.transcripts.subagents["agents/reviewer"].parts = [];
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 

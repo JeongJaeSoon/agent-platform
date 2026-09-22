@@ -14,6 +14,7 @@ import {
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import { publicProfile } from "./profile.ts";
+import { digestParts } from "./transcript-digest.ts";
 
 export const CLAUDE_CHECKPOINT_ENGINE = "claude";
 
@@ -158,7 +159,29 @@ export function decodeCheckpointManifest(
         .join("; ")}`,
     );
   }
+  const edited = editedRevision(result.data);
+  if (edited !== undefined) {
+    throw new Error(`Invalid Claude checkpoint manifest: ${edited}`);
+  }
   return result.data;
+}
+
+/**
+ * A revision's digest covers its own part list, so a manifest that names a
+ * different set of parts than the one that was captured is detectable from the
+ * manifest alone. Catching it here is what keeps the pointer from advancing to
+ * a checkpoint that only fails once someone tries to restore it.
+ */
+function editedRevision(manifest: CheckpointManifest): string | undefined {
+  for (const [label, revision] of [
+    ["root", manifest.transcripts.root] as const,
+    ...Object.entries(manifest.transcripts.subagents),
+  ]) {
+    if (digestParts(revision.parts) !== revision.sha256) {
+      return `transcript ${label} part list does not match its digest`;
+    }
+  }
+  return undefined;
 }
 
 export function validateCompatibility(

@@ -8,6 +8,8 @@ import type {
   TranscriptRevision,
 } from "@agent-platform/runtime-core";
 
+import { digestParts } from "./transcript-digest.ts";
+
 export type ClaudeSessionStoreOptions = {
   readonly now?: () => number;
   readonly objects: CheckpointObjectStore;
@@ -43,6 +45,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * its history again on every turn.
    */
   readonly #parts = new Map<string, Promise<Uint8Array>>();
+  /**
+   * One append at a time per transcript, because the tick that orders parts is
+   * chosen from what the previous append wrote. Two appends racing for the
+   * first tick under a key would otherwise pick the same one and fall back to
+   * their random suffixes for order, which is not the order they were called
+   * in — and replay order is conversation order.
+   */
+  readonly #writes = new Map<string, Promise<unknown>>();
   #appendFailures = 0;
 
   constructor(options: ClaudeSessionStoreOptions) {
@@ -62,19 +72,52 @@ export class ClaudeSessionStore implements TranscriptMirror {
 
   async append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void> {
     if (entries.length === 0) return;
-    const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
     const prefix = this.#keyPrefix(key);
+    const queued = (this.#writes.get(prefix) ?? Promise.resolve()).then(
+      () => this.#write(prefix, entries),
+      () => this.#write(prefix, entries),
+    );
+    this.#writes.set(
+      prefix,
+      queued.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    await queued;
+  }
+
+  async #write(prefix: string, entries: TranscriptEntry[]): Promise<void> {
+    const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
     const name = `part-${String(await this.#nextTick(prefix)).padStart(13, "0")}-${randomUUID()}.jsonl`;
     const bytes = new TextEncoder().encode(body);
+    // Create-only, because a part is the evidence a committed manifest points
+    // at: once a checkpoint has pinned its digest, an overwrite is corruption
+    // and the store is the only place that can refuse it outright.
+    let outcome: string;
     try {
-      await this.#objects.put(`${prefix}${name}`, bytes);
+      ({ outcome } = await this.#objects.putImmutable(
+        `${prefix}${name}`,
+        bytes,
+      ));
     } catch (error) {
       this.#appendFailures += 1;
       throw error;
     }
+    if (outcome === "conflict") {
+      this.#appendFailures += 1;
+      throw new Error(`Transcript part already exists: ${prefix}${name}`);
+    }
     this.#parts.set(`${prefix}${name}`, Promise.resolve(bytes));
   }
 
+  /**
+   * Everything the mirror currently holds for this key — which is deliberately
+   * *not* what a resumed run should replay. A session resuming from checkpoint
+   * N must be handed the parts that manifest pinned, via `loadRevision`;
+   * whatever the mirror recorded between N and the crash is not part of the
+   * checkpoint. Wiring that into a resumed SDK run is 94S-203's half.
+   */
   async load(key: TranscriptKey): Promise<TranscriptEntry[] | null> {
     const parts = await this.#listParts(key);
     if (parts.length === 0) return null;
@@ -244,10 +287,6 @@ function parseEntries(bytes: Uint8Array): TranscriptEntry[] {
 function partTick(key: string): number | undefined {
   const match = key.match(/\/part-(\d{13})-/);
   return match?.[1] === undefined ? undefined : Number(match[1]);
-}
-
-function digestParts(parts: readonly ObjectRef[]): string {
-  return sha256(new TextEncoder().encode(JSON.stringify(parts)));
 }
 
 function sha256(bytes: Uint8Array): string {

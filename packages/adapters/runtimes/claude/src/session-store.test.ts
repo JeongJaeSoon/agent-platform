@@ -257,6 +257,41 @@ describe("Claude session store", () => {
     );
   });
 
+  test("replays concurrent appends in the order they were called", async () => {
+    // Both calls race for the very first tick under the key, where nothing is
+    // stored yet to order them by.
+    for (let run = 0; run < 20; run += 1) {
+      const { mirror } = store();
+
+      await Promise.all([
+        mirror.append(root, [entry(`a${run}`, "first")]),
+        mirror.append(root, [entry(`b${run}`, "second")]),
+      ]);
+
+      expect(await mirror.load(root)).toEqual([
+        entry(`a${run}`, "first"),
+        entry(`b${run}`, "second"),
+      ]);
+    }
+  });
+
+  test("keeps subagent appends off the root's write queue", async () => {
+    const { mirror } = store();
+    const subagent = { ...root, subpath: "agents/reviewer" };
+
+    await Promise.all([
+      mirror.append(root, [entry("r1", "root one")]),
+      mirror.append(subagent, [entry("s1", "sub one")]),
+      mirror.append(root, [entry("r2", "root two")]),
+    ]);
+
+    expect(await mirror.load(root)).toEqual([
+      entry("r1", "root one"),
+      entry("r2", "root two"),
+    ]);
+    expect(await mirror.load(subagent)).toEqual([entry("s1", "sub one")]);
+  });
+
   test("never lets two sessions share a key prefix", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const { mirror } = store(objects);
