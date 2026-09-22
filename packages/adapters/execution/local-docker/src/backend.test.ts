@@ -7,6 +7,7 @@ import {
   containerNameFor,
   ENV,
   ExecutionConflictError,
+  ISOLATION_CONTRACT,
   LABELS,
   LocalDockerBackend,
   NO_PROXY_VALUE,
@@ -264,6 +265,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
       [LABELS.installation]: "test-a",
+      [LABELS.isolation]: ISOLATION_CONTRACT,
       [LABELS.managed]: "true",
       [LABELS.operationId]: "op-1",
       [LABELS.sessionId]: intent.sessionId,
@@ -333,6 +335,40 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(docker.containers.size).toBe(1);
   });
 
+  test("a container from an older isolation contract is replaced, not adopted", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    const stale = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(result.providerRef).not.toBe(stale.id);
+    expect(docker.containers.size).toBe(1);
+    const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(fresh?.body.Labels[LABELS.isolation]).toBe(ISOLATION_CONTRACT);
+  });
+
+  test("an older container that is not ours is a conflict, not replaced", async () => {
+    const intent = intentFor();
+    for (const [label, value] of [
+      [LABELS.installation, "someone-else"],
+      [LABELS.operationId, "someone-else"],
+    ] as const) {
+      const body = await createBodyOf(intent);
+      body.Labels[LABELS.isolation] = "1";
+      body.Labels[label] = value;
+      const name = containerNameFor(intent, "test-a");
+      docker.containers.clear();
+      docker.add(name, body);
+      await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+        ExecutionConflictError,
+      );
+      expect(docker.containers.get(name)?.body.Labels[label]).toBe(value);
+    }
+  });
+
   test("a created-but-never-started container is started on the retry", async () => {
     const intent = intentFor();
     docker.add(
@@ -369,6 +405,24 @@ describe("LocalDockerBackend.inspect", () => {
       found: true,
       state: "terminated",
     });
+  });
+
+  test("a container from an older isolation contract is reported stale", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.isolation] = "1";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    expect(await backend.inspect(intent)).toMatchObject({
+      found: true,
+      stale: true,
+      state: "running",
+    });
+  });
+
+  test("a container on the current contract is not stale", async () => {
+    const intent = intentFor();
+    docker.add(containerNameFor(intent, "test-a"), await createBodyOf(intent));
+    expect((await backend.inspect(intent)).stale).toBeUndefined();
   });
 
   test("status mapping covers every Docker state", () => {

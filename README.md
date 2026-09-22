@@ -90,6 +90,10 @@ worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: t
 
 scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
 
+컨테이너에는 만들어질 때의 격리 계약 버전이 `agent-platform.isolation` label로 찍힌다. 실행 중인 컨테이너의 격리는 제어 호스트를 올려도 바뀌지 않으므로, scheduler는 계약이 낮은 컨테이너를 `stale`로 보고 정지·제거한 뒤 저장된 intent로 다시 만든다(`ensureExecution`도 그런 컨테이너는 adopt하지 않는다). 격리 구성이 바뀔 때마다 `ISOLATION_CONTRACT`를 올린다.
+
+같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`뿐 아니라 `EXECUTION_DOCKER_NETWORK`와 egress proxy도 설치마다 따로 두어야 한다. 하나의 internal 네트워크를 공유하면 설치 A의 worker가 설치 B의 worker와 proxy에 직접 닿고, B의 allowlist를 그대로 쓸 수 있다.
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d egress-proxy
 docker network inspect agent-platform-worker \

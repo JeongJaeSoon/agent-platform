@@ -79,7 +79,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     await client.createNetwork({ Internal: true, Name: workerNetwork });
     await client.createNetwork({ Internal: false, Name: outerNetwork });
     await startServer(allowedName, "allowed-upstream");
-    await startServer(deniedName, "denied-upstream");
+    await startServer(deniedName, "denied-upstream", true);
     await startProxy();
   }, 300_000);
 
@@ -98,7 +98,11 @@ integration("worker egress is confined to the proxy allowlist", () => {
   }, 120_000);
 
   /** A one-file HTTP server on the outer network, reachable only by name. */
-  async function startServer(name: string, body: string): Promise<void> {
+  async function startServer(
+    name: string,
+    body: string,
+    publish = false,
+  ): Promise<void> {
     created.push(name);
     await client.createContainer(name, {
       Cmd: [
@@ -114,6 +118,15 @@ integration("worker egress is confined to the proxy allowlist", () => {
         NanoCpus: 250_000_000,
         NetworkMode: outerNetwork,
         PidsLimit: 64,
+        // Deliberately the worst case: bound to every host address, which is
+        // what a carelessly configured dev stack does.
+        ...(publish
+          ? {
+              PortBindings: {
+                "8080/tcp": [{ HostIp: "0.0.0.0", HostPort: "" }],
+              },
+            }
+          : {}),
         ReadonlyRootfs: false,
         RestartPolicy: { Name: "no" },
         SecurityOpt: [],
@@ -124,6 +137,20 @@ integration("worker egress is confined to the proxy allowlist", () => {
       User: "0:0",
     });
     await client.startContainer(name);
+  }
+
+  /** The host port Docker picked for a published container port. */
+  async function publishedPortOf(name: string): Promise<string> {
+    const inspected = (await (
+      await raw("GET", `/containers/${name}/json`)
+    ).json()) as {
+      NetworkSettings: {
+        Ports: Record<string, Array<{ HostPort: string }> | null>;
+      };
+    };
+    const port = inspected.NetworkSettings.Ports["8080/tcp"]?.[0]?.HostPort;
+    if (!port) throw new Error(`${name} published no host port`);
+    return port;
   }
 
   async function startProxy(): Promise<void> {
@@ -247,6 +274,34 @@ integration("worker egress is confined to the proxy allowlist", () => {
 
     const gateway = await probe("nc -w 3 -z host.docker.internal 3000");
     expect(gateway.exitCode).not.toBe(0);
+  }, 180_000);
+
+  test("the network gateway is not a way back to ports published on the host", async () => {
+    // An internal network still has a bridge, and that bridge address is the
+    // host. If the worker could open it, every port the dev stack publishes
+    // on 0.0.0.0 would be one hop away and the proxy would be decoration.
+    const network = await client.inspectNetwork(workerNetwork);
+    const gateway = network?.IPAM?.Config?.[0]?.Gateway;
+    expect(gateway).toBeTruthy();
+    if (!gateway) throw new Error("the worker network has no gateway");
+    const hostPort = await publishedPortOf(deniedName);
+
+    // The publish really works, so the refusal below is not vacuous.
+    const fromHost = await fetch(`http://127.0.0.1:${hostPort}/`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    expect(await fromHost.text()).toContain("denied-upstream");
+
+    const direct = await probe(`nc -w 3 -z ${gateway} ${hostPort}`);
+    expect(direct.exitCode).not.toBe(0);
+    // And the proxy will not carry it either: the gateway is a private
+    // address and no allowlist entry names it.
+    const proxied = await probe(
+      `wget -T 10 -O - http://${gateway}:${hostPort}/ 2>&1`,
+      withProxy(),
+    );
+    expect(proxied.output).toContain("403");
+    expect(proxied.output).not.toContain("denied-upstream");
   }, 180_000);
 
   test("through the proxy an allowlisted destination is reachable", async () => {

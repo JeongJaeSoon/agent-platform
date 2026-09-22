@@ -103,6 +103,8 @@ export type NetworkInspect = {
   Containers: Record<string, { Name: string }> | null;
   Driver: string;
   Id: string;
+  /** The bridge address the host holds inside the network, when it has one. */
+  IPAM?: { Config?: Array<{ Gateway?: string; Subnet?: string }> };
   Internal: boolean;
   Name: string;
 };

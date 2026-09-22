@@ -47,6 +47,8 @@ export type SchedulerRunSummary = {
   reconcileFailed: ExecutionRef[];
   /** Intents re-ensured after the resource was missing or not yet observed. */
   reensured: ExecutionRef[];
+  /** Resources torn down because they predate the current isolation contract. */
+  replaced: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
 };
@@ -90,6 +92,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     reclaimFailed: [],
     reconcileFailed: [],
     reensured: [],
+    replaced: [],
     skipped: false,
     slotLimit,
     terminatedObserved: [],
@@ -143,6 +146,42 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       return;
     }
     const observed = await backend.inspect(ref);
+    if (observed.found && observed.stale && observed.state !== "terminated") {
+      // The resource runs under an isolation contract this host no longer
+      // promises, and an upgrade cannot reach inside a running resource. It
+      // is torn down here and re-created from the stored intent.
+      logger.warn("Execution resource predates the isolation contract", {
+        ...fieldsOf(ref),
+        provider_ref: observed.providerRef,
+        session_id: execution.sessionId,
+        state: observed.state,
+      });
+      let outcome: TerminateExecutionResult;
+      try {
+        outcome = await backend.terminate(ref);
+      } catch (error) {
+        summary.reconcileFailed.push(ref);
+        logger.error("Replacing a stale execution resource failed", {
+          ...fieldsOf(ref),
+          error: messageOf(error),
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+      if (outcome.outcome !== "terminated") {
+        // Left untouched, so the row keeps its slot and the next pass retries.
+        summary.reconcileFailed.push(ref);
+        logger.error("A stale execution resource would not terminate", {
+          ...fieldsOf(ref),
+          outcome: outcome.outcome,
+          session_id: execution.sessionId,
+        });
+        return;
+      }
+      summary.replaced.push(ref);
+      await reensure(execution, unknownObservation(now()), "stale_isolation");
+      return;
+    }
     if (
       observed.found &&
       observed.state !== "terminated" &&
@@ -206,6 +245,15 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     // Row says live but the provider has nothing, or has a resource that was
     // created and never started. The stored intent covers both: ensure is
     // idempotent and starts a pending resource it already owns.
+    await reensure(execution, observed, "missing");
+  }
+
+  async function reensure(
+    execution: ActiveExecution,
+    observed: ExecutionObservation,
+    reason: "missing" | "stale_isolation",
+  ): Promise<void> {
+    const ref = refOf(execution);
     const stored = storedIntentOf(execution);
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
@@ -244,10 +292,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         return;
       }
       summary.reensured.push(ref);
-      logger.warn("Execution resource was missing; re-created from intent", {
+      logger.warn("Execution resource re-created from intent", {
         ...fieldsOf(ref),
         previous_state: execution.observedState,
         provider_ref: ensured.providerRef,
+        reason,
         session_id: execution.sessionId,
       });
     } catch (error) {
@@ -372,6 +421,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reclaim_failed_count: summary.reclaimFailed.length,
     reconcile_failed_count: summary.reconcileFailed.length,
     reensured_count: summary.reensured.length,
+    replaced_count: summary.replaced.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
   });

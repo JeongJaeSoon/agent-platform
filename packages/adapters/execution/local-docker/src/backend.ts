@@ -23,6 +23,8 @@ import {
 export const LABELS = {
   executionId: "agent-platform.session-execution-id",
   generation: "agent-platform.generation",
+  /** Which isolation contract the container was created under. */
+  isolation: "agent-platform.isolation",
   /** Which control host owns the container; two installations may share a daemon. */
   installation: "agent-platform.installation",
   managed: "agent-platform.managed",
@@ -57,6 +59,17 @@ export const ENV = {
 
 /** The worker's own loopback is the only thing worth not proxying. */
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
+
+/**
+ * Bumped whenever the isolation a worker container is created with changes.
+ * A running container that predates the current value keeps whatever it was
+ * created with — an upgrade does not reach inside it — so the scheduler has
+ * to be told to replace it instead of reporting it healthy.
+ *
+ * 1: non-root, read-only rootfs, dropped caps, per-session volume, bridge.
+ * 2: internal worker network and egress proxy, no host-gateway mapping.
+ */
+export const ISOLATION_CONTRACT = "2";
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -145,7 +158,19 @@ export class LocalDockerBackend implements ExecutionBackend {
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
     const existing = await this.client.inspectContainer(name);
-    if (existing) return this.adopt(intent, existing);
+    if (existing && isCurrentContract(existing)) {
+      return this.adopt(intent, existing);
+    }
+    if (existing) {
+      // Same intent, older isolation: adopting it would carry the weaker
+      // container forward, so it is removed and created again. Another
+      // operation's container is still a conflict, never ours to destroy.
+      this.assertSameLaunch(intent, existing);
+      await this.client.stopAndRemoveContainer(
+        existing.Id,
+        this.config.stopTimeoutSeconds,
+      );
+    }
     try {
       await this.client.createContainer(name, this.createBody(intent));
     } catch (error) {
@@ -184,6 +209,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       observedAt,
       providerRef: container.Id,
       state,
+      ...(isCurrentContract(container) ? {} : { stale: true }),
     };
   }
 
@@ -241,6 +267,21 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { outcome: "terminated", providerRef: container.Id };
   }
 
+  /** The container under this name has to be this very launch, or hands off. */
+  private assertSameLaunch(
+    intent: LaunchIntent,
+    container: ContainerInspect,
+  ): void {
+    const operationId = container.Config.Labels?.[LABELS.operationId];
+    const owner = container.Config.Labels?.[LABELS.installation];
+    if (
+      operationId !== intent.operationId ||
+      owner !== this.config.installationId
+    ) {
+      throw new ExecutionConflictError(intent, intent.operationId, operationId);
+    }
+  }
+
   private assertOwned(ref: ExecutionRef, container: ContainerInspect): void {
     const labels = container.Config.Labels ?? {};
     if (
@@ -260,14 +301,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     intent: LaunchIntent,
     container: ContainerInspect,
   ): Promise<EnsureExecutionResult> {
-    const operationId = container.Config.Labels?.[LABELS.operationId];
-    const owner = container.Config.Labels?.[LABELS.installation];
-    if (
-      operationId !== intent.operationId ||
-      owner !== this.config.installationId
-    ) {
-      throw new ExecutionConflictError(intent, intent.operationId, operationId);
-    }
+    this.assertSameLaunch(intent, container);
     let state = stateOf(container.State.Status);
     if (state === "pending") {
       await this.client.startContainer(container.Id);
@@ -340,6 +374,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
         [LABELS.installation]: config.installationId,
+        [LABELS.isolation]: ISOLATION_CONTRACT,
         [LABELS.managed]: "true",
         [LABELS.operationId]: intent.operationId,
         [LABELS.sessionId]: intent.sessionId,
@@ -347,6 +382,10 @@ export class LocalDockerBackend implements ExecutionBackend {
       User: config.user,
     };
   }
+}
+
+function isCurrentContract(container: ContainerInspect): boolean {
+  return container.Config.Labels?.[LABELS.isolation] === ISOLATION_CONTRACT;
 }
 
 /** Docker container status → the platform's execution state. */
