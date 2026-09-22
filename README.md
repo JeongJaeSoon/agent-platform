@@ -146,15 +146,30 @@ Compose의 `apps`·`worker` profile은 아직 없는 Dockerfile을 참조하는 
 
 ## CI에서 실행되는 것
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 먼저 `check`를 실행하고, 성공하면 `integration`과 `spikes`를 **병렬로** 돌린다. 기본 검사 실패·취소 시에는 무거운 서비스 컨테이너를 시작하지 않는다. 성공한 변경의 테스트 범위는 그대로지만, 실패한 변경에서는 통합·spike 진단 결과를 얻으려면 먼저 `check`를 고쳐야 한다. 성공 경로의 대기 시간은 `check` 실행 시간만큼 늘어날 수 있다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 먼저 `check`를 실행하고, 성공하면 `integration`을 돌린다. 기본 검사 실패·취소 시에는 무거운 서비스 컨테이너를 시작하지 않는다. 성공한 변경의 테스트 범위는 그대로지만, 실패한 변경에서는 통합 진단 결과를 얻으려면 먼저 `check`를 고쳐야 한다. 성공 경로의 대기 시간은 `check` 실행 시간만큼 늘어날 수 있다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
 
-세 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다.
+`spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
+
+세 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, `integration` 4분, `spikes` 6분)에 맞춰 10/12/15분으로 좁혔다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 
-`concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소한다. `main` push는 기존처럼 run 단위로 분리해 연속 merge를 모두 검증한다. 수동 실행은 기본적으로 workflow·이벤트·ref·SHA가 같은 진행 중 run을 대체해 실수로 여러 번 실행한 작업의 중첩을 줄인다. 다른 브랜치·다른 SHA·PR·main push를 취소하지 않고, 이미 끝난 run의 재실행까지 막는 것은 아니다.
+`concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소한다. `main` push는 기존처럼 run 단위로 분리해 연속 merge를 모두 검증한다. 수동 실행은 기본적으로 workflow·이벤트·ref·SHA가 같은 진행 중 run을 대체해 실수로 여러 번 실행한 작업의 중첩을 줄인다. 다른 브랜치·다른 SHA·PR·main push를 취소하지 않고, 이미 끝난 run의 재실행까지 막는 것은 아니다. 식이 `inputs.*`가 아니라 `github.event.inputs.*`를 읽는 이유는 API 경유 dispatch가 입력을 문자열로 보내기 때문이다 — 문자열 `"false"`는 truthy라 `!inputs.allow_parallel`이면 기본값이 조용히 "병렬 허용"으로 뒤집힌다.
 
-의도적인 flaky 재현 표본이 필요할 때만 `gh workflow run CI --ref <branch> -f allow_parallel=true`를 사용한다. 이 옵션은 수동 실행을 run별로 분리하므로 표본끼리 취소되지 않지만, 실행 수만큼 분을 소모한다. 표본 개수를 미리 정하고 성공 run을 무제한 재요청하지 않는다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값이 적용된다.
+### 수동 실행 옵션
+
+```bash
+gh workflow run CI --ref <branch>                          # 세 job (spikes 포함)
+gh workflow run CI --ref <branch> -f only=spikes           # spikes만
+gh workflow run CI --ref <branch> -f only=spikes -f samples=25   # flaky 표본 25회
+gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 run을 취소하지 않음
+```
+
+`only`는 그 job 하나만 남기고 나머지를 건너뛴다. flaky 추적처럼 한 job의 결과만 필요한 수동 실행에서 나머지 job 값을 내지 않기 위한 것이다.
+
+`samples`는 spike suite를 **한 job 안에서** N회 반복하고 통과율을 run summary에 표로 남긴다(`.github/scripts/sample-flaky.sh`). dispatch를 N번 하는 것과 달리 checkout·install·LiteLLM 설치를 한 번만 치르고, job당 분 단위 올림도 한 번만 먹는다. 실측으로 spikes job은 setup 64초 + suite 86초였으므로, 표본마다 run을 새로 띄우면 표본당 3분이지만 한 job에 모으면 표본당 1.5분 아래로 떨어진다. 표본 수를 미리 정하고 성공 run을 무제한 재요청하지 않는다.
+
+`allow_parallel=true`는 수동 실행을 run별로 분리하므로 표본끼리 취소되지 않지만, 실행 수만큼 분을 소모한다. `samples`로 해결되는 경우에는 쓰지 않는다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값들이 적용된다.
 
 예산 `$0`과 사용 중지를 유지한다. 포함 분이 소진되어 GitHub가 job을 시작하지 않으면 재시도해도 복구되지 않는다. 한도 초기화 또는 별도로 승인된 runner 대안이 필요하며, CI 최적화는 이미 사용한 분을 되돌리지 않는다.
 
@@ -176,7 +191,14 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 
 재시도 역시 숨기지 않는다 — `::warning` annotation과 run summary에 남으므로 "첫 시도 통과"와 "재시도 후 통과"를 구분할 수 있다. 다만 재시도는 같은 workspace에서 도는 것이라 **독립 재현이 아니다**: 첫 시도가 남긴 LocalStack 객체나 subprocess 때문에 cleanup·idempotency 버그가 두 번째에 우연히 통과할 수 있다. 중단된 경우는 재시도하지 않는다 — 취소된 workflow를 다시 시작하지 않기 위해서다. 판단 근거는 wrapper 자신이 받은 SIGHUP·SIGINT·SIGTERM이며, runner는 step의 진입 프로세스에만 신호를 보내므로 wrapper는 suite를 background로 띄우고 `wait`에서 블록한다(foreground 명령이면 bash가 trap을 그 명령이 끝날 때까지 미룬다). child만 신호를 받은 경우를 위해 exit 129·130·137·143도 함께 본다. `128 이상`을 전부 취소로 보면 스스로 200으로 끝나는 명령이 재시도를 못 받는다. flaky 원인 수정은 별도 티켓이다.
 
-`main` branch protection은 아직 설정되어 있지 않다(`gh api repos/JeongJaeSoon/agent-platform/branches/main/protection` → 404). 켤 때 **`check`와 `integration`을 모두 required로 지정한다.** 재구성 전 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다. `needs`로 건너뛴 job은 GitHub의 required-check 판정에서 통과로 취급될 수 있으므로, 이번 비용 절감 변경 뒤에도 `integration`만 required로 두면 안 된다.
+`main` branch protection은 아직 설정되어 있지 않다(`gh api repos/JeongJaeSoon/agent-platform/branches/main/protection` → 404). 켤 때 **`check`와 `integration`을 모두 required로 지정한다.** 재구성 전 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다.
+
+**건너뛴 job은 GitHub의 required-check 판정에서 성공으로 센다** — 성공 상태는 `success`·`skipped`·`neutral` 셋이다([Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)). 비용 절감을 위해 job을 건너뛰게 만든 이번 변경은 그래서 두 가지 주의를 남긴다.
+
+1. `needs`로 건너뛴 `integration`도 통과로 보이므로 `integration`만 required로 두면 안 된다. `check`도 함께 required여야 `check` 실패가 머지를 막는다.
+2. `only=`를 쓴 수동 실행은 건너뛴 job을 **그 커밋에 성공으로 기록한다.** branch protection을 켠 뒤에는 PR head SHA에 대고 `only=`를 쓰지 않는다. 필요하면 PR을 열기 전 브랜치에서 쓰거나, 검증은 PR 자동 실행에 맡긴다.
+
+반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
 
 ## SDK와 LiteLLM 방향
 
