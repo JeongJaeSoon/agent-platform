@@ -756,13 +756,16 @@ describe("LocalDockerBackend.inspect", () => {
     expect(docker.containers.size).toBe(0);
   });
 
-  test("an image the daemon does not have yet is left to the create", async () => {
-    // 404 here means 404 there; failing early would only change the message.
+  test("an image the daemon does not have refuses the launch", async () => {
+    // Passing the reference through would let a pull that lands between this
+    // 404 and the create launch an image nothing looked at — and an image
+    // declaring a VOLUME brings a writable volume no ceiling covers.
     docker.images.delete("worker:test");
 
-    await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
-      created: true,
-    });
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "is not on this daemon",
+    );
+    expect(docker.containers.size).toBe(0);
   });
 
   test("terminate takes the container's anonymous volumes with it", async () => {

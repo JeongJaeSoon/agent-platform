@@ -690,8 +690,11 @@ export class LocalDockerBackend implements ExecutionBackend {
    * volumes of its own. The read-only rootfs and the bounded mounts are the
    * whole of what a worker may write to — unless its image declares a
    * `VOLUME`, which Docker honours by attaching a writable anonymous volume
-   * outside all of it. Falls back to the reference when the daemon does not
-   * have the image: the create then answers with its own 404.
+   * outside all of it. An image the daemon does not have is refused rather
+   * than passed through: a pull landing between that 404 and the create
+   * would launch an image nothing has looked at, and nothing else in the
+   * launch would notice the anonymous volume it brought. Nothing here pulls,
+   * so a missing image could not have launched anyway.
    */
   private async inspectedImage(reference: string): Promise<string> {
     let inspected: ImageInspect | null;
@@ -699,11 +702,16 @@ export class LocalDockerBackend implements ExecutionBackend {
       inspected = await this.client.inspectImage(reference);
     } catch (error) {
       if (error instanceof DockerApiError && error.status === 404) {
-        return reference;
+        inspected = null;
+      } else {
+        throw error;
       }
-      throw error;
     }
-    if (inspected === null) return reference;
+    if (inspected === null) {
+      throw new Error(
+        `Image ${reference} is not on this daemon; it cannot be inspected for declared volumes`,
+      );
+    }
     const declared = Object.keys(inspected.Config.Volumes ?? {});
     // The workspace path is ours; the image declaring it changes nothing,
     // because the mount spec names a volume for exactly that target.
