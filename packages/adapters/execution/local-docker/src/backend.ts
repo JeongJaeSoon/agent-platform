@@ -138,6 +138,23 @@ export class ExecutionConflictError extends Error {
   }
 }
 
+/**
+ * A container built under an isolation contract this host does not know.
+ * Adopting it would trust a boundary we cannot check, replacing it would
+ * swap it for a weaker one, so the pass refuses it and says so.
+ */
+export class IsolationContractError extends Error {
+  constructor(
+    readonly ref: ExecutionRef,
+    readonly found: string,
+  ) {
+    super(
+      `Container for execution ${ref.executionId} generation ${ref.generation} carries isolation ${found}, newer than this control host's ${ISOLATION_CONTRACT}; roll forward or remove it deliberately`,
+    );
+    this.name = "IsolationContractError";
+  }
+}
+
 export class LocalDockerBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
   private readonly client: DockerClient;
@@ -179,7 +196,15 @@ export class LocalDockerBackend implements ExecutionBackend {
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
     const existing = await this.client.inspectContainer(name);
-    if (existing && isCurrentContract(existing, this.config)) {
+    const verdict =
+      existing === null ? null : contractVerdictOf(existing, this.config);
+    if (existing && verdict === "newer") {
+      throw new IsolationContractError(
+        intent,
+        existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+      );
+    }
+    if (existing && verdict === "current") {
       return this.adopt(intent, existing);
     }
     if (existing) {
@@ -223,6 +248,15 @@ export class LocalDockerBackend implements ExecutionBackend {
     // installation, other generation, other execution) must never be
     // reported as this execution's healthy resource.
     this.assertOwned(ref, container);
+    const verdict = contractVerdictOf(container, this.config);
+    if (verdict === "newer") {
+      // Neither healthy nor ours to replace. Throwing leaves the row live and
+      // the pass non-zero, which is the only honest answer.
+      throw new IsolationContractError(
+        ref,
+        container.Config.Labels?.[LABELS.isolation] ?? "<none>",
+      );
+    }
     const state = stateOf(container.State.Status);
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
@@ -230,7 +264,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       observedAt,
       providerRef: container.Id,
       state,
-      ...(isCurrentContract(container, this.config) ? {} : { stale: true }),
+      ...(verdict === "current" ? {} : { stale: true }),
     };
   }
 
@@ -405,18 +439,21 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 }
 
-function isCurrentContract(
+/**
+ * `newer` is neither: the label says a control host we do not know built it,
+ * and nothing here can tell whether its network and proxy are the ones this
+ * host would demand. Both adopting it and replacing it are wrong.
+ */
+function contractVerdictOf(
   container: ContainerInspect,
   config: LocalDockerBackendConfig,
-): boolean {
+): "current" | "newer" | "stale" {
   const stamp = container.Config.Labels?.[LABELS.isolation];
-  if (stamp === undefined) return false;
+  if (stamp === undefined) return "stale";
   const version = Number(stamp.split(":")[0]);
-  if (!Number.isInteger(version) || version < 1) return false;
-  // A newer control host built this one. Its isolation is at least what this
-  // host promises, so a rollback leaves it alone instead of weakening it.
-  if (version > ISOLATION_CONTRACT) return true;
-  return stamp === isolationStampFor(config);
+  if (!Number.isInteger(version) || version < 1) return "stale";
+  if (version > ISOLATION_CONTRACT) return "newer";
+  return stamp === isolationStampFor(config) ? "current" : "stale";
 }
 
 /** Docker container status → the platform's execution state. */

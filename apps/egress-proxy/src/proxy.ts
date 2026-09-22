@@ -24,6 +24,13 @@ export const DEFAULT_PROXY_PORT = 3128;
 const MAX_HEAD_BYTES = 16 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+/**
+ * The whole of one dispatch: the name lookup plus every connect attempt. It
+ * bounds how long a client can hold its slot, which matters because the slot
+ * is only returned once the dispatch settles — an OS resolver that never
+ * answers would otherwise retire the slot for good.
+ */
+const DEFAULT_DISPATCH_TIMEOUT_MS = 20_000;
 const DEFAULT_HEAD_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_CONNECTIONS = 256;
 const DEFAULT_MAX_CONNECTIONS_PER_CLIENT = 32;
@@ -32,6 +39,8 @@ const MAX_CONNECT_ATTEMPTS = 4;
 
 export type EgressProxyOptions = {
   connectTimeoutMs?: number;
+  /** The budget for one request's lookup and connect attempts together. */
+  dispatchTimeoutMs?: number;
   /** How long a client may take to finish its request head. */
   headTimeoutMs?: number;
   hostname?: string;
@@ -84,6 +93,8 @@ export async function startEgressProxy(
   const maxBuffered = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
   const connectTimeoutMs =
     options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const dispatchTimeoutMs =
+    options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
   const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxPerClient =
@@ -258,11 +269,31 @@ export async function startEgressProxy(
         return;
       }
     }
-    const decision = await decideEgress(
-      options.policy,
-      { host: request.host, port: request.port },
-      resolve,
-    );
+    const expiry = Date.now() + dispatchTimeoutMs;
+    const left = (): number => expiry - Date.now();
+    let decision: Awaited<ReturnType<typeof decideEgress>>;
+    try {
+      // `decideEgress` resolves the name, and a resolver has no deadline of
+      // its own. Without this race a hung lookup holds the slot for ever.
+      decision = await withDeadline(
+        decideEgress(
+          options.policy,
+          { host: request.host, port: request.port },
+          resolve,
+        ),
+        left(),
+        `looking up ${request.host} timed out`,
+      );
+    } catch (error) {
+      if (closed()) return;
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn("Egress lookup timed out", {
+        host: request.host,
+        port: request.port,
+      });
+      reply(socket, 504, reason);
+      return;
+    }
     if (closed()) return;
     if (!decision.allowed) {
       logger.warn("Egress denied", {
@@ -281,9 +312,14 @@ export async function startEgressProxy(
     let upstream: Socket<undefined> | null = null;
     let lastError = "no address to connect to";
     for (const address of candidates) {
+      const budget = Math.min(connectTimeoutMs, left());
+      if (budget <= 0) {
+        lastError = `dispatch deadline of ${dispatchTimeoutMs}ms exceeded`;
+        break;
+      }
       let attempt: Socket<undefined>;
       try {
-        attempt = await connectUpstream(socket, address, request.port);
+        attempt = await connectUpstream(socket, address, request.port, budget);
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
         if (closed()) return;
@@ -338,6 +374,7 @@ export async function startEgressProxy(
     client: Socket<ClientState>,
     address: string,
     port: number,
+    timeoutMs: number,
   ): Promise<Socket<undefined>> {
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
@@ -381,14 +418,30 @@ export async function startEgressProxy(
         pending.then((late) => late.end()).catch(() => undefined);
         reject(
           new Error(
-            `connect to ${address}:${port} timed out after ${connectTimeoutMs}ms`,
+            `connect to ${address}:${port} timed out after ${timeoutMs}ms`,
           ),
         );
-      }, connectTimeoutMs);
+      }, timeoutMs);
       timer.unref();
     });
     // Without the clear, every short-lived request leaves a live timer and
     // its closure registered for the full deadline.
+    return Promise.race([pending, deadline]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+  }
+
+  /** Bounds a promise that has no deadline of its own; the loser is dropped. */
+  function withDeadline<T>(
+    pending: Promise<T>,
+    ms: number,
+    message: string,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), Math.max(0, ms));
+      timer.unref();
+    });
     return Promise.race([pending, deadline]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
     });

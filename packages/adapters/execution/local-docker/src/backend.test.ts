@@ -7,6 +7,7 @@ import {
   containerNameFor,
   ENV,
   ExecutionConflictError,
+  IsolationContractError,
   isolationStampFor,
   LABELS,
   LocalDockerBackend,
@@ -368,18 +369,21 @@ describe("LocalDockerBackend.ensureExecution", () => {
     expect(result.providerRef).not.toBe(stale.id);
   });
 
-  test("a container from a newer contract is left alone, not downgraded", async () => {
-    // A rollback must not tear down what a newer control host built.
+  test("a container from a newer contract is refused, never adopted or replaced", async () => {
+    // A rollback can neither trust a boundary it cannot read nor swap it for
+    // a weaker one, so it refuses and leaves the container standing.
     const intent = intentFor();
     const body = await createBodyOf(intent);
     body.Labels[LABELS.isolation] = "9:0123456789abcdef";
     const newer = docker.add(containerNameFor(intent, "test-a"), body);
 
-    expect(await backend.ensureExecution(intent)).toMatchObject({
-      created: false,
-      providerRef: newer.id,
-    });
-    expect((await backend.inspect(intent)).stale).toBeUndefined();
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+    await expect(backend.inspect(intent)).rejects.toBeInstanceOf(
+      IsolationContractError,
+    );
+    expect(docker.containers.get(newer.name)?.id).toBe(newer.id);
   });
 
   test("an older container that is not ours is a conflict, not replaced", async () => {

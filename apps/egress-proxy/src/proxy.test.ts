@@ -348,6 +348,43 @@ describe("egress proxy", () => {
     }
   }, 30_000);
 
+  test("a name lookup that never answers still gives the slot back", async () => {
+    const stuck = await startEgressProxy({
+      dispatchTimeoutMs: 300,
+      headTimeoutMs: 20_000,
+      logger: silent,
+      maxConnections: 64,
+      maxConnectionsPerClient: 1,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      // The OS resolver can hang; nothing in this process can cancel it.
+      resolve: () => new Promise<string[]>(() => undefined),
+    });
+    try {
+      const first = await connect(stuck.port);
+      first.send(
+        request(`GET http://gateway.test:${upstreamPort}/hang HTTP/1.1`),
+      );
+      expect(await first.waitFor("504")).toContain("timed out");
+      first.close();
+      await Bun.sleep(50);
+
+      // The slot is back although the lookup never answered: a second
+      // request gets its own dispatch instead of the per-client 503.
+      const second = await connect(stuck.port);
+      second.send(
+        request(`GET http://gateway.test:${upstreamPort}/hang HTTP/1.1`),
+      );
+      expect(await second.waitFor("504")).toContain("timed out");
+      second.close();
+    } finally {
+      stuck.stop();
+    }
+  }, 20_000);
+
   test("a dead address does not fail a destination with a live one", async () => {
     const failover = await startEgressProxy({
       connectTimeoutMs: 2_000,
