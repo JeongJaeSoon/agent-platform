@@ -182,6 +182,8 @@ describe("upsert-ci-issue.sh", () => {
       expect(list).toContain("--label ci-missing-push-run");
       expect(list).toContain("--state open");
       expect(list).not.toContain("--search");
+      // A ceiling on what gh fetches; below the real count it hides titles.
+      expect(list).toContain("--limit 1000");
     } finally {
       await body.dispose();
     }

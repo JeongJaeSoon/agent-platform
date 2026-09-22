@@ -51,15 +51,18 @@ gh label create "$label" --force --color D93F0B \
 
 # `gh --jq` takes a bare expression and no `--arg`; the exact-title match goes
 # through jq itself so the title never has to be escaped into a filter.
+# `--limit` is a ceiling on issues fetched, not a page size: gh pages through
+# them itself. 1000 is far above any plausible count of open CI signals, and
+# a lookup that fell short would let a duplicate through.
 matching() {
   local state=$1 pick=$2
   if [ "$by_title" -eq 1 ]; then
     gh issue list --repo "$GH_REPO" --label "$label" --state "$state" \
-      --limit 100 --json number,title \
+      --limit 1000 --json number,title \
       | jq -r --arg title "$title" "[.[] | select(.title == \$title) | .number] | ${pick} // empty"
   else
     gh issue list --repo "$GH_REPO" --label "$label" --state "$state" \
-      --limit 100 --json number,title \
+      --limit 1000 --json number,title \
       | jq -r "[.[].number] | ${pick} // empty"
   fi
 }
