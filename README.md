@@ -88,7 +88,12 @@ worker 컨테이너는 compose가 만드는 `agent-platform-worker`(`internal: t
 
 차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway, gitea)다. 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
-아직 막지 않은 것 둘: (1) 같은 worker 네트워크에 있는 worker끼리의 통신, (2) CONNECT 터널의 실제 TLS SNI — proxy는 요청자가 제시한 hostname을 검사하고 터널을 연 뒤에는 바이트를 그대로 흘리므로, allowlist에 있는 CDN hostname으로 CONNECT한 뒤 같은 edge IP의 다른 SNI를 쓰는 경로가 남는다. 둘 다 후속 티켓이다.
+**이것은 아직 세션 간 격리 경계가 아니다.** 지금 서는 보장은 worker가 *바깥으로* 나갈 때 allowlist를 지난다는 것까지이고, 두 가지가 남아 있다.
+
+1. 같은 worker 네트워크에 붙은 worker끼리는 서로의 열린 포트에 닿는다. 침해된 세션이 옆 세션을 스캔·접속할 수 있다.
+2. CONNECT 터널의 실제 TLS SNI는 검사하지 않는다. proxy는 요청자가 제시한 hostname만 대조하고 터널을 연 뒤에는 바이트를 그대로 흘리므로, allowlist에 있는 CDN hostname으로 CONNECT한 뒤 같은 edge IP의 다른 SNI를 쓰는 경로가 남는다.
+
+둘 다 후속 티켓이다. 서로 신뢰하지 않는 코드를 한 daemon에서 돌려야 하는 배치라면 이 둘이 닫히기 전까지는 다른 수단(설치·세션별 daemon 등)이 필요하다.
 
 scheduler는 pass 전에 daemon에 `EXECUTION_DOCKER_NETWORK`를 조회해 실제로 `Internal`인지 확인하고, 없거나 라우팅 가능한 네트워크면 아무것도 띄우지 않고 종료한다. `bridge`·`default`·`host`·`none`은 allowlist에 넣어도 거부한다.
 
