@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
 import type { ExecutionState } from "@agent-platform/contracts";
-import type {
-  EnsureExecutionResult,
-  ExecutionBackend,
-  ExecutionBackendCapabilities,
-  ExecutionObservation,
-  ExecutionRef,
-  LaunchIntent,
-  ManagedExecution,
-  ManagedWorkspace,
-  TerminateExecutionResult,
-  WorkspaceRemovalResult,
+import {
+  type EnsureExecutionResult,
+  type ExecutionBackend,
+  type ExecutionBackendCapabilities,
+  type ExecutionObservation,
+  type ExecutionRef,
+  type LaunchIntent,
+  type ManagedExecution,
+  type ManagedWorkspace,
+  sessionObjectPrefix,
+  type TerminateExecutionResult,
+  type WorkspaceRemovalResult,
 } from "@agent-platform/platform";
 import {
   type LocalDockerBackendConfig,
@@ -70,6 +71,18 @@ export const ENV = {
   httpsProxyLower: "https_proxy",
   noProxy: "NO_PROXY",
   noProxyLower: "no_proxy",
+  /**
+   * Object store access (94S-244): the same names the control host reads
+   * (`storageConfigFromEnv`), so one env file serves both, plus the prefix
+   * this session owns. The worker confines itself to that prefix; the
+   * credential itself is bucket-wide (see `WorkerObjectStoreAccess`).
+   */
+  objectAccessKeyId: "AWS_ACCESS_KEY_ID",
+  objectBucket: "S3_BUCKET",
+  objectEndpoint: "AWS_ENDPOINT_URL",
+  objectPrefix: "WORKER_OBJECT_PREFIX",
+  objectRegion: "AWS_REGION",
+  objectSecretAccessKey: "AWS_SECRET_ACCESS_KEY",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -83,9 +96,10 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  *
  * 1: non-root, read-only rootfs, dropped caps, per-session volume, bridge.
  * 2: internal worker network and egress proxy, no host-gateway mapping.
- * 3: the workspace volume is created explicitly, under a byte quota.
+ * 3: object store access and the session prefix are part of the boundary.
+ * 4: the workspace volume is created explicitly, under a byte quota.
  */
-export const ISOLATION_CONTRACT = 3;
+export const ISOLATION_CONTRACT = 4;
 
 /**
  * What goes in the label: the contract version and a fingerprint of the
@@ -102,6 +116,15 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     config.tmpfsSizeBytes,
     config.user,
     config.workspaceDir,
+    // Where the worker's objects go is part of its boundary: a container
+    // still pointed at the old bucket or endpoint would keep writing there.
+    // The access key id is in so a rotation retires containers holding the
+    // old one; the secret is not, because a digest of it has no business on
+    // a label and the key id already changes with it.
+    config.objectStore.accessKeyId,
+    config.objectStore.bucket,
+    config.objectStore.endpoint ?? null,
+    config.objectStore.region,
     // A container adopted across a quota change would keep mounting the
     // volume it was created with, whose ceiling cannot be raised or lowered
     // in place. Making it stale forces the replacement through
@@ -461,19 +484,17 @@ export class LocalDockerBackend implements ExecutionBackend {
           this.config.stopTimeoutSeconds,
         );
       }
+      const body = await this.createBody(intent, image, volume);
       try {
         // The credential is minted here and nowhere else: it lives in this
         // one request body, reaches the container as an env var, and is only
         // ever stored as a hash. Adopting an existing container skips this,
         // so a worker that is already running keeps the nonce it was given.
-        await this.client.createContainer(
-          name,
-          await this.createBody(intent, image, volume),
-        );
+        await this.client.createContainer(name, body);
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
-          throw error;
+          throw withoutSecrets(error, body);
         }
         continue;
       }
@@ -894,19 +915,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     const bootstrapNonce = await intent.issueBootstrapNonce();
     return {
       ...(config.command ? { Cmd: config.command } : {}),
-      Env: [
-        `${ENV.bootstrapNonce}=${bootstrapNonce}`,
-        `${ENV.executionGeneration}=${intent.generation}`,
-        `${ENV.executionId}=${intent.executionId}`,
-        `${ENV.gatewayUrl}=${config.gatewayUrl}`,
-        `${ENV.home}=${config.homeDir}`,
-        `${ENV.httpProxy}=${config.egressProxyUrl}`,
-        `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
-        `${ENV.httpsProxy}=${config.egressProxyUrl}`,
-        `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
-        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
-        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
-      ],
+      Env: workerEnvironmentFor(config, intent, bootstrapNonce),
       HostConfig: {
         CapDrop: ["ALL"],
         // No ExtraHosts: `host.docker.internal` would be a route to the
@@ -1000,6 +1009,67 @@ function workspaceVolumeProblem(
     );
   }
   return null;
+}
+
+/**
+ * A daemon error carries the daemon's whole reply in its message, and a
+ * reply to a refused create can quote the request. The scheduler logs that
+ * message, so the two values in the body that must never reach a log — the
+ * bootstrap nonce and the secret access key — are blanked out of it first.
+ */
+function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
+  if (!(error instanceof Error)) return error;
+  const secrets = body.Env.filter(
+    (entry) =>
+      entry.startsWith(`${ENV.bootstrapNonce}=`) ||
+      entry.startsWith(`${ENV.objectSecretAccessKey}=`),
+  ).map((entry) => entry.slice(entry.indexOf("=") + 1));
+  for (const secret of secrets) {
+    if (secret.length === 0) continue;
+    error.message = error.message.split(secret).join("[redacted]");
+    if (error instanceof DockerApiError) {
+      // `body` is a readonly field in the type, not in the object.
+      Object.assign(error, {
+        body: error.body.split(secret).join("[redacted]"),
+      });
+    }
+  }
+  return error;
+}
+
+/**
+ * The whole of what a worker container is told. Exported so the integration
+ * test can hand exactly this to a probe that runs the worker's object-store
+ * module. Nothing here is logged: the nonce and the secret access key live
+ * in this one request body and in the daemon's own inspect output.
+ */
+export function workerEnvironmentFor(
+  config: LocalDockerBackendConfig,
+  intent: Pick<LaunchIntent, "executionId" | "generation" | "sessionId">,
+  bootstrapNonce: string,
+): string[] {
+  const { objectStore } = config;
+  return [
+    `${ENV.bootstrapNonce}=${bootstrapNonce}`,
+    `${ENV.executionGeneration}=${intent.generation}`,
+    `${ENV.executionId}=${intent.executionId}`,
+    `${ENV.gatewayUrl}=${config.gatewayUrl}`,
+    `${ENV.home}=${config.homeDir}`,
+    `${ENV.httpProxy}=${config.egressProxyUrl}`,
+    `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
+    `${ENV.httpsProxy}=${config.egressProxyUrl}`,
+    `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
+    `${ENV.noProxy}=${NO_PROXY_VALUE}`,
+    `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+    `${ENV.objectAccessKeyId}=${objectStore.accessKeyId}`,
+    `${ENV.objectBucket}=${objectStore.bucket}`,
+    ...(objectStore.endpoint === undefined
+      ? []
+      : [`${ENV.objectEndpoint}=${objectStore.endpoint}`]),
+    `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
+    `${ENV.objectRegion}=${objectStore.region}`,
+    `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
+  ];
 }
 
 /**

@@ -69,6 +69,7 @@
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/runtime-claude": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
       },
     },
     "packages/adapters/execution/local-docker": {
@@ -77,6 +78,9 @@
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/platform": "workspace:*",
+      },
+      "devDependencies": {
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude": {

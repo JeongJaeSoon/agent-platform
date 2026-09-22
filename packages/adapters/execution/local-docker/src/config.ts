@@ -40,6 +40,14 @@ export type LocalDockerBackendConfig = {
    */
   installationId: string;
   network: string;
+  /**
+   * Where the worker mirrors transcripts and publishes checkpoints. Handed
+   * to the container as the same `S3_BUCKET`/`AWS_*` variables the control
+   * host reads, plus the session prefix the backend computes per launch.
+   * The endpoint must be on the egress proxy's allowlist or the worker
+   * cannot reach it (`infra/docker-compose.yml`).
+   */
+  objectStore: WorkerObjectStoreAccess;
   /** Deadline for each Docker Engine API call. */
   requestTimeoutMs: number;
   /** Seconds between SIGTERM and SIGKILL on terminate. */
@@ -59,8 +67,27 @@ export type LocalDockerBackendConfig = {
   workspaceQuota: WorkspaceQuota;
 };
 
+export type WorkerObjectStoreAccess = {
+  accessKeyId: string;
+  bucket: string;
+  /** Absent for real AWS; set for LocalStack or another S3-compatible endpoint. */
+  endpoint?: string;
+  region: string;
+  /**
+   * Bucket-wide today: nothing short of an STS session policy can narrow a
+   * credential to one session's prefix, and no deployment here has an
+   * identity provider to mint one. The worker confines itself with a prefix
+   * guard instead (`scopedCheckpointObjectStore`).
+   */
+  secretAccessKey: string;
+};
+
 /** Shaped like the process environment so it can be passed straight through. */
 export type LocalDockerBackendEnvironment = {
+  AWS_ACCESS_KEY_ID?: string | undefined;
+  AWS_ENDPOINT_URL?: string | undefined;
+  AWS_REGION?: string | undefined;
+  AWS_SECRET_ACCESS_KEY?: string | undefined;
   DOCKER_API_VERSION?: string | undefined;
   DOCKER_HOST?: string | undefined;
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
@@ -79,6 +106,7 @@ export type LocalDockerBackendEnvironment = {
   /** `on` (default) or `off`; anything else is a typo, not an opt-out. */
   EXECUTION_WORKSPACE_QUOTA?: string | undefined;
   EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
+  S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
   [key: string]: string | undefined;
 };
@@ -125,6 +153,7 @@ export function localDockerConfigFromEnv(
     installationId:
       environment.EXECUTION_INSTALLATION_ID ?? DEFAULT_INSTALLATION_ID,
     network,
+    objectStore: objectStoreAccessFromEnv(environment),
     requestTimeoutMs:
       environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
         ? DEFAULT_DOCKER_REQUEST_TIMEOUT_MS
@@ -183,6 +212,30 @@ function workspaceQuotaFromEnv(
       1024 *
       1024,
   };
+}
+
+function objectStoreAccessFromEnv(
+  environment: LocalDockerBackendEnvironment,
+): WorkerObjectStoreAccess {
+  const endpoint = environment.AWS_ENDPOINT_URL?.trim();
+  return {
+    accessKeyId: requiredValue(
+      environment.AWS_ACCESS_KEY_ID,
+      "AWS_ACCESS_KEY_ID",
+    ),
+    bucket: requiredValue(environment.S3_BUCKET, "S3_BUCKET"),
+    ...(endpoint ? { endpoint } : {}),
+    region: requiredValue(environment.AWS_REGION, "AWS_REGION"),
+    secretAccessKey: requiredValue(
+      environment.AWS_SECRET_ACCESS_KEY,
+      "AWS_SECRET_ACCESS_KEY",
+    ),
+  };
+}
+
+function requiredValue(value: string | undefined, name: string): string {
+  if (!value || value.trim() === "") throw new Error(`${name} is required`);
+  return value;
 }
 
 /** The invariants the ticket lists for a worker container, checked once. */
@@ -258,6 +311,35 @@ export function validateLocalDockerConfig(
     config.workspaceGcMinAgeMs < 0
   ) {
     throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
+  }
+  const { objectStore } = config;
+  if (objectStore.endpoint !== undefined) {
+    let endpoint: URL;
+    try {
+      endpoint = new URL(objectStore.endpoint);
+    } catch {
+      throw new Error(`AWS_ENDPOINT_URL ${objectStore.endpoint} is not a URL`);
+    }
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http(s):// URL`,
+      );
+    }
+    // The URL is quoted in messages and labels; a credential in it would be too.
+    if (endpoint.username !== "" || endpoint.password !== "") {
+      throw new Error("AWS_ENDPOINT_URL must not carry credentials");
+    }
+  }
+  // Names only in these messages, never the values: they end up in logs.
+  for (const [name, value] of [
+    ["AWS_ACCESS_KEY_ID", objectStore.accessKeyId],
+    ["AWS_REGION", objectStore.region],
+    ["AWS_SECRET_ACCESS_KEY", objectStore.secretAccessKey],
+    ["S3_BUCKET", objectStore.bucket],
+  ] as const) {
+    if (value.trim() === "" || /[\s=]/.test(value)) {
+      throw new Error(`${name} must be a single non-empty token`);
+    }
   }
   return config;
 }

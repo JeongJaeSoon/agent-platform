@@ -17,6 +17,9 @@ const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
 const dockerBackend = join("packages", "adapters", "execution", "local-docker");
 const worker = join("apps", "worker");
+const storage = "@agent-platform/storage";
+/** The one worker file allowed to know objects live in S3 (94S-244). */
+const workerObjectStore = join(worker, "src", "object-store.ts");
 
 type Manifest = {
   dependencies?: Record<string, string>;
@@ -134,6 +137,27 @@ function declaredDependencies(manifest: Manifest): Set<string> {
     ...Object.keys(manifest.optionalDependencies ?? {}),
     ...Object.keys(manifest.peerDependencies ?? {}),
   ]);
+}
+
+/**
+ * Files under `directory`/src that import `name`, other than `allowed`
+ * (relative to `directory`). The worker's storage dependency is confined to
+ * one file so that the turn loop and the runtime adapter keep taking the
+ * object-store port rather than an S3 client.
+ */
+export async function importsOutside(
+  directory: string,
+  name: string,
+  allowed: string,
+): Promise<string[]> {
+  const files = await filesImporting(
+    await sourceFiles(join(directory, "src")),
+    name,
+  );
+  return files
+    .map((file) => relative(directory, file))
+    .filter((file) => file !== allowed)
+    .sort();
 }
 
 export async function escapingRelativeImports(
@@ -350,16 +374,70 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the worker imports runtime-core, the Claude adapter and contracts only", async () => {
+  test("the worker imports runtime-core, the Claude adapter, contracts and storage only", async () => {
     const allowed = new Set([
       "@agent-platform/contracts",
       "@agent-platform/runtime-claude",
       "@agent-platform/runtime-core",
+      storage,
     ]);
     const directory = join(root, worker);
     const declared = [...declaredDependencies(await manifest(directory))];
     const imported = [...(await packageImports(directory))];
     expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
     expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+  });
+
+  test("only the worker's object-store module imports storage", async () => {
+    const directory = join(root, worker);
+    expect(
+      await importsOutside(
+        directory,
+        storage,
+        relative(directory, join(root, workerObjectStore)),
+      ),
+    ).toEqual([]);
+    // The allowance is not vacuous: the module exists and does import it.
+    expect(
+      (await filesImporting([join(root, workerObjectStore)], storage)).map(
+        (f) => relative(root, f),
+      ),
+    ).toEqual([workerObjectStore]);
+  });
+
+  test("the storage-import check catches a second worker file reaching for S3", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      await mkdir(join(fixture, "src"), { recursive: true });
+      await writeFile(
+        join(fixture, "src", "object-store.ts"),
+        `import { createStorageS3Client } from "${storage}";\nexport const c = createStorageS3Client;\n`,
+      );
+      await writeFile(
+        join(fixture, "src", "worker-host.ts"),
+        `import { createCheckpointObjectStore } from '${storage}';\nexport const s = createCheckpointObjectStore;\n`,
+      );
+      await writeFile(
+        join(fixture, "src", "reexport.ts"),
+        `export * from "${storage}/src/s3.ts";\n`,
+      );
+      await writeFile(
+        join(fixture, "src", "lazy.ts"),
+        "export const load = () => import(`" + storage + "`);\n",
+      );
+      await writeFile(
+        join(fixture, "src", "clean.ts"),
+        'import type { CheckpointObjectStore } from "@agent-platform/runtime-core";\nexport type S = CheckpointObjectStore;\n',
+      );
+      expect(
+        await importsOutside(fixture, storage, join("src", "object-store.ts")),
+      ).toEqual([
+        join("src", "lazy.ts"),
+        join("src", "reexport.ts"),
+        join("src", "worker-host.ts"),
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 });

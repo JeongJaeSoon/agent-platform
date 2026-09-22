@@ -40,6 +40,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
 
   const environment = () => ({
     ...process.env,
+    AWS_ACCESS_KEY_ID: "test",
+    AWS_ENDPOINT_URL: "http://localstack:4566",
+    AWS_REGION: "ap-northeast-1",
+    AWS_SECRET_ACCESS_KEY: "test",
     DATABASE_URL: database.url,
     DOCKER_HOST: dockerHost,
     EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
@@ -51,6 +55,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     // The runner's data root is on ext4, so the daemon cannot carry a
     // volume quota; the quota itself is covered by workspace.integration.test.ts.
     EXECUTION_WORKSPACE_QUOTA: "off",
+    S3_BUCKET: "claude-sessions",
     WORKER_CPUS: "0.25",
     WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
     WORKER_IMAGE: IMAGE,

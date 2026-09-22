@@ -60,6 +60,13 @@ integration("workspace volumes against a real daemon", () => {
     homeDir: "/home/worker",
     installationId,
     network: workerNetwork,
+    objectStore: {
+      accessKeyId: "test",
+      bucket: "claude-sessions",
+      endpoint: "http://localstack:4566",
+      region: "ap-northeast-1",
+      secretAccessKey: "test",
+    },
     requestTimeoutMs: 30_000,
     stopTimeoutSeconds: 1,
     tmpfsSizeBytes: 16 * 1024 * 1024,

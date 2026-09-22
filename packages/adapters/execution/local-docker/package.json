@@ -12,5 +12,8 @@
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*"
   }
 }

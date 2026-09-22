@@ -130,6 +130,10 @@ integration(
 
     const environment = () => ({
       ...process.env,
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "test",
       DATABASE_URL: database.url,
       DOCKER_HOST: dockerHost,
       EXECUTION_DOCKER_COMMAND: "bun /workspace/claim.js",
@@ -142,6 +146,7 @@ integration(
       // on a volume and the preflight refuses to start without the opt-out.
       // The ceiling itself is covered by the `workspace-quota` job.
       EXECUTION_WORKSPACE_QUOTA: "off",
+      S3_BUCKET: "claude-sessions",
       WORKER_CPUS: "0.5",
       WORKER_GATEWAY_URL: gatewayUrl,
       WORKER_IMAGE,
