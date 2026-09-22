@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -10,6 +10,10 @@ import {
   createLocalstackBucket,
   type LocalstackBucket,
 } from "@agent-platform/testkit";
+import {
+  asPrintfEscapes,
+  clientHello,
+} from "../../../../../apps/egress-proxy/src/testing/client-hello.ts";
 import {
   ENV,
   LABELS,
@@ -34,6 +38,13 @@ const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
+/**
+ * A real TLS client for the tunnel: curl on OpenSSL, which sends a plain
+ * ClientHello. Bun's own fetch is BoringSSL and sends GREASE ECH, which the
+ * proxy refuses on purpose, so it is the negative case below, not this.
+ */
+const CURL_IMAGE =
+  process.env.EGRESS_CURL_TEST_IMAGE ?? "curlimages/curl:8.11.1";
 /** The same tag CI runs as a service, so the pull is a cache hit there. */
 const LOCALSTACK_IMAGE =
   process.env.LOCALSTACK_TEST_IMAGE ?? "localstack/localstack:3";
@@ -62,6 +73,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const allowedName = `ap-it-allowed-${suffix}`;
   const deniedName = `ap-it-denied-${suffix}`;
   const proxyName = `ap-it-proxy-${suffix}`;
+  const tlsName = `ap-it-tls-${suffix}`;
   const proxyUrl = `http://${proxyName}:3128`;
   const localstackName = `ap-it-localstack-${suffix}`;
   const created: string[] = [];
@@ -102,16 +114,17 @@ integration("worker egress is confined to the proxy allowlist", () => {
 
   beforeAll(async () => {
     await client.version();
-    for (const image of [IMAGE, PROXY_IMAGE, LOCALSTACK_IMAGE]) {
+    for (const image of [IMAGE, PROXY_IMAGE, LOCALSTACK_IMAGE, CURL_IMAGE]) {
       await client.pullImage(image);
     }
     await client.createNetwork({ Internal: true, Name: workerNetwork });
     await client.createNetwork({ Internal: false, Name: outerNetwork });
+    probeDir = await mkdtemp(join(tmpdir(), "ap-object-probe-"));
     await startServer(allowedName, "allowed-upstream");
     await startServer(deniedName, "denied-upstream", true);
+    await startTlsServer();
     await startLocalstack();
     await startProxy();
-    probeDir = await mkdtemp(join(tmpdir(), "ap-object-probe-"));
   }, 300_000);
 
   afterAll(async () => {
@@ -280,12 +293,147 @@ integration("worker egress is confined to the proxy allowlist", () => {
     backend = new LocalDockerBackend(configFor(bucket.bucket), client);
   }
 
+  /**
+   * A TLS upstream on the outer network, so the CONNECT path is exercised
+   * by a real handshake and not only by a hand-written request line. The
+   * certificate is minted on the host with openssl; only the fixture ever
+   * trusts it.
+   */
+  async function startTlsServer(): Promise<void> {
+    const tlsDir = join(probeDir, "tls");
+    await mkdir(tlsDir, { recursive: true });
+    const generate = Bun.spawn(
+      [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        `/CN=${tlsName}`,
+        "-addext",
+        `subjectAltName=DNS:${tlsName}`,
+        "-keyout",
+        join(tlsDir, "key.pem"),
+        "-out",
+        join(tlsDir, "cert.pem"),
+      ],
+      { stderr: "pipe", stdout: "ignore" },
+    );
+    if ((await generate.exited) !== 0) {
+      throw new Error(
+        `openssl could not mint a test certificate:\n${await new Response(generate.stderr).text()}`,
+      );
+    }
+    await writeFile(join(tlsDir, "server.ts"), TLS_SERVER);
+    created.push(tlsName);
+    const response = await raw("POST", `/containers/create?name=${tlsName}`, {
+      Cmd: ["bun", "run", "/tls/server.ts"],
+      HostConfig: {
+        Binds: [`${tlsDir}:/tls:ro`],
+        NetworkMode: outerNetwork,
+      },
+      Image: PROXY_IMAGE,
+    });
+    expect(response.status).toBe(201);
+    await client.startContainer(tlsName);
+    const deadline = Date.now() + 90_000;
+    while (!(await logsOf(tlsName)).includes("tls listening")) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `TLS upstream never came up; logs were:\n${await logsOf(tlsName)}`,
+        );
+      }
+      await Bun.sleep(500);
+    }
+  }
+
+  /** curl on the worker network, through the proxy, with the fixture's CA. */
+  async function curlProbe(url: string): Promise<{
+    exitCode: number;
+    output: string;
+  }> {
+    const name = `ap-it-curl-probe-${crypto.randomUUID().slice(0, 8)}`;
+    await raw("POST", `/containers/create?name=${name}`, {
+      Cmd: [
+        "curl",
+        "-sS",
+        "--max-time",
+        "20",
+        "--proxy",
+        proxyUrl,
+        "--cacert",
+        "/tls/cert.pem",
+        url,
+      ],
+      HostConfig: {
+        Binds: [`${join(probeDir, "tls")}:/tls:ro`],
+        NetworkMode: workerNetwork,
+      },
+      Image: CURL_IMAGE,
+      Tty: true,
+    });
+    try {
+      await client.startContainer(name);
+      const waited = (await (
+        await raw("POST", `/containers/${name}/wait`)
+      ).json()) as { StatusCode: number };
+      return { exitCode: waited.StatusCode, output: await logsOf(name) };
+    } finally {
+      await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Bun's fetch on the worker network, told to use the proxy: a BoringSSL
+   * client, whose ClientHello carries GREASE ECH.
+   */
+  async function bunFetchProbe(url: string): Promise<{
+    exitCode: number;
+    output: string;
+  }> {
+    const name = `ap-it-tls-probe-${crypto.randomUUID().slice(0, 8)}`;
+    const script = join(probeDir, `${name}.ts`);
+    await writeFile(
+      script,
+      `const response = await fetch(${JSON.stringify(url)}, {
+  proxy: ${JSON.stringify(proxyUrl)},
+  tls: { rejectUnauthorized: false },
+});
+console.log("TLS " + response.status + " " + (await response.text()));
+`,
+    );
+    await raw("POST", `/containers/create?name=${name}`, {
+      Cmd: ["bun", "run", "/probe/probe.ts"],
+      HostConfig: {
+        Binds: [`${script}:/probe/probe.ts:ro`],
+        NetworkMode: workerNetwork,
+      },
+      Image: PROXY_IMAGE,
+      Tty: true,
+    });
+    try {
+      await client.startContainer(name);
+      const waited = (await (
+        await raw("POST", `/containers/${name}/wait`)
+      ).json()) as { StatusCode: number };
+      return { exitCode: waited.StatusCode, output: await logsOf(name) };
+    } finally {
+      await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
+    }
+  }
+
   async function startProxy(): Promise<void> {
     created.push(proxyName);
     const response = await raw("POST", `/containers/create?name=${proxyName}`, {
       Cmd: ["bun", "run", "/app/src/main.ts"],
       Env: [
-        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566`,
+        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566,${tlsName}:8443`,
         "EGRESS_PROXY_PORT=3128",
       ],
       HostConfig: {
@@ -469,6 +617,47 @@ integration("worker egress is confined to the proxy allowlist", () => {
     expect((await connect("169.254.169.254:80")).output).toContain("403");
   }, 240_000);
 
+  test("a real TLS client handshakes through the tunnel when its server name is the authority", async () => {
+    // Verified against the fixture CA, so the tunnel carried a genuine
+    // handshake with the upstream and not merely bytes.
+    const result = await curlProbe(`https://${tlsName}:8443/`);
+    expect(result.output).toContain("tls-upstream");
+    expect(result.exitCode).toBe(0);
+    expect(await logsOf(tlsName)).toContain(`served ${tlsName}:8443`);
+  }, 240_000);
+
+  test("a client that sends GREASE ECH is refused, Bun's own fetch included", async () => {
+    // Measured on Bun 1.3.x: fetch and node:https send encrypted_client_hello
+    // on every hello. The proxy cannot tell GREASE from real ECH, so it is
+    // refused, and this pins that consequence where a runtime upgrade would
+    // change it.
+    const before = await logsOf(proxyName);
+    const result = await bunFetchProbe(`https://${tlsName}:8443/`);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).not.toContain("tls-upstream");
+    const after = (await logsOf(proxyName)).slice(before.length);
+    expect(after).toContain("encrypted_client_hello");
+  }, 240_000);
+
+  test("a tunnel to an allowlisted authority is cut when the handshake names another host", async () => {
+    // busybox has no TLS client, so the ClientHello is spelled out for
+    // printf: the same bytes a client would send, with the server name of
+    // a host the allowlist never judged.
+    const hello = asPrintfEscapes(clientHello({ serverNames: [deniedName] }));
+    const before = await logsOf(proxyName);
+    const result = await probe(
+      `{ printf 'CONNECT ${tlsName}:8443 HTTP/1.1\\r\\nhost: ${tlsName}:8443\\r\\n\\r\\n'; sleep 1; printf '${hello}'; sleep 3; } | nc ${proxyName} 3128`,
+    );
+    expect(result.output).toContain("200 Connection Established");
+    const after = (await logsOf(proxyName)).slice(before.length);
+    expect(after).toContain("failed the gate");
+    expect(after).toContain(
+      `server name ${deniedName} is not the CONNECT authority ${tlsName}`,
+    );
+    // And the TLS upstream never heard from that client at all.
+    expect(await logsOf(tlsName)).not.toContain(deniedName);
+  }, 240_000);
+
   test("through the proxy the worker's object store reaches its session prefix and nothing else", async () => {
     const sessionId = crypto.randomUUID();
     const result = await objectProbe(workerEnv(sessionId));
@@ -545,6 +734,19 @@ integration("worker egress is confined to the proxy allowlist", () => {
     expect(JSON.stringify(inspected?.HostConfig)).not.toContain("host-gateway");
   }, 180_000);
 });
+
+/** Answers one line over TLS; written to the fixture directory at run time. */
+const TLS_SERVER = `
+Bun.serve({
+  port: 8443,
+  tls: { cert: Bun.file("/tls/cert.pem"), key: Bun.file("/tls/key.pem") },
+  fetch: (request) => {
+    console.log("served " + new URL(request.url).host);
+    return new Response("tls-upstream");
+  },
+});
+console.log("tls listening");
+`;
 
 /**
  * Everything the worker's store must do, from inside the container, reported

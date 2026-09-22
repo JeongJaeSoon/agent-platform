@@ -376,6 +376,42 @@ integration("session terminate on PostgreSQL", () => {
     ).toEqual({ status: 409, code: "STALE_EPOCH" });
   });
 
+  test("terminate cancels a pending replacement so the kill's exit is confirmable (94S-220)", async () => {
+    const partition = `replace-${crypto.randomUUID()}`;
+    const session = await queuedSession(partition);
+    const l = await launch(partition, session.session_id);
+    // The scheduler decided to rebuild this unclaimed launch.
+    await db
+      .update(workerLaunches)
+      .set({ replacementReason: "stale_isolation", replacementCount: 1 })
+      .where(eq(workerLaunches.executionId, l.executionId));
+
+    const before = await sessionRow(session.session_id);
+    const result = await terminate(session, before.revision);
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect(result.response.receipt_status).toBe("accepted");
+    const [launchRow] = await db
+      .select({
+        replacementCount: workerLaunches.replacementCount,
+        replacementReason: workerLaunches.replacementReason,
+      })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    expect(launchRow).toEqual({ replacementCount: 1, replacementReason: null });
+
+    // Without the cancellation confirmExecutionGone would refuse this.
+    expect(await gateway.confirmExecutionGone(l.executionId)).toEqual({
+      sessionReleased: true,
+      slotReleased: true,
+    });
+    expect((await sessionRow(session.session_id)).admissionState).toBe(
+      "stopped",
+    );
+    expect((await receiptRow(result.response.receipt_id)).status).toBe(
+      "succeeded",
+    );
+  });
+
   test("execution confirmed gone with a safe terminal: session stopped, receipt succeeded", async () => {
     const { session, launch: l, claimed } = await bound("safe");
     await deliver(claimed);

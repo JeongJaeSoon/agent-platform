@@ -190,6 +190,18 @@ describe("gitBundleOffers", () => {
     });
   });
 
+  test("refuses a filtered bundle, whose pack promises objects instead of carrying them", () => {
+    const text = `# v3 git bundle\n@object-format=sha1\n@filter=blob:none\n${"c".repeat(40)} refs/heads/main\n\nPACK`;
+
+    expect(
+      gitBundleOffers(new TextEncoder().encode(text), "c".repeat(40)),
+    ).toEqual({
+      status: "unusable",
+      reason:
+        "git bundle is filtered (filter=blob:none) and omits objects a restore needs",
+    });
+  });
+
   test("refuses a bundle whose packfile was truncated in transit", async () => {
     const { directory, shas } = await repository(2);
     const whole = await bundle(directory, ["main"]);

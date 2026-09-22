@@ -19,6 +19,7 @@ import {
   receipts,
   sessions,
   turns,
+  workerLaunches,
 } from "./schema.ts";
 
 const TERMINATE = "terminate";
@@ -145,7 +146,7 @@ export async function expireOverdueTerminations(
 
 export function createPostgresSessionControl(db: Database): SessionControl {
   return {
-    terminateAtomic(
+    async terminateAtomic(
       input: TerminateSessionInput,
     ): Promise<TerminateSessionResult> {
       const sessionId = input.sessionId.toLowerCase();
@@ -156,7 +157,23 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         key: input.idempotencyKey,
       };
       const startedAt = Date.now();
-      return db.transaction(async (tx) => {
+      // Lock order is launch, then session, as confirmExecutionGone takes
+      // them. The launch is known only from the session row, so it is read
+      // unlocked first; if the binding moved while the launch lock was
+      // taken, the transaction is started over rather than locking the new
+      // launch out of order.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          return await db.transaction((tx) => terminateIn(tx, attempt));
+        } catch (error) {
+          if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
+        }
+      }
+
+      async function terminateIn(
+        tx: Database,
+        attempt: number,
+      ): Promise<TerminateSessionResult> {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -174,6 +191,24 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           };
         }
 
+        const [peek] = await tx
+          .select({ executionId: sessions.executionId })
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, sessionId),
+              eq(sessions.ownerId, scope.principal),
+            ),
+          )
+          .limit(1);
+        if (peek?.executionId) {
+          await tx
+            .select({ executionId: workerLaunches.executionId })
+            .from(workerLaunches)
+            .where(eq(workerLaunches.executionId, peek.executionId))
+            .limit(1)
+            .for("update");
+        }
         // The session row lock serializes this against every other control
         // and against the gateway paths, which lock the session before the
         // attempt; no attempt row is locked here, so the order holds.
@@ -189,6 +224,9 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           .limit(1)
           .for("update");
         if (!session) return { outcome: "not_found" };
+        if (session.executionId !== (peek?.executionId ?? null)) {
+          throw new BindingMoved(sessionId, attempt);
+        }
         // Waiting for the session lock is real time; an append that held it
         // committed rows stamped after the caller read its clock, and this
         // transaction's stamps must not fall before them. Same rule as the
@@ -282,6 +320,17 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 .where(eq(executions.id, session.executionId))
                 .returning({ id: executions.id });
         const pendingKill = session.executionId !== null;
+        if (session.executionId !== null) {
+          // 94S-220: a launch the scheduler meant to rebuild would otherwise
+          // be rebuilt after the kill, and confirmExecutionGone would refuse
+          // the exit as "the rebuild in progress". The intent is cancelled
+          // under the launch row lock taken above; replacement_count is the
+          // scheduler's CAS and stays as it is.
+          await tx
+            .update(workerLaunches)
+            .set({ replacementReason: null })
+            .where(eq(workerLaunches.executionId, session.executionId));
+        }
         if (pendingKill && outbox.length !== 1) {
           // A bound session without its executions row is a broken
           // invariant, not evidence that nothing is running.
@@ -345,7 +394,15 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           receiptId,
         });
         return { outcome: "accepted", response };
-      });
+      }
     },
   };
+}
+
+class BindingMoved extends Error {
+  constructor(sessionId: string, attempt: number) {
+    super(
+      `Session ${sessionId} changed its execution while terminate attempt ${attempt} waited for the launch lock`,
+    );
+  }
 }

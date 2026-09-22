@@ -129,6 +129,18 @@ export function gitBundleOffers(
       reason: `git bundle uses object format ${objectFormat}`,
     };
   }
+  // A filtered (partial-clone) bundle carries promises in place of objects
+  // and expects a promisor remote to fill them in. A checkpoint restores
+  // offline, so those objects would simply be missing at checkout.
+  const filter = header.capabilities.find((capability) =>
+    capability.startsWith("filter="),
+  );
+  if (filter !== undefined) {
+    return {
+      status: "unusable",
+      reason: `git bundle is filtered (${filter}) and omits objects a restore needs`,
+    };
+  }
   if (header.prerequisites.length > 0) {
     return {
       status: "unusable",

@@ -7,6 +7,7 @@ import type {
   ActiveExecution,
   ExecutionObservation,
   ExecutionRef,
+  ReplaceReason,
   ReserveLaunchInput,
   SchedulerDemand,
   SchedulerStore,
@@ -292,6 +293,48 @@ export function createPostgresSchedulerStore(
       return revoked.length === 1;
     },
 
+    async requestReplacement(
+      ref: ExecutionRef,
+      reason: ReplaceReason,
+      expectedCount: number,
+    ): Promise<number | null> {
+      // The same guard as issuing a credential: a launch that bound a worker
+      // or gave its slot back has nothing to rebuild, and saying so here is
+      // what stops the caller tearing its resource down. Clearing the hash
+      // is what shuts the door (see `revokeBootstrapNonce`): a claim commits
+      // strictly before this row lock or finds nothing to claim after it.
+      const [row] = await db
+        .update(workerLaunches)
+        .set({
+          nonceHash: null,
+          replacementCount: sql`${workerLaunches.replacementCount} + 1`,
+          replacementReason: reason,
+        })
+        .where(
+          and(
+            eq(workerLaunches.executionId, ref.executionId),
+            eq(workerLaunches.generation, ref.generation),
+            isNull(workerLaunches.claimedAttemptId),
+            holdsSlot(),
+            eq(workerLaunches.replacementCount, expectedCount),
+          ),
+        )
+        .returning({ count: workerLaunches.replacementCount });
+      return row?.count ?? null;
+    },
+
+    async settleReplacement(ref: ExecutionRef): Promise<void> {
+      await db
+        .update(workerLaunches)
+        .set({ replacementReason: null })
+        .where(
+          and(
+            eq(workerLaunches.executionId, ref.executionId),
+            eq(workerLaunches.generation, ref.generation),
+          ),
+        );
+    },
+
     async listActiveExecutions(backend): Promise<ActiveExecution[]> {
       const rows = await db
         .select({
@@ -305,6 +348,8 @@ export function createPostgresSchedulerStore(
           observedState: executions.observedState,
           operationId: executions.launchOperationId,
           providerRef: executions.providerRef,
+          replacementCount: workerLaunches.replacementCount,
+          replacementReason: workerLaunches.replacementReason,
           sessionId: executions.sessionId,
         })
         .from(workerLaunches)
@@ -328,6 +373,11 @@ export function createPostgresSchedulerStore(
         observedState: observedStateOf(row.observedState),
         operationId: row.operationId,
         providerRef: row.providerRef,
+        pendingReplacement:
+          row.replacementReason === null
+            ? null
+            : replaceReasonOf(row.replacementReason),
+        replacementCount: row.replacementCount,
         sessionId: row.sessionId,
       }));
     },
@@ -444,6 +494,20 @@ const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([
   "terminated",
   "unknown",
 ]);
+
+const REPLACE_REASONS = new Set<ReplaceReason>([
+  "nonce_expired",
+  "stale_isolation",
+]);
+
+function replaceReasonOf(value: string): ReplaceReason {
+  if (REPLACE_REASONS.has(value as ReplaceReason)) {
+    return value as ReplaceReason;
+  }
+  throw new Error(
+    `worker_launches.replacement_reason holds unknown value ${value}`,
+  );
+}
 
 function backendKindOf(value: string): ExecutionBackendKind {
   const parsed = executionBackendSchema.safeParse(value);

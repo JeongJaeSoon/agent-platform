@@ -3,6 +3,10 @@ import type { TCPSocketListener } from "bun";
 import { createProxyLogger } from "./logger.ts";
 import type { EgressResolver } from "./policy.ts";
 import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
+import {
+  clientHello,
+  EXTENSION_ENCRYPTED_CLIENT_HELLO,
+} from "./testing/client-hello.ts";
 
 /**
  * The proxy against real sockets, with only DNS faked: the policy has to
@@ -32,6 +36,9 @@ describe("egress proxy", () => {
   let upstream: Bun.Server<undefined>;
   let upstreamPort = 0;
   let echo: TCPSocketListener<EchoState>;
+  /** Every byte the sink upstream ever received, across connections. */
+  let sunk = 0;
+  let sink: TCPSocketListener<undefined>;
   let proxy: EgressProxyServer;
   const silent = createProxyLogger("error", () => undefined);
 
@@ -39,6 +46,9 @@ describe("egress proxy", () => {
     switch (host) {
       case "gateway.test":
       case "tunnel.test":
+      case "sink.test":
+      // The OS resolver answers an address literal with itself.
+      case "127.0.0.1":
         return ["127.0.0.1"];
       case "metadata.test":
         return ["169.254.169.254"];
@@ -83,6 +93,16 @@ describe("egress proxy", () => {
         },
       },
     });
+    // Counts what arrives so a test can show that nothing did.
+    sink = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(_socket, chunk) {
+          sunk += chunk.byteLength;
+        },
+      },
+    });
     proxy = await startEgressProxy({
       logger: silent,
       policy: {
@@ -90,6 +110,8 @@ describe("egress proxy", () => {
         allowPrivate: [
           { host: "gateway.test", port: upstreamPort },
           { host: "tunnel.test", port: echo.port },
+          { host: "sink.test", port: sink.port },
+          { host: "127.0.0.1", port: echo.port },
           { host: "metadata.test", port: 80 },
         ],
       },
@@ -101,6 +123,7 @@ describe("egress proxy", () => {
   afterAll(async () => {
     proxy.stop();
     echo.stop(true);
+    sink.stop(true);
     await upstream.stop(true);
   });
 
@@ -146,12 +169,16 @@ describe("egress proxy", () => {
     talk.close();
   });
 
-  test("CONNECT to an allowlisted destination tunnels raw bytes", async () => {
+  test("CONNECT tunnels bytes once the ClientHello names the authority", async () => {
     const talk = await connect(proxy.port);
     talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
     expect(await talk.waitFor("200 Connection Established")).toContain(
       "HTTP/1.1 200",
     );
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    talk.sendBytes(hello);
+    // The echo returns the hello itself, so the tunnel is open both ways.
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
     talk.send("ping-through-the-tunnel");
     expect(await talk.waitFor("ping-through-the-tunnel")).toContain(
       "ping-through-the-tunnel",
@@ -159,15 +186,206 @@ describe("egress proxy", () => {
     talk.close();
   });
 
-  test("bytes pipelined behind CONNECT are not lost", async () => {
+  test("bytes pipelined behind CONNECT go through the same gate", async () => {
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
     const talk = await connect(proxy.port);
-    talk.send(
-      request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`) + "early-bytes",
+    talk.sendBytes(
+      concatBytes(
+        new TextEncoder().encode(
+          request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`),
+        ),
+        concatBytes(hello, new TextEncoder().encode("early-bytes")),
+      ),
     );
     expect(await talk.waitFor("early-bytes")).toContain(
       "200 Connection Established",
     );
     talk.close();
+
+    // The same pipelining with the wrong name is the same refusal.
+    const before = sunk;
+    const evil = await connect(proxy.port);
+    evil.sendBytes(
+      concatBytes(
+        new TextEncoder().encode(
+          request(`CONNECT sink.test:${sink.port} HTTP/1.1`),
+        ),
+        clientHello({ serverNames: ["evil.test"] }),
+      ),
+    );
+    expect(await waitFor(() => evil.isClosed(), 5_000)).toBe(true);
+    expect(sunk).toBe(before);
+  });
+
+  test("a ClientHello for another name closes the tunnel before any byte crosses", async () => {
+    const before = sunk;
+    const warnings: string[] = [];
+    const proxyWithLog = await startEgressProxy({
+      logger: createProxyLogger("warn", (line) => warnings.push(line)),
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "sink.test", port: sink.port }],
+      },
+      port: 0,
+      resolve,
+    });
+    try {
+      const talk = await connect(proxyWithLog.port);
+      talk.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+      await talk.waitFor("200 Connection Established");
+      talk.sendBytes(clientHello({ serverNames: ["evil.test"] }));
+      expect(await waitFor(() => talk.isClosed(), 5_000)).toBe(true);
+      expect(sunk).toBe(before);
+      expect(warnings.join("\n")).toContain("evil.test");
+    } finally {
+      proxyWithLog.stop();
+    }
+  });
+
+  test("the server name is compared after the same normalisation as the authority", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ serverNames: ["Tunnel.TEST"] });
+    talk.sendBytes(hello);
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
+    talk.close();
+  });
+
+  test.each([
+    ["no server name", clientHello()],
+    [
+      "encrypted_client_hello",
+      clientHello({
+        extensions: [
+          {
+            data: Uint8Array.from([1]),
+            type: EXTENSION_ENCRYPTED_CLIENT_HELLO,
+          },
+        ],
+        serverNames: ["sink.test"],
+      }),
+    ],
+    [
+      "a first record that is not a handshake",
+      new TextEncoder().encode("GET / HTTP/1.1\r\n\r\n"),
+    ],
+    [
+      "a ClientHello that never completes within 16 KiB",
+      // A record header promising more than the cap, followed by filler.
+      concatBytes(
+        Uint8Array.from([22, 3, 1, 0x3f, 0xff, 1, 0x00, 0x3f, 0xfb]),
+        new Uint8Array(17 * 1024),
+      ),
+    ],
+  ])("a tunnel whose first bytes are %s is dropped", async (_label, bytes) => {
+    const before = sunk;
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    talk.sendBytes(bytes);
+    expect(await waitFor(() => talk.isClosed(), 5_000)).toBe(true);
+    expect(sunk).toBe(before);
+  });
+
+  test("a ClientHello dripped one byte at a time still passes, and the cap still holds", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    for (let at = 0; at < hello.byteLength; at += 1) {
+      talk.sendBytes(hello.subarray(at, at + 1));
+    }
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
+    talk.close();
+
+    // The same drip of a record that never completes is cut at the cap, so
+    // the per-byte work is bounded by 16 KiB and not by the client's patience.
+    const before = sunk;
+    const drip = await connect(proxy.port);
+    drip.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+    await drip.waitFor("200 Connection Established");
+    const never = concatBytes(
+      Uint8Array.from([22, 3, 1, 0x3f, 0xff, 1, 0x00, 0x3f, 0xfb]),
+      new Uint8Array(17 * 1024),
+    );
+    const startedAt = Date.now();
+    for (let at = 0; at < never.byteLength && !drip.isClosed(); at += 64) {
+      drip.sendBytes(never.subarray(at, at + 64));
+    }
+    expect(await waitFor(() => drip.isClosed(), 5_000)).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(sunk).toBe(before);
+  }, 20_000);
+
+  test("early data coalesced behind a small ClientHello does not trip the cap", async () => {
+    // TLS 1.3 0-RTT, or simply a fast client, can put application records
+    // in the same segment as the hello. The cap is on the hello, not on the
+    // segment, so all of it goes through once the hello passes.
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    const trailing = new Uint8Array(20 * 1024).fill(0x17);
+    talk.sendBytes(concatBytes(hello, trailing));
+    const received = await talk.waitForBytes(
+      HEAD_200.length + hello.byteLength + trailing.byteLength,
+      10_000,
+    );
+    expect(received).toBe(
+      HEAD_200.length + hello.byteLength + trailing.byteLength,
+    );
+    talk.close();
+  }, 20_000);
+
+  test("a ClientHello split across records and segments still passes", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello({ recordSize: 9, serverNames: ["tunnel.test"] });
+    for (let at = 0; at < hello.byteLength; at += 5) {
+      talk.sendBytes(hello.subarray(at, at + 5));
+      await Bun.sleep(2);
+    }
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
+    talk.close();
+  });
+
+  test("a CONNECT to an address literal takes a hello without a name and not one with", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(request(`CONNECT 127.0.0.1:${echo.port} HTTP/1.1`));
+    await talk.waitFor("200 Connection Established");
+    const hello = clientHello();
+    talk.sendBytes(hello);
+    await talk.waitForBytes(HEAD_200.length + hello.byteLength);
+    talk.close();
+
+    const named = await connect(proxy.port);
+    named.send(request(`CONNECT 127.0.0.1:${echo.port} HTTP/1.1`));
+    await named.waitFor("200 Connection Established");
+    named.sendBytes(clientHello({ serverNames: ["127.0.0.1"] }));
+    expect(await waitFor(() => named.isClosed(), 5_000)).toBe(true);
+  });
+
+  test("a client that takes the tunnel and never speaks is dropped", async () => {
+    const strict = await startEgressProxy({
+      handshakeTimeoutMs: 200,
+      logger: silent,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "sink.test", port: sink.port }],
+      },
+      port: 0,
+      resolve,
+    });
+    try {
+      const talk = await connect(strict.port);
+      talk.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+      await talk.waitFor("200 Connection Established");
+      expect(await waitFor(() => talk.isClosed(), 5_000)).toBe(true);
+    } finally {
+      strict.stop();
+    }
   });
 
   test("origin-form is only answered for /healthz", async () => {
@@ -304,7 +522,11 @@ describe("egress proxy", () => {
     const talk = await connect(proxy.port);
     talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
     await talk.waitFor("200 Connection Established");
-    const handshake = talk.byteCount();
+    const hello = clientHello({ serverNames: ["tunnel.test"] });
+    talk.sendBytes(hello);
+    const handshake = await talk.waitForBytes(
+      HEAD_200.length + hello.byteLength,
+    );
     const payload = "b".repeat(2 * 1024 * 1024);
     talk.send(payload);
     const received = await talk.waitForBytes(
@@ -496,6 +718,7 @@ describe("egress proxy", () => {
       expect(
         await talk.waitFor("200 Connection Established", 10_000),
       ).toContain("200");
+      talk.sendBytes(clientHello({ serverNames: ["tunnel.test"] }));
       talk.send("before");
       expect(await talk.waitFor("before", 10_000)).toContain("before");
 
@@ -546,6 +769,8 @@ describe("egress proxy", () => {
   });
 });
 
+const HEAD_200 = "HTTP/1.1 200 Connection Established\r\n\r\n";
+
 function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   const out = new Uint8Array(left.byteLength + right.byteLength);
   out.set(left, 0);
@@ -574,6 +799,7 @@ type Conversation = {
   close(): void;
   isClosed(): boolean;
   send(text: string): void;
+  sendBytes(bytes: Uint8Array): void;
   waitForBody(count: number, timeoutMs?: number): Promise<number>;
   /** Stop draining without closing — a client the proxy has to give up on. */
   stopReading(): void;
@@ -636,6 +862,10 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
       },
     },
   });
+  const sendBytes = (encoded: Uint8Array): void => {
+    outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
+    drainOutbox(socket);
+  };
   return {
     byteCount(): number {
       return bytes;
@@ -647,10 +877,9 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
       return closed;
     },
     send(text: string): void {
-      const encoded = new TextEncoder().encode(text);
-      outbox = outbox === null ? encoded : concatBytes(outbox, encoded);
-      drainOutbox(socket);
+      sendBytes(new TextEncoder().encode(text));
     },
+    sendBytes,
     stopReading(): void {
       // Untyped in bun-types; see the note on `reader` in proxy.ts.
       (socket as unknown as { pause(): boolean }).pause();

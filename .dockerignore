@@ -1,0 +1,20 @@
+# The build context is the repository root (workspace install needs every
+# package.json and the lockfile). Keep out what no image runs.
+.git
+.github
+node_modules
+**/node_modules
+**/*.tsbuildinfo
+docs
+spikes
+tests
+infra
+**/*.test.ts
+**/*.integration.ts
+.env
+.env.*
+!.env.example
+coverage
+dist
+build
+.DS_Store
