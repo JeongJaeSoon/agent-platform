@@ -52,8 +52,11 @@ export type ClaimInput = {
   executionGeneration: number;
   attemptId: string;
   credentialHash: Uint8Array;
-  credentialExpiresAt: Date;
-  leaseExpiresAt: Date;
+  // Lifetimes, not deadlines: the storage clock is the one authority on when
+  // a lease or token has ended, so the caller says how long, never until when.
+  // `now` only stamps audit columns.
+  credentialTtlMs: number;
+  leaseTtlMs: number;
   now: Date;
 };
 
@@ -89,11 +92,11 @@ export type NextInputResult =
 export type HeartbeatInput = {
   // A worker that keeps heartbeating keeps its token: the credential's
   // lifetime follows the lease instead of cutting a healthy attempt off at a
-  // fixed horizon.
-  credentialExpiresAt: Date;
+  // fixed horizon. Both are lifetimes measured on the storage clock.
+  credentialTtlMs: number;
   fence: WorkerFence;
   now: Date;
-  leaseExpiresAt: Date;
+  leaseTtlMs: number;
   attemptState: AttemptState;
 };
 export type HeartbeatResult =
@@ -155,10 +158,8 @@ export interface WorkerUnitOfWork {
     input: RegisterLaunchInput,
   ): Promise<{ outcome: "registered" | "exists" }>;
   claimAtomic(input: ClaimInput): Promise<ClaimResult>;
-  resolveCredential(
-    tokenHash: Uint8Array,
-    now: Date,
-  ): Promise<ResolvedCredential>;
+  // Expiry is judged on the storage clock, so no caller time is taken.
+  resolveCredential(tokenHash: Uint8Array): Promise<ResolvedCredential>;
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;
