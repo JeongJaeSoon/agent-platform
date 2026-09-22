@@ -118,7 +118,10 @@ export const sessionSummarySchema = z.object({
   admission_state: admissionStateSchema,
   status: sessionStatusSchema,
   runtime: sessionRuntimeSchema,
-  repository_id: z.string().min(1),
+  // Catalog key only. Sessions created before the catalog existed (M0
+  // legacy rows) carry no key and surface null; the stored repo URL is
+  // never exposed because it may embed credentials (94S-147).
+  repository_id: z.string().min(1).nullable(),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
