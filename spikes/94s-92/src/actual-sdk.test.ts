@@ -30,7 +30,7 @@ import {
   localstackCalls,
   localstackEnabled,
 } from "./localstack.ts";
-import { isAlive, killTree, processTree } from "./process-tree.ts";
+import { isAlive, reapDescendants } from "./process-tree.ts";
 import {
   mark,
   startStallReporter,
@@ -210,7 +210,13 @@ describeActual("actual SDK SessionStore process contract", () => {
       const uuids = (entries ?? []).flatMap((entry) =>
         typeof entry.uuid === "string" ? [entry.uuid] : [],
       );
+      // Uniqueness alone is satisfied by an empty transcript, which is exactly
+      // what a drain that quietly gave up would leave behind.
+      expect(uuids.length).toBeGreaterThan(0);
       expect(new Set(uuids).size).toBe(uuids.length);
+      expect(JSON.stringify(entries)).toContain(
+        "finish after an ambiguous append timeout",
+      );
       mark("dedup:done");
     } finally {
       mark("dedup:server-stop");
@@ -522,10 +528,13 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
       `child stdout so far: ${JSON.stringify(stdout.text())}`,
       `child stderr so far: ${JSON.stringify(stderr.text())}`,
     ];
-    // Collected before any signal: once the child is gone its children are
-    // reparented and `pgrep -P` can no longer find them.
-    const tree = child.pid === undefined ? [] : processTree(child.pid);
-    state.push(`process tree: ${tree.join(", ") || "unknown"}`);
+    // The Agent SDK spawns the Claude CLI below this child with its own pipes,
+    // so a survivor does not hold stdout open — it just keeps talking to the
+    // fake API and to LocalStack while the next test is already using them.
+    // Descendants go first, while the child is still alive to point at them.
+    const reaped =
+      child.pid === undefined ? [] : await reapDescendants(child.pid);
+    state.push(`descendants reaped: ${reaped.join(", ") || "none"}`);
 
     child.kill("SIGTERM");
     const grace = deadline(2_000);
@@ -534,18 +543,15 @@ async function runChild(options: ChildOptions): Promise<ChildRun> {
     state.push(`after SIGTERM: exit=${exitCode ?? "pending"}`);
     state.push(`child stderr now: ${JSON.stringify(stderr.text())}`);
 
-    // The Agent SDK spawns the Claude CLI below this child with its own pipes,
-    // so a survivor does not hold stdout open — it just keeps talking to the
-    // fake API and to LocalStack while the next test is already using them.
-    killTree(tree, "SIGKILL");
+    child.kill("SIGKILL");
     const reap = deadline(2_000);
-    const reaped = await Promise.race([
+    const settledAfterKill = await Promise.race([
       settled.then(() => true),
       reap.expired.then(() => false),
     ]);
     reap.cancel();
     state.push(
-      `after SIGKILL: settled=${reaped} alive=${tree.filter(isAlive).join(", ") || "none"}`,
+      `after SIGKILL: settled=${settledAfterKill} alive=${reaped.filter(isAlive).join(", ") || "none"}`,
     );
     throw new Error(state.join("\n  "));
   }

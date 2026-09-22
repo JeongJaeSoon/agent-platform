@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isAlive, killTree, processTree } from "./process-tree.ts";
+import {
+  isAlive,
+  killTree,
+  processTree,
+  reapDescendants,
+} from "./process-tree.ts";
 
 /**
  * The watchdog's cleanup is only as good as this: if the tree walk stops at the
@@ -36,6 +41,24 @@ describe("processTree", () => {
       await Bun.sleep(20);
     }
     expect(isAlive(grandchild)).toBe(false);
+  }, 15_000);
+
+  test("catches a descendant that forks while the sweep is running", async () => {
+    // The second sleeper appears 50ms in, after the first sweep has already
+    // taken its snapshot. A single PID list would miss it.
+    const child = Bun.spawn({
+      cmd: ["sh", "-c", "sleep 30 & sleep 0.05; sleep 30 & wait"],
+      stderr: "ignore",
+      stdout: "ignore",
+    });
+    if (child.pid === undefined) throw new Error("child has no pid");
+
+    const reaped = await reapDescendants(child.pid);
+    expect(reaped.length).toBeGreaterThanOrEqual(2);
+    expect(reaped.filter(isAlive)).toEqual([]);
+
+    killTree(processTree(child.pid), "SIGKILL");
+    await child.exited;
   }, 15_000);
 
   test("reports a lone process as its own tree", () => {

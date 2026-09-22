@@ -49,15 +49,33 @@ const lateWrites = new Set<Promise<void>>();
 /** Longer than a bounded S3 attempt chain, so a real write is never cut off. */
 const LATE_WRITE_DRAIN_MS = 15_000;
 
-/** Waits for `promises`, giving up after `ms`. */
+type DrainOutcome = {
+  /** False when the deadline won, i.e. writes were still on the wire. */
+  readonly drained: boolean;
+  readonly rejected: number;
+};
+
+/**
+ * Waits for `promises`, giving up after `ms`, and says which of the two
+ * happened. Collapsing both into "done" is how a lost write would pass for a
+ * landed one — the exact invariant the timeout mode exists to check.
+ */
 async function settleWithin(
   promises: readonly Promise<unknown>[],
   ms: number,
-): Promise<void> {
-  if (promises.length === 0) return;
+): Promise<DrainOutcome> {
+  if (promises.length === 0) return { drained: true, rejected: 0 };
   const drain = deadline(ms);
-  await Promise.race([Promise.allSettled(promises), drain.expired]);
+  const results = await Promise.race([
+    Promise.allSettled(promises),
+    drain.expired.then(() => undefined),
+  ]);
   drain.cancel();
+  if (results === undefined) return { drained: false, rejected: 0 };
+  return {
+    drained: true,
+    rejected: results.filter((result) => result.status === "rejected").length,
+  };
 }
 const store: SessionStore = {
   append: async (key: SessionKey, entries: SessionStoreEntry[]) => {
@@ -152,7 +170,13 @@ try {
   // happens to outlive them — but bound the wait, or one stuck write turns
   // this process into a child that never exits.
   stage = `draining(${lateWrites.size} late writes)`;
-  await settleWithin([...lateWrites], LATE_WRITE_DRAIN_MS);
+  const drain = await settleWithin([...lateWrites], LATE_WRITE_DRAIN_MS);
+  if (!drain.drained || drain.rejected > 0) {
+    process.stderr.write(
+      `CHILD_DRAIN_FAILED of=${lateWrites.size} drained=${drain.drained} rejected=${drain.rejected}\n`,
+    );
+    process.exitCode = 1;
+  }
   stage = "done";
   client.destroy();
 }

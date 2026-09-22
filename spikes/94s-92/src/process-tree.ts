@@ -29,6 +29,29 @@ export function killTree(
   }
 }
 
+/**
+ * Kills everything below `pid`, sweeping until nothing new appears.
+ *
+ * One snapshot is not enough: a descendant can fork while the sweep runs, and
+ * once its parent is gone it is reparented and `pgrep -P` can no longer reach
+ * it from here. So `pid` itself is deliberately left alive — it is the only
+ * handle by which its children stay findable. Returns every pid it signalled.
+ */
+export async function reapDescendants(
+  pid: number,
+  sweeps = 5,
+): Promise<number[]> {
+  const signalled = new Set<number>();
+  for (let sweep = 0; sweep < sweeps; sweep += 1) {
+    const descendants = processTree(pid).filter((found) => found !== pid);
+    if (descendants.length === 0 && sweep > 0) break;
+    for (const descendant of descendants) signalled.add(descendant);
+    killTree(descendants, "SIGKILL");
+    await Bun.sleep(25);
+  }
+  return [...signalled];
+}
+
 export function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
