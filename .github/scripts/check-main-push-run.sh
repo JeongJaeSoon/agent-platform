@@ -7,7 +7,8 @@
 # the latest push run's head_sha with the tip, which would also fire while a
 # fresh push is still queueing its run.
 #
-# Prints exactly one of `present`, `missing`, `too-recent` and exits 0, 1, 0.
+# Prints one of `present`, `missing`, `too-recent` followed by the short SHA it
+# judged, and exits 0, 1, 0.
 #
 # usage: check-main-push-run.sh [sha]
 #   sha  commit to check instead of the current main tip (fixture runs)
@@ -45,7 +46,7 @@ PY
 )
 
 if [ "$age_minutes" -lt "$min_age" ]; then
-  echo "too-recent"
+  echo "too-recent ${sha:0:7}"
   exit 0
 fi
 
@@ -53,9 +54,9 @@ runs=$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?event=push&head_sh
   --jq '.total_count')
 
 if [ "$runs" -gt 0 ]; then
-  echo "present"
+  echo "present ${sha:0:7}"
   exit 0
 fi
 
-echo "missing"
+echo "missing ${sha:0:7}"
 exit 1

@@ -36,19 +36,25 @@ jobs:
           SHA: ${{ github.event.inputs.sha }}
         # The script's exit 1 is the signal, not an error; the next step reads it.
         run: |
-          verdict=$(.github/scripts/check-main-push-run.sh "$SHA") || true
+          out=$(.github/scripts/check-main-push-run.sh "$SHA") || true
+          verdict=${out%% *}
           echo "verdict=${verdict}" >>"$GITHUB_OUTPUT"
+          echo "sha=${out#* }" >>"$GITHUB_OUTPUT"
           echo "main push run check: ${verdict:-<no verdict>}"
           [ -n "$verdict" ]
       - if: steps.run.outputs.verdict == 'missing'
         env:
           SHA: ${{ github.event.inputs.sha }}
+          SHA_SHORT: ${{ steps.run.outputs.sha }}
         run: |
           {
             echo "<!-- ci-missing-push-run -->"
             echo "ci.yml has no \`event=push\` run for \`${SHA:-the main tip}\` (checked by [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
             echo
-            echo "Without that run the commit never ran \`spikes\`, and \`check\`/\`integration\` only ran on the PR head, not on the merge commit. Re-run by hand with \`gh workflow run CI --ref main\` and close this issue once the gap is understood."
+            echo "Without that run the commit never ran \`spikes\`, and \`check\`/\`integration\` only ran on the PR head, not on the merge commit. Re-run by hand with \`gh workflow run CI --ref main\` and close this issue. A closed issue for this commit is not reopened; the next commit gets its own."
           } >body.md
-          .github/scripts/upsert-ci-issue.sh ci-missing-push-run \
-            "CI: main tip has no push run" body.md
+          # The title carries the commit so that closing the issue acknowledges
+          # this gap only: the tip cannot grow a push run after the fact, and
+          # the next scheduled check must not reopen what a person closed.
+          .github/scripts/upsert-ci-issue.sh --skip-if-closed ci-missing-push-run \
+            "CI: main tip ${SHA_SHORT} has no push run" body.md

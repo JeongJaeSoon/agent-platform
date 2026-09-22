@@ -17,25 +17,40 @@ type Outcome = {
  * to a file and answers from `replies`, keyed by the first words of the
  * invocation; an unmatched call exits 9 so a test never passes by accident.
  */
+/** A reply per call, in order; the last one repeats. */
+type Replies = Record<string, string | string[]>;
+
 async function run(
   script: string,
   args: string[],
-  replies: Record<string, string>,
+  replies: Replies,
   env: Record<string, string> = {},
 ): Promise<Outcome> {
   const directory = await mkdtemp(join(tmpdir(), "ci-issue-"));
   const log = join(directory, "calls.log");
   const fakeGh = join(directory, "gh");
   const cases = Object.entries(replies)
-    .map(
-      ([prefix, reply]) =>
-        `  "${prefix}"*) printf '%s\\n' ${JSON.stringify(reply)} ;;`,
-    )
+    .map(([prefix, reply], index) => {
+      const sequence = Array.isArray(reply) ? reply : [reply];
+      const lines = sequence.map((line) => JSON.stringify(line)).join(" ");
+      return `  "${prefix}"*) answer ${index} ${lines} ;;`;
+    })
     .join("\n");
   await writeFile(
     fakeGh,
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >>"${log}"
+# answer <case-index> <reply>...: the n-th call of a case gets its n-th reply.
+answer() {
+  local counter="${directory}/count.$1"
+  shift
+  local n
+  n=$(cat "$counter" 2>/dev/null || echo 0)
+  echo $((n + 1)) >"$counter"
+  [ "$n" -ge "$#" ] && n=$(($# - 1))
+  shift "$n"
+  printf '%s\\n' "$1"
+}
 case "$*" in
 ${cases}
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
@@ -94,7 +109,7 @@ describe("upsert-ci-issue.sh", () => {
         ],
         {
           "label create": "",
-          "issue list": "",
+          "issue list": ["", "12"],
           "issue create": "https://github.com/octo/repo/issues/12",
         },
       );
@@ -149,13 +164,139 @@ describe("upsert-ci-issue.sh", () => {
       const outcome = await run(
         "upsert-ci-issue.sh",
         ["ci-missing-push-run", "CI: main tip has no push run", body.path],
-        { "label create": "", "issue list": "", "issue create": "url" },
+        {
+          "label create": "",
+          "issue list": ["", "7"],
+          "issue create": "https://github.com/octo/repo/issues/7",
+        },
       );
 
       const list = outcome.calls.find((call) => call.startsWith("issue list"));
       expect(list).toContain("--label ci-missing-push-run");
       expect(list).toContain("--state open");
       expect(list).not.toContain("--search");
+    } finally {
+      await body.dispose();
+    }
+  });
+
+  test("closes its own issue as a duplicate when a concurrent run created one first", async () => {
+    const body = await bodyFile();
+    try {
+      // Empty on the first look; #12 (the other run's) is the oldest open one
+      // by the time this run's #13 has landed.
+      const outcome = await run(
+        "upsert-ci-issue.sh",
+        [
+          "ci-spikes-failure",
+          "CI: spikes failed (non-blocking job)",
+          body.path,
+        ],
+        {
+          "label create": "",
+          "issue list": ["", "12"],
+          "issue create": "https://github.com/octo/repo/issues/13",
+          "issue close 13": "",
+          "issue comment 12": "",
+        },
+      );
+
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stdout).toBe("updated #12 (closed duplicate #13)\n");
+      expect(
+        outcome.calls.filter((call) => call.startsWith("issue close 13")),
+      ).toHaveLength(1);
+      expect(
+        outcome.calls.filter((call) => call.startsWith("issue comment 12")),
+      ).toHaveLength(1);
+    } finally {
+      await body.dispose();
+    }
+  });
+
+  const openList =
+    "issue list --repo octo/repo --label ci-missing-push-run --state open";
+  const closedList =
+    "issue list --repo octo/repo --label ci-missing-push-run --state closed";
+
+  test("with --skip-if-closed, a closed issue of the same title is an acknowledgement", async () => {
+    const body = await bodyFile();
+    try {
+      const outcome = await run(
+        "upsert-ci-issue.sh",
+        [
+          "--skip-if-closed",
+          "ci-missing-push-run",
+          "CI: main tip 70139eb has no push run",
+          body.path,
+        ],
+        { "label create": "", [openList]: "", [closedList]: "40" },
+      );
+
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stdout).toBe("acknowledged #40\n");
+      expect(
+        outcome.calls.some((call) => call.startsWith("issue create")),
+      ).toBe(false);
+      const closed = outcome.calls.find((call) => call.startsWith(closedList));
+      expect(closed).toContain(
+        "--arg title CI: main tip 70139eb has no push run",
+      );
+    } finally {
+      await body.dispose();
+    }
+  });
+
+  test("with --skip-if-closed, no matching closed title still creates the issue", async () => {
+    const body = await bodyFile();
+    try {
+      // The jq title filter runs inside the real gh; the fake stands in for
+      // its result, which is empty when no closed title matches.
+      const outcome = await run(
+        "upsert-ci-issue.sh",
+        [
+          "--skip-if-closed",
+          "ci-missing-push-run",
+          "CI: main tip abcdef0 has no push run",
+          body.path,
+        ],
+        {
+          "label create": "",
+          [openList]: ["", "41"],
+          [closedList]: "",
+          "issue create": "https://github.com/octo/repo/issues/41",
+        },
+      );
+
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stdout).toBe(
+        "created https://github.com/octo/repo/issues/41\n",
+      );
+    } finally {
+      await body.dispose();
+    }
+  });
+
+  test("without --skip-if-closed, closed issues are never consulted", async () => {
+    const body = await bodyFile();
+    try {
+      const outcome = await run(
+        "upsert-ci-issue.sh",
+        [
+          "ci-spikes-failure",
+          "CI: spikes failed (non-blocking job)",
+          body.path,
+        ],
+        {
+          "label create": "",
+          "issue list": ["", "12"],
+          "issue create": "https://github.com/octo/repo/issues/12",
+        },
+      );
+
+      expect(
+        outcome.calls.some((call) => call.includes("--state closed")),
+      ).toBe(false);
     } finally {
       await body.dispose();
     }
@@ -184,7 +325,7 @@ describe("check-main-push-run.sh", () => {
     });
 
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.stdout).toBe("present\n");
+    expect(outcome.stdout).toBe("present 10e58fb\n");
   });
 
   test("reports missing, with exit 1, when no push run exists for the commit", async () => {
@@ -195,18 +336,18 @@ describe("check-main-push-run.sh", () => {
     });
 
     expect(outcome.exitCode).toBe(1);
-    expect(outcome.stdout).toBe("missing\n");
+    expect(outcome.stdout).toBe("missing 70139eb\n");
   });
 
   test("checks the main tip when no sha is given", async () => {
     const outcome = await run("check-main-push-run.sh", [], {
-      "api repos/octo/repo/commits/main": oldCommit("abc"),
-      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=abc&per_page=1":
+      "api repos/octo/repo/commits/main": oldCommit("abcdef0123"),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=abcdef0123&per_page=1":
         "1",
     });
 
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.stdout).toBe("present\n");
+    expect(outcome.stdout).toBe("present abcdef0\n");
   });
 
   test("does not judge a commit younger than the grace period", async () => {
@@ -216,7 +357,7 @@ describe("check-main-push-run.sh", () => {
     });
 
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.stdout).toBe("too-recent\n");
+    expect(outcome.stdout).toBe("too-recent fresh00\n");
     expect(outcome.calls.some((call) => call.includes("/actions/"))).toBe(
       false,
     );
@@ -236,6 +377,6 @@ describe("check-main-push-run.sh", () => {
     );
 
     expect(outcome.exitCode).toBe(1);
-    expect(outcome.stdout).toBe("missing\n");
+    expect(outcome.stdout).toBe("missing fresh00\n");
   });
 });
