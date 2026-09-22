@@ -304,8 +304,11 @@ class FakeBackend implements ExecutionBackend {
     return { suspend: false };
   }
 
+  duringEnsure?: (intent: LaunchIntent) => void;
+
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     this.ensureCalls.push(intent);
+    this.duringEnsure?.(intent);
     if (this.failEnsureFor.has(intent.sessionId)) {
       throw new Error("docker unavailable");
     }
@@ -1134,6 +1137,43 @@ describe("runScheduler", () => {
     expect(summary.killed).toHaveLength(1);
     expect(backend.ensureCalls).toHaveLength(1);
     expect(launch.slotReleased).toBe(true);
+  });
+
+  test("a kill that commits while a live resource is being inspected is carried out this pass", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    store.unassigned.delete(launch.sessionId);
+    backend.duringInspect = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.killed).toHaveLength(1);
+    expect(summary.terminatedObserved).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("a kill that commits while the resource is being re-created takes it down again", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    backend.containers.clear();
+    store.unassigned.delete(launch.sessionId);
+    backend.duringEnsure = () => {
+      launch.desiredState = "terminated";
+    };
+
+    const summary = await run();
+    expect(summary.reensured).toHaveLength(1);
+    expect(summary.killed).toHaveLength(1);
+    expect(launch.slotReleased).toBe(true);
+    expect(backend.containers.size).toBe(0);
   });
 
   test("a kill the provider will not carry out keeps the slot and is retried next pass", async () => {

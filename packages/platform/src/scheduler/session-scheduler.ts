@@ -313,6 +313,17 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       return;
     }
     const observed = await backend.inspect(ref);
+    if (
+      observed.found &&
+      observed.state !== "terminated" &&
+      (await killRequested(execution))
+    ) {
+      // A terminate that committed while the pass was out at the provider
+      // must not wait for the next pass: the receipt's deadline is running
+      // and the resource is still doing work.
+      await kill(execution);
+      return;
+    }
     if (observed.found && observed.stale && observed.state !== "terminated") {
       // The resource runs under an isolation contract this host no longer
       // promises, and an upgrade cannot reach inside a running resource. It
@@ -612,6 +623,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         reason,
         session_id: execution.sessionId,
       });
+      if (await killRequested(execution)) {
+        // Asked to go while it was being built: it is taken down in the
+        // same pass rather than left running until the next one.
+        await kill(execution);
+      }
     } catch (error) {
       summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
