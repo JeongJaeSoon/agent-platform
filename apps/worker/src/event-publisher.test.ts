@@ -1,0 +1,129 @@
+import { describe, expect, test } from "bun:test";
+import type {
+  AppendEventsRequest,
+  AppendEventsResponse,
+  SessionEvent,
+  WorkerScope,
+} from "@agent-platform/contracts";
+
+import { EventPublisher } from "./event-publisher.ts";
+import { WorkerGatewayRequestError } from "./gateway-client.ts";
+
+const scope: WorkerScope = {
+  session_id: "11111111-1111-4111-8111-111111111111",
+  turn_id: null,
+  attempt_id: "att_1",
+  lease_epoch: 1,
+  execution_generation: 1,
+  auth_revision: 0,
+};
+
+function systemEvent(id: string): SessionEvent {
+  return { id, event: "system", data: { type: "system", subtype: id } };
+}
+
+function publisher(
+  appendEvents: (request: AppendEventsRequest) => Promise<AppendEventsResponse>,
+  turnId: string | null = "1",
+) {
+  const batches: AppendEventsRequest[] = [];
+  const instance = new EventPublisher({
+    gateway: {
+      appendEvents: (request) => {
+        batches.push(request);
+        return appendEvents(request);
+      },
+    },
+    scope: () => ({ ...scope, turn_id: turnId }),
+    retryDelayMs: 1,
+  });
+  return { batches, publisher: instance };
+}
+
+function accepted(request: AppendEventsRequest): AppendEventsResponse {
+  const last = request.events.at(-1)?.source_sequence ?? 0;
+  return { accepted_through: last, cursor: `cursor-${last}` };
+}
+
+describe("EventPublisher", () => {
+  test("numbers the attempt's stream from one and keeps frame order", async () => {
+    const { batches, publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.publish([systemEvent("a"), systemEvent("b")], "1");
+    events.publish([systemEvent("c")], "1");
+    await events.idle();
+
+    expect(
+      batches.flatMap((batch) =>
+        batch.events.map((event) => event.source_sequence),
+      ),
+    ).toEqual([1, 2, 3]);
+    expect(events.acceptedThrough).toBe(3);
+  });
+
+  test("never mixes two turns into one batch", async () => {
+    const { batches, publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    // Both are queued before the first append resolves, so a publisher that
+    // batched by size alone would put them in one request.
+    events.publish([systemEvent("a")], "1");
+    events.publish([systemEvent("b")], "2");
+    await events.idle();
+
+    expect(batches.map((batch) => batch.turn_id)).toEqual(["1", "2"]);
+  });
+
+  test("replays the same batch key after a retryable failure", async () => {
+    let attempts = 0;
+    const { batches, publisher: events } = publisher(async (request) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new WorkerGatewayRequestError(503, null, "gateway down", true);
+      }
+      return accepted(request);
+    });
+    events.publish([systemEvent("a")], "1");
+    await events.idle();
+
+    expect(attempts).toBe(2);
+    expect(batches[0]?.batch_key).toBe(batches[1]?.batch_key);
+    expect(batches[1]?.events[0]?.source_sequence).toBe(1);
+  });
+
+  test("surfaces a fenced-out write to whoever waits for the tail", async () => {
+    const { publisher: events } = publisher(async () => {
+      throw new WorkerGatewayRequestError(
+        409,
+        "LEASE_EXPIRED",
+        "lease expired",
+        false,
+      );
+    });
+    events.publish([systemEvent("a")], "1");
+
+    await expect(events.idle()).rejects.toThrow("lease expired");
+  });
+
+  test("drops the undelivered tail once the attempt is abandoned", async () => {
+    const { batches, publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.abandon("ownership lost");
+    events.publish([systemEvent("a")], "1");
+
+    expect(batches).toEqual([]);
+    await expect(events.idle()).rejects.toThrow("ownership lost");
+  });
+
+  test("strips the frame cursor that is not this stream's", async () => {
+    const { batches, publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.publish([systemEvent("sdk:0:1")], "1");
+    await events.idle();
+
+    expect(batches[0]?.events[0]).not.toHaveProperty("id");
+  });
+});
