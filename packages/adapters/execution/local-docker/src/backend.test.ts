@@ -18,6 +18,7 @@ import {
 import type { LocalDockerBackendConfig } from "./config.ts";
 import {
   type ContainerCreateBody,
+  DockerApiError,
   DockerClient,
   DockerTimeoutError,
 } from "./docker-client.ts";
@@ -48,6 +49,8 @@ class FakeDocker {
   raceWinnerLabels: Record<string, string> = {};
   /** Every create loses the race and leaves nothing behind. */
   conflictEveryCreate = false;
+  /** The next create fails with 400 and quotes the request body back. */
+  echoNextCreate = false;
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -94,6 +97,13 @@ class FakeDocker {
       const name = url.searchParams.get("name") ?? "";
       if (this.conflictEveryCreate) {
         return json({ message: "Conflict. Lost the create race" }, 409);
+      }
+      if (this.echoNextCreate) {
+        this.echoNextCreate = false;
+        return json(
+          { message: `invalid request: ${await request.text()}` },
+          400,
+        );
       }
       if (this.conflictNextCreate && !this.containers.has(name)) {
         // The other launcher won the race: its container exists by the time
@@ -227,6 +237,13 @@ function configFor(host: string): LocalDockerBackendConfig {
     homeDir: "/home/worker",
     installationId: "test-a",
     network: "ap-workers",
+    objectStore: {
+      accessKeyId: "AKIATEST",
+      bucket: "claude-sessions",
+      endpoint: "http://localstack:4566",
+      region: "ap-northeast-1",
+      secretAccessKey: "test-secret-value",
+    },
     requestTimeoutMs: 5_000,
     stopTimeoutSeconds: 3,
     tmpfsSizeBytes: 64 * 1024 * 1024,
@@ -276,6 +293,12 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
         `${ENV.noProxy}=${NO_PROXY_VALUE}`,
         `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+        `${ENV.objectAccessKeyId}=AKIATEST`,
+        `${ENV.objectBucket}=claude-sessions`,
+        `${ENV.objectEndpoint}=http://localstack:4566`,
+        `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
+        `${ENV.objectRegion}=ap-northeast-1`,
+        `${ENV.objectSecretAccessKey}=test-secret-value`,
       ].sort(),
     );
     expect(body.Labels).toEqual({
@@ -770,5 +793,58 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
       "is not internal",
     );
+  });
+
+  test("the isolation stamp tracks where objects go and which key, never the secret", () => {
+    const base = configFor("tcp://127.0.0.1:1");
+    const stamp = isolationStampFor(base);
+    expect(stamp.startsWith("3:")).toBe(true);
+    expect(stamp).not.toContain(base.objectStore.secretAccessKey);
+    // A secret rotated under the same key id is not a new boundary: the
+    // container keeps running, and the operator replaces it deliberately.
+    expect(
+      isolationStampFor({
+        ...base,
+        objectStore: { ...base.objectStore, secretAccessKey: "rotated" },
+      }),
+    ).toBe(stamp);
+    for (const change of [
+      { accessKeyId: "AKIAOTHER" },
+      { bucket: "other-bucket" },
+      { endpoint: "http://s3.other:4566" },
+      { region: "us-east-1" },
+    ]) {
+      expect(
+        isolationStampFor({
+          ...base,
+          objectStore: { ...base.objectStore, ...change },
+        }),
+      ).not.toBe(stamp);
+    }
+    const { endpoint: _dropped, ...aws } = base.objectStore;
+    expect(isolationStampFor({ ...base, objectStore: aws })).not.toBe(stamp);
+  });
+
+  test("a daemon reply that quotes the create body reaches the caller without the secrets", async () => {
+    docker.echoNextCreate = true;
+    let caught: unknown;
+    try {
+      await backend.ensureExecution(
+        intentFor({ issueBootstrapNonce: async () => "nonce-secret-xyz" }),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(DockerApiError);
+    const error = caught as DockerApiError;
+    expect(error.status).toBe(400);
+    // The daemon really did echo the body, so the redaction is not vacuous.
+    expect(error.message).toContain(`${ENV.objectBucket}=claude-sessions`);
+    expect(error.message).toContain(`${ENV.objectSecretAccessKey}=[redacted]`);
+    expect(error.message).toContain(`${ENV.bootstrapNonce}=[redacted]`);
+    for (const text of [error.message, error.body, JSON.stringify(error)]) {
+      expect(text).not.toContain("test-secret-value");
+      expect(text).not.toContain("nonce-secret-xyz");
+    }
   });
 });

@@ -6,6 +6,10 @@ import {
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
+import {
+  ObjectScopeError,
+  scopedCheckpointObjectStore,
+} from "./scoped-objects.ts";
 
 const localstackTest = localstackEnabled() ? test : test.skip;
 
@@ -113,3 +117,40 @@ localstackTest(
 function encode(body: string): Uint8Array {
   return new TextEncoder().encode(body);
 }
+
+// The worker holds bucket-wide credentials and is confined to its session by
+// the wrapper alone; see `scopedCheckpointObjectStore` for why that is not a
+// credential boundary. This shows the confinement against the real endpoint:
+// another session's object is out of reach even though the key exists.
+localstackTest(
+  "a session-scoped store reaches its own prefix and nothing else",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        const unscoped = createCheckpointObjectStore({ bucket, client: s3 });
+        const own = "sessions/s1/checkpoints/0000000000/a1/manifest.json";
+        const foreign = "sessions/s2/checkpoints/0000000000/a1/manifest.json";
+        await unscoped.put(foreign, encode("{}"));
+
+        const scoped = scopedCheckpointObjectStore(unscoped, "sessions/s1/");
+        expect(
+          await scoped.putImmutable(own, encode('{"revision":0}')),
+        ).toEqual({ outcome: "created" });
+        expect(await scoped.get(own)).toEqual(encode('{"revision":0}'));
+        expect(await scoped.list("sessions/s1/")).toEqual([own]);
+
+        await expect(scoped.get(foreign)).rejects.toThrow(ObjectScopeError);
+        await expect(scoped.put(foreign, encode("x"))).rejects.toThrow(
+          ObjectScopeError,
+        );
+        await expect(scoped.list("sessions/")).rejects.toThrow(
+          ObjectScopeError,
+        );
+        // Untouched: the refusal happened before any request was sent.
+        expect(await unscoped.get(foreign)).toEqual(encode("{}"));
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);

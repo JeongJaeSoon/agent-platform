@@ -129,6 +129,10 @@ integration(
 
     const environment = () => ({
       ...process.env,
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "test",
       DATABASE_URL: database.url,
       DOCKER_HOST: dockerHost,
       EXECUTION_DOCKER_COMMAND: "bun /workspace/claim.js",
@@ -137,6 +141,7 @@ integration(
       EXECUTION_EGRESS_PROXY_URL: proxyUrl,
       EXECUTION_INSTALLATION_ID: installationId,
       EXECUTION_SLOT_LIMIT: "1",
+      S3_BUCKET: "claude-sessions",
       WORKER_CPUS: "0.5",
       WORKER_GATEWAY_URL: gatewayUrl,
       WORKER_IMAGE,

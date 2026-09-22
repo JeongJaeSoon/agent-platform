@@ -64,6 +64,13 @@ integration("LocalDockerBackend against a real daemon", () => {
     homeDir: "/home/worker",
     installationId,
     network: workerNetwork,
+    objectStore: {
+      accessKeyId: "test",
+      bucket: "claude-sessions",
+      endpoint: "http://localstack:4566",
+      region: "ap-northeast-1",
+      secretAccessKey: "test",
+    },
     requestTimeoutMs: 30_000,
     stopTimeoutSeconds: 1,
     tmpfsSizeBytes: 16 * 1024 * 1024,
@@ -161,6 +168,12 @@ integration("LocalDockerBackend against a real daemon", () => {
         `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
         `${ENV.noProxy}=${NO_PROXY_VALUE}`,
         `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+        `${ENV.objectAccessKeyId}=test`,
+        `${ENV.objectBucket}=claude-sessions`,
+        `${ENV.objectEndpoint}=http://localstack:4566`,
+        `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
+        `${ENV.objectRegion}=ap-northeast-1`,
+        `${ENV.objectSecretAccessKey}=test`,
       ].sort(),
     );
     const host = inspected.HostConfig as Record<string, unknown>;

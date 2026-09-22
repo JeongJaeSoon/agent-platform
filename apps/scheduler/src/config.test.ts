@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { schedulerConfigFromEnv } from "./config.ts";
 
 const base = {
+  AWS_ACCESS_KEY_ID: "test",
+  AWS_ENDPOINT_URL: "http://localstack:4566",
+  AWS_REGION: "ap-northeast-1",
+  AWS_SECRET_ACCESS_KEY: "test",
   DATABASE_URL: "postgresql://postgres:dev@127.0.0.1:5432/sessions",
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   EXECUTION_INSTALLATION_ID: "dev-a",
+  S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "agent-platform-worker:dev",
 };

@@ -12,6 +12,7 @@
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/runtime-claude": "workspace:*",
-    "@agent-platform/runtime-core": "workspace:*"
+    "@agent-platform/runtime-core": "workspace:*",
+    "@agent-platform/storage": "workspace:*"
   }
 }

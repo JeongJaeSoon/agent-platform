@@ -40,6 +40,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
 
   const environment = () => ({
     ...process.env,
+    AWS_ACCESS_KEY_ID: "test",
+    AWS_ENDPOINT_URL: "http://localstack:4566",
+    AWS_REGION: "ap-northeast-1",
+    AWS_SECRET_ACCESS_KEY: "test",
     DATABASE_URL: database.url,
     DOCKER_HOST: dockerHost,
     EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
@@ -48,6 +52,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     EXECUTION_DOCKER_NETWORK: workerNetwork,
     EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
     EXECUTION_SLOT_LIMIT: "10",
+    S3_BUCKET: "claude-sessions",
     WORKER_CPUS: "0.25",
     WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
     WORKER_IMAGE: IMAGE,
