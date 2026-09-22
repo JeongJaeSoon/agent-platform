@@ -139,14 +139,27 @@ export function containerNameFor(
   return `${CONTAINER_NAME_PREFIX}${installationId}-${ref.executionId}-g${ref.generation}`;
 }
 
-export function workspaceVolumeFor(
+/**
+ * The prefix every one of this session's workspace volumes carries.
+ *
+ * A workspace is found by its labels rather than by a name derived from the
+ * session, because the `local` driver does not put a ceiling back on a name
+ * it has already seen. Measured on xfs+prjquota (Docker 27.5.1): the first
+ * create of a name bounds the volume at the requested 64 MiB, and the same
+ * name removed and created again answers 201 with `Options.size` unchanged
+ * while `df` inside a container reports the whole 8 GiB filesystem. The
+ * daemon keeps the project id it assigned to that path and never tags the
+ * new directory with it, so `size` is metadata with nothing behind it and
+ * no API call can tell the two apart. A name is therefore used once.
+ */
+export function workspaceVolumePrefixFor(
   sessionId: string,
   installationId: string,
 ): string {
   if (!SAFE_NAME.test(sessionId)) {
     throw new Error(`Session id ${sessionId} cannot be used as a volume name`);
   }
-  return `${VOLUME_PREFIX}${installationId}-${sessionId}`;
+  return `${VOLUME_PREFIX}${installationId}-${sessionId}-`;
 }
 
 /** What the volume's quota label holds, and part of the isolation stamp. */
@@ -304,25 +317,21 @@ export class LocalDockerBackend implements ExecutionBackend {
   async verifyWorkspaceQuota(): Promise<void> {
     const quota = this.config.workspaceQuota;
     if (quota.mode === "off") return;
-    const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}`;
+    const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}-${crypto.randomUUID().slice(0, 8)}`;
     const labels = {
       [LABELS.installation]: this.config.installationId,
       [LABELS.quotaProbe]: "true",
     };
-    // A leftover from an interrupted probe would come back from create
-    // unchanged, and the probe would pass without the daemon proving a
-    // thing — so it has to go first. But the name is not proof of ownership:
-    // a volume this host did not make is not this host's to delete, however
-    // it came to be called that.
-    const existing = await this.client.inspectVolume(name);
-    if (existing !== null) {
-      if (
-        existing.Labels?.[LABELS.quotaProbe] !== "true" ||
-        existing.Labels?.[LABELS.installation] !== this.config.installationId
-      ) {
-        throw new QuotaProbeNameTakenError(name);
-      }
-      await this.client.removeVolume(name);
+    // A probe under a name the daemon has already quota'd proves nothing —
+    // see `workspaceVolumePrefixFor` — so each one takes a fresh name, and
+    // what an interrupted probe left behind is cleaned up by its labels
+    // instead. Failing to remove one is not worth refusing the launch over:
+    // the volume is empty, and the probe below still has to pass.
+    for (const stray of await this.client.listVolumes([
+      `${LABELS.quotaProbe}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+    ])) {
+      await this.client.removeVolume(stray.Name).catch(() => undefined);
     }
     let volume: VolumeInspect;
     try {
@@ -337,6 +346,15 @@ export class LocalDockerBackend implements ExecutionBackend {
         throw new WorkspaceQuotaUnsupportedError(messageOf(error));
       }
       throw error;
+    }
+    // Checked before the removal below, not inside it: a create onto a name
+    // something else already holds answers with *that* volume, and deleting
+    // it on the way out would destroy data this host has no claim on.
+    if (
+      volume.Labels?.[LABELS.quotaProbe] !== "true" ||
+      volume.Labels?.[LABELS.installation] !== this.config.installationId
+    ) {
+      throw new QuotaProbeNameTakenError(name);
     }
     try {
       if (Number(volume.Options?.size) !== quota.sizeBytes) {
@@ -432,7 +450,10 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
       }
       try {
-        await this.client.createContainer(name, this.createBody(intent, image));
+        await this.client.createContainer(
+          name,
+          this.createBody(intent, image, volume),
+        );
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
@@ -564,9 +585,18 @@ export class LocalDockerBackend implements ExecutionBackend {
    */
   private async ensureWorkspaceVolume(sessionId: string): Promise<string> {
     const { config } = this;
-    const name = workspaceVolumeFor(sessionId, config.installationId);
     const quota = config.workspaceQuota;
     const stamp = quotaStampOf(quota);
+    // The session's own workspace, if it has one: resume must come back to
+    // the tree it left, and only the labels say which volume that is.
+    const existing = await this.findWorkspaceVolume(sessionId);
+    if (existing !== null) {
+      const problem = workspaceVolumeProblem(existing, sessionId, config);
+      if (problem !== null)
+        throw new WorkspaceQuotaError(existing.Name, problem);
+      return existing.Name;
+    }
+    const name = `${workspaceVolumePrefixFor(sessionId, config.installationId)}${crypto.randomUUID().slice(0, 8)}`;
     let volume: VolumeInspect;
     try {
       volume = await this.client.createVolume({
@@ -603,12 +633,52 @@ export class LocalDockerBackend implements ExecutionBackend {
    * would reject leaves that session with no worker and no way back to one.
    */
   private async assertWorkspaceReplaceable(sessionId: string): Promise<void> {
-    const name = workspaceVolumeFor(sessionId, this.config.installationId);
-    const volume = await this.client.inspectVolume(name);
+    const volume = await this.findWorkspaceVolume(sessionId);
     // Nothing there is the easy case: the replacement creates it.
     if (volume === null) return;
     const problem = workspaceVolumeProblem(volume, sessionId, this.config);
-    if (problem !== null) throw new WorkspaceQuotaError(name, problem);
+    if (problem !== null) throw new WorkspaceQuotaError(volume.Name, problem);
+  }
+
+  /**
+   * This session's workspace volume, by the labels that name it. Two of them
+   * is not a case to pick a winner in: each may hold a different half of the
+   * session's work, and mounting one would bury the other. Reported instead,
+   * which leaves both on disk for an operator to compare.
+   */
+  private async findWorkspaceVolume(
+    sessionId: string,
+  ): Promise<VolumeInspect | null> {
+    const found = await this.client.listVolumes([
+      `${LABELS.managed}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+      `${LABELS.sessionId}=${sessionId}`,
+    ]);
+    if (found.length === 0) {
+      // Before names became single-use, a workspace was whatever sat under
+      // the session's derived name — including the unlabelled volume Docker
+      // conjures out of a mount spec. Those are still looked for, because
+      // creating a fresh one beside such a volume would hand the session an
+      // empty tree and bury the one it had. What is wrong with it is left to
+      // `workspaceVolumeProblem`, which rejects it for the ceiling it cannot
+      // prove; migrating it is 94S-225.
+      return await this.client.inspectVolume(
+        `${VOLUME_PREFIX}${this.config.installationId}-${sessionId}`,
+      );
+    }
+    if (found.length > 1) {
+      // ponytail: reported, not resolved. Merging or choosing between two
+      // workspaces needs to know which one a worker actually wrote to;
+      // revisit if a launch race is ever observed to produce this.
+      throw new WorkspaceQuotaError(
+        found
+          .map((volume) => volume.Name)
+          .sort()
+          .join(", "),
+        `session ${sessionId} has ${found.length} workspace volumes; only one can be mounted`,
+      );
+    }
+    return found[0] ?? null;
   }
 
   /**
@@ -705,7 +775,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { created: false, providerRef: container.Id, state };
   }
 
-  private createBody(intent: LaunchIntent, image: string): ContainerCreateBody {
+  private createBody(
+    intent: LaunchIntent,
+    image: string,
+    workspace: string,
+  ): ContainerCreateBody {
     const { config } = this;
     // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
     // says every worker is bounded, so refuse anything that would drop one.
@@ -747,7 +821,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         Memory: intent.resources.memoryBytes,
         Mounts: [
           {
-            Source: workspaceVolumeFor(intent.sessionId, config.installationId),
+            Source: workspace,
             Target: config.workspaceDir,
             Type: "volume",
           },

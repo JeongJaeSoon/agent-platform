@@ -6,7 +6,7 @@ import {
   LABELS,
   LocalDockerBackend,
   NO_PROXY_VALUE,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
@@ -101,10 +101,13 @@ integration("LocalDockerBackend against a real daemon", () => {
           )
           .catch(() => undefined);
       }
-      await fetchDocker(
-        `/volumes/${workspaceVolumeFor(intent.sessionId, installationId)}?force=true`,
-        "DELETE",
-      ).catch(() => undefined);
+      for (const volume of await client
+        .listVolumes([`${LABELS.sessionId}=${intent.sessionId}`])
+        .catch(() => [])) {
+        await fetchDocker(`/volumes/${volume.Name}?force=true`, "DELETE").catch(
+          () => undefined,
+        );
+      }
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
     // Bun's default hook timeout is 5s, and this tears down a container per
@@ -183,7 +186,11 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(host.Binds ?? null).toBeNull();
     expect(host.Mounts).toEqual([
       expect.objectContaining({
-        Source: workspaceVolumeFor(intent.sessionId, installationId),
+        Source: expect.stringMatching(
+          new RegExp(
+            `^${workspaceVolumePrefixFor(intent.sessionId, installationId)}`,
+          ),
+        ),
         Target: "/workspace",
         Type: "volume",
       }),

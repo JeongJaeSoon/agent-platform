@@ -13,7 +13,7 @@ import {
   LocalDockerBackend,
   NO_PROXY_VALUE,
   stateOf,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import {
@@ -65,6 +65,8 @@ class FakeDocker {
   quotaSupported = true;
   /** Volumes a removal must report as still mounted, the way 409 does. */
   readonly volumesInUse = new Set<string>();
+  /** Labels the next create comes back with, as if the name were taken. */
+  createReturnsLabels: Record<string, string> | null = null;
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -178,7 +180,11 @@ class FakeDocker {
         Labels?: Record<string, string>;
         Name: string;
       };
-      const existing = this.volumes.get(body.Name);
+      const existing =
+        this.volumes.get(body.Name) ??
+        (this.createReturnsLabels === null
+          ? undefined
+          : this.addVolume(body.Name, this.createReturnsLabels));
       // Docker's create is not create-or-fail: an existing name comes back
       // 201 with the volume as it already is, options and labels untouched.
       if (existing) return json(asVolume(existing), 201);
@@ -353,6 +359,24 @@ afterEach(() => {
   docker.stop();
 });
 
+/** The name a workspace had before names became single-use. */
+function legacyWorkspaceName(
+  sessionId: string,
+  installationId: string,
+): string {
+  return workspaceVolumePrefixFor(sessionId, installationId).slice(0, -1);
+}
+
+/** This session's workspace as the daemon holds it, whatever its suffix. */
+function workspaceNameOf(
+  docker: FakeDocker,
+  sessionId: string,
+  installationId: string,
+): string | undefined {
+  const prefix = workspaceVolumePrefixFor(sessionId, installationId);
+  return [...docker.volumes.keys()].find((name) => name.startsWith(prefix));
+}
+
 describe("LocalDockerBackend.ensureExecution", () => {
   test("creates and starts a container whose config matches the isolation contract", async () => {
     const intent = intentFor();
@@ -400,7 +424,11 @@ describe("LocalDockerBackend.ensureExecution", () => {
       Memory: RESOURCES.memoryBytes,
       Mounts: [
         {
-          Source: workspaceVolumeFor(intent.sessionId, "test-a"),
+          Source: expect.stringMatching(
+            new RegExp(
+              `^${workspaceVolumePrefixFor(intent.sessionId, "test-a")}`,
+            ),
+          ),
           Target: "/workspace",
           Type: "volume",
         },
@@ -625,7 +653,7 @@ describe("LocalDockerBackend.inspect", () => {
     const body = await createBodyOf(intent);
     body.Labels[LABELS.isolation] = "1";
     docker.add(containerNameFor(intent, "test-a"), body);
-    docker.addVolume(workspaceVolumeFor(intent.sessionId, "test-a"), {});
+    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
 
     await expect(backend.inspect(intent)).rejects.toThrow(
       "was created under quota <none>",
@@ -638,7 +666,7 @@ describe("LocalDockerBackend.inspect", () => {
     body.Labels[LABELS.isolation] = "1";
     docker.add(containerNameFor(intent, "test-a"), body);
     docker.addVolume(
-      workspaceVolumeFor(intent.sessionId, "test-a"),
+      legacyWorkspaceName(intent.sessionId, "test-a"),
       {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
@@ -660,7 +688,7 @@ describe("LocalDockerBackend.inspect", () => {
     const container = docker.add(containerNameFor(intent, "test-a"), body);
     container.status = "exited";
     container.exitCode = 0;
-    docker.addVolume(workspaceVolumeFor(intent.sessionId, "test-a"), {});
+    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
 
     expect(await backend.inspect(intent)).toMatchObject({
       stale: true,
@@ -737,9 +765,7 @@ describe("LocalDockerBackend.inspect", () => {
     const removal = docker.requests.find((r) => r.method === "DELETE");
     // Named volumes are untouched by `v`, so the workspace still outlives it.
     expect(removal?.query).toContain("v=true");
-    expect(
-      docker.volumes.has(workspaceVolumeFor(intent.sessionId, "test-a")),
-    ).toBe(true);
+    expect(workspaceNameOf(docker, intent.sessionId, "test-a")).toBeDefined();
   });
 
   test("status mapping covers every Docker state", () => {
@@ -830,7 +856,7 @@ describe("two installations sharing one daemon", () => {
     );
     const theirBody = docker.containers.get(containerNameFor(intent, "test-b"));
     expect(theirBody?.body.HostConfig.Mounts[0]?.Source).toBe(
-      workspaceVolumeFor(intent.sessionId, "test-b"),
+      workspaceNameOf(docker, intent.sessionId, "test-b"),
     );
     expect(await other.inspect(intent)).toMatchObject({ found: true });
 
@@ -944,11 +970,11 @@ describe("names", () => {
     expect(
       containerNameFor({ executionId: "exec-1", generation: 2 }, "test-a"),
     ).toBe("ap-worker-test-a-exec-1-g2");
-    expect(workspaceVolumeFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1");
+    expect(workspaceVolumePrefixFor("s-1", "test-a")).toBe("ap-ws-test-a-s-1-");
     expect(() =>
       containerNameFor({ executionId: "../x", generation: 1 }, "test-a"),
     ).toThrow();
-    expect(() => workspaceVolumeFor("a b", "test-a")).toThrow();
+    expect(() => workspaceVolumePrefixFor("a b", "test-a")).toThrow();
   });
 });
 
@@ -993,7 +1019,10 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
 });
 
 describe("LocalDockerBackend workspace volumes", () => {
-  const volumeName = workspaceVolumeFor(intentFor().sessionId, "test-a");
+  /** A workspace under the name sessions derived before names were single-use. */
+  const legacyName = legacyWorkspaceName(intentFor().sessionId, "test-a");
+  /** One this host made: found by its labels, whatever the suffix says. */
+  const ourName = `${workspaceVolumePrefixFor(intentFor().sessionId, "test-a")}0f1e2d3c`;
 
   function backendWith(
     overrides: Partial<LocalDockerBackendConfig>,
@@ -1003,7 +1032,9 @@ describe("LocalDockerBackend workspace volumes", () => {
 
   test("the volume is created, labelled and bounded before the container", async () => {
     await backend.ensureExecution(intentFor());
-    const volume = docker.volumes.get(volumeName);
+    const volume = docker.volumes.get(
+      workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
+    );
     expect(volume?.options).toEqual({ size: String(QUOTA_BYTES) });
     expect(volume?.labels).toEqual({
       [LABELS.installation]: "test-a",
@@ -1022,7 +1053,7 @@ describe("LocalDockerBackend workspace volumes", () => {
   test("an unlabelled volume from before the quota refuses the launch", async () => {
     // Exactly what an implicit `Mounts` create leaves behind: no labels, no
     // size, and no way to put one on it now.
-    docker.addVolume(volumeName, {});
+    docker.addVolume(legacyName, {});
     await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
       "was created under quota <none>",
     );
@@ -1031,7 +1062,7 @@ describe("LocalDockerBackend workspace volumes", () => {
 
   test("a volume created under another ceiling refuses the launch", async () => {
     docker.addVolume(
-      volumeName,
+      ourName,
       {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
@@ -1046,7 +1077,7 @@ describe("LocalDockerBackend workspace volumes", () => {
   });
 
   test("a volume labelled ours but without the driver option refuses the launch", async () => {
-    docker.addVolume(volumeName, {
+    docker.addVolume(ourName, {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
       [LABELS.sessionId]: intentFor().sessionId,
@@ -1058,7 +1089,7 @@ describe("LocalDockerBackend workspace volumes", () => {
   });
 
   test("another installation's volume under our name refuses the launch", async () => {
-    docker.addVolume(volumeName, {
+    docker.addVolume(legacyName, {
       [LABELS.installation]: "test-b",
       [LABELS.managed]: "true",
       [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
@@ -1073,7 +1104,7 @@ describe("LocalDockerBackend workspace volumes", () => {
     // GC reads the same label, so the mislabelled volume would also outlive
     // the session it actually belongs to.
     docker.addVolume(
-      volumeName,
+      legacyName,
       {
         [LABELS.installation]: "test-a",
         [LABELS.managed]: "true",
@@ -1090,7 +1121,7 @@ describe("LocalDockerBackend workspace volumes", () => {
 
   test("a volume that is not managed refuses the launch", async () => {
     docker.addVolume(
-      volumeName,
+      legacyName,
       {
         [LABELS.installation]: "test-a",
         [LABELS.sessionId]: intentFor().sessionId,
@@ -1106,7 +1137,9 @@ describe("LocalDockerBackend workspace volumes", () => {
   test("with the quota off the volume is created without a size", async () => {
     const off = backendWith({ workspaceQuota: { mode: "off" } });
     await off.ensureExecution(intentFor());
-    const volume = docker.volumes.get(volumeName);
+    const volume = docker.volumes.get(
+      workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
+    );
     expect(volume?.options).toBeNull();
     expect(volume?.labels[LABELS.workspaceQuota]).toBe("off");
   });
@@ -1123,11 +1156,13 @@ describe("LocalDockerBackend workspace volumes", () => {
 });
 
 describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
-  const probe = "ap-quota-probe-test-a";
+  const probePrefix = "ap-quota-probe-test-a-";
+  const probesLeft = () =>
+    [...docker.volumes.keys()].filter((name) => name.startsWith(probePrefix));
 
   test("a quota-capable daemon passes and keeps no probe volume", async () => {
     await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
-    expect(docker.volumes.has(probe)).toBe(false);
+    expect(probesLeft()).toEqual([]);
   });
 
   test("a daemon with no quota support refuses to start, naming the opt-out", async () => {
@@ -1138,11 +1173,11 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
   });
 
   test("a probe volume left by an earlier run cannot make the probe pass", async () => {
-    // Docker hands an existing name straight back, so a leftover probe would
-    // otherwise look like a create that succeeded on a daemon that cannot.
+    // The leftover goes first — by its labels, since the new probe takes a
+    // name of its own — so the daemon still has to answer the create.
     docker.quotaSupported = false;
     docker.addVolume(
-      probe,
+      `${probePrefix}aaaaaaaa`,
       {
         [LABELS.installation]: "test-a",
         [LABELS.quotaProbe]: "true",
@@ -1152,27 +1187,36 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
       "cannot put a size quota",
     );
+    expect(probesLeft()).toEqual([]);
   });
 
-  test("a volume under the probe's name that is not a probe is left alone", async () => {
-    // The name is not proof of ownership, and the preflight is not a licence
-    // to delete a stranger's data on a shared daemon.
-    docker.addVolume(probe, { "com.example.owner": "someone-else" });
-    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
-      "is not this host's quota probe",
-    );
-    expect(docker.volumes.has(probe)).toBe(true);
+  test("a volume that is not a probe is not this host's to remove", async () => {
+    // The preflight is not a licence to delete a stranger's data on a shared
+    // daemon, so what it cleans up is only what its own labels claim.
+    docker.addVolume("someone-elses-data", { "com.example.owner": "them" });
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(docker.volumes.has("someone-elses-data")).toBe(true);
   });
 
   test("another installation's probe is not this one's to remove", async () => {
-    docker.addVolume(probe, {
+    const theirs = "ap-quota-probe-test-b-bbbbbbbb";
+    docker.addVolume(theirs, {
       [LABELS.installation]: "test-b",
       [LABELS.quotaProbe]: "true",
     });
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(docker.volumes.has(theirs)).toBe(true);
+  });
+
+  test("a create that answers with someone else's volume proves nothing", async () => {
+    // Whatever name the probe picks, the reply is what says whose volume it
+    // is: an existing name comes back as the volume it already was.
+    docker.createReturnsLabels = { "com.example.owner": "them" };
     await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
       "is not this host's quota probe",
     );
-    expect(docker.volumes.has(probe)).toBe(true);
+    // And it is still there: the probe does not clear up after a stranger.
+    expect(docker.volumes.size).toBe(1);
   });
 
   test("the probe volume carries no managed label for GC to trip over", async () => {

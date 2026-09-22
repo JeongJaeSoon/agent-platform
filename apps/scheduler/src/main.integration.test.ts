@@ -5,7 +5,7 @@ import {
   containerNameFor,
   DockerClient,
   LABELS,
-  workspaceVolumeFor,
+  workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { inArray } from "drizzle-orm";
@@ -96,13 +96,14 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         .catch(() => undefined);
     }
     for (const sessionId of sessionIds) {
-      await fetch(
-        `http://docker/v1.44/volumes/${workspaceVolumeFor(sessionId, runLabel)}?force=true`,
-        {
+      for (const volume of await client
+        .listVolumes([`${LABELS.sessionId}=${sessionId}`])
+        .catch(() => [])) {
+        await fetch(`http://docker/v1.44/volumes/${volume.Name}?force=true`, {
           method: "DELETE",
           unix: dockerHost.replace("unix://", ""),
-        } as RequestInit,
-      ).catch(() => undefined);
+        } as RequestInit).catch(() => undefined);
+      }
     }
     await client.removeNetwork(workerNetwork).catch(() => undefined);
     await pool.end();
@@ -163,7 +164,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       branch: `session/${closedSession}`,
       admissionState: "closed",
     });
-    const name = workspaceVolumeFor(closedSession, runLabel);
+    const name = `${workspaceVolumePrefixFor(closedSession, runLabel)}7a6b5c4d`;
     await client.createVolume({
       Driver: "local",
       Labels: {
