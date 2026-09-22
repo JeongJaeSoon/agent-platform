@@ -4,6 +4,7 @@ import type {
 } from "@agent-platform/runtime-core";
 import {
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -59,6 +60,18 @@ export function createCheckpointObjectStore(
 
   return {
     get,
+
+    async head(key) {
+      try {
+        const response = (await client.send(
+          new HeadObjectCommand({ Bucket: bucket, Key: key }),
+        )) as { ContentLength?: number };
+        return { bytes: response.ContentLength ?? 0 };
+      } catch (error) {
+        if (isMissingObject(error)) return undefined;
+        throw error;
+      }
+    },
 
     async list(prefix) {
       const keys: string[] = [];

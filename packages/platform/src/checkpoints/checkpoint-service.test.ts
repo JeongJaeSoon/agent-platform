@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type {
   CheckpointCodec,
   CheckpointManifest,
+  ObjectRef,
   RuntimeFingerprint,
 } from "@agent-platform/runtime-core";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@agent-platform/testkit/checkpoint-objects";
 
 import type {
+  CheckpointFence,
   CheckpointPointer,
   CheckpointStore,
   CommitCheckpointInput,
@@ -22,12 +24,24 @@ import {
 } from "./checkpoint-service.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
+const attemptId = "attempt-1";
 const runtime: RuntimeFingerprint = {
   cliVersion: "2.1.270",
   engine: "test-engine",
   profileSha256: "a".repeat(64),
   sdkVersion: "0.3.270",
 };
+
+function fence(overrides: Partial<CheckpointFence> = {}): CheckpointFence {
+  return {
+    attemptId,
+    authRevision: 1,
+    executionGeneration: 1,
+    leaseEpoch: 1,
+    sessionId,
+    ...overrides,
+  };
+}
 
 /**
  * Stands in for a real codec: it validates the fields the service relies on and
@@ -38,7 +52,7 @@ const codec: CheckpointCodec = {
   engine: runtime.engine,
   encode(manifest) {
     const text = `${JSON.stringify(manifest)}\n`;
-    return { bytes: new TextEncoder().encode(text), sha256: sha256(text) };
+    return { bytes: encode(text), sha256: sha256(text) };
   },
   decode(bytes) {
     const parsed = JSON.parse(
@@ -63,6 +77,18 @@ const codec: CheckpointCodec = {
   },
 };
 
+/** Artifact bodies the manifests below point at, by key. */
+const ARTIFACTS: Record<string, string> = {
+  "mirror/root-0.jsonl": '{"type":"user","uuid":"r1"}\n',
+  "mirror/sub-0.jsonl": '{"type":"user","uuid":"s1"}\n',
+  "workspace/untracked/notes.md": "scratch\n",
+};
+
+function ref(key: string): ObjectRef {
+  const body = ARTIFACTS[key] ?? "";
+  return { bytes: encode(body).byteLength, key, sha256: sha256(body) };
+}
+
 function manifest(
   overrides: Partial<CheckpointManifest> = {},
 ): CheckpointManifest {
@@ -77,13 +103,13 @@ function manifest(
     transcripts: {
       root: {
         entryCount: 2,
-        parts: [{ key: "mirror/root-0.jsonl", sha256: "b".repeat(64) }],
+        parts: [ref("mirror/root-0.jsonl")],
         sha256: "c".repeat(64),
       },
       subagents: {
         "agents/reviewer": {
           entryCount: 1,
-          parts: [{ key: "mirror/sub-0.jsonl", sha256: "d".repeat(64) }],
+          parts: [ref("mirror/sub-0.jsonl")],
           sha256: "e".repeat(64),
         },
       },
@@ -91,16 +117,17 @@ function manifest(
     version: 1,
     workspace: {
       gitCommit: "f".repeat(40),
-      untracked: [
-        { key: "workspace/untracked/notes.md", sha256: "0".repeat(64) },
-      ],
+      untracked: [ref("workspace/untracked/notes.md")],
     },
     ...overrides,
   };
 }
 
-/** Pointer CAS with the rule the database enforces: revisions only move up. */
-function memoryCheckpointStore() {
+/**
+ * Pointer CAS with the two rules the database enforces: the fence must still
+ * own the session, and revisions only move up.
+ */
+function memoryCheckpointStore(owner: CheckpointFence = fence()) {
   let pointer: CheckpointPointer | null = null;
   const committed: CommitCheckpointInput[] = [];
   const store: CheckpointStore = {
@@ -108,6 +135,13 @@ function memoryCheckpointStore() {
       return pointer;
     },
     async commitAtomic(input): Promise<CommitCheckpointResult> {
+      if (
+        input.fence.attemptId !== owner.attemptId ||
+        input.fence.leaseEpoch !== owner.leaseEpoch ||
+        input.fence.executionGeneration !== owner.executionGeneration
+      ) {
+        return { outcome: "stale_epoch" };
+      }
       if (pointer !== null && input.checkpoint.revision === pointer.revision) {
         return pointer.manifestSha256 === input.checkpoint.manifest_sha256
           ? { outcome: "replayed", revision: pointer.revision }
@@ -134,8 +168,11 @@ let objects: MemoryCheckpointObjectStore;
 let checkpoints: ReturnType<typeof memoryCheckpointStore>;
 let service: ReturnType<typeof createCheckpointService>;
 
-beforeEach(() => {
+beforeEach(async () => {
   objects = createMemoryCheckpointObjectStore();
+  for (const [key, body] of Object.entries(ARTIFACTS)) {
+    await objects.put(key, encode(body));
+  }
   checkpoints = memoryCheckpointStore();
   service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
@@ -145,13 +182,13 @@ beforeEach(() => {
 });
 
 /** Uploads a manifest the way a worker would, and returns the ref for it. */
-async function upload(body: CheckpointManifest) {
-  const ref = manifestRefFor(body.sessionId, body.revision);
+async function upload(body: CheckpointManifest, attempt = attemptId) {
+  const manifestRef = manifestRefFor(body.sessionId, body.revision, attempt);
   const { bytes, sha256: digest } = codec.encode(body);
-  const result = await objects.putImmutable(ref, bytes);
+  const result = await objects.putImmutable(manifestRef, bytes);
   return {
     checkpoint: {
-      manifest_ref: ref,
+      manifest_ref: manifestRef,
       manifest_sha256: digest,
       revision: body.revision,
     },
@@ -162,11 +199,15 @@ async function upload(body: CheckpointManifest) {
 describe("requestCheckpoint", () => {
   test("hands out revision 0 for a session that has never checkpointed", async () => {
     expect(
-      await service.requestCheckpoint({ preparation: ready(), sessionId }),
+      await service.requestCheckpoint({
+        attemptId,
+        preparation: ready(),
+        sessionId,
+      }),
     ).toEqual({
       status: "ready",
       request: {
-        manifestRef: manifestRefFor(sessionId, 0),
+        manifestRef: manifestRefFor(sessionId, 0, attemptId),
         revision: 0,
         sessionId,
       },
@@ -177,22 +218,53 @@ describe("requestCheckpoint", () => {
     const first = await upload(manifest());
     await service.finalize({
       ...first,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
     });
 
     expect(
-      await service.requestCheckpoint({ preparation: ready(), sessionId }),
-    ).toMatchObject({
-      status: "ready",
-      request: { revision: 1 },
+      await service.requestCheckpoint({
+        attemptId,
+        preparation: ready(),
+        sessionId,
+      }),
+    ).toMatchObject({ status: "ready", request: { revision: 1 } });
+  });
+
+  test("gives each attempt its own key, so an orphan upload cannot wedge the session", async () => {
+    // The first attempt uploads and then dies before finalizing.
+    const orphan = await upload(manifest({ resume: "engine-session-dead" }));
+    expect(orphan.result).toEqual({ outcome: "created" });
+
+    // Its replacement is still handed revision 0 — the pointer never moved.
+    const retry = await service.requestCheckpoint({
+      attemptId: "attempt-2",
+      preparation: ready(),
+      sessionId,
     });
+    if (retry.status !== "ready") throw new Error("expected a request");
+    expect(retry.request.revision).toBe(0);
+    expect(retry.request.manifestRef).not.toBe(orphan.checkpoint.manifest_ref);
+
+    const second = await upload(manifest(), "attempt-2");
+    expect(second.result).toEqual({ outcome: "created" });
+    expect(
+      await service.finalize({
+        ...second,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
   });
 
   test("passes the runtime's refusal through instead of allocating a revision", async () => {
     expect(
       await service.requestCheckpoint({
+        attemptId,
         preparation: {
           status: "rejected",
           reason: "mirror_error",
@@ -222,7 +294,7 @@ describe("validateManifest", () => {
     expect(
       await service.validateManifest({
         checkpoint: {
-          manifest_ref: manifestRefFor(sessionId, 0),
+          manifest_ref: manifestRefFor(sessionId, 0, attemptId),
           manifest_sha256: "1".repeat(64),
           revision: 0,
         },
@@ -288,22 +360,58 @@ describe("validateManifest", () => {
   });
 
   test("refuses bytes the codec cannot decode", async () => {
-    const ref = manifestRefFor(sessionId, 0);
-    const bytes = new TextEncoder().encode(
+    const manifestRef = manifestRefFor(sessionId, 0, attemptId);
+    const bytes = encode(
       JSON.stringify({ engine: runtime.engine, corrupt: true }),
     );
-    await objects.putImmutable(ref, bytes);
+    await objects.putImmutable(manifestRef, bytes);
 
     expect(
       await service.validateManifest({
         checkpoint: {
-          manifest_ref: ref,
+          manifest_ref: manifestRef,
           manifest_sha256: sha256(new TextDecoder().decode(bytes)),
           revision: 0,
         },
         sessionId,
       }),
     ).toMatchObject({ status: "rejected", reason: "manifest body is corrupt" });
+  });
+
+  test("refuses a manifest naming a transcript part that was never uploaded", async () => {
+    objects.remove("mirror/sub-0.jsonl");
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: "manifest references a missing object: mirror/sub-0.jsonl",
+    });
+  });
+
+  test("refuses a manifest naming an untracked file that was never uploaded", async () => {
+    objects.remove("workspace/untracked/notes.md");
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/workspace\/untracked\/notes\.md/),
+    });
+  });
+
+  test("refuses a part whose stored size is not the size the manifest declares", async () => {
+    await objects.put("mirror/root-0.jsonl", encode("truncated"));
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/mirror\/root-0\.jsonl is 9 bytes, not/),
+    });
   });
 });
 
@@ -314,6 +422,7 @@ describe("finalize", () => {
     expect(
       await service.finalize({
         checkpoint,
+        fence: fence(),
         now: new Date(),
         sessionId,
         turnId: "1",
@@ -325,10 +434,11 @@ describe("finalize", () => {
   test("never commits a checkpoint it could not validate", async () => {
     const result = await service.finalize({
       checkpoint: {
-        manifest_ref: manifestRefFor(sessionId, 0),
+        manifest_ref: manifestRefFor(sessionId, 0, attemptId),
         manifest_sha256: "1".repeat(64),
         revision: 0,
       },
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -339,10 +449,27 @@ describe("finalize", () => {
     expect(checkpoints.pointer()).toBeNull();
   });
 
+  test("never commits a checkpoint whose artifacts are not all there", async () => {
+    objects.remove("mirror/root-0.jsonl");
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.finalize({
+        checkpoint,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toMatchObject({ outcome: "rejected" });
+    expect(checkpoints.pointer()).toBeNull();
+  });
+
   test("answers a conflict when the pointer has already moved past this revision", async () => {
     const zero = await upload(manifest());
     await service.finalize({
       ...zero,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -350,11 +477,18 @@ describe("finalize", () => {
     const one = await upload(
       manifest({ revision: 1, resume: "engine-session-2" }),
     );
-    await service.finalize({ ...one, now: new Date(), sessionId, turnId: "2" });
+    await service.finalize({
+      ...one,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "2",
+    });
 
     expect(
       await service.finalize({
         ...zero,
+        fence: fence(),
         now: new Date(),
         sessionId,
         turnId: "1",
@@ -367,6 +501,7 @@ describe("finalize", () => {
     const zero = await upload(manifest());
     await service.finalize({
       ...zero,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -375,6 +510,7 @@ describe("finalize", () => {
     expect(
       await service.finalize({
         ...zero,
+        fence: fence(),
         now: new Date(),
         sessionId,
         turnId: "1",
@@ -383,23 +519,54 @@ describe("finalize", () => {
     expect(checkpoints.committed).toHaveLength(1);
   });
 
-  test("a stale worker's late upload cannot take over a revision that is already published", async () => {
-    const live = await upload(manifest({ resume: "engine-session-live" }));
-    await service.finalize({
-      ...live,
-      now: new Date(),
-      sessionId,
-      turnId: "1",
-    });
+  test("a worker whose lease was taken over loses even when it uploads first", async () => {
+    // The stale execution wins the object-store race for revision 0 …
+    const stale = await upload(
+      manifest({ resume: "engine-session-stale" }),
+      "attempt-stale",
+    );
+    expect(stale.result).toEqual({ outcome: "created" });
 
-    // The worker whose lease ended finishes its upload under the same key.
-    const stale = await upload(manifest({ resume: "engine-session-stale" }));
-
-    expect(stale.result).toMatchObject({ outcome: "conflict" });
-    // Its own digest is not what is stored, so finalize cannot promote it.
+    // … and still cannot advance the pointer, because the fence no longer
+    // matches the session row.
     expect(
       await service.finalize({
         ...stale,
+        fence: fence({ attemptId: "attempt-stale", leaseEpoch: 0 }),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toEqual({ outcome: "stale_epoch" });
+    expect(checkpoints.pointer()).toBeNull();
+
+    // The live worker publishes its own manifest under its own key.
+    const live = await upload(manifest({ resume: "engine-session-live" }));
+    expect(
+      await service.finalize({
+        ...live,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
+    expect(checkpoints.pointer()).toMatchObject({
+      manifestSha256: live.checkpoint.manifest_sha256,
+    });
+  });
+
+  test("a second upload of different bytes under one attempt's key is refused", async () => {
+    const first = await upload(manifest({ resume: "engine-session-1" }));
+    const rewrite = await upload(manifest({ resume: "engine-session-2" }));
+
+    expect(rewrite.result).toMatchObject({ outcome: "conflict" });
+    // The stored bytes are still the first ones, so the rewrite's digest does
+    // not describe anything the store holds.
+    expect(
+      await service.finalize({
+        ...rewrite,
+        fence: fence(),
         now: new Date(),
         sessionId,
         turnId: "1",
@@ -408,9 +575,9 @@ describe("finalize", () => {
       outcome: "rejected",
       reason: expect.stringMatching(/digest mismatch/),
     });
-    expect(checkpoints.pointer()).toMatchObject({
-      manifestSha256: live.checkpoint.manifest_sha256,
-    });
+    expect(await objects.get(first.checkpoint.manifest_ref)).toEqual(
+      codec.encode(manifest({ resume: "engine-session-1" })).bytes,
+    );
   });
 });
 
@@ -425,6 +592,7 @@ describe("getRestorePlan", () => {
     const { checkpoint } = await upload(manifest());
     await service.finalize({
       checkpoint,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -437,25 +605,23 @@ describe("getRestorePlan", () => {
           {
             kind: "transcript_root",
             label: "",
-            objects: [{ key: "mirror/root-0.jsonl", sha256: "b".repeat(64) }],
+            objects: [ref("mirror/root-0.jsonl")],
           },
           {
             kind: "transcript_subagent",
             label: "agents/reviewer",
-            objects: [{ key: "mirror/sub-0.jsonl", sha256: "d".repeat(64) }],
+            objects: [ref("mirror/sub-0.jsonl")],
           },
           {
             kind: "workspace_untracked",
             label: "",
-            objects: [
-              { key: "workspace/untracked/notes.md", sha256: "0".repeat(64) },
-            ],
+            objects: [ref("workspace/untracked/notes.md")],
           },
         ],
         cwd: "/workspace",
         engine: runtime.engine,
         gitCommit: "f".repeat(40),
-        manifestRef: manifestRefFor(sessionId, 0),
+        manifestRef: manifestRefFor(sessionId, 0, attemptId),
         objectKeys: [
           "mirror/root-0.jsonl",
           "mirror/sub-0.jsonl",
@@ -473,6 +639,7 @@ describe("getRestorePlan", () => {
     );
     await service.finalize({
       checkpoint,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -493,6 +660,7 @@ describe("getRestorePlan", () => {
     );
     await service.finalize({
       checkpoint,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -513,6 +681,7 @@ describe("getRestorePlan", () => {
     );
     await service.finalize({
       checkpoint,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
@@ -528,11 +697,29 @@ describe("getRestorePlan", () => {
     const { checkpoint } = await upload(manifest());
     await service.finalize({
       checkpoint,
+      fence: fence(),
       now: new Date(),
       sessionId,
       turnId: "1",
     });
     objects.remove(checkpoint.manifest_ref);
+
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+  });
+
+  test("reports a pointer whose transcript parts have gone missing", async () => {
+    const { checkpoint } = await upload(manifest());
+    await service.finalize({
+      checkpoint,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "1",
+    });
+    objects.remove("mirror/root-0.jsonl");
 
     expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
       status: "unavailable",
@@ -550,6 +737,10 @@ function ready() {
       sdkVersion: runtime.sdkVersion,
     },
   };
+}
+
+function encode(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
 }
 
 function sha256(value: string): string {

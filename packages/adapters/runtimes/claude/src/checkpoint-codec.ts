@@ -19,7 +19,11 @@ export const CLAUDE_CHECKPOINT_ENGINE = "claude";
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const objectRefSchema = z
-  .object({ key: z.string().min(1), sha256: sha256Schema })
+  .object({
+    bytes: z.number().int().nonnegative(),
+    key: z.string().min(1),
+    sha256: sha256Schema,
+  })
   .strict();
 const transcriptRevisionSchema = z
   .object({
@@ -75,9 +79,19 @@ export const CLAUDE_RUNTIME_FINGERPRINT = {
 
 /**
  * Digest of everything about a run's configuration that changes how a stored
- * transcript replays. Credentials are excluded — `publicProfile` drops them —
- * so rotating a key does not invalidate a checkpoint, while pointing the run at
- * a different endpoint or tool allowlist does.
+ * transcript replays. The model credential is excluded — `publicProfile` drops
+ * it — so rotating a key does not invalidate a checkpoint, while pointing the
+ * run at a different endpoint or tool allowlist does.
+ *
+ * MCP servers are hashed whole, not by registry name: the same name can be
+ * repointed at a different command, endpoint or tenant, and a checkpoint taken
+ * under the old one is not replayable under the new one. That means a secret
+ * embedded in a server definition also moves the fingerprint — the safe
+ * direction, since the alternative is calling two different tool surfaces
+ * compatible.
+ *
+ * What it does not cover: plugin *contents* at an unchanged path. Only the path
+ * and type are hashed, because the files are not readable from here.
  */
 export function claudeProfileFingerprint(
   config: Pick<
@@ -96,10 +110,12 @@ export function claudeProfileFingerprint(
     JSON.stringify(
       canonical({
         appendSystemPrompt: config.appendSystemPrompt ?? null,
-        mcpServers: Object.keys(config.mcpServers ?? {}).sort(),
+        mcpServers: config.mcpServers ?? {},
         model: config.model,
         permissionMode: config.permissionMode ?? "default",
-        plugins: (config.plugins ?? []).map((plugin) => plugin.path).sort(),
+        plugins: [...(config.plugins ?? [])].sort((left, right) =>
+          left.path.localeCompare(right.path),
+        ),
         profile: publicProfile(config.profile),
         settingSources: config.settingSources ?? ["project"],
         tools: [...config.tools].sort(),

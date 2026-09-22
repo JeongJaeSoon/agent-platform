@@ -137,7 +137,7 @@ describe("Claude session store", () => {
 
   test("refuses a revision that names a part the store no longer has", async () => {
     const { mirror } = store();
-    const parts = [{ key: "gone", sha256: "0".repeat(64) }];
+    const parts = [{ bytes: 1, key: "gone", sha256: "0".repeat(64) }];
 
     await expect(
       mirror.loadRevision({
@@ -167,6 +167,63 @@ describe("Claude session store", () => {
     await expect(
       mirror.append({ ...root, subpath: "../other" }, [entry("a", "x")]),
     ).rejects.toThrow(/Unsafe transcript subpath/);
+  });
+
+  test("a resumed store appends after the stored tail, not after its own clock", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = new ClaudeSessionStore({
+      objects,
+      prefix: "sessions/s1/mirror",
+      now: () => 1_700_000_000_000,
+    });
+    await first.append(root, [entry("a", "before restart")]);
+
+    // The replacement worker's clock is a day behind the one that wrote first.
+    const resumed = new ClaudeSessionStore({
+      objects,
+      prefix: "sessions/s1/mirror",
+      now: () => 1_699_913_600_000,
+    });
+    await resumed.append(root, [entry("b", "after restart")]);
+
+    expect(await resumed.load(root)).toEqual([
+      entry("a", "before restart"),
+      entry("b", "after restart"),
+    ]);
+  });
+
+  test("keeps root and subagent ordering independent", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = new ClaudeSessionStore({
+      objects,
+      prefix: "sessions/s1/mirror",
+      now: () => 1_700_000_000_000,
+    });
+    const subagent = { ...root, subpath: "agents/reviewer" };
+
+    await mirror.append(root, [entry("r1", "root one")]);
+    await mirror.append(subagent, [entry("s1", "sub one")]);
+    await mirror.append(root, [entry("r2", "root two")]);
+    await mirror.append(subagent, [entry("s2", "sub two")]);
+
+    expect(await mirror.load(root)).toEqual([
+      entry("r1", "root one"),
+      entry("r2", "root two"),
+    ]);
+    expect(await mirror.load(subagent)).toEqual([
+      entry("s1", "sub one"),
+      entry("s2", "sub two"),
+    ]);
+  });
+
+  test("a captured revision records each part's byte length", async () => {
+    const { mirror } = store();
+    await mirror.append(root, [entry("a", "first")]);
+
+    const revision = await mirror.captureRevision(root);
+    const part = revision?.parts[0];
+    if (part === undefined) throw new Error("expected a part");
+    expect(part.bytes).toBeGreaterThan(0);
   });
 
   test("never lets two sessions share a key prefix", async () => {

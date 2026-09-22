@@ -34,6 +34,11 @@ export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore
       return stored === undefined ? undefined : stored.slice();
     },
 
+    async head(key) {
+      const stored = objects.get(key);
+      return stored === undefined ? undefined : { bytes: stored.byteLength };
+    },
+
     async list(prefix) {
       return [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
     },

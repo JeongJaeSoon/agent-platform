@@ -17,7 +17,7 @@ const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };
 function revision(key: string) {
   return {
     entryCount: 1,
-    parts: [{ key, sha256: "b".repeat(64) }],
+    parts: [{ bytes: 42, key, sha256: "b".repeat(64) }],
     sha256: "c".repeat(64),
   };
 }
@@ -191,6 +191,43 @@ describe("Claude profile fingerprint", () => {
     expect(claudeProfileFingerprint({ ...config, tools: ["Bash"] })).not.toBe(
       claudeProfileFingerprint(config),
     );
+  });
+
+  test("changes when an MCP server is repointed under the same name", () => {
+    const before = {
+      ...config,
+      mcpServers: { review: { command: "review-server", args: ["--safe"] } },
+    };
+    const after = {
+      ...config,
+      mcpServers: { review: { command: "review-server", args: ["--all"] } },
+    };
+
+    expect(claudeProfileFingerprint(after)).not.toBe(
+      claudeProfileFingerprint(before),
+    );
+  });
+
+  test("ignores the order MCP servers were declared in", () => {
+    const one = {
+      ...config,
+      mcpServers: { a: { command: "a" }, b: { command: "b" } },
+    };
+    const other = {
+      ...config,
+      mcpServers: { b: { command: "b" }, a: { command: "a" } },
+    };
+
+    expect(claudeProfileFingerprint(other)).toBe(claudeProfileFingerprint(one));
+  });
+
+  test("changes when a plugin is added", () => {
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        plugins: [{ path: "/plugins/review", type: "local" }],
+      }),
+    ).not.toBe(claudeProfileFingerprint(config));
   });
 
   test("changes when the appended system prompt changes", () => {

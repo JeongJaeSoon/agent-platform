@@ -35,7 +35,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   readonly #objects: CheckpointObjectStore;
   readonly #prefix: string;
   readonly #now: () => number;
-  #lastTimestamp = 0;
+  readonly #sequence = new Map<string, number>();
   #appendFailures = 0;
 
   constructor(options: ClaudeSessionStoreOptions) {
@@ -56,12 +56,11 @@ export class ClaudeSessionStore implements TranscriptMirror {
   async append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void> {
     if (entries.length === 0) return;
     const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
-    const timestamp = Math.max(this.#now(), this.#lastTimestamp + 1);
-    this.#lastTimestamp = timestamp;
-    const name = `part-${String(timestamp).padStart(13, "0")}-${randomUUID()}.jsonl`;
+    const prefix = this.#keyPrefix(key);
+    const name = `part-${String(await this.#nextTick(prefix)).padStart(13, "0")}-${randomUUID()}.jsonl`;
     try {
       await this.#objects.put(
-        `${this.#keyPrefix(key)}${name}`,
+        `${prefix}${name}`,
         new TextEncoder().encode(body),
       );
     } catch (error) {
@@ -98,10 +97,10 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const parts = await this.#listParts(key);
     if (parts.length === 0) return null;
     const bodies = await Promise.all(parts.map((part) => this.#read(part)));
-    const refs: ObjectRef[] = parts.map((part, index) => ({
-      key: part,
-      sha256: sha256(bodies[index] ?? new Uint8Array()),
-    }));
+    const refs: ObjectRef[] = parts.map((part, index) => {
+      const body = bodies[index] ?? new Uint8Array();
+      return { bytes: body.byteLength, key: part, sha256: sha256(body) };
+    });
     return {
       entryCount: deduplicate(bodies.flatMap(parseEntries)).length,
       parts: refs,
@@ -128,6 +127,30 @@ export class ClaudeSessionStore implements TranscriptMirror {
       throw new Error("Transcript revision entry count mismatch");
     }
     return entries;
+  }
+
+  /**
+   * The ordering tick for the next part under `prefix`.
+   *
+   * Parts are read back in lexicographic key order, so the tick has to keep
+   * rising across processes too: a session resumed on a host whose clock lags
+   * the previous one would otherwise write parts that sort *before* the
+   * transcript it is continuing. The first append under a key therefore reads
+   * the stored tail and starts above it, rather than trusting this process's
+   * clock alone.
+   */
+  async #nextTick(prefix: string): Promise<number> {
+    let last = this.#sequence.get(prefix);
+    if (last === undefined) {
+      last = 0;
+      for (const key of await this.#objects.list(prefix)) {
+        if (key.slice(prefix.length).includes("/")) continue;
+        last = Math.max(last, partTick(key) ?? 0);
+      }
+    }
+    const tick = Math.max(this.#now(), last + 1);
+    this.#sequence.set(prefix, tick);
+    return tick;
   }
 
   /** Parts written directly under the key, excluding any nested subpath. */
@@ -194,6 +217,11 @@ function parseEntries(bytes: Uint8Array): TranscriptEntry[] {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as TranscriptEntry);
+}
+
+function partTick(key: string): number | undefined {
+  const match = key.match(/\/part-(\d{13})-/);
+  return match?.[1] === undefined ? undefined : Number(match[1]);
 }
 
 function digestParts(parts: readonly ObjectRef[]): string {

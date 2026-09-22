@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  type CheckpointFence,
   type CheckpointPointer,
   type CheckpointStore,
   createCheckpointService,
@@ -49,6 +50,15 @@ const runtime = {
   profileSha256: claudeProfileFingerprint(config),
 };
 
+const attemptId = "attempt-1";
+const fence: CheckpointFence = {
+  attemptId,
+  authRevision: 1,
+  executionGeneration: 1,
+  leaseEpoch: 1,
+  sessionId,
+};
+
 function memoryCheckpointStore(): CheckpointStore & {
   pointer(): CheckpointPointer | null;
 } {
@@ -58,6 +68,9 @@ function memoryCheckpointStore(): CheckpointStore & {
       return pointer;
     },
     async commitAtomic(input) {
+      if (input.fence.attemptId !== fence.attemptId) {
+        return { outcome: "stale_epoch" as const };
+      }
       const revision = input.checkpoint.revision;
       if (pointer !== null && revision <= pointer.revision) {
         return pointer.manifestSha256 === input.checkpoint.manifest_sha256 &&
@@ -128,6 +141,7 @@ for (const [name, createObjects] of backends) {
       await mirror.append(subagent, [entry("s1", "review")]);
 
       const request = await service.requestCheckpoint({
+        attemptId,
         preparation: {
           status: "ready",
           checkpoint: {
@@ -140,7 +154,9 @@ for (const [name, createObjects] of backends) {
       });
       if (request.status !== "ready") throw new Error("expected a request");
       expect(request.request.revision).toBe(0);
-      expect(request.request.manifestRef).toBe(manifestRefFor(sessionId, 0));
+      expect(request.request.manifestRef).toBe(
+        manifestRefFor(sessionId, 0, attemptId),
+      );
 
       const first = await publish(
         mirror,
@@ -157,6 +173,7 @@ for (const [name, createObjects] of backends) {
             manifest_sha256: first.sha256,
             revision: 0,
           },
+          fence,
           now: new Date("2026-09-22T00:00:00.000Z"),
           sessionId,
           turnId: "1",
@@ -166,24 +183,32 @@ for (const [name, createObjects] of backends) {
       // The session keeps working: the mirror moves on past the checkpoint.
       await mirror.append(root, [entry("r2", "second turn")]);
 
-      // A worker whose lease already ended finishes uploading its own manifest
-      // under the revision that is already published.
+      // A worker whose lease already ended finishes uploading its own manifest.
+      // Its key is its own, so the upload succeeds — what stops it is the fence.
       const stale = await publish(mirror, 0, "sdk-session-stale");
-      expect(
-        await objects.putImmutable(request.request.manifestRef, stale.bytes),
-      ).toMatchObject({ outcome: "conflict" });
+      const staleRef = manifestRefFor(sessionId, 0, "attempt-stale");
+      expect(await objects.putImmutable(staleRef, stale.bytes)).toEqual({
+        outcome: "created",
+      });
       expect(
         await service.finalize({
           checkpoint: {
-            manifest_ref: request.request.manifestRef,
+            manifest_ref: staleRef,
             manifest_sha256: stale.sha256,
             revision: 0,
           },
+          fence: { ...fence, attemptId: "attempt-stale" },
           now: new Date("2026-09-22T00:00:01.000Z"),
           sessionId,
           turnId: "1",
         }),
-      ).toMatchObject({ outcome: "rejected" });
+      ).toEqual({ outcome: "stale_epoch" });
+
+      // Rewriting the live attempt's own key with different bytes is refused
+      // outright, so the published manifest stays exactly as it was.
+      expect(
+        await objects.putImmutable(request.request.manifestRef, stale.bytes),
+      ).toMatchObject({ outcome: "conflict" });
       expect(store.pointer()).toMatchObject({ manifestSha256: first.sha256 });
 
       const plan = await service.getRestorePlan({ runtime, sessionId });
@@ -235,7 +260,7 @@ for (const [name, createObjects] of backends) {
         ...runtime,
         sdkVersion: "0.3.100",
       });
-      const ref = manifestRefFor(sessionId, 0);
+      const ref = manifestRefFor(sessionId, 0, attemptId);
       await objects.putImmutable(ref, published.bytes);
       await service.finalize({
         checkpoint: {
@@ -243,6 +268,7 @@ for (const [name, createObjects] of backends) {
           manifest_sha256: published.sha256,
           revision: 0,
         },
+        fence,
         now: new Date("2026-09-22T00:00:00.000Z"),
         sessionId,
         turnId: "1",

@@ -12,12 +12,13 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import type {
+  CheckpointFence,
   CheckpointPointer,
   CheckpointStore,
 } from "../ports/checkpoint-store.ts";
 
 export type CheckpointRequest = {
-  /** Where the worker must upload the manifest for this revision. */
+  /** Where this attempt must upload its manifest. */
   manifestRef: string;
   revision: number;
   sessionId: string;
@@ -33,6 +34,7 @@ export type ManifestVerdict =
 
 export type FinalizeCheckpointInput = {
   checkpoint: CheckpointRef;
+  fence: CheckpointFence;
   now: Date;
   sessionId: string;
   turnId: string | null;
@@ -41,7 +43,8 @@ export type FinalizeCheckpointInput = {
 export type FinalizeCheckpointResult =
   | { outcome: "committed" | "replayed"; revision: number }
   | { currentRevision: number | null; outcome: "conflict" }
-  | { outcome: "rejected"; reason: string };
+  | { outcome: "rejected"; reason: string }
+  | { outcome: "stale_epoch" | "lease_expired" };
 
 export type RestoreArtifact = {
   /** The subagent subpath, or "" for the root transcript. */
@@ -79,9 +82,24 @@ export type CheckpointServiceDependencies = {
   store: CheckpointStore;
 };
 
-export function manifestRefFor(sessionId: string, revision: number): string {
+/**
+ * Every publish attempt gets its own key.
+ *
+ * Keying by revision alone deadlocks the session: a worker that uploads and
+ * then dies before finalizing leaves an orphan object at the key the next
+ * attempt is handed, and create-only then refuses every later manifest for that
+ * revision forever. Two attempts may therefore both upload; which one becomes
+ * the session's truth is decided by the fenced pointer CAS, not by who wrote
+ * the object first.
+ */
+export function manifestRefFor(
+  sessionId: string,
+  revision: number,
+  attemptId: string,
+): string {
   // Zero-padded so a prefix listing of a session's checkpoints is ordered.
-  return `sessions/${sessionId}/checkpoints/${String(revision).padStart(10, "0")}/manifest.json`;
+  const padded = String(revision).padStart(10, "0");
+  return `sessions/${sessionId}/checkpoints/${padded}/${attemptId}/manifest.json`;
 }
 
 /**
@@ -143,7 +161,45 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest is revision ${manifest.revision}, not ${checkpoint.revision}`,
       };
     }
+    const missing = await missingArtifact(manifest);
+    if (missing !== undefined) return { status: "rejected", reason: missing };
     return { status: "verified", manifest };
+  }
+
+  /**
+   * A manifest that parses is not yet a restorable checkpoint: a partial
+   * upload, a lifecycle deletion or a truncated part leaves it naming objects
+   * that are not there. The pointer must never advance to one of those, so
+   * every referenced object is checked for presence and declared size before
+   * the checkpoint counts as verified.
+   *
+   * Sizes, not digests: the bytes are hashed on the way back in
+   * `loadRevision`, where they have to be read anyway. Re-downloading every
+   * transcript part on each checkpoint would double the transfer to catch a
+   * corruption that restore catches regardless.
+   */
+  async function missingArtifact(
+    manifest: CheckpointManifest,
+  ): Promise<string | undefined> {
+    const refs = [
+      ...manifest.transcripts.root.parts,
+      ...Object.values(manifest.transcripts.subagents).flatMap(
+        (revision) => revision.parts,
+      ),
+      ...manifest.workspace.untracked,
+    ];
+    const heads = await Promise.all(
+      refs.map(async (ref) => [ref, await objects.head(ref.key)] as const),
+    );
+    for (const [ref, head] of heads) {
+      if (head === undefined) {
+        return `manifest references a missing object: ${ref.key}`;
+      }
+      if (head.bytes !== ref.bytes) {
+        return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
+      }
+    }
+    return undefined;
   }
 
   return {
@@ -153,6 +209,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * revision the worker may claim next.
      */
     async requestCheckpoint(input: {
+      attemptId: string;
       preparation: CheckpointPreparation;
       sessionId: string;
     }): Promise<CheckpointRequestDecision> {
@@ -168,7 +225,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       return {
         status: "ready",
         request: {
-          manifestRef: manifestRefFor(input.sessionId, revision),
+          manifestRef: manifestRefFor(
+            input.sessionId,
+            revision,
+            input.attemptId,
+          ),
           revision,
           sessionId: input.sessionId,
         },
@@ -180,8 +241,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     /**
      * Promotes a validated manifest to the session pointer. A checkpoint that
      * does not validate is never committed, and a pointer that has already
-     * moved past this revision is a conflict the caller answers with 409 —
-     * a worker whose epoch ended does not get to overwrite its successor.
+     * moved past this revision is a conflict the caller answers with 409.
+     *
+     * The fence travels into the same transaction as the pointer update, so a
+     * worker whose lease was taken over cannot win the next revision merely by
+     * uploading first — object-store ordering decides nothing here.
      */
     async finalize(
       input: FinalizeCheckpointInput,
@@ -195,13 +259,23 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
       const result = await store.commitAtomic({
         checkpoint: input.checkpoint,
+        fence: input.fence,
         now: input.now,
         sessionId: input.sessionId,
         turnId: input.turnId,
       });
-      return result.outcome === "conflict"
-        ? { outcome: "conflict", currentRevision: result.currentRevision }
-        : { outcome: result.outcome, revision: result.revision };
+      switch (result.outcome) {
+        case "conflict":
+          return {
+            outcome: "conflict",
+            currentRevision: result.currentRevision,
+          };
+        case "stale_epoch":
+        case "lease_expired":
+          return { outcome: result.outcome };
+        default:
+          return { outcome: result.outcome, revision: result.revision };
+      }
     },
 
     /**

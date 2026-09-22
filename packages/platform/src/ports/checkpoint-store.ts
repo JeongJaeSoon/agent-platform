@@ -8,8 +8,23 @@ export type CheckpointPointer = {
   turnId: string | null;
 };
 
+/**
+ * The identity a post-claim write is fenced on, as the worker protocol defines
+ * it. It travels with the commit so the pointer update and the ownership check
+ * happen in one transaction: an execution whose lease has been taken over must
+ * not win the next revision just because it uploaded first.
+ */
+export type CheckpointFence = {
+  attemptId: string;
+  authRevision: number;
+  executionGeneration: number;
+  leaseEpoch: number;
+  sessionId: string;
+};
+
 export type CommitCheckpointInput = {
   checkpoint: CheckpointRef;
+  fence: CheckpointFence;
   now: Date;
   sessionId: string;
   turnId: string | null;
@@ -19,7 +34,9 @@ export type CommitCheckpointResult =
   | { outcome: "committed" | "replayed"; revision: number }
   // The pointer already stands at this revision or a later one: another epoch
   // finalized while this one was uploading.
-  | { outcome: "conflict"; currentRevision: number | null };
+  | { outcome: "conflict"; currentRevision: number | null }
+  // The fence no longer matches the session row; another epoch owns it.
+  | { outcome: "stale_epoch" | "lease_expired" };
 
 /**
  * The durable half of a checkpoint. `commitAtomic` inserts the checkpoint row

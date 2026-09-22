@@ -9,6 +9,7 @@
  */
 
 export type ObjectRef = {
+  readonly bytes: number;
   readonly key: string;
   readonly sha256: string;
 };
@@ -101,6 +102,8 @@ export type PutImmutableResult =
 
 export interface CheckpointObjectStore {
   get(key: string): Promise<Uint8Array | undefined>;
+  /** Size and presence without transferring the body; undefined when absent. */
+  head(key: string): Promise<{ bytes: number } | undefined>;
   list(prefix: string): Promise<string[]>;
   /** Append-only mirror write; callers own key uniqueness. */
   put(key: string, bytes: Uint8Array): Promise<void>;
