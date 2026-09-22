@@ -47,6 +47,17 @@ export type WorkspaceArtifact = ObjectRef & {
 };
 
 export type CheckpointWorkspace = {
+  /**
+   * A git bundle whose tip is `gitCommit`, stored beside the transcript parts.
+   *
+   * The commit travels with the checkpoint rather than being looked up in a
+   * remote, because a remote answers for the branch it has *now*: a force-push,
+   * a branch delete or a GC after the checkpoint was taken all turn a verified
+   * commit back into an unfetchable one. Carrying the objects makes the
+   * checkpoint's own durability the only thing restore depends on, and makes
+   * the commit verifiable by exactly the digest check every other object gets.
+   */
+  readonly bundle: ObjectRef;
   readonly gitCommit: string;
   /** Files git does not track, uploaded individually so restore is exact. */
   readonly untracked: readonly WorkspaceArtifact[];

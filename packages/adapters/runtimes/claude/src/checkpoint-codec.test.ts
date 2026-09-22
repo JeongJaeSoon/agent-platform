@@ -37,6 +37,11 @@ function manifest(
     },
     version: 1,
     workspace: {
+      bundle: {
+        bytes: 1024,
+        key: "sessions/s1/workspace/workspace.bundle",
+        sha256: "c".repeat(64),
+      },
       gitCommit: "0".repeat(40),
       untracked: [
         {
@@ -146,9 +151,23 @@ describe("Claude checkpoint codec", () => {
   test("refuses a manifest whose workspace commit is not a full sha", () => {
     expect(() =>
       encodeCheckpointManifest(
-        manifest({ workspace: { gitCommit: "abc1234", untracked: [] } }),
+        manifest({
+          workspace: { ...manifest().workspace, gitCommit: "abc1234" },
+        }),
       ),
     ).toThrow();
+  });
+
+  test("refuses a manifest that pins a commit without the bundle carrying it", () => {
+    // The commit alone is unverifiable, so a manifest that omits the bundle is
+    // not a manifest this codec will produce or accept.
+    const { bundle: _bundle, ...workspace } = manifest().workspace;
+
+    expect(() =>
+      encodeCheckpointManifest(
+        manifest({ workspace: workspace as CheckpointManifest["workspace"] }),
+      ),
+    ).toThrow(/bundle/);
   });
 
   test("accepts a manifest written by the same runtime", () => {

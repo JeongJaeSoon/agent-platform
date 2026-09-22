@@ -20,6 +20,7 @@ import type {
 } from "@agent-platform/runtime-core";
 import { createCheckpointObjectStore } from "@agent-platform/storage";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
@@ -35,7 +36,16 @@ import {
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const projectKey = "-workspace";
-const gitCommit = "a".repeat(40);
+// The workspace half of the checkpoint: a real bundle, uploaded next to the
+// transcript parts, carrying the commit the manifest pins.
+const workspaceBundle = await createGitBundle();
+const bundleKey = `sessions/${sessionId}/workspace/workspace.bundle`;
+const bundleRef = {
+  bytes: workspaceBundle.bytes.byteLength,
+  key: bundleKey,
+  sha256: workspaceBundle.sha256,
+};
+const gitCommit = workspaceBundle.commit;
 const config = {
   model: "claude-sonnet-4-5",
   profile: {
@@ -137,6 +147,7 @@ for (const [name, createObjects] of backends) {
       const root = { projectKey, sessionId };
       const subagent = { ...root, subpath: "agents/reviewer" };
 
+      await objects.put(bundleKey, workspaceBundle.bytes);
       await mirror.append(root, [entry("r1", "first turn")]);
       await mirror.append(subagent, [entry("s1", "review")]);
 
@@ -226,8 +237,16 @@ for (const [name, createObjects] of backends) {
             Object.values(first.manifest.transcripts.subagents).flatMap(
               (revision) => revision.parts.map((part) => part.key),
             ),
-          ),
+          )
+          .concat(bundleKey),
       );
+      // The plan says where the commit comes from, so a worker restoring it
+      // never has to reach for a remote that may have moved on.
+      expect(
+        plan.plan.artifacts.find(
+          (artifact) => artifact.kind === "workspace_bundle",
+        ),
+      ).toEqual({ kind: "workspace_bundle", label: "", objects: [bundleRef] });
       const rootArtifact = plan.plan.artifacts[0];
       if (rootArtifact === undefined)
         throw new Error("expected a root artifact");
@@ -252,6 +271,7 @@ for (const [name, createObjects] of backends) {
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
+      await objects.put(bundleKey, workspaceBundle.bytes);
       await mirror.append({ projectKey, sessionId }, [
         entry("r1", "first turn"),
       ]);
@@ -317,7 +337,7 @@ async function publish(
     sessionId,
     transcripts: { root, subagents },
     version: 1,
-    workspace: { gitCommit, untracked: [] },
+    workspace: { bundle: bundleRef, gitCommit, untracked: [] },
   };
   return { ...claudeCheckpointCodec.encode(manifest), manifest };
 }

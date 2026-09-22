@@ -11,6 +11,7 @@ import type {
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
+import { gitBundleOffers } from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
@@ -60,10 +61,13 @@ export type FinalizeCheckpointResult =
 
 export type RestoreArtifact =
   | {
-      /** The subagent subpath, or "" for the root transcript. */
+      /**
+       * The subagent subpath for a subagent transcript, and "" for the root
+       * transcript and the workspace bundle.
+       */
       label: string;
       objects: readonly ObjectRef[];
-      kind: "transcript_root" | "transcript_subagent";
+      kind: "transcript_root" | "transcript_subagent" | "workspace_bundle";
     }
   // Each object names the workspace-relative path it is restored to.
   | {
@@ -76,6 +80,11 @@ export type RestorePlan = {
   artifacts: readonly RestoreArtifact[];
   cwd: string;
   engine: string;
+  /**
+   * The commit the workspace is restored to. It is fetched out of the
+   * `workspace_bundle` artifact below, never from a remote — see
+   * `CheckpointWorkspace.bundle`.
+   */
   gitCommit: string;
   manifestRef: string;
   /** Every object key the plan needs, deduplicated, in download order. */
@@ -193,7 +202,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
 
   /**
    * A manifest that parses is not yet a restorable checkpoint, and the pointer
-   * must never advance to one that is not. Three things are checked, in the
+   * must never advance to one that is not. Four things are checked, in the
    * order that fails cheapest first.
    *
    * *Namespace.* Object keys come from the worker. One that names another
@@ -210,6 +219,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * makes "committed" mean "restorable". Parts already hashed under the
    * previous pointer are skipped, because parts are write-once: without that,
    * every checkpoint would re-download the whole transcript.
+   *
+   * *The workspace commit.* Same idea one level up: an object that hashes
+   * correctly is still the wrong object if it does not carry the commit the
+   * manifest pins.
    */
   async function badArtifact(
     manifest: CheckpointManifest,
@@ -224,7 +237,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ...manifest.workspace.untracked,
     ];
     const prefix = sessionObjectPrefix(sessionId);
-    for (const ref of refs) {
+    for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
         return `manifest references an object outside ${prefix}: ${ref.key}`;
       }
@@ -264,7 +277,50 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
       return undefined;
     });
-    return problems.find((problem) => problem !== undefined);
+    const bad = problems.find((problem) => problem !== undefined);
+    return bad ?? (await badWorkspaceBundle(manifest.workspace));
+  }
+
+  /**
+   * The workspace half of "committed means restorable".
+   *
+   * Until now `gitCommit` was 40 hex characters and nothing more: a worker that
+   * wrote a commit it never pushed, or transposed two characters, produced a
+   * manifest that validated, a pointer that advanced past the last healthy
+   * checkpoint, and a restore that died at `git checkout`. So the commit's
+   * objects travel with the checkpoint, and the bundle carrying them is read
+   * here — presence, size and digest like any other object, and then the one
+   * question a digest cannot answer: does this bundle actually offer that
+   * commit, on its own, to a workspace that starts empty?
+   *
+   * It is read whole every time rather than skipped via the verified set,
+   * because what is being checked is not the object's integrity but its
+   * relationship to *this* manifest's commit, and that changes with every
+   * revision even when the bytes do not.
+   */
+  async function badWorkspaceBundle(
+    workspace: CheckpointManifest["workspace"],
+  ): Promise<string | undefined> {
+    const { bundle, gitCommit } = workspace;
+    const head = await objects.head(bundle.key);
+    if (head === undefined) {
+      return `manifest references a missing workspace bundle: ${bundle.key}`;
+    }
+    if (head.bytes !== bundle.bytes) {
+      return `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`;
+    }
+    const body = await objects.get(bundle.key);
+    if (body === undefined) {
+      return `manifest references a missing workspace bundle: ${bundle.key}`;
+    }
+    const digest = sha256(body);
+    if (digest !== bundle.sha256) {
+      return `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`;
+    }
+    const verdict = gitBundleOffers(body, gitCommit);
+    return verdict.status === "offers"
+      ? undefined
+      : `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
   }
 
   function safeWorkspacePath(path: string): boolean {
@@ -490,6 +546,13 @@ function planOf(
         };
       }),
   ];
+  // Before the untracked files: they are restored on top of the checkout, and
+  // an ordered download list is the only thing telling a worker so.
+  artifacts.push({
+    kind: "workspace_bundle",
+    label: "",
+    objects: [manifest.workspace.bundle],
+  });
   if (manifest.workspace.untracked.length > 0) {
     artifacts.push({
       kind: "workspace_untracked",

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type {
   CheckpointCodec,
   CheckpointManifest,
+  CheckpointWorkspace,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
@@ -11,6 +12,7 @@ import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@agent-platform/testkit/checkpoint-objects";
+import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 
 import type {
   CheckpointFence,
@@ -83,11 +85,23 @@ const codec: CheckpointCodec = {
 const ROOT_PART = `${sessionObjectPrefix(sessionId)}mirror/root-0.jsonl`;
 const SUB_PART = `${sessionObjectPrefix(sessionId)}mirror/sub-0.jsonl`;
 const UNTRACKED = `${sessionObjectPrefix(sessionId)}workspace/notes.md`;
+const BUNDLE = `${sessionObjectPrefix(sessionId)}workspace/workspace.bundle`;
 const ARTIFACTS: Record<string, string> = {
   [ROOT_PART]: '{"type":"user","uuid":"r1"}\n',
   [SUB_PART]: '{"type":"user","uuid":"s1"}\n',
   [UNTRACKED]: "scratch\n",
 };
+
+// Real `git bundle` bytes, so what the service accepts is what git can restore.
+const workspaceBundle = await createGitBundle();
+
+function bundleRef(): ObjectRef {
+  return {
+    bytes: workspaceBundle.bytes.byteLength,
+    key: BUNDLE,
+    sha256: workspaceBundle.sha256,
+  };
+}
 
 function ref(key: string): ObjectRef {
   const body = ARTIFACTS[key] ?? "";
@@ -124,10 +138,18 @@ function manifest(
       },
     },
     version: 1,
-    workspace: {
-      gitCommit: "f".repeat(40),
-      untracked: [fileRef(UNTRACKED, "notes.md")],
-    },
+    workspace: workspace(),
+    ...overrides,
+  };
+}
+
+function workspace(
+  overrides: Partial<CheckpointWorkspace> = {},
+): CheckpointWorkspace {
+  return {
+    bundle: bundleRef(),
+    gitCommit: workspaceBundle.commit,
+    untracked: [fileRef(UNTRACKED, "notes.md")],
     ...overrides,
   };
 }
@@ -182,6 +204,7 @@ beforeEach(async () => {
   for (const [key, body] of Object.entries(ARTIFACTS)) {
     await objects.put(key, encode(body));
   }
+  await objects.put(BUNDLE, workspaceBundle.bytes);
   checkpoints = memoryCheckpointStore();
   service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
@@ -452,6 +475,108 @@ describe("validateManifest", () => {
     });
   });
 
+  test("refuses a commit the workspace bundle cannot produce", async () => {
+    // The whole point of the ticket: 40 hex characters are not a commit. The
+    // manifest is otherwise perfect, the bundle is a real one, and the commit
+    // simply is not in it.
+    const { checkpoint } = await upload(
+      manifest({ workspace: workspace({ gitCommit: "f".repeat(40) }) }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `workspace bundle ${BUNDLE} cannot restore ${"f".repeat(40)}: git bundle does not offer ${"f".repeat(40)} as a ref tip`,
+    });
+  });
+
+  test("refuses a bundle that is not a bundle", async () => {
+    const body = encode("not a bundle at all\n");
+    await objects.put(BUNDLE, body);
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: workspace({
+          bundle: {
+            bytes: body.byteLength,
+            key: BUNDLE,
+            sha256: sha256("not a bundle at all\n"),
+          },
+        }),
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/cannot restore .*: not a git bundle/),
+    });
+  });
+
+  test("refuses a workspace bundle that was never uploaded", async () => {
+    objects.remove(BUNDLE);
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `manifest references a missing workspace bundle: ${BUNDLE}`,
+    });
+  });
+
+  test("refuses a workspace bundle whose stored size is not the declared one", async () => {
+    await objects.put(BUNDLE, workspaceBundle.bytes.slice(0, 32));
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(
+        new RegExp(`workspace bundle ${BUNDLE} is 32 bytes, not`),
+      ),
+    });
+  });
+
+  test("refuses a workspace bundle replaced by different bytes of the same length", async () => {
+    const swapped = new Uint8Array(workspaceBundle.bytes);
+    // The first character of the header's first ref line: same length as the
+    // real bundle, so only a digest tells them apart.
+    const firstRefLine = swapped.indexOf(0x0a) + 1;
+    swapped.set([(swapped[firstRefLine] ?? 0) ^ 0x01], firstRefLine);
+    await objects.put(BUNDLE, swapped);
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(
+        new RegExp(`workspace bundle ${BUNDLE} hashes to [0-9a-f]{64}, not`),
+      ),
+    });
+  });
+
+  test("refuses a workspace bundle stored outside the session namespace", async () => {
+    const other = "22222222-2222-4222-8222-222222222222";
+    const stolen = `${sessionObjectPrefix(other)}workspace/workspace.bundle`;
+    await objects.put(stolen, workspaceBundle.bytes);
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: workspace({ bundle: { ...bundleRef(), key: stolen } }),
+      }),
+    );
+
+    expect(
+      await service.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `manifest references an object outside ${sessionObjectPrefix(sessionId)}: ${stolen}`,
+    });
+  });
+
   test("refuses a manifest naming another session's transcript", async () => {
     const other = "22222222-2222-4222-8222-222222222222";
     const stolen = `${sessionObjectPrefix(other)}mirror/root-0.jsonl`;
@@ -547,6 +672,45 @@ describe("finalize", () => {
       }),
     ).toMatchObject({ outcome: "rejected" });
     expect(checkpoints.pointer()).toBeNull();
+  });
+
+  test("keeps the last healthy pointer when the next commit is not restorable", async () => {
+    // The failure this guards: revision 0 is good, revision 1 names a commit
+    // nothing can produce, and promoting it would retire the one checkpoint
+    // the session could still have resumed from.
+    const zero = await upload(manifest());
+    await service.finalize({
+      ...zero,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "1",
+    });
+    const one = await upload(
+      manifest({
+        resume: "engine-session-2",
+        revision: 1,
+        workspace: workspace({ gitCommit: "d".repeat(40) }),
+      }),
+    );
+
+    expect(
+      await service.finalize({
+        ...one,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "2",
+      }),
+    ).toMatchObject({ outcome: "rejected" });
+    expect(checkpoints.pointer()).toMatchObject({
+      manifestSha256: zero.checkpoint.manifest_sha256,
+      revision: 0,
+    });
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "ready",
+      plan: { gitCommit: workspaceBundle.commit, revision: 0 },
+    });
   });
 
   test("answers a conflict when the pointer has already moved past this revision", async () => {
@@ -789,6 +953,11 @@ describe("getRestorePlan", () => {
             objects: [ref(SUB_PART)],
           },
           {
+            kind: "workspace_bundle",
+            label: "",
+            objects: [bundleRef()],
+          },
+          {
             kind: "workspace_untracked",
             label: "",
             objects: [fileRef(UNTRACKED, "notes.md")],
@@ -796,9 +965,9 @@ describe("getRestorePlan", () => {
         ],
         cwd: "/workspace",
         engine: runtime.engine,
-        gitCommit: "f".repeat(40),
+        gitCommit: workspaceBundle.commit,
         manifestRef: manifestRefFor(sessionId, 0, attemptId),
-        objectKeys: [ROOT_PART, SUB_PART, UNTRACKED],
+        objectKeys: [ROOT_PART, SUB_PART, BUNDLE, UNTRACKED],
         resume: "engine-session-1",
         revision: 0,
       },
@@ -810,10 +979,9 @@ describe("getRestorePlan", () => {
     // what is unsafe here is the destination the restore would write to.
     const { checkpoint } = await upload(
       manifest({
-        workspace: {
-          gitCommit: "f".repeat(40),
+        workspace: workspace({
           untracked: [fileRef(UNTRACKED, "../../etc/notes.md")],
-        },
+        }),
       }),
     );
 
@@ -827,13 +995,12 @@ describe("getRestorePlan", () => {
     // not describe one workspace.
     const { checkpoint } = await upload(
       manifest({
-        workspace: {
-          gitCommit: "f".repeat(40),
+        workspace: workspace({
           untracked: [
             fileRef(UNTRACKED, "notes.md"),
             fileRef(ROOT_PART, "notes.md"),
           ],
-        },
+        }),
       }),
     );
 
@@ -844,7 +1011,7 @@ describe("getRestorePlan", () => {
 
   test("leaves out the untracked artifact when there is nothing untracked", async () => {
     const { checkpoint } = await upload(
-      manifest({ workspace: { gitCommit: "f".repeat(40), untracked: [] } }),
+      manifest({ workspace: workspace({ untracked: [] }) }),
     );
     await service.finalize({
       checkpoint,
@@ -860,6 +1027,7 @@ describe("getRestorePlan", () => {
     expect(result.plan.artifacts.map((artifact) => artifact.kind)).toEqual([
       "transcript_root",
       "transcript_subagent",
+      "workspace_bundle",
     ]);
   });
 
