@@ -4,6 +4,7 @@ import type {
   ExecutionRef,
   ExecutionResources,
   LaunchIntent,
+  ManagedWorkspace,
   TerminateExecutionResult,
 } from "../ports/execution-backend.ts";
 import type {
@@ -51,6 +52,15 @@ export type SchedulerRunSummary = {
   replaced: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
+  /** Workspaces of finished sessions, reclaimed by this pass. */
+  workspacesReclaimed: string[];
+  /**
+   * Workspaces GC decided to reclaim but could not: still mounted, no longer
+   * this installation's, or the removal failed. Deliberately not part of the
+   * exit code — disk left behind is not a launch left undone, and a mounted
+   * volume is the normal state during a teardown.
+   */
+  workspacesUnresolved: string[];
 };
 
 /**
@@ -62,6 +72,8 @@ export type SchedulerRunSummary = {
  * 2. Provider resources without a matching row are logged and terminated.
  * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
  *    the transaction.
+ * 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
+ *    so a slow daemon listing never delays a launch.
  */
 export async function runScheduler(
   options: SchedulerOptions,
@@ -96,6 +108,8 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     skipped: false,
     slotLimit,
     terminatedObserved: [],
+    workspacesReclaimed: [],
+    workspacesUnresolved: [],
   };
 }
 
@@ -408,6 +422,81 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
     }
   }
+  // 4. Workspaces nothing will come back to.
+  await collectWorkspaces();
+
+  async function collectWorkspaces(): Promise<void> {
+    const { listWorkspaces, removeWorkspace } = backend;
+    // A backend whose workspaces it does not own leaves both out; there is
+    // then nothing here to reclaim.
+    if (!listWorkspaces || !removeWorkspace) return;
+    let workspaces: ManagedWorkspace[];
+    let retained: Set<string>;
+    try {
+      // Workspaces first, then the rows. A session created between the two
+      // calls is in the retained set, so its brand-new workspace is kept;
+      // asking the database first would make that same workspace look
+      // unowned by the time it was listed.
+      workspaces = await listWorkspaces.call(backend);
+      if (workspaces.length === 0) return;
+      const labelled = workspaces
+        .map((workspace) => workspace.sessionId)
+        .filter((sessionId): sessionId is string => sessionId !== null);
+      retained =
+        labelled.length === 0
+          ? new Set<string>()
+          : new Set(await store.filterRetainedSessions(labelled));
+    } catch (error) {
+      // Nothing was removed, so nothing is inconsistent; the next pass
+      // reclaims whatever this one could not even look at.
+      logger.error("Listing workspaces for reclaim failed; none reclaimed", {
+        error: messageOf(error),
+      });
+      return;
+    }
+    for (const workspace of workspaces) {
+      const { id, sessionId } = workspace;
+      if (sessionId === null) {
+        // Fail-safe, as with an unparseable container: a workspace whose
+        // owner cannot be read is left in place and reported, never guessed
+        // at from its name.
+        logger.warn("Workspace carries no session; left in place", {
+          created_at: workspace.createdAt.toISOString(),
+          workspace_id: id,
+        });
+        continue;
+      }
+      if (retained.has(sessionId)) continue;
+      let outcome: string;
+      try {
+        outcome = (await removeWorkspace.call(backend, id)).outcome;
+      } catch (error) {
+        summary.workspacesUnresolved.push(id);
+        logger.error("Reclaiming workspace failed", {
+          error: messageOf(error),
+          session_id: sessionId,
+          workspace_id: id,
+        });
+        continue;
+      }
+      if (outcome === "removed" || outcome === "absent") {
+        summary.workspacesReclaimed.push(id);
+        logger.info("Workspace reclaimed", {
+          outcome,
+          session_id: sessionId,
+          workspace_id: id,
+        });
+        continue;
+      }
+      summary.workspacesUnresolved.push(id);
+      logger.warn("Workspace was not reclaimed", {
+        outcome,
+        session_id: sessionId,
+        workspace_id: id,
+      });
+    }
+  }
+
   summary.activeAfter = (
     await store.inspectDemand({ limit: 0 })
   ).activeExecutionCount;
@@ -424,6 +513,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     replaced_count: summary.replaced.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
+    workspace_reclaimed_count: summary.workspacesReclaimed.length,
+    workspace_unresolved_count: summary.workspacesUnresolved.length,
   });
   return summary;
 }

@@ -12,7 +12,19 @@ import type {
   SchedulerStore,
   StoredLaunchIntent,
 } from "@agent-platform/platform";
-import { and, asc, eq, inArray, max, ne, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  inArray,
+  max,
+  ne,
+  notExists,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { executions, sessions, unassignedSessions } from "./schema.ts";
 
@@ -34,6 +46,18 @@ const PASS_LOCK_KEY = "scheduler:pass";
 
 const DESIRED_RUNNING = "running";
 const OBSERVED_TERMINATED = "terminated";
+
+/**
+ * The two admission states a session never comes back from. Every other
+ * state — `paused`, `recovery_required`, `stopping` — is resumed or
+ * investigated into the same workspace, so the workspace has to survive it.
+ */
+const FINAL_ADMISSION_STATES: Array<
+  (typeof sessions.admissionState.enumValues)[number]
+> = ["stopped", "closed"];
+
+/** `sessions.id` is a uuid column; anything else cannot be asked about. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A row still counts against the slot limit until it is seen terminated. */
 function isLive() {
@@ -222,6 +246,34 @@ export function createPostgresSchedulerStore(
       return refs.filter(
         (ref) => generations.get(ref.executionId) === ref.generation,
       );
+    },
+
+    async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+      if (sessionIds.length === 0) return [];
+      // Binding a non-uuid to a uuid column is an error, not a miss, and a
+      // thrown query would take the whole GC step down. They are also
+      // exactly the ids nothing here can judge, so they are retained.
+      const unjudgeable = sessionIds.filter((id) => !UUID.test(id));
+      const judgeable = sessionIds.filter((id) => UUID.test(id));
+      if (judgeable.length === 0) return unjudgeable;
+      const rows = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(
+          and(
+            inArray(sessions.id, judgeable),
+            or(
+              notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(executions)
+                  .where(and(eq(executions.sessionId, sessions.id), isLive())),
+              ),
+            ),
+          ),
+        );
+      return [...unjudgeable, ...rows.map((row) => row.id)];
     },
 
     async recordObservation(

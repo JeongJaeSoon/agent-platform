@@ -69,6 +69,11 @@ integration("LocalDockerBackend against a real daemon", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    workspaceGcMinAgeMs: 0,
+    // Neither Docker Desktop nor a stock Linux runner puts its storage on a
+    // quota-capable filesystem; the quota itself is covered by
+    // workspace.integration.test.ts, which probes for one first.
+    workspaceQuota: { mode: "off" },
   });
   const backend = new LocalDockerBackend(backendConfig(), client);
   const created: LaunchIntent[] = [];

@@ -6,7 +6,9 @@ import type {
   ExecutionRef,
   LaunchIntent,
   ManagedExecution,
+  ManagedWorkspace,
   TerminateExecutionResult,
+  WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
@@ -131,6 +133,18 @@ class MemoryStore implements SchedulerStore {
     row.observedState = observation.state;
     row.providerRef = observation.providerRef;
   }
+
+  /** Sessions whose workspace must survive; everything else is reclaimable. */
+  readonly retainedSessions = new Set<string>();
+  /** What GC asked about, in order, so the ordering can be asserted. */
+  readonly retainedQueries: string[][] = [];
+  failRetained = false;
+
+  async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+    this.retainedQueries.push([...sessionIds]);
+    if (this.failRetained) throw new Error("database down");
+    return sessionIds.filter((id) => this.retainedSessions.has(id));
+  }
 }
 
 type Container = {
@@ -161,6 +175,35 @@ class FakeBackend implements ExecutionBackend {
   /** Containers the provider reports as built on an older isolation contract. */
   staleFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
+  /** Volume name -> the session label on it, null when it carries none. */
+  readonly workspaces = new Map<string, string | null>();
+  readonly workspacesInUse = new Set<string>();
+  failListWorkspaces = false;
+  failRemoveWorkspaceFor = new Set<string>();
+  listWorkspaces?: () => Promise<ManagedWorkspace[]>;
+  removeWorkspace?: (id: string) => Promise<WorkspaceRemovalResult>;
+
+  /** `workspaceGc: false` is a backend that does not own its workspaces. */
+  constructor(options: { workspaceGc?: boolean } = {}) {
+    if (options.workspaceGc === false) return;
+    this.listWorkspaces = async () => {
+      if (this.failListWorkspaces) throw new Error("daemon unreachable");
+      return [...this.workspaces.entries()].map(([id, sessionId]) => ({
+        createdAt: new Date(0),
+        id,
+        sessionId,
+      }));
+    };
+    this.removeWorkspace = async (id) => {
+      if (this.failRemoveWorkspaceFor.has(id)) {
+        throw new Error("volume remove failed");
+      }
+      if (this.workspacesInUse.has(id)) return { outcome: "in_use" };
+      if (!this.workspaces.has(id)) return { outcome: "absent" };
+      this.workspaces.delete(id);
+      return { outcome: "removed" };
+    };
+  }
 
   capabilities() {
     return { suspend: false };
@@ -273,9 +316,9 @@ function recordingLogger() {
   return { logger, records };
 }
 
-function harness(slotLimit = 10) {
+function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
   const store = new MemoryStore();
-  const backend = new FakeBackend();
+  const backend = new FakeBackend(options);
   const { logger, records } = recordingLogger();
   const run = () =>
     runScheduler({
@@ -784,5 +827,133 @@ describe("runScheduler", () => {
         }),
       ).rejects.toThrow("slotLimit");
     }
+  });
+});
+
+describe("runScheduler workspace GC", () => {
+  test("reclaims a finished session's workspace and keeps a live one's", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-live", "session-live");
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.retainedSessions.add("session-live");
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
+    expect([...backend.workspaces.keys()]).toEqual(["ap-ws-live"]);
+  });
+
+  test("asks the daemon before the database, never the other way round", async () => {
+    // A session created between the two calls has to land in the retained
+    // set. Listing after the query would make its brand-new workspace look
+    // unowned by the time it was seen.
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-1", "session-1");
+    const order: string[] = [];
+    const listed = backend.listWorkspaces;
+    if (!listed) throw new Error("fixture has no workspace GC");
+    backend.listWorkspaces = async () => {
+      order.push("list");
+      return listed();
+    };
+    const filter = store.filterRetainedSessions.bind(store);
+    store.filterRetainedSessions = async (ids) => {
+      order.push("query");
+      return filter(ids);
+    };
+
+    await run();
+
+    expect(order).toEqual(["list", "query"]);
+  });
+
+  test("a workspace with no session label is left alone and reported", async () => {
+    const { backend, records, run, store } = harness();
+    backend.workspaces.set("ap-ws-unlabelled", null);
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspacesUnresolved).toEqual([]);
+    expect(backend.workspaces.has("ap-ws-unlabelled")).toBe(true);
+    // Never asked about: nothing here can turn it into a session id.
+    expect(store.retainedQueries).toEqual([]);
+    expect(records.some((r) => r.message.includes("carries no session"))).toBe(
+      true,
+    );
+  });
+
+  test("a mounted workspace stays and is counted unresolved", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-busy", "session-busy");
+    backend.workspacesInUse.add("ap-ws-busy");
+    void store;
+
+    const summary = await run();
+
+    expect(summary.workspacesUnresolved).toEqual(["ap-ws-busy"]);
+    expect(backend.workspaces.has("ap-ws-busy")).toBe(true);
+  });
+
+  test("a removal that throws leaves the rest of GC running", async () => {
+    const { backend, run } = harness();
+    backend.workspaces.set("ap-ws-a", "session-a");
+    backend.workspaces.set("ap-ws-b", "session-b");
+    backend.failRemoveWorkspaceFor.add("ap-ws-a");
+
+    const summary = await run();
+
+    expect(summary.workspacesUnresolved).toEqual(["ap-ws-a"]);
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-b"]);
+  });
+
+  test("a daemon that will not list reclaims nothing and does not fail the pass", async () => {
+    const { backend, run, store } = harness();
+    backend.failListWorkspaces = true;
+    store.addUnassigned(1);
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    // The launches still happened; GC is the last step for exactly this reason.
+    expect(summary.launched).toHaveLength(1);
+  });
+
+  test("a database that will not answer reclaims nothing", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.failRetained = true;
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
+  });
+
+  test("a backend that does not own its workspaces runs no GC", async () => {
+    const { backend, run, store } = harness(10, { workspaceGc: false });
+    expect(backend.listWorkspaces).toBeUndefined();
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(store.retainedQueries).toEqual([]);
+  });
+
+  test("a workspace whose volume is already gone counts as reclaimed", async () => {
+    // The scheduler asks for a removal it cannot know has already happened;
+    // `absent` is the same end state, not a failure to report.
+    const { backend, run } = harness();
+    backend.workspaces.set("ap-ws-gone", "session-gone");
+    backend.workspaces.delete("ap-ws-gone");
+    const listed = backend.listWorkspaces;
+    if (!listed) throw new Error("fixture has no workspace GC");
+    backend.listWorkspaces = async () => [
+      { createdAt: new Date(0), id: "ap-ws-gone", sessionId: "session-gone" },
+    ];
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-gone"]);
   });
 });

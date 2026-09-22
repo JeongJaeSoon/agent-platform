@@ -16,6 +16,8 @@ const clean: SchedulerRunSummary = {
   skipped: false,
   slotLimit: 10,
   terminatedObserved: [],
+  workspacesReclaimed: [],
+  workspacesUnresolved: [],
 };
 const ref = { executionId: "exec-1", generation: 1 };
 

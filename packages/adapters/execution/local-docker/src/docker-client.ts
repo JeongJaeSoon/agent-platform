@@ -123,6 +123,24 @@ export type ContainerSummary = {
   State: string;
 };
 
+export type VolumeInspect = {
+  /** RFC 3339; absent on daemons older than the field. */
+  CreatedAt?: string;
+  Driver: string;
+  Labels: Record<string, string> | null;
+  Mountpoint: string;
+  Name: string;
+  /** The driver options the volume was *created* with, not the ones asked for. */
+  Options: Record<string, string> | null;
+};
+
+export type VolumeCreateBody = {
+  Driver: string;
+  DriverOpts?: Record<string, string>;
+  Labels: Record<string, string>;
+  Name: string;
+};
+
 /**
  * Splits an image reference the way `/images/create` wants it: registry
  * ports (`host:5000/x`) belong to the name, a digest (`@sha256:…`) or the
@@ -238,6 +256,50 @@ export class DockerClient {
     await this.request(
       "DELETE",
       `/networks/${encodeURIComponent(idOrName)}`,
+      undefined,
+      [204, 404],
+    );
+  }
+
+  /**
+   * 201 — but *not* necessarily with the volume that was asked for. A name
+   * that already exists comes back as the existing volume with its original
+   * driver options and labels, and no error. The caller has to compare the
+   * returned `Options`/`Labels` against what it wanted; "the create
+   * succeeded" says nothing about whether a quota is in force.
+   */
+  async createVolume(body: VolumeCreateBody): Promise<VolumeInspect> {
+    return (await this.request("POST", "/volumes/create", body, [201])).json();
+  }
+
+  /** null when the volume does not exist. */
+  async inspectVolume(name: string): Promise<VolumeInspect | null> {
+    const response = await this.request(
+      "GET",
+      `/volumes/${encodeURIComponent(name)}`,
+      undefined,
+      [200, 404],
+    );
+    if (response.status === 404) return null;
+    return response.json();
+  }
+
+  async listVolumes(labels: string[]): Promise<VolumeInspect[]> {
+    const filters = encodeURIComponent(JSON.stringify({ label: labels }));
+    const response = await this.request("GET", `/volumes?filters=${filters}`);
+    const body: { Volumes: VolumeInspect[] | null } = await response.json();
+    return body.Volumes ?? [];
+  }
+
+  /**
+   * Idempotent on absence (404 is success). 409 means a container still has
+   * it mounted and is left to the caller as a `DockerApiError`: forcing a
+   * removal out from under a running worker is never what we want.
+   */
+  async removeVolume(name: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/volumes/${encodeURIComponent(name)}`,
       undefined,
       [204, 404],
     );

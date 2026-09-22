@@ -48,6 +48,9 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     EXECUTION_DOCKER_NETWORK: workerNetwork,
     EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
     EXECUTION_SLOT_LIMIT: "10",
+    // The runner's data root is on ext4, so the daemon cannot carry a
+    // volume quota; the quota itself is covered by workspace.integration.test.ts.
+    EXECUTION_WORKSPACE_QUOTA: "off",
     WORKER_CPUS: "0.25",
     WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
     WORKER_IMAGE: IMAGE,

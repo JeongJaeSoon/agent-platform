@@ -71,6 +71,27 @@ export type ExecutionBackendCapabilities = {
   suspend: boolean;
 };
 
+/**
+ * A per-session workspace resource the backend created and is responsible
+ * for reclaiming — a Docker volume, not a Kubernetes PVC whose lifetime the
+ * cluster already owns.
+ */
+export type ManagedWorkspace = {
+  /** What `removeWorkspace` takes; for Docker, the volume name. */
+  id: string;
+  /** null when the resource carries no session label and cannot be judged. */
+  sessionId: string | null;
+  createdAt: Date;
+};
+
+export type WorkspaceRemovalResult = {
+  /**
+   * `in_use` and `not_ours` are both "left alone on purpose": something still
+   * holds the resource, or it is not this installation's to remove.
+   */
+  outcome: "removed" | "absent" | "in_use" | "not_ours";
+};
+
 export interface ExecutionBackend {
   readonly kind: ExecutionBackendKind;
   capabilities(): ExecutionBackendCapabilities;
@@ -81,4 +102,13 @@ export interface ExecutionBackend {
   listManaged(): Promise<ManagedExecution[]>;
   /** Stops and removes the resource only when its generation matches. */
   terminate(ref: ExecutionRef): Promise<TerminateExecutionResult>;
+  /**
+   * Workspaces this backend created and still holds. Optional as a pair: a
+   * backend whose workspaces are reclaimed by the platform underneath it
+   * leaves both out, and the scheduler then runs no workspace GC at all.
+   * Implementations may drop resources too young to judge.
+   */
+  listWorkspaces?(): Promise<ManagedWorkspace[]>;
+  /** Removes it only if it is still this installation's and unused. */
+  removeWorkspace?(id: string): Promise<WorkspaceRemovalResult>;
 }

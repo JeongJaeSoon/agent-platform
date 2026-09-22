@@ -29,6 +29,15 @@ export async function main(
     // Before anything is launched: the egress policy is only worth what the
     // worker network's `internal` flag is worth, and only the daemon knows.
     await backend.verifyNetworkIsolation();
+    if (config.docker.workspaceQuota.mode === "off") {
+      // The one warning the opt-out costs. Losing the quota by accident —
+      // a daemon that cannot carry one — stops the process instead.
+      logger.warn(
+        "Worker workspaces have no disk quota (EXECUTION_WORKSPACE_QUOTA=off); " +
+          "a runaway worker can fill this daemon's disk",
+      );
+    }
+    await backend.verifyWorkspaceQuota();
     return await runScheduler({
       backend,
       image: config.image,

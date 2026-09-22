@@ -89,6 +89,58 @@ jobs:
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
       - run: bun test ./apps/api/src/server.integration.ts
 
+  # The only place the workspace byte ceiling can actually be exercised. The
+  # `local` volume driver honours `size` only when the storage under the
+  # daemon can carry a project quota, and neither daemon the repo otherwise
+  # runs on can: Docker Desktop's kernel has no XFS quota support, and this
+  # runner's own data root is on ext4. So the job builds one that can — xfs
+  # with prjquota on a loop file, handed to a nested daemon as its data root —
+  # and points the workspace suite at it. Everywhere else that suite asserts
+  # the other half of the contract: refusing to start rather than running
+  # unbounded.
+  workspace-quota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Project-quota filesystem
+        run: |
+          command -v mkfs.xfs >/dev/null || {
+            sudo apt-get update && sudo apt-get install -y xfsprogs
+          }
+          sudo truncate -s 8G /xfs.img
+          sudo mkfs.xfs -q /xfs.img
+          sudo mkdir -p /mnt/xfs
+          sudo mount -o loop,prjquota /xfs.img /mnt/xfs
+          # Fail here rather than three steps later with a confusing 400.
+          mount | grep -q 'on /mnt/xfs .*prjquota'
+      - name: Daemon on that filesystem
+        run: |
+          mkdir -p /tmp/apq
+          docker run -d --privileged --name apq \
+            -e DOCKER_TLS_CERTDIR= \
+            -v /mnt/xfs:/var/lib/docker \
+            -v /tmp/apq:/sock \
+            docker:27-dind --host=unix:///sock/docker.sock
+          for _ in $(seq 1 60); do
+            docker exec apq docker version >/dev/null 2>&1 && break
+            sleep 2
+          done
+          sudo chmod 666 /tmp/apq/docker.sock
+          docker exec apq docker info --format 'driver={{.Driver}} root={{.DockerRootDir}}'
+          # Prove the capability before any test claims to have used it.
+          docker exec apq docker volume create --driver local --opt size=64m apq-probe
+          docker exec apq docker volume rm apq-probe
+      - name: Workspace suite against a quota-capable daemon
+        env:
+          DOCKER_BACKEND_TEST: "1"
+          DOCKER_HOST: unix:///tmp/apq/docker.sock
+        run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+      - if: always()
+        run: docker logs apq 2>&1 | tail -40; docker rm -f apq || true
+
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
