@@ -9,15 +9,29 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Which job to run. Anything but `all` skips the rest — use it when a manual run only needs one of them.'
+        type: choice
+        required: false
+        default: all
+        options: [all, check, integration, spikes]
+      allow_parallel:
+        description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  # Per PR, so a new push cancels the run it superseded. Everything else keys on
-  # the run itself: two merges landing back to back, or two manual runs of the
-  # same commit, must not cancel or queue behind each other.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  # `github.event.inputs.*`, not `inputs.*`: a dispatch through the API sends
+  # input values as strings, so a declared boolean arrives as the *string*
+  # "false", which `!inputs.allow_parallel` reads as truthy — silently turning
+  # the default into independent parallel runs.
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && github.event.inputs.allow_parallel != 'true' && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -26,8 +40,15 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A non-dispatch event has no `only`, so it reads as `all`.
+    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
+    # LTS image on its own schedule, which lands as an unrelated CI break in
+    # whatever PR is open that day.
+    runs-on: ubuntu-24.04
+    # Ceilings sit just above the slowest run on record (6m/4m/6m), so a hang
+    # costs minutes rather than a quarter hour.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/bun-setup
@@ -40,8 +61,14 @@ jobs:
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
   integration:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # No service containers when the fast checks already failed. `skipped` is
+    # not `failure`: `only=integration` skips `check` and must still run this.
+    needs: check
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     services:
       postgres:
         image: postgres:16
@@ -93,8 +120,17 @@ jobs:
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see README § CI.
   spikes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    needs: check
+    # Because a spike failure never blocks anything, running it on every PR
+    # commit buys no signal the main-push run does not already give. It stays on
+    # main pushes and on demand (`-f only=spikes`), which is also how a PR that
+    # actually touches spikes/ gets its answer.
+    if: >-
+      !cancelled() && needs.check.result != 'failure'
+      && github.event_name != 'pull_request'
+      && contains(fromJSON('["all","spikes"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     continue-on-error: true
     services:
       localstack:
