@@ -666,4 +666,44 @@ describe("WorkerHost interrupt", () => {
       },
     ]);
   });
+
+  test("a refused checkpoint gives its lease back even when the unknown fallback never lands", async () => {
+    let run: AgentRun | undefined;
+    class Refusing extends FakeWorkerGateway {
+      override async finalize(
+        request: Parameters<FakeWorkerGateway["finalize"]>[0],
+      ): ReturnType<FakeWorkerGateway["finalize"]> {
+        if (request.checkpoint !== null) {
+          throw new WorkerGatewayRequestError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            "Checkpoint rejected: digest mismatch",
+            false,
+          );
+        }
+        // The fallback's answer never comes back decided.
+        throw new WorkerGatewayRequestError(503, null, "unavailable", true);
+      }
+    }
+    const gateway = new Refusing();
+    const { host, runtime } = harness(TWO_TURNS, {
+      gateway,
+      timeouts: { drainTimeoutMs: 100 },
+      wrap: (started) => {
+        run = started;
+        return started;
+      },
+    });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+    await Bun.sleep(1);
+
+    expect(await run?.prepareCheckpoint()).not.toMatchObject({
+      reason: "checkpoint_lease_held",
+    });
+  });
 });

@@ -769,7 +769,8 @@ export class WorkerHost {
                 checkpoint: ref,
               })
               .catch((error: unknown) => {
-                if (isRetryable(error)) undecided = true;
+                // Only a request carrying the checkpoint can commit it.
+                if (ref !== null && isRetryable(error)) undecided = true;
                 throw error;
               }),
           () => this.abandonedNow,
@@ -798,6 +799,9 @@ export class WorkerHost {
           turn_id: turnId,
           reason: describe(error),
         });
+        // Nothing can commit the capture any more unless an earlier attempt
+        // is still undecided; the fallback carries no checkpoint to wait on.
+        if (!undecided) captured?.lease?.release();
         terminal = unconfirm();
         finalized = await finalize(terminal, null);
       }
