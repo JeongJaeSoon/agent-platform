@@ -97,7 +97,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   });
 
   test("the API's memory limit and git cap are set side by side", () => {
-    expect(apiBlock).toContain("mem_limit: $" + "{API_MEMORY_MB:-4096}m");
+    expect(apiBlock).toContain("mem_limit: $" + "{API_MEMORY_MB:-7168}m");
     expect(apiBlock).toContain(
       "CHECKPOINT_GIT_MEMORY_MB: $" + "{CHECKPOINT_GIT_MEMORY_MB:-1536}",
     );
@@ -105,7 +105,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(DEFAULT_MAX_GIT_MEMORY_BYTES).toBe(1536 * 1024 * 1024);
     expect(DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).toBe(2);
     const example = read(EXAMPLE_ENV_PATH);
-    expect(example).toContain("API_MEMORY_MB=4096");
+    expect(example).toContain("API_MEMORY_MB=7168");
     expect(example).toContain("CHECKPOINT_GIT_MEMORY_MB=1536");
   });
 

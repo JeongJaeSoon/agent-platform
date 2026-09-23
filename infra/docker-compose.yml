@@ -120,19 +120,24 @@ services:
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
     #
-    # Memory budget. Checkpoint verification is what can take this container
-    # to its limit: up to 2 bundles are verified at once
-    # (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS), each running one git at
-    # a time under CHECKPOINT_GIT_MEMORY_MB of address space (git fetch only
-    # streams into index-pack, and fsck runs after it), while the service
-    # holds the bundle about twice over (2 x 128 MiB). So:
-    #   2 x (1536 + 256) MiB = 3584 MiB for verification
-    #   + ~512 MiB for the API itself          = 4096 MiB
+    # Memory budget, as an upper bound rather than a measurement. Up to 2
+    # bundles are verified at once (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).
+    # Each has git fetch and its index-pack alive together, each capped at
+    # CHECKPOINT_GIT_MEMORY_MB of address space (fsck runs after them, not
+    # beside), while the service holds the bundle about twice over
+    # (2 x 128 MiB). So:
+    #   2 x (2 x 1536 + 256) MiB = 6656 MiB for verification
+    #   + 512 MiB for the API itself           = 7168 MiB
+    # Measured far below it: two concurrent verifications of 94S-259's worst
+    # honest bundle (480 MiB file, one edit) peaked at 3.5 GiB including page
+    # cache, which the kernel reclaims before it OOM-kills anything. A crafted
+    # delta can drive index-pack to the cap, so the bound, not the measurement,
+    # sets the limit.
     # Change the two values together: raising the cap without the limit
     # hands the choice of what dies to the OOM killer (94S-259 saw it kill
     # index-pack under 1 GiB), and lowering the limit without the cap does
     # the same. A cap below 256 MiB is refused at startup.
-    mem_limit: ${API_MEMORY_MB:-4096}m
+    mem_limit: ${API_MEMORY_MB:-7168}m
     ports:
       # Loopback only; a local development listener has no business on
       # other hosts' interfaces even in api-key mode.
