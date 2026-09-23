@@ -73,6 +73,7 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
           checkpoint: input.checkpoint,
           turnRowId: null,
           now: input.now,
+          versionsHeld: input.versionsHeld === true,
         });
         if (advanced.outcome === "committed") {
           return { outcome: "committed", revision: advanced.revision };

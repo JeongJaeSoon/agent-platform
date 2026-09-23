@@ -409,6 +409,7 @@ export async function advanceCheckpointPointer(
     checkpoint: CheckpointRef;
     turnRowId: number | null;
     now: Date;
+    versionsHeld: boolean;
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -427,6 +428,7 @@ export async function advanceCheckpointPointer(
     manifestRef: input.checkpoint.manifest_ref,
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
+    versionsHeld: input.versionsHeld,
     turnId: input.turnRowId,
     committedAt: input.now,
   });
@@ -478,6 +480,7 @@ export async function readCheckpointPointer(
       manifestRef: checkpoints.manifestRef,
       manifestSha256: checkpoints.manifestSha256,
       manifestVersion: checkpoints.manifestVersion,
+      versionsHeld: checkpoints.versionsHeld,
       committedAt: checkpoints.committedAt,
       turnSequence: turns.sequence,
     })
@@ -501,6 +504,7 @@ export async function readCheckpointPointer(
     manifestSha256: checkpoint.manifestSha256,
     manifestVersion: checkpoint.manifestVersion,
     revision: session.checkpointRevision,
+    versionsHeld: checkpoint.versionsHeld,
     turnId:
       checkpoint.turnSequence === null ? null : String(checkpoint.turnSequence),
   };
@@ -1190,6 +1194,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             checkpoint: input.checkpoint,
             turnRowId: turn.id,
             now,
+            versionsHeld: input.checkpointVersionsHeld === true,
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint

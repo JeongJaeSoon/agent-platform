@@ -462,10 +462,14 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       checkpoint_revision: 0,
     });
     const [row] = await db
-      .select({ version: schema.checkpoints.manifestVersion })
+      .select({
+        held: schema.checkpoints.versionsHeld,
+        version: schema.checkpoints.manifestVersion,
+      })
       .from(schema.checkpoints)
       .where(eq(schema.checkpoints.sessionId, sessionId));
-    expect(row?.version).toBe(stored.version);
+    // The gateway records the verifier's word, not the worker's.
+    expect(row).toEqual({ held: true, version: stored.version });
 
     // Every version the checkpoint names is held: deleting it is refused
     // even with the governance bypass.

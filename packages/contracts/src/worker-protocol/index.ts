@@ -34,15 +34,17 @@ export const workerScopeSchema = z.object({
   auth_revision: epochSchema,
 });
 
-// An object store version id (S3 VersionId). "null" is S3's name for the
-// replaceable unversioned slot, so it never counts as a pinned version.
+// An object store version id (S3 VersionId): opaque UTF-8, at most 1024
+// bytes. "null" is S3's name for the replaceable unversioned slot, so it
+// never counts as a pinned version. Same rules as the manifest codec's.
 export const objectVersionSchema = z
   .string()
   .min(1)
-  .max(1024)
-  .regex(/^[\x21-\x7e]+$/)
   .refine((version) => version !== "null", {
     message: 'version "null" is not an immutable version',
+  })
+  .refine((version) => new TextEncoder().encode(version).byteLength <= 1024, {
+    message: "a version id is at most 1024 bytes of UTF-8",
   });
 
 export const checkpointRefSchema = z.object({

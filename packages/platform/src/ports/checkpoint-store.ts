@@ -13,6 +13,12 @@ export type CheckpointPointer = {
   manifestVersion?: string | null;
   revision: number;
   turnId: string | null;
+  /**
+   * True only for a checkpoint a `locked` finalize committed: every version
+   * it names was hashed by that version and held before the pointer moved.
+   * Server-owned; absent reads as false.
+   */
+  versionsHeld?: boolean;
 };
 
 /**
@@ -35,6 +41,8 @@ export type CommitCheckpointInput = {
   now: Date;
   sessionId: string;
   turnId: string | null;
+  /** The verifier's `versionsHeld`, recorded on the pointer. */
+  versionsHeld?: boolean;
 };
 
 export type CommitCheckpointResult =

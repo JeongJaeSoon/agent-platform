@@ -150,6 +150,8 @@ export type FinalizeInput = {
   finalSourceSequence: number;
   terminal: FinalizeRequest["terminal"];
   checkpoint: CheckpointRef | null;
+  // The verifier's verdict on `checkpoint`, never the worker's say.
+  checkpointVersionsHeld?: boolean;
 };
 export type FinalizeOutcome = {
   turnId: string;

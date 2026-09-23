@@ -23,15 +23,16 @@ export const CLAUDE_CHECKPOINT_ENGINE = "claude";
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 // Optional here, because whether versions are required is the deployment's
 // call (CheckpointService `objectProtection`), not the manifest format's. S3
-// caps an id at 1024 bytes and never issues one with spaces or controls;
-// `"null"` is refused because it names the replaceable unversioned slot.
+// ids are opaque UTF-8 of at most 1024 bytes; `"null"` is refused because it
+// names the replaceable unversioned slot. Same rules as the wire contract's.
 const objectVersionSchema = z
   .string()
   .min(1)
-  .max(1024)
-  .regex(/^[\x21-\x7e]+$/)
   .refine((version) => version !== "null", {
     message: 'version "null" is not an immutable version',
+  })
+  .refine((version) => new TextEncoder().encode(version).byteLength <= 1024, {
+    message: "a version id is at most 1024 bytes of UTF-8",
   });
 const objectRefSchema = z
   .object({

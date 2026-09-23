@@ -1,1 +1,0 @@
-ALTER TABLE "checkpoints" ADD COLUMN "manifest_version" text;

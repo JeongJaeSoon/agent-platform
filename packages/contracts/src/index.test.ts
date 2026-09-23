@@ -703,6 +703,10 @@ describe("worker protocol", () => {
     expect(finalize()).toBe(true);
     expect(finalize("null")).toBe(false);
     expect(finalize("")).toBe(false);
+    // Opaque UTF-8 up to 1024 bytes, counted in bytes.
+    expect(finalize("버전 🙂")).toBe(true);
+    expect(finalize("x".repeat(1024))).toBe(true);
+    expect(finalize("한".repeat(342))).toBe(false);
 
     const part = {
       key: "sessions/s/mirror/part-0.jsonl",

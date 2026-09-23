@@ -35,7 +35,16 @@ export type CheckpointRequestDecision =
   | { detail: string; reason: CheckpointBlockReason; status: "blocked" };
 
 export type ManifestVerdict =
-  | { manifest: CheckpointManifest; status: "verified" }
+  | {
+      manifest: CheckpointManifest;
+      status: "verified";
+      /**
+       * Set by a `locked` finalize once every version the checkpoint names
+       * was hashed by version and held. The pointer records it, and it is the
+       * only thing that lets a later read trust those versions unhashed.
+       */
+      versionsHeld?: true;
+    }
   | { reason: string; status: "rejected" };
 
 /**
@@ -521,24 +530,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * What the currently committed checkpoint already proved. A pointer that
    * cannot be read yields nothing, which only costs a re-hash.
    *
-   * In `locked` only a held manifest vouches for the versions it names: the
-   * hold is placed after every one of them was hashed, so it is the record
-   * that a locked finalize committed it. A pointer committed under
-   * `unversioned` recorded whatever version the worker reported, and nothing
-   * ever read those; trusting them would let a same-length stranger through.
+   * In `locked` only a pointer recorded with `versionsHeld` vouches for the
+   * versions it names. One committed under `unversioned` recorded whatever
+   * version the worker reported, and nothing ever read those; trusting them
+   * would let a same-length stranger through. The hold state cannot stand in
+   * for the record: any later candidate may name an old manifest as one of
+   * its own objects and get it held without ever committing.
    */
   async function verifiedRefs(sessionId: string): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
       const pointer = await store.readPointer(sessionId);
       if (pointer === null) return tokens;
-      const version = pinnedVersion(pointer.manifestVersion);
-      if (protection === "locked") {
-        if (version === undefined) return tokens;
-        const head = await objects.head(pointer.manifestRef, version);
-        if (head?.held !== true) return tokens;
+      if (protection === "locked" && pointer.versionsHeld !== true) {
+        return tokens;
       }
-      const bytes = await objects.get(pointer.manifestRef, version);
+      const bytes = await objects.get(
+        pointer.manifestRef,
+        pinnedVersion(pointer.manifestVersion),
+      );
       if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
         return tokens;
       }
@@ -595,6 +605,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     });
     if (verdict.status === "verified" && protection === "locked") {
       await holdAll(pinned.unheld());
+      return { ...verdict, versionsHeld: true };
     }
     return verdict;
   }
@@ -705,6 +716,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         now: input.now,
         sessionId: input.sessionId,
         turnId: input.turnId,
+        versionsHeld: verdict.versionsHeld === true,
       });
       switch (result.outcome) {
         case "conflict":
@@ -782,10 +794,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           mismatches: compatibility.mismatches,
         };
       }
-      // A no-op for a checkpoint a locked finalize committed. One committed
-      // under `unversioned` was just hashed version by version above, since
-      // `verifiedRefs` trusts none of it, and is held here before any worker
-      // is told to download it.
+      // A no-op for a checkpoint a locked finalize committed. Any other was
+      // just hashed version by version above, since `verifiedRefs` trusts
+      // none of it, and is held here before any worker is told to download
+      // it. The pointer keeps saying it was not, so the next restore hashes
+      // it again: restore does not write the pointer.
       if (protection === "locked") await holdAll(pinned.unheld());
       return {
         status: "ready",

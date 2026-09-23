@@ -132,11 +132,30 @@ describe("Claude checkpoint codec", () => {
     ).toEqual(original);
   });
 
+  test.each(["x".repeat(1024), "has space", "버전-🙂"])(
+    "accepts the opaque object version %p",
+    (version) => {
+      const original = manifest();
+      const edited = {
+        ...original,
+        workspace: {
+          ...original.workspace,
+          bundle: { ...original.workspace.bundle, version },
+        },
+      };
+      expect(
+        decodeCheckpointManifest(encodeCheckpointManifest(edited).bytes)
+          .workspace.bundle.version,
+      ).toBe(version);
+    },
+  );
+
   test.each([
     ["null", /immutable version/],
     ["", /version/],
-    ["has space", /version/],
-    ["x".repeat(1025), /version/],
+    ["x".repeat(1025), /1024 bytes/],
+    // 342 characters, 1026 bytes: the limit is S3's, in UTF-8 bytes.
+    ["한".repeat(342), /1024 bytes/],
   ])("refuses the object version %p", (version, message) => {
     const { bytes } = encodeCheckpointManifest(manifest());
     const edited = JSON.parse(new TextDecoder().decode(bytes));

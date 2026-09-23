@@ -2961,6 +2961,7 @@ integration("worker gateway on PostgreSQL", () => {
         manifestVersion: null,
         revision: 0,
         turnId: "1",
+        versionsHeld: false,
       },
       pendingReason: "mirror_error",
     });
@@ -3062,7 +3063,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("the pointer keeps the manifest version it was committed with, and a replay must name the same one (94S-229)", async () => {
     const { session, claimed } = await claimAndDeliver();
     const store = createPostgresCheckpointStore(db);
-    const commit = (revision: number, version?: string) =>
+    const commit = (revision: number, version?: string, versionsHeld = true) =>
       store.commitAtomic({
         checkpoint: {
           revision,
@@ -3074,6 +3075,7 @@ integration("worker gateway on PostgreSQL", () => {
         now: clock,
         sessionId: session.session_id,
         turnId: null,
+        versionsHeld,
       });
     expect(await commit(0, "v1")).toEqual({
       outcome: "committed",
@@ -3082,8 +3084,17 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await store.readPointer(session.session_id)).toMatchObject({
       manifestVersion: "v1",
       revision: 0,
+      versionsHeld: true,
     });
     expect(await commit(0, "v1")).toEqual({ outcome: "replayed", revision: 0 });
+    // A replay answers from the row; it never rewrites what was recorded.
+    expect(await commit(0, "v1", false)).toEqual({
+      outcome: "replayed",
+      revision: 0,
+    });
+    expect(await store.readPointer(session.session_id)).toMatchObject({
+      versionsHeld: true,
+    });
     // The same bytes stored again are another object: the one this pointer
     // names is the one that was verified and held.
     expect(await commit(0, "v2")).toEqual({

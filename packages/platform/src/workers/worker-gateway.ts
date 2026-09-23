@@ -779,6 +779,7 @@ export function createWorkerGateway(deps: {
       // result that is already durable.
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
+      let checkpointVersionsHeld = false;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -796,12 +797,17 @@ export function createWorkerGateway(deps: {
             `Checkpoint manifest rejected: ${verdict.reason}`,
           );
         }
+        checkpointVersionsHeld = verdict.versionsHeld === true;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
       // request started with.
       return finalizeAnswer(
-        await work.finalizeAtomic({ ...attempt, now: now() }),
+        await work.finalizeAtomic({
+          ...attempt,
+          checkpointVersionsHeld,
+          now: now(),
+        }),
       );
     },
 

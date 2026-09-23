@@ -1,5 +1,5 @@
 {
-  "id": "af6826b8-cb3c-43d3-9adf-7a165c08d2f4",
+  "id": "bc9f19f4-6676-47f2-821b-642bc4aff1dd",
   "prevId": "4289f5d9-52ec-4351-ba92-3756b79bb4f2",
   "version": "7",
   "dialect": "postgresql",
@@ -271,6 +271,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "versions_held": {
+          "name": "versions_held",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "turn_id": {
           "name": "turn_id",

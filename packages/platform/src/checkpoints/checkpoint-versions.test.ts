@@ -91,6 +91,7 @@ function memoryCheckpointStore() {
         manifestVersion: input.checkpoint.manifest_version ?? null,
         revision: input.checkpoint.revision,
         turnId: input.turnId,
+        versionsHeld: input.versionsHeld === true,
       };
       return { outcome: "committed", revision: input.checkpoint.revision };
     },
@@ -499,6 +500,55 @@ describe("unversioned, then locked", () => {
       reason: expect.stringContaining(key),
     });
     expect(await objects.head(key, older.version)).not.toHaveProperty("held");
+  });
+
+  test("a hold some later candidate placed on the old manifest does not make its versions trusted", async () => {
+    const key = `${prefix}mirror/part-0.jsonl`;
+    const older = await upload(key, encode("a\n"));
+    await objects.put(key, encode("b\n"));
+    const stranger: ObjectRef = { ...older, sha256: sha256(encode("b\n")) };
+    const locked = service;
+    service = unversionedService();
+    const { checkpoint: first } = await publish(0, [stranger]);
+    await finalize(first);
+
+    // The next candidate names the committed manifest as one of its own
+    // untracked files. Locked verification hashes and holds it, and the
+    // candidate never commits.
+    const manifestBytes = (await objects.get(
+      first.manifest_ref,
+      first.manifest_version,
+    )) as Uint8Array;
+    service = locked;
+    const { checkpoint: second } = await publish(1, [], (manifest) => ({
+      ...manifest,
+      workspace: {
+        ...manifest.workspace,
+        untracked: [
+          ...manifest.workspace.untracked,
+          {
+            bytes: manifestBytes.byteLength,
+            key: first.manifest_ref,
+            path: "old-manifest.json",
+            sha256: sha256(manifestBytes),
+            version: first.manifest_version,
+          },
+        ],
+      },
+    }));
+    expect(
+      await locked.verifyAttemptManifest({ checkpoint: second, fence }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(
+      await objects.head(first.manifest_ref, first.manifest_version),
+    ).toMatchObject({ held: true });
+    expect(checkpoints.pointer()?.revision).toBe(0);
+
+    expect(await locked.getRestorePlan({ runtime, sessionId })).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining(key),
+    });
   });
 
   test("an honest unversioned commit is hashed by version and held before a locked restore hands it out", async () => {
