@@ -150,7 +150,13 @@ export async function pauseReceiptResult(
   };
 }
 
-/** The pause receipt still waiting on its execution, if the session has one. */
+/**
+ * The pause receipt still waiting on its execution, if the session has one.
+ * Only looked up while the session is `pausing`, the one state that can
+ * hold it, since the target_ref match reads receipts without an index. A
+ * partial index like receipts_open_terminate_idx is the upgrade once pauses
+ * are frequent enough for that read to show.
+ */
 export function openPauseReceipt(sessionId: string) {
   return and(
     eq(receipts.operation, PAUSE),

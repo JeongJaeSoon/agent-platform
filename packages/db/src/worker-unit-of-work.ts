@@ -1286,7 +1286,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .returning({ id: sessions.id }),
           "session",
         );
-        if (unknownOutcome) {
+        if (unknownOutcome && fenced.session.admissionState === "pausing") {
           // recovery_required takes the session out of pausing, so the pause
           // it was draining for can no longer complete.
           await tx
@@ -1650,7 +1650,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               updatedAt: observedAt,
             })
             .where(openPauseReceipt(session.id));
-        } else if (unresolved.length > 0) {
+        } else if (
+          session.admissionState === "pausing" &&
+          unresolved.length > 0
+        ) {
           await tx
             .update(receipts)
             .set({

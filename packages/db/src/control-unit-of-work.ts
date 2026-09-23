@@ -251,17 +251,19 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         }
         // A pause still draining is overtaken: the kill ends the execution
         // before any checkpoint the pause was waiting for.
-        await tx
-          .update(receipts)
-          .set({
-            status: "failed",
-            error: {
-              code: "CONTROL_SUPERSEDED",
-              message: "superseded by terminate before the pause completed",
-            },
-            updatedAt: now,
-          })
-          .where(openPauseReceipt(sessionId));
+        if (session.admissionState === "pausing") {
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code: "CONTROL_SUPERSEDED",
+                message: "superseded by terminate before the pause completed",
+              },
+              updatedAt: now,
+            })
+            .where(openPauseReceipt(sessionId));
+        }
         // The epoch moves on in the same transaction: from here every
         // request the old worker makes is 409 STALE_EPOCH, whether or not
         // its container is still up. A session already waiting on an
