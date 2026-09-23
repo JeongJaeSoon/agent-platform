@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, spikes]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, spikes]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -441,6 +441,31 @@ jobs:
         with:
           name: e2e-record
           path: ${{ runner.temp }}/e2e
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # docs/quickstart.md run as written on this fresh clone (94S-134): every
+  # `bash` block of the page, in order, on its default project and ports —
+  # the terminal record a new user would get, printed block by block. A page
+  # edit that breaks a command fails here instead of in someone's terminal.
+  # Not a required check yet, for the same reason as `e2e`.
+  quickstart:
+    if: contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # For `bun run keys` only; the page asks for no `bun install`.
+      - uses: ./.github/actions/bun-setup
+      - name: docs/quickstart.md
+        env:
+          QUICKSTART_OUT: ${{ runner.temp }}/quickstart
+        run: tests/e2e/quickstart.sh
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quickstart-record
+          path: ${{ runner.temp }}/quickstart
           if-no-files-found: ignore
           retention-days: 14
 
