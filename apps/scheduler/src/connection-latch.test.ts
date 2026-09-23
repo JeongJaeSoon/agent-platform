@@ -18,6 +18,8 @@ describe("isConnectionLoss", () => {
     ["08006 connection failure", coded("08006")],
     ["57P01 admin shutdown", coded("57P01")],
     ["ECONNREFUSED", coded("ECONNREFUSED")],
+    ["ENOTFOUND: the host stopped resolving", coded("ENOTFOUND")],
+    ["ENETDOWN", coded("ENETDOWN")],
     [
       "wrapped by drizzle",
       new Error("Failed query: select 1", {

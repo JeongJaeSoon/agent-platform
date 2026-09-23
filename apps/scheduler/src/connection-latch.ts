@@ -4,9 +4,12 @@ import type { SchedulerStore } from "@agent-platform/platform";
 const SOCKET_ERROR_CODES = new Set([
   "EPIPE",
   "ETIMEDOUT",
+  "EHOSTDOWN",
   "EHOSTUNREACH",
+  "ENETDOWN",
   "ENETUNREACH",
   "EAI_AGAIN",
+  "ENOTFOUND",
 ]);
 
 // What pg raises without a code when the socket drops or a pool timeout
