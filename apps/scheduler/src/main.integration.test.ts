@@ -250,6 +250,43 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     expect(await client.inspectNetwork(name)).toBeNull();
   }, 180_000);
 
+  test("a second running proxy costs the live networks both, before the pass refuses", async () => {
+    const [row] = await db
+      .select({ id: executions.id, generation: executions.generation })
+      .from(executions)
+      .where(inArray(executions.sessionId, sessionIds));
+    if (!row) throw new Error("no execution row");
+    const network = networkNameFor(
+      { executionId: row.id, generation: row.generation },
+      runLabel,
+    );
+    const second = await startStandInProxy({
+      dockerHost,
+      image: IMAGE,
+      installationId: runLabel,
+      name: `ap-it-proxy2-${runLabel}`,
+    });
+    try {
+      await client.connectNetwork(network, second, ["egress-proxy"]);
+      const proxyNames = async () =>
+        Object.values((await client.inspectNetwork(network))?.Containers ?? {})
+          .map((member) => member.Name)
+          .filter((name) => name === proxy || name === second);
+      expect((await proxyNames()).sort()).toEqual([proxy ?? "", second].sort());
+
+      await expect(main(environment())).rejects.toThrow(
+        "2 running containers carry",
+      );
+
+      expect(await proxyNames()).toEqual([]);
+    } finally {
+      await client.stopAndRemoveContainer(second, 1).catch(() => undefined);
+    }
+    // Down to one again: the next pass gives it back.
+    const summary = await main(environment());
+    expect(summary.networksRepaired).toContain(network);
+  }, 180_000);
+
   test("a refused quota preflight still reclaims the workspaces it can", async () => {
     // The probe needs disk, so the daemon that fails it is often the one that
     // is full — the moment reclaiming finished sessions matters most. This

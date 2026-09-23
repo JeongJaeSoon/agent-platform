@@ -17,8 +17,10 @@ export async function startStandInProxy(options: {
   dockerHost: string;
   image: string;
   installationId: string;
+  /** For a second proxy of the same installation. */
+  name?: string;
 }): Promise<string> {
-  const name = `ap-it-proxy-${options.installationId}`;
+  const name = options.name ?? `ap-it-proxy-${options.installationId}`;
   const response = await rawRequest(
     options.dockerHost,
     "POST",

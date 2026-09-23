@@ -736,7 +736,12 @@ export class LocalDockerBackend implements ExecutionBackend {
           .connectNetwork(network, existing.Id, [])
           .catch(() => undefined);
       }
-      return `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and was put back`;
+      const restored = await this.client.inspectContainer(existing.Id);
+      const back = Object.keys(restored?.NetworkSettings?.Networks ?? {});
+      const missing = networks.filter((network) => !back.includes(network));
+      return missing.length === 0
+        ? `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and was put back`
+        : `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and could NOT be put back on ${missing.sort().join(", ")}`;
     }
     const after = await this.client.inspectContainer(existing.Id);
     const left = Object.keys(after?.NetworkSettings?.Networks ?? {});
@@ -852,6 +857,8 @@ export class LocalDockerBackend implements ExecutionBackend {
     } catch (error) {
       noSoleProxy = messageOf(error);
     }
+    const contested =
+      proxies.filter((proxy) => proxy.State === "running").length > 1;
     for (const listed of networks) {
       try {
         // A listing leaves out the members; only an inspect has them.
@@ -865,7 +872,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         if (ref.executionId === "" || !Number.isInteger(ref.generation)) {
           throw new NetworkIsolationError(
             network.Name,
-            "names no execution; left in place",
+            `names no execution; ${await this.detachProxies(network, proxyIds)}`,
           );
         }
         const container = await this.client.inspectContainer(
@@ -878,11 +885,14 @@ export class LocalDockerBackend implements ExecutionBackend {
         }
         await this.assertLiveNetwork(network, ref, container, proxies);
         if (sole === null) {
-          // None to trust, or more than one to choose from: every labelled
-          // proxy comes off until the installation has exactly one again.
+          // More than one to choose from: every labelled proxy comes off
+          // until the installation has exactly one again. None running is
+          // left as it is — a proxy that starts alone is the one to trust.
           throw new NetworkIsolationError(
             network.Name,
-            `${noSoleProxy}; ${await this.detachProxies(network, proxyIds)}`,
+            contested
+              ? `${noSoleProxy}; ${await this.detachProxies(network, proxyIds)}`
+              : noSoleProxy,
           );
         }
         const retired = await this.detachRetiredProxies(

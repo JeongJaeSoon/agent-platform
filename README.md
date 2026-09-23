@@ -104,7 +104,7 @@ CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Establishe
 * proxy는 모든 worker 네트워크에 붙는 신뢰 구성요소다. proxy가 침해되면 그 설치의 모든 worker에 닿는다. `EGRESS_PRIVATE_ALLOWLIST`에는 worker로 해석될 수 있는 이름을 넣지 않는다.
 * internal bridge도 host 쪽 bridge 인터페이스에 주소를 가진다. 그래서 daemon host가 그 주소나 wildcard로 listen하는 **host 프로세스**에는 worker가 proxy를 거치지 않고 닿을 수 있다. Docker가 publish한 포트가 아니라 host에서 직접 띄운 프로세스가 대상이다. 94S-199 때부터 있던 구멍이고 94S-274에서 다룬다.
 
-scheduler는 pass 전에 그 설치의 proxy가 정확히 하나 떠 있는지 확인한다(`verifyNetworkIsolation`). 없거나 둘 이상이면 아무것도 띄우지 않고 종료한다. worker 네트워크는 launch 때마다 검사한다. 이미 같은 이름의 네트워크가 있으면 새로 만들지 않고 다음을 확인한다. 하나라도 어긋나면 `NetworkIsolationError`로 launch를 거부한다(fail closed).
+scheduler는 pass 전에 그 설치의 proxy가 정확히 하나 떠 있는지 확인한다(`verifyNetworkIsolation`). 없거나 둘 이상이면 worker 네트워크 reconcile만 돌리고(orphan 회수, 둘 이상이면 proxy 분리) 아무것도 띄우지 않은 채 non-zero로 종료한다. worker 네트워크는 launch 때마다 검사한다. 이미 같은 이름의 네트워크가 있으면 새로 만들지 않고 다음을 확인한다. 하나라도 어긋나면 `NetworkIsolationError`로 launch를 거부한다(fail closed).
 
 * bridge·internal·IPv6 꺼짐·소유 label(설치·execution·generation)이 맞는가
 * worker와 proxy 외의 구성원이 없는가
@@ -173,7 +173,7 @@ volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성�
 
 * 살아 있는 네트워크도 매 pass 같은 기준으로 다시 검사한다. 대상은 네트워크 모양, 이름에 대응하는 컨테이너가 이 설치의 그 worker인지, worker·proxy 외 구성원, worker가 다른 네트워크에도 붙었는지다. 교체를 앞두고 미리 만들어 둔 네트워크(아직 옛 컨테이너가 붙지 않은 것)는 문제로 보지 않는다.
 * 구성원은 network inspect가 보여 주는 실행 중 endpoint만이 아니다. 멈췄거나 한 번도 시작하지 않은 컨테이너도 시작하는 순간 붙으므로 함께 센다(`network` 필터로 컨테이너를 조회).
-* 살아 있는 네트워크에 남아도 되는 proxy는 **지금 실행 중인 하나**뿐이다. label이 붙은 다른 proxy(멈춘 이전 proxy 등)는 떼어 내고 `networksRepaired`로 센다. 시작되는 순간 같은 alias로 worker 앞에 다시 설 수 있기 때문이다. 실행 중인 proxy가 없거나 둘 이상이면, label이 붙은 proxy를 모두 떼고 `networksFailed`로 보고한다.
+* 살아 있는 네트워크에 남아도 되는 proxy는 **지금 실행 중인 하나**뿐이다. label이 붙은 다른 proxy(멈춘 이전 proxy 등)는 떼어 내고 `networksRepaired`로 센다. 시작되는 순간 같은 alias로 worker 앞에 다시 설 수 있기 때문이다. 실행 중인 proxy가 둘 이상이면 어느 쪽도 믿을 수 없으므로 label이 붙은 proxy를 모두 떼고 `networksFailed`로 보고한다. 하나도 실행 중이 아니면 보고만 하고 그대로 둔다. 혼자 시작한 proxy가 믿을 대상이기 때문이다. execution label이 없는 worker 네트워크도 proxy를 떼고 보고한다.
 * 모르는 구성원이 붙은 네트워크에서는 그 구성원을 떼어 내지 않는다. 강제로 떼면 흔적이 사라지기 때문이다. 대신 **이 설치의 proxy를 뗀다.** 모르는 컨테이너가 이 설치의 allowlist를 쓰지 못하게 하기 위해서다. 그 네트워크의 worker도 egress를 잃는다. 이런 네트워크는 그대로 두고 `networksFailed`로 보고하며 pass는 exit 1로 끝난다.
 * 목록 조회 자체가 실패하면(`networkScanFailed`) 역시 exit 1이다.
 * 남은 네트워크는 주소 풀을 계속 차지한다. 운영자가 `docker network inspect <name>`으로 구성원을 확인하고 정리한다.

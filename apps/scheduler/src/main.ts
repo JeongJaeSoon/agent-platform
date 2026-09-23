@@ -35,9 +35,38 @@ export async function main(
   try {
     const db = drizzle(pool, { schema });
     const backend = new LocalDockerBackend(config.docker);
-    // Before anything is launched: the egress policy is only worth what the
-    // worker network's `internal` flag is worth, and only the daemon knows.
-    await backend.verifyNetworkIsolation();
+    // Before anything is launched: without exactly one running proxy there
+    // is nothing to give a worker network. The network reconcile still runs
+    // first, since two running proxies are exactly when it has to take them
+    // off the live networks; the error is rethrown either way.
+    try {
+      await backend.verifyNetworkIsolation();
+    } catch (error) {
+      logger.error(
+        "Egress proxy preflight failed; reconciling worker networks before giving up",
+        { error: messageOf(error) },
+      );
+      await backend
+        .reconcileNetworks()
+        .then((result) => {
+          for (const failure of result.failed) {
+            logger.error("Worker network left in place", {
+              error: failure.error,
+              network: failure.id,
+            });
+          }
+          logger.info("Worker networks reconciled without a proxy", {
+            networks_failed: result.failed.length,
+            networks_reclaimed: result.removed.length,
+          });
+        })
+        .catch((reconcileError: unknown) => {
+          logger.error("Worker network scan failed", {
+            error: messageOf(reconcileError),
+          });
+        });
+      throw error;
+    }
     if (config.docker.workspaceQuota.mode === "off") {
       // The one warning the opt-out costs. Losing the quota by accident —
       // a daemon that cannot carry one — stops the process instead.

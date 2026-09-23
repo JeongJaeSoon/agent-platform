@@ -1926,6 +1926,27 @@ describe("LocalDockerBackend worker networks", () => {
     ).toEqual(["agent-platform-worker"]);
   });
 
+  test("a claimed worker that could not be put back says so", async () => {
+    let reads = 0;
+    const intent = intentFor({
+      bootstrapCredentialState: async () => {
+        reads += 1;
+        return { claimed: reads > 1, fingerprint: fingerprintOf("nonce-abc") };
+      },
+    });
+    const body = await createBodyOf(intent);
+    docker.addNetwork("agent-platform-worker");
+    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.Labels[LABELS.isolation] = "4:0000000000000000";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    docker.images.delete("worker:test");
+    docker.refuseConnects = true;
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "could NOT be put back on agent-platform-worker",
+    );
+  });
+
   test("a refused replacement leaves a worker on its own network where it is", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
@@ -2283,22 +2304,29 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
   });
 
   test("a labelled network that names no execution is reported, not guessed at", async () => {
-    docker.addNetwork("ap-net-test-a-mystery", {
+    const mystery = docker.addNetwork("ap-net-test-a-mystery", {
       labels: {
         [LABELS.installation]: "test-a",
         [LABELS.workerNetwork]: "true",
       },
     });
+    const stranger = docker.addOther("snooper", {});
+    mystery.attached.set(stranger.id, { aliases: [] });
+    mystery.attached.set(PROXY, { aliases: ["egress-proxy"] });
 
     const result = await backend.reconcileNetworks();
 
     expect(result.failed).toEqual([
       {
-        error: expect.stringContaining("names no execution"),
+        error: expect.stringMatching(
+          /names no execution.*egress proxy was detached/,
+        ),
         id: "ap-net-test-a-mystery",
       },
     ]);
     expect(docker.networks.has("ap-net-test-a-mystery")).toBe(true);
+    expect(mystery.attached.has(PROXY)).toBe(false);
+    expect(mystery.attached.has(stranger.id)).toBe(true);
   });
 
   test("without a proxy, orphans are still removed and live networks reported", async () => {
