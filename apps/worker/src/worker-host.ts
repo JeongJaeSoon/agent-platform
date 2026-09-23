@@ -1110,6 +1110,8 @@ export class WorkerHost {
     this.interruptAnswered = run.interrupt().then(
       () => {},
       (error) => {
+        // Refused: an abort the engine reports from here on is not this one.
+        turn.interruptSent = false;
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
         });

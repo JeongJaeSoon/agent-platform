@@ -251,6 +251,37 @@ describe("WorkerHost interrupt", () => {
     ]);
   });
 
+  test("an abort that follows a refused interrupt is a failure, not an interrupt", async () => {
+    const { gateway, host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 200 },
+        {
+          type: "emit",
+          message: errorResult(uuidForTurn(1), "aborted_streaming"),
+        },
+        { type: "await-input" },
+      ],
+      {
+        wrap: withInterrupt(async () => {
+          throw new Error("control channel refused the interrupt");
+        }),
+      },
+    );
+    gateway.enqueue("aborts on its own");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    const summary = await loop;
+
+    expect(summary.turns[0]).toEqual({
+      turnId: "1",
+      status: "failed",
+      reason: "error_during_execution",
+    });
+  });
+
   test.each([
     {
       name: "a success keeps its completion",
