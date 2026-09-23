@@ -160,6 +160,9 @@ export function buildSdkOptions(
       PostToolUseFailure: [{ hooks: [settle] }],
       PermissionDenied: [{ hooks: [settle] }],
     },
+    ...(config.maxBudgetUsd === undefined
+      ? {}
+      : { maxBudgetUsd: config.maxBudgetUsd }),
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
     ...(config.mcpServers === undefined
       ? {}
