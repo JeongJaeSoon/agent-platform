@@ -145,7 +145,7 @@ export async function stagedClaudeMd(
   if (staged.instructions === null) {
     return {
       kind: "refused",
-      reason: "the checkpoint pins no commit to read it from",
+      reason: "the checkpoint pins no commit it can be read at",
     };
   }
   return readCommittedClaudeMd(
