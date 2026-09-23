@@ -75,17 +75,6 @@ describe("defaultGitRunner", () => {
     }
   });
 
-  test("a git that fails does not leave its helpers holding the result", async () => {
-    // The helper keeps stdout open; without the group kill on exit the runner
-    // would wait for it rather than for git.
-    const env = await fakeGit("/bin/sleep 30 & echo failed >&2; exit 1");
-    const started = Date.now();
-    const result = await defaultGitRunner(["x"], { env });
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toBe("failed\n");
-    expect(Date.now() - started).toBeLessThan(5_000);
-  });
-
   test("refuses limits that are not positive integers before starting git", async () => {
     const env = await fakeGit("echo ran");
     for (const limits of [

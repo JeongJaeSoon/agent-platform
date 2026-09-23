@@ -135,11 +135,13 @@ export function defaultGitRunner(
     child.on("error", (error) => settle(() => error));
     // A timed-out git resolves on exit rather than on close: close waits for
     // every pipe holder, and the point of the timeout is not to.
-    child.on("exit", (code, signal) => {
-      // A git that failed — a limit included — leaves helpers nobody will
-      // read from; without this they hold the pipes, and close, until the
-      // timeout. A git that succeeded has already reaped its own.
-      if (code !== 0 || signal !== null) killGroup(child.pid);
+    //
+    // A git that fails on its own is not followed by a group kill: by the
+    // time Node reports the exit it has reaped the leader, and the number may
+    // already name someone else's group. A helper that outlives it — rare,
+    // since index-pack ends when fetch's side of its stdin closes — is left
+    // to the timeout, which fires while the group is still ours.
+    child.on("exit", () => {
       if (timedOut) {
         settle(() => ({
           exitCode: GIT_TIMEOUT_EXIT_CODE,
