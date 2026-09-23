@@ -47,7 +47,7 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-`check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다. `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. 이 두 opt-in 변수와 fake Messages API·격리 workspace fixture는 `packages/testkit`(`fake-anthropic`·`postgres`·`localstack`·`workspace`)이 제공하며, 각 패키지는 devDependency로만 참조한다(`tests/architecture.test.ts`가 검사). API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다. CI가 어느 job에서 어떤 변수를 켜는지는 [§ CI에서 실행되는 것](#ci에서-실행되는-것)에 있다.
+`check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다(CI는 이 셋을 역할별 job으로 나눠 동시에 돈다). `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. 이 두 opt-in 변수와 fake Messages API·격리 workspace fixture는 `packages/testkit`(`fake-anthropic`·`postgres`·`localstack`·`workspace`)이 제공하며, 각 패키지는 devDependency로만 참조한다(`tests/architecture.test.ts`가 검사). API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다. CI가 어느 job에서 어떤 변수를 켜는지는 [§ CI에서 실행되는 것](#ci에서-실행되는-것)에 있다.
 
 워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
 
@@ -359,15 +359,17 @@ curl -s http://127.0.0.1:3000/readyz
 
 `.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([§ 이미지와 Compose `apps` profile](#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`와 integration 샤드 3개를 **동시에** 시작한다(94S-297). 예전에는 `check`가 성공해야 `integration`을 돌려 실패한 변경에서 서비스 컨테이너 분을 아꼈지만, 저장소가 public이 된 뒤로 그 분은 무료이고 대가였던 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남아 있었다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 네 부분과 integration 샤드 3개를 **동시에** 시작한다(94S-297, 94S-305). 예전에는 `check`가 성공해야 `integration`을 돌려 실패한 변경에서 서비스 컨테이너 분을 아꼈지만, 저장소가 public이 된 뒤로 그 분은 무료이고 대가였던 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남아 있었다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
 
 integration 스위트는 파일 단위로 3개 샤드(`integration (1/3)`…`(3/3)`)에 나뉘어 각자의 runner에서 돈다. 샤드마다 자기 PostgreSQL·LocalStack 서비스와 Docker daemon을 가지므로 샤드끼리 DB·컨테이너·네트워크를 공유하지 않는다 — 한 샤드 안에서는 파일들이 예전 단일 job과 똑같이 한 `bun test` 프로세스에서 순서대로 돈다. Bun 1.3에는 `--shard`가 없어 `.github/scripts/test-shard.ts`가 나눈다. `package.json`의 `test` 스크립트가 넘기는 필터(`tests packages apps`)로 Bun과 같은 규칙에 따라 테스트 파일을 찾고(Bun은 이 인자를 디렉터리가 아니라 저장소 기준 상대 경로의 부분 문자열로 맞춘다 — `xapps-e2e/a.test.ts`도 `apps`에 걸린다), 파일 크기를 무게로 삼아 가장 무거운 파일부터 가장 가벼운 샤드에 넣는다(실측 시간으로 나눈 것과 1~3% 차이라 시간표를 따로 관리하지 않는다). 모든 샤드가 같은 분할을 계산하고, 파일이 빠지거나 두 샤드에 들어가거나 빈 샤드가 생기면 출력 전에 실패한다 — 인자 없는 `bun test`는 전체 스위트를 돌리기 때문이다. `apps/api/src/server.integration.ts`는 테스트 파일 이름 규칙 밖이라 1번 샤드만 따로 돌린다.
 
-브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 샤드마다 context를 따로 올리므로 `integration`은 세 샤드를 기다리는 집계 job이다. 샤드 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 샤드가 실패했을 때, `!cancelled()`면 한 샤드가 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. 샤드는 `fail-fast: false`라 한 샤드의 실패가 다른 샤드를 취소하지 않는다. 샤드 수 3은 동시 job 한도에서 나왔다: PR run 하나가 한때 4개 job(`check` + 샤드 3)을 쥐므로 PR 5개가 동시에 돌아도 free plan의 동시 job 20개 안에 들어간다. 샤드를 4개로 늘리면 약 30초 줄지만 어차피 더 긴 `check`가 임계 경로다.
+`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다(94S-305): `check (typecheck)`, `check (lint)`, `check (unit: packages)`, `check (unit: apps, tests)`. 예전 단일 job은 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초였고, integration 샤드보다 길어 PR run 전체의 임계 경로였다. 테스트만으로도 가장 긴 integration 샤드와 비슷했으므로 테스트를 한 번 더 저장소 구조로 나눴다. `.github/scripts/unit-part.ts`가 `test-shard.ts`와 같은 규칙으로 파일을 찾아 `packages/` 아래를 `packages`로, 나머지 전부(지금은 `apps/`·`tests/`)를 `rest`로 준다. `rest`는 `packages`의 여집합이라 두 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
+
+브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 샤드·부분마다 context를 따로 올리므로 `check`는 네 부분을, `integration`은 세 샤드를 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `spikes`는 예전처럼 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 샤드가 실패했을 때, `!cancelled()`면 한 샤드가 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. 샤드는 `fail-fast: false`라 한 샤드의 실패가 다른 샤드를 취소하지 않는다. 샤드 수 3은 동시 job 한도에서 나왔다: 94S-297 당시 PR run 하나가 한때 4개 job(`check` + 샤드 3)을 쥐어 PR 5개가 동시에 돌아도 free plan의 동시 job 20개 안에 들어갔다. `check`를 네 부분으로 나눈 뒤에는 시작 순간 7개 job을 쥔다 — `check (lint)`는 30초 안팎, `check (typecheck)`는 1분 30초 안팎에 끝나므로 대부분의 시간은 5개다. PR 3개가 한꺼번에 시작하면 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
 
 `spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
 
-모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, integration 샤드 약 3분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 10/8/15/15분으로 좁혔고, 샤드만 기다리는 집계 job `integration`은 2분이다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
+모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(분할 전 `check` 6분, integration 샤드 약 3분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 `check`의 각 부분 6분, 샤드 8분, 15/15분으로 좁혔고, 부분·샤드만 기다리는 집계 job `check`·`integration`은 2분이다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 
@@ -376,7 +378,7 @@ integration 스위트는 파일 단위로 3개 샤드(`integration (1/3)`…`(3/
 ### 수동 실행 옵션
 
 ```bash
-gh workflow run CI --ref <branch>                          # 세 job (spikes 포함)
+gh workflow run CI --ref <branch>                          # 모든 job (spikes 포함)
 gh workflow run CI --ref <branch> -f only=spikes           # spikes만
 gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 run을 취소하지 않음
 ```
@@ -389,21 +391,26 @@ gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 r
 
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
 
-bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check`가 쓰는 `bun-root-*`는 root lockfile만, `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
+bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (typecheck)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 샤드는 읽기만 한다), `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
-| `check` | 없음 | 없음 | `bun run check` (typecheck → Biome → `bun test tests packages apps`) | ✅ |
+| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
+| `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
+| `check (unit: packages)`, `check (unit: apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / 그 나머지) | 집계로 |
+| `check` | 없음 | 없음 | 네 부분의 결과가 `success`인지 확인 | ✅ |
 | `integration (n/3)` | 샤드마다 `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1`, `DOCKER_BACKEND_TEST=1` | `bun test <test-shard.ts가 고른 파일>` (+ 1번 샤드만 `bun test ./apps/api/src/server.integration.ts`) | 집계로 |
 | `integration` | 없음 | 없음 | 세 샤드의 결과가 `success`인지 확인 | ✅ |
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ✅ |
 | `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
-`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 샤드들이 변수를 전부 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남는다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 integration 샤드들의 skip 합을 같이 확인한다. 샤드로 나뉜 뒤에는 세 샤드의 `N pass`·`across N files`를 더한 값이 예전 단일 job의 숫자다. 합계는 이렇게 낸다(1번 샤드의 `server.integration.ts` 3 pass 포함):
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 샤드들이 변수를 전부 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남는다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check` unit 부분들의 skip 합과 integration 샤드들의 skip 합을 같이 확인한다. 나뉜 뒤에는 두 unit 부분(또는 세 샤드)의 `N pass`·`N skip`·`across N files`를 더한 값이 예전 단일 job의 숫자다. 합계는 이렇게 낸다(integration은 1번 샤드의 `server.integration.ts` 3 pass 포함):
 
 ```bash
 gh run view <run-id> --log | grep -E '^integration \([0-9]+/[0-9]+\)' | grep -oE '\s[0-9]+ (pass|fail)$' \
   | awk '{s[$2]+=$1} END {printf "pass=%d fail=%d\n", s["pass"], s["fail"]}'
+gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pass|skip|fail)$' \
+  | awk '{s[$2]+=$1} END {printf "pass=%d skip=%d fail=%d\n", s["pass"], s["skip"], s["fail"]}'
 ```
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
