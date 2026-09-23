@@ -2,7 +2,8 @@ import type {
   InterruptReceiptResult,
   TerminalTurnStatus,
 } from "@agent-platform/contracts";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { controlIntents, receipts, turns } from "./schema.ts";
 
@@ -83,9 +84,60 @@ export async function settleTurnInterrupts(
           receipts.id,
           settled.map((row) => row.receiptId),
         ),
-        eq(receipts.status, "accepted"),
+        // One already reported unknown past its deadline is upgraded to what
+        // the turn actually ended as.
+        inArray(receipts.status, ["accepted", "unknown"]),
       ),
     );
+}
+
+/**
+ * 94S-273: an interrupt its turn has not settled by `deadlineMs` is reported
+ * unknown rather than left accepted, as a terminate is past its deadline. By
+ * then the reconciler has asked for the execution to go; if nothing confirms
+ * that, nothing else would ever answer. The intent stays open, so the turn's
+ * terminal, whenever it is written, still settles the receipt.
+ */
+export async function expireOverdueInterrupts(
+  db: Database,
+  input: { now: Date; deadlineMs: number; dryRun?: boolean },
+): Promise<number> {
+  const overdue = and(
+    eq(receipts.status, "accepted"),
+    inArray(
+      receipts.id,
+      db
+        .select({ id: controlIntents.receiptId })
+        .from(controlIntents)
+        .where(
+          and(
+            eq(controlIntents.kind, INTERRUPT),
+            isNull(controlIntents.settledAt),
+            lte(controlIntents.issuedAt, fromDbNow(-input.deadlineMs)),
+          ),
+        ),
+    ),
+  );
+  if (input.dryRun) {
+    const rows = await db
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(overdue);
+    return rows.length;
+  }
+  const expired = await db
+    .update(receipts)
+    .set({
+      status: "unknown",
+      error: {
+        code: "BACKEND_UNAVAILABLE",
+        message: `the interrupted turn did not end within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+      },
+      updatedAt: input.now,
+    })
+    .where(overdue)
+    .returning({ id: receipts.id });
+  return expired.length;
 }
 
 /**

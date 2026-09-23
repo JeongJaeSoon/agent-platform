@@ -7,6 +7,7 @@ import type {
   Principal,
 } from "../authorization/policy.ts";
 import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
+import { TERMINATE_DEADLINE_MS } from "../scheduler/session-scheduler.ts";
 import { payloadHash, SessionServiceError } from "./session-service.ts";
 
 /**
@@ -16,6 +17,14 @@ import { payloadHash, SessionServiceError } from "./session-service.ts";
  * room for that finalize to retry through two heartbeat TTLs of trouble.
  */
 export const INTERRUPT_SETTLE_DEADLINE_MS = 60_000;
+
+/**
+ * When an interrupt still unsettled is reported unknown: the kill above plus
+ * the window a kill has to be observed in. The turn's terminal, if it comes
+ * later, still settles the receipt.
+ */
+export const INTERRUPT_RECEIPT_DEADLINE_MS =
+  INTERRUPT_SETTLE_DEADLINE_MS + TERMINATE_DEADLINE_MS;
 
 export function createInterruptService(deps: {
   authorization: AuthorizationPolicy;

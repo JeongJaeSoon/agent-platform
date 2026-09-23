@@ -17,6 +17,7 @@ export type ReconcilerRun = {
   orphans: ReconciledOrphan[];
   leases: ReconciledLease[];
   interrupts: ReconciledInterrupt[];
+  interruptsOverdue: number;
   terminationsOverdue: number;
 };
 
@@ -47,6 +48,9 @@ export async function runReconciler(input: {
   reconcileInterrupts(
     options: LeaseReconcileOptions,
   ): Promise<ReconciledInterrupt[]>;
+  // Interrupt receipts still open past their later deadline become unknown,
+  // for when nothing confirms the kill above.
+  expireInterrupts(options: { now: Date; dryRun: boolean }): Promise<number>;
 }): Promise<ReconcilerRun> {
   const environment = input.environment ?? process.env;
   const leaseTtlSec = positiveNumber(
@@ -94,12 +98,23 @@ export async function runReconciler(input: {
     fenced_count: interrupts.length,
     session_ids: interrupts.map(({ sessionId }) => sessionId),
   });
+  const interruptsOverdue = await input.expireInterrupts({ dryRun, now });
+  input.logger.info("Overdue interrupt receipts marked unknown", {
+    dry_run: dryRun,
+    overdue_count: interruptsOverdue,
+  });
   const terminationsOverdue = await input.expireTerminations({ dryRun, now });
   input.logger.info("Overdue terminate receipts marked unknown", {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,
   });
-  return { orphans: reconciled, leases, interrupts, terminationsOverdue };
+  return {
+    orphans: reconciled,
+    leases,
+    interrupts,
+    interruptsOverdue,
+    terminationsOverdue,
+  };
 }
 
 function positiveNumber(value: string, name: string): number {

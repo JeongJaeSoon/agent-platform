@@ -68,6 +68,13 @@ describe("reconciler run", () => {
           },
         ];
       },
+      expireInterrupts: async (options) => {
+        expect(options).toEqual({
+          dryRun: false,
+          now: new Date("2026-09-14T00:00:00Z"),
+        });
+        return 3;
+      },
       expireTerminations: async (options) => {
         expect(options).toEqual({
           dryRun: false,
@@ -81,6 +88,7 @@ describe("reconciler run", () => {
     expect(result.orphans).toBe(reconciled);
     expect(result.leases).toEqual([]);
     expect(result.interrupts).toHaveLength(1);
+    expect(result.interruptsOverdue).toBe(3);
     expect(result.terminationsOverdue).toBe(2);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -118,6 +126,11 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Overdue interrupt receipts marked unknown",
+        fields: { dry_run: false, overdue_count: 3 },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Overdue terminate receipts marked unknown",
         fields: { dry_run: false, overdue_count: 2 },
       }),
@@ -149,13 +162,23 @@ describe("reconciler run", () => {
           },
         ];
       },
+      expireInterrupts: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 4;
+      },
       expireTerminations: async ({ dryRun }) => {
         seen.push(dryRun);
         return 0;
       },
     });
 
-    expect(seen).toEqual([true, true, true, true]);
+    expect(seen).toEqual([true, true, true, true, true]);
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        message: "Overdue interrupt receipts marked unknown",
+        fields: { dry_run: true, overdue_count: 4 },
+      }),
+    );
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Overdue interrupt executions sent to terminate",
@@ -173,6 +196,7 @@ describe("reconciler run", () => {
     const reconcile = async () => [];
     const reconcileLeases = async () => [];
     const reconcileInterrupts = async () => [];
+    const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
     await expect(
       runReconciler({
@@ -181,6 +205,7 @@ describe("reconciler run", () => {
         reconcile,
         reconcileLeases,
         reconcileInterrupts,
+        expireInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("HEARTBEAT_TTL_SEC");
@@ -191,6 +216,7 @@ describe("reconciler run", () => {
         reconcile,
         reconcileLeases,
         reconcileInterrupts,
+        expireInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
@@ -201,6 +227,7 @@ describe("reconciler run", () => {
         reconcile,
         reconcileLeases,
         reconcileInterrupts,
+        expireInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");

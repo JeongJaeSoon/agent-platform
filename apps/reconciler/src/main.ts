@@ -1,5 +1,6 @@
 import * as schema from "@agent-platform/db";
 import {
+  expireOverdueInterrupts,
   expireOverdueTerminations,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
@@ -8,6 +9,7 @@ import {
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
 import {
+  INTERRUPT_RECEIPT_DEADLINE_MS,
   INTERRUPT_SETTLE_DEADLINE_MS,
   TERMINATE_DEADLINE_MS,
 } from "@agent-platform/platform";
@@ -52,6 +54,12 @@ export async function main(
         reconcileOverdueInterrupts(db, {
           ...options,
           deadlineMs: INTERRUPT_SETTLE_DEADLINE_MS,
+        }),
+      expireInterrupts: ({ dryRun, now }) =>
+        expireOverdueInterrupts(db, {
+          deadlineMs: INTERRUPT_RECEIPT_DEADLINE_MS,
+          dryRun,
+          now,
         }),
       expireTerminations: ({ dryRun, now }) =>
         expireOverdueTerminations(db, {

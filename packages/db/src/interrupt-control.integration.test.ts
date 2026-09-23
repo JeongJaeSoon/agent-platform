@@ -37,6 +37,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { expireOverdueInterrupts } from "./turn-interrupts.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -460,20 +461,23 @@ integration("turn interrupts on PostgreSQL", () => {
   describe("an interrupt left unsettled past its deadline", () => {
     const DEADLINE_MS = 60_000;
 
-    function sweep(sessionId: string, dryRun = false) {
+    const RECEIPT_DEADLINE_MS = DEADLINE_MS * 3;
+
+    function sweep(sessionId: string, dryRun = false, now?: Date) {
       return reconcileOverdueInterrupts(db, {
         deadlineMs: DEADLINE_MS,
         dryRun,
+        ...(now === undefined ? {} : { now }),
       }).then((rows) => rows.filter((row) => row.sessionId === sessionId));
     }
 
     // issued_at is the database clock's stamp; moving it back stands in for
     // a worker that kept heartbeating past the deadline.
-    async function overdue(receiptId: string) {
+    async function overdue(receiptId: string, byMs = DEADLINE_MS * 2) {
       await db
         .update(controlIntents)
         .set({
-          issuedAt: sql`clock_timestamp() - ${DEADLINE_MS * 2}::double precision * interval '1 millisecond'`,
+          issuedAt: sql`clock_timestamp() - ${byMs}::double precision * interval '1 millisecond'`,
         })
         .where(eq(controlIntents.receiptId, receiptId));
     }
@@ -566,6 +570,105 @@ integration("turn interrupts on PostgreSQL", () => {
       expect(await sweep(sessionId)).toEqual([]);
       expect(await desiredState(worker.executionId)).not.toBe("terminated");
       await heartbeat(worker);
+    });
+
+    test("the deadline is read on the database clock, not the caller's", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      await interrupt(owner, sessionId, "1");
+
+      expect(
+        await sweep(sessionId, false, new Date("2100-01-01T00:00:00Z")),
+      ).toEqual([]);
+      expect(await desiredState(worker.executionId)).not.toBe("terminated");
+    });
+
+    test("an attempt whose kill is already asked for is skipped, and does not take a batch slot", async () => {
+      const first = await runningSession();
+      const firstReceipt = await interrupt(first.owner, first.sessionId, "1");
+      await overdue(firstReceipt.receipt_id);
+      await db
+        .update(executions)
+        .set({ desiredState: "terminated" })
+        .where(eq(executions.id, first.worker.executionId));
+      const second = await runningSession();
+      const secondReceipt = await interrupt(
+        second.owner,
+        second.sessionId,
+        "1",
+      );
+      await overdue(secondReceipt.receipt_id);
+
+      const swept = await reconcileOverdueInterrupts(db, {
+        deadlineMs: DEADLINE_MS,
+        limit: 1,
+      });
+      expect(swept.map((row) => row.sessionId)).toEqual([second.sessionId]);
+      const [session] = await db
+        .select({ leaseEpoch: sessions.leaseEpoch })
+        .from(sessions)
+        .where(eq(sessions.id, first.sessionId));
+      expect(session?.leaseEpoch).toBe(first.worker.scope.lease_epoch);
+    });
+
+    test("a kill nobody confirms leaves the receipt unknown past the later deadline, and the confirmed exit still settles it", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const accepted = await interrupt(owner, sessionId, "1");
+      await overdue(accepted.receipt_id, DEADLINE_MS * 2);
+      expect(await sweep(sessionId)).toHaveLength(1);
+
+      // Before the receipt's own deadline it stays accepted.
+      await expireOverdueInterrupts(db, {
+        deadlineMs: RECEIPT_DEADLINE_MS,
+        now: new Date(),
+      });
+      expect((await receiptOf(accepted.receipt_id))?.status).toBe("accepted");
+
+      await overdue(accepted.receipt_id, RECEIPT_DEADLINE_MS * 2);
+      expect(
+        await expireOverdueInterrupts(db, {
+          deadlineMs: RECEIPT_DEADLINE_MS,
+          now: new Date(),
+          dryRun: true,
+        }),
+      ).toBeGreaterThanOrEqual(1);
+      expect((await receiptOf(accepted.receipt_id))?.status).toBe("accepted");
+
+      expect(
+        await expireOverdueInterrupts(db, {
+          deadlineMs: RECEIPT_DEADLINE_MS,
+          now: new Date(),
+        }),
+      ).toBeGreaterThanOrEqual(1);
+      expect(await receiptOf(accepted.receipt_id)).toMatchObject({
+        status: "unknown",
+        result: null,
+        error: { code: "BACKEND_UNAVAILABLE" },
+      });
+
+      await gateway.confirmExecutionGone(worker.executionId);
+      expect(await receiptOf(accepted.receipt_id)).toMatchObject({
+        status: "unknown",
+        result: { turn_id: "1", terminal: "outcome_unknown", no_op: false },
+        error: { code: "RECOVERY_REQUIRED" },
+      });
+    });
+
+    test("a receipt reported unknown is still upgraded by the turn's own terminal", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const accepted = await interrupt(owner, sessionId, "1");
+      await overdue(accepted.receipt_id, RECEIPT_DEADLINE_MS * 2);
+      await expireOverdueInterrupts(db, {
+        deadlineMs: RECEIPT_DEADLINE_MS,
+        now: new Date(),
+      });
+      expect((await receiptOf(accepted.receipt_id))?.status).toBe("unknown");
+
+      await finalize(worker, "1", "interrupted", checkpoint(0));
+      expect(await receiptOf(accepted.receipt_id)).toMatchObject({
+        status: "succeeded",
+        result: { turn_id: "1", terminal: "interrupted", no_op: false },
+        error: null,
+      });
     });
   });
 });

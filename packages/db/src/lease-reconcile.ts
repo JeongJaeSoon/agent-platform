@@ -6,6 +6,7 @@ import {
   isNull,
   lt,
   lte,
+  ne,
   notInArray,
 } from "drizzle-orm";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
@@ -231,7 +232,24 @@ export async function reconcileOverdueInterrupts(
     .from(controlIntents)
     .innerJoin(turns, eq(turns.id, controlIntents.targetTurnId))
     .innerJoin(attempts, eq(attempts.id, controlIntents.attemptId))
-    .where(and(overdue(), notInArray(attempts.state, ENDED_ATTEMPT_STATES)))
+    // The skips below, applied here too so attempts already dealt with do
+    // not fill every batch and starve the ones still owed a kill.
+    .innerJoin(
+      sessions,
+      and(
+        eq(sessions.id, attempts.sessionId),
+        eq(sessions.executionId, attempts.executionId),
+        eq(sessions.leaseEpoch, attempts.leaseEpoch),
+      ),
+    )
+    .innerJoin(executions, eq(executions.id, attempts.executionId))
+    .where(
+      and(
+        overdue(),
+        notInArray(attempts.state, ENDED_ATTEMPT_STATES),
+        ne(executions.desiredState, "terminated"),
+      ),
+    )
     .orderBy(asc(attempts.id))
     .limit(limit);
 
