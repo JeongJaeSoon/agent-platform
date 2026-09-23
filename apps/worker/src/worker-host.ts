@@ -4,6 +4,7 @@ import type {
   BootstrapClaimResponse,
   CheckpointRef,
   ClaimPrincipal,
+  ControlIntent,
   NextInputResponse,
   RuntimeConfig,
   SessionRuntime,
@@ -106,8 +107,8 @@ type Settlement = {
   result: unknown;
   status: WorkerTerminalStatus;
   /**
-   * Decided here rather than reported by the engine: the transcript has
-   * nothing new for this turn, so there is nothing to checkpoint.
+   * Decided here rather than reported by the engine: there is no engine
+   * terminal a checkpoint could be consistent with, so none is taken.
    */
   synthetic?: true;
   usage: unknown;
@@ -116,6 +117,15 @@ type Settlement = {
 type Turn = {
   /** Past its terminal: what the engine emits now belongs to no turn. */
   closed: boolean;
+  /** An interrupt intent for this turn has been taken. */
+  interrupting: boolean;
+  /**
+   * When the interrupt's grace runs out (performance.now()): it bounds the
+   * whole way to a terminal, checkpoint capture included, not each step.
+   */
+  interruptDeadline?: number;
+  /** The input went to the engine: an interrupt can only reach it from here. */
+  sent: boolean;
   settled: Promise<Settlement>;
   settle: (settlement: Settlement) => void;
   /** The deadline fired: whatever terminal comes now is the timeout's. */
@@ -150,6 +160,13 @@ export class WorkerHost {
   private readonly logger: WorkerLogger;
   private readonly turns: TurnOutcome[] = [];
   private readonly checkpoints: WorkerCheckpointPort;
+  private engine: AgentRun | undefined;
+  /**
+   * The engine's answer to the last interrupt sent. The next input waits for
+   * it: an interrupt still in flight when a turn ends on its own would
+   * otherwise land on the one after.
+   */
+  private interruptAnswered: Promise<void> | undefined;
   private attemptState: AttemptState = "starting";
   private heartbeat: Heartbeat | undefined;
   private pending: PendingRequestRegistry | undefined;
@@ -233,6 +250,7 @@ export class WorkerHost {
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
       onOwnershipLost: (error) => this.lose(describe(error)),
+      onControl: (control) => this.onControl(control),
     });
     this.heartbeat = new Heartbeat({
       gateway: this.options.gateway,
@@ -284,6 +302,7 @@ export class WorkerHost {
           },
           { onPermission: (request) => this.onPermission(request) },
         );
+        this.engine = run;
         this.attemptState = "running";
         this.pumping = this.pump(run);
         await this.turnLoop(run);
@@ -455,6 +474,9 @@ export class WorkerHost {
   private async turnLoop(run: AgentRun): Promise<void> {
     let lastInputAt = this.now().getTime();
     while (this.stopping === undefined) {
+      // Before asking for input, not after: a delivered input the engine is
+      // never given would be left for recovery as if it might have run.
+      if (!(await this.interruptSettled())) return;
       // Not raced with a drain: an input the gateway hands over is this
       // attempt's to finish, and one dropped here stays open until the
       // reconciler decides it. The draining heartbeat `stop` sends makes the
@@ -516,6 +538,9 @@ export class WorkerHost {
       turn_id: input.turn_id,
       input_id: input.input_id,
     });
+    // Watched from before the send: an interrupt that comes while the input
+    // is still being checked is applied as soon as it goes out.
+    this.pending?.watch(true);
     // Armed before the delivery check, so a check that hangs spends the same
     // budget as an engine that does.
     this.armDeadline(run, turn);
@@ -588,6 +613,9 @@ export class WorkerHost {
       return;
     }
     run.send({ message, uuid: turn.uuid });
+    turn.sent = true;
+    // An interrupt taken while the check ran reaches the engine now.
+    if (turn.interrupting) this.sendInterrupt(run);
   }
 
   /**
@@ -601,7 +629,9 @@ export class WorkerHost {
   private armDeadline(run: AgentRun, turn: Turn): void {
     const budget = this.options.timeouts.maxTurnMs;
     const expire = () => {
-      if (turn.closed || this.ownerLost) return;
+      // An interrupt already has its own, shorter grace; the deadline taking
+      // over would turn its `interrupted` into a timeout failure.
+      if (turn.closed || turn.interrupting || this.ownerLost) return;
       turn.timedOut = true;
       const reason = `Turn ${turn.turnId} ran past its ${budget / 1000}s budget`;
       this.logger.warn("worker.turn.timeout", {
@@ -661,6 +691,7 @@ export class WorkerHost {
     if (flushed === undefined || this.ownerLost) return;
     // Where settleTurn cut the stream; idle() has made all of it durable.
     const finalSourceSequence = this.publisher?.hold() ?? 0;
+    const interrupted = settlement.status === "interrupted";
     let captured: Captured | undefined;
     // What may still commit this turn's checkpoint. The lease is released
     // only once it has answered: untilAbandoned stops waiting for a request,
@@ -678,7 +709,19 @@ export class WorkerHost {
         // not hold the process past the drain budget either.
         const capturing = this.capture(run);
         outstanding = capturing;
-        captured = await this.untilAbandoned(capturing);
+        captured = await this.untilAbandoned(
+          // Someone is waiting on an interrupt's receipt: a capture that
+          // fails or hangs gives it an unknown outcome (below) instead of
+          // none. Any other turn fails the worker as before, and keeps the
+          // drain as its only bound.
+          interrupted
+            ? this.withinInterruptGrace(
+                capturing,
+                turnId,
+                this.turn?.interruptDeadline,
+              )
+            : capturing,
+        );
         if (captured === undefined) {
           capturing.then(
             ({ lease }) => lease?.release(),
@@ -689,40 +732,85 @@ export class WorkerHost {
         checkpoint = captured.ref;
       }
       if (this.ownerLost) return;
-      const finalizing = this.withRetry(
-        () =>
-          this.options.gateway
-            .finalize({
-              ...this.scope,
-              turn_id: turnId,
-              finalize_key: `${this.scope.attempt_id}:${turnId}`,
-              final_source_sequence: finalSourceSequence,
-              terminal: {
-                status: settlement.status,
-                reason: settlement.reason,
-                result: settlement.result ?? null,
-                usage: settlement.usage ?? null,
-              },
-              checkpoint,
-            })
-            .catch((error: unknown) => {
-              if (isRetryable(error)) undecided = true;
-              throw error;
-            }),
-        () => this.abandonedNow,
-      );
-      outstanding = finalizing;
-      const finalized = await this.untilAbandoned(finalizing);
+      // api.md: a turn is `interrupted` only when the engine's terminal comes
+      // with a checkpoint consistent with it; without one nobody can say what
+      // the transcript holds, and the turn goes to recovery instead.
+      const unconfirmed: Settlement = {
+        ...settlement,
+        status: "outcome_unknown",
+        reason: "interrupt_checkpoint_unavailable",
+      };
+      // The session goes to recovery with it, as runTurn arranges for an
+      // unknown the engine reported itself.
+      const unconfirm = (): Settlement => {
+        this.stop({
+          kind: "drain",
+          reason: `Turn ${turnId} needs a recovery decision`,
+        });
+        return unconfirmed;
+      };
+      let terminal: Settlement =
+        interrupted && checkpoint === null ? unconfirm() : settlement;
+      const finalize = (outcome: Settlement, ref: CheckpointRef | null) => {
+        const finalizing = this.withRetry(
+          () =>
+            this.options.gateway
+              .finalize({
+                ...this.scope,
+                turn_id: turnId,
+                finalize_key: `${this.scope.attempt_id}:${turnId}`,
+                final_source_sequence: finalSourceSequence,
+                terminal: {
+                  status: outcome.status,
+                  reason: outcome.reason,
+                  result: outcome.result ?? null,
+                  usage: outcome.usage ?? null,
+                },
+                checkpoint: ref,
+              })
+              .catch((error: unknown) => {
+                if (isRetryable(error)) undecided = true;
+                throw error;
+              }),
+          () => this.abandonedNow,
+        );
+        outstanding = finalizing;
+        return this.untilAbandoned(finalizing);
+      };
+      let finalized: Awaited<ReturnType<typeof finalize>>;
+      try {
+        finalized = await finalize(
+          terminal,
+          terminal === settlement ? checkpoint : null,
+        );
+      } catch (error) {
+        // The gateway refused the checkpoint for good, so nothing committed:
+        // the interrupted turn is finalized once more, as unknown.
+        if (
+          terminal !== settlement ||
+          !interrupted ||
+          !(error instanceof WorkerGatewayRequestError) ||
+          error.code !== "CHECKPOINT_UNAVAILABLE"
+        ) {
+          throw error;
+        }
+        this.logger.warn("worker.checkpoint.refused", {
+          turn_id: turnId,
+          reason: describe(error),
+        });
+        terminal = unconfirm();
+        finalized = await finalize(terminal, null);
+      }
       if (finalized === undefined) return;
       outstanding = undefined;
       this.turns.push({
         turnId,
-        status: settlement.status,
-        reason: settlement.reason,
+        status: terminal.status,
+        reason: terminal.reason,
       });
       this.logger.info("worker.turn.finalized", {
         turn_id: turnId,
-        status: settlement.status,
+        status: terminal.status,
       });
       this.turn = undefined;
       this.scope.turn_id = null;
@@ -743,7 +831,6 @@ export class WorkerHost {
       }
     }
   }
-
   private beginTurn(turnId: string, uuid: string): Turn {
     let settle: (settlement: Settlement) => void = () => {};
     const settled = new Promise<Settlement>((resolve) => {
@@ -751,6 +838,8 @@ export class WorkerHost {
     });
     const turn: Turn = {
       closed: false,
+      interrupting: false,
+      sent: false,
       settled,
       settle,
       timedOut: false,
@@ -770,8 +859,147 @@ export class WorkerHost {
     // its result, and the gateway closes the turn only at the exact end.
     turn.closed = true;
     clearTurnTimers(turn);
+    // Nothing can interrupt a turn that has ended; the next one watches anew.
+    this.pending?.watch(false);
     this.publisher?.hold();
     turn.settle(settlement);
+  }
+
+  /**
+   * An interrupt reaches only the turn it names, and only while it runs: one
+   * that arrives after its turn ended — the next may already be running — is
+   * ignored here, and the gateway settles its receipt from how that turn
+   * actually ended. The engine keeps its session; only this turn stops.
+   */
+  private onControl(control: ControlIntent): void {
+    const turn = this.turn;
+    const run = this.engine;
+    if (control.kind !== "interrupt") return;
+    if (turn === undefined || run === undefined || this.stopKind === "lost") {
+      return;
+    }
+    // A timed-out turn is already being interrupted, on its own terms.
+    if (
+      turn.closed ||
+      turn.interrupting ||
+      turn.timedOut ||
+      turn.turnId !== control.target_turn_id
+    ) {
+      return;
+    }
+    turn.interrupting = true;
+    this.logger.info("worker.turn.interrupting", {
+      turn_id: turn.turnId,
+      control_id: control.control_id,
+    });
+    this.publisher?.publish(
+      [
+        {
+          id: `control:${control.control_id}`,
+          event: "status",
+          data: { phase: "interrupting" },
+        },
+      ],
+      turn.turnId,
+    );
+    // What the turn was waiting on is void: an answer landing now must not
+    // let the engine carry the interrupted turn on.
+    this.pending?.cancelAll("The turn was interrupted");
+    // The grace runs from here, not from the send: an input check that
+    // hangs must not hold the interrupt open until the turn budget ends.
+    const graceMs = this.interruptGraceMs();
+    turn.interruptDeadline = performance.now() + graceMs;
+    turn.timers.push(
+      setTimeout(() => {
+        if (turn.closed) return;
+        // An engine that ignores an interrupt is not handed the next input.
+        this.fail(
+          `Turn ${turn.turnId} gave no terminal within ${graceMs}ms of its interrupt`,
+        );
+        this.settleTurn({
+          status: "outcome_unknown",
+          reason: "interrupt_unanswered",
+          result: null,
+          usage: null,
+          synthetic: true,
+        });
+      }, graceMs),
+    );
+    if (turn.sent) this.sendInterrupt(run);
+  }
+
+  private sendInterrupt(run: AgentRun): void {
+    this.interruptAnswered = run.interrupt().then(
+      () => {},
+      (error) => {
+        this.logger.warn("worker.interrupt.failed", {
+          reason: describe(error),
+        });
+      },
+    );
+  }
+
+  /**
+   * A capture for an interrupted turn, bounded by what is left of the
+   * interrupt's grace. One that fails or runs late counts as no checkpoint;
+   * a lease it takes after that is let go as soon as it arrives, since
+   * nothing will commit what it guards.
+   */
+  private withinInterruptGrace(
+    capturing: Promise<Captured>,
+    turnId: string,
+    deadline: number | undefined,
+  ): Promise<Captured> {
+    const none: Captured = { lease: null, ref: null };
+    const tolerant = capturing.catch((error: unknown): Captured => {
+      this.logger.warn("worker.checkpoint.failed", {
+        turn_id: turnId,
+        reason: describe(error),
+      });
+      return none;
+    });
+    // An engine interrupted on its own (no intent taken) gets a grace of its own.
+    const leftMs = Math.max(
+      0,
+      (deadline ?? performance.now() + this.interruptGraceMs()) -
+        performance.now(),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<Captured>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn("worker.checkpoint.late", {
+          turn_id: turnId,
+          left_ms: Math.round(leftMs),
+        });
+        tolerant.then(({ lease }) => lease?.release());
+        resolve(none);
+      }, leftMs);
+    });
+    return Promise.race([tolerant, late]).finally(() => clearTimeout(timer));
+  }
+
+  private interruptGraceMs(): number {
+    return this.options.timeouts.interruptGraceMs ?? INTERRUPT_GRACE_MS;
+  }
+
+  /**
+   * Waits, bounded by the interrupt grace, for the engine to have answered
+   * the last interrupt. False when it never did: that engine is not handed
+   * another input, and the worker winds down.
+   */
+  private async interruptSettled(): Promise<boolean> {
+    const answered = this.interruptAnswered;
+    if (answered === undefined) return true;
+    const graceMs = this.interruptGraceMs();
+    if (await settledWithin(answered, graceMs)) {
+      if (this.interruptAnswered === answered)
+        this.interruptAnswered = undefined;
+      return true;
+    }
+    this.fail(
+      `The engine did not acknowledge an interrupt within ${graceMs}ms`,
+    );
+    return false;
   }
 
   private pump(run: AgentRun): Promise<void> {
@@ -856,6 +1084,11 @@ export class WorkerHost {
         behavior: "deny",
         message: "This worker is winding down and cannot ask for approval",
       };
+    }
+    // The interrupt voided the turn's callbacks; one raised after it is no
+    // different, and asking would only hold the turn open again.
+    if (this.turn?.interrupting === true || this.turn?.closed === true) {
+      return { behavior: "deny", message: "The turn was interrupted" };
     }
     return this.pending.request(request);
   }

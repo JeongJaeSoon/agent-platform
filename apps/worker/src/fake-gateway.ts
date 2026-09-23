@@ -5,6 +5,7 @@ import type {
   BootstrapClaimRequest,
   BootstrapClaimResponse,
   CheckpointRef,
+  ControlIntent,
   FinalizeRequest,
   FinalizeResponse,
   HeartbeatRequest,
@@ -78,11 +79,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
    */
   refuseDraining = true;
   private draining = false;
+  /** Set by an `outcome_unknown` terminal: the real gateway holds input back then. */
+  private recoveryRequired = false;
   /** Thrown by every append while set. */
   appendFailure: WorkerGatewayRequestError | undefined;
   /** Thrown by every first-time finalize while set. */
   finalizeFailure: WorkerGatewayRequestError | undefined;
 
+  private readonly controls: ControlIntent[] = [];
   private readonly answers: Array<{
     answer: PostSessionAnswerRequest;
     sequence: number;
@@ -151,6 +155,21 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     });
   }
 
+  /**
+   * Stores an interrupt intent for a turn. Like the real gateway it is
+   * handed out on every poll until its turn is finalized, which settles it.
+   */
+  interrupt(turnId: string): ControlIntent {
+    const control: ControlIntent = {
+      control_id: `ctl-${this.controls.length + 1}`,
+      kind: "interrupt",
+      target_turn_id: turnId,
+      issued_at: new Date().toISOString(),
+    };
+    this.controls.push(control);
+    return control;
+  }
+
   /** The id the worker gave the callback the engine raised for this tool use. */
   requestIdFor(toolUseId: string): string {
     const event = this.questions().find(
@@ -214,7 +233,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   async nextInput(request: NextInputRequest): Promise<NextInputResponse> {
     this.calls.push("nextInput");
     // Like the real gateway, a draining attempt's poll comes back at once.
-    const handsNothing = this.draining && this.refuseDraining;
+    const handsNothing =
+      (this.draining && this.refuseDraining) || this.recoveryRequired;
     if (
       !handsNothing &&
       this.queue.length === 0 &&
@@ -225,8 +245,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         Bun.sleep(request.wait_ms ?? 0),
       ]);
     }
-    const next =
-      this.draining && this.refuseDraining ? undefined : this.queue.shift();
+    const next = handsNothing ? undefined : this.queue.shift();
     return {
       input:
         next === undefined
@@ -319,7 +338,13 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       }
     }
     return {
-      control: null,
+      control:
+        this.controls.find(
+          (control) =>
+            !this.finalized.some(
+              (done) => done.turn_id === control.target_turn_id,
+            ),
+        ) ?? null,
       // Like the real gateway, a settled request is no longer handed out.
       answers: this.answers.filter(
         (entry) =>
@@ -351,6 +376,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         );
       }
       this.finalized.push(request);
+      if (request.terminal.status === "outcome_unknown") {
+        this.recoveryRequired = true;
+      }
     }
     return {
       turn_id: request.turn_id,

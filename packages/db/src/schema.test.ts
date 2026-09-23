@@ -68,6 +68,7 @@ describe("database schema", () => {
       "api_keys",
       "attempts",
       "checkpoints",
+      "control_intents",
       "events",
       "executions",
       "grants",

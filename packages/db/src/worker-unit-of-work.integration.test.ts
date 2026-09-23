@@ -787,7 +787,12 @@ integration("worker gateway on PostgreSQL", () => {
         result: null,
         usage: null,
       },
-      checkpoint: null,
+      // An interrupted terminal is only taken with the checkpoint it stopped at.
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "manifests/interrupted.json",
+        manifest_sha256: "d".repeat(64),
+      },
     });
     const [stopped] = await db
       .select({
@@ -2777,7 +2782,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect((await append("fourth input")).outcome).toBe("accepted");
   });
 
-  test("a mirror failure never holds back an interrupt or a failure", async () => {
+  test("a mirror failure never holds back an interrupt that commits its checkpoint", async () => {
     const { session, claimed } = await claimAndDeliver();
     await gateway.heartbeat(principalOf(claimed), {
       ...scopeOf(claimed),
@@ -2796,9 +2801,14 @@ integration("worker gateway on PostgreSQL", () => {
           result: null,
           usage: null,
         },
-        checkpoint: null,
+        // 94S-128: an interrupt is only ever recorded with its checkpoint.
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "manifests/interrupted.json",
+          manifest_sha256: "d".repeat(64),
+        },
       }),
-    ).toMatchObject({ status: "interrupted", checkpoint_revision: null });
+    ).toMatchObject({ status: "interrupted", checkpoint_revision: 0 });
     const [stored] = await db
       .select({
         status: sessions.status,

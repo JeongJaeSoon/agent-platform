@@ -74,7 +74,8 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
 class FakeRun implements AgentRun {
   private readonly abortController = new AbortController();
   private readonly arrivals: Array<() => void> = [];
-  private readonly interruptController = new AbortController();
+  // Replaced after each interrupt: the run outlives it, like the real SDK's.
+  private interruptController = new AbortController();
   private readonly ledger: TurnLedger;
   private closed = false;
   private consumedInputs = 0;
@@ -162,64 +163,79 @@ class FakeRun implements AgentRun {
     this.ledger.claimConsumer();
     try {
       let cursor = 0;
-      const controlSignal = AbortSignal.any([
-        this.abortController.signal,
-        this.interruptController.signal,
-      ]);
-      for (const step of this.steps) {
+      for (let index = 0; index < this.steps.length; index += 1) {
+        const step = this.steps[index] as FakeStep;
+        const controlSignal = AbortSignal.any([
+          this.abortController.signal,
+          this.interruptController.signal,
+        ]);
+        let interrupted = false;
         if (this.terminal === "aborted") throw abortError();
         if (this.terminal === "interrupted") {
           yield this.interruptedFrame(`fake:${cursor}`);
-          return;
-        }
-        try {
-          if (step.type === "await-input") {
-            await raceAbort(this.awaitInput(), controlSignal);
-          } else if (step.type === "delay") {
-            await raceAbort(Bun.sleep(step.delayMs), controlSignal);
-          } else if (step.type === "error") {
-            throw step.error;
-          } else if (step.type === "permissions") {
-            const decisions = await raceAbort(
-              Promise.all(
-                step.requests.map((request) =>
-                  this.askPermission({ ...request, signal: controlSignal }),
-                ),
-              ),
-              controlSignal,
-            );
-            this.runtime.permissionDecisions.push(...decisions);
-          } else if (step.type === "tool-start") {
-            this.runtime.toolAdmissions.push({
-              toolUseId: step.toolUseId,
-              admission: this.ledger.toolStarting(step.toolUseId),
-            });
-          } else if (step.type === "tool-end") {
-            this.ledger.toolSettled(step.toolUseId);
-          } else {
-            this.ledger.observe(step.message);
-            yield frameFromNativeMessage(
-              step.message,
-              this.correlationId,
-              `fake:${cursor}`,
-            );
+          interrupted = true;
+        } else {
+          try {
+            await this.runStep(step, controlSignal);
+            if (step.type === "emit") {
+              this.ledger.observe(step.message);
+              yield frameFromNativeMessage(
+                step.message,
+                this.correlationId,
+                `fake:${cursor}`,
+              );
+            }
+          } catch (error) {
+            if (this.terminal !== "interrupted") throw error;
           }
-        } catch (error) {
+          if (this.terminal === "aborted") throw abortError();
           if (this.terminal === "interrupted") {
             yield this.interruptedFrame(`fake:${cursor}:interrupted`);
-            return;
+            interrupted = true;
           }
-          throw error;
-        }
-        if (this.terminal === "aborted") throw abortError();
-        if (this.terminal === "interrupted") {
-          yield this.interruptedFrame(`fake:${cursor}:interrupted`);
-          return;
         }
         cursor += 1;
+        if (!interrupted) continue;
+        // The real SDK ends only the current turn: the script resumes at the
+        // next turn's input, and ends here when no further turn is scripted.
+        const next = this.steps.findIndex(
+          (candidate, position) =>
+            position > index && candidate.type === "await-input",
+        );
+        if (next === -1) return;
+        this.terminal = undefined;
+        this.interruptController = new AbortController();
+        index = next - 1;
       }
     } finally {
       this.ledger.streamEnded();
+    }
+  }
+
+  private async runStep(step: FakeStep, signal: AbortSignal): Promise<void> {
+    if (step.type === "await-input") {
+      await raceAbort(this.awaitInput(), signal);
+    } else if (step.type === "delay") {
+      await raceAbort(Bun.sleep(step.delayMs), signal);
+    } else if (step.type === "error") {
+      throw step.error;
+    } else if (step.type === "permissions") {
+      const decisions = await raceAbort(
+        Promise.all(
+          step.requests.map((request) =>
+            this.askPermission({ ...request, signal }),
+          ),
+        ),
+        signal,
+      );
+      this.runtime.permissionDecisions.push(...decisions);
+    } else if (step.type === "tool-start") {
+      this.runtime.toolAdmissions.push({
+        toolUseId: step.toolUseId,
+        admission: this.ledger.toolStarting(step.toolUseId),
+      });
+    } else if (step.type === "tool-end") {
+      this.ledger.toolSettled(step.toolUseId);
     }
   }
 

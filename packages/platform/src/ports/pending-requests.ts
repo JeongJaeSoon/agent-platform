@@ -54,6 +54,8 @@ export type RegisterPendingResult =
       expiresInMs: number;
     }
   | { outcome: "turn_not_found" }
+  // The turn has an interrupt waiting on it: nothing new may hold it open.
+  | { outcome: "turn_interrupted" }
   // The id is taken by a different request, or by this one after it closed.
   | { outcome: "conflict" }
   | FenceRejection;
@@ -70,8 +72,20 @@ export type PendingControlInput = {
   settled: PendingSettlement[];
 };
 
+/** An interrupt the attempt owes; `turnId` is the public turn id. */
+export type DeliveredControl = {
+  controlId: string;
+  kind: "interrupt";
+  turnId: string;
+  issuedAt: Date;
+};
+
 export type PendingControlResult =
-  | { outcome: "ok"; answers: DeliveredAnswer[] }
+  | {
+      outcome: "ok";
+      answers: DeliveredAnswer[];
+      control: DeliveredControl | null;
+    }
   | FenceRejection;
 
 /** The worker half, fenced like every other post-claim call. */
@@ -80,6 +94,7 @@ export interface WorkerPendingStore {
   pendingControlAtomic(
     input: PendingControlInput,
   ): Promise<PendingControlResult>;
-  // A hint for heartbeat: an answer is waiting for this attempt to take it.
+  // A hint for heartbeat: an answer or an interrupt is waiting for this
+  // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;
 }

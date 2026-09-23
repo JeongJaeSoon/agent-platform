@@ -248,6 +248,36 @@ describe("fake agent runtime", () => {
     expect((await abortedFirst.prepareCheckpoint()).status).toBe("rejected");
   });
 
+  test("an interrupt ends only the current turn; the next scripted turn still runs", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const run = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "emit", message: { ...result, user_message_uuid: "u1" } },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u2" } },
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "one", uuid: "u1" });
+    await Bun.sleep(5);
+    await run.interrupt();
+    await waitFor(() => frames.length === 1);
+    expect(frames[0]?.envelope.message.terminal_reason).toBe("interrupted");
+    expect(frames[0]?.envelope.message.user_message_uuid).toBe("u1");
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+
+    run.send({ message: "two", uuid: "u2" });
+    await within(consume, 200);
+    expect(frames.map((frame) => frame.envelope.message.subtype)).toEqual([
+      "error_during_execution",
+      "success",
+    ]);
+    expect(frames[1]?.envelope.message.user_message_uuid).toBe("u2");
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  type ControlIntent,
   canonicalJson,
   PENDING_SETTLEMENTS_MAX,
   type PendingQuestion,
@@ -35,6 +36,8 @@ export type PendingRequestsOptions = {
    */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;
+  /** A control intent the gateway holds for this attempt; repeated each poll until it is settled. */
+  onControl?: (control: ControlIntent) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -77,6 +80,7 @@ export class PendingRequestRegistry {
   private answersAfter = 0;
   private polling: Promise<void> | undefined;
   private stopped = false;
+  private watching = false;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -174,6 +178,16 @@ export class PendingRequestRegistry {
    */
   stop(): void {
     this.stopped = true;
+  }
+
+  /**
+   * Keeps polling at the answer interval while a turn is in flight, callbacks
+   * or not: an interrupt has to reach the turn within seconds, and the
+   * heartbeat's hint comes only once per beat.
+   */
+  watch(on: boolean): void {
+    this.watching = on;
+    if (on) this.poll(true);
   }
 
   /**
@@ -336,7 +350,10 @@ export class PendingRequestRegistry {
     let once = force;
     while (
       !this.stopped &&
-      (once || this.pending.size > 0 || this.settlements.size > 0)
+      (once ||
+        this.watching ||
+        this.pending.size > 0 ||
+        this.settlements.size > 0)
     ) {
       once = false;
       // The rest waits for the next poll, which comes at once while any is
@@ -353,8 +370,9 @@ export class PendingRequestRegistry {
         });
         this.forget(batch);
         sent = true;
-        // `control` stays unread until 94S-128 gives the gateway something to
-        // put there; no intent can be issued today.
+        if (response.control !== null) {
+          this.options.onControl?.(response.control);
+        }
         const answers = [...response.answers].sort(
           (a, b) => a.sequence - b.sequence,
         );
@@ -378,7 +396,10 @@ export class PendingRequestRegistry {
         if (!isRetryable(error)) this.forget(batch);
       }
       const backlog = sent && batch.length === PENDING_SETTLEMENTS_MAX;
-      if (!backlog && (this.pending.size > 0 || this.settlements.size > 0)) {
+      if (
+        !backlog &&
+        (this.watching || this.pending.size > 0 || this.settlements.size > 0)
+      ) {
         await sleep(interval);
       }
     }

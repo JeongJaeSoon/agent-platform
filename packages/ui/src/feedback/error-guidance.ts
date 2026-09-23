@@ -29,6 +29,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PAUSE_CANCELLED: "일시정지가 취소됐습니다 — 현재 상태를 확인하세요.",
   CONTROL_SUPERSEDED:
     "더 최근 제어가 먼저 적용됐습니다 — 현재 상태를 확인하세요.",
+  TURN_NOT_STARTED:
+    "아직 시작하지 않은 턴은 중단할 수 없습니다 — 실행이 시작된 뒤 다시 시도하세요.",
   BACKEND_UNAVAILABLE:
     "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",

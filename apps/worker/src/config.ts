@@ -34,7 +34,10 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
 };
 
 export type WorkerTimeouts = {
-  /** How often a waiting approval asks the gateway for its answer. */
+  /**
+   * How often a waiting approval asks the gateway for its answer, and a turn
+   * in flight asks whether it has been interrupted.
+   */
   answerPollIntervalMs: number;
   /** Give up claiming a session and exit cleanly (DESIGN §6.2). */
   claimTimeoutMs: number;
@@ -44,6 +47,12 @@ export type WorkerTimeouts = {
    */
   drainTimeoutMs: number;
   heartbeatIntervalMs: number;
+  /**
+   * How long an interrupted engine gets to produce the turn's terminal before
+   * the turn is closed as unknown. Not configurable from the environment; the
+   * default is the shutdown's interrupt grace.
+   */
+  interruptGraceMs?: number;
   /** Release the session and exit after this long with no input. */
   idleTimeoutMs: number;
   /**

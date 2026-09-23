@@ -634,6 +634,49 @@ export const pendingRequests = pgTable(
   ],
 );
 
+// api.md § 승인·중단·강제 종료: a control request the worker has to act on,
+// kept apart from the input FIFO. An interrupt names its turn and the attempt
+// that turn is bound to — a running turn never moves to another attempt — and
+// stays unsettled until that turn reaches a terminal, which settles the
+// receipt in the same transaction.
+export const controlIntents = pgTable(
+  "control_intents",
+  {
+    id: uuid().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    kind: text().notNull(),
+    targetTurnId: bigint("target_turn_id", { mode: "number" }).references(
+      () => turns.id,
+    ),
+    attemptId: text("attempt_id"),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "control_intents_kind_check",
+      sql`${table.kind} IN ('interrupt', 'pause', 'terminate')`,
+    ),
+    check(
+      "control_intents_interrupt_target_check",
+      sql`${table.kind} <> 'interrupt' OR (${table.targetTurnId} IS NOT NULL AND ${table.attemptId} IS NOT NULL)`,
+    ),
+    uniqueIndex("control_intents_receipt_uniq").on(table.receiptId),
+    // What pendingControl hands the attempt, and what a turn's terminal settles.
+    index("control_intents_open_attempt_idx")
+      .on(table.attemptId, table.issuedAt)
+      .where(sql`${table.settledAt} IS NULL`),
+    index("control_intents_open_turn_idx")
+      .on(table.targetTurnId)
+      .where(sql`${table.settledAt} IS NULL`),
+  ],
+);
+
 export const checkpoints = pgTable(
   "checkpoints",
   {

@@ -628,8 +628,7 @@ export function createWorkerGateway(deps: {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
         auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
-        // poll is what actually hands anything over. Control intents join
-        // it with 94S-128.
+        // poll is what actually hands anything over.
         control_pending: (await pending?.hasUndelivered(fence)) ?? false,
       };
     },
@@ -707,6 +706,13 @@ export function createWorkerGateway(deps: {
           "request_id is already registered for a different or settled request",
         );
       }
+      if (result.outcome === "turn_interrupted") {
+        throw new WorkerGatewayError(
+          409,
+          "REQUEST_STALE",
+          "The turn is being interrupted and takes no new requests",
+        );
+      }
       if (!("expiresAt" in result)) return rejected(result);
       return {
         request_id: request.request_id,
@@ -727,7 +733,15 @@ export function createWorkerGateway(deps: {
       });
       if (result.outcome !== "ok") return rejected(result);
       return {
-        control: null,
+        control:
+          result.control === null
+            ? null
+            : {
+                control_id: result.control.controlId,
+                kind: result.control.kind,
+                target_turn_id: result.control.turnId,
+                issued_at: result.control.issuedAt.toISOString(),
+              },
         answers: result.answers.map((item) => ({
           sequence: item.sequence,
           answer: item.answer,

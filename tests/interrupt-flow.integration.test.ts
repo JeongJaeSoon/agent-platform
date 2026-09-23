@@ -1,0 +1,418 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createApiApp } from "@agent-platform/api/src/app.ts";
+import { PostgresSessionNotifier } from "@agent-platform/api/src/events/notifications.ts";
+import { registerEventRoutes } from "@agent-platform/api/src/routes/events.ts";
+import { registerInterruptRoutes } from "@agent-platform/api/src/routes/interrupt.ts";
+import { registerReceiptRoutes } from "@agent-platform/api/src/routes/receipts.ts";
+import { registerSessionRoutes } from "@agent-platform/api/src/routes/sessions.ts";
+import { registerWorkerRoutes } from "@agent-platform/api/src/routes/worker.ts";
+import {
+  type CheckpointRef,
+  controlAcceptedResponseSchema,
+  createSessionResponseSchema,
+  getReceiptResponseSchema,
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
+import {
+  createPostgresSessionControl,
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+  createPostgresTurnInterrupts,
+  createPostgresWorkerPendingStore,
+  createPostgresWorkerUnitOfWork,
+  turns,
+  unassignedSessions,
+} from "@agent-platform/db";
+import { createLogger } from "@agent-platform/observability";
+import {
+  createInterruptService,
+  createSessionService,
+  createWorkerGateway,
+  ownerScopedPolicy,
+  type SessionCatalog,
+  type WorkerGateway,
+} from "@agent-platform/platform";
+import {
+  FakeAgentRuntime,
+  type FakeStep,
+} from "@agent-platform/runtime-claude";
+import type { NativeSdkMessage } from "@agent-platform/runtime-core";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import { and, eq } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
+import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import {
+  inputUuid,
+  WorkerHost,
+  type WorkerLogger,
+} from "../apps/worker/src/worker-host.ts";
+import { noWorkspace } from "../apps/worker/src/workspace.ts";
+
+/**
+ * The acceptance run for 94S-128, end to end in one process: the public API
+ * takes the interrupt, PostgreSQL holds it, the Worker Gateway's own HTTP
+ * routes hand it to a WorkerHost polling at production cadence, and the
+ * receipt and the SSE stream show what came of it. Only the engine is fake,
+ * because what a real SDK does with an interrupt is runtime-claude's to prove.
+ */
+const databaseUrl = process.env.QUEUE_DATABASE_URL;
+const integration = databaseUrl ? describe : describe.skip;
+
+const PROFILE_ID = "claude-coding-v1";
+
+const catalog: SessionCatalog = {
+  profiles: {
+    [PROFILE_ID]: {
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: [],
+      permission_mode: "default",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: { kind: "api_key", value: "catalog-provider-key" },
+      },
+    },
+  },
+  repositories: {
+    "sample-app": { url: "https://example.invalid/app.git", branch: "main" },
+  },
+};
+
+const silent: WorkerLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+function result(uuid: string): NativeSdkMessage {
+  return {
+    type: "result",
+    subtype: "success",
+    session_id: "fake-session",
+    is_error: false,
+    user_message_uuid: uuid,
+  };
+}
+
+/** Stands in for CheckpointService (94S-201): every ready preparation commits. */
+function capturing(): WorkerCheckpointPort {
+  // Revisions start at 0, as the gateway's pointer does.
+  let revision = -1;
+  return {
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation): Promise<CheckpointRef | null> => {
+      if (preparation.status !== "ready") return null;
+      revision += 1;
+      return {
+        revision,
+        manifest_ref: `manifests/${revision}.json`,
+        manifest_sha256: "c".repeat(64),
+      };
+    },
+  };
+}
+
+async function until<T>(
+  read: () => Promise<T | undefined>,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<T> {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    const value = await read();
+    if (value !== undefined) return value;
+    await Bun.sleep(20);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+integration("POST /v1/sessions/{id}/interrupt end to end", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let notifier: PostgresSessionNotifier;
+  let gateway: WorkerGateway;
+  let server: ReturnType<typeof Bun.serve>;
+  const owner = `owner-${crypto.randomUUID()}`;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "interrupt_e2e" });
+    pool = new Pool({ connectionString: database.url, max: 16 });
+    db = drizzle(pool, { schema });
+    const logger = createLogger({ sinks: [] });
+    notifier = new PostgresSessionNotifier(database.url, logger);
+    await notifier.start();
+    const sessions = createSessionService({
+      authorization: ownerScopedPolicy,
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog,
+    });
+    gateway = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog,
+      checkpoints: { verify: async () => ({ status: "verified" }) },
+      pending: createPostgresWorkerPendingStore(db),
+      options: { leaseTtlMs: 30_000 },
+    });
+    const app = createApiApp({
+      authMode: "none",
+      logger,
+      registerRoutes: (router) => {
+        registerSessionRoutes(router, sessions);
+        registerReceiptRoutes(router, sessions);
+        registerInterruptRoutes(
+          router,
+          createInterruptService({
+            authorization: ownerScopedPolicy,
+            store: createPostgresTurnInterrupts(db),
+          }),
+        );
+        registerEventRoutes(router, sessions, {
+          wakeup: notifier,
+          keepaliveMs: 500,
+          logger,
+        });
+      },
+      registerInternalRoutes: (router) => registerWorkerRoutes(router, gateway),
+    });
+    server = Bun.serve({ port: 0, fetch: (request) => app.fetch(request) });
+  }, 60_000);
+
+  afterAll(async () => {
+    server?.stop(true);
+    await notifier?.close();
+    await pool?.end();
+    await database?.drop();
+  }, 60_000);
+
+  const base = () => `http://127.0.0.1:${server.port}`;
+
+  function call(path: string, init: RequestInit = {}) {
+    return fetch(`${base()}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": owner,
+        ...init.headers,
+      },
+    });
+  }
+
+  function post(path: string, body: unknown) {
+    return call(path, {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function receipt(id: string) {
+    const response = await call(`/v1/receipts/${id}`);
+    expect(response.status).toBe(200);
+    return getReceiptResponseSchema.parse(await response.json());
+  }
+
+  async function turnStatus(sessionId: string, sequence: number) {
+    const [row] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)));
+    return row?.status;
+  }
+
+  /** Reads the session's event stream until `match` shows up in it. */
+  async function streamUntil(sessionId: string, match: string) {
+    const abort = new AbortController();
+    const response = await call(`/v1/sessions/${sessionId}/events`, {
+      headers: { Accept: "text/event-stream" },
+      signal: abort.signal,
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    if (reader === undefined) throw new Error("no event stream body");
+    return {
+      seen: (async () => {
+        const decoder = new TextDecoder();
+        let text = "";
+        while (!text.includes(match)) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+        abort.abort();
+        return text;
+      })(),
+      abort: () => abort.abort(),
+    };
+  }
+
+  test("interrupts only the running turn within 5s, then the queued input runs", async () => {
+    const created = await post("/v1/sessions", {
+      profile_id: PROFILE_ID,
+      repository_id: "sample-app",
+      message: "long task",
+    });
+    expect(created.status).toBe(201);
+    const sessionId = createSessionResponseSchema.parse(
+      await created.json(),
+    ).session_id;
+    expect(
+      (
+        await post(`/v1/sessions/${sessionId}/messages`, {
+          message: "follow-up",
+          mode: "enqueue",
+        })
+      ).status,
+    ).toBe(202);
+
+    // AC4: nothing runs yet, and queued input is no interrupt target.
+    const queued = await post(`/v1/sessions/${sessionId}/interrupt`, {
+      target_turn_id: "1",
+    });
+    expect(queued.status).toBe(409);
+    expect(
+      ((await queued.json()) as { error: { code: string } }).error.code,
+    ).toBe("TURN_NOT_STARTED");
+
+    const partition = `interrupt-e2e-${crypto.randomUUID()}`;
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, sessionId));
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const launch = await gateway.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      backend: "local_docker",
+    });
+    if (launch.nonce === null) throw new Error("launch already registered");
+
+    const uuid = (turn: number) =>
+      inputUuid(sessionId, String(turn), String(turn));
+    const steps: FakeStep[] = [
+      { type: "await-input" },
+      { type: "delay", delayMs: 60_000 },
+      { type: "emit", message: result(uuid(1)) },
+      { type: "await-input" },
+      { type: "emit", message: result(uuid(2)) },
+      { type: "await-input" },
+    ];
+    const runtime = new FakeAgentRuntime(steps);
+    const host = new WorkerHost({
+      checkpoints: capturing(),
+      execution: {
+        bootstrapNonce: launch.nonce,
+        generation: 1,
+        id: executionId,
+      },
+      gateway: new HttpWorkerGatewayClient({
+        baseUrl: base(),
+        credential: launch.nonce,
+        requestTimeoutMs: 5_000,
+      }),
+      logger: silent,
+      runtimes: {
+        launcherFor: () => ({
+          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
+            runtime.start(
+              {
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: {
+                  ...runtimeConfig.provider,
+                  principal: { ownerScope: principal.owner_scope },
+                },
+                tools: runtimeConfig.tools,
+                ...rest,
+              },
+              hooks,
+            ),
+        }),
+      },
+      // Production cadences: the heartbeat alone would take 10s to say anything.
+      timeouts: {
+        answerPollIntervalMs: 1_000,
+        claimTimeoutMs: 5_000,
+        drainTimeoutMs: 5_000,
+        heartbeatIntervalMs: 10_000,
+        idleTimeoutMs: 300,
+        maxTurnMs: 60_000,
+        nextInputWaitMs: 100,
+        questionTimeoutMs: 5_000,
+        requestTimeoutMs: 5_000,
+      },
+      workspace: noWorkspace,
+    });
+    const loop = host.runLoop();
+    await until(
+      async () =>
+        runtime.inputs.length === 1 &&
+        (await turnStatus(sessionId, 1)) === "running"
+          ? true
+          : undefined,
+      "turn 1 running",
+    );
+    const stream = await streamUntil(sessionId, '"phase":"interrupting"');
+
+    // AC1 + AC2: 202 with a receipt, settled within 5s of the request.
+    const asked = performance.now();
+    const response = await post(`/v1/sessions/${sessionId}/interrupt`, {
+      target_turn_id: "1",
+    });
+    expect(response.status).toBe(202);
+    const { receipt_id } = controlAcceptedResponseSchema.parse(
+      await response.json(),
+    );
+    const settled = await until(async () => {
+      const current = await receipt(receipt_id);
+      return current.status === "accepted" ? undefined : current;
+    }, "the interrupt receipt to settle");
+    const observedMs = performance.now() - asked;
+    expect(observedMs).toBeLessThan(5_000);
+    expect(settled.status).toBe("succeeded");
+    expect(settled.operation).toBe("interrupt");
+    expect(settled.result).toEqual({
+      turn_id: "1",
+      terminal: "interrupted",
+      no_op: false,
+    });
+    expect(await turnStatus(sessionId, 1)).toBe("interrupted");
+    const streamed = await stream.seen;
+    expect(streamed).toContain('"phase":"interrupting"');
+
+    // AC5: the input behind it is untouched and runs on the same engine.
+    const summary = await loop;
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "interrupted", reason: "error_during_execution" },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(runtime.inputs.map((input) => input.message)).toEqual([
+      "long task",
+      "follow-up",
+    ]);
+
+    // AC3: an interrupt for a turn already over is a no-op, settled at once.
+    const late = await post(`/v1/sessions/${sessionId}/interrupt`, {
+      target_turn_id: "2",
+    });
+    expect(late.status).toBe(202);
+    const noOp = await receipt(
+      controlAcceptedResponseSchema.parse(await late.json()).receipt_id,
+    );
+    expect(noOp.status).toBe("succeeded");
+    expect(noOp.result).toEqual({
+      turn_id: "2",
+      terminal: "completed",
+      no_op: true,
+    });
+  }, 30_000);
+});

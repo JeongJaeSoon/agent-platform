@@ -5,11 +5,13 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  createPostgresTurnInterrupts,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  createInterruptService,
   createPendingRequestService,
   createSessionService,
   createWorkerGateway,
@@ -32,6 +34,7 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
+import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -88,6 +91,10 @@ const sessions = createSessionService({
 const pendingRequests = createPendingRequestService({
   authorization: ownerScopedPolicy,
   store: createPostgresPendingRequests(db),
+});
+const interrupts = createInterruptService({
+  authorization: ownerScopedPolicy,
+  store: createPostgresTurnInterrupts(db),
 });
 // Seconds so an operator can shorten it in a test deployment; the worker
 // heartbeats at a fraction of this.
@@ -152,6 +159,7 @@ const app = createApiApp({
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerPendingRoutes(router, pendingRequests);
+    registerInterruptRoutes(router, interrupts);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

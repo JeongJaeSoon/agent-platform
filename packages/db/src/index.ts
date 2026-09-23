@@ -3,6 +3,7 @@ export * from "./control-unit-of-work.ts";
 export * from "./enqueue.ts";
 export * from "./event-cursor.ts";
 export * from "./identity.ts";
+export * from "./interrupt-control.ts";
 export * from "./lease-reconcile.ts";
 export * from "./migration-head.ts";
 export * from "./pending-control.ts";
