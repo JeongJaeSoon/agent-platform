@@ -1,10 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { createServer, type Socket } from "node:net";
 import { createLogger } from "@agent-platform/observability";
+import { Client } from "pg";
 import {
   createEnforcedPool,
   EvictOnReadTimeoutClient,
   enforcedConfig,
+  isConnectionFailure,
   JOB_POOL_TIMEOUTS,
+  LookupEveryTimeSocket,
   RequestDeadline,
   RequestDeadlineExceededError,
   runWithDeadline,
@@ -98,5 +102,68 @@ describe("request deadline", () => {
       runWithDeadline(deadline, () => client.query("SELECT 1")),
     ).rejects.toBeInstanceOf(RequestDeadlineExceededError);
     expect(evicted).toBe(1);
+  });
+});
+
+describe("database host resolution (94S-343)", () => {
+  const dial = (socket: Socket, port: number, host: string) =>
+    new Promise<string>((resolve, reject) => {
+      socket.once("connect", () => {
+        resolve(socket.remoteAddress ?? "");
+        socket.destroy();
+      });
+      socket.once("error", reject);
+      // The call pg's Connection makes.
+      socket.connect(port, host);
+    });
+
+  test("every connect asks the resolver again, so a moved database is found", async () => {
+    const server = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as { port: number };
+    const answers: Array<() => ReturnType<typeof Bun.dns.lookup>> = [
+      async () => [{ address: "127.0.0.1", family: 4, ttl: 600 }],
+      // Stopped: the name is gone for a while.
+      async () => {
+        throw Object.assign(new Error("getaddrinfo ENOTFOUND"), {
+          code: "DNS_ENOTFOUND",
+        });
+      },
+      async () => [{ address: "127.0.0.1", family: 4, ttl: 600 }],
+    ];
+    const lookup = spyOn(Bun.dns, "lookup").mockImplementation(
+      () => (answers.shift() ?? (async () => []))() as never,
+    );
+    try {
+      const config = enforcedConfig(url, JOB_POOL_TIMEOUTS);
+      const connect = () => dial(config.stream?.() as Socket, port, "postgres");
+
+      expect(await connect()).toBe("127.0.0.1");
+      const down = await connect().catch((error: unknown) => error);
+      expect(down).toMatchObject({ code: "ENOTFOUND" });
+      expect(isConnectionFailure(down)).toBe(true);
+      expect(await connect()).toBe("127.0.0.1");
+
+      // A TTL of 600s did not keep the first answer: the libc resolver was
+      // asked on each of the three connects.
+      expect(lookup.mock.calls).toHaveLength(3);
+      for (const [hostname, options] of lookup.mock.calls) {
+        expect(hostname).toBe("postgres");
+        expect(options).toMatchObject({ backend: "libc" });
+      }
+    } finally {
+      lookup.mockRestore();
+      server.close();
+    }
+  });
+
+  test("pg dials through that socket", () => {
+    const client = new Client(enforcedConfig(url, JOB_POOL_TIMEOUTS));
+    const { stream } = (
+      client as unknown as { connection: { stream: unknown } }
+    ).connection;
+    expect(stream).toBeInstanceOf(LookupEveryTimeSocket);
   });
 });

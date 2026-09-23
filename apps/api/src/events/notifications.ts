@@ -1,3 +1,4 @@
+import { lookupEveryTimeStream } from "@agent-platform/db/pool";
 import type { StructuredLogger } from "@agent-platform/observability";
 import { Client } from "pg";
 
@@ -42,7 +43,9 @@ export class PostgresSessionNotifier implements SessionEventWakeup {
   ) {
     this.#logger = logger;
     this.#reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
-    this.#connect = options.connect ?? (() => new Client({ connectionString }));
+    this.#connect =
+      options.connect ??
+      (() => new Client({ connectionString, stream: lookupEveryTimeStream }));
   }
 
   get listening(): boolean {
