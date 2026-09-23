@@ -200,6 +200,11 @@ export function createPostgresWorkerPendingStore(
             ),
           )
           .orderBy(asc(pendingRequests.answerSequence));
+        // The reads above can wait on locks; an answer handed over after the
+        // lease ended would let the engine act for an owner that is gone.
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
         return {
           outcome: "ok",
           answers: rows.map((row) => ({

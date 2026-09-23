@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   canonicalJson,
+  PENDING_SETTLEMENTS_MAX,
   type PendingControlRequest,
   type PendingControlResponse,
   type PostSessionAnswerRequest,
+  pendingControlRequestSchema,
   type RegisterPendingRequest,
   type RegisterPendingResponse,
   type SessionEvent,
@@ -562,5 +564,41 @@ describe("PendingRequestRegistry", () => {
     expect(await second).toEqual({ behavior: "allow" });
     // The second poll cycle starts past the answer the first request consumed.
     expect(polls.every((after) => after >= 1)).toBe(true);
+  });
+
+  test("sends a settlement backlog larger than one call carries, in batches", async () => {
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.pendingControl.bind(gateway);
+    const sizes: number[] = [];
+    // The transport the real route has: a body over the cap is a 400.
+    gateway.pendingControl = async (request) => {
+      if (!pendingControlRequestSchema.safeParse(request).success) {
+        throw new WorkerGatewayRequestError(
+          400,
+          "BAD_REQUEST",
+          "invalid",
+          false,
+        );
+      }
+      sizes.push(request.settled?.length ?? 0);
+      return original(request);
+    };
+    const harness = registry({ gateway });
+    const count = PENDING_SETTLEMENTS_MAX + 1;
+    const decisions = Array.from({ length: count }, (_, index) =>
+      harness.registry.request(
+        permission(`req-many-${index}`, `echo ${index}`),
+      ),
+    );
+    await waitFor(
+      () => gateway.registered().length === count,
+      "every registration",
+    );
+    harness.registry.cancelAll("stop");
+    await Promise.all(decisions);
+    await harness.registry.flush(2_000);
+
+    expect(gateway.settled).toHaveLength(count);
+    expect(Math.max(...sizes)).toBe(PENDING_SETTLEMENTS_MAX);
   });
 });

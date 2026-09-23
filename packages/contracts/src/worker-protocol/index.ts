@@ -250,6 +250,8 @@ export const pendingSettlementSchema = z
   })
   .strict();
 
+export const PENDING_SETTLEMENTS_MAX = 256;
+
 // Answers are redelivered until the worker advances answers_after, so a crash
 // between applying an answer and the next poll replays the same sequence.
 // Settlements ride along and are resent until a call carrying them succeeds;
@@ -257,7 +259,10 @@ export const pendingSettlementSchema = z
 export const pendingControlRequestSchema = workerScopeSchema
   .extend({
     answers_after: z.number().int().nonnegative(),
-    settled: z.array(pendingSettlementSchema).max(256).optional(),
+    settled: z
+      .array(pendingSettlementSchema)
+      .max(PENDING_SETTLEMENTS_MAX)
+      .optional(),
   })
   .strict();
 export const controlIntentSchema = z.object({

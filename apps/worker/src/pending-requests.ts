@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   canonicalJson,
+  PENDING_SETTLEMENTS_MAX,
   type PendingQuestion,
   type PendingSettlement,
   type PostSessionAnswerRequest,
@@ -294,10 +295,12 @@ export class PendingRequestRegistry {
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     while (this.pending.size > 0 || this.settlements.size > 0) {
-      const batch = [...this.settlements].map(([request_id, outcome]) => ({
-        request_id,
-        outcome,
-      }));
+      // The rest waits for the next poll, which comes at once while any is
+      // left.
+      let sent = false;
+      const batch = [...this.settlements]
+        .slice(0, PENDING_SETTLEMENTS_MAX)
+        .map(([request_id, outcome]) => ({ request_id, outcome }));
       try {
         const response = await this.options.gateway.pendingControl({
           ...this.options.scope(),
@@ -305,6 +308,7 @@ export class PendingRequestRegistry {
           ...(batch.length > 0 ? { settled: batch } : {}),
         });
         this.forget(batch);
+        sent = true;
         // `control` stays unread until 94S-128 gives the gateway something to
         // put there; no intent can be issued today.
         const answers = [...response.answers].sort(
@@ -328,7 +332,8 @@ export class PendingRequestRegistry {
         // stay waiting for their own expiry.
         if (!isRetryable(error)) this.forget(batch);
       }
-      if (this.pending.size > 0 || this.settlements.size > 0) {
+      const backlog = sent && batch.length === PENDING_SETTLEMENTS_MAX;
+      if (!backlog && (this.pending.size > 0 || this.settlements.size > 0)) {
         await sleep(interval);
       }
     }
