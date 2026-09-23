@@ -3397,6 +3397,18 @@
         ],
         "additionalProperties": false
       }
+    },
+    "responses": {
+      "InternalError": {
+        "description": "Unexpected server error (INTERNAL_ERROR)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "paths": {
@@ -3416,6 +3428,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
@@ -3436,6 +3451,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -3494,6 +3512,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -3584,6 +3605,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -3698,6 +3722,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -3768,6 +3795,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -3825,6 +3855,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -3977,6 +4010,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4081,6 +4117,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4160,6 +4199,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4238,6 +4280,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -4400,6 +4445,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4509,6 +4557,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4596,6 +4647,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -4715,6 +4769,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -4793,6 +4850,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -4944,6 +5004,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -5106,6 +5169,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -5266,6 +5332,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -5428,6 +5497,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -5588,6 +5660,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -5750,6 +5825,9 @@
               }
             }
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -5807,6 +5885,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
@@ -5886,6 +5967,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
             "description": "Error",
