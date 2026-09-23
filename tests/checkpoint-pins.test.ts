@@ -487,4 +487,83 @@ describe("backup → restore re-pin", () => {
       expect(String(refused.message)).toContain("hashes to");
     });
   });
+
+  test("every revision of a session is re-pinned, and parts they share get one version", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const first = await seed(source);
+      // Revision 1 of the same session: the transcript parts carry over, the
+      // bundle is the new attempt's own.
+      const attempt = `attempt-${randomUUID().slice(0, 8)}`;
+      const manifestRef = manifestRefFor(first.row.sessionId, 1, attempt);
+      const bundle = await createGitBundle({ message: "revision 1" });
+      const bundleKey = manifestRef.replace(
+        "manifest.json",
+        "workspace.bundle",
+      );
+      const bundlePut = await source.putImmutable(bundleKey, bundle.bytes);
+      const manifest: CheckpointManifest = {
+        ...first.manifest,
+        revision: 1,
+        workspace: {
+          ...first.manifest.workspace,
+          bundle: {
+            bytes: bundle.bytes.byteLength,
+            key: bundleKey,
+            sha256: bundle.sha256,
+            ...(bundlePut.outcome === "created"
+              ? { version: bundlePut.version }
+              : {}),
+          },
+          gitCommit: bundle.commit,
+        },
+      };
+      const sealed = claudeCheckpointCodec.encode(manifest);
+      const put = await source.putImmutable(manifestRef, sealed.bytes);
+      const second: CheckpointRow = {
+        manifestRef,
+        manifestSha256: sealed.sha256,
+        manifestVersion:
+          put.outcome === "created" ? (put.version ?? null) : null,
+        revision: 1,
+        sessionId: first.row.sessionId,
+      };
+      const rows = [first.row, second];
+      await syncDown(source, dir);
+      await captureCheckpointObjects({
+        codecs,
+        objects: source,
+        objectsDir: dir,
+        rows,
+      });
+
+      const restored = await restoredBucket();
+      await syncUp(dir, restored, new Set(rows.map((row) => row.manifestRef)));
+      const planned = await planRepin({
+        codecs,
+        objects: restored,
+        objectsDir: dir,
+        rows,
+      });
+      const repinned = await applyRepin({ objects: restored, planned });
+      expect(repinned.map((row) => row.revision)).toEqual([0, 1]);
+      const [older, newer] = planned;
+      if (older === undefined || newer === undefined) throw new Error("rows");
+      expect(newer.manifest.transcripts.root.parts).toEqual(
+        older.manifest.transcripts.root.parts,
+      );
+      for (const [index, checkpoint] of planned.entries()) {
+        const row = repinned[index];
+        if (row === undefined) throw new Error("row");
+        const bytes = await restored.get(
+          checkpoint.row.manifestRef,
+          row.manifestVersion,
+        );
+        expect(bytes && sha256Hex(bytes)).toBe(row.manifestSha256);
+        for (const ref of refsOf(checkpoint.manifest)) {
+          expect((await restored.head(ref.key, ref.version))?.held).toBe(true);
+        }
+      }
+    });
+  });
 });
