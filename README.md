@@ -29,11 +29,11 @@
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
 | `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지가 읽을 수 있다(94S-201). `runtime-claude`는 이를 재수출한다 |
 | `apps/worker` | 아직 진입점이 아니라 runtime-core·Claude adapter의 재수출뿐이다. 턴 처리 루프는 94S-122에서 온다. SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
-| `apps/reconciler` | 만료된 worker lease를 한 번 스캔해 원래 queue row를 release하고 세션을 재신호하는 one-shot 프로세스 |
+| `apps/reconciler` | lease 만료·기한 넘긴 interrupt/terminate·orphan 세션을 한 번 스캔해 DB에 복구 의도를 기록하는 one-shot pass(`main.ts`)와, 그 pass를 주기적으로 돌리는 감독 루프(`loop.ts`)·healthcheck(`health.ts`) |
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 `apps/egress-proxy/Dockerfile`이 install 없이 자기 `src`만 복사한 이미지로 기동한다(94S-323) |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)·reconciler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
 | `apps/*/Dockerfile` | api(+reconciler)·worker·scheduler·egress-proxy 이미지. base는 `oven/bun:1.3.10` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`가 담당하고, `apps/api`가 이를 S3 object store·Postgres `CheckpointStore`·git bundle verifier로 조립해 Worker Gateway에 붙인다(94S-201). Gateway의 finalize는 manifest ref가 `sessions/<sid>/checkpoints/<rev>/<attempt>/manifest.json`이고 본문 digest·bundle이 검증된 checkpoint만 받으며, pointer는 `finalizeAtomic`(turn 있는 경로)과 `CheckpointStore.commitAtomic`(turn 없는 경로, 94S-137)이 같은 SQL helper로 "정확히 current+1"만 전진시킨다. 워커용 `/internal/worker/checkpoint-request`·`/restore-plan`은 lease fence 안에서 읽은 pointer로 답한다. 워커 heartbeat의 `transcript` 보고는 세션의 `last_transcript_persisted_at`과 `checkpoint_pending_reason`이 되고, `mirror_error`가 기록된 세션은 새 입력과 checkpoint 없는 completed 종료를 409 `CHECKPOINT_UNAVAILABLE`로 거절한다 — 같은 attempt의 checkpoint는 이를 지우지 못하고 **다른** attempt가 커밋한 checkpoint만 지운다(복구 결정은 94S-140). completed turn에 checkpoint를 강제하지는 않는다: 세션 상세의 `durability`가 `last_completed_turn_id`와 `last_checkpointed_turn_id`의 차이로 드러낸다. typed pending requests와 SDK 기반 resume은 D3다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
@@ -73,6 +73,18 @@ DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
+
+compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본으로 반복 실행한다(94S-320). `apps/reconciler/src/loop.ts`가 pass마다 `main.ts`를 자식 프로세스로 띄우므로 앱의 one-shot 계약은 그대로다. pass는 겹치지 않고 직렬로 돈다.
+
+| 설정 | 기본 | 의미 |
+|---|---|---|
+| `RECONCILER_INTERVAL_SEC` | 10 | pass가 끝난 뒤 다음 pass까지 쉬는 시간 |
+| `RECONCILER_PASS_TIMEOUT_SEC` | 60 | 이 시간을 넘긴 pass는 SIGTERM, 10초 뒤 SIGKILL로 끝내고 실패로 센다. DB가 멈춘 pass가 pool timeout으로 스스로 끝나는 약 45초보다 크게 둔다 |
+| `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | 실패 pass가 이만큼 이어지면 루프가 exit 1 하고 `restart: unless-stopped`가 재시작한다. 그보다 적으면 다음 pass가 곧 재시도다 |
+| `RECONCILER_HEALTH_STALE_SEC` | 90 | healthcheck는 마지막으로 끝난 pass가 실패했거나, 진행 중인 pass가 제한 시간을 넘겼거나, 이 시간 동안 성공한 pass가 없으면 unhealthy다. 성공 직후 멈춘 pass도 제한 시간에서 바로 unhealthy가 된다. `RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC`보다 커야 기동한다 |
+| `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | 루프가 pass마다 갱신하는 상태(`lastSuccessAt`·`lastFailureAt`·`lastFailureReason`·`consecutiveFailures`·`lastPassDurationMs`, 진행 중인 pass의 `passDeadlineAt`). healthcheck가 읽는다 |
+
+최근 성공·실패는 `docker compose -f infra/docker-compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/reconciler/src/overlap.integration.test.ts`).
 
 scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임(94S-216) ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(없으면 AWS 자체. http·https 모두 되며 https는 아래 egress 절의 전용 transport를 탄다)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 값들이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
@@ -347,14 +359,14 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 | 이미지 | 내용 | 실행 주체 |
 |---|---|---|
-| `agent-platform-api` | `apps/api` 서버 + `apps/reconciler` one-shot. `--filter`로 두 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). uid 1000 | `bun run apps/api/src/server.ts` (reconciler는 `bun run apps/reconciler/src/main.ts`) |
+| `agent-platform-api` | `apps/api` 서버 + `apps/reconciler` one-shot. `--filter`로 두 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). uid 1000 | `bun run apps/api/src/server.ts`. compose의 `reconciler` 서비스는 같은 이미지로 `bun run apps/reconciler/src/loop.ts`를 돌린다(one-shot pass만은 `bun run apps/reconciler/src/main.ts`) |
 | `agent-platform-worker` | SDK 0.3.270과 번들 Claude Code 2.1.270, git, non-root(uid 1000), `/workspace`를 1000 소유로 미리 생성(LocalDockerBackend의 volume 계약). 빌드 시 `resolvePinnedClaudeExecutable()`로 executable 경로를 확정해 `/usr/local/bin/claude`로 걸고 `claude --version`을 실행한다 | `bun run apps/worker/src/main.ts` — scheduler가 env로 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프를 돈다 |
 | `agent-platform-scheduler` | `apps/scheduler` one-shot. Docker socket을 mount하는 유일한 서비스이며 root로 실행한다(socket 소유자는 어차피 daemon host의 root와 같고, socket gid는 daemon마다 달라 고정 uid가 이식성을 깎기만 한다) | compose에서는 `sh` 루프가 `SCHEDULER_INTERVAL_SEC`(기본 5초)마다 한 pass를 실행. 앱 자체는 one-shot 계약을 유지한다. 실패 pass가 `SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)번 이어지면 루프가 exit 1 해 `restart: unless-stopped`가 재시작하고(`compose ps`에 드러남), `SCHEDULER_HEALTH_STALE_SEC`(60초) 동안 성공 pass가 없으면 healthcheck가 unhealthy가 된다. DB가 멈추면 pass가 스스로 exit 1로 끝난다: scheduler·reconciler pool은 API와 같은 timeout(connect 5초·statement 10초·read 20초, `packages/db/src/pool.ts`의 `JOB_POOL_TIMEOUTS`)을 쓰고, 연결을 한 번 잃은 뒤의 store 호출은 기다리지 않고 바로 실패하므로 DB 대기는 실패한 statement(5+20초)와 pass lock 해제(20초)를 합친 약 45초가 상한이다(실측: pass 전 정지 5초, pass 중 정지 약 40초). `SCHEDULER_PASS_TIMEOUT_SEC`(120초)는 이 45초보다 크게 두는 바깥 watchdog이며, 상한이 없는 Docker 호출 등 그 밖의 hang을 kill해 실패로 센다(unhealthy만으로는 Docker가 재시작하지 않는다). pool timeout을 늘리면 이 값도 `connect + 2 × read`보다 크게 올린다 |
 
 ```bash
 docker compose -f infra/docker-compose.yml --profile worker build          # WORKER_IMAGE(agent-platform-worker:dev)
 docker compose -f infra/docker-compose.yml --profile worker run --rm worker claude --version
-docker compose -f infra/docker-compose.yml --profile apps up -d --build      # migrate → api(/readyz healthcheck) → scheduler 루프
+docker compose -f infra/docker-compose.yml --profile apps up -d --build      # migrate → api(/readyz healthcheck) → scheduler 루프, reconciler 루프
 curl -s http://127.0.0.1:3000/readyz
 ```
 
