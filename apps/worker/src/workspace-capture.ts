@@ -123,6 +123,14 @@ const SNAPSHOT_IDENTITY = {
  * repositories. Ignored files are not captured at all — build output and
  * dependencies, but also an ignored `.env`; a resumed session starts without
  * them.
+ *
+ * Git reads the repository's metadata as the engine left it, links
+ * included: `.git/objects` or a ref pointed elsewhere is followed, and what
+ * it reaches is bundled into this session's own checkpoint. That grants
+ * nothing, because the engine runs as the worker's user and can read, and
+ * commit, whatever this can. Running the engine under a user of its own
+ * would make it a boundary; capture then has to read metadata the way
+ * restore writes files, without following links.
  */
 export async function captureWorkspace(input: {
   root: string;

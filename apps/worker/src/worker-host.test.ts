@@ -2653,6 +2653,60 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(runtime.inputs).toHaveLength(1);
   });
 
+  test("an input the gateway handed out before the mirror error's beat is not run", async () => {
+    // Turn 2 is taken off the queue first, and its answer held until the
+    // latch's beat is in: delivered on the server, late at the worker.
+    const gateway = new (class extends FakeWorkerGateway {
+      private polls = 0;
+      override async nextInput(request: NextInputRequest) {
+        this.polls += 1;
+        const answer = await super.nextInput(request);
+        if (this.polls === 2) {
+          for (let waited = 0; waited < 2_000; waited += 2) {
+            if (this.heartbeats.some((beat) => beat.transcript?.mirror_error))
+              break;
+            await Bun.sleep(2);
+          }
+        }
+        return answer;
+      }
+    })();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "delay", delayMs: 30 },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "mirror_error",
+            session_id: "fake-session",
+            error: "bucket unreachable",
+          },
+        },
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(2)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: { ...publishing, mirror: () => ({ persistedAt: null }) },
+        gateway,
+        timeouts: { heartbeatIntervalMs: 60_000 },
+      },
+    );
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(summary.turns.map((turn) => turn.turnId)).toEqual(["1"]);
+    // Handed out, never sent: left open for the reconciler.
+    expect(runtime.inputs).toHaveLength(1);
+    expect(gateway.finalized.map((request) => request.turn_id)).toEqual(["1"]);
+  });
+
   test("a mirror error the gateway never recorded leaves the session unreleased", async () => {
     // Up, but refusing every beat that carries the error.
     const gateway = new (class extends FakeWorkerGateway {

@@ -613,8 +613,10 @@ export class WorkerHost {
     await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
     // A mirror error latched while flushing is already draining; the
     // shutdown releases only once the gateway has recorded it, which a pause
-    // release would skip. One latched during the release request itself is
-    // not caught: between turns the engine writes nothing to mirror.
+    // release would skip. One that lands during the release request itself
+    // may go unrecorded, and costs nothing: the turn's checkpoint pinned only
+    // writes that had already settled, so the failed batch came after it,
+    // and a resume starts from that checkpoint rather than this engine.
     if (this.mirrorError !== undefined) return;
     try {
       const response = await this.withRetry(() =>
@@ -705,8 +707,16 @@ export class WorkerHost {
   ): Promise<void> {
     // Delivered while the engine was already gone, or to an attempt whose
     // lease is gone: either way nothing may run it here, so it is left open
-    // for the reconciler. A drain still runs it: that attempt owns it.
-    if (this.stopKind === "failed" || this.stopKind === "lost") return;
+    // for the reconciler. A drain still runs it: that attempt owns it —
+    // unless the mirror lost a batch, as when the gateway answered the poll
+    // before the draining beat: no checkpoint could cover what it did.
+    if (
+      this.stopKind === "failed" ||
+      this.stopKind === "lost" ||
+      this.mirrorError !== undefined
+    ) {
+      return;
+    }
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what
     // lets the engine deduplicate a turn it already saw after a crash.
