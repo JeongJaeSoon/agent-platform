@@ -1,7 +1,10 @@
 import type { SessionEvent } from "@agent-platform/contracts";
 
 import type { AgentInput } from "./agent-runtime.ts";
-import type { CheckpointPreparation } from "./checkpoint.ts";
+import type {
+  CheckpointLeaseGrant,
+  CheckpointPreparation,
+} from "./checkpoint.ts";
 
 export type NativeSdkMessage = {
   [key: string]: unknown;
@@ -39,6 +42,13 @@ export interface AgentRun extends AsyncIterable<AgentFrame> {
    */
   holdsInput(uuid: string): Promise<boolean>;
   interrupt(): Promise<{ stillQueued: string[] }>;
+  /**
+   * Takes the exclusive checkpoint lease when the run is quiescent, judged in
+   * the same step as prepareCheckpoint. Hold it from here until the pointer
+   * CAS has definitively answered, then release it.
+   */
+  leaseCheckpoint(): Promise<CheckpointLeaseGrant>;
+  /** Read-only: the verdict leaseCheckpoint would reach now. */
   prepareCheckpoint(): Promise<CheckpointPreparation>;
   send(input: AgentInput): void;
 }

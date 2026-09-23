@@ -542,6 +542,79 @@ describe("fake agent runtime", () => {
   });
 });
 
+describe("fake run checkpoint quiescence", () => {
+  const resumed = { ...config, mode: "resume" as const, resume: "ckpt" };
+
+  test("an open tool callback refuses a checkpoint between turns", async () => {
+    let answer: (() => void) | undefined;
+    const run = new FakeAgentRuntime([
+      {
+        type: "permissions",
+        requests: [
+          { input: {}, requestId: "r1", tool: "Bash", toolUseId: "toolu_1" },
+        ],
+      },
+    ]).start(resumed, {
+      onPermission: () =>
+        new Promise((resolve) => {
+          answer = () => resolve({ behavior: "allow" });
+        }),
+    });
+    const consume = (async () => {
+      for await (const _frame of run) void _frame;
+    })();
+    await waitFor(() => answer !== undefined);
+    expect(await run.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "tool_in_flight",
+      detail: "1 tool call(s) still running",
+    });
+    expect((await run.leaseCheckpoint()).lease).toBeNull();
+    answer?.();
+    await consume;
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+  });
+
+  test("a tool that starts while the lease is held is refused", async () => {
+    const runtime = new FakeAgentRuntime([
+      { type: "tool-start", toolUseId: "toolu_before" },
+      { type: "tool-end", toolUseId: "toolu_before" },
+      { type: "delay", delayMs: 50 },
+      { type: "tool-start", toolUseId: "toolu_during" },
+      {
+        type: "permissions",
+        requests: [
+          { input: {}, requestId: "r1", tool: "Bash", toolUseId: "toolu_x" },
+        ],
+      },
+    ]);
+    const run = runtime.start(resumed, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const consume = (async () => {
+      for await (const _frame of run) void _frame;
+    })();
+    await waitFor(() => runtime.toolAdmissions.length === 1);
+    const grant = await run.leaseCheckpoint();
+    expect(grant.preparation.status).toBe("ready");
+    await consume;
+
+    const refused =
+      "A checkpoint is being saved; no tool may start until it is committed";
+    expect(runtime.toolAdmissions).toEqual([
+      { toolUseId: "toolu_before", admission: { allowed: true } },
+      {
+        toolUseId: "toolu_during",
+        admission: { allowed: false, message: refused },
+      },
+    ]);
+    expect(runtime.permissionDecisions).toEqual([
+      { behavior: "deny", message: refused },
+    ]);
+    grant.lease?.release();
+  });
+});
+
 async function waitFor(
   condition: () => boolean,
   intervalMs = 1,

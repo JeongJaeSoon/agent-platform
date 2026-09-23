@@ -12,6 +12,7 @@ import type {
 } from "@agent-platform/contracts";
 import type {
   AgentRun,
+  CheckpointLease,
   NativeSdkMessage,
   PermissionDecision,
   PermissionRequest,
@@ -657,46 +658,87 @@ export class WorkerHost {
     if (flushed === undefined || this.ownerLost) return;
     // Where settleTurn cut the stream; idle() has made all of it durable.
     const finalSourceSequence = this.publisher?.hold() ?? 0;
-    let checkpoint: CheckpointRef | null = null;
-    if (settlement.synthetic !== true) {
-      // Bounded like the waits around it: a capture that never returns must
-      // not hold the process past the drain budget either.
-      const captured = await this.untilAbandoned(this.capture(run));
-      if (captured === undefined) return;
-      checkpoint = captured;
-    }
-    if (this.ownerLost) return;
-    const finalized = await this.untilAbandoned(
-      this.withRetry(
+    let captured: Captured | undefined;
+    // What may still commit this turn's checkpoint. The lease is released
+    // only once it has answered: untilAbandoned stops waiting for a request,
+    // it does not stop the request, and a pointer CAS that lands after
+    // writers were let back in would commit a capture they have changed.
+    let outstanding: Promise<unknown> | undefined;
+    // Set once any finalize attempt fails without an answer that decides it
+    // (no answer, a 5xx): that request may still commit, whatever a later
+    // retry is told, until one succeeds and the idempotent key settles both.
+    let undecided = false;
+    try {
+      let checkpoint: CheckpointRef | null = null;
+      if (settlement.synthetic !== true) {
+        // Bounded like the waits around it: a capture that never returns must
+        // not hold the process past the drain budget either.
+        const capturing = this.capture(run);
+        outstanding = capturing;
+        captured = await this.untilAbandoned(capturing);
+        if (captured === undefined) {
+          capturing.then(
+            ({ lease }) => lease?.release(),
+            () => {},
+          );
+          return;
+        }
+        checkpoint = captured.ref;
+      }
+      if (this.ownerLost) return;
+      const finalizing = this.withRetry(
         () =>
-          this.options.gateway.finalize({
-            ...this.scope,
-            turn_id: turnId,
-            finalize_key: `${this.scope.attempt_id}:${turnId}`,
-            final_source_sequence: finalSourceSequence,
-            terminal: {
-              status: settlement.status,
-              reason: settlement.reason,
-              result: settlement.result ?? null,
-              usage: settlement.usage ?? null,
-            },
-            checkpoint,
-          }),
+          this.options.gateway
+            .finalize({
+              ...this.scope,
+              turn_id: turnId,
+              finalize_key: `${this.scope.attempt_id}:${turnId}`,
+              final_source_sequence: finalSourceSequence,
+              terminal: {
+                status: settlement.status,
+                reason: settlement.reason,
+                result: settlement.result ?? null,
+                usage: settlement.usage ?? null,
+              },
+              checkpoint,
+            })
+            .catch((error: unknown) => {
+              if (isRetryable(error)) undecided = true;
+              throw error;
+            }),
         () => this.abandonedNow,
-      ),
-    );
-    if (finalized === undefined) return;
-    this.turns.push({
-      turnId,
-      status: settlement.status,
-      reason: settlement.reason,
-    });
-    this.logger.info("worker.turn.finalized", {
-      turn_id: turnId,
-      status: settlement.status,
-    });
-    this.turn = undefined;
-    this.scope.turn_id = null;
+      );
+      outstanding = finalizing;
+      const finalized = await this.untilAbandoned(finalizing);
+      if (finalized === undefined) return;
+      outstanding = undefined;
+      this.turns.push({
+        turnId,
+        status: settlement.status,
+        reason: settlement.reason,
+      });
+      this.logger.info("worker.turn.finalized", {
+        turn_id: turnId,
+        status: settlement.status,
+      });
+      this.turn = undefined;
+      this.scope.turn_id = null;
+    } finally {
+      const lease = captured?.lease;
+      if (lease != null) {
+        if (outstanding === undefined) lease.release();
+        else
+          outstanding.then(
+            () => lease.release(),
+            // Only a refusal of a request that was the only one out decides
+            // the CAS; otherwise the run ends with the lease still held
+            // rather than let a writer in ahead of a commit that may yet land.
+            () => {
+              if (!undecided) lease.release();
+            },
+          );
+      }
+    }
   }
 
   private beginTurn(turnId: string, uuid: string): Turn {
@@ -815,15 +857,28 @@ export class WorkerHost {
     return this.pending.request(request);
   }
 
-  private async capture(run: AgentRun): Promise<CheckpointRef | null> {
-    const preparation = await run.prepareCheckpoint();
+  /**
+   * Takes the checkpoint lease with the verdict (DESIGN §6.3.1), so nothing
+   * writes between the quiescence check and the pointer CAS. A capture that
+   * fails or produces nothing to commit gives the lease back at once.
+   */
+  private async capture(run: AgentRun): Promise<Captured> {
+    const { lease, preparation } = await run.leaseCheckpoint();
     if (preparation.status === "rejected") {
       this.logger.warn("worker.checkpoint.rejected", {
         reason: preparation.reason,
         detail: preparation.detail,
       });
     }
-    return this.checkpoints.capture(preparation);
+    let ref: CheckpointRef | null;
+    try {
+      ref = await this.checkpoints.capture(preparation);
+    } catch (error) {
+      lease?.release();
+      throw error;
+    }
+    if (ref === null) lease?.release();
+    return { lease, ref };
   }
 
   /**
@@ -1029,6 +1084,8 @@ export class WorkerHost {
     }
   }
 }
+
+type Captured = { lease: CheckpointLease | null; ref: CheckpointRef | null };
 
 /**
  * A stable UUID for one delivered input. Derived rather than random so the

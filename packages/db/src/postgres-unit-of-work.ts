@@ -31,7 +31,10 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
 } from "@agent-platform/platform";
-import { projectDurability } from "@agent-platform/platform";
+import {
+  checkpointReasonHoldsWork,
+  projectDurability,
+} from "@agent-platform/platform";
 import { and, asc, desc, eq, gt, inArray, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import {
@@ -252,14 +255,19 @@ export function createPostgresSessionUnitOfWork(
           };
         }
         // A turn accepted now would run on a transcript the platform cannot
-        // read back; it could never be reported as durably finished.
-        if (session.checkpointPendingReason !== null) {
-          return {
-            outcome: "checkpoint_unavailable",
-            reason: checkpointBlockReasonSchema.parse(
-              session.checkpointPendingReason,
-            ),
-          };
+        // read back; it could never be reported as durably finished. An
+        // advisory reason (the run was not quiescent) holds nothing back.
+        const pendingReason =
+          session.checkpointPendingReason === null
+            ? null
+            : checkpointBlockReasonSchema.parse(
+                session.checkpointPendingReason,
+              );
+        if (
+          pendingReason !== null &&
+          checkpointReasonHoldsWork(pendingReason)
+        ) {
+          return { outcome: "checkpoint_unavailable", reason: pendingReason };
         }
         const [last] = await tx
           .select({ sequence: max(turns.sequence) })

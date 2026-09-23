@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   checkpointAdmission,
   checkpointPendingReason,
+  checkpointReasonHoldsWork,
+  nextPendingReason,
   projectDurability,
 } from "./durability.ts";
 
@@ -44,6 +46,50 @@ describe("checkpoint pending reason", () => {
         detail: "Transcript mirror dropped a root batch: append rejected",
       }),
     ).toBe("mirror_error");
+  });
+});
+
+describe("a run that was not quiescent", () => {
+  const refusals = [
+    ["tool_in_flight", "1 tool call(s) still running"],
+    ["background_writer", "Background task(s) still running: bash_1"],
+    ["checkpoint_lease_held", "Another checkpoint holds the lease"],
+  ] as const;
+
+  test.each(refusals)("surfaces %s as the pending reason", (reason, detail) => {
+    expect(
+      checkpointPendingReason({ status: "rejected", reason, detail }),
+    ).toBe(reason);
+    expect(
+      projectDurability({
+        checkpointCommittedAt: null,
+        checkpointRevision: 3,
+        lastCheckpointedTurnId: "3",
+        lastCompletedTurnId: "4",
+        lastTranscriptPersistedAt: null,
+        pendingReason: reason,
+      }).checkpoint_pending_reason,
+    ).toBe(reason);
+  });
+
+  test.each(refusals)("%s holds no work back", (reason) => {
+    expect(checkpointReasonHoldsWork(reason)).toBe(false);
+    expect(checkpointAdmission(reason)).toEqual({ admitted: true });
+  });
+
+  test("never replaces a mirror failure, which a later one replaces", () => {
+    expect(nextPendingReason("mirror_error", "background_writer")).toBe(
+      "mirror_error",
+    );
+    expect(nextPendingReason("background_writer", "tool_in_flight")).toBe(
+      "tool_in_flight",
+    );
+    expect(nextPendingReason("tool_in_flight", "mirror_error")).toBe(
+      "mirror_error",
+    );
+    expect(nextPendingReason(null, "checkpoint_lease_held")).toBe(
+      "checkpoint_lease_held",
+    );
   });
 });
 

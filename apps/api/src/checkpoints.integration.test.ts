@@ -38,6 +38,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
+import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
@@ -178,6 +179,53 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     if (!next.input) throw new Error("no input delivered");
     return { claimed, principal, scope, turnId: next.input.turn_id };
   }
+
+  test("a checkpoint asked for while the lease is held is blocked and the pointer stays (94S-208)", async () => {
+    const { claimed, principal, scope } = await claimedSession();
+    const pointer = async () =>
+      (
+        await db
+          .select({
+            revision: schema.sessions.checkpointRevision,
+            pending: schema.sessions.checkpointPendingReason,
+          })
+          .from(schema.sessions)
+          .where(eq(schema.sessions.id, claimed.session_id))
+      )[0];
+    const before = await pointer();
+
+    expect(
+      await gateway.requestCheckpoint(principal, {
+        ...scope,
+        preparation: {
+          status: "rejected",
+          reason: "checkpoint_lease_held",
+          detail: "Another checkpoint holds the lease",
+        },
+      }),
+    ).toEqual({
+      status: "blocked",
+      reason: "checkpoint_lease_held",
+      detail: "Another checkpoint holds the lease",
+    });
+    // Nothing published: the pointer is where it was, and the refusal is
+    // what the session detail shows as its pending reason.
+    expect(await pointer()).toEqual({
+      revision: before?.revision ?? null,
+      pending: "checkpoint_lease_held",
+    });
+    // It holds nothing back: the next request is answered from that pointer.
+    expect(
+      await gateway.requestCheckpoint(principal, {
+        ...scope,
+        preparation: { status: "ready" },
+      }),
+    ).toEqual({
+      status: "ready",
+      revision: 0,
+      manifest_ref: manifestRefFor(claimed.session_id, 0, claimed.attempt_id),
+    });
+  }, 60_000);
 
   test("a worker asks, uploads, finalizes with a verified checkpoint and gets a restore plan back", async () => {
     const { claimed, principal, scope, turnId } = await claimedSession();

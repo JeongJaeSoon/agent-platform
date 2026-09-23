@@ -5,7 +5,11 @@ import type {
   RuntimeCapabilities,
   RuntimeHooks,
 } from "@agent-platform/runtime-core";
-import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
+import {
+  type HookCallback,
+  type Options,
+  query,
+} from "@anthropic-ai/claude-agent-sdk";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
@@ -18,6 +22,7 @@ import {
 } from "./profile.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
+import { TurnLedger } from "./turn-ledger.ts";
 
 export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
   readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
@@ -32,11 +37,13 @@ export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
     const { history, launched } = resumedHistory(config);
     const input = new InputStream();
     const abortController = new AbortController();
+    const ledger = new TurnLedger(config.resume);
     const sdkQuery = query({
       prompt: input,
       options: buildSdkOptions(
         launched,
         hooks,
+        ledger,
         abortController,
         this.processObserver,
       ),
@@ -47,7 +54,7 @@ export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
       sdkQuery,
       abortController,
       history,
-      config.resume,
+      ledger,
     );
   }
 }
@@ -78,31 +85,79 @@ function resumedHistory(config: ClaudeRuntimeConfig): {
 export function buildSdkOptions(
   config: ClaudeRuntimeConfig,
   hooks: RuntimeHooks,
+  ledger = new TurnLedger(config.resume),
   abortController = new AbortController(),
   processObserver?: RuntimeProcessObserver,
 ): Options {
   const permittedTools = new Set(config.tools);
+  const settle: HookCallback = async (input) => {
+    if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
+    return {};
+  };
   return {
     abortController,
     canUseTool: async (tool, toolInput, options) => {
-      if (!permittedTools.has(tool)) {
+      // A denied tool never runs and no PostToolUse follows, so the gate
+      // settles it here rather than waiting on a tool_result.
+      const deny = (message: string) => {
+        ledger.toolSettled(options.toolUseID);
         return {
-          behavior: "deny",
-          message: "Tool is outside the server allowlist",
+          behavior: "deny" as const,
+          message,
           toolUseID: options.toolUseID,
         };
+      };
+      if (!permittedTools.has(tool)) {
+        return deny("Tool is outside the server allowlist");
       }
-      const decision = await hooks.onPermission({
-        input: toolInput,
-        requestId: options.requestId,
-        signal: options.signal,
-        tool,
-        toolUseId: options.toolUseID,
-      });
-      return { ...decision, toolUseID: options.toolUseID };
+      const admission = ledger.permissionStarting();
+      if (!admission.allowed) return deny(admission.message);
+      let allowed = false;
+      try {
+        const decision = await hooks.onPermission({
+          input: toolInput,
+          requestId: options.requestId,
+          signal: options.signal,
+          tool,
+          toolUseId: options.toolUseID,
+        });
+        allowed = decision.behavior === "allow";
+        return { ...decision, toolUseID: options.toolUseID };
+      } finally {
+        ledger.permissionSettled();
+        if (!allowed) ledger.toolSettled(options.toolUseID);
+      }
     },
     cwd: config.cwd,
     env: runtimeEnvironment(config),
+    // The checkpoint quiescence gate (DESIGN §6.3.1). PreToolUse runs for
+    // every tool before the permission check, auto-allowed ones included, so
+    // it is where a checkpoint lease refuses a new writer; the other three
+    // are the ways a tool it admitted can end. An allow answers nothing:
+    // "allow" here would skip the permission check.
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [
+            async (input) => {
+              if (!("tool_use_id" in input)) return {};
+              const admission = ledger.toolStarting(input.tool_use_id);
+              if (admission.allowed) return {};
+              return {
+                hookSpecificOutput: {
+                  hookEventName: "PreToolUse",
+                  permissionDecision: "deny",
+                  permissionDecisionReason: admission.message,
+                },
+              };
+            },
+          ],
+        },
+      ],
+      PostToolUse: [{ hooks: [settle] }],
+      PostToolUseFailure: [{ hooks: [settle] }],
+      PermissionDenied: [{ hooks: [settle] }],
+    },
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
     ...(config.mcpServers === undefined
       ? {}

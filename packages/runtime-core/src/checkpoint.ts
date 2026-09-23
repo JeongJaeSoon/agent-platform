@@ -11,10 +11,42 @@ export type RuntimeCheckpoint = {
  * `detail` carries the human wording.
  */
 export type CheckpointBlockReason =
+  | "background_writer"
+  | "checkpoint_lease_held"
   | "mirror_error"
   | "no_engine_session"
+  | "tool_in_flight"
   | "turn_in_flight";
 
-export type CheckpointPreparation =
-  | { checkpoint: RuntimeCheckpoint; status: "ready" }
-  | { detail: string; reason: CheckpointBlockReason; status: "rejected" };
+export type ReadyCheckpoint = {
+  checkpoint: RuntimeCheckpoint;
+  status: "ready";
+};
+export type RejectedCheckpoint = {
+  detail: string;
+  reason: CheckpointBlockReason;
+  status: "rejected";
+};
+export type CheckpointPreparation = ReadyCheckpoint | RejectedCheckpoint;
+
+/**
+ * The run's promise that nothing writes to the workspace or the transcript
+ * while a checkpoint is captured and committed (DESIGN §6.3.1). While it is
+ * held every new tool call and input is refused. It is local to the run and
+ * has nothing to do with the execution lease the gateway fences on: that one
+ * says who owns the session, this one says nobody is writing.
+ *
+ * It does not expire. A publisher that gives up waiting has not stopped its
+ * request, and a pointer CAS that lands after writers were let back in would
+ * commit a capture the workspace no longer matches. So it is released only
+ * once whatever might still commit has answered — a publisher that never
+ * answers keeps the agent from using tools until the run ends.
+ */
+export interface CheckpointLease {
+  /** Idempotent. */
+  release(): void;
+}
+
+export type CheckpointLeaseGrant =
+  | { lease: CheckpointLease; preparation: ReadyCheckpoint }
+  | { lease: null; preparation: RejectedCheckpoint };

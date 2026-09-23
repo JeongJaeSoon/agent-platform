@@ -2,6 +2,7 @@ import type {
   AgentFrame,
   AgentInput,
   AgentRun,
+  CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
 } from "@agent-platform/runtime-core";
@@ -13,7 +14,7 @@ import type {
 
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
-import { TurnLedger } from "./turn-ledger.ts";
+import type { TurnLedger } from "./turn-ledger.ts";
 
 export class InputStream implements AsyncIterable<SDKUserMessage> {
   private readonly queued: SDKUserMessage[] = [];
@@ -56,18 +57,15 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
 }
 
 export class ClaudeSdkRun implements AgentRun {
-  private readonly ledger: TurnLedger;
-
   constructor(
     private readonly correlationId: string,
     private readonly input: InputStream,
     private readonly sdkQuery: Query,
     private readonly abortController: AbortController,
     private readonly history: ResumedHistory,
-    resume?: string,
-  ) {
-    this.ledger = new TurnLedger(resume);
-  }
+    /** Shared with the SDK options' tool gate, which feeds and consults it. */
+    private readonly ledger: TurnLedger,
+  ) {}
 
   send(input: AgentInput): void {
     this.ledger.queued(input.uuid);
@@ -100,6 +98,10 @@ export class ClaudeSdkRun implements AgentRun {
   close(): void {
     this.input.finish();
     this.sdkQuery.close();
+  }
+
+  async leaseCheckpoint(): Promise<CheckpointLeaseGrant> {
+    return this.ledger.leaseCheckpoint();
   }
 
   async prepareCheckpoint(): Promise<CheckpointPreparation> {

@@ -1,4 +1,5 @@
 import {
+  type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
   type TerminalTurnStatus,
@@ -15,6 +16,7 @@ import {
   type CommitEventsResult,
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
+  checkpointReasonHoldsWork,
   type FenceRejection,
   type FinalizeInput,
   type FinalizeResult,
@@ -22,6 +24,7 @@ import {
   type HeartbeatResult,
   type NextInputInput,
   type NextInputResult,
+  nextPendingReason,
   type PeekFinalizeResult,
   payloadHash,
   type RegisterLaunchInput,
@@ -379,12 +382,13 @@ async function latestCheckpoint(
  * manifest claiming a later one was written against a pointer that no longer
  * stands.
  *
- * Committing clears the durable pending reason only when the reason came
+ * Committing clears a blocking pending reason only when the reason came
  * from another attempt. The runtime latches a mirror failure for its whole
  * run, so a checkpoint from the attempt that reported it was captured before
  * the failure at best and says nothing about the transcript since; a fresh
  * run that re-mirrored from the local file is what a valid checkpoint
- * proves.
+ * proves. An advisory reason (the run was not quiescent) is cleared by any
+ * commit: a checkpoint that committed is exactly what it was missing.
  */
 export async function advanceCheckpointPointer(
   tx: Database,
@@ -414,9 +418,11 @@ export async function advanceCheckpointPointer(
     turnId: input.turnRowId,
     committedAt: input.now,
   });
+  const pending = storedPendingReason(input.session.checkpointPendingReason);
   const resolvesPending =
-    input.session.checkpointPendingReason !== null &&
-    input.session.checkpointPendingAttemptId !== input.fence.attemptId;
+    pending !== null &&
+    (!checkpointReasonHoldsWork(pending) ||
+      input.session.checkpointPendingAttemptId !== input.fence.attemptId);
   expectFenced(
     await tx
       .update(sessions)
@@ -433,6 +439,12 @@ export async function advanceCheckpointPointer(
     "session pointer",
   );
   return { outcome: "committed", revision: input.checkpoint.revision };
+}
+
+function storedPendingReason(
+  value: string | null,
+): CheckpointBlockReason | null {
+  return value === null ? null : checkpointBlockReasonSchema.parse(value);
 }
 
 /**
@@ -1130,16 +1142,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // A session the platform cannot checkpoint must not report a turn
         // as durably finished: the SDK's success is not enough on its own.
         // The other terminals record what happened and are never held back.
-        const pendingReason = fenced.session.checkpointPendingReason;
+        const pendingReason = storedPendingReason(
+          fenced.session.checkpointPendingReason,
+        );
         if (
           input.terminal.status === "completed" &&
           !input.checkpoint &&
-          pendingReason !== null
+          pendingReason !== null &&
+          checkpointReasonHoldsWork(pendingReason)
         ) {
-          return {
-            outcome: "checkpoint_required",
-            reason: checkpointBlockReasonSchema.parse(pendingReason),
-          };
+          return { outcome: "checkpoint_required", reason: pendingReason };
         }
 
         let checkpointRevision: number | null = null;
@@ -1254,8 +1266,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
-        let pendingReason = fenced.session.checkpointPendingReason;
-        if (input.pendingReason !== undefined) {
+        let pendingReason = storedPendingReason(
+          fenced.session.checkpointPendingReason,
+        );
+        // A blocking reason outranks an advisory one and stays, attempt
+        // included: the attempt decides who may clear it.
+        if (
+          input.pendingReason !== undefined &&
+          nextPendingReason(pendingReason, input.pendingReason) ===
+            input.pendingReason
+        ) {
           expectFenced(
             await tx
               .update(sessions)
@@ -1273,10 +1293,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           pointer: await readCheckpointPointer(tx, fenced.session),
-          pendingReason:
-            pendingReason === null
-              ? null
-              : checkpointBlockReasonSchema.parse(pendingReason),
+          pendingReason,
         };
       });
     },
