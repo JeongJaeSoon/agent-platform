@@ -351,6 +351,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     });
     const size = await objects.head(checkpoint.manifest_ref, version);
     if (size === undefined) return missing;
+    if (version !== undefined) {
+      input.pinned?.note(checkpoint.manifest_ref, version, size);
+    }
     if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
     const bytes = await objects.get(checkpoint.manifest_ref, version);
     if (bytes === undefined) return missing;
@@ -395,10 +398,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.pinned,
     );
     if (bad !== undefined) {
-      return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
-    }
-    if (version !== undefined) {
-      input.pinned?.note(checkpoint.manifest_ref, version, size);
+      return bad.damaged ? damaged(bad.reason, manifest) : rejected(bad.reason);
     }
     return { status: "verified", manifest };
   }
@@ -441,13 +441,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verified: ReadonlySet<string> = new Set(),
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
-    const refs = [
-      ...manifest.transcripts.root.parts,
-      ...Object.values(manifest.transcripts.subagents).flatMap(
-        (revision) => revision.parts,
-      ),
-      ...manifest.workspace.untracked,
-    ];
+    const refs = objectRefsOf(manifest);
     // Counted before any request goes out: the bundle is the one more.
     if (refs.length + 1 > maxManifestObjects) {
       return refused(
@@ -760,10 +754,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       sessionId,
     });
     if (judged.status === "rejected") {
-      return {
-        verdict: "damaged" in judged ? "damaged" : "refused",
-        reason: judged.reason,
-      };
+      if (!("damaged" in judged)) {
+        return { verdict: "refused", reason: judged.reason };
+      }
+      // Damage stops validation at the first bad object, and must not hide
+      // a released hold elsewhere in the same revision: that refusal would
+      // stop the walk, so every object that survives is asked about its hold.
+      if (protection === "locked") {
+        if (judged.manifest !== undefined) {
+          await noteSurvivors(judged.manifest, pinned);
+        }
+        const released = pinned.unheld()[0];
+        if (released !== undefined) {
+          return {
+            verdict: "refused",
+            reason: `${judged.reason}, and version ${released.version} of ${released.key} is no longer held`,
+          };
+        }
+      }
+      return { verdict: "damaged", reason: judged.reason };
     }
     if (protection === "locked") {
       const released = pinned.unheld()[0];
@@ -775,6 +784,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
     }
     return { verdict: "verified", manifest: judged.manifest };
+  }
+
+  async function noteSurvivors(
+    manifest: CheckpointManifest,
+    pinned: PinnedVersions,
+  ): Promise<void> {
+    await inBatches(
+      [...objectRefsOf(manifest), manifest.workspace.bundle],
+      32,
+      async ({ key, version }) => {
+        if (version === undefined) return;
+        const head = await objects.head(key, version);
+        if (head !== undefined) pinned.note(key, version, head);
+      },
+    );
   }
 
   /**
@@ -1043,10 +1067,32 @@ function refused(reason: string): Problem {
 
 type Judgement =
   | ManifestVerdict
-  | { damaged: true; reason: string; status: "rejected" };
+  | {
+      damaged: true;
+      /** Set when the manifest itself decoded and something it names did not verify. */
+      manifest?: CheckpointManifest;
+      reason: string;
+      status: "rejected";
+    };
 
-function damaged(reason: string): Judgement {
-  return { damaged: true, reason, status: "rejected" };
+function damaged(reason: string, manifest?: CheckpointManifest): Judgement {
+  return {
+    damaged: true,
+    reason,
+    status: "rejected",
+    ...(manifest === undefined ? {} : { manifest }),
+  };
+}
+
+/** Every object a manifest names apart from its workspace bundle. */
+function objectRefsOf(manifest: CheckpointManifest) {
+  return [
+    ...manifest.transcripts.root.parts,
+    ...Object.values(manifest.transcripts.subagents).flatMap(
+      (revision) => revision.parts,
+    ),
+    ...manifest.workspace.untracked,
+  ];
 }
 
 function rejected(reason: string): ManifestVerdict {

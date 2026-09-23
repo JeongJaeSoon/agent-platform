@@ -497,6 +497,35 @@ describe("locked fallback to an earlier revision (94S-204)", () => {
     ).toMatchObject({ held: true });
   });
 
+  test("damage in a revision does not hide a hold released beside it", async () => {
+    const base = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const older = await publish(0, [base]);
+    await finalize(older.checkpoint);
+    const lost = await upload(`${prefix}mirror/part-1.jsonl`, encode("b\n"));
+    const middle = await publish(1, [base, lost]);
+    await finalize(middle.checkpoint);
+    const last = await upload(`${prefix}mirror/part-2.jsonl`, encode("c\n"));
+    const newest = await publish(2, [base, lost, last]);
+    expect(await finalize(newest.checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    destroy(last);
+    // Revision 1 is damaged, and its workspace bundle, which validation
+    // never reaches past a bad part, has been released: the release decides.
+    destroy(lost);
+    const { bundle } = middle.manifest.workspace;
+    objects.releaseHold(bundle.key, bundle.version as string);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining(
+        `earlier revision 1 is refused, and a refusal is not damage to walk past: manifest references a missing object: ${lost.key} (version ${lost.version}), and version ${bundle.version} of ${bundle.key} is no longer held`,
+      ),
+    });
+  });
+
   test("an earlier revision committed without a manifest version is not a restore point", async () => {
     const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
     const older = await publish(0, [part]);
