@@ -171,7 +171,7 @@ class FakeDocker {
       string,
       { Aliases: string[] | null; NetworkID: string }
     > = {};
-    if (networkMode !== undefined) {
+    if (networkMode !== undefined && networkMode !== "") {
       const network = this.networkByIdOrName(networkMode);
       const name = network?.name ?? networkMode.replace(/^net-/, "");
       attachments[name] = {
@@ -487,6 +487,13 @@ class FakeDocker {
         network.attached.set(target.id, {
           aliases: body.EndpointConfig?.Aliases ?? [],
         });
+        return new Response(null, { status: 200 });
+      }
+      const worker = this.byIdOrName(body.Container);
+      const mode = worker?.body.HostConfig.NetworkMode;
+      if (worker && (mode === network.id || mode === network.name)) {
+        // The network it was created on; nothing is left in its place.
+        worker.body.HostConfig.NetworkMode = "";
         return new Response(null, { status: 200 });
       }
       if (!network.attached.delete(target.id)) {
@@ -1822,8 +1829,46 @@ describe("LocalDockerBackend worker networks", () => {
     await expect(backend.ensureExecution(intent)).rejects.toThrow(
       "is not the only network",
     );
-    // Refused, not destroyed: whoever attached it has to be asked why.
+    // Refused, not destroyed: whoever attached it has to be asked why. But
+    // not with the allowlist while it also reaches somewhere else.
     expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
+    expect(networkOf(intent)?.attached.has(PROXY)).toBe(false);
+  });
+
+  test("a refused replacement takes a pre-contract-5 worker off the shared network", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    docker.addNetwork("agent-platform-worker");
+    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.Labels[LABELS.isolation] = "4:0000000000000000";
+    const old = docker.add(containerNameFor(intent, "test-a"), body);
+    docker.images.delete("worker:test");
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      /is not on this daemon.*taken off its networks/,
+    );
+    // Still there for the next pass to replace, but reaching no one.
+    expect(docker.containers.get(old.name)?.id).toBe(old.id);
+    expect(
+      docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
+    ).toEqual({});
+  });
+
+  test("a refused replacement leaves a worker on its own network where it is", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!worker) throw new Error("no worker");
+    docker.images.delete("worker:test");
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "is not on this daemon",
+    );
+    expect(
+      Object.keys(
+        docker.attachmentsOf(worker.id, worker.body.HostConfig.NetworkMode),
+      ),
+    ).toEqual([networkNameFor(intent, "test-a")]);
   });
 
   test("no proxy means no launch, and nothing is created on the way", async () => {

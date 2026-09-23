@@ -134,6 +134,9 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  */
 export const ISOLATION_CONTRACT = 5;
 
+/** The first contract whose workers each sit on a network of their own. */
+const PER_EXECUTION_NETWORK_CONTRACT = 5;
+
 /**
  * What goes in the label: the contract version and a fingerprint of the
  * settings that shape the isolation. The version alone would miss a moved
@@ -545,14 +548,14 @@ export class LocalDockerBackend implements ExecutionBackend {
           // Ownership first: a container that is not this launch's is a
           // conflict whatever else is wrong with it, never ours to destroy.
           this.assertSameLaunch(intent, existing);
+          if (verdict === "current") assertOnlyOn(existing, network);
         } catch (error) {
-          // `launchedContainerId` refused such a container before the proxy
-          // went on; one that took the name since sits on a network that now
-          // has the proxy, so the proxy comes off before the refusal.
+          // The proxy is on the network by now. A container that took the
+          // name since `launchedContainerId` looked, or one of ours that is
+          // on another network besides, must not keep it through a refusal.
           await this.detachProxies(network, new Set([proxy.Id]));
           throw error;
         }
-        if (verdict === "current") assertOnlyOn(existing, network);
         if (
           verdict === "current" &&
           (await this.holdsAcceptedCredential(intent, existing))
@@ -652,19 +655,74 @@ export class LocalDockerBackend implements ExecutionBackend {
    * and comes back to that network; if it never happens, the old container
    * still carries the name and `reconcileNetworks` leaves the network be
    * until it is gone.
+   *
+   * A refusal leaves the old container running — except one from before
+   * contract 5, which sits on a network it shares with every other such
+   * worker. That one is taken off all its networks: the session is stalled
+   * either way until the replacement can launch, and left connected it
+   * could keep reaching its neighbours for as long as that takes.
    */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
-    const proxy = await this.egressProxy();
-    await this.inspectedImage(intent.image);
-    const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
-    await this.ensureWorkerNetwork(
-      intent,
-      proxy,
-      await this.launchedContainerId(intent),
-    );
-    if (workspace !== null) {
-      this.replacementWorkspaces.set(intent.sessionId, workspace);
+    try {
+      const proxy = await this.egressProxy();
+      await this.inspectedImage(intent.image);
+      const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
+      await this.ensureWorkerNetwork(
+        intent,
+        proxy,
+        await this.launchedContainerId(intent),
+      );
+      if (workspace !== null) {
+        this.replacementWorkspaces.set(intent.sessionId, workspace);
+      }
+    } catch (error) {
+      const isolated = await this.isolateSharedNetworkWorker(intent).catch(
+        (cause) => `could not be taken off its networks (${messageOf(cause)})`,
+      );
+      // Appended rather than wrapped: callers tell refusals apart by class.
+      if (isolated !== null && error instanceof Error) {
+        error.message += `; the old container ${isolated}`;
+      }
+      throw error;
     }
+  }
+
+  /**
+   * Disconnects this launch's pre-contract-5 container from every network,
+   * and says what happened; null when there is no such container. A
+   * container that is not this launch's is left alone.
+   */
+  private async isolateSharedNetworkWorker(
+    intent: LaunchIntent,
+  ): Promise<string | null> {
+    const existing = await this.client.inspectContainer(
+      containerNameFor(intent, this.config.installationId),
+    );
+    if (existing === null) return null;
+    const stamp = existing.Config.Labels?.[LABELS.isolation];
+    const version = Number(stamp?.split(":")[0]);
+    if (
+      Number.isInteger(version) &&
+      version >= PER_EXECUTION_NETWORK_CONTRACT
+    ) {
+      return null;
+    }
+    try {
+      this.assertSameLaunch(intent, existing);
+    } catch {
+      return null;
+    }
+    const networks = Object.keys(existing.NetworkSettings?.Networks ?? {});
+    for (const network of networks) {
+      await this.client
+        .disconnectNetwork(network, existing.Id)
+        .catch(() => undefined);
+    }
+    const after = await this.client.inspectContainer(existing.Id);
+    const left = Object.keys(after?.NetworkSettings?.Networks ?? {});
+    return left.length === 0
+      ? `(isolation ${stamp ?? "<none>"}) was taken off its networks until the replacement can launch`
+      : `(isolation ${stamp ?? "<none>"}) could NOT be taken off ${left.sort().join(", ")}`;
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
