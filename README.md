@@ -238,11 +238,13 @@ docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
 
 compose의 proxy는 이미지가 아니라 `apps/egress-proxy`를 bind mount해서 돈다. 그래서 checkout을 다른 커밋으로 옮겨도 이미 떠 있는 프로세스는 기동할 때 읽은 코드를 계속 쓴다. 94S-319에서 qa-main이 이 상태로 #141 이전 proxy를 몇 시간 돌렸다. 디스크 파일의 md5가 같아도 실행 중인 코드가 같다는 증거는 되지 않는다.
 - proxy는 기동할 때 자기 소스(`src`의 테스트 아닌 `.ts`)의 sha256을 로그(`Egress proxy listening`의 `source`)와 `/healthz`(`ok source=<hex>`)로 알린다.
-- compose healthcheck(`src/healthcheck.ts`)는 이 값을 디스크의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다.
-- 다만 scheduler는 health를 보지 않고 실행 중인 proxy를 고른다. 그래서 checkout을 옮긴 뒤에는 `up -d --wait`로 확인하고, 실패하면 `up -d --force-recreate egress-proxy`로 다시 만든다.
+- compose healthcheck(`src/healthcheck.ts`)는 이 값을 디스크의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다. 다만 Docker는 연속 실패 12회(약 60초)가 쌓여야 상태를 바꾼다. 그전에는 이미 `healthy`인 컨테이너에 `up -d --wait`를 걸어도 통과한다.
+- scheduler도 health를 보지 않고 실행 중인 proxy를 고른다.
+- 그래서 checkout을 옮긴 뒤에는 healthcheck를 직접 돌려 판정을 바로 받고, 실패하면 proxy를 다시 만든다.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait egress-proxy
+docker compose -f infra/docker-compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts \
+  || docker compose -f infra/docker-compose.yml up -d --wait --force-recreate egress-proxy
 docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```
