@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@agent-platform/db";
-import { executions, sessions, unassignedSessions } from "@agent-platform/db";
+import {
+  executions,
+  sessions,
+  unassignedSessions,
+  workerLaunches,
+} from "@agent-platform/db";
 import {
   containerNameFor,
   DockerClient,
@@ -17,6 +22,7 @@ import {
 import {
   hashWorkerToken,
   launchNonceFingerprint,
+  launchSpecFingerprint,
 } from "@agent-platform/platform";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { inArray } from "drizzle-orm";
@@ -47,6 +53,8 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
   const client = new DockerClient(dockerHost);
   const sessionIds: string[] = [];
   const runLabel = `it-${crypto.randomUUID()}`;
+  /** Where the rollout test points the configured tag. */
+  const movedRepo = `ap-${runLabel}`;
   let proxy: string | undefined;
 
   const environment = () => ({
@@ -135,6 +143,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         .catch(() => undefined);
     }
     if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
+    await fetch(`http://docker/v1.44/images/${movedRepo}:moved?force=true`, {
+      method: "DELETE",
+      unix: dockerHost.replace("unix://", ""),
+    } as RequestInit).catch(() => undefined);
     await removeWorkerNetworks(client, runLabel).catch((error: unknown) => {
       console.warn("[scheduler.integration] worker networks left", error);
     });
@@ -212,6 +224,89 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     expect(summary.networksReclaimed).toEqual([]);
     const after = await client.inspectNetwork(networkNameFor(ref, runLabel));
     expect(after?.Id).toBe(before?.Id);
+  }, 180_000);
+
+  test("a worker re-created after the tag moved runs the image its launch was pinned to; only a new launch gets the moved one", async () => {
+    const resources = {
+      cpus: 0.25,
+      memoryBytes: 64 * 1024 * 1024,
+      pidsLimit: 32,
+    };
+    const pinned = (await client.inspectImage(IMAGE))?.Id;
+    if (!pinned) throw new Error(`${IMAGE} has no id`);
+    const launches = await db
+      .select()
+      .from(workerLaunches)
+      .where(inArray(workerLaunches.sessionId, sessionIds));
+    const [launch] = launches;
+    if (!launch) throw new Error("no launch");
+    for (const row of launches) {
+      expect(row.image).toBe(pinned);
+      expect(row.resources).toEqual(resources);
+    }
+    const ref = { executionId: launch.executionId, generation: 1 };
+    const spec = launchSpecFingerprint(pinned, resources);
+    const before = await client.inspectContainer(
+      containerNameFor(ref, runLabel),
+    );
+    expect(before?.Image).toBe(pinned);
+    expect(before?.Config.Labels?.[LABELS.launchSpec]).toBe(spec);
+
+    // A rollout: the configured reference now names other content. A
+    // committed container is an image with its own id, no pull needed; it
+    // is committed from a bare one, since a commit keeps the labels of what
+    // it was taken from.
+    const socket = { unix: dockerHost.replace("unix://", "") };
+    const bare = `ap-it-bare-${runLabel}`;
+    const created = await fetch(
+      `http://docker/v1.44/containers/create?name=${bare}`,
+      {
+        ...socket,
+        body: JSON.stringify({ Cmd: ["true"], Image: IMAGE }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      } as RequestInit,
+    );
+    expect(created.status).toBe(201);
+    try {
+      const commit = await fetch(
+        `http://docker/v1.44/commit?container=${bare}&repo=${movedRepo}&tag=moved`,
+        { ...socket, method: "POST" } as RequestInit,
+      );
+      expect(commit.status).toBe(201);
+    } finally {
+      await client.stopAndRemoveContainer(bare, 1).catch(() => undefined);
+    }
+    const moved = (await client.inspectImage(`${movedRepo}:moved`))?.Id;
+    if (!moved) throw new Error("the moved image has no id");
+    expect(moved).not.toBe(pinned);
+    await client.stopAndRemoveContainer(containerNameFor(ref, runLabel), 1);
+
+    const summary = await main({
+      ...environment(),
+      // One more slot, so a waiting session is admitted under the new tag.
+      EXECUTION_SLOT_LIMIT: "11",
+      WORKER_IMAGE: `${movedRepo}:moved`,
+    });
+
+    expect(summary.reensured).toContainEqual(ref);
+    expect(summary.launched).toHaveLength(1);
+    expect(summary.imageUnresolved).toBe(false);
+    const rebuilt = await client.inspectContainer(
+      containerNameFor(ref, runLabel),
+    );
+    expect(rebuilt?.Id).not.toBe(before?.Id);
+    expect(rebuilt?.Image).toBe(pinned);
+    expect(rebuilt?.Config.Labels?.[LABELS.launchSpec]).toBe(spec);
+    const [fresh] = summary.launched;
+    if (!fresh) throw new Error("nothing admitted");
+    const admitted = await client.inspectContainer(
+      containerNameFor(fresh, runLabel),
+    );
+    expect(admitted?.Image).toBe(moved);
+    expect(admitted?.Config.Labels?.[LABELS.launchSpec]).toBe(
+      launchSpecFingerprint(moved, resources),
+    );
   }, 180_000);
 
   test("the network of a worker nothing will relaunch is gone after one pass", async () => {
