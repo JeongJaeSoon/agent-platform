@@ -338,12 +338,14 @@ if re.search(RECONCILER_BUILD, read(images_test)):
         'expect(reconcilerBlock).toContain(\n      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",\n    );')
 # 94S-323: an image that is not built here must be pinned by digest. The
 # scheduler runs the one `api` builds, which is released by digest with it.
-if "test(\"every image is built here or pinned by index digest\"" in read(images_test):
+# 94S-320 (#162) already exempts any image another service builds.
+if ("test(\"every image is built here or pinned by index digest\"" in read(images_test)
+        and "builtImages.has(service.image)" not in read(images_test)):
     replace(images_test,
             "        continue;\n      }\n      expect({ name, image: service.image }).toEqual({\n",
             "        continue;\n      }\n"
             "      // Runs the image `api` builds, released by digest with it (94S-117).\n"
-            "      if (service.image === services.api?.image) continue;\n"
+            "      if (service.image && service.image === services.api?.image) continue;\n"
             "      expect({ name, image: service.image }).toEqual({\n")
 sub(images_test, r'("app: \[)([^\]]*)\]"', lambda m: without_scheduler(m) + '"')
 replace(images_test,

@@ -47,7 +47,7 @@ git rm -q apps/scheduler/Dockerfile apps/scheduler/package.json apps/scheduler/t
 for old in apps/api apps/scheduler apps/reconciler; do
   test -z "$(git ls-files -- "$old")" || { echo "$old still has tracked files" >&2; exit 1; }
   test -e "$old" || continue
-  kept="$(find "$old" -mindepth 1 -name node_modules -prune -o ! -type d ! -name .DS_Store -print)"
+  kept="$(find "$old" -mindepth 1 -type d -name node_modules -prune -o ! -type d ! -name .DS_Store -print)"
   test -z "$kept" || { printf '%s holds ignored files; move them first:\n%s\n' "$old" "$kept" >&2; exit 1; }
   /bin/rm -rf "$old"
 done
