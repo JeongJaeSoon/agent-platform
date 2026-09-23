@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { SseEvent, WorkerScope } from "@agent-platform/contracts";
+import {
+  type SseEvent,
+  sessionEventVariants,
+  type WorkerScope,
+} from "@agent-platform/contracts";
 import {
   createWorkerGateway,
   type SessionCatalog,
@@ -285,7 +289,11 @@ integration("pause on PostgreSQL (94S-137)", () => {
       const page = await reader().readEvents(
         session.ownerId,
         session.sessionId,
-        { after, limit: 2, maxBytes: 1 << 20 },
+        {
+          ...(after === undefined ? {} : { after }),
+          limit: 2,
+          maxBytes: 1 << 20,
+        },
       );
       if (!page) throw new Error("session not readable");
       frames.push(...page.items);
@@ -295,11 +303,13 @@ integration("pause on PostgreSQL (94S-137)", () => {
   }
 
   function pauseStatus(frames: SseEvent[]) {
-    return frames.flatMap((frame) =>
-      frame.event === "status" && "reason" in frame.data.data
-        ? [frame.data.data]
-        : [],
-    );
+    return frames.flatMap((frame) => {
+      if (frame.event !== "status") return [];
+      const status = sessionEventVariants.status.shape.data.parse(
+        frame.data.data,
+      );
+      return status.reason === undefined ? [] : [status];
+    });
   }
 
   // Backdates the pause past its drain deadline, on the clock it is read on.
