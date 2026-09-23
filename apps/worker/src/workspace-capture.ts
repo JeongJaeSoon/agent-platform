@@ -69,7 +69,9 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 // checkout that was told to ignore modes. ignoreCase off, so an untracked `A`
 // beside a tracked `a` is listed; symlinks on, so a file that replaced a
 // tracked link is staged as the file it is. No attributes file outside the
-// tree: the default one lives under the engine's HOME.
+// tree: the default one lives under the engine's HOME. No replace refs: they
+// stay in the workspace, and HEAD read through one names a tree the bundled
+// commit does not have.
 const CAPTURE_CONFIG: Array<[string, string]> = [
   ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
@@ -78,6 +80,7 @@ const CAPTURE_CONFIG: Array<[string, string]> = [
   ["core.ignoreCase", "false"],
   ["core.safecrlf", "true"],
   ["core.symlinks", "true"],
+  ["core.useReplaceRefs", "false"],
 ];
 
 /**

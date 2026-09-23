@@ -242,6 +242,23 @@ describe("captureWorkspace", () => {
     expect(await readFile(join(restored, "b.md"), "utf8")).toBe("b\r\n");
   });
 
+  test("a HEAD a replace ref stands in for is restored as the files on disk", async () => {
+    const head = await commitFiles({ "a.txt": "original\n" });
+    const replacement = await commitFiles({ "a.txt": "replacement\n" });
+    await git(root, "reset", "--quiet", "--hard", head);
+    await git(root, "replace", head, replacement);
+    await git(root, "reset", "--quiet", "--hard");
+    expect(await readFile(join(root, "a.txt"), "utf8")).toBe("replacement\n");
+
+    const result = await captured();
+    const restored = await unbundle(result.bundle);
+
+    expect(result.gitCommit).not.toBe(head);
+    expect(await readFile(join(restored, "a.txt"), "utf8")).toBe(
+      "replacement\n",
+    );
+  });
+
   test("bundles no branch for a detached HEAD", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "checkout", "--quiet", "--detach");
