@@ -11,10 +11,18 @@ import {
   defaultGitRunner,
   type GitCommandResult,
   type GitCommandRunner,
+  type GitResourceLimits,
 } from "./git-runner.ts";
 
 export type GitWorkspaceBundleVerifierOptions = {
   readonly gitRunner?: GitCommandRunner;
+  /**
+   * Address space each git process may use. What bounds a bundle's cost is
+   * its largest object, not its size on the wire: index-pack holds a delta's
+   * base and result whole, and a delta header declares whatever result size
+   * it likes.
+   */
+  readonly maxGitMemoryBytes?: number;
   /**
    * Most objects a pack may declare before it is refused unread. The byte
    * ceiling the service applies bounds the input, not the work: a pack of
@@ -38,10 +46,22 @@ export type GitWorkspaceBundleVerifierOptions = {
 
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 export const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
+/**
+ * 1.5 GiB. The largest object a pack from git's own defaults holds whole is
+ * just under `core.bigFileThreshold` (512 MiB; bigger blobs are streamed and
+ * never deltified), and resolving a delta of one holds base and result at
+ * once: a 480 MiB log file with one edit peaked at 964 MiB resident on Linux,
+ * against 202 MiB for a 133 MiB bundle of ordinary source. The cap admits
+ * that with margin and refuses the multi-gigabyte results a few kilobytes of
+ * delta can declare.
+ */
+export const DEFAULT_MAX_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
 
-// Deliberately minimal: the count ceiling and the timeout are what bounds a
-// hostile pack today; git still shares this process's memory and temp disk.
-// Running it under its own memory, CPU and disk quotas is 94S-259.
+/**
+ * Headroom over the largest file git should write, for what the estimate in
+ * `gitLimits` does not itemise (index-pack's temporary names, the ref files).
+ */
+const FILE_SIZE_SLACK_BYTES = 1024 * 1024;
 
 /** The object count from the 12-byte pack header the bundle header precedes. */
 function packObjectCount(bytes: Uint8Array): number | undefined {
@@ -96,11 +116,18 @@ export function gitRefNameAcceptable(ref: string): boolean {
  * pack — a missing or corrupt object, a tip the pack did not deliver — is a
  * verdict about the bundle and comes back `unusable`. Everything else — no
  * temp space, no git binary, a spawn failure, a repository that would not
- * initialise, a git killed by a signal or by the timeout, or a failure this
- * code does not recognise — is thrown, so a healthy checkpoint is never
+ * initialise, a git killed by a signal or by the timeout, a git or helper
+ * that ran out of the memory, file size or CPU it is allowed, or a failure
+ * this code does not recognise — is thrown, so a healthy checkpoint is never
  * retired over a full disk or a busy host. Recognition is by git's own
  * wording under `LC_ALL=C`; the list is git's refusals, not the OS errors, so
  * that an unknown message errs toward a retry rather than a rejection.
+ *
+ * Running out of a limit is a fault rather than a verdict for the same
+ * reason the timeout is: "Out of memory" reads the same whether the pack
+ * asked for too much or the host had too little, and a limit sized wrong
+ * must not retire a healthy checkpoint for good. A hostile bundle is retried
+ * instead, and every retry costs no more than the limits allow.
  *
  * Nothing about this run outlives it: the repository is created under a fresh
  * temp directory and removed whichever way the run ends.
@@ -111,6 +138,8 @@ export function createGitWorkspaceBundleVerifier(
   const gitRunner = options.gitRunner ?? defaultGitRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_VERIFY_TIMEOUT_MS;
   const maxPackObjects = options.maxPackObjects ?? DEFAULT_MAX_PACK_OBJECTS;
+  const maxGitMemoryBytes =
+    options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
   return {
     async verify({ bytes, commit }) {
       // The structural read is the cheap gate: no git process for bytes that
@@ -143,6 +172,25 @@ export function createGitWorkspaceBundleVerifier(
       const directory = await mkdtemp(
         join(options.tempRoot ?? tmpdir(), "bundle-verify-"),
       );
+      const limits = gitLimits(bytes.byteLength, objects);
+      const git = (args: readonly string[], cwd: string) =>
+        gitRunner(args, {
+          clearGitEnvironment: true,
+          cwd,
+          env: {
+            // The verdict must not depend on whoever runs the control plane:
+            // no user config, no system config, no prompts, and git's
+            // messages in the one language `refused` below reads.
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_TERMINAL_PROMPT: "0",
+            LC_ALL: "C",
+            // Whatever git puts aside goes where the finally below removes it.
+            TMPDIR: directory,
+          },
+          limits,
+          timeoutMs,
+        });
       try {
         const bundle = join(directory, "workspace.bundle");
         const repository = join(directory, "repo.git");
@@ -160,7 +208,9 @@ export function createGitWorkspaceBundleVerifier(
         // fetch runs by default rejects a tip the pack does not deliver.
         // Maintenance is off because fetch otherwise detaches
         // `git maintenance run --auto`, which outlives this call and can
-        // recreate the repository after it has been removed.
+        // recreate the repository after it has been removed. One index-pack
+        // thread keeps a verification to one core; left alone it takes one
+        // per CPU.
         const fetch = await git(
           [
             "-c",
@@ -171,6 +221,8 @@ export function createGitWorkspaceBundleVerifier(
             "maintenance.auto=false",
             "-c",
             "gc.auto=0",
+            "-c",
+            "pack.threads=1",
             "fetch",
             "--quiet",
             "--no-tags",
@@ -193,21 +245,21 @@ export function createGitWorkspaceBundleVerifier(
     },
   };
 
-  function git(args: readonly string[], cwd: string) {
-    return gitRunner(args, {
-      clearGitEnvironment: true,
-      cwd,
-      env: {
-        // The verdict must not depend on whoever runs the control plane:
-        // no user config, no system config, no prompts, and git's messages
-        // in the one language `refused` below reads.
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_TERMINAL_PROMPT: "0",
-        LC_ALL: "C",
-      },
-      timeoutMs,
-    });
+  /**
+   * Disk needs no total: a bundle is always unpacked by index-pack, never
+   * into loose objects, so what git writes is a copy of the pack (no bigger
+   * than the bundle), its index (one entry per declared object, up to 40
+   * bytes each for SHA-256) and a reverse index smaller than that. Capping
+   * each file at the larger of the two keeps that true of whatever git is
+   * handed. CPU gets the wall-clock budget: one thread cannot use more.
+   */
+  function gitLimits(bundleBytes: number, objects: number): GitResourceLimits {
+    return {
+      cpuSeconds: Math.ceil(timeoutMs / 1000),
+      fileSizeBytes:
+        Math.max(bundleBytes, 1024 + objects * 40) + FILE_SIZE_SLACK_BYTES,
+      memoryBytes: maxGitMemoryBytes,
+    };
   }
 }
 
@@ -277,6 +329,9 @@ const HOST_FAULTS = [
   "cannot allocate memory",
   "out of memory",
   "read-only file system",
+  // A helper killed outright — by a file-size or CPU limit, or by anyone
+  // else — never got to say what it thought of the pack.
+  "died of signal",
 ];
 
 function refused(
@@ -288,6 +343,12 @@ function refused(
   if (result.timedOut) throw new Error(message);
   if (result.signal !== undefined) {
     throw new Error(`${command} was killed by ${result.signal}`);
+  }
+  // git's last words are the ones that say why it stopped, and they are what
+  // the cut dropped: a pack that made fsck talk past the limit and then ran
+  // git out of memory would otherwise be judged by its complaints alone.
+  if (result.truncated) {
+    throw new Error(`${message} (output cut short, so not classified)`);
   }
   const lowered = detail.toLowerCase();
   if (HOST_FAULTS.some((fault) => lowered.includes(fault))) {

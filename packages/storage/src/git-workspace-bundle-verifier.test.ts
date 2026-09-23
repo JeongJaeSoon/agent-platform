@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -17,8 +17,11 @@ import {
 
 import {
   createGitWorkspaceBundleVerifier,
+  DEFAULT_GIT_VERIFY_TIMEOUT_MS,
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
   GIT_TIMEOUT_EXIT_CODE,
+  type GitCommandOptions,
   type GitCommandRunner,
 } from "./index.ts";
 
@@ -535,4 +538,126 @@ describe("git workspace bundle verifier", () => {
     await rm(bin, { force: true, recursive: true });
     expect(await readdir(tempRoot)).toEqual([]);
   });
+
+  test("every git call runs under the limits, sized from the bundle", async () => {
+    const calls: { args: readonly string[]; options: GitCommandOptions }[] = [];
+    const verifier = createGitWorkspaceBundleVerifier({
+      gitRunner: async (args, options) => {
+        calls.push({ args, options });
+        return defaultGitRunner(args, options);
+      },
+      tempRoot,
+    });
+    expect(
+      await verifier.verify({
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
+    ).toEqual({ status: "restorable" });
+    expect(calls.map((call) => call.args[0])).toEqual([
+      "init",
+      "-c",
+      "rev-list",
+    ]);
+    for (const { options } of calls) {
+      expect(options.limits).toEqual({
+        cpuSeconds: DEFAULT_GIT_VERIFY_TIMEOUT_MS / 1000,
+        // Three objects: the index outweighs a bundle this small.
+        fileSizeBytes: 1024 + 3 * 40 + 1024 * 1024,
+        memoryBytes: DEFAULT_MAX_GIT_MEMORY_BYTES,
+      });
+      const { TMPDIR } = options.env;
+      expect(TMPDIR?.startsWith(join(tempRoot, "bundle-verify-"))).toBe(true);
+    }
+    expect(calls[1]?.args.join(" ")).toContain("-c pack.threads=1");
+  });
+
+  test("a git or helper stopped by a resource limit throws, never unusable", async () => {
+    // What git 2.47 on Linux prints when prlimit's caps bite: RLIMIT_AS as
+    // index-pack's malloc failure, RLIMIT_FSIZE and RLIMIT_CPU as its death
+    // by SIGXFSZ (25) or SIGKILL (9) reported by fetch.
+    for (const stderr of [
+      "fatal: Out of memory, malloc failed (tried to allocate 503316546 bytes)\nerror: index-pack died\n",
+      "error: index-pack died of signal 25\nerror: index-pack died\n",
+      "error: index-pack died of signal 9\nerror: index-pack died\n",
+    ]) {
+      const gitRunner: GitCommandRunner = async (args) =>
+        args[0] === "init"
+          ? { exitCode: 0, stderr: "", stdout: "" }
+          : { exitCode: 1, stderr, stdout: "" };
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner,
+        tempRoot,
+      });
+      await expect(
+        verifier.verify({
+          bytes: bundle.bytes,
+          commit: bundle.commit,
+          key: "k",
+        }),
+      ).rejects.toThrow(stderr.trim().split("\n")[0] as string);
+      expect(await readdir(tempRoot)).toEqual([]);
+    }
+    // The limit hitting git itself rather than a helper.
+    for (const signal of ["SIGXFSZ", "SIGXCPU", "SIGKILL"]) {
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner: async (args) =>
+          args[0] === "init"
+            ? { exitCode: 0, stderr: "", stdout: "" }
+            : { exitCode: 128, signal, stderr: "", stdout: "" },
+        tempRoot,
+      });
+      await expect(
+        verifier.verify({
+          bytes: bundle.bytes,
+          commit: bundle.commit,
+          key: "k",
+        }),
+      ).rejects.toThrow(`git fetch was killed by ${signal}`);
+    }
+  });
+
+  test("output cut short is not classified, even when what survived reads as a refusal", async () => {
+    const verifier = createGitWorkspaceBundleVerifier({
+      gitRunner: async (args) =>
+        args[0] === "init"
+          ? { exitCode: 0, stderr: "", stdout: "" }
+          : {
+              exitCode: 128,
+              stderr: "error: object 1234: fsck error in packed object\n",
+              stdout: "",
+              truncated: true,
+            },
+      tempRoot,
+    });
+    await expect(
+      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+    ).rejects.toThrow("output cut short");
+  });
+
+  test.skipIf(process.platform !== "linux")(
+    "on Linux an object bigger than the memory cap kills index-pack and throws",
+    async () => {
+      // Incompressible, so the bundle stays as big as the object and
+      // index-pack has to hold all of it at once.
+      const big = await createGitBundle({
+        contents: new Uint8Array(randomBytes(16 * 1024 * 1024)),
+      });
+      const capped = createGitWorkspaceBundleVerifier({
+        maxGitMemoryBytes: 16 * 1024 * 1024,
+        tempRoot,
+      });
+      await expect(
+        capped.verify({ bytes: big.bytes, commit: big.commit, key: "k" }),
+      ).rejects.toThrow("Out of memory");
+      expect(await readdir(tempRoot)).toEqual([]);
+      // Same bundle, default cap: the limit, not the bundle, was the cause.
+      const roomy = createGitWorkspaceBundleVerifier({ tempRoot });
+      expect(
+        await roomy.verify({ bytes: big.bytes, commit: big.commit, key: "k" }),
+      ).toEqual({ status: "restorable" });
+    },
+    60_000,
+  );
 });

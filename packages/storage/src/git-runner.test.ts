@@ -1,9 +1,22 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultGitRunner, GIT_OUTPUT_LIMIT_BYTES } from "./git-runner.ts";
+import {
+  defaultGitRunner,
+  GIT_OUTPUT_LIMIT_BYTES,
+  type GitResourceLimits,
+} from "./git-runner.ts";
+
+const linux = process.platform === "linux";
+
+/** Roomy enough that only the one limit a test tightens can bite. */
+const roomy: GitResourceLimits = {
+  cpuSeconds: 60,
+  fileSizeBytes: 64 * 1024 * 1024,
+  memoryBytes: 512 * 1024 * 1024,
+};
 
 let bin: string;
 
@@ -61,4 +74,79 @@ describe("defaultGitRunner", () => {
       else process.env.GIT_DIR = previous;
     }
   });
+
+  test("a git that fails does not leave its helpers holding the result", async () => {
+    // The helper keeps stdout open; without the group kill on exit the runner
+    // would wait for it rather than for git.
+    const env = await fakeGit("/bin/sleep 30 & echo failed >&2; exit 1");
+    const started = Date.now();
+    const result = await defaultGitRunner(["x"], { env });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("failed\n");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  test("refuses limits that are not positive integers before starting git", async () => {
+    const env = await fakeGit("echo ran");
+    for (const limits of [
+      { ...roomy, memoryBytes: 0 },
+      { ...roomy, fileSizeBytes: 1.5 },
+      { ...roomy, cpuSeconds: Number.POSITIVE_INFINITY },
+    ]) {
+      await expect(defaultGitRunner(["x"], { env, limits })).rejects.toThrow(
+        RangeError,
+      );
+    }
+  });
+
+  test.skipIf(!linux)(
+    "a file past fileSizeBytes kills git with SIGXFSZ",
+    async () => {
+      const out = join(bin, "written");
+      const env = await fakeGit(
+        `exec /usr/bin/head -c ${4 * 1024 * 1024} /dev/zero > ${out}`,
+      );
+      const result = await defaultGitRunner(["x"], {
+        env,
+        limits: { ...roomy, fileSizeBytes: 1024 * 1024 },
+      });
+      expect(result.signal).toBe("SIGXFSZ");
+      expect((await stat(out)).size).toBe(1024 * 1024);
+    },
+  );
+
+  test.skipIf(!linux)(
+    "a git past cpuSeconds is killed",
+    async () => {
+      const env = await fakeGit("exec /bin/sh -c 'while :; do :; done'");
+      const result = await defaultGitRunner(["x"], {
+        env,
+        limits: { ...roomy, cpuSeconds: 1 },
+        timeoutMs: 20_000,
+      });
+      // Soft and hard limit are the same, so SIGXCPU may be followed by
+      // SIGKILL before the shell ever handles the first.
+      expect(["SIGXCPU", "SIGKILL"]).toContain(result.signal as string);
+      expect(result.timedOut).toBeUndefined();
+    },
+    30_000,
+  );
+
+  test.skipIf(linux)(
+    "where limits cannot be enforced git still runs, and says so once",
+    async () => {
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const env = await fakeGit("echo ran");
+        const first = await defaultGitRunner(["x"], { env, limits: roomy });
+        const second = await defaultGitRunner(["x"], { env, limits: roomy });
+        expect(first.stdout).toBe("ran\n");
+        expect(second.stdout).toBe("ran\n");
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0]?.[0])).toContain("not enforced");
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
 });
