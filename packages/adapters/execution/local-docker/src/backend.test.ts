@@ -74,6 +74,8 @@ class FakeDocker {
   readonly others = new Map<string, FakeProxy>();
   /** Every network connect answers 403 without attaching anything. */
   refuseConnects = false;
+  /** Every network disconnect answers 500 and leaves the endpoint. */
+  refuseDisconnects = false;
   /** The next network create answers 409 as if a racer had just made it. */
   networkCreateRace: FakeNetwork | null = null;
   readonly requests: Array<{ method: string; path: string; query: string }> =
@@ -488,6 +490,9 @@ class FakeDocker {
           aliases: body.EndpointConfig?.Aliases ?? [],
         });
         return new Response(null, { status: 200 });
+      }
+      if (this.refuseDisconnects) {
+        return json({ message: "failed to disconnect" }, 500);
       }
       const worker = this.byIdOrName(body.Container);
       const mode = worker?.body.HostConfig.NetworkMode;
@@ -1835,6 +1840,21 @@ describe("LocalDockerBackend worker networks", () => {
     expect(networkOf(intent)?.attached.has(PROXY)).toBe(false);
   });
 
+  test("a refusal whose proxy detach did not hold says so", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!worker) throw new Error("no worker");
+    docker.addNetwork("somewhere-else").attached.set(worker.id, {
+      aliases: [],
+    });
+    docker.refuseDisconnects = true;
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      /is not the only network.*could NOT be detached/,
+    );
+  });
+
   test("a refused replacement takes a pre-contract-5 worker off the shared network", async () => {
     const intent = intentFor();
     const body = await createBodyOf(intent);
@@ -1852,6 +1872,32 @@ describe("LocalDockerBackend worker networks", () => {
     expect(
       docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
     ).toEqual({});
+  });
+
+  test("a refused replacement leaves a claimed pre-contract-5 worker connected", async () => {
+    // The scheduler tears a claimed one down itself; cutting it off here
+    // would only race that.
+    const intent = intentFor({
+      bootstrapCredentialState: async () => ({
+        claimed: true,
+        fingerprint: fingerprintOf("nonce-abc"),
+      }),
+    });
+    const body = await createBodyOf(intent);
+    docker.addNetwork("agent-platform-worker");
+    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.Labels[LABELS.isolation] = "4:0000000000000000";
+    const old = docker.add(containerNameFor(intent, "test-a"), body);
+    docker.images.delete("worker:test");
+
+    const refusal = await backend.assertReplaceable(intent).catch((e) => e);
+    expect(String(refusal)).toContain("is not on this daemon");
+    expect(String(refusal)).not.toContain("taken off");
+    expect(
+      Object.keys(
+        docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
+      ),
+    ).toEqual(["agent-platform-worker"]);
   });
 
   test("a refused replacement leaves a worker on its own network where it is", async () => {

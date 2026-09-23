@@ -553,7 +553,13 @@ export class LocalDockerBackend implements ExecutionBackend {
           // The proxy is on the network by now. A container that took the
           // name since `launchedContainerId` looked, or one of ours that is
           // on another network besides, must not keep it through a refusal.
-          await this.detachProxies(network, new Set([proxy.Id]));
+          // A detach that did not hold is said in the refusal; the next
+          // `reconcileNetworks` tries again and fails the pass until it does.
+          const detached = await this.detachProxies(
+            network,
+            new Set([proxy.Id]),
+          );
+          if (error instanceof Error) error.message += `; ${detached}`;
           throw error;
         }
         if (
@@ -712,6 +718,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     } catch {
       return null;
     }
+    // Only an unclaimed launch: a claimed one is torn down by the scheduler
+    // without asking this at all. A claim landing between this read and
+    // the disconnect is not fenced here; that worker loses its network,
+    // which is less than the teardown the next pass gives a claimed
+    // pre-contract-5 worker anyway.
+    if ((await intent.bootstrapCredentialState()).claimed) return null;
     const networks = Object.keys(existing.NetworkSettings?.Networks ?? {});
     for (const network of networks) {
       await this.client
