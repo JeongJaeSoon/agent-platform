@@ -858,6 +858,20 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
     ]);
   });
 
+  test("a turn the engine gave no total for finalizes with no cost, not zero (94S-275)", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      { type: "emit", message: resultMessage(uuidForTurn(1)) },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("one message");
+
+    await host.runLoop();
+
+    expect(gateway.finalized).toHaveLength(1);
+    expect(gateway.finalized[0]?.terminal.cost_usd).toBeNull();
+  });
+
   test("reports a runaway total at the protocol's ceiling instead of a terminal the gateway refuses", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },

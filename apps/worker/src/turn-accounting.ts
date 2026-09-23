@@ -22,22 +22,46 @@ export type ProviderFailure = {
  * A total of zero after spending is not a restart — it is a result that
  * reports nothing (a request that never reached the provider) — so it
  * neither charges nor moves the baseline.
+ *
+ * A turn whose own result carried no usable total settles with no cost at
+ * all, not zero, so the API can tell an unknown cost from a zero one
+ * (94S-275). Zero is a figure only while nothing has been spent, when it
+ * agrees with the baseline. What was carried from other results then waits
+ * for the next turn that does report, rather than lending this one a figure.
  */
 export class TurnAccounting {
   private lastTotalUsd = 0;
   private lastSessionId: string | undefined;
   private unsettledUsd = 0;
+  // Whether the latest result gave a usable total. Settlement follows the
+  // settling turn's own result, so this is that turn's report.
+  private lastResultReported = false;
   private providerFailure: ProviderFailure | undefined;
 
   observe(native: NativeSdkMessage): void {
     if (native.type === "result") {
       const total = native.total_cost_usd;
+      this.lastResultReported = false;
       if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
         return;
       }
-      if (total === 0) return;
       const sessionId =
         typeof native.session_id === "string" ? native.session_id : undefined;
+      if (total === 0) {
+        // A new engine session that has spent nothing yet is a real zero,
+        // and it is the baseline from here on.
+        if (
+          sessionId !== undefined &&
+          this.lastSessionId !== undefined &&
+          sessionId !== this.lastSessionId
+        ) {
+          this.lastTotalUsd = 0;
+          this.lastSessionId = sessionId;
+        }
+        this.lastResultReported = this.lastTotalUsd === 0;
+        return;
+      }
+      this.lastResultReported = true;
       const restarted =
         total < this.lastTotalUsd ||
         (this.lastSessionId !== undefined && sessionId !== this.lastSessionId);
@@ -75,12 +99,16 @@ export class TurnAccounting {
    * previous one. A cost with no turn to carry it — a result nobody was
    * waiting for — rides on the next one instead of being dropped.
    */
-  settle(): { costUsd: number; providerFailure: ProviderFailure | undefined } {
+  settle(): {
+    costUsd: number | undefined;
+    providerFailure: ProviderFailure | undefined;
+  } {
     const settled = {
-      costUsd: this.unsettledUsd,
+      costUsd: this.lastResultReported ? this.unsettledUsd : undefined,
       providerFailure: this.providerFailure,
     };
-    this.unsettledUsd = 0;
+    if (this.lastResultReported) this.unsettledUsd = 0;
+    this.lastResultReported = false;
     this.providerFailure = undefined;
     return settled;
   }

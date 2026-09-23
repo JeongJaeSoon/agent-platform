@@ -11,7 +11,7 @@ function result(total: unknown, sessionId = "s"): NativeSdkMessage {
   } as NativeSdkMessage;
 }
 
-function charges(totals: unknown[]): number[] {
+function charges(totals: unknown[]): Array<number | undefined> {
   const accounting = new TurnAccounting();
   return totals.map((total) => {
     accounting.observe(result(total));
@@ -38,12 +38,48 @@ describe("TurnAccounting", () => {
     expect(accounting.settle().costUsd).toBe(0.25);
   });
 
-  test("a zero total after spending charges nothing and keeps the baseline", () => {
-    expect(charges([1, 0, 1.5])).toEqual([1, 0, 0.5]);
+  test("a zero total after spending reports nothing and keeps the baseline", () => {
+    expect(charges([1, 0, 1.5])).toEqual([1, undefined, 0.5]);
   });
 
-  test("ignores totals that are missing or not a cost", () => {
-    expect(charges([undefined, -1, Number.NaN, 0.5])).toEqual([0, 0, 0, 0.5]);
+  test("a zero total before any spending is a cost of zero", () => {
+    expect(charges([0, 0.5])).toEqual([0, 0.5]);
+  });
+
+  test("a new engine session that has spent nothing reports zero and resets the baseline", () => {
+    const accounting = new TurnAccounting();
+    accounting.observe(result(1, "old"));
+    expect(accounting.settle().costUsd).toBe(1);
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBe(0);
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBe(0);
+    accounting.observe(result(0.5, "new"));
+    expect(accounting.settle().costUsd).toBe(0.5);
+    // A zero after spending in the same session is still no report.
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBeUndefined();
+  });
+
+  test("a turn whose totals are missing or not a cost has no cost, not zero", () => {
+    expect(charges([undefined, -1, Number.NaN, 0.5])).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      0.5,
+    ]);
+  });
+
+  test("a turn that reports nothing leaves carried cost for the next turn that does", () => {
+    const accounting = new TurnAccounting();
+    accounting.observe(result(1));
+    expect(accounting.settle().costUsd).toBe(1);
+    // Another turn's result, then this turn's own unusable zero.
+    accounting.observe(result(1.25));
+    accounting.observe(result(0));
+    expect(accounting.settle().costUsd).toBeUndefined();
+    accounting.observe(result(2));
+    expect(accounting.settle().costUsd).toBe(1);
   });
 
   test("a result nobody settled rides on the next settlement", () => {
@@ -51,7 +87,7 @@ describe("TurnAccounting", () => {
     accounting.observe(result(0.25));
     accounting.observe(result(0.75));
     expect(accounting.settle().costUsd).toBe(0.75);
-    expect(accounting.settle().costUsd).toBe(0);
+    expect(accounting.settle().costUsd).toBeUndefined();
   });
 
   test("remembers the last retry status, and forgets it once a request succeeds", () => {
