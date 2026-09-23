@@ -256,7 +256,11 @@ sub(dockerfile, r"# API image: .*?with 94S-117 by changing the paths below\.\n",
     flags=re.S)
 
 compose = "infra/docker-compose.yml"
-replace(compose, "image: ${API_IMAGE:-agent-platform-api:dev}", "image: ${API_IMAGE:-agent-platform-control-host:dev}")
+# api, and 94S-320's reconciler service when it is there, run this image.
+api_users = read(compose).count("image: ${API_IMAGE:-agent-platform-api:dev}")
+assert api_users in (1, 2), api_users
+replace(compose, "image: ${API_IMAGE:-agent-platform-api:dev}", "image: ${API_IMAGE:-agent-platform-control-host:dev}",
+        count=api_users)
 # Only `api` builds the shared image: two services building one tag race on
 # export ("image already exists"). The scheduler already waits for a healthy
 # api, so `up --build` has the image before the scheduler is created.
@@ -272,6 +276,15 @@ replace(compose, "  scheduler:\n    build:\n      context: ..\n      dockerfile:
         "    # non-root uid would only work on some of them while buying no\n"
         "    # isolation on any.\n"
         "    user: \"0:0\"\n")
+
+
+SHARED_BUILD = re.compile(r"\n  (?!api:)([a-z][a-z-]*):\n    build:\n      context: \.\.\n"
+                          r"      dockerfile: apps/control-host/Dockerfile\n"
+                          r"(    image: \$\{API_IMAGE:-agent-platform-control-host:dev\}\n)")
+for name in SHARED_BUILD.findall(read(compose)):
+    print(f"compose: {name[0]} runs the image api builds; dropping its build")
+text = SHARED_BUILD.sub(r"\n  \1:\n\2", read(compose))
+write(compose, text)
 
 
 def without_scheduler(match):
@@ -318,16 +331,19 @@ assert pins >= 2, pins
 sub(images_test, r"basePins\.api\.", 'basePins["control-host"].', count=pins)
 if re.search(r'staged/\*\.json \| wc -l\)" -eq \d', read(images_test)):
     sub(images_test, r'(staged/\*\.json \| wc -l\)" -eq )(\d+)', lambda m: f"{m.group(1)}{int(m.group(2)) - 1}")
+# 94S-320's reconciler service, if it still builds the image: it runs it now.
+RECONCILER_BUILD = r'expect\(reconcilerBlock\)\.toContain\(\s*"dockerfile: apps/control-host/Dockerfile",?\s*\);'
+if re.search(RECONCILER_BUILD, read(images_test)):
+    sub(images_test, RECONCILER_BUILD,
+        'expect(reconcilerBlock).toContain(\n      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",\n    );')
 # 94S-323: an image that is not built here must be pinned by digest. The
 # scheduler runs the one `api` builds, which is released by digest with it.
 if "test(\"every image is built here or pinned by index digest\"" in read(images_test):
     replace(images_test,
             "        continue;\n      }\n      expect({ name, image: service.image }).toEqual({\n",
             "        continue;\n      }\n"
-            "      if (name === \"scheduler\") {\n"
-            "        expect(service.image).toBe(services.api?.image);\n"
-            "        continue;\n"
-            "      }\n"
+            "      // Runs the image `api` builds, released by digest with it (94S-117).\n"
+            "      if (service.image === services.api?.image) continue;\n"
             "      expect({ name, image: service.image }).toEqual({\n")
 sub(images_test, r'("app: \[)([^\]]*)\]"', lambda m: without_scheduler(m) + '"')
 replace(images_test,
