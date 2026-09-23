@@ -58,6 +58,9 @@ export type ClaimInput = {
   // Only a session whose profile appears here may be bound: a host that does
   // not know the profile cannot pick the runtime to start.
   runnableProfiles: string[];
+  // A session that has spent this much is not bound: it would only be told
+  // to release again at its first nextInput (94S-131).
+  costLimitUsd: number;
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
@@ -89,7 +92,12 @@ export type ResolvedCredential =
   | { kind: "bootstrap" }
   | null;
 
-export type NextInputInput = { fence: WorkerFence; now: Date };
+export type NextInputInput = {
+  fence: WorkerFence;
+  now: Date;
+  // A session that has spent this much is handed no new turn (94S-131).
+  costLimitUsd: number;
+};
 export type DeliveredInput = {
   turnId: string;
   inputId: string;
@@ -103,6 +111,11 @@ export type NextInputResult =
       leaseExpiresAt: Date;
       /** Set when the attempt is draining: nothing new is coming, so stop polling. */
       draining?: true;
+      /**
+       * Nothing new will come for a reason outside the attempt: the session
+       * has spent its budget. The worker should release its slot.
+       */
+      blocked?: "BUDGET_EXCEEDED";
     }
   | FenceRejection;
 

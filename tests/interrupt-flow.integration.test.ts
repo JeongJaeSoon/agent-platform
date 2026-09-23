@@ -152,13 +152,18 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
     });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
       checkpoints: { verify: async () => ({ status: "verified" }) },
       pending: createPostgresWorkerPendingStore(db),
-      options: { leaseTtlMs: 30_000 },
+      options: { leaseTtlMs: 30_000, sessionCostLimitUsd: 1_000 },
     });
     const app = createApiApp({
       authMode: "none",

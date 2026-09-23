@@ -66,6 +66,7 @@ beforeEach(async () => {
     },
     checkpoints: acceptAllCheckpoints,
     options: {
+      sessionCostLimitUsd: 1_000,
       leaseTtlMs: LEASE_TTL_MS,
       now: () => clock,
       sleep: async () => {},
@@ -83,6 +84,7 @@ afterEach(async () => {
 
 async function seedSession() {
   const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+    limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
     principal: { ownerId: "owner-a" },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
@@ -471,7 +473,11 @@ describe("/internal/worker", () => {
                 return { status: "none" };
               },
             },
-            options: { leaseTtlMs: LEASE_TTL_MS, now: () => clock },
+            options: {
+              sessionCostLimitUsd: 1_000,
+              leaseTtlMs: LEASE_TTL_MS,
+              now: () => clock,
+            },
           }),
         ),
     });

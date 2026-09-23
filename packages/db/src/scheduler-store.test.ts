@@ -63,6 +63,7 @@ beforeEach(async () => {
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   store = createPostgresSchedulerStore(db, {
+    sessionCostLimitUsd: 1_000,
     connectForLock: async () => ({
       query: async (text: string) => {
         const result = await client.query<Record<string, unknown>>(text);

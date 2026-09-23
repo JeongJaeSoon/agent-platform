@@ -94,6 +94,12 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
    */
   repositoryClaudeMd?: { contents: string | null };
   /**
+   * How many times the engine retries a failed Messages request (5xx,
+   * overload, rate limit, connection) before the turn fails with
+   * `terminal_reason: "api_error"`. Unset leaves the engine's own policy.
+   */
+  providerMaxRetries?: number;
+  /**
    * Where the engine mirrors root and subagent transcripts. Without it the
    * transcript lives only on the container's disk, which no checkpoint can
    * outlive.

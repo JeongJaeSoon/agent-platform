@@ -831,6 +831,123 @@ describe("WorkerHost ownership and shutdown", () => {
   });
 });
 
+describe("WorkerHost cost and provider failures (94S-131)", () => {
+  test("finalizes each turn with its share of the engine's running total", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: { ...resultMessage(uuidForTurn(1)), total_cost_usd: 0.5 },
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: { ...resultMessage(uuidForTurn(2)), total_cost_usd: 1.25 },
+      },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("first message");
+    gateway.enqueue("second message");
+
+    await host.runLoop();
+
+    expect(gateway.finalized.map((call) => call.terminal.cost_usd)).toEqual([
+      0.5, 0.75,
+    ]);
+  });
+
+  test("reports a runaway total at the protocol's ceiling instead of a terminal the gateway refuses", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: { ...resultMessage(uuidForTurn(1)), total_cost_usd: 5e6 },
+      },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("one message");
+
+    await host.runLoop();
+
+    expect(gateway.finalized[0]?.terminal.cost_usd).toBe(1_000_000);
+  });
+
+  test("a provider that kept refusing fails the turn as api_error with what it answered", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          type: "system",
+          subtype: "api_retry",
+          error: "server_error",
+          error_status: 503,
+          session_id: "fake-session",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          ...assistantMessage("API Error: 500"),
+          error: "server_error",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          ...resultMessage(uuidForTurn(1)),
+          is_error: true,
+          terminal_reason: "api_error",
+          api_error_status: 500,
+          total_cost_usd: 0,
+        },
+      },
+    ]);
+    gateway.enqueue("one message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "api_error" },
+    ]);
+    expect(gateway.finalized[0]?.terminal).toMatchObject({
+      status: "failed",
+      reason: "api_error",
+      cost_usd: 0,
+      result: {
+        subtype: "success",
+        is_error: true,
+        terminal_reason: "api_error",
+        api_error_status: 500,
+        provider_error: "server_error",
+        last_retry_status: 503,
+      },
+    });
+  });
+
+  test("gives the slot back as soon as the gateway says the budget is spent", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { idleTimeoutMs: 60_000 } },
+    );
+    gateway.enqueue("one message");
+
+    const running = host.runLoop();
+    await waitFor(() => gateway.finalized.length === 1, "the first finalize");
+    gateway.overBudget = true;
+    const summary = await running;
+
+    expect(summary.outcome).toBe("idle");
+    expect(summary.reason).toContain("BUDGET_EXCEEDED");
+    expect(gateway.releases).toHaveLength(1);
+  });
+});
+
 describe("inputUuid", () => {
   test("is stable for one delivered input and distinct across inputs", () => {
     const first = inputUuid(SESSION_ID, "1", "msg-1");

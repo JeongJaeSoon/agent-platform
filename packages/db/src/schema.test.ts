@@ -81,6 +81,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "sessions",
+      "storage_usage",
       "turns",
       "unassigned_sessions",
       "users",

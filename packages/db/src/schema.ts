@@ -13,6 +13,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -28,6 +29,9 @@ const bytea = customType<{ data: Uint8Array }>({
     return "bytea";
   },
 });
+
+/** The largest `sessions.cost_usd` numeric(14, 6) holds; sums saturate here. */
+export const MAX_SESSION_COST_USD = 99_999_999.999999;
 
 export const sessionStatus = pgEnum("session_status", SESSION_STATUS_VALUES);
 export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
@@ -405,8 +409,15 @@ export const sessions = pgTable(
     // agent_releases lands with I0-5b (94S-154); the FK is added there. Not
     // a uuid: release ids are derived hashes (94S-148 agentReleaseIdSchema).
     agentReleaseId: text("agent_release_id"),
+    // What the engine reported this session's turns cost, summed at each
+    // finalize (94S-131). An estimate: turns whose cost was never reported
+    // add nothing. Compared against SESSION_COST_LIMIT_USD at dispatch.
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
+      .notNull()
+      .default(0),
   },
   (table) => [
+    check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
       .where(sql`${table.podId} IS NOT NULL`),
@@ -424,6 +435,23 @@ export const sessions = pgTable(
       table.workspaceId,
     ),
   ],
+);
+
+// Retained content the installation holds (94S-131). A `turns` insert trigger
+// (migration 0107) charges every input in the same transaction that writes
+// it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
+// concurrent writer can race past the limit. One row per scope: today only
+// "installation"; 94S-187 adds per-workspace rows for memory revisions.
+export const storageUsage = pgTable(
+  "storage_usage",
+  {
+    scope: text().primaryKey(),
+    bytes: bigint({ mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("storage_usage_bytes_nonneg", sql`${table.bytes} >= 0`)],
 );
 
 export const turns = pgTable(

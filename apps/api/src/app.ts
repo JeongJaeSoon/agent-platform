@@ -97,6 +97,8 @@ export class ApiHttpError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retryable = false,
+    // Sent as Retry-After: when a retry is worth making, not a promise.
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -458,6 +460,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   );
   app.onError((error, context) => {
     if (error instanceof ApiHttpError) {
+      if (error.retryAfterSeconds !== undefined) {
+        context.header("Retry-After", String(error.retryAfterSeconds));
+      }
       return errorResponse(
         context,
         error.status,

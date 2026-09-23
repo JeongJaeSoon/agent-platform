@@ -113,6 +113,13 @@
       "when": 1790153618596,
       "tag": "0106_material_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1790157839835,
+      "tag": "0107_installation_limits",
+      "breakpoints": true
     }
   ]
 }

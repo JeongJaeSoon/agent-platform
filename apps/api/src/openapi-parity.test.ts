@@ -94,10 +94,7 @@ function openApiRoutes(): Set<string> {
 }
 
 // Declared but not yet produced by any handler.
-const DECLARED_ONLY_ERRORS: Record<string, number[]> = {
-  "POST /v1/sessions": [429],
-  "POST /v1/sessions/{id}/messages": [429],
-};
+const DECLARED_ONLY_ERRORS: Record<string, number[]> = {};
 
 test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();

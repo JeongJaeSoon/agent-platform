@@ -37,6 +37,7 @@ describe("worker composition surface", () => {
         claudeConfigDir: "/home/worker/.claude",
         cwd: "/workspace",
         home: "/home/worker",
+        providerMaxRetries: 2,
       },
       timeouts: {
         answerPollIntervalMs: 1_000,

@@ -117,7 +117,12 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       },
       checkpoints: checkpoints.verifier,
       checkpointProtocol: checkpoints.protocol,
-      options: { leaseTtlMs: 30_000, now: () => clock, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: 30_000,
+        now: () => clock,
+        sleep: async () => {},
+      },
     });
   }, 120_000);
 
@@ -145,6 +150,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: "owner-a" },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: "hash",

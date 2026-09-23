@@ -141,6 +141,10 @@ integration(
       EXECUTION_EGRESS_PROXY_URL: proxyUrl,
       EXECUTION_INSTALLATION_ID: installationId,
       EXECUTION_SLOT_LIMIT: "1",
+      MAX_TURN_SECONDS: "3600",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
       // The runner's data root is ext4, so this daemon cannot put a ceiling
       // on a volume and the preflight refuses to start without the opt-out.
       // The ceiling itself is covered by the `workspace-quota` job.
@@ -186,7 +190,7 @@ integration(
           repositories: {},
         },
         checkpoints: acceptAllCheckpoints,
-        options: { leaseTtlMs: 60_000 },
+        options: { leaseTtlMs: 60_000, sessionCostLimitUsd: 25 },
       });
       const app = createApiApp({
         authMode: "api-key",
@@ -201,6 +205,10 @@ integration(
       const accepted = await createPostgresSessionUnitOfWork(
         db,
       ).acceptInputAtomic({
+        limits: {
+          queuedInputLimitPerSession: 20,
+          storageLimitBytes: 1073741824,
+        },
         principal: { ownerId: installationId },
         idempotencyKey: crypto.randomUUID(),
         payloadHash: "hash",

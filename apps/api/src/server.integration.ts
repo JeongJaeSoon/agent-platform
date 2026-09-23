@@ -127,6 +127,11 @@ integration("API server on PostgreSQL", () => {
           CHECKPOINT_OBJECT_STORE:
             process.env.CHECKPOINT_OBJECT_STORE ?? "disabled",
           DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
           PORT: String(port),
         },
         stdout: "pipe",
@@ -165,6 +170,49 @@ integration("API server on PostgreSQL", () => {
       const logs = `${await serverStdout}${await serverStderr}`;
       expect(logs).not.toContain(plaintext);
       expect(logs).not.toContain("Authorization");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses to start on missing or malformed installation limits, naming each (94S-131)",
+    async () => {
+      const server = Bun.spawn(["bun", "run", "src/server.ts"], {
+        cwd: `${import.meta.dir}/..`,
+        env: {
+          ...process.env,
+          AUTH_MODE: "api-key",
+          DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          // Blank counts as missing, and overrides whatever the runner has.
+          SESSION_COST_LIMIT_USD: "",
+          STORAGE_LIMIT_BYTES: "-1",
+          PORT: String(40_000 + ((process.pid + 1) % 20_000)),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = Promise.all([
+        new Response(server.stdout).text(),
+        new Response(server.stderr).text(),
+      ]).then((parts) => parts.join(""));
+      const exitCode = await Promise.race([
+        server.exited,
+        Bun.sleep(SERVER_START_DEADLINE_MS).then(() => {
+          server.kill("SIGKILL");
+          return "timeout" as const;
+        }),
+      ]);
+      const logs = await output;
+      expect(exitCode, logs).not.toBe(0);
+      expect(exitCode, logs).not.toBe("timeout");
+      expect(logs).toContain(
+        "Refusing to start: installation limits are invalid",
+      );
+      expect(logs).toContain("SESSION_COST_LIMIT_USD is required");
+      expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,
   );

@@ -68,6 +68,11 @@ integration("auth API on PostgreSQL", () => {
       logger,
     };
     const sessions = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),

@@ -105,6 +105,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       },
       pending: createPostgresWorkerPendingStore(db),
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         sleep: async () => {},
         ...(pendingTtlMs === undefined ? {} : { pendingTtlMs }),
@@ -188,6 +189,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -608,6 +610,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       .set({ admissionState: "active", status: "idle" })
       .where(eq(sessions.id, sessionId));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       sessionId,
       idempotencyKey: crypto.randomUUID(),

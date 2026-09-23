@@ -18,6 +18,7 @@ import {
   NO_PROXY_VALUE,
   networkNameFor,
   stateOf,
+  workerEnvironmentFor,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
@@ -756,6 +757,40 @@ function workspaceNameOf(
   const prefix = workspaceVolumePrefixFor(sessionId, installationId);
   return [...docker.volumes.keys()].find((name) => name.startsWith(prefix));
 }
+
+test("hands the worker the installation's turn and retry limits when they are set (94S-131)", () => {
+  const intent = intentFor();
+  const base = configFor("unix:///fake.sock");
+  const without = workerEnvironmentFor(base, intent, "nonce-abc");
+  expect(without.some((entry) => entry.startsWith(ENV.maxTurnSeconds))).toBe(
+    false,
+  );
+  const limited = workerEnvironmentFor(
+    { ...base, workerLimits: { maxTurnSeconds: 900, providerMaxRetries: 0 } },
+    intent,
+    "nonce-abc",
+  );
+  expect(limited).toEqual([
+    ...without,
+    "WORKER_MAX_TURN_SEC=900",
+    "WORKER_PROVIDER_MAX_RETRIES=0",
+  ]);
+});
+
+test("a container started under other worker limits, or none, is stale (94S-131)", () => {
+  const base = configFor("unix:///fake.sock");
+  const limited = {
+    ...base,
+    workerLimits: { maxTurnSeconds: 900, providerMaxRetries: 2 },
+  };
+  expect(isolationStampFor(limited)).not.toBe(isolationStampFor(base));
+  expect(
+    isolationStampFor({
+      ...limited,
+      workerLimits: { maxTurnSeconds: 1800, providerMaxRetries: 2 },
+    }),
+  ).not.toBe(isolationStampFor(limited));
+});
 
 describe("LocalDockerBackend.ensureExecution", () => {
   test("creates and starts a container whose config matches the isolation contract", async () => {

@@ -70,6 +70,7 @@ function gateway(
     catalog: { profiles: {}, repositories: {} },
     checkpoints: acceptAllCheckpoints,
     options: {
+      sessionCostLimitUsd: 1_000,
       leaseTtlMs: 30_000,
       maxWaitMs: 1_000,
       pollIntervalMs: 100,
@@ -205,7 +206,7 @@ describe("WorkerGateway", () => {
           return { status: "rejected", reason: "sha mismatch" };
         },
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     await expect(
       instance.finalize(principal, {
@@ -274,7 +275,7 @@ describe("WorkerGateway", () => {
           return { status: "rejected", reason: "storage is unreachable" };
         },
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     // The turn is already terminal, so a verifier that happens to be down
     // must not hide a result the worker has no other way to learn.
@@ -320,6 +321,7 @@ describe("WorkerGateway", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: 30_000,
         pollIntervalMs: 250,
         now: () => at,
@@ -407,7 +409,7 @@ describe("WorkerGateway", () => {
       // No repositories at all: the descriptor never consults the catalog.
       catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     const request = {
       execution_id: "e",
@@ -454,7 +456,7 @@ describe("WorkerGateway", () => {
         repositories: {},
       },
       checkpoints: acceptAllCheckpoints,
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     const offClaim = await off.bootstrapClaim({ kind: "bootstrap" }, request);
     expect("project_settings" in offClaim.runtime_config).toBe(false);
@@ -470,7 +472,7 @@ describe("WorkerGateway", () => {
       }),
       catalog: { profiles: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     await expect(
       stranger.bootstrapClaim({ kind: "bootstrap" }, request),
@@ -534,7 +536,7 @@ describe("WorkerGateway", () => {
           return unimplemented();
         },
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     expect(
       await instance.requestCheckpoint(principal, {
@@ -604,7 +606,7 @@ describe("WorkerGateway", () => {
         requestCheckpoint: unimplemented,
         getRestorePlan: unimplemented,
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     await expect(
       fenced.requestCheckpoint(principal, {
@@ -652,7 +654,7 @@ describe("WorkerGateway", () => {
           return answer;
         },
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     expect(
       await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
@@ -810,7 +812,7 @@ describe("WorkerGateway", () => {
           throw outage;
         },
       },
-      options: { leaseTtlMs: 30_000 },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
     const finalizeRequest = {
       ...scope,

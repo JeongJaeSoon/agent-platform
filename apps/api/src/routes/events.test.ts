@@ -140,6 +140,11 @@ function harness(
   const store = new FakeStore();
   const wakeup = new FakeWakeup();
   const service = createSessionService({
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    },
     authorization: ownerScopedPolicy,
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
@@ -373,6 +378,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     for (let i = 1; i <= 5_000; i += 1) store.append(event(i));
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -469,6 +479,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     const { store, wakeup } = harness();
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -519,6 +534,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     for (let i = 1; i <= 300; i += 1) store.append(event(i));
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -576,6 +596,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -639,6 +664,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -711,6 +741,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     // one keepalive of the last check that answered.
     let lookups = 0;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -797,6 +832,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     const wakeup = new FakeWakeup();
     let lookups = 0;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },

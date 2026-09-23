@@ -46,10 +46,14 @@ console.log(zombies);
 api_init_smoke() {
   local image="$1" cid pid1 server_ppid zombies control
   # The default command, with a database that is never reached: the server
-  # stays up (readiness answers 503) and nothing here needs it.
+  # stays up (readiness answers 503) and nothing here needs it. The
+  # installation limits have no code default (94S-131).
   cid="$(docker run -d --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
     -e CHECKPOINT_OBJECT_STORE=disabled \
+    -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
+    -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
+    -e SESSION_COST_LIMIT_USD=1 \
     "$image")"
   sleep 3
   if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != true ]; then

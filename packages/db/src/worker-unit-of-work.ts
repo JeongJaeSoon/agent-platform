@@ -7,6 +7,7 @@ import {
   type WorkerEvent,
 } from "@agent-platform/contracts";
 import {
+  budgetExceeded,
   type CheckpointPointer,
   type CheckpointStateInput,
   type CheckpointStateResult,
@@ -45,6 +46,7 @@ import {
   gt,
   inArray,
   isNull,
+  lt,
   max,
   notInArray,
   sql,
@@ -68,6 +70,7 @@ import {
   checkpoints,
   events,
   executions,
+  MAX_SESSION_COST_USD,
   pendingRequests,
   queueMessages,
   receipts,
@@ -688,6 +691,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               isNull(sessions.podId),
               eq(sessions.admissionState, "active"),
               inArray(sessions.profileId, input.runnableProfiles),
+              lt(sessions.costUsd, input.costLimitUsd),
               ...(launch.sessionId === null
                 ? []
                 : [eq(sessions.id, launch.sessionId)]),
@@ -829,11 +833,18 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
+        // Read under the session lock the fence holds, and finalize adds to
+        // it under the same lock, so a turn cannot start on a stale total.
+        const overBudget = budgetExceeded(
+          fenced.session.costUsd,
+          input.costLimitUsd,
+        );
         const none = {
           outcome: "ok" as const,
           input: null,
           leaseExpiresAt,
           ...(draining ? { draining: true as const } : {}),
+          ...(overBudget ? { blocked: "BUDGET_EXCEEDED" as const } : {}),
         };
         if (!head) return none;
         const { message, turn } = head;
@@ -851,6 +862,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (fenced.session.admissionState !== "active" && !redelivery) {
           return none;
         }
+        // A turn this attempt already holds is finished whatever it costs;
+        // only a new one is refused.
+        if (overBudget && !redelivery) return none;
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
@@ -1226,6 +1240,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               finalize_hash: terminalHash,
               result: input.terminal.result,
               usage: input.terminal.usage,
+              // Only when reported, so a turn that said nothing reads as
+              // before and not as a cost of zero.
+              ...(input.terminal.cost_usd == null
+                ? {}
+                : { cost_usd: input.terminal.cost_usd }),
             },
           })
           .where(
@@ -1291,6 +1310,17 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               updatedAt: now,
               ...(unknownOutcome
                 ? { admissionState: "recovery_required" as const }
+                : {}),
+              // Added with the terminal it came with, after every refusal
+              // above: a finalize that is turned away charges nothing, and a
+              // replay never reaches this far. Rounded up to the column's
+              // micro-dollar, or a stream of tiny costs would each round
+              // away to nothing; clamped to the column, so a runaway total
+              // saturates the budget instead of failing the finalize.
+              ...(input.terminal.cost_usd
+                ? {
+                    costUsd: sql`LEAST(${sessions.costUsd} + ceil(${input.terminal.cost_usd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
+                  }
                 : {}),
             })
             .where(fencedSession(fence))

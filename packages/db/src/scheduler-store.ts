@@ -16,6 +16,7 @@ import type {
   StoredLaunchIntent,
 } from "@agent-platform/platform";
 import {
+  budgetExceeded,
   DEFAULT_NONCE_TTL_MS,
   generateLaunchNonce,
   hashWorkerToken,
@@ -28,6 +29,7 @@ import {
   exists,
   inArray,
   isNull,
+  lt,
   lte,
   max,
   notExists,
@@ -65,6 +67,12 @@ export type PostgresSchedulerStoreOptions = {
   connectForLock: () => Promise<PassLockClient>;
   /** Lifetime of a bootstrap nonce; matches the gateway's own default. */
   nonceTtlMs?: number;
+  /**
+   * SESSION_COST_LIMIT_USD. A session that has spent it is not launched for:
+   * its worker would be told to release at its first poll, and the next pass
+   * would launch another, round and round.
+   */
+  sessionCostLimitUsd: number;
 };
 
 const PASS_LOCK_KEY = "scheduler:pass";
@@ -185,6 +193,9 @@ export function createPostgresSchedulerStore(
         .where(
           and(
             eq(sessions.admissionState, "active"),
+            // Before the LIMIT, so a backlog of spent sessions cannot crowd
+            // out the ones that can still run.
+            lt(sessions.costUsd, options.sessionCostLimitUsd),
             notExists(
               db
                 .select({ one: sql`1` })
@@ -222,12 +233,18 @@ export function createPostgresSchedulerStore(
           .where(holdsSlot());
         if ((capacity?.count ?? 0) >= input.slotLimit) return null;
         const [session] = await tx
-          .select({ admissionState: sessions.admissionState })
+          .select({
+            admissionState: sessions.admissionState,
+            costUsd: sessions.costUsd,
+          })
           .from(sessions)
           .where(eq(sessions.id, input.sessionId))
           .limit(1)
           .for("update");
         if (!session || session.admissionState !== "active") return null;
+        if (budgetExceeded(session.costUsd, options.sessionCostLimitUsd)) {
+          return null;
+        }
         const [signal] = await tx
           .select({ partition: unassignedSessions.partition })
           .from(unassignedSessions)

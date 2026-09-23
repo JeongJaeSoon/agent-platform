@@ -26,6 +26,11 @@ function pause(
   at = path,
 ) {
   const service = createSessionService({
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    },
     authorization: ownerScopedPolicy,
     catalog: { profiles: {}, repositories: {} },
     inputs: { acceptInputAtomic: notReached, appendInputAtomic: notReached },
