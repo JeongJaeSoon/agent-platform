@@ -55,6 +55,10 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { GitWorkspace } from "../apps/worker/src/workspace.ts";
+import {
+  DEFAULT_WORKSPACE_CAPTURE_LIMITS,
+  type WorkspaceCaptureLimits,
+} from "../apps/worker/src/workspace-capture.ts";
 
 /**
  * Workers as the composition root wires them: the real Agent SDK against a
@@ -243,6 +247,7 @@ function workerOn(input: {
   gateway: FakeWorkerGateway;
   generation: number;
   home: string;
+  limits?: WorkspaceCaptureLimits;
   logger: WorkerLogger;
   workspace: string;
 }): WorkerHost {
@@ -262,6 +267,7 @@ function workerOn(input: {
       objectPrefix: prefix,
       objects: scopedCheckpointObjectStore(input.bucket, prefix),
       workspaceRoot: workspace,
+      ...(input.limits === undefined ? {} : { limits: input.limits }),
     }),
     engines,
     execution: {
@@ -441,5 +447,92 @@ describe("the worker's checkpoints against the control plane's service", () => {
     } else {
       expect(git(["status", "--porcelain"], workspace)).toBe(" M README.md\n");
     }
+  }, 180_000);
+
+  test("a workspace the capture refuses leaves the turn without a checkpoint, and the session is told (94S-312)", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-312-" });
+    const { home, root, workspace } = isolated;
+    await rm(workspace, { force: true, recursive: true });
+    await mkdir(workspace);
+    const origin = join(root, "origin.git");
+    const seed = join(root, "seed");
+    git(["init", "--quiet", "--bare", "--initial-branch=main", origin], root);
+    git(["clone", "--quiet", origin, seed], root);
+    await writeFile(join(seed, "README.md"), "original\n");
+    git(["add", "-A"], seed);
+    git(["commit", "--quiet", "-m", "seed"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply(
+            "Bash",
+            { command: "printf 'edited\\n' > README.md" },
+            "toolu_edit",
+          )
+        : textReply("done"),
+    );
+    const bucket = createMemoryCheckpointObjectStore({ versioned: true });
+    const pointers = memoryPointerStore();
+    const gateway = new ApprovingGateway({
+      checkpoints: servedBy(
+        createCheckpointService({
+          codecs: { claude: claudeCheckpointCodec },
+          objects: bucket,
+          store: pointers,
+          workspaceBundles: createGitWorkspaceBundleVerifier(),
+        }),
+      ),
+      runtimeConfig: {
+        model: MODEL,
+        tools: ["Bash"],
+        permission_mode: "default",
+        provider: {
+          kind: "anthropic",
+          endpoint: server.url,
+          auth: { kind: "api_key", value: "placeholder-local" },
+        },
+      },
+      sessionId: SESSION_ID,
+      workspace: {
+        repository: { id: "sample", url: origin, branch: "main" },
+      },
+    });
+    gateway.enqueue("edit the readme");
+    const recorded = recorder();
+
+    // Any real workspace is over a one-byte bundle, as a large one is over
+    // the default.
+    const summary = await workerOn({
+      bucket,
+      gateway,
+      generation: 1,
+      home,
+      limits: { ...DEFAULT_WORKSPACE_CAPTURE_LIMITS, maxBundleBytes: 1 },
+      logger: recorded.logger,
+      workspace,
+    }).runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    expect(pointers.pointer()).toBeNull();
+    expect(recorded.failures).toEqual([
+      expect.objectContaining({ stage: "workspace" }),
+    ]);
+    expect(
+      gateway.checkpointRequests
+        .map((request) => request.preparation)
+        .filter((preparation) => preparation.status === "rejected"),
+    ).toEqual([
+      {
+        status: "rejected",
+        reason: "publish_failed",
+        detail: expect.stringMatching(
+          /^workspace: the workspace bundle is over/,
+        ),
+      },
+    ]);
   }, 180_000);
 });
