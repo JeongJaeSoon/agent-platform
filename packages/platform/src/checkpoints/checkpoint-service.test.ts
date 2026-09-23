@@ -1464,15 +1464,13 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
     const [, latest] = await commitRevisions(1);
     objects.remove(latest?.manifest_ref as string);
 
-    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject(
-      {
-        status: "ready",
-        plan: {
-          revision: 0,
-          fallback: { pointerRevision: 1, skipped: [{ revision: 1 }] },
-        },
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "ready",
+      plan: {
+        revision: 0,
+        fallback: { pointerRevision: 1, skipped: [{ revision: 1 }] },
       },
-    );
+    });
   });
 
   test("walks down past every broken revision and lists each one it skipped", async () => {
@@ -1486,9 +1484,9 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
       plan: { revision: 0, fallback: { pointerRevision: 2 } },
     });
     if (result.status !== "ready") return;
-    expect(result.plan.fallback?.skipped.map((skip) => skip.revision)).toEqual(
-      [2, 1],
-    );
+    expect(result.plan.fallback?.skipped.map((skip) => skip.revision)).toEqual([
+      2, 1,
+    ]);
   });
 
   test("a plan from a healthy pointer carries no fallback", async () => {
@@ -1529,9 +1527,10 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
       workspaceBundles: structuralBundleVerifier,
     });
 
-    expect(
-      await limited.getRestorePlan({ runtime, sessionId }),
-    ).toMatchObject({ status: "unavailable", code: "CHECKPOINT_UNAVAILABLE" });
+    expect(await limited.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
   });
 
   test("with fallback turned off, a broken pointer is unavailable and nothing earlier is listed", async () => {
@@ -1584,9 +1583,9 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
       workspaceBundles: structuralBundleVerifier,
     });
 
-    await expect(
-      flaky.getRestorePlan({ runtime, sessionId }),
-    ).rejects.toThrow(/S3 is down/);
+    await expect(flaky.getRestorePlan({ runtime, sessionId })).rejects.toThrow(
+      /S3 is down/,
+    );
   });
 
   test("an earlier revision is hashed in full rather than trusted", async () => {
@@ -1600,6 +1599,153 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
       status: "unavailable",
       code: "CHECKPOINT_UNAVAILABLE",
     });
+  });
+
+  test("a pointer refused for anything but damage does not fall back", async () => {
+    await commitRevisions(1);
+    // A limit lowered since the commit refuses revision 1; revision 0 is
+    // smaller and would pass, which is exactly why it must not be tried.
+    const stricter = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxManifestObjects: 3,
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    const result = await stricter.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+    if (result.status !== "unavailable") return;
+    expect(result.reason).toMatch(/over the 3-object limit/);
+  });
+
+  test("an earlier revision refused for anything but damage ends the search", async () => {
+    const [first, , third] = await commitRevisions(2);
+    objects.remove(third?.manifest_ref as string);
+    // Revision 1 verifies only under a limit revision 0 fails; revision 1 is
+    // then damaged, and the refusal of 0 must stop the walk, not skip it.
+    objects.remove(LATER_PART);
+    const stricter = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxManifestBytes: 1,
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    const result = await stricter.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({ status: "unavailable" });
+    if (result.status !== "unavailable") return;
+    expect(result.reason).toContain(
+      `manifest object is missing: ${third?.manifest_ref}`,
+    );
+    expect(result.reason).toContain("earlier revision 1 is refused");
+    expect(first?.revision).toBe(0);
+  });
+
+  test("an earlier revision the runtime cannot resume is reported, not skipped", async () => {
+    await commitRevisions(1);
+    objects.remove(LATER_PART);
+
+    const result = await service.getRestorePlan({
+      runtime: { ...runtime, sdkVersion: "0.3.999" },
+      sessionId,
+    });
+    expect(result).toEqual({
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        { expected: "0.3.999", field: "sdkVersion", found: "0.3.270" },
+      ],
+      fallback: {
+        pointerRevision: 1,
+        revision: 0,
+        skipped: [
+          {
+            revision: 1,
+            reason: `manifest references a missing object: ${LATER_PART}`,
+          },
+        ],
+      },
+    });
+  });
+
+  test("a checkpoint built on the fallback commits as the next revision and restores without one", async () => {
+    await commitRevisions(1);
+    objects.remove(LATER_PART);
+    const fallback = await service.getRestorePlan({ runtime, sessionId });
+    if (fallback.status !== "ready") throw new Error("expected a plan");
+    expect(fallback.plan.revision).toBe(0);
+
+    // The restored worker checkpoints on top of revision 0's transcript, and
+    // is handed the revision after the pointer, not after what it restored.
+    const next = await service.requestCheckpoint({
+      attemptId,
+      preparation: ready(),
+      sessionId,
+    });
+    expect(next).toMatchObject({ status: "ready", request: { revision: 2 } });
+    const grown = `${sessionObjectPrefix(sessionId)}mirror/root-2b.jsonl`;
+    const body = '{"type":"user","uuid":"r2b"}\n';
+    await objects.put(grown, encode(body));
+    const inherited = fallback.plan.artifacts[0]?.objects ?? [];
+    const { checkpoint } = await upload(
+      manifest({
+        resume: "engine-session-2",
+        revision: 2,
+        transcripts: {
+          root: {
+            entryCount: 2,
+            parts: [
+              ...inherited,
+              {
+                bytes: encode(body).byteLength,
+                key: grown,
+                sha256: sha256(body),
+              },
+            ],
+            sha256: "c".repeat(64),
+          },
+          subagents: {},
+        },
+      }),
+    );
+    expect(
+      await service.finalize({
+        checkpoint,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "3",
+      }),
+    ).toEqual({ outcome: "committed", revision: 2 });
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "ready",
+      plan: { revision: 2, resume: "engine-session-2" },
+    });
+    if (result.status !== "ready") return;
+    expect(result.plan).not.toHaveProperty("fallback");
+    expect(result.plan.objectKeys).toContain(grown);
+    expect(result.plan.objectKeys).not.toContain(LATER_PART);
+  });
+
+  test("never tries more than the ceiling allows", () => {
+    expect(() =>
+      createCheckpointService({
+        codecs: {},
+        maxRestoreFallbacks: 11,
+        objectProtection: "unversioned",
+        objects,
+        store: checkpoints.store,
+      }),
+    ).toThrow(/from 0 to 10/);
   });
 });
 

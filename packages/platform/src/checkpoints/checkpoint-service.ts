@@ -139,6 +139,11 @@ export type RestorePlanResult =
   | { code: "CHECKPOINT_UNAVAILABLE"; reason: string; status: "unavailable" }
   | {
       code: "INCOMPATIBLE_CHECKPOINT";
+      /**
+       * Present when the pointer's checkpoint was damaged and it is the
+       * earlier `revision` that the runtime cannot resume.
+       */
+      fallback?: RestoreFallback & { revision: number };
       mismatches: readonly CompatibilityMismatch[];
       status: "incompatible";
     };
@@ -229,6 +234,9 @@ export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
+// One revision tried can cost the manifest's full object limit in reads plus
+// a bundle hashed whole; this is what keeps a restore from becoming a scan.
+export const MAX_RESTORE_FALLBACKS_CEILING = 10;
 
 /**
  * Every publish attempt gets its own key.
@@ -275,9 +283,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   );
   const maxRestoreFallbacks =
     deps.maxRestoreFallbacks ?? DEFAULT_MAX_RESTORE_FALLBACKS;
-  if (!Number.isInteger(maxRestoreFallbacks) || maxRestoreFallbacks < 0) {
+  if (
+    !Number.isInteger(maxRestoreFallbacks) ||
+    maxRestoreFallbacks < 0 ||
+    maxRestoreFallbacks > MAX_RESTORE_FALLBACKS_CEILING
+  ) {
     throw new Error(
-      `maxRestoreFallbacks must be a non-negative integer: ${maxRestoreFallbacks}`,
+      `maxRestoreFallbacks must be an integer from 0 to ${MAX_RESTORE_FALLBACKS_CEILING}: ${maxRestoreFallbacks}`,
     );
   }
   const protection = deps.objectProtection ?? "locked";
@@ -291,7 +303,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const pinnedVersion = (version: string | null | undefined) =>
     protection === "locked" ? (version ?? undefined) : undefined;
 
-  async function validateManifest(input: {
+  /**
+   * `validateManifest`, plus whether a refusal means the checkpoint is
+   * damaged: an object it names is gone, or is no longer the bytes it named.
+   * Only damage lets a restore fall back to an earlier revision. Anything
+   * else — a limit lowered since, a codec or verifier that changed, a
+   * version this deployment now requires — would refuse the earlier
+   * revisions for the same reason, or pass them only because they are
+   * smaller, and a restore must not trade a session's newest state for a
+   * configuration change.
+   */
+  async function judgeManifest(input: {
     checkpoint: CheckpointRef;
     /**
      * Collects every version this validation read, with whether a legal
@@ -305,7 +327,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * re-download a transcript that grows with the session.
      */
     verified?: ReadonlySet<string>;
-  }): Promise<ManifestVerdict> {
+  }): Promise<Judgement> {
     const { checkpoint, sessionId } = input;
     const version = pinnedVersion(checkpoint.manifest_version);
     if (protection === "locked" && version === undefined) {
@@ -314,10 +336,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest ${checkpoint.manifest_ref} is not named by version, and this deployment pins every checkpoint object by version`,
       };
     }
-    const missing: ManifestVerdict = {
-      status: "rejected",
-      reason: `manifest object is missing: ${checkpoint.manifest_ref}${versionSuffix(version)}`,
-    };
+    const missing = damaged(
+      `manifest object is missing: ${checkpoint.manifest_ref}${versionSuffix(version)}`,
+    );
     const tooLarge = (bytes: number): ManifestVerdict => ({
       status: "rejected",
       reason: `manifest is ${bytes} bytes, over the ${maxManifestBytes}-byte limit`,
@@ -331,10 +352,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     if (bytes.byteLength > maxManifestBytes) return tooLarge(bytes.byteLength);
     const digest = sha256(bytes);
     if (digest !== checkpoint.manifest_sha256) {
-      return {
-        status: "rejected",
-        reason: `manifest digest mismatch: stored ${digest}`,
-      };
+      return damaged(`manifest digest mismatch: stored ${digest}`);
     }
     const engine = engineOf(bytes);
     const codec = engine === undefined ? undefined : own(codecs, engine);
@@ -370,11 +388,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.verified,
       input.pinned,
     );
-    if (bad !== undefined) return { status: "rejected", reason: bad };
+    if (bad !== undefined) {
+      return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
+    }
     if (version !== undefined) {
       input.pinned?.note(checkpoint.manifest_ref, version, size);
     }
     return { status: "verified", manifest };
+  }
+
+  async function validateManifest(
+    input: Parameters<typeof judgeManifest>[0],
+  ): Promise<ManifestVerdict> {
+    const verdict = await judgeManifest(input);
+    return verdict.status === "rejected" ? rejected(verdict.reason) : verdict;
   }
 
   /**
@@ -407,7 +434,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     manifestRef: string,
     verified: ReadonlySet<string> = new Set(),
     pinned?: PinnedVersions,
-  ): Promise<string | undefined> {
+  ): Promise<Problem | undefined> {
     const refs = [
       ...manifest.transcripts.root.parts,
       ...Object.values(manifest.transcripts.subagents).flatMap(
@@ -417,12 +444,16 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     ];
     // Counted before any request goes out: the bundle is the one more.
     if (refs.length + 1 > maxManifestObjects) {
-      return `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`;
+      return refused(
+        `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`,
+      );
     }
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
-        return `manifest references an object outside ${prefix}: ${ref.key}`;
+        return refused(
+          `manifest references an object outside ${prefix}: ${ref.key}`,
+        );
       }
     }
     // The key says where the object is stored; `path` says where restoring
@@ -438,14 +469,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         (ref) => ref.version === undefined,
       );
       if (loose !== undefined) {
-        return `manifest names ${loose.key} without a version, and this deployment pins every checkpoint object by version`;
+        return refused(
+          `manifest names ${loose.key} without a version, and this deployment pins every checkpoint object by version`,
+        );
       }
     }
     const pathProblem = workspacePathsProblem(
       manifest.workspace.untracked.map((artifact) => artifact.path),
     );
     if (pathProblem !== undefined) {
-      return `manifest restores untracked files unsafely: ${pathProblem}`;
+      return refused(
+        `manifest restores untracked files unsafely: ${pathProblem}`,
+      );
     }
     // Bounded, because with eager mirroring a long session accumulates
     // thousands of parts and firing a request per part at once turns a valid
@@ -453,21 +488,29 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const problems = await inBatches(refs, 32, async (ref) => {
       const head = await objects.head(ref.key, ref.version);
       if (head === undefined) {
-        return `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`;
+        return broken(
+          `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`,
+        );
       }
       if (head.bytes !== ref.bytes) {
-        return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
+        return broken(
+          `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`,
+        );
       }
       if (ref.version !== undefined) pinned?.note(ref.key, ref.version, head);
       const token = refToken(ref);
       if (token !== undefined && verified.has(token)) return undefined;
       const body = await objects.get(ref.key, ref.version);
       if (body === undefined) {
-        return `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`;
+        return broken(
+          `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`,
+        );
       }
       const digest = sha256(body);
       if (digest !== ref.sha256) {
-        return `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`;
+        return broken(
+          `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`,
+        );
       }
       return undefined;
     });
@@ -498,7 +541,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
-  ): Promise<string | undefined> {
+  ): Promise<Problem | undefined> {
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
     return bundleGate(() =>
@@ -510,7 +553,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
-  ): Promise<string | undefined> {
+  ): Promise<Problem | undefined> {
     const { bundle, gitCommit } = workspace;
     // One attempt's directory holds one attempt's objects. A bundle at a key
     // the session reuses across revisions is either overwritten — so the
@@ -520,32 +563,44 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // worker from a dead epoch nothing of the live one to clobber.
     const attempt = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
     if (attempt.length === 0 || !bundle.key.startsWith(attempt)) {
-      return `workspace bundle ${bundle.key} is not under this attempt's ${attempt}`;
+      return refused(
+        `workspace bundle ${bundle.key} is not under this attempt's ${attempt}`,
+      );
     }
     // Both figures, and before the body: the manifest's is the worker's
     // claim and the store's is the truth, and either one over the ceiling
     // means this object is never pulled into the process at all.
     const tooBig = (found: number) =>
-      `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`;
+      refused(
+        `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`,
+      );
     if (bundle.bytes > maxBundleBytes) return tooBig(bundle.bytes);
     const head = await objects.head(bundle.key, bundle.version);
     if (head === undefined) {
-      return `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`;
+      return broken(
+        `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
+      );
     }
     if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
     if (head.bytes !== bundle.bytes) {
-      return `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`;
+      return broken(
+        `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
+      );
     }
     const body = await objects.get(bundle.key, bundle.version);
     if (body === undefined) {
-      return `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`;
+      return broken(
+        `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
+      );
     }
     // A store that answered a smaller HEAD than it then served is the one
     // case the checks above cannot bound.
     if (body.byteLength > maxBundleBytes) return tooBig(body.byteLength);
     const digest = sha256(body);
     if (digest !== bundle.sha256) {
-      return `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`;
+      return broken(
+        `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`,
+      );
     }
     const verdict = await bundles.verify({
       bytes: body,
@@ -553,7 +608,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       key: bundle.key,
     });
     if (verdict.status !== "restorable") {
-      return `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
+      // The bytes are the ones committed, so it is the verifier that changed.
+      return refused(
+        `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`,
+      );
     }
     if (bundle.version !== undefined) {
       pinned?.note(bundle.key, bundle.version, head);
@@ -664,32 +722,51 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   }
 
   /**
-   * An earlier revision is judged like the pointer, with two differences.
+   * An earlier revision is judged like the pointer, with three differences.
    * Nothing is trusted from a cache — `verifiedRefs` speaks for the pointer's
-   * checkpoint, not this one — so every object is hashed again. And in
-   * `locked` every version it names must still be held: a hold that is gone
-   * means garbage collection has released that generation and may be
-   * deleting it, and holding it again here would race that deletion rather
-   * than stop it. A fallback is only ever to a generation still protected.
+   * checkpoint, not this one — so every object is hashed again. In `locked`
+   * the revision must have been committed with its versions held, and every
+   * version it names must still be held: a hold that is gone means garbage
+   * collection has released that generation and may be deleting it, and
+   * holding it again here would race that deletion rather than stop it. And
+   * only damage moves the search further back (`judgeManifest`); a refusal
+   * for any other reason ends it.
    */
-  async function fallbackProblem(
+  async function judgeEarlier(
     candidate: CheckpointPointer,
     sessionId: string,
-  ): Promise<string | { manifest: CheckpointManifest }> {
+  ): Promise<
+    | { reason: string; verdict: "damaged" | "refused" }
+    | { manifest: CheckpointManifest; verdict: "verified" }
+  > {
+    if (protection === "locked" && candidate.versionsHeld !== true) {
+      return {
+        verdict: "damaged",
+        reason: `revision ${candidate.revision} was not committed with its versions held`,
+      };
+    }
     const pinned = pinnedVersions();
-    const verdict = await validateManifest({
+    const judged = await judgeManifest({
       checkpoint: checkpointRefOf(candidate),
       pinned,
       sessionId,
     });
-    if (verdict.status === "rejected") return verdict.reason;
+    if (judged.status === "rejected") {
+      return {
+        verdict: "damaged" in judged ? "damaged" : "refused",
+        reason: judged.reason,
+      };
+    }
     if (protection === "locked") {
       const released = pinned.unheld()[0];
       if (released !== undefined) {
-        return `version ${released.version} of ${released.key} is no longer held`;
+        return {
+          verdict: "damaged",
+          reason: `version ${released.version} of ${released.key} is no longer held`,
+        };
       }
     }
-    return { manifest: verdict.manifest };
+    return { verdict: "verified", manifest: judged.manifest };
   }
 
   /**
@@ -712,11 +789,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       };
     }
     const compatibility = codec.validateCompatibility(manifest, runtime);
+    // Judged on the newest intact revision only. Walking further back past
+    // an incompatible one would make how much history a session loses
+    // depend on which runtime happens to ask.
     if (compatibility.status === "incompatible") {
       return {
         status: "incompatible",
         code: "INCOMPATIBLE_CHECKPOINT",
         mismatches: compatibility.mismatches,
+        ...(fallback === undefined
+          ? {}
+          : { fallback: { ...fallback, revision: checkpoint.revision } }),
       };
     }
     await protect();
@@ -866,7 +949,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           : input.pointer;
       if (pointer === null) return { status: "none" };
       const pinned = pinnedVersions();
-      const verdict = await validateManifest({
+      const verdict = await judgeManifest({
         pinned,
         checkpoint: checkpointRefOf(pointer),
         sessionId: input.sessionId,
@@ -885,42 +968,80 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           protection === "locked" ? holdAll(pinned.unheld()) : undefined,
         );
       }
+      const unavailable = (reason: string): RestorePlanResult => ({
+        status: "unavailable",
+        code: "CHECKPOINT_UNAVAILABLE",
+        reason,
+      });
+      if (!("damaged" in verdict) || maxRestoreFallbacks === 0) {
+        return unavailable(verdict.reason);
+      }
       const skipped: RestoreFallbackSkip[] = [
         { revision: pointer.revision, reason: verdict.reason },
       ];
-      const candidates =
-        maxRestoreFallbacks === 0
-          ? []
-          : await store.listCheckpoints(input.sessionId, {
-              belowRevision: pointer.revision,
-              limit: maxRestoreFallbacks,
-            });
+      const candidates = await store.listCheckpoints(input.sessionId, {
+        belowRevision: pointer.revision,
+        limit: maxRestoreFallbacks,
+      });
       for (const candidate of candidates) {
-        const reason = await fallbackProblem(candidate, input.sessionId);
-        if (typeof reason === "string") {
-          skipped.push({ revision: candidate.revision, reason });
-          continue;
+        const judged = await judgeEarlier(candidate, input.sessionId);
+        switch (judged.verdict) {
+          case "damaged":
+            skipped.push({
+              revision: candidate.revision,
+              reason: judged.reason,
+            });
+            continue;
+          case "refused":
+            return unavailable(
+              `${verdict.reason}; earlier revision ${candidate.revision} is refused, and a refusal is not damage to walk past: ${judged.reason}`,
+            );
+          default:
+            return restoreFrom(
+              judged.manifest,
+              candidate,
+              input.runtime,
+              noop,
+              {
+                pointerRevision: pointer.revision,
+                skipped,
+              },
+            );
         }
-        return restoreFrom(reason.manifest, candidate, input.runtime, noop, {
-          pointerRevision: pointer.revision,
-          skipped,
-        });
       }
-      return {
-        status: "unavailable",
-        code: "CHECKPOINT_UNAVAILABLE",
-        reason:
-          candidates.length === 0
-            ? verdict.reason
-            : `${verdict.reason}; none of the ${candidates.length} earlier revisions tried verified either`,
-      };
+      return unavailable(
+        candidates.length === 0
+          ? verdict.reason
+          : `${verdict.reason}; none of the ${candidates.length} earlier revisions tried verified either`,
+      );
     },
   };
-
 }
 
 function noop() {
   return undefined;
+}
+
+type Problem = { damaged: boolean; reason: string };
+
+function broken(reason: string): Problem {
+  return { damaged: true, reason };
+}
+
+function refused(reason: string): Problem {
+  return { damaged: false, reason };
+}
+
+type Judgement =
+  | ManifestVerdict
+  | { damaged: true; reason: string; status: "rejected" };
+
+function damaged(reason: string): Judgement {
+  return { damaged: true, reason, status: "rejected" };
+}
+
+function rejected(reason: string): ManifestVerdict {
+  return { reason, status: "rejected" };
 }
 
 function checkpointRefOf(checkpoint: CheckpointPointer): CheckpointRef {
