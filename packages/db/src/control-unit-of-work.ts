@@ -4,13 +4,26 @@ import type {
   TerminateReceiptResult,
 } from "@agent-platform/contracts";
 import type {
+  RecoveryDecisionInput,
+  ResumeSessionInput,
   SessionControl,
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@agent-platform/platform";
-import { and, eq, inArray, isNull, lte, min, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  controlClock,
+  earliestUnknownTurn,
+  findIdempotent,
+  type IdempotencyScope,
+  INPUT_RECEIPT_OPERATIONS,
+  lockIdempotencyScope,
+  lockSessionForControl,
+  transactionWithBindingRetry,
+} from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import {
   executions,
   idempotencyKeys,
@@ -23,69 +36,14 @@ import {
 } from "./schema.ts";
 
 const TERMINATE = "terminate";
-const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 
-type IdempotencyScope = {
-  principal: string;
-  operation: string;
-  resource: string;
-  key: string;
-};
-
-// Same discipline as the input path: the advisory lock goes first so a
-// same-key race is settled before any row lock is taken.
-async function lockIdempotencyScope(tx: Database, scope: IdempotencyScope) {
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, scope.operation, scope.resource, scope.key])}))`,
-  );
-}
-
-async function findIdempotent(tx: Database, scope: IdempotencyScope) {
-  const [existing] = await tx
-    .select({
-      payloadHash: idempotencyKeys.payloadHash,
-      receiptId: receipts.id,
-      status: receipts.status,
-    })
-    .from(idempotencyKeys)
-    .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
-    .where(
-      and(
-        eq(idempotencyKeys.principal, scope.principal),
-        eq(idempotencyKeys.operation, scope.operation),
-        eq(idempotencyKeys.resource, scope.resource),
-        eq(idempotencyKeys.key, scope.key),
-      ),
-    )
-    .limit(1);
-  return existing;
-}
+export { earliestUnknownTurn } from "./control-shared.ts";
 
 /**
  * The receipt a terminate settles with once its execution is gone; the same
  * shape is written by confirmExecutionGoneAtomic, so a reader sees one
  * result whether the kill was immediate or observed later.
  */
-/**
- * The turn a terminate receipt reports as unconfirmed: the earliest one
- * whose outcome is unknown, from this exit or from one the session was
- * already recovering from. Null when every turn has a known outcome.
- */
-export async function earliestUnknownTurn(
-  tx: Database,
-  sessionId: string,
-): Promise<string | null> {
-  const [row] = await tx
-    .select({ sequence: min(turns.sequence) })
-    .from(turns)
-    .where(
-      and(eq(turns.sessionId, sessionId), eq(turns.status, "outcome_unknown")),
-    );
-  return row?.sequence === null || row?.sequence === undefined
-    ? null
-    : String(row.sequence);
-}
-
 export function terminateReceiptResult(input: {
   checkpointRevision: number | null;
   unconfirmedTurnId: string | null;
@@ -157,18 +115,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         key: input.idempotencyKey,
       };
       const startedAt = Date.now();
-      // Lock order is launch, then session, as confirmExecutionGone takes
-      // them. The launch is known only from the session row, so it is read
-      // unlocked first; if the binding moved while the launch lock was
-      // taken, the transaction is started over rather than locking the new
-      // launch out of order.
-      for (let attempt = 1; ; attempt += 1) {
-        try {
-          return await db.transaction((tx) => terminateIn(tx, attempt));
-        } catch (error) {
-          if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
-        }
-      }
+      return transactionWithBindingRetry(db, terminateIn);
 
       async function terminateIn(
         tx: Database,
@@ -191,49 +138,13 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           };
         }
 
-        const [peek] = await tx
-          .select({ executionId: sessions.executionId })
-          .from(sessions)
-          .where(
-            and(
-              eq(sessions.id, sessionId),
-              eq(sessions.ownerId, scope.principal),
-            ),
-          )
-          .limit(1);
-        if (peek?.executionId) {
-          await tx
-            .select({ executionId: workerLaunches.executionId })
-            .from(workerLaunches)
-            .where(eq(workerLaunches.executionId, peek.executionId))
-            .limit(1)
-            .for("update");
-        }
-        // The session row lock serializes this against every other control
-        // and against the gateway paths, which lock the session before the
-        // attempt; no attempt row is locked here, so the order holds.
-        const [session] = await tx
-          .select()
-          .from(sessions)
-          .where(
-            and(
-              eq(sessions.id, sessionId),
-              eq(sessions.ownerId, scope.principal),
-            ),
-          )
-          .limit(1)
-          .for("update");
+        const session = await lockSessionForControl(tx, {
+          sessionId,
+          ownerId: scope.principal,
+          attempt,
+        });
         if (!session) return { outcome: "not_found" };
-        if (session.executionId !== (peek?.executionId ?? null)) {
-          throw new BindingMoved(sessionId, attempt);
-        }
-        // Waiting for the session lock is real time; an append that held it
-        // committed rows stamped after the caller read its clock, and this
-        // transaction's stamps must not fall before them. Same rule as the
-        // gateway paths: caller clock plus the wait, so injected clocks hold.
-        const now = new Date(
-          input.now.getTime() + Math.max(0, Date.now() - startedAt),
-        );
+        const now = controlClock(input.now, startedAt);
         if (session.admissionState === "closed") {
           return { outcome: "rejected", admissionState: "closed" };
         }
@@ -394,13 +305,13 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         return { outcome: "accepted", response };
       }
     },
-  };
-}
 
-class BindingMoved extends Error {
-  constructor(sessionId: string, attempt: number) {
-    super(
-      `Session ${sessionId} changed its execution while terminate attempt ${attempt} waited for the launch lock`,
-    );
-  }
+    decideRecoveryAtomic(input: RecoveryDecisionInput) {
+      return decideRecoveryAtomic(db, input);
+    },
+
+    resumeAtomic(input: ResumeSessionInput) {
+      return resumeAtomic(db, input);
+    },
+  };
 }

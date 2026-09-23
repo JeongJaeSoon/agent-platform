@@ -1465,8 +1465,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
 
         // A session that asked for this kill (terminate, 94S-139) lands in
         // `stopped`, unless a turn was left unresolved, in which case the
-        // recovery decision takes precedence just as for any other exit.
+        // recovery decision takes precedence just as for any other exit. A
+        // session an operator already closed (94S-140) stays closed: the
+        // unknown turn is recorded above, but nothing reopens the session.
         const stopping = session.admissionState === "stopping";
+        const closed = session.admissionState === "closed";
         await tx
           .update(sessions)
           .set({
@@ -1474,17 +1477,19 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionId: null,
             leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
             updatedAt: now,
-            ...(unresolved.length > 0
-              ? {
-                  status: "failed" as const,
-                  admissionState: "recovery_required" as const,
-                }
-              : stopping
+            ...(closed
+              ? {}
+              : unresolved.length > 0
                 ? {
-                    status: "stopped" as const,
-                    admissionState: "stopped" as const,
+                    status: "failed" as const,
+                    admissionState: "recovery_required" as const,
                   }
-                : {}),
+                : stopping
+                  ? {
+                      status: "stopped" as const,
+                      admissionState: "stopped" as const,
+                    }
+                  : {}),
           })
           .where(eq(sessions.id, session.id));
         // The terminate receipt succeeds only here, on the observed absence;
