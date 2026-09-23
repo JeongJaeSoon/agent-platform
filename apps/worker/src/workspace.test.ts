@@ -453,7 +453,7 @@ describe("GitWorkspace.committedClaudeMd", () => {
     expect((await prepared()).committedClaudeMd()).toBe(whole);
   });
 
-  test("a restore fetched nothing, so it has no instructions to offer", async () => {
+  test("a restore fetched nothing, so a profile that wants the file is refused", async () => {
     await publish({ "CLAUDE.md": "committed rules\n" });
     const workspace = await prepared();
     expect(workspace.committedClaudeMd()).toBe("committed rules\n");
@@ -468,6 +468,8 @@ describe("GitWorkspace.committedClaudeMd", () => {
       signal: new AbortController().signal,
     });
 
-    expect(workspace.committedClaudeMd()).toBeNull();
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "no freshly fetched commit",
+    );
   });
 });

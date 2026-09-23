@@ -27,7 +27,8 @@ export interface WorkspacePreparer {
    * The repository's root CLAUDE.md as committed on the session's branch,
    * read by the last `prepare` from what it had just fetched and before any
    * engine ran; null when there is none. Throws when the committed file is
-   * one the worker will not hand over (see `readCommittedClaudeMd`).
+   * one the worker will not hand over (see `readCommittedClaudeMd`), or when
+   * that `prepare` fetched nothing to read it from (a restore).
    */
   committedClaudeMd(): string | null;
 }
@@ -129,9 +130,15 @@ export class GitWorkspace implements WorkspacePreparer {
     switch (plan.action) {
       case "restore":
         // Nothing here was fetched by this process, so there is no commit to
-        // read instructions from; a resumed engine replays the system prompt
-        // it recorded anyway. The restore path (94S-246) pins one when a
-        // compacted, restored session needs its instructions back.
+        // read instructions from, and the restored checkout is the last
+        // engine's. Refused rather than absent: a session whose profile lets
+        // CLAUDE.md in would otherwise resume without it and nobody would
+        // see. The restore path (94S-246) has to pin the commit to lift this.
+        this.claudeMd = {
+          kind: "refused",
+          reason:
+            "a restored workspace has no freshly fetched commit to read it from",
+        };
         return plan.action;
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
