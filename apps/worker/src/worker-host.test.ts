@@ -2321,6 +2321,37 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
+  test("a capture that never returns fails the worker within its budget and releases", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        checkpoints: {
+          restorePlan: async () => ({ mode: "new" }),
+          capture: never,
+        },
+        timeouts: { heartbeatIntervalMs: 5, startupTimeoutMs: 300 },
+      },
+    );
+    gateway.enqueue("a turn whose checkpoint hangs");
+
+    const began = performance.now();
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toBe(
+      "Checkpointing the turn ran past its 0.3s budget",
+    );
+    expect(performance.now() - began).toBeLessThan(3_000);
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
   test("a restore plan that arrives after the budget starts no engine, and a late rejection is not unhandled", async () => {
     let answer!: (plan: { mode: "new" }) => void;
     let refuse!: (error: Error) => void;

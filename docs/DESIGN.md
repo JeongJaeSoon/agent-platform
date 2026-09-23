@@ -371,6 +371,7 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **CLAUDE.md는 고정된 commit에서.** publisher는 workspace preparer가 CLAUDE.md를 읽은 commit을 bundle의 `refs/checkpoint/instructions`로 싣는다. 그 SHA는 워커 메모리에서 오고, 엔진이 고칠 수 있는 ref에서 오지 않는다. 복원은 그 commit에서 CLAUDE.md를 읽어 `RuntimeResumePlan.committedClaudeMd`로 넘긴다. ref가 없으면 없는 것으로 보지 않고 refused로 넘겨, 파일을 요구하는 profile이 CLAUDE.md 없이 재개되지 않게 한다. 워커 소유 저장소는 복원 뒤에도 남아 이후 capture의 object 출처(alternate)가 된다. 엔진이 자기 사본을 prune해도 instructions commit을 계속 bundle할 수 있다.
 - **거절은 claim 실패다.** `RestoreRefused`(`CHECKPOINT_UNAVAILABLE`·`INCOMPATIBLE_CHECKPOINT`)를 던지고 `worker.checkpoint.restore_refused`를 남긴다. `requestCheckpoint`로 보고하지 않는다. 다른 파티션(94S-261)은 엔진이 시작되기 전에 이렇게 끝나고 workspace는 그대로다.
 - **취소.** signal은 매 await 앞뒤로 본다. abort 뒤에 끝난 다운로드가 파일 작업을 시작하지는 않는다. 중간에 멈춘 복원은 다음 attempt가 처음부터 다시 한다. host는 abort를 실패가 아니라 drain으로 다룬다. release 전에 복원이 멈추기를 요청 timeout 안에서 기다리고, 그래도 안 끝났으면 `worker.restore.unsettled`를 남기고 release한다. 남은 것은 네트워크를 기다리는 단계뿐이고, 프로세스가 release 직후 끝나기 때문이다.
+- **turn 뒤 capture의 기한.** heartbeat는 capture가 도는 동안에도 lease를 늘리므로, interrupt가 아닌 turn의 capture는 시작 단계와 같은 예산(`WORKER_STARTUP_TIMEOUT_SEC`)을 받는다. 넘기면 워커를 failed로 멈추고 drain 예산이 기다림을 끝낸다. workspace를 들여오는 단계와 내보내는 단계라 같은 상한을 쓰고, 둘이 다른 상한을 필요로 할 때 따로 둔다(94S-269에서 넘겨받은 지적).
 
 1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
 

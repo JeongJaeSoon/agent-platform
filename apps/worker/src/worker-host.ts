@@ -912,23 +912,35 @@ export class WorkerHost {
     try {
       let checkpoint: CheckpointRef | null = null;
       if (settlement.synthetic !== true) {
-        // Bounded like the waits around it: a capture that never returns must
-        // not hold the process past the drain budget either.
         const capturing = this.capture(run);
         outstanding = capturing;
-        captured = await this.untilAbandoned(
-          // Someone is waiting on an interrupt's receipt: a capture that
-          // fails or hangs gives it an unknown outcome (below) instead of
-          // none. Any other turn fails the worker as before, and keeps the
-          // drain as its only bound.
-          interrupted
-            ? this.withinInterruptGrace(
-                capturing,
-                turnId,
-                this.turn?.interruptDeadline,
-              )
-            : capturing,
-        );
+        // The heartbeat keeps the lease while a capture runs, so one that
+        // never returns needs a bound of its own. It moves the workspace out
+        // as the startup moved it in, and gets the same budget; a knob of its
+        // own waits until the two need different bounds.
+        const budget = interrupted
+          ? undefined
+          : this.stageBudget(
+              "Checkpointing the turn",
+              this.options.timeouts.startupTimeoutMs,
+            );
+        try {
+          captured = await this.untilAbandoned(
+            // Someone is waiting on an interrupt's receipt: a capture that
+            // fails or hangs gives it an unknown outcome (below) instead of
+            // none. Any other turn fails the worker, and its budget above
+            // starts the drain that ends the wait.
+            interrupted
+              ? this.withinInterruptGrace(
+                  capturing,
+                  turnId,
+                  this.turn?.interruptDeadline,
+                )
+              : capturing,
+          );
+        } finally {
+          budget?.disarm();
+        }
         if (captured === undefined) {
           capturing.then(
             ({ lease }) => lease?.release(),
