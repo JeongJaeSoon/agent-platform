@@ -228,6 +228,12 @@ export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
  * longest ago is dropped, so a spray of distinct emails costs the attacker
  * their own lockouts, not the process its memory.
  */
+export interface LoginReservation {
+  retryAfterMs: number;
+  /** Give the attempt back; a no-op once cleared, evicted or released. */
+  release(): void;
+}
+
 export class LoginLockout {
   // Map iteration is insertion order; a key is re-inserted on every failure
   // so the first key is always the least recently failed one.
@@ -292,16 +298,26 @@ export class LoginLockout {
   }
 
   /**
-   * Check and count one attempt in a single synchronous step: 0 means the
-   * attempt was admitted and already counted as a failure (clear() on
-   * success), anything else is the wait and nothing was counted.
+   * Check and count one attempt in a single synchronous step. A zero
+   * `retryAfterMs` means the attempt was admitted and already counted as a
+   * failure: clear() on success, release() when it failed for a reason that
+   * is not a guess (storage down). Otherwise nothing was counted.
    */
-  reserve(key: string): number {
+  reserve(key: string): LoginReservation {
     const wait = this.retryAfterMs(key);
-    if (wait === 0) {
-      this.recordFailure(key);
-    }
-    return wait;
+    if (wait > 0) return { retryAfterMs: wait, release: () => {} };
+    this.recordFailure(key);
+    const stamp = this.failures.get(key)?.at(-1);
+    return {
+      retryAfterMs: 0,
+      release: () => {
+        const stamps = this.failures.get(key);
+        const index = stamp === undefined ? -1 : (stamps?.indexOf(stamp) ?? -1);
+        if (!stamps || index < 0) return;
+        stamps.splice(index, 1);
+        if (stamps.length === 0) this.failures.delete(key);
+      },
+    };
   }
 
   clear(key: string): void {

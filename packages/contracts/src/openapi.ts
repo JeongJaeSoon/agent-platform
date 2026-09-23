@@ -99,9 +99,6 @@ type Route = {
   // sit outside the auth middleware (03 §3.2 allowlist). Default: scope
   // present → both credentials; absent → public probe.
   auth?: "public" | "session";
-  // Cookie-path mutations carry the CSRF header; bearer calls never do, so it
-  // is documented as optional and enforced only for cookie principals.
-  csrf?: boolean;
   query?: ComponentName;
   body?: ComponentName;
   success:
@@ -169,7 +166,6 @@ const routes: Route[] = [
     operationId: "logout",
     summary: "Revoke the session cookie",
     auth: "session",
-    csrf: true,
     success: { status: 204 },
     errors: [401, 403, 503],
     idempotent: false,
@@ -347,6 +343,16 @@ function securityFor(route: Route): Array<Record<string, string[]>> {
   return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
 }
 
+// The /v1 middleware refuses a cookie-authenticated POST without the CSRF
+// header (403), so every such operation documents both; bearer calls never
+// send it, hence `required: false`.
+function takesCookieMutation(route: Route): boolean {
+  return (
+    route.method === "post" &&
+    securityFor(route).some((scheme) => "cookieSession" in scheme)
+  );
+}
+
 function ref(name: ComponentName) {
   return { $ref: `#/components/schemas/${name}` };
 }
@@ -432,7 +438,8 @@ export function buildOpenApiDocument() {
         schema: { type: "string", minLength: 1 },
       });
     }
-    if (route.csrf) {
+    const csrf = takesCookieMutation(route);
+    if (csrf) {
       parameters.push({
         name: "X-Requested-With",
         in: "header",
@@ -455,7 +462,9 @@ export function buildOpenApiDocument() {
                 : jsonContent(route.success.schema),
             },
     };
-    for (const status of route.errors) {
+    const errors = new Set(route.errors);
+    if (csrf) errors.add(403);
+    for (const status of [...errors].sort((a, b) => a - b)) {
       responses[status] = {
         description: "Error",
         content: jsonContent("ApiErrorResponse"),

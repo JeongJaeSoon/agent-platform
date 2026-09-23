@@ -145,6 +145,9 @@ export function storageUnavailableError(): ApiHttpError {
 // Errors the auth middleware can produce on every /v1 route; the OpenAPI
 // parity test holds the root operation to this.
 export const rootRouteErrors = [401, 503];
+// What the same middleware adds on an unsafe method: the CSRF refusal of a
+// cookie principal.
+export const mutationRouteErrors = [403];
 // Liveness never fails; readiness only ever answers 503 NOT_READY.
 export const probeRouteErrors: Record<string, number[]> = {
   "GET /healthz": [],

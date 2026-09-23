@@ -158,9 +158,12 @@ export function registerPublicAuthRoutes(
     // synchronous step as the lockout check: a burst of concurrent guesses
     // cannot all see the window open while their hashes are still running.
     // Success clears it below.
-    const retryAfterMs = lockout.reserve(email);
-    if (retryAfterMs > 0) {
-      context.header("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+    const reservation = lockout.reserve(email);
+    if (reservation.retryAfterMs > 0) {
+      context.header(
+        "Retry-After",
+        String(Math.ceil(reservation.retryAfterMs / 1000)),
+      );
       throw new ApiHttpError(
         429,
         "RATE_LIMITED",
@@ -168,17 +171,28 @@ export function registerPublicAuthRoutes(
         true,
       );
     }
-    const user = await storageMapped(() =>
-      deps.identity.findUserForLogin(email),
-    );
-    const verified = await verifyPassword(
-      body.password,
-      user?.passwordHash ?? null,
-    );
-    const membership =
-      verified && user
-        ? await storageMapped(() => deps.identity.findLiveMembership(user.id))
-        : null;
+    let user: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
+    let verified: boolean;
+    let membership: Awaited<ReturnType<IdentityStore["findLiveMembership"]>>;
+    try {
+      user = await storageMapped(() => deps.identity.findUserForLogin(email));
+      verified = await verifyPassword(
+        body.password,
+        user?.passwordHash ?? null,
+      );
+      const found = user;
+      membership =
+        verified && found
+          ? await storageMapped(() =>
+              deps.identity.findLiveMembership(found.id),
+            )
+          : null;
+    } catch (error) {
+      // An outage is not a guess: without this, five 503s in a row would
+      // lock the account out for the whole window after the DB recovers.
+      reservation.release();
+      throw error;
+    }
     if (!user || !verified || !membership) {
       // A user with no live workspace fails like a wrong password; the
       // reservation above already counted it, so probing is bounded.

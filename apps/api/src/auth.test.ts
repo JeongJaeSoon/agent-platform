@@ -537,6 +537,50 @@ describe("login lockout", () => {
     expect(statuses.filter((s) => s === 429)).toHaveLength(7);
   });
 
+  test("a storage outage does not spend the budget, even in a concurrent burst", async () => {
+    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const h = harness({ lockout });
+    await h.bootstrap();
+    const findUserForLogin = h.identity.findUserForLogin;
+    h.identity.findUserForLogin = async () => {
+      throw Object.assign(new Error("connection lost"), { code: "08006" });
+    };
+    const outage = (
+      await Promise.all(
+        Array.from({ length: 12 }, () => h.login("owner@example.com", WRONG)),
+      )
+    ).map((r) => r.status);
+    // Admitted attempts are 503 and give their slot back; only those that
+    // arrived while five were in flight saw the window closed.
+    expect(outage.filter((s) => s === 503)).toHaveLength(5);
+    expect(outage.filter((s) => s === 429)).toHaveLength(7);
+    expect(lockout.size).toBe(0);
+
+    h.identity.findUserForLogin = findUserForLogin;
+    for (let i = 0; i < 5; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    expect((await h.login()).status).toBe(429);
+  });
+
+  test("release gives back only its own attempt and is a no-op after clear", () => {
+    let now = 1_000_000;
+    const lockout = new LoginLockout({ attempts: 2, now: () => now });
+    const first = lockout.reserve("a");
+    now += 1;
+    const second = lockout.reserve("a");
+    expect(lockout.reserve("a").retryAfterMs).toBeGreaterThan(0);
+    first.release();
+    first.release();
+    const third = lockout.reserve("a");
+    expect(third.retryAfterMs).toBe(0);
+    lockout.clear("a");
+    second.release();
+    third.release();
+    expect(lockout.size).toBe(0);
+    expect(lockout.reserve("a").retryAfterMs).toBe(0);
+  });
+
   test("the sixth failed attempt inside the window is 429, and success clears it", async () => {
     let now = 1_000_000;
     const lockout = new LoginLockout({ now: () => now });
