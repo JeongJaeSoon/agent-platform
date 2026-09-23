@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { discover, split, testRoots } from "../.github/scripts/test-shard.ts";
+import { discover, split, testFilters } from "../.github/scripts/test-shard.ts";
 
 const repo = join(import.meta.dir, "..");
 const script = join(repo, ".github", "scripts", "test-shard.ts");
@@ -21,42 +21,51 @@ async function shard(args: string[]) {
 }
 
 describe("test-shard.ts", () => {
-  test("reads the roots from the test script it stands in for", async () => {
+  test("reads the filters from the test script it stands in for", async () => {
     const pkg = await Bun.file(join(repo, "package.json")).json();
 
-    expect(testRoots(pkg.scripts.test)).toEqual(["tests", "packages", "apps"]);
-    expect(() => testRoots("bun test --timeout 5000 tests")).toThrow(
+    expect(testFilters(pkg.scripts.test)).toEqual([
+      "tests",
+      "packages",
+      "apps",
+    ]);
+    expect(() => testFilters("bun test --timeout 5000 tests")).toThrow(
       /no longer `bun test <dirs>`/,
     );
   });
 
-  test("discovers what bun test would, and nothing under node_modules or hidden directories", async () => {
+  test("discovers what bun test would: a filter matches anywhere in the path, hidden directories and node_modules are skipped", async () => {
     const root = await mkdtemp(join(tmpdir(), "test-shard-"));
     try {
       for (const path of [
-        "a/one.test.ts",
-        "a/two_test.tsx",
-        "a/three.spec.js",
-        "a/four_spec.mts",
-        "a/nested/five.test.cjs",
-        "a/helper.ts",
-        "a/server.integration.ts",
-        "a/node_modules/dep/x.test.ts",
-        "a/.cache/y.test.ts",
-        "b/six.test.ts",
-        "c/seven.test.ts",
+        "alpha/one.test.ts",
+        "alpha/two_test.tsx",
+        "alpha/three.spec.js",
+        "alpha/four_spec.mts",
+        "alpha/nested/five.test.cjs",
+        "alpha/helper.ts",
+        "alpha/server.integration.ts",
+        "alpha/node_modules/dep/x.test.ts",
+        "alpha/.cache/y.test.ts",
+        "hid/.hidden/alpha/z.test.ts",
+        "beta/six.test.ts",
+        "gamma/seven.test.ts",
+        "xalpha-e2e/eight.test.ts",
+        "gamma/beta-side/nine.test.ts",
       ]) {
         await mkdir(dirname(join(root, path)), { recursive: true });
         await writeFile(join(root, path), "");
       }
 
-      expect(discover(root, ["a", "b"])).toEqual([
-        "a/four_spec.mts",
-        "a/nested/five.test.cjs",
-        "a/one.test.ts",
-        "a/three.spec.js",
-        "a/two_test.tsx",
-        "b/six.test.ts",
+      expect(discover(root, ["alpha", "beta"])).toEqual([
+        "alpha/four_spec.mts",
+        "alpha/nested/five.test.cjs",
+        "alpha/one.test.ts",
+        "alpha/three.spec.js",
+        "alpha/two_test.tsx",
+        "beta/six.test.ts",
+        "gamma/beta-side/nine.test.ts",
+        "xalpha-e2e/eight.test.ts",
       ]);
     } finally {
       await rm(root, { force: true, recursive: true });

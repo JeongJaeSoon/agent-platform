@@ -9,17 +9,19 @@
 //
 // usage: test-shard.ts <index> <total>   (index is 1-based)
 
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { Glob } from "bun";
 
 // Bun's own discovery rule: a `.test`/`_test`/`.spec`/`_spec` suffix on any
-// loadable script extension. Hidden directories and node_modules are skipped,
-// as Bun skips them.
+// loadable script extension, outside hidden directories and node_modules.
 const TEST_FILE = /(\.test|_test|\.spec|_spec)\.[cm]?[jt]sx?$/;
 
-/** The directories `bun run test` hands to `bun test`, read from package.json. */
-export function testRoots(script: string): string[] {
+/**
+ * The filters `bun run test` hands to `bun test`, read from package.json.
+ * They look like directories, but Bun matches them as substrings of each
+ * file's path relative to the repo, so `apps` also takes `xapps-e2e/a.test.ts`.
+ */
+export function testFilters(script: string): string[] {
   const match = /^bun test((?: [\w.][\w./-]*)+)$/.exec(script.trim());
   if (!match?.[1]) {
     throw new Error(
@@ -29,23 +31,33 @@ export function testRoots(script: string): string[] {
   return match[1].trim().split(" ");
 }
 
-export function discover(cwd: string, roots: string[]): string[] {
-  const files = new Set<string>();
-  for (const root of roots) {
-    for (const path of new Glob(`${root}/**/*`).scanSync({ cwd })) {
-      if (!TEST_FILE.test(path)) continue;
-      if (path.split("/").includes("node_modules")) continue;
-      files.add(path);
+export function discover(cwd: string, filters: string[]): string[] {
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const item of readdirSync(join(cwd, dir), { withFileTypes: true })) {
+      const path = dir ? `${dir}/${item.name}` : item.name;
+      if (item.isDirectory()) {
+        if (!item.name.startsWith(".") && item.name !== "node_modules") {
+          walk(path);
+        }
+      } else if (
+        item.isFile() &&
+        TEST_FILE.test(item.name) &&
+        filters.some((filter) => path.includes(filter))
+      ) {
+        files.push(path);
+      }
     }
-  }
-  return [...files].sort();
+  };
+  walk("");
+  return files.sort();
 }
 
 /**
  * Longest-processing-time split: heaviest file first, each onto the lightest
  * shard so far. Weight is the file's byte size — on the 150 files of run
- * 35873091897 that came within 3% of a split by measured run time (4 shards:
- * 100s vs 97s longest), with no timing table to keep current. If one shard
+ * 35873091897 that came within 3% of a split by measured run time (3 shards:
+ * 131s vs 130s longest), with no timing table to keep current. If one shard
  * starts running well past the others, feed it measured times instead.
  */
 export function split(
@@ -101,7 +113,7 @@ function main(argv: string[]): void {
 
   const cwd = join(import.meta.dir, "..", "..");
   const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
-  const files = discover(cwd, testRoots(pkg.scripts.test)).map((path) => ({
+  const files = discover(cwd, testFilters(pkg.scripts.test)).map((path) => ({
     path,
     weight: statSync(join(cwd, path)).size,
   }));

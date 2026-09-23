@@ -145,14 +145,16 @@ jobs:
 
   # The required check. Branch protection names `integration`, and a matrix
   # reports one context per shard, so this job stands in for all of them:
-  # green only when every shard passed. `!cancelled()` rather than the default
-  # so a failed shard still gets here and turns this red — a skipped required
-  # check counts as passing. Anything but `success` fails, including a shard
-  # that was skipped or timed out.
+  # green only when every shard passed. A skipped required check counts as
+  # passing, so this must never skip once the shards were meant to run:
+  # `always()`, not the default (which skips after a failed shard) nor
+  # `!cancelled()` (which skips when the run is cancelled after a shard has
+  # already failed). Anything but `success` fails — a failed, cancelled,
+  # timed-out or skipped shard.
   integration:
     needs: integration-shard
     if: >-
-      !cancelled()
+      always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
