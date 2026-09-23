@@ -94,6 +94,7 @@ describe("claudeRuntimeRegistry", () => {
             );
           },
           correlationId: "s:a",
+          maxBudgetUsd: 25,
           mode: "new",
           principal: { owner_scope: "owner-a" },
           runtimeConfig: {

@@ -53,6 +53,8 @@ export type WorkerBinding = {
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;
+  // What the session had spent when bound, read under the claim's row lock.
+  costUsd: number;
 };
 
 // A profile and repository this host may run together, with the URL and

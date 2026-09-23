@@ -177,6 +177,11 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   workspace: workspaceDescriptorSchema,
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
+  // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
+  // most this attempt's engine may spend before it ends the turn in flight
+  // (94S-279). A second line only; the gate stays the stored sum against the
+  // limit, checked before every turn.
+  remaining_budget_usd: z.number().nonnegative(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -201,6 +206,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
+    remaining_budget_usd: response.remaining_budget_usd,
   };
 }
 
@@ -527,6 +533,13 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
       .optional(),
   }),
 ]);
+
+/**
+ * The terminal reason of a turn the engine ended because the budget the claim
+ * gave it (`remaining_budget_usd`) ran out mid-turn. Its receipt fails with
+ * BUDGET_EXCEEDED rather than INTERNAL_ERROR.
+ */
+export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 
 export const finalizeRequestSchema = workerScopeSchema
   .extend({

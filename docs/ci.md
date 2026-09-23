@@ -1,6 +1,6 @@
 # CI에서 실행되는 것
 
-`.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([운영 참고 § 이미지와 Compose `apps` profile](operations.md#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
+`.github/workflows/images.yml`은 ci.yml과 별도 workflow로 네 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([운영 참고 § 이미지와 Compose `apps` profile](operations.md#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
 `.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 네 부분과 도메인별 integration job 6개를 **동시에** 시작한다(94S-297, 94S-305, 94S-307). 예전에는 `check`가 성공해야 `integration`을 돌려 실패한 변경에서 서비스 컨테이너 분을 아꼈지만, 저장소가 public이 된 뒤로 그 분은 무료이고 대가였던 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남아 있었다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
 

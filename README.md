@@ -2,7 +2,7 @@
 
 공식 TypeScript Claude Agent SDK로 에이전트 세션을 실행하고, 그 세션을 HTTP API·이벤트 스트림·권한 요청·제어(interrupt·pause·resume·terminate·복구)·checkpoint 복원으로 다루게 하는 플랫폼이다. 세션마다 격리된 worker 컨테이너에서 Claude Code가 돈다.
 
-> 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. package scope는 `@agent-platform/*`이다. 설계 정본은 Obsidian `Private/Project/agent-platform`이고, 작업 순서와 인수 조건은 [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)(D0~D4, 94S-108~)에 있다. [docs/DESIGN.md](docs/DESIGN.md)는 rename 이전 설계의 보관본이다.
+> 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 통합 설계 정본은 Obsidian `Private/Project/agent-platform`이고, 이 README는 저장소의 현재 구현 범위를 따라간다. [docs/DESIGN.md](docs/DESIGN.md)는 rename 이전 설계의 보관본이며 지금의 계약·티켓 번호와 일치하지 않는다.
 
 ## 빠른 시작
 
@@ -18,6 +18,14 @@ bun run keys create quickstart \
 
 **private alpha는 신뢰된 내부 인원 한정이다.** worker 안에서 실행되는 코드는 공유 provider key·저장소 credential([94S-252](https://linear.app/94soon/issue/94S-252))과 bucket 전체 credential([94S-251](https://linear.app/94soon/issue/94S-251))에 닿을 수 있다. 외부 공개 전에 252·251·253을 닫는다.
 
+## 정본과 다음 단계
+
+- 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다
+- 구조·runtime 계약·검증 계획: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`. `architecture.md`와 [docs/DESIGN.md](docs/DESIGN.md)는 보관본이다
+- 완료된 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92)
+- process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](spikes/94s-91/README.md), [`spikes/94s-92`](spikes/94s-92/README.md)에 둔다.
+- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195), 조사 초안과 Codex 리뷰 원문은 [`docs/references`](docs/references/README.md)에 둔다. alpha D0~D4 실행 계층은 바꾸지 않고 그 위에 올린다.
+
 ## 문서
 
 | 문서 | 내용 |
@@ -27,8 +35,6 @@ bun run keys create quickstart \
 | [docs/backup-restore.md](docs/backup-restore.md) | 설치 백업·새 project로 복원·검증 |
 | [docs/ci.md](docs/ci.md) | CI job별 실행 내용, required check, 수동 실행 |
 | [docs/openapi.json](docs/openapi.json) | 공개 `/v1` API 계약(`packages/contracts`에서 생성) |
-| [`spikes/94s-91`](spikes/94s-91/README.md), [`spikes/94s-92`](spikes/94s-92/README.md) | SDK gate·저장 backend 조사 harness |
-| [docs/references](docs/references/README.md) | 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack 등, [P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)) 조사 초안 |
 
 ## 저장소 구성
 

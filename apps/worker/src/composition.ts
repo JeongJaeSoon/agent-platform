@@ -104,6 +104,7 @@ export function claudeRuntimeRegistry(
       const {
         committedClaudeMd,
         correlationId,
+        maxBudgetUsd,
         // Read by claudeRunConfig; kept out of the resume plan spread below.
         principal: _principal,
         // The host's to report, not the engine's to read.
@@ -129,6 +130,9 @@ export function claudeRuntimeRegistry(
           // Not part of the fingerprint: how often a provider call is retried
           // changes nothing a checkpoint resumes.
           providerMaxRetries: config.runtime.providerMaxRetries,
+          // Nor is this: it is what the session had left at the claim, so
+          // it differs on every resume of the same run.
+          maxBudgetUsd,
           ...plan,
         },
         hooks,
