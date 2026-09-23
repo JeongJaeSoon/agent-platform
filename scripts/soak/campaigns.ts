@@ -19,6 +19,7 @@ import {
 import { checkInvariants, runningWorkers } from "./invariants.ts";
 import {
   type Criterion,
+  compose,
   container,
   criterion,
   markdownReport,
@@ -83,6 +84,36 @@ const GATEWAY = "/internal/worker";
 
 function docker(args: string[]) {
   return run(["docker", ...args], { allowFail: true });
+}
+
+/**
+ * Starts a stopped or killed service again. Its host port is ephemeral, and
+ * Docker hands out a new one on start, so the runner follows it.
+ */
+async function startAgain(
+  ctx: Ctx,
+  service: "api" | "postgres" | "scheduler",
+): Promise<void> {
+  await docker(["start", container(ctx.env, service)]);
+  const hostPort = async (port: number) => {
+    const result = await compose(ctx.env, ["port", service, String(port)]);
+    const found = result.stdout.trim().split(":").at(-1);
+    if (result.code !== 0 || !found) {
+      throw new Error(`no host port for ${service}:${port}: ${result.stderr}`);
+    }
+    return found;
+  };
+  if (service === "api") {
+    ctx.env.apiUrl = `http://127.0.0.1:${await hostPort(3000)}`;
+    ctx.api = new Api(ctx.env.apiUrl, ctx.env.apiKey);
+  } else if (service === "postgres") {
+    const url = new URL(ctx.env.databaseUrl);
+    url.port = await hostPort(5432);
+    ctx.env.databaseUrl = url.toString();
+    const stale = ctx.db;
+    ctx.db = database(ctx.env.databaseUrl);
+    await stale.end().catch(() => {});
+  }
 }
 
 function note(ctx: Ctx, record: Record<string, unknown>): void {
@@ -359,7 +390,7 @@ const dbOutage: Campaign = {
     const stopped = Date.now();
     await docker(["stop", "-t", "10", container(ctx.env, "postgres")]);
     const during = await readyzFor(ctx, 30_000);
-    await docker(["start", container(ctx.env, "postgres")]);
+    await startAgain(ctx, "postgres");
     const recoveredMs = await waitReady(ctx, 180_000);
     const slowEnd = await finish(ctx, slow);
     const slowRow = await turnRow(ctx.db, slow.sessionId, slow.turnId);
@@ -678,7 +709,7 @@ const controlKill: Campaign = {
       // The API has no restart policy in compose; the scheduler's is
       // unless-stopped, which a kill does not prevent. Start both the way
       // an operator would, idempotently.
-      await docker(["start", container(ctx.env, service)]);
+      await startAgain(ctx, service);
       const readyMs = await waitReady(ctx, 180_000);
       const ended = await Promise.all(turns.map((t) => finish(ctx, t)));
       const next = await Promise.all(
