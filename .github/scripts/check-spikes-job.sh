@@ -56,12 +56,15 @@ run=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" \
   api_failed "runs/${run_id}"
 read -r run_status created_at run_url head_sha <<<"$run"
 
-# The jobs of the latest attempt, so a rerun that passed clears the failure.
-# One `jobs <n>` line per page, then the spikes job's line if there is one.
-jobs=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" --paginate \
-  --jq '"jobs \(.jobs | length)", (.jobs[] | select(.name == "spikes") | "spikes \(.status) \(.conclusion)")') ||
+# Every attempt, not only the latest (`filter=latest`, the default): a rerun
+# of some other job alone leaves an attempt without `spikes`, which would read
+# as `absent` and bury the failure before it. The newest attempt that ran
+# `spikes` is the one judged, so a rerun of it that passed clears the failure.
+# One `jobs <n>` line per page, then a line per `spikes` attempt.
+jobs=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?filter=all&per_page=100" --paginate \
+  --jq '"jobs \(.jobs | length)", (.jobs[] | select(.name == "spikes") | "spikes \(.run_attempt) \(.status) \(.conclusion)")') ||
   api_failed "runs/${run_id}/jobs"
-job=$(sed -n 's/^spikes //p' <<<"$jobs")
+job=$(awk '$1 == "spikes" { print $2, $3, $4 }' <<<"$jobs" | sort -n | tail -n 1 | cut -d' ' -f2-)
 job_count=$(awk '$1 == "jobs" { n += $2 } END { print n + 0 }' <<<"$jobs")
 
 if [ -z "$job" ]; then

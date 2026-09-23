@@ -488,7 +488,8 @@ describe("check-spikes-job.sh", () => {
   const created = "2026-09-22T04:55:23Z";
   const runUrl = "https://github.com/octo/repo/actions/runs/555";
   const runQuery = "api repos/octo/repo/actions/runs/555 --jq";
-  const jobsQuery = "api repos/octo/repo/actions/runs/555/jobs?per_page=100";
+  const jobsQuery =
+    "api repos/octo/repo/actions/runs/555/jobs?filter=all&per_page=100";
   const issuesQuery = `api repos/octo/repo/issues?labels=ci-spikes-failure&state=all&since=${created}&per_page=100`;
   const commentsQuery = `api repos/octo/repo/issues/comments?since=${created}&per_page=100`;
   const completedRun = `completed ${created} ${runUrl} abc1234def`;
@@ -506,7 +507,7 @@ describe("check-spikes-job.sh", () => {
 
   const failed = (conclusion: string, issues: string, comments: string) => ({
     [runQuery]: completedRun,
-    [jobsQuery]: `jobs 4\\nspikes completed ${conclusion}`,
+    [jobsQuery]: `jobs 4\\nspikes 1 completed ${conclusion}`,
     [issuesQuery]: issues,
     [commentsQuery]: comments,
   });
@@ -598,7 +599,7 @@ describe("check-spikes-job.sh", () => {
     test(`a ${conclusion} job is ok without looking at issues`, async () => {
       const outcome = await run("check-spikes-job.sh", ["555"], {
         [runQuery]: completedRun,
-        [jobsQuery]: `jobs 4\\nspikes completed ${conclusion}`,
+        [jobsQuery]: `jobs 4\\nspikes 1 completed ${conclusion}`,
       });
 
       expect(outcome.exitCode).toBe(0);
@@ -606,10 +607,35 @@ describe("check-spikes-job.sh", () => {
     });
   }
 
+  test("the newest attempt that ran spikes is judged, across pages", async () => {
+    // Attempt 3 reran only `integration`, so it has no spikes line; attempt 1
+    // failed and attempt 2 reran spikes and passed.
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]:
+        "jobs 5\\nspikes 2 completed success\\nspikes 1 completed failure\\njobs 4",
+    });
+
+    expect(outcome.stdout).toBe("ok success\n");
+  });
+
+  test("a rerun of some other job does not bury an earlier spikes failure", async () => {
+    // Attempt 2 reran only `integration`; the latest-only view would have no
+    // spikes job and call it absent.
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]: "jobs 5\\nspikes 1 completed cancelled",
+      [issuesQuery]: "[]",
+      [commentsQuery]: "[]",
+    });
+
+    expect(outcome.stdout).toBe(`unreported cancelled ${runUrl} abc1234def\n`);
+  });
+
   test("a job still running is pending", async () => {
     const outcome = await run("check-spikes-job.sh", ["555"], {
       [runQuery]: `in_progress ${created} ${runUrl} abc1234def`,
-      [jobsQuery]: "jobs 4\\nspikes in_progress null",
+      [jobsQuery]: "jobs 4\\nspikes 1 in_progress null",
     });
 
     expect(outcome.exitCode).toBe(0);
@@ -670,7 +696,7 @@ describe("check-spikes-job.sh", () => {
     // No reply for the comments query: the fake fails it like an API error.
     const outcome = await run("check-spikes-job.sh", ["555"], {
       [runQuery]: completedRun,
-      [jobsQuery]: "jobs 4\\nspikes completed failure",
+      [jobsQuery]: "jobs 4\\nspikes 1 completed failure",
       [issuesQuery]: "[]",
     });
 
