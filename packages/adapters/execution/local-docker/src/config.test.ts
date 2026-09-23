@@ -125,6 +125,23 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_EGRESS_PROXY_URL: "https://egress-proxy:3128",
       }),
     ).toThrow("http://");
+    // What the worker's object store would refuse at startup is refused
+    // here, before a launch; the credential is never quoted.
+    const secret = "proxy-secret-value";
+    for (const [url, message] of [
+      [`http://user:${secret}@egress-proxy:3128`, "credentials"],
+      ["http://egress-proxy:3128/path", "host and port"],
+      ["http://egress-proxy:3128/?q=1", "host and port"],
+    ] as const) {
+      let error: unknown;
+      try {
+        localDockerConfigFromEnv({ ...base, EXECUTION_EGRESS_PROXY_URL: url });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(String(error)).toContain(message);
+      expect(String(error)).not.toContain(secret);
+    }
   });
 
   test("object store access is required and the endpoint an http(s) URL", () => {

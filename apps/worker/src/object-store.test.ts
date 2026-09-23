@@ -159,7 +159,14 @@ describe("createWorkerObjectStore", () => {
 
   test("without an endpoint it asks the proxy for a tunnel to the bucket's AWS host", async () => {
     // What the allowlist has to name for AWS: the SDK's virtual-hosted
-    // bucket name on 443, never a path-style or plaintext request.
+    // bucket name on 443, never a path-style or plaintext request. The SDK
+    // falls back to AWS_ENDPOINT_URL in the process environment, which the
+    // LocalStack suites set, so AWS here means AWS without it.
+    const inherited = process.env.AWS_ENDPOINT_URL;
+    delete process.env.AWS_ENDPOINT_URL;
+    closers.push(() => {
+      if (inherited !== undefined) process.env.AWS_ENDPOINT_URL = inherited;
+    });
     const { connects, url } = await refusingProxy();
     const store = createWorkerObjectStore(
       objectStoreConfigFromEnv({
