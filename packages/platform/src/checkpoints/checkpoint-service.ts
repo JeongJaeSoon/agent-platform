@@ -100,7 +100,13 @@ export type RestorePlan = {
    */
   gitCommit: string;
   manifestRef: string;
-  /** The manifest version the pointer pinned, when there is one. */
+  /**
+   * The digest the restored revision committed its manifest with. The claim
+   * carries the pointer's; after a fallback this is the only place the
+   * worker learns the one to pin the manifest it downloads to.
+   */
+  manifestSha256: string;
+  /** The manifest version the restored revision pinned, when there is one. */
   manifestVersion?: string;
   /**
    * Every object key the plan needs, deduplicated, in download order. Keys
@@ -806,6 +812,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const plan = planOf(
       manifest,
       checkpoint.manifestRef,
+      checkpoint.manifestSha256,
       pinnedVersion(checkpoint.manifestVersion),
     );
     return {
@@ -1060,6 +1067,7 @@ export type CheckpointService = ReturnType<typeof createCheckpointService>;
 function planOf(
   manifest: CheckpointManifest,
   manifestRef: string,
+  manifestSha256: string,
   manifestVersion: string | undefined,
 ): RestorePlan {
   const artifacts: RestoreArtifact[] = [
@@ -1098,6 +1106,7 @@ function planOf(
     engine: manifest.engine,
     gitCommit: manifest.workspace.gitCommit,
     manifestRef,
+    manifestSha256,
     ...(manifestVersion === undefined ? {} : { manifestVersion }),
     objectKeys: [
       ...new Set(

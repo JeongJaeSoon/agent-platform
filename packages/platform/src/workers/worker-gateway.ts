@@ -259,6 +259,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
     plan: {
       revision: plan.revision,
       manifest_ref: plan.manifestRef,
+      manifest_sha256: plan.manifestSha256,
       ...(plan.manifestVersion === undefined
         ? {}
         : { manifest_version: plan.manifestVersion }),

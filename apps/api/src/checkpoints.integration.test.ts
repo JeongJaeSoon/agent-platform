@@ -364,6 +364,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         plan: {
           revision: 0,
           manifest_ref: asked.manifest_ref,
+          manifest_sha256: encoded.sha256,
           manifest_version: stored.version,
           engine: "claude",
           resume: "sdk-session-1",
@@ -537,6 +538,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       plan: {
         revision: 0,
         manifest_ref: asked.manifest_ref,
+        manifest_sha256: encoded.sha256,
         manifest_version: stored.version,
         engine: "claude",
         resume: "sdk-session-1",
@@ -684,6 +686,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       plan: {
         revision: 0,
         manifest_ref: older.manifest_ref,
+        manifest_sha256: older.manifest_sha256,
         manifest_version: older.manifest_version,
         resume: "sdk-session-0",
         artifacts: [{ kind: "transcript_root", objects: [first] }, {}],

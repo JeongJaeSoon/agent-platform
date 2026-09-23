@@ -1207,6 +1207,7 @@ describe("getRestorePlan", () => {
         engine: runtime.engine,
         gitCommit: workspaceBundle.commit,
         manifestRef: manifestRefFor(sessionId, 0, attemptId),
+        manifestSha256: checkpoint.manifest_sha256,
         objectKeys: [ROOT_PART, SUB_PART, BUNDLE, UNTRACKED],
         resume: "engine-session-1",
         revision: 0,
@@ -1435,7 +1436,7 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
   });
 
   test("restores revision 0 when an artifact of revision 1 has gone missing, and says so", async () => {
-    await commitRevisions(1);
+    const [first] = await commitRevisions(1);
     objects.remove(LATER_PART);
 
     const result = await service.getRestorePlan({ runtime, sessionId });
@@ -1443,6 +1444,7 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
       status: "ready",
       plan: {
         manifestRef: manifestRefFor(sessionId, 0, attemptId),
+        manifestSha256: first?.manifest_sha256,
         resume: "engine-session-0",
         revision: 0,
         fallback: {

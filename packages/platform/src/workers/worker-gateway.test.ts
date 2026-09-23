@@ -705,6 +705,7 @@ describe("WorkerGateway", () => {
         engine: "claude",
         gitCommit: "e".repeat(40),
         manifestRef: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifestSha256: "f".repeat(64),
         objectKeys: [object.key, bundle.key],
         resume: "sdk-session",
         revision: 0,
@@ -717,6 +718,7 @@ describe("WorkerGateway", () => {
       plan: {
         revision: 0,
         manifest_ref: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifest_sha256: "f".repeat(64),
         engine: "claude",
         resume: "sdk-session",
         cwd: "/workspace",

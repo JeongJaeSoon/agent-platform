@@ -444,6 +444,10 @@ const restoreFallbackSchema = z.object({
 export const restorePlanSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
+  // What the restored revision's manifest must hash to. It equals the
+  // claim's restore digest unless `fallback` says an earlier revision is
+  // restored, and then only this names it (94S-204).
+  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),

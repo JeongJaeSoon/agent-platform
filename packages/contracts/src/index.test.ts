@@ -720,6 +720,7 @@ describe("worker protocol", () => {
         plan: {
           revision: 0,
           manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
           manifest_version: "m1",
           engine: "claude",
           resume: "sdk-session",
@@ -752,6 +753,7 @@ describe("worker protocol", () => {
         plan: {
           revision: 0,
           manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
           engine: "claude",
           resume: "sdk-session",
           cwd: "/workspace",

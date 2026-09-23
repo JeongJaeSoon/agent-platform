@@ -258,6 +258,7 @@ describe("locked (the default)", () => {
         engine: "claude",
         gitCommit: workspaceBundle.commit,
         manifestRef: checkpoint.manifest_ref,
+        manifestSha256: checkpoint.manifest_sha256,
         manifestVersion: checkpoint.manifest_version,
         objectKeys: everyRef(manifest).map((ref) => ref.key),
         resume: "engine-session-0",
@@ -426,6 +427,7 @@ describe("locked fallback to an earlier revision (94S-204)", () => {
       status: "ready",
       plan: {
         manifestRef: older.checkpoint.manifest_ref,
+        manifestSha256: older.checkpoint.manifest_sha256,
         manifestVersion: older.checkpoint.manifest_version,
         revision: 0,
         fallback: {
