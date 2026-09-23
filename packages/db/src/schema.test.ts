@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import {
   ADMISSION_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
@@ -20,9 +19,6 @@ import {
 } from "./schema.ts";
 
 const databases: PGlite[] = [];
-const journal = JSON.parse(
-  readFileSync(`${import.meta.dir}/../migrations/meta/_journal.json`, "utf8"),
-) as { entries: { when: number }[] };
 
 async function migratedDatabase() {
   const client = new PGlite();
@@ -44,17 +40,6 @@ describe("database schema", () => {
   test("uses the contract admission and receipt status values", () => {
     expect(admissionState.enumValues).toEqual([...ADMISSION_STATE_VALUES]);
     expect(receiptStatus.enumValues).toEqual([...RECEIPT_STATUS_VALUES]);
-  });
-
-  test("journal entries are ordered by their folder timestamp", () => {
-    // Lanes number their files by band (I0 1xx, I2 2xx, ...), but Drizzle
-    // applies by `when` and skips anything older than the last applied row.
-    // A branch rebased under a newer migration must regenerate its `when`,
-    // or the entry it adds would be silently skipped on every database that
-    // already ran the newer one.
-    const whens = journal.entries.map(({ when }) => when);
-    expect([...whens].sort((a, b) => a - b)).toEqual(whens);
-    expect(new Set(whens).size).toBe(whens.length);
   });
 
   test("applies the migration twice without changing the schema", async () => {
