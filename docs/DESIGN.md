@@ -536,7 +536,7 @@ ScaledJob은 "부족하면 만든다"만 하고 "남으면 지운다"는 하지 
 
 | 저장소 | 내용 | 쓰는 주체 | 성격 |
 |--------|------|-----------|------|
-| Postgres `sessions` | `status`, `pod_id` | 워커(획득·전이·해제), reconciler(고아 정리). API는 읽기와 `queued` 전이만 | **정본**. 클라이언트가 보는 세션 상태 |
+| Postgres `sessions` | `status`, `pod_id` | 워커(획득·전이·해제), reconciler(고아 정리). API는 읽기와 `queued` 전이만 | **정본**. 클라이언트가 보는 세션 상태의 기반. `needs_input`은 저장하지 않고, `running`이면서 답할 수 있는 pending request가 있을 때 읽는 시점에 파생한다(§6.4) |
 | Postgres `workers.last_seen` | 마지막 heartbeat 시각 | 워커 10초 주기, reconciler stale 기준 30초 | 최근 생존의 증거이며 현재 소유권 자체를 보장하지 않음 |
 | Kubernetes Job/Pod | Running / Complete / Failed | kubelet | 인프라 수준. 세션 상태와 직접 연결하지 않음 |
 
