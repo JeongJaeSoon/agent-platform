@@ -68,6 +68,8 @@ class FakeRun implements AgentRun {
   private readonly ledger: TurnLedger;
   private closed = false;
   private consumedInputs = 0;
+  /** Inputs the engine took; a deduplicated send is not one. */
+  private acceptedInputs = 0;
   /** Sends the engine ignored because the session already held them. */
   private readonly deduplicated = new Set<string>();
   // First accepted terminal action wins: an interrupt that already returned
@@ -97,6 +99,7 @@ class FakeRun implements AgentRun {
       this.deduplicated.add(input.uuid);
       return;
     }
+    this.acceptedInputs += 1;
     this.wakeArrivals();
   }
 
@@ -208,7 +211,7 @@ class FakeRun implements AgentRun {
 
   /** Resolves on the next unconsumed input, or once the stream is closed. */
   private async awaitInput(): Promise<void> {
-    while (this.runtime.inputs.length <= this.consumedInputs && !this.closed) {
+    while (this.acceptedInputs <= this.consumedInputs && !this.closed) {
       await new Promise<void>((resolve) => this.arrivals.push(resolve));
     }
     this.consumedInputs += 1;

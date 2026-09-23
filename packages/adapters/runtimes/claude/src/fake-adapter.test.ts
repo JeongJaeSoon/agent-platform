@@ -19,6 +19,35 @@ const config: ClaudeRuntimeConfig = {
 };
 
 describe("fake agent runtime", () => {
+  test("a deduplicated send does not count as an arrival", async () => {
+    const runtime = new FakeAgentRuntime(
+      [
+        { type: "await-input" },
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: { type: "result", subtype: "success", session_id: "r" },
+        },
+      ],
+      { resumedTranscript: ["old"] },
+    );
+    const run = runtime.start(
+      { ...config, mode: "resume", resume: "r" },
+      { onPermission: async () => ({ behavior: "allow" as const }) },
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })().catch(() => {});
+    run.send({ message: "old", uuid: "old" });
+    run.send({ message: "fresh", uuid: "fresh" });
+    await Bun.sleep(20);
+    // Only one input was taken; the script is still waiting on its second.
+    expect(frames).toEqual([]);
+    run.close();
+    await consume;
+  });
+
   test("ignores an input its resumed transcript already holds, the way the SDK does", async () => {
     const runtime = new FakeAgentRuntime(
       [
@@ -59,6 +88,8 @@ describe("fake agent runtime", () => {
     await Bun.sleep(20);
     expect(frames).toEqual([]);
 
+    // The ignored send is no arrival: the script still waits for a real one.
+    expect(frames).toEqual([]);
     // A fresh input is still taken, and is held from then on.
     run.send({ message: "new", uuid: "fresh" });
     await consume;

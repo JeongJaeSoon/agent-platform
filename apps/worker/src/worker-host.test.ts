@@ -1415,6 +1415,63 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
     ]);
   }, 15_000);
 
+  test("a drain budget shorter than the interrupt grace still gets the timeout finalized", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 50 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn with almost no drain budget");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(summary.outcome).toBe("failed");
+  });
+
+  test("an interrupt that ends the stream still closes the turn as a timeout", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 10_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") {
+                return async () => {
+                  target.close();
+                  return { stillQueued: [] };
+                };
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose engine dies on interrupt");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("stream ended after the turn ran out");
+  });
+
   test("an engine that swallows the input is closed by the turn deadline, not left leased", async () => {
     // What the fix guards against, reproduced: the check is bypassed, the
     // engine deduplicates the send and answers nothing — not even the

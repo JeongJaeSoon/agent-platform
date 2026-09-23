@@ -591,20 +591,38 @@ export class WorkerHost {
           reason: describe(error),
         });
       });
-      const unanswered = () => {
-        if (turn.closed) return;
-        this.fail(`${reason}, and the engine did not answer the interrupt`);
-        this.settleTurn({
-          status: "outcome_unknown",
-          reason: "turn_timeout",
-          result: null,
-          usage: null,
-          synthetic: true,
-        });
-      };
-      turn.timers.push(setTimeout(unanswered, INTERRUPT_GRACE_MS));
+      // Never more than half the drain budget the stop above just started:
+      // were the drain to give the turn up first, it would end with no
+      // terminal at all.
+      const grace = Math.min(
+        INTERRUPT_GRACE_MS,
+        this.options.timeouts.drainTimeoutMs / 2,
+      );
+      turn.timers.push(
+        setTimeout(
+          () =>
+            this.closeUnanswered(
+              turn,
+              `${reason}, and the engine did not answer the interrupt`,
+            ),
+          grace,
+        ),
+      );
     };
     turn.timers.push(setTimeout(expire, budget));
+  }
+
+  /** A timed-out turn the engine gave no terminal for: unknown, and the engine is not trusted again. */
+  private closeUnanswered(turn: Turn, reason: string): void {
+    if (turn.closed) return;
+    this.fail(reason);
+    this.settleTurn({
+      status: "outcome_unknown",
+      reason: "turn_timeout",
+      result: null,
+      usage: null,
+      synthetic: true,
+    });
   }
 
   private async finalizeTurn(
@@ -707,6 +725,15 @@ export class WorkerHost {
       } catch (error) {
         this.logger.warn("worker.stream.ended", { reason: describe(error) });
       } finally {
+        const turn = this.turn;
+        if (turn?.timedOut === true) {
+          // The interrupt ended the stream rather than the turn: still the
+          // timeout's outcome, and the drain it began becomes a failure.
+          this.closeUnanswered(
+            turn,
+            "The engine stream ended after the turn ran out of time",
+          );
+        }
         // A stream that ended without a terminal leaves the turn's outcome
         // genuinely unknown; guessing either way would be a lie about the
         // transcript.
