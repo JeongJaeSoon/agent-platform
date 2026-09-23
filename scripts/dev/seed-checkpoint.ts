@@ -24,10 +24,7 @@ import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
 } from "@agent-platform/runtime-claude";
-import type {
-  CheckpointManifest,
-  TranscriptRevision,
-} from "@agent-platform/runtime-core";
+import type { CheckpointManifest } from "@agent-platform/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
@@ -55,12 +52,16 @@ const sessionId = randomUUID();
 const attemptId = `attempt-${randomUUID().slice(0, 8)}`;
 const revision = 0;
 const projectKey = "-workspace";
+// Transcripts are filed under the engine's session name, which the manifest
+// carries as `resume` — not the platform's session id.
+const engineSession = `sdk-session-${sessionId.slice(0, 8)}`;
 const mirror = new ClaudeSessionStore({
+  generation: 1,
   objects,
   prefix: `sessions/${sessionId}/mirror`,
 });
 
-const root = { projectKey, sessionId };
+const root = { projectKey, sessionId: engineSession };
 await mirror.append(root, [
   { type: "user", uuid: randomUUID(), message: { content: "first turn" } },
   { type: "assistant", uuid: randomUUID(), message: { content: "done" } },
@@ -69,13 +70,8 @@ await mirror.append({ ...root, subpath: "agents/reviewer" }, [
   { type: "user", uuid: randomUUID(), message: { content: "review" } },
 ]);
 
-const captured = await mirror.captureRevision(root);
-if (captured === null) throw new Error("root transcript was not captured");
-const subagents: Record<string, TranscriptRevision> = {};
-for (const subpath of await mirror.listSubkeys(root)) {
-  const sub = await mirror.captureRevision({ ...root, subpath });
-  if (sub !== null) subagents[subpath] = sub;
-}
+const transcripts = await mirror.captureTranscripts(engineSession);
+if (transcripts === null) throw new Error("root transcript was not captured");
 
 const manifestRef = manifestRefFor(sessionId, revision, attemptId);
 const attemptPrefix = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
@@ -90,14 +86,14 @@ const manifest: CheckpointManifest = {
   createdAt: new Date().toISOString(),
   cwd: "/workspace",
   engine: "claude",
-  resume: `sdk-session-${sessionId.slice(0, 8)}`,
+  resume: engineSession,
   revision,
   runtime: {
     ...CLAUDE_RUNTIME_FINGERPRINT,
     profileSha256: createHash("sha256").update("seed").digest("hex"),
   },
   sessionId,
-  transcripts: { root: captured, subagents },
+  transcripts,
   version: 2,
   workspace: {
     bundle: {

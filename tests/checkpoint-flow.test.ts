@@ -17,7 +17,6 @@ import type {
   CheckpointManifest,
   CheckpointObjectStore,
   TranscriptEntry,
-  TranscriptRevision,
 } from "@agent-platform/runtime-core";
 import { createCheckpointObjectStore } from "@agent-platform/storage";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
@@ -36,6 +35,10 @@ import {
  */
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
+// The engine names its own session, and transcripts are filed under that name
+// — never the platform's. Keeping the two different is what proves nothing
+// here confuses them.
+const engineSession = "sdk-session-1";
 const projectKey = "-workspace";
 // The workspace half of the checkpoint: a real bundle, uploaded into the
 // attempt's own directory beside the manifest that names it.
@@ -77,7 +80,8 @@ const fence: CheckpointFence = {
   sessionId,
 };
 
-function memoryCheckpointStore(): CheckpointStore & {
+/** `live` names the attempt currently holding the lease. */
+function memoryCheckpointStore(live = { attemptId }): CheckpointStore & {
   pointer(): CheckpointPointer | null;
 } {
   let pointer: CheckpointPointer | null = null;
@@ -86,7 +90,7 @@ function memoryCheckpointStore(): CheckpointStore & {
       return pointer;
     },
     async commitAtomic(input) {
-      if (input.fence.attemptId !== fence.attemptId) {
+      if (input.fence.attemptId !== live.attemptId) {
         return { outcome: "stale_epoch" as const };
       }
       const revision = input.checkpoint.revision;
@@ -150,10 +154,11 @@ for (const [name, createObjects] of backends) {
         workspaceBundles: structuralBundleVerifier,
       });
       const mirror = new ClaudeSessionStore({
+        generation: 1,
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
-      const root = { projectKey, sessionId };
+      const root = { projectKey, sessionId: engineSession };
       const subagent = { ...root, subpath: "agents/reviewer" };
 
       for (const attempt of [attemptId, "attempt-stale"]) {
@@ -168,7 +173,7 @@ for (const [name, createObjects] of backends) {
           status: "ready",
           checkpoint: {
             engine: "claude",
-            resume: "sdk-session-1",
+            resume: engineSession,
             sdkVersion: runtime.sdkVersion,
           },
         },
@@ -183,7 +188,7 @@ for (const [name, createObjects] of backends) {
       const first = await publish(
         mirror,
         request.request.revision,
-        "sdk-session-1",
+        engineSession,
       );
       expect(
         await objects.putImmutable(request.request.manifestRef, first.bytes),
@@ -210,7 +215,7 @@ for (const [name, createObjects] of backends) {
       const stale = await publish(
         mirror,
         0,
-        "sdk-session-stale",
+        engineSession,
         runtime,
         "attempt-stale",
       );
@@ -242,7 +247,7 @@ for (const [name, createObjects] of backends) {
       const plan = await service.getRestorePlan({ runtime, sessionId });
       if (plan.status !== "ready")
         throw new Error(`expected a plan: ${plan.status}`);
-      expect(plan.plan.resume).toBe("sdk-session-1");
+      expect(plan.plan.resume).toBe(engineSession);
       expect(plan.plan.gitCommit).toBe(gitCommit);
       expect(plan.plan.revision).toBe(0);
       // The restore plan names the parts captured at revision 0 and nothing the
@@ -280,6 +285,123 @@ for (const [name, createObjects] of backends) {
       ).toEqual([entry("r1", "first turn")]);
     }, 30_000);
 
+    test("a resumed generation's checkpoint carries the parts it adopted, and none a zombie wrote later", async () => {
+      const objects = await createObjects();
+      const live = { attemptId };
+      const store = memoryCheckpointStore(live);
+      const service = createCheckpointService({
+        codecs: { claude: claudeCheckpointCodec },
+        objects,
+        store,
+        workspaceBundles: structuralBundleVerifier,
+      });
+      const prefix = `sessions/${sessionId}/mirror`;
+      const root = { projectKey, sessionId: engineSession };
+      const subagent = { ...root, subpath: "agents/reviewer" };
+      await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
+      await objects.put(bundleKeyFor(1, "attempt-2"), workspaceBundle.bytes);
+
+      const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+      await first.append(root, [entry("r1", "first turn")]);
+      await first.append(subagent, [entry("s1", "review")]);
+      const committed = await publish(first, 0, engineSession);
+      await objects.putImmutable(
+        manifestRefFor(sessionId, 0, attemptId),
+        committed.bytes,
+      );
+      expect(
+        await service.finalize({
+          checkpoint: {
+            manifest_ref: manifestRefFor(sessionId, 0, attemptId),
+            manifest_sha256: committed.sha256,
+            revision: 0,
+          },
+          fence,
+          now: new Date("2026-09-22T00:00:00.000Z"),
+          sessionId,
+          turnId: "1",
+        }),
+      ).toEqual({ outcome: "committed", revision: 0 });
+      // Mirrored after the checkpoint, then the worker lost its lease.
+      await first.append(root, [entry("x1", "never committed")]);
+
+      // A new launch restores from the pointer alone: the manifest it names is
+      // the only thing it adopts.
+      const restore = await service.getRestorePlan({ runtime, sessionId });
+      if (restore.status !== "ready") throw new Error(restore.status);
+      const manifestBytes = await objects.get(restore.plan.manifestRef);
+      if (manifestBytes === undefined) throw new Error("manifest is gone");
+      const restored = claudeCheckpointCodec.decode(manifestBytes);
+      live.attemptId = "attempt-2";
+      const second = new ClaudeSessionStore({
+        generation: 2,
+        inherit: {
+          sessionId: restored.resume,
+          transcripts: restored.transcripts,
+        },
+        objects,
+        prefix,
+      });
+      await first.append(root, [entry("x2", "the old worker, still running")]);
+      await second.append(root, [entry("r2", "second turn")]);
+      await second.append(subagent, [entry("s2", "second review")]);
+
+      const next = await publish(
+        second,
+        1,
+        engineSession,
+        runtime,
+        "attempt-2",
+      );
+      await objects.putImmutable(
+        manifestRefFor(sessionId, 1, "attempt-2"),
+        next.bytes,
+      );
+      expect(
+        await service.finalize({
+          checkpoint: {
+            manifest_ref: manifestRefFor(sessionId, 1, "attempt-2"),
+            manifest_sha256: next.sha256,
+            revision: 1,
+          },
+          fence: { ...fence, attemptId: "attempt-2", executionGeneration: 2 },
+          now: new Date("2026-09-22T00:00:01.000Z"),
+          sessionId,
+          turnId: "2",
+        }),
+      ).toEqual({ outcome: "committed", revision: 1 });
+
+      const plan = await service.getRestorePlan({ runtime, sessionId });
+      if (plan.status !== "ready") throw new Error(plan.status);
+      expect(plan.plan.revision).toBe(1);
+      const [rootArtifact, subagentArtifact] = plan.plan.artifacts;
+      if (rootArtifact === undefined || subagentArtifact === undefined) {
+        throw new Error("expected root and subagent artifacts");
+      }
+      // The chain is the part list itself: generation 1's pinned part, then
+      // generation 2's.
+      expect(
+        rootArtifact.objects.map(
+          (part) => part.key.match(/\/generation-(\d+)\//)?.[1],
+        ),
+      ).toEqual(["0000000001", "0000000002"]);
+      const reader = new ClaudeSessionStore({ generation: 3, objects, prefix });
+      expect(
+        await reader.loadRevision({
+          ...next.manifest.transcripts.root,
+          parts: rootArtifact.objects,
+        }),
+      ).toEqual([entry("r1", "first turn"), entry("r2", "second turn")]);
+      const reviewer = next.manifest.transcripts.subagents["agents/reviewer"];
+      if (reviewer === undefined) throw new Error("expected the subagent");
+      expect(
+        await reader.loadRevision({
+          ...reviewer,
+          parts: subagentArtifact.objects,
+        }),
+      ).toEqual([entry("s1", "review"), entry("s2", "second review")]);
+    }, 30_000);
+
     test("refuses to restore a checkpoint a different SDK build wrote", async () => {
       const objects = await createObjects();
       const store = memoryCheckpointStore();
@@ -290,15 +412,16 @@ for (const [name, createObjects] of backends) {
         workspaceBundles: structuralBundleVerifier,
       });
       const mirror = new ClaudeSessionStore({
+        generation: 1,
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
       await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
-      await mirror.append({ projectKey, sessionId }, [
+      await mirror.append({ projectKey, sessionId: engineSession }, [
         entry("r1", "first turn"),
       ]);
 
-      const published = await publish(mirror, 0, "sdk-session-1", {
+      const published = await publish(mirror, 0, engineSession, {
         ...runtime,
         sdkVersion: "0.3.100",
       });
@@ -339,17 +462,8 @@ async function publish(
   fingerprint = runtime,
   attempt = attemptId,
 ) {
-  const root = await mirror.captureRevision({ projectKey, sessionId });
-  if (root === null) throw new Error("expected a root transcript revision");
-  const subagents: Record<string, TranscriptRevision> = {};
-  for (const subpath of await mirror.listSubkeys({ projectKey, sessionId })) {
-    const captured = await mirror.captureRevision({
-      projectKey,
-      sessionId,
-      subpath,
-    });
-    if (captured !== null) subagents[subpath] = captured;
-  }
+  const transcripts = await mirror.captureTranscripts(resume);
+  if (transcripts === null) throw new Error("expected transcripts");
   const manifest: CheckpointManifest = {
     createdAt: "2026-09-22T00:00:00.000Z",
     cwd: "/workspace",
@@ -358,7 +472,7 @@ async function publish(
     revision,
     runtime: fingerprint,
     sessionId,
-    transcripts: { root, subagents },
+    transcripts,
     version: 2,
     workspace: {
       bundle: bundleRefFor(revision, attempt),

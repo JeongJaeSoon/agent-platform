@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   CheckpointObjectStore,
+  CheckpointTranscripts,
   ObjectRef,
   TranscriptEntry,
   TranscriptKey,
@@ -13,17 +14,31 @@ import { digestParts } from "./transcript-digest.ts";
 /** Give up rather than spin if a slot keeps being taken from under us. */
 const SLOT_ATTEMPTS = 64;
 
+/**
+ * What a resumed launch adopts: the transcripts of the checkpoint it resumes,
+ * exactly as that manifest pinned them.
+ */
+export type TranscriptInheritance = {
+  /** The engine session being resumed — the manifest's `resume`. */
+  readonly sessionId: string;
+  readonly transcripts: CheckpointTranscripts;
+};
+
 export type ClaudeSessionStoreOptions = {
   readonly objects: CheckpointObjectStore;
   /** Key namespace; one session's transcripts never share it with another. */
   readonly prefix: string;
+  /** The execution generation this launch runs as; it writes nowhere else. */
+  readonly generation: number;
+  /** Absent for a session that has never been checkpointed. */
+  readonly inherit?: TranscriptInheritance;
 };
 
 /**
  * Mirrors the engine's root and subagent transcripts to the object store, and
  * pins them as exact revisions.
  *
- * Two properties carry the design (see spikes/94s-92):
+ * Three properties carry the design (see spikes/94s-92 and 94S-203):
  *
  * - Parts are write-once under unique keys, so an append that times out and is
  *   retried stores both copies. Reads deduplicate by entry `uuid`: an entry
@@ -34,11 +49,34 @@ export type ClaudeSessionStoreOptions = {
  *   the mirror appends afterwards is invisible to `loadRevision`, which is what
  *   makes "the mirror is current" and "this checkpoint is resumable" different
  *   statements.
+ * - Each execution generation writes under its own prefix, and a resumed one
+ *   adopts its predecessors only as far as the checkpoint it resumes pinned
+ *   them. A worker that lost its lease can go on appending for as long as it
+ *   keeps running; those parts land in its own generation, past the pinned
+ *   revision, where no later generation ever looks. The pinned part list,
+ *   whose keys name the generation that wrote each part, is the whole handoff
+ *   chain: generation 3's capture lists the parts it adopted from 1 and 2
+ *   ahead of its own, so restoring it needs nothing the manifest does not
+ *   already say.
  */
 export class ClaudeSessionStore implements TranscriptMirror {
+  /**
+   * True only for a store that adopted a checkpoint: until its first append,
+   * `load` answers with exactly what that checkpoint pinned, which is the one
+   * moment the engine reads it.
+   */
+  readonly revisionScoped: boolean;
   readonly #objects: CheckpointObjectStore;
+  /** `<prefix>/`, the session's mirror namespace. */
+  readonly #namespace: string;
+  /** `<prefix>/generation-<n>`: everything this store writes starts here. */
   readonly #prefix: string;
+  readonly #inherit: Inheritance | undefined;
+  /** Settles once the generation is known to be this launch's alone. */
+  readonly #opened: Promise<void>;
   readonly #sequence = new Map<string, number>();
+  /** Adopted parts that matched their pinned length and digest. */
+  readonly #adopted = new Map<string, Promise<Uint8Array>>();
   /**
    * Parts are write-once, so what a part holds never has to be fetched twice.
    * Without this, every capture re-downloads and re-parses the whole
@@ -47,18 +85,33 @@ export class ClaudeSessionStore implements TranscriptMirror {
    */
   readonly #parts = new Map<string, Promise<Uint8Array>>();
   /**
-   * One append at a time per transcript, because the tick that orders parts is
-   * chosen from what the previous append wrote. Two appends racing for the
-   * first tick under a key would otherwise pick the same one and fall back to
-   * their random suffixes for order, which is not the order they were called
-   * in — and replay order is conversation order.
+   * One append at a time per transcript. Two appends racing for the same
+   * slot would be ordered by whichever PUT landed first, which is not the
+   * order they were called in — and replay order is conversation order.
    */
   readonly #writes = new Map<string, Promise<unknown>>();
   #appendFailures = 0;
 
   constructor(options: ClaudeSessionStoreOptions) {
+    const { generation } = options;
+    if (!Number.isSafeInteger(generation) || generation < 0) {
+      throw new Error(`Invalid execution generation: ${generation}`);
+    }
+    const trimmed = options.prefix.replace(/^\/+|\/+$/g, "");
     this.#objects = options.objects;
-    this.#prefix = options.prefix.replace(/^\/+|\/+$/g, "");
+    this.#namespace = trimmed === "" ? "" : `${trimmed}/`;
+    this.#prefix = `${this.#namespace}generation-${pad(generation)}`;
+    this.#inherit =
+      options.inherit === undefined
+        ? undefined
+        : inheritance(options.inherit, this.#namespace, generation);
+    this.revisionScoped = this.#inherit !== undefined;
+    // Started now rather than on first use, so two stores a host opens
+    // together for one generation both find it empty. Every operation awaits
+    // it; the catch only keeps a store nobody used from reporting an
+    // unhandled rejection.
+    this.#opened = this.#assertFresh();
+    this.#opened.catch(() => undefined);
   }
 
   /**
@@ -73,9 +126,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
   async append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void> {
     if (entries.length === 0) return;
     const prefix = this.#keyPrefix(key);
+    const write = async () => {
+      await this.#opened;
+      await this.#write(prefix, entries);
+    };
     const queued = (this.#writes.get(prefix) ?? Promise.resolve()).then(
-      () => this.#write(prefix, entries),
-      () => this.#write(prefix, entries),
+      write,
+      write,
     );
     this.#writes.set(
       prefix,
@@ -93,17 +150,16 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * The slot number is not chosen, it is won: the create-only write *is* the
    * compare-and-set. Whoever's PUT lands first owns that index, and everyone
    * else re-reads the tail and tries the next one. That is what makes the
-   * order deterministic across processes — two workers overlapping during a
-   * lease handoff replay in the order their writes committed, rather than in
-   * whatever order a random key suffix happens to sort. (Which of them should
-   * have been writing at all is a different question, fenced elsewhere: see
-   * 94S-203.)
+   * order deterministic across processes — two writers sharing a generation
+   * replay in the order their writes committed, rather than in whatever order
+   * a random key suffix happens to sort. A writer from another generation
+   * never competes for these slots at all: it has its own prefix.
    */
   async #write(prefix: string, entries: TranscriptEntry[]): Promise<void> {
     const body = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
     const bytes = new TextEncoder().encode(body);
     for (let attempt = 0; attempt < SLOT_ATTEMPTS; attempt += 1) {
-      const key = `${prefix}part-${String(await this.#nextIndex(prefix)).padStart(10, "0")}.jsonl`;
+      const key = `${prefix}part-${pad(await this.#nextIndex(prefix))}.jsonl`;
       let outcome: string;
       try {
         ({ outcome } = await this.#objects.putImmutable(key, bytes));
@@ -131,16 +187,20 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 
   /**
-   * Everything the mirror currently holds for this key — which is deliberately
-   * *not* what a resumed run should replay. A session resuming from checkpoint
-   * N must be handed the parts that manifest pinned, via `loadRevision`;
-   * whatever the mirror recorded between N and the crash is not part of the
-   * checkpoint. Wiring that into a resumed SDK run is 94S-203's half.
+   * The parts this store adopted for the key, then everything its own
+   * generation holds. Never the latest suffix of an older generation: what a
+   * predecessor recorded after the checkpoint being resumed — or after it
+   * lost its lease — is not part of this session's conversation.
    */
   async load(key: TranscriptKey): Promise<TranscriptEntry[] | null> {
-    const parts = await this.#listParts(key);
-    if (parts.length === 0) return null;
-    const bodies = await Promise.all(parts.map((part) => this.#cached(part)));
+    await this.#opened;
+    const adopted = this.#pinned(key);
+    const own = await this.#listParts(key);
+    if (adopted.length === 0 && own.length === 0) return null;
+    const bodies = await Promise.all([
+      ...adopted.map((part) => this.#adoptedBody(part)),
+      ...own.map((part) => this.#cached(part)),
+    ]);
     return deduplicate(bodies.flatMap(parseEntries));
   }
 
@@ -148,8 +208,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
     projectKey: string;
     sessionId: string;
   }): Promise<string[]> {
-    const prefix = this.#joinPrefix(key.projectKey, key.sessionId, "subpaths");
-    const subpaths = new Set<string>();
+    await this.#opened;
+    const prefix = this.#sessionPrefix(key, "subpaths");
+    const subpaths = new Set<string>(this.#inherit?.subpaths);
     for (const objectKey of await this.#objects.list(prefix)) {
       const relative = objectKey.slice(prefix.length);
       const marker = relative.lastIndexOf("/part-");
@@ -158,19 +219,90 @@ export class ClaudeSessionStore implements TranscriptMirror {
     return [...subpaths].sort();
   }
 
-  /** null when the engine has mirrored nothing for this key yet. */
+  /**
+   * null when neither the checkpoint this store adopted nor the engine has
+   * put anything under the key. Appends already queued for the key land
+   * first; whether the engine has anything left to hand over is the caller's
+   * to settle before asking.
+   */
   async captureRevision(
     key: TranscriptKey,
   ): Promise<TranscriptRevision | null> {
-    const parts = await this.#listParts(key);
-    if (parts.length === 0) return null;
-    const bodies = await Promise.all(parts.map((part) => this.#cached(part)));
-    const refs: ObjectRef[] = parts.map((part, index) => {
-      const body = bodies[index] ?? new Uint8Array();
-      return { bytes: body.byteLength, key: part, sha256: sha256(body) };
-    });
+    await this.#opened;
+    await this.#writes.get(this.#keyPrefix(key));
+    const adopted = this.#pinned(key);
+    const own = await this.#listParts(key);
+    if (adopted.length === 0 && own.length === 0) return null;
+    return this.#revisionOf(adopted, own);
+  }
+
+  /**
+   * Every transcript of one engine session — the root and each subagent —
+   * pinned together, for a publisher that knows the session it checkpoints
+   * but not the project key the engine filed it under. That key comes out of
+   * the engine's own path handling, so it is read back from what the engine
+   * wrote rather than recomputed and hoped to match. null when there is no
+   * root transcript to pin.
+   */
+  async captureTranscripts(
+    sessionId: string,
+  ): Promise<CheckpointTranscripts | null> {
+    await this.#opened;
+    this.#bind(sessionId);
+    await Promise.all(this.#writes.values());
+    const own = new Map<string, string[]>();
+    const projectKeys = new Set<string>();
+    for (const objectKey of await this.#objects.list(`${this.#prefix}/`)) {
+      const location = locate(objectKey.slice(this.#namespace.length));
+      if (location?.sessionId !== sessionId) continue;
+      projectKeys.add(location.projectKey);
+      own.set(location.lane, [...(own.get(location.lane) ?? []), objectKey]);
+    }
+    if (projectKeys.size > 1) {
+      throw new Error(
+        `Engine session ${sessionId} is mirrored under more than one project key: ${[...projectKeys].sort().join(", ")}`,
+      );
+    }
+    const pinned = this.#inherit?.parts ?? new Map<string, never>();
+    const lanes = new Set([...pinned.keys(), ...own.keys()]);
+    if (!lanes.has("")) return null;
+    const revisions = new Map<string, TranscriptRevision>();
+    for (const lane of [...lanes].sort()) {
+      revisions.set(
+        lane,
+        await this.#revisionOf(
+          pinned.get(lane) ?? [],
+          (own.get(lane) ?? []).sort(),
+        ),
+      );
+    }
+    const { "": root, ...subagents } = Object.fromEntries(revisions);
+    if (root === undefined) return null;
+    return { root, subagents };
+  }
+
+  async #revisionOf(
+    adopted: readonly ObjectRef[],
+    own: readonly string[],
+  ): Promise<TranscriptRevision> {
+    const [adoptedBodies, ownBodies] = await Promise.all([
+      Promise.all(adopted.map((part) => this.#adoptedBody(part))),
+      Promise.all(own.map((part) => this.#cached(part))),
+    ]);
+    // Adopted parts keep the refs the checkpoint pinned rather than ones
+    // recomputed here: they are the claim a restore will check the bytes
+    // against, and #adoptedBody has already held the bytes to it.
+    const refs: ObjectRef[] = [
+      ...adopted,
+      ...own.map((part, index) => {
+        const body = ownBodies[index] ?? new Uint8Array();
+        return { bytes: body.byteLength, key: part, sha256: sha256(body) };
+      }),
+    ];
     return {
-      entryCount: deduplicate(bodies.flatMap(parseEntries)).length,
+      entryCount: deduplicate(
+        [...adoptedBodies, ...ownBodies].flatMap(parseEntries),
+      ).length,
       parts: refs,
       sha256: digestParts(refs),
     };
@@ -178,6 +310,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
 
   /** Restores exactly the parts the revision names, or throws. */
   async loadRevision(revision: TranscriptRevision): Promise<TranscriptEntry[]> {
+    await this.#opened;
     if (digestParts(revision.parts) !== revision.sha256) {
       throw new Error("Transcript revision digest mismatch");
     }
@@ -249,20 +382,192 @@ export class ClaudeSessionStore implements TranscriptMirror {
     return pending;
   }
 
-  #keyPrefix(key: TranscriptKey): string {
-    return key.subpath === undefined
-      ? this.#joinPrefix(key.projectKey, key.sessionId, "main")
-      : this.#joinPrefix(
-          key.projectKey,
-          key.sessionId,
-          "subpaths",
-          ...safeSubpath(key.subpath),
-        );
+  /**
+   * An adopted part, held to the length and digest its checkpoint pinned
+   * before anything reads it. Cached once it passes: the key is write-once,
+   * and a capture that re-verified it every turn would re-download the whole
+   * inherited history every turn.
+   */
+  #adoptedBody(part: ObjectRef): Promise<Uint8Array> {
+    const hit = this.#adopted.get(part.key);
+    if (hit !== undefined) return hit;
+    const pending = this.#read(part.key)
+      .then((body) => {
+        if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
+          throw new Error(`Inherited transcript part changed: ${part.key}`);
+        }
+        return body;
+      })
+      .catch((error: unknown) => {
+        this.#adopted.delete(part.key);
+        throw error;
+      });
+    this.#adopted.set(part.key, pending);
+    return pending;
   }
 
-  #joinPrefix(...segments: string[]): string {
-    return `${[this.#prefix, ...segments.map(safeSegment)].filter(Boolean).join("/")}/`;
+  #pinned(key: TranscriptKey): readonly ObjectRef[] {
+    this.#bind(key.sessionId);
+    return this.#inherit?.parts.get(key.subpath ?? "") ?? [];
   }
+
+  /**
+   * A generation belongs to one launch, so its prefix is empty when that
+   * launch opens its store. Parts already there mean two launches were handed
+   * the same generation, and a resume would replay the other one's
+   * uncommitted suffix as if the checkpoint held it. This detects the misuse;
+   * it does not fence it — two launches that open at the same moment both see
+   * an empty prefix. Keeping generations unique is the scheduler's (94S-202).
+   */
+  async #assertFresh(): Promise<void> {
+    const held = await this.#objects.list(`${this.#prefix}/`);
+    if (held.length > 0) {
+      throw new Error(
+        `Execution generation already holds transcript parts: ${this.#prefix}/`,
+      );
+    }
+  }
+
+  #keyPrefix(key: TranscriptKey): string {
+    return key.subpath === undefined
+      ? this.#sessionPrefix(key, "main")
+      : this.#sessionPrefix(key, "subpaths", ...safeSubpath(key.subpath));
+  }
+
+  /**
+   * A store that adopted a checkpoint is bound to the engine session that
+   * checkpoint resumes. The engine keeps its session id across a resume, so a
+   * key for any other session means the host resumed something else on top of
+   * this checkpoint — and answering `null` there would send the engine looking
+   * for that session on the container's own disk.
+   */
+  #bind(sessionId: string): void {
+    if (this.#inherit !== undefined && sessionId !== this.#inherit.sessionId) {
+      throw new Error(
+        `Transcript store adopted engine session ${this.#inherit.sessionId}, not ${sessionId}`,
+      );
+    }
+  }
+
+  #sessionPrefix(
+    key: { projectKey: string; sessionId: string },
+    ...rest: string[]
+  ): string {
+    this.#bind(key.sessionId);
+    const segments = [key.projectKey, key.sessionId, ...rest];
+    return `${[this.#prefix, ...segments.map(safeSegment)].join("/")}/`;
+  }
+}
+
+type Inheritance = {
+  readonly sessionId: string;
+  /** Pinned parts by subpath; the root transcript is `""`. */
+  readonly parts: ReadonlyMap<string, readonly ObjectRef[]>;
+  readonly subpaths: readonly string[];
+};
+
+/**
+ * Checks and copies what a checkpoint hands over, once, before the store
+ * trusts any of it. Copied because the caller's manifest object is not ours to
+ * rely on staying the same; checked here because a part list that fails its
+ * own digest, or that reaches outside this session's mirror, is not a
+ * checkpoint worth resuming.
+ *
+ * Each adopted part must be a part of the transcript it is pinned as — the
+ * engine session being resumed, and the root or that exact subagent — and
+ * come from an earlier generation. A part from this one or a later one means
+ * the checkpoint was captured by a launch that is not this one's predecessor,
+ * and the generation that wrote it can still be appending under it.
+ */
+function inheritance(
+  inherit: TranscriptInheritance,
+  namespace: string,
+  generation: number,
+): Inheritance {
+  safeSegment(inherit.sessionId);
+  const parts = new Map<string, readonly ObjectRef[]>();
+  const pinned: Array<[string, TranscriptRevision]> = [
+    ["", inherit.transcripts.root],
+    ...Object.entries(inherit.transcripts.subagents),
+  ];
+  for (const [subpath, revision] of pinned) {
+    const label = subpath === "" ? "root" : subpath;
+    if (subpath !== "") safeSubpath(subpath);
+    const refs = revision.parts.map(({ bytes, key, sha256 }) => ({
+      bytes,
+      key,
+      sha256,
+    }));
+    if (digestParts(refs) !== revision.sha256) {
+      throw new Error(
+        `Inherited transcript ${label} part list does not match its digest`,
+      );
+    }
+    for (const { key } of refs) {
+      if (!key.startsWith(namespace) || key.split("/").includes("..")) {
+        throw new Error(
+          `Inherited transcript part outside ${namespace}: ${key}`,
+        );
+      }
+      const location = locate(key.slice(namespace.length));
+      if (
+        location?.sessionId !== inherit.sessionId ||
+        location.lane !== subpath
+      ) {
+        throw new Error(
+          `Inherited transcript part ${key} is not a part of ${inherit.sessionId}'s ${label} transcript`,
+        );
+      }
+      if (location.generation >= generation) {
+        throw new Error(
+          `Inherited transcript part ${key} is not from a generation before ${generation}`,
+        );
+      }
+    }
+    parts.set(subpath, refs);
+  }
+  return {
+    parts,
+    sessionId: inherit.sessionId,
+    subpaths: Object.keys(inherit.transcripts.subagents),
+  };
+}
+
+type PartLocation = {
+  readonly generation: number;
+  /** The subagent subpath, or `""` for the root transcript. */
+  readonly lane: string;
+  readonly projectKey: string;
+  readonly sessionId: string;
+};
+
+/**
+ * Reads a part key back into the transcript it belongs to. The path is
+ * relative to the mirror namespace:
+ * `generation-<n>/<projectKey>/<sessionId>/main/part-<i>.jsonl`, or
+ * `.../subpaths/<subpath>/part-<i>.jsonl` for a subagent.
+ */
+function locate(relative: string): PartLocation | undefined {
+  const match = relative.match(
+    /^generation-(\d{10})\/([^/]+)\/([^/]+)\/(?:main|subpaths\/(.+))\/part-\d{10}\.jsonl$/,
+  );
+  if (
+    match?.[1] === undefined ||
+    match[2] === undefined ||
+    match[3] === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    generation: Number(match[1]),
+    lane: match[4] ?? "",
+    projectKey: match[2],
+    sessionId: match[3],
+  };
+}
+
+function pad(value: number): string {
+  return String(value).padStart(10, "0");
 }
 
 function deduplicate(entries: readonly TranscriptEntry[]): TranscriptEntry[] {
