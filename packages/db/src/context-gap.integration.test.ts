@@ -226,7 +226,12 @@ integration("context gap on PostgreSQL (94S-288)", () => {
    */
   async function runOneTurn(
     session: Session,
-    options: { checkpoint: CheckpointRef | null; thenQueue?: string },
+    options: {
+      checkpoint: CheckpointRef | null;
+      thenQueue?: string;
+      /** Reported by the worker before it finalizes, as a failed publish is. */
+      pendingReason?: "publish_failed";
+    },
   ) {
     const l = await launch(session);
     const claimed = await claim(l);
@@ -236,6 +241,17 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     );
     const turnId = next.input?.turn_id;
     if (turnId === undefined) throw new Error("no input delivered");
+    if (options.pendingReason !== undefined) {
+      const { kind: _kind, ...fence } = principalOf(claimed) as Extract<
+        WorkerPrincipal,
+        { kind: "session" }
+      >;
+      await createPostgresWorkerUnitOfWork(db).checkpointStateAtomic({
+        fence,
+        now: clock,
+        pendingReason: options.pendingReason,
+      });
+    }
     await gateway.finalize(principalOf(claimed), {
       ...scopeOf(claimed, turnId),
       turn_id: turnId,
@@ -402,6 +418,35 @@ integration("context gap on PostgreSQL (94S-288)", () => {
         })
       ).outcome,
     ).toBe("rejected");
+  });
+
+  test("a turn whose publish failed is shown as it ran and is a gap when the worker goes (94S-312)", async () => {
+    const session = await queuedSession("publish-failed-gap");
+    await runOneTurn(session, {
+      checkpoint: checkpointAt(0),
+      thenQueue: "second input",
+    });
+    await runOneTurn(session, {
+      checkpoint: null,
+      pendingReason: "publish_failed",
+      thenQueue: "third input",
+    });
+
+    const row = await sessionRow(session.session_id);
+    expect(row.admissionState).toBe("recovery_required");
+    expect(row.checkpointPendingReason).toBe("publish_failed");
+    const detail = await reader().getSession(
+      session.ownerId,
+      session.session_id,
+    );
+    // Advisory: it did not hold the turn back, and it says why the pointer
+    // stopped at turn 1 when the operator is asked to decide.
+    expect(detail?.durability.checkpoint_pending_reason).toBe("publish_failed");
+    expect(detail?.attention).toEqual({
+      code: "CONTEXT_GAP",
+      last_ran_turn_id: "2",
+      checkpointed_turn_id: "1",
+    });
   });
 
   test("a checkpoint older than the last turn is a gap too, and names the turn it covers", async () => {
