@@ -3,6 +3,7 @@ import type { CheckpointRef, RuntimeConfig } from "@agent-platform/contracts";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
+  textReply,
   toolReply,
 } from "@agent-platform/testkit/fake-anthropic";
 import {
@@ -71,6 +72,46 @@ class CommittingCheckpoints implements WorkerCheckpointPort {
   }
 }
 
+function setup(
+  endpoint: string,
+  home: string,
+  workspace: string,
+): { config: WorkerConfig; runtimeConfig: RuntimeConfig } {
+  return {
+    config: {
+      bootstrapNonce: "wln_test",
+      executionGeneration: 1,
+      executionId: "exec-1",
+      gatewayUrl: "http://127.0.0.1:9",
+      objectStore: {
+        accessKeyId: "unused",
+        bucket: "unused",
+        endpoint: "http://127.0.0.1:9",
+        region: "ap-northeast-1",
+        scope: `sessions/${SESSION_ID}/`,
+        secretAccessKey: "unused",
+      },
+      runtime: {
+        claudeConfigDir: home,
+        cwd: workspace,
+        home,
+        providerMaxRetries: 0,
+      },
+      timeouts,
+    },
+    runtimeConfig: {
+      model: MODEL,
+      tools: [],
+      permission_mode: "default",
+      provider: {
+        kind: "anthropic",
+        endpoint,
+        auth: { kind: "api_key", value: "placeholder-local" },
+      },
+    },
+  };
+}
+
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
 
@@ -91,37 +132,7 @@ describe("session budget inside a turn, through the composed runtime (94S-279)",
       ...toolReply("Bash", { command: "true" }),
       usage: THREE_DOLLARS,
     });
-    const config: WorkerConfig = {
-      bootstrapNonce: "wln_test",
-      executionGeneration: 1,
-      executionId: "exec-1",
-      gatewayUrl: "http://127.0.0.1:9",
-      objectStore: {
-        accessKeyId: "unused",
-        bucket: "unused",
-        endpoint: "http://127.0.0.1:9",
-        region: "ap-northeast-1",
-        scope: `sessions/${SESSION_ID}/`,
-        secretAccessKey: "unused",
-      },
-      runtime: {
-        claudeConfigDir: home,
-        cwd: workspace,
-        home,
-        providerMaxRetries: 0,
-      },
-      timeouts,
-    };
-    const runtimeConfig: RuntimeConfig = {
-      model: MODEL,
-      tools: [],
-      permission_mode: "default",
-      provider: {
-        kind: "anthropic",
-        endpoint: server.url,
-        auth: { kind: "api_key", value: "placeholder-local" },
-      },
-    };
+    const { config, runtimeConfig } = setup(server.url, home, workspace);
     const engines = new EngineProcesses();
 
     // First attempt: $5 left. $3 goes on, $6 is past it, so the turn ends
@@ -194,5 +205,45 @@ describe("session budget inside a turn, through the composed runtime (94S-279)",
     expect(JSON.stringify(server.requests[2]?.body.messages)).toContain(
       "loop on tools",
     );
+  }, 90_000);
+
+  test("/clear ends the attempt, so the next turn runs on a fresh claim's budget", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((request) =>
+      JSON.stringify(request.body.messages).includes("loop now")
+        ? { ...toolReply("Bash", { command: "true" }), usage: THREE_DOLLARS }
+        : { ...textReply("ok"), usage: THREE_DOLLARS },
+    );
+    const { config, runtimeConfig } = setup(server.url, home, workspace);
+    const engines = new EngineProcesses();
+    const gateway = new FakeWorkerGateway({
+      remainingBudgetUsd: 5,
+      runtimeConfig,
+      sessionId: SESSION_ID,
+    });
+    gateway.enqueue("spend three dollars");
+    gateway.enqueue("/clear");
+    gateway.enqueue("loop now");
+
+    const summary = await new WorkerHost({
+      checkpoints: new CommittingCheckpoints({ mode: "new" }),
+      engines,
+      execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      gateway,
+      logger: silent,
+      runtimes: claudeRuntimeRegistry(config, engines),
+      timeouts,
+      workspace: noWorkspace,
+    }).runLoop();
+
+    // The clear is finalized; the loop is left for the next claim, which
+    // carries the session's real remainder ($2) rather than a fresh $5.
+    expect(summary.outcome).toBe("drained");
+    expect(summary.turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(server.requests).toHaveLength(1);
   }, 90_000);
 });

@@ -165,4 +165,58 @@ describe("maxBudgetUsd with the actual Claude SDK", () => {
     });
     expect(resumed.total_cost_usd).toBeCloseTo(6, 3);
   }, 60_000);
+
+  // Why the worker drains once the count starts over (worker-host observe):
+  // the budget is measured against this count, not against what was spent.
+  test("/clear starts the count over, and the budget with it", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
+    server = startFakeAnthropicServer((request) =>
+      JSON.stringify(request.body.messages).includes("loop now")
+        ? loop
+        : costly(textReply("ok")),
+    );
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const run = runtime.start(
+      {
+        ...config(server.url, isolated.workspace, isolated.home),
+        maxBudgetUsd: 5,
+      },
+      deny,
+    );
+    const inputs = ["spend three dollars", "/clear", "loop now"];
+    const results: Native[] = [];
+    let sent = 0;
+    run.send({ message: inputs[sent++] as string, uuid: crypto.randomUUID() });
+    try {
+      for await (const frame of run) {
+        const native = frame.envelope.message as Native;
+        if (native.type !== "result") continue;
+        results.push(native);
+        if (sent < inputs.length) {
+          run.send({
+            message: inputs[sent++] as string,
+            uuid: crypto.randomUUID(),
+          });
+        } else {
+          run.finishInput();
+        }
+      }
+    } catch (error) {
+      if (results.length < inputs.length) throw error;
+    }
+
+    expect(results.map((result) => result.total_cost_usd)).toEqual([
+      expect.closeTo(3, 3),
+      0,
+      expect.closeTo(6, 3),
+    ]);
+    expect(results[1]?.session_id).not.toBe(results[0]?.session_id);
+    // $3 was spent before the clear, yet the loop ran two $3 requests
+    // against a $5 budget: the count it checked had started from zero.
+    expect(server.requests).toHaveLength(3);
+    expect(results[2]?.subtype).toBe("error_max_budget_usd");
+  }, 60_000);
 });

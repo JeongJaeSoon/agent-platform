@@ -1554,7 +1554,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               : {
                   code: unknownOutcome
                     ? "RECOVERY_REQUIRED"
-                    : input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
+                    : input.terminal.status === "failed" &&
+                        input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
                       ? "BUDGET_EXCEEDED"
                       : "INTERNAL_ERROR",
                   message: input.terminal.reason ?? input.terminal.status,

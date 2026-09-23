@@ -1438,6 +1438,17 @@ export class WorkerHost {
 
   private observe(native: NativeSdkMessage): void {
     this.accounting.observe(native);
+    if (this.accounting.restarted) {
+      // `/clear` starts the engine's count over, and the budget the claim
+      // gave it with it: left running, the next turn could spend the whole
+      // remainder again. The turn in flight is finalized; the next one waits
+      // for a claim that brings what is really left.
+      this.stop({
+        kind: "drain",
+        reason:
+          "The engine started its cost count over, so its budget no longer bounds the session's",
+      });
+    }
     if (native.type === "system" && native.subtype === "mirror_error") {
       // Latched for the run like the ledger's own: the SDK has given up on a
       // batch, and no later write brings it back.

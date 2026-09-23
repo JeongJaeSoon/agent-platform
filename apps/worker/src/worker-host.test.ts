@@ -1048,6 +1048,47 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
     });
   });
 
+  test("an engine that started its cost count over finishes the turn and drains (94S-279)", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: { ...resultMessage(uuidForTurn(1)), total_cost_usd: 3 },
+        },
+        { type: "await-input" },
+        // What `/clear` answers: a new engine session that has spent nothing.
+        {
+          type: "emit",
+          message: {
+            ...resultMessage(uuidForTurn(2)),
+            session_id: "after-clear",
+            total_cost_usd: 0,
+          },
+        },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { idleTimeoutMs: 60_000 } },
+    );
+    gateway.enqueue("spend something");
+    gateway.enqueue("/clear");
+    gateway.enqueue("a loop the old budget would no longer bound");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(summary.reason).toContain("cost count over");
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(gateway.finalized.map((call) => call.terminal.cost_usd)).toEqual([
+      3, 0,
+    ]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
   test("gives the slot back as soon as the gateway says the budget is spent", async () => {
     const gateway = new FakeWorkerGateway();
     const { host } = harness(
