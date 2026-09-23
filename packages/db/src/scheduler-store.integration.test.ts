@@ -173,6 +173,40 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     expect(row?.reason).toBeNull();
   }, 60_000);
 
+  test("a replacement request waits behind a terminate holding the row and then refuses", async () => {
+    const { intent, store } = await reservedLaunch();
+    // A terminate in flight, as terminateAtomic orders it: the launch row
+    // locked first, then the kill intent written, not yet committed.
+    const terminating = await pool.connect();
+    try {
+      await terminating.query("BEGIN");
+      await terminating.query(
+        "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+        [intent.executionId],
+      );
+      await terminating.query(
+        "UPDATE executions SET desired_state = 'terminated' WHERE id = $1",
+        [intent.executionId],
+      );
+      const request = store.requestReplacement(intent, "stale_isolation", 0);
+      expect(await settledWithin(request, 300)).toBe("pending");
+      await terminating.query("COMMIT");
+      // The kill intent is read after the wait, not from the snapshot taken
+      // before it: a launch asked to go is never recorded for a rebuild.
+      expect(await request).toBeNull();
+    } finally {
+      terminating.release();
+    }
+    const [row] = await db
+      .select({
+        count: workerLaunches.replacementCount,
+        reason: workerLaunches.replacementReason,
+      })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(row).toEqual({ count: 0, reason: null });
+  }, 60_000);
+
   test("an exit confirmation waits behind a replacement request holding the row and then refuses", async () => {
     const { intent, sessionId, store } = await reservedLaunch();
     // A replacement request in flight: reason written, not committed.
