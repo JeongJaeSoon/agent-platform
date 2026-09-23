@@ -17,6 +17,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   RATE_LIMITED: "요청이 몰렸습니다 — 잠시 뒤 다시 시도하세요.",
   STORAGE_LIMIT_EXCEEDED:
     "저장 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
+  BUDGET_EXCEEDED:
+    "세션 비용 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
   INTERNAL_ERROR: "서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   REVISION_CONFLICT: "다른 사람이 먼저 바꿨습니다 — 최신 내용을 확인하세요.",
   IDEMPOTENCY_CONFLICT:

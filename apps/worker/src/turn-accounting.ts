@@ -37,6 +37,16 @@ export class TurnAccounting {
   // settling turn's own result, so this is that turn's report.
   private lastResultReported = false;
   private providerFailure: ProviderFailure | undefined;
+  private countRestarted = false;
+
+  /**
+   * Whether the engine has started its count over since the run began. The
+   * run's spending budget is measured against that count, so from then on
+   * it no longer bounds what the session spends (94S-279).
+   */
+  get restarted(): boolean {
+    return this.countRestarted;
+  }
 
   observe(native: NativeSdkMessage): void {
     if (native.type === "result") {
@@ -57,6 +67,7 @@ export class TurnAccounting {
         ) {
           this.lastTotalUsd = 0;
           this.lastSessionId = sessionId;
+          this.countRestarted = true;
         }
         this.lastResultReported = this.lastTotalUsd === 0;
         return;
@@ -65,6 +76,7 @@ export class TurnAccounting {
       const restarted =
         total < this.lastTotalUsd ||
         (this.lastSessionId !== undefined && sessionId !== this.lastSessionId);
+      if (restarted) this.countRestarted = true;
       this.unsettledUsd += restarted ? total : total - this.lastTotalUsd;
       this.lastTotalUsd = total;
       this.lastSessionId = sessionId;

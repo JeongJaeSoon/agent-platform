@@ -3,6 +3,7 @@ import {
   type CheckpointRef,
   checkpointBlockReasonSchema,
   type TerminalTurnStatus,
+  TURN_BUDGET_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@agent-platform/contracts";
@@ -738,6 +739,7 @@ async function bindingOf(
       branch: session.branch,
     },
     restore: await restoreRef(tx, session),
+    costUsd: session.costUsd,
   };
 }
 
@@ -1550,7 +1552,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             error: succeeded
               ? null
               : {
-                  code: unknownOutcome ? "RECOVERY_REQUIRED" : "INTERNAL_ERROR",
+                  code: unknownOutcome
+                    ? "RECOVERY_REQUIRED"
+                    : input.terminal.status === "failed" &&
+                        input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
+                      ? "BUDGET_EXCEEDED"
+                      : "INTERNAL_ERROR",
                   message: input.terminal.reason ?? input.terminal.status,
                 },
             updatedAt: now,

@@ -647,6 +647,12 @@ export function createWorkerGateway(deps: {
             workspace: { repository: binding.repository },
             principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
+            // A replay can bind a session that has since spent its budget;
+            // its engine gets nothing to spend, and nextInput hands it no turn.
+            remaining_budget_usd: Math.max(
+              0,
+              deps.options.sessionCostLimitUsd - binding.costUsd,
+            ),
           };
         }
       }

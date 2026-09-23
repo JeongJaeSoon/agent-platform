@@ -97,6 +97,7 @@ describe("HttpWorkerGatewayClient", () => {
         },
         principal: { owner_scope: "owner-a" },
         restore: null,
+        remaining_budget_usd: 25,
       }),
     );
     const claim = await gateway.bootstrapClaim({
