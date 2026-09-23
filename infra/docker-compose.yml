@@ -20,8 +20,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-sessions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+    # Loopback only, as every published port here: the local stack's
+    # defaults (password `dev`, LocalStack's any-key S3, the Gitea login)
+    # have no business on other hosts' interfaces.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../packages/db/migrations/0000_gifted_morg.sql:/docker-entrypoint-initdb.d/0000_m0.sql:ro
@@ -62,7 +65,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
-      - "4566:4566"
+      - "127.0.0.1:4566:4566"
     volumes:
       - localstack-data:/var/lib/localstack
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
@@ -119,8 +122,8 @@ services:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__security__INSTALL_LOCK: "true"
     ports:
-      - "3001:3000"
-      - "2222:22"
+      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:2222:22"
     volumes:
       - gitea-data:/data
     healthcheck:
@@ -129,6 +132,23 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+
+  # One-shot: the example catalog's repository (config/repositories.yaml),
+  # so a fresh `up` can run a session without touching Gitea by hand. Skips
+  # whatever already exists (infra/gitea/init-sample-repo.sh).
+  gitea-init:
+    image: gitea/gitea:1.22
+    profiles: ["apps"]
+    user: git
+    entrypoint: ["/bin/sh", "/init-sample-repo.sh"]
+    environment:
+      GITEA_AGENT_PASSWORD: ${GITEA_AGENT_PASSWORD:-agent-local-dev}
+    volumes:
+      - gitea-data:/data
+      - ./gitea/init-sample-repo.sh:/init-sample-repo.sh:ro
+    depends_on:
+      gitea:
+        condition: service_healthy
 
   # The only route off every worker network. The scheduler gives each worker
   # an internal network of its own and attaches this container to it under
@@ -270,16 +290,18 @@ services:
 
   # Not a long-running service: workers are launched per session by the
   # scheduler through the Docker socket, which is why this one has no
-  # depends_on and no network of its own. The entry exists so
-  # `docker compose --profile worker build` produces the image WORKER_IMAGE
-  # names, and `docker compose --profile worker run --rm worker claude
-  # --version` inspects it. Its default command exits at once until 94S-122.
+  # depends_on and no network of its own. The entry exists so `up` in the
+  # `apps` profile builds the image WORKER_IMAGE names — the scheduler
+  # starts after it — and runs it once as a smoke check that prints the
+  # bundled Claude Code version and exits. `--profile worker build` still
+  # builds it alone.
   worker:
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
     image: ${WORKER_IMAGE:-agent-platform-worker:dev}
-    profiles: ["worker"]
+    profiles: ["apps", "worker"]
+    command: ["claude", "--version"]
     network_mode: none
     read_only: true
     user: "1000:1000"
@@ -385,6 +407,10 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      worker:
+        condition: service_completed_successfully
+      gitea-init:
+        condition: service_completed_successfully
 
 networks:
   # Worker networks are not declared here: the scheduler creates one per
