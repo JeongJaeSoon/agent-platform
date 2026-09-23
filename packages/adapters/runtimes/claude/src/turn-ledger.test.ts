@@ -247,7 +247,11 @@ describe("checkpoint quiescence", () => {
       subtype: "background_tasks_changed",
       tasks: [{ task_id: "bash_1", task_type: "local_bash", description: "" }],
     });
-    ledger.observe({ type: "result", session_id: "s1", user_message_uuid: "a" });
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
     expect(ledger.prepareCheckpoint()).toEqual({
       status: "rejected",
       reason: "background_writer",

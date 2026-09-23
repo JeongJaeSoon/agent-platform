@@ -165,7 +165,7 @@ export type FinalizeResult =
   // another finalize moved it first. Ask again, upload, finalize again.
   | { outcome: "checkpoint_conflict"; currentRevision: number | null }
   // A completed terminal was offered without a checkpoint while the session
-  // carries a durable pending reason: the turn cannot be reported as durably
+  // carries a blocking pending reason: the turn cannot be reported as durably
   // finished. Interrupted/failed/unknown terminals are never held back.
   | { outcome: "checkpoint_required"; reason: CheckpointBlockReason }
   // The stream is not durable through final_source_sequence (or holds more
@@ -178,8 +178,10 @@ export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
 export type CheckpointStateInput = {
   fence: WorkerFence;
   now: Date;
-  // A durable block reason to record; undefined leaves the stored one alone.
-  // Only a committed checkpoint clears it (finalizeAtomic / commitAtomic).
+  // A reason to record (durability.ts checkpointPendingReason); undefined
+  // leaves the stored one alone, and an advisory reason never replaces a
+  // blocking one. Only a committed checkpoint clears it (finalizeAtomic /
+  // commitAtomic).
   pendingReason?: CheckpointBlockReason;
 };
 export type CheckpointStateResult =

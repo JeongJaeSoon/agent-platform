@@ -42,7 +42,7 @@ export type AppendMessageResult =
   | { outcome: "conflict" | "not_found" }
   // The session exists but its admission state does not take new input.
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
-  // The session cannot be checkpointed (durable pending reason): a turn run
+  // The session cannot be checkpointed (blocking pending reason): a turn run
   // now could never be reported as durably finished, so none is accepted.
   | { outcome: "checkpoint_unavailable"; reason: CheckpointBlockReason };
 

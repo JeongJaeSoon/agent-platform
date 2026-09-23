@@ -5,25 +5,67 @@ import type {
 } from "@agent-platform/runtime-core";
 
 /**
- * Which refusals outlive the turn that produced them.
+ * What each refusal means for the session, once the runtime reports it.
  *
- * A turn in flight and a run that has not started one are ordinary states: the
- * next safe boundary checkpoints as usual. A dropped mirror batch is not — the
- * stored transcript is short entries nobody can enumerate, and every later turn
- * builds on a session that cannot be restored. Only that one is surfaced as a
- * pending reason and only that one holds work back.
+ * - `ordinary`: a turn in flight, or a run that has not started one. The next
+ *   safe boundary checkpoints as usual; nothing is recorded.
+ * - `blocking`: a dropped mirror batch. The stored transcript is short entries
+ *   nobody can enumerate and every later turn builds on a session that cannot
+ *   be restored, so it is recorded and holds work back until a checkpoint from
+ *   *another* attempt commits (this run's transcript never recovers).
+ * - `advisory`: the run was not quiescent — a tool still running, a background
+ *   task (a dev server may run for hours, §1.1), or another checkpoint holding
+ *   the lease. The previous generation stays the one to resume from and the
+ *   reason is recorded so it is visible, but work goes on: holding turns back
+ *   for a server the agent was asked to keep running would stall the session.
+ *   Any later commit clears it, from this attempt or another.
  */
-const DURABLE_BLOCKERS: Record<CheckpointBlockReason, boolean> = {
-  mirror_error: true,
-  no_engine_session: false,
-  turn_in_flight: false,
-};
+export type CheckpointReasonKind = "advisory" | "blocking" | "ordinary";
 
+const CHECKPOINT_REASONS: Record<CheckpointBlockReason, CheckpointReasonKind> =
+  {
+    background_writer: "advisory",
+    checkpoint_lease_held: "advisory",
+    mirror_error: "blocking",
+    no_engine_session: "ordinary",
+    tool_in_flight: "advisory",
+    turn_in_flight: "ordinary",
+  };
+
+export function checkpointReasonKind(
+  reason: CheckpointBlockReason,
+): CheckpointReasonKind {
+  return CHECKPOINT_REASONS[reason];
+}
+
+/** Whether a stored pending reason refuses new turns and unconfirmed completions. */
+export function checkpointReasonHoldsWork(
+  reason: CheckpointBlockReason | null,
+): boolean {
+  return reason !== null && CHECKPOINT_REASONS[reason] === "blocking";
+}
+
+/** The reason to record for a refusal, or null when it leaves no trace. */
 export function checkpointPendingReason(
   preparation: CheckpointPreparation,
 ): CheckpointBlockReason | null {
   if (preparation.status === "ready") return null;
-  return DURABLE_BLOCKERS[preparation.reason] ? preparation.reason : null;
+  return CHECKPOINT_REASONS[preparation.reason] === "ordinary"
+    ? null
+    : preparation.reason;
+}
+
+/**
+ * The pending reason after `reported` is recorded over `stored`. An advisory
+ * refusal never replaces a blocking one: the session would take turns again
+ * on a transcript it still cannot restore.
+ */
+export function nextPendingReason(
+  stored: CheckpointBlockReason | null,
+  reported: CheckpointBlockReason,
+): CheckpointBlockReason {
+  if (stored === null || checkpointReasonHoldsWork(reported)) return reported;
+  return checkpointReasonHoldsWork(stored) ? stored : reported;
 }
 
 export type CheckpointAdmission =
@@ -38,7 +80,7 @@ export type CheckpointAdmission =
 export function checkpointAdmission(
   pendingReason: CheckpointBlockReason | null,
 ): CheckpointAdmission {
-  if (pendingReason === null) return { admitted: true };
+  if (!checkpointReasonHoldsWork(pendingReason)) return { admitted: true };
   return {
     admitted: false,
     code: "CHECKPOINT_UNAVAILABLE",

@@ -376,12 +376,13 @@ export const sessions = pgTable(
       withTimezone: true,
     }),
     // A CheckpointBlockReason that outlives the turn that produced it
-    // (durability.ts DURABLE_BLOCKERS); null once a checkpoint commits.
+    // (durability.ts CHECKPOINT_REASONS); null once a checkpoint commits.
     checkpointPendingReason: text("checkpoint_pending_reason"),
-    // The attempt that reported the reason. A checkpoint clears it only when
-    // another attempt commits one: the runtime holds a mirror failure for the
-    // whole run, so a checkpoint from the same attempt was captured before
-    // the failure at best and proves nothing about what came after.
+    // The attempt that reported the reason. A checkpoint clears a blocking
+    // reason only when another attempt commits one: the runtime holds a
+    // mirror failure for the whole run, so a checkpoint from the same attempt
+    // was captured before the failure at best and proves nothing about what
+    // came after. Any commit clears an advisory one.
     checkpointPendingAttemptId: text("checkpoint_pending_attempt_id"),
     // The worker's last successful transcript mirror write, as it reported
     // it; only ever moves forward.

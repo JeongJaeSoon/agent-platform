@@ -14,7 +14,7 @@ import type {
 
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
-import { TurnLedger } from "./turn-ledger.ts";
+import type { TurnLedger } from "./turn-ledger.ts";
 
 export class InputStream implements AsyncIterable<SDKUserMessage> {
   private readonly queued: SDKUserMessage[] = [];

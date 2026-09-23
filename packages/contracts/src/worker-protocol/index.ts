@@ -175,8 +175,11 @@ export const nextInputResponseSchema = z.object({
 // Why a run refuses to be checkpointed right now (runtime-core
 // CheckpointBlockReason, mirrored here so the wire schema is closed).
 export const checkpointBlockReasonSchema = z.enum([
+  "background_writer",
+  "checkpoint_lease_held",
   "mirror_error",
   "no_engine_session",
+  "tool_in_flight",
   "turn_in_flight",
 ]);
 
