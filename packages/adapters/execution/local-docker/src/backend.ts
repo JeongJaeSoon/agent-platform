@@ -65,6 +65,13 @@ export const LABELS = {
    * a re-run remove the copy as its own rather than someone else's.
    */
   migratedFrom: "agent-platform.migration-source",
+  /**
+   * On a migration copy: the source's creation time when it was copied. A
+   * source name alone can come back as a different, empty volume — Docker
+   * makes one for any mount of a missing name — and only this tells them
+   * apart.
+   */
+  migrationSourceCreatedAt: "agent-platform.migration-source-created-at",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
   /**

@@ -521,6 +521,44 @@ integration("workspace migration against a real daemon", () => {
     expect(await toolContainers(sessionId)).toEqual([]);
   }, 180_000);
 
+  test("a run that stalls before pinning cannot make a finished migration undone", async () => {
+    const { legacy, sessionId } = await legacySession();
+    // A has planned and stalls before its pin; B migrates to the end and
+    // removes the source; A's pin mount then makes an empty volume under
+    // the source's name.
+    let finishedB: unknown;
+    const clientA = new (class extends DockerClient {
+      override async createContainer(
+        ...args: Parameters<DockerClient["createContainer"]>
+      ) {
+        if (args[0].startsWith("ap-ws-migrate-pin-") && !finishedB) {
+          finishedB = await migrate(sessionId);
+        }
+        return super.createContainer(...args);
+      }
+    })(dockerHost);
+
+    await expect(
+      new WorkspaceMigrator(config(), clientA).migrate({
+        deadlineMs: 60_000,
+        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        pollMs: 200,
+        sessionId,
+      }),
+    ).rejects.toThrow("was removed and recreated empty");
+    expect(finishedB).toMatchObject({ outcome: "migrated", source: legacy });
+    const { target } = finishedB as { target: string };
+    expect(await client.inspectVolume(legacy)).not.toBeNull();
+
+    // The retry an operator would make refuses rather than discarding B's
+    // copy as a leftover of the empty stand-in.
+    await expect(migrate(sessionId)).rejects.toThrow(
+      "not from the one there now",
+    );
+    expect(await run(VERIFY, target)).toBe(0);
+    expect(await toolContainers(sessionId)).toEqual([]);
+  }, 180_000);
+
   test("a helper image not pinned by digest is refused before anything is made", async () => {
     const { sessionId } = await legacySession();
     await expect(

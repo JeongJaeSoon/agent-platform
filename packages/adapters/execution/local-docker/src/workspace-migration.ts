@@ -136,9 +136,23 @@ export function planWorkspaceMigration(input: {
   }
   if (source === null) return { kind: "current", workspace: null };
   const from = source.Name;
-  const leftovers = labelled.filter(
+  const copies = labelled.filter(
     (volume) => volume.Labels?.[LABELS.migratedFrom] === from,
   );
+  // A copy of an earlier volume under the same name may be the only whole
+  // workspace left; the one now under that name is not what it was made from.
+  const foreign = copies.filter(
+    (volume) =>
+      source.CreatedAt === undefined ||
+      volume.Labels?.[LABELS.migrationSourceCreatedAt] !== source.CreatedAt,
+  );
+  if (foreign.length > 0) {
+    return {
+      kind: "refused",
+      reason: `${names(foreign)} were copied from an earlier volume named ${from}, not from the one there now (created ${source.CreatedAt ?? "at an unknown time"}); compare them by hand before removing either`,
+    };
+  }
+  const leftovers = copies;
   const strangers = labelled.filter(
     (volume) => volume.Name !== from && !leftovers.includes(volume),
   );
@@ -255,13 +269,14 @@ export class WorkspaceMigrator {
     // after it, and a run that resumes late must leave them alone.
     await this.assertUnused(source, fail, sessionId);
     const earlier = await this.toolContainers(sessionId);
+    const plannedCreatedAt = [...labelled, ...(derived ? [derived] : [])].find(
+      (volume) => volume.Name === source,
+    )?.CreatedAt;
     signal?.throwIfAborted();
     const pinId = await this.pinSource(
       pin,
       source,
-      [...labelled, ...(derived ? [derived] : [])].find(
-        (volume) => volume.Name === source,
-      )?.CreatedAt,
+      plannedCreatedAt,
       { helperImage, sessionId },
       fail,
     );
@@ -275,7 +290,12 @@ export class WorkspaceMigrator {
     }
 
     signal?.throwIfAborted();
-    const target = await this.createTarget(prefix, sessionId, source, fail);
+    const target = await this.createTarget(
+      prefix,
+      sessionId,
+      { createdAt: plannedCreatedAt ?? "", name: source },
+      fail,
+    );
 
     signal?.throwIfAborted();
     await this.client.createContainer(helper, {
@@ -428,7 +448,7 @@ export class WorkspaceMigrator {
     ) {
       await this.client.stopAndRemoveContainer(Id, 1);
       throw fail(
-        `${source} was removed and recreated empty while this run started; nothing was copied — check docker volume inspect ${source} before anything else`,
+        `${source} was removed and recreated empty while this run started; nothing was copied. Another run may have finished the migration: check the session's workspaces, and remove the empty ${source} by hand (docker volume rm) once you are sure`,
       );
     }
     return Id;
@@ -463,7 +483,7 @@ export class WorkspaceMigrator {
   private async createTarget(
     prefix: string,
     sessionId: string,
-    source: string,
+    source: { name: string; createdAt: string },
     fail: (reason: string) => WorkspaceMigrationError,
   ): Promise<string> {
     const { config } = this;
@@ -477,7 +497,8 @@ export class WorkspaceMigrator {
       Labels: {
         [LABELS.installation]: config.installationId,
         [LABELS.managed]: "true",
-        [LABELS.migratedFrom]: source,
+        [LABELS.migratedFrom]: source.name,
+        [LABELS.migrationSourceCreatedAt]: source.createdAt,
         [LABELS.sessionId]: sessionId,
         [LABELS.workspaceQuota]: quotaStampOf(quota),
       },
@@ -486,7 +507,11 @@ export class WorkspaceMigrator {
     // `POST /volumes/create` answers an existing name with that volume as it
     // is, so the reply is what shows whether this one was made here.
     const problem = workspaceVolumeProblem(volume, sessionId, config);
-    if (problem !== null || volume.Labels?.[LABELS.migratedFrom] !== source) {
+    if (
+      problem !== null ||
+      volume.Labels?.[LABELS.migratedFrom] !== source.name ||
+      volume.Labels?.[LABELS.migrationSourceCreatedAt] !== source.createdAt
+    ) {
       throw fail(
         `${name} is not the copy this run asked for: ${problem ?? "labels differ"}`,
       );

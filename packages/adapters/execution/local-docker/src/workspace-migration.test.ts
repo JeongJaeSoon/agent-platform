@@ -15,6 +15,7 @@ const config = {
   workspaceQuota: { mode: "enforced", sizeBytes: QUOTA },
 } as LocalDockerBackendConfig;
 const LEGACY = `ap-ws-inst-${SESSION}`;
+const CREATED = "2026-01-01T00:00:00Z";
 
 function volume(
   name: string,
@@ -22,6 +23,7 @@ function volume(
   options: Record<string, string> | null = null,
 ): VolumeInspect {
   return {
+    CreatedAt: CREATED,
     Driver: "local",
     Labels: Object.keys(labels).length === 0 ? null : labels,
     Mountpoint: `/var/lib/docker/volumes/${name}/_data`,
@@ -71,11 +73,33 @@ describe("planWorkspaceMigration", () => {
   test("a copy an earlier run made of that source is a leftover to redo", () => {
     const copy = labelled("aaaa0001", `enforced:${QUOTA}`, {
       [LABELS.migratedFrom]: LEGACY,
+      [LABELS.migrationSourceCreatedAt]: CREATED,
     });
     expect(plan([copy], volume(LEGACY))).toEqual({
       kind: "migrate",
       leftovers: [copy.Name],
       source: LEGACY,
+    });
+  });
+
+  test("a copy of an earlier volume under the source's name is refused, not discarded", () => {
+    // Another run finished and removed the source; a late run's mount then
+    // made an empty volume under that name. The copy is the work.
+    const copy = labelled("aaaa0010", `enforced:${QUOTA}`, {
+      [LABELS.migratedFrom]: LEGACY,
+      [LABELS.migrationSourceCreatedAt]: CREATED,
+    });
+    const recreated = { ...volume(LEGACY), CreatedAt: "2026-09-23T00:00:00Z" };
+    expect(plan([copy], recreated)).toEqual({
+      kind: "refused",
+      reason: expect.stringContaining("not from the one there now"),
+    });
+    // Nor is a copy that does not say which one it came from.
+    const unmarked = labelled("aaaa0011", `enforced:${QUOTA}`, {
+      [LABELS.migratedFrom]: LEGACY,
+    });
+    expect(plan([unmarked], volume(LEGACY))).toMatchObject({
+      kind: "refused",
     });
   });
 
@@ -97,6 +121,7 @@ describe("planWorkspaceMigration", () => {
     const old = labelled("aaaa0003", "off");
     const copy = labelled("aaaa0004", `enforced:${QUOTA}`, {
       [LABELS.migratedFrom]: old.Name,
+      [LABELS.migrationSourceCreatedAt]: CREATED,
     });
     expect(plan([old, copy], null)).toEqual({
       kind: "migrate",
