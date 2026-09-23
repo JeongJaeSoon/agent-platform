@@ -378,7 +378,7 @@ integration 스위트는 파일 단위로 3개 샤드(`integration (1/3)`…`(3/
 ### 수동 실행 옵션
 
 ```bash
-gh workflow run CI --ref <branch>                          # 세 job (spikes 포함)
+gh workflow run CI --ref <branch>                          # 모든 job (spikes 포함)
 gh workflow run CI --ref <branch> -f only=spikes           # spikes만
 gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 run을 취소하지 않음
 ```
