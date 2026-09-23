@@ -215,7 +215,7 @@ function memoryCheckpointStore(owner: CheckpointFence = fence()) {
       return { outcome: "committed", revision: pointer.revision };
     },
   };
-  return { committed, store, pointer: () => pointer };
+  return { committed, history, store, pointer: () => pointer };
 }
 
 let objects: MemoryCheckpointObjectStore;
@@ -1489,6 +1489,25 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
     expect(result.plan.fallback?.skipped.map((skip) => skip.revision)).toEqual([
       2, 1,
     ]);
+  });
+
+  test("walks along the history the pointer was built on, not down the revision numbers", async () => {
+    const [, , , fourth] = await commitRevisions(3);
+    // Revision 3 was built on revision 1, restored when revision 2 was
+    // damaged. Revision 2 has since been repaired, but the session's state
+    // no longer descends from it.
+    const built = checkpoints.history.find((row) => row.revision === 3);
+    if (built === undefined) throw new Error("revision 3 was not committed");
+    built.parentRevision = 1;
+    objects.remove(fourth?.manifest_ref as string);
+
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "ready",
+      plan: {
+        revision: 1,
+        fallback: { pointerRevision: 3, skipped: [{ revision: 3 }] },
+      },
+    });
   });
 
   test("a plan from a healthy pointer carries no fallback", async () => {

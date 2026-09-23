@@ -440,6 +440,11 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
+    // The attempt committing ran on what its restore handed it: a fallback's
+    // revision while the row records one, the pointer otherwise.
+    parentRevision:
+      input.session.checkpointFallbackRevision ??
+      input.session.checkpointRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
   });
@@ -496,6 +501,7 @@ export async function readCheckpointPointer(
       manifestSha256: checkpoints.manifestSha256,
       manifestVersion: checkpoints.manifestVersion,
       versionsHeld: checkpoints.versionsHeld,
+      parentRevision: checkpoints.parentRevision,
       committedAt: checkpoints.committedAt,
       turnSequence: turns.sequence,
     })
@@ -518,6 +524,7 @@ export async function readCheckpointPointer(
     manifestRef: checkpoint.manifestRef,
     manifestSha256: checkpoint.manifestSha256,
     manifestVersion: checkpoint.manifestVersion,
+    parentRevision: checkpoint.parentRevision,
     revision: session.checkpointRevision,
     versionsHeld: checkpoint.versionsHeld,
     turnId:

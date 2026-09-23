@@ -351,9 +351,6 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     });
     const size = await objects.head(checkpoint.manifest_ref, version);
     if (size === undefined) return missing;
-    if (version !== undefined) {
-      input.pinned?.note(checkpoint.manifest_ref, version, size);
-    }
     if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
     const bytes = await objects.get(checkpoint.manifest_ref, version);
     if (bytes === undefined) return missing;
@@ -398,7 +395,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.pinned,
     );
     if (bad !== undefined) {
-      return bad.damaged ? damaged(bad.reason, manifest) : rejected(bad.reason);
+      return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
+    }
+    if (version !== undefined) {
+      input.pinned?.note(checkpoint.manifest_ref, version, size);
     }
     return { status: "verified", manifest };
   }
@@ -441,7 +441,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verified: ReadonlySet<string> = new Set(),
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
-    const refs = objectRefsOf(manifest);
+    const refs = [
+      ...manifest.transcripts.root.parts,
+      ...Object.values(manifest.transcripts.subagents).flatMap(
+        (revision) => revision.parts,
+      ),
+      ...manifest.workspace.untracked,
+    ];
     // Counted before any request goes out: the bundle is the one more.
     if (refs.length + 1 > maxManifestObjects) {
       return refused(
@@ -732,7 +738,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * only damage moves the search further back (`judgeManifest`); a refusal
    * for any other reason ends it. Both hold conditions are refusals: they
    * say the protection policy no longer stands behind this revision, and an
-   * older one below it would only lose more state for the same reason.
+   * older one below it would only lose more state for the same reason. So is
+   * any damage in `locked`: a held version can neither change nor go, so a
+   * committed one that did was released first, and the object that went is
+   * not always the one that says so.
    */
   async function judgeEarlier(
     candidate: CheckpointPointer,
@@ -754,25 +763,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       sessionId,
     });
     if (judged.status === "rejected") {
-      if (!("damaged" in judged)) {
-        return { verdict: "refused", reason: judged.reason };
-      }
-      // Damage stops validation at the first bad object, and must not hide
-      // a released hold elsewhere in the same revision: that refusal would
-      // stop the walk, so every object that survives is asked about its hold.
-      if (protection === "locked") {
-        if (judged.manifest !== undefined) {
-          await noteSurvivors(judged.manifest, pinned);
-        }
-        const released = pinned.unheld()[0];
-        if (released !== undefined) {
-          return {
-            verdict: "refused",
-            reason: `${judged.reason}, and version ${released.version} of ${released.key} is no longer held`,
-          };
-        }
-      }
-      return { verdict: "damaged", reason: judged.reason };
+      return {
+        verdict:
+          "damaged" in judged && protection !== "locked"
+            ? "damaged"
+            : "refused",
+        reason: judged.reason,
+      };
     }
     if (protection === "locked") {
       const released = pinned.unheld()[0];
@@ -784,21 +781,6 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
     }
     return { verdict: "verified", manifest: judged.manifest };
-  }
-
-  async function noteSurvivors(
-    manifest: CheckpointManifest,
-    pinned: PinnedVersions,
-  ): Promise<void> {
-    await inBatches(
-      [...objectRefsOf(manifest), manifest.workspace.bundle],
-      32,
-      async ({ key, version }) => {
-        if (version === undefined) return;
-        const head = await objects.head(key, version);
-        if (head !== undefined) pinned.note(key, version, head);
-      },
-    );
   }
 
   /**
@@ -1012,11 +994,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const skipped: RestoreFallbackSkip[] = [
         { revision: pointer.revision, reason: verdict.reason },
       ];
-      const candidates = await store.listCheckpoints(input.sessionId, {
-        belowRevision: pointer.revision,
-        limit: maxRestoreFallbacks,
-      });
-      for (const candidate of candidates) {
+      // The walk follows the state each checkpoint was built on, not the
+      // revision numbers: after a fallback the next checkpoint's parent is the
+      // revision restored, and the ones skipped then belong to a history the
+      // session abandoned, however healthy they look later.
+      let tried = 0;
+      for (
+        let parent = parentOf(pointer);
+        parent !== null && tried < maxRestoreFallbacks;
+        tried += 1
+      ) {
+        const [candidate] = await store.listCheckpoints(input.sessionId, {
+          belowRevision: parent + 1,
+          limit: 1,
+        });
+        if (candidate?.revision !== parent) {
+          throw new Error(
+            `Session ${input.sessionId} has no checkpoint row for revision ${parent}, which a later one was built on`,
+          );
+        }
         const judged = await judgeEarlier(candidate, input.sessionId);
         switch (judged.verdict) {
           case "damaged":
@@ -1024,6 +1020,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
               revision: candidate.revision,
               reason: judged.reason,
             });
+            parent = parentOf(candidate);
             continue;
           case "refused":
             return unavailable(
@@ -1043,12 +1040,22 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         }
       }
       return unavailable(
-        candidates.length === 0
+        tried === 0
           ? verdict.reason
-          : `${verdict.reason}; none of the ${candidates.length} earlier revisions tried verified either`,
+          : `${verdict.reason}; none of the ${tried} earlier revisions tried verified either`,
       );
     },
   };
+}
+
+/**
+ * The revision a checkpoint's state was built on. Rows from before the
+ * parent was recorded (94S-204) come from a history with no fallback in it,
+ * where that is always the revision before.
+ */
+function parentOf(checkpoint: CheckpointPointer): number | null {
+  if (checkpoint.parentRevision != null) return checkpoint.parentRevision;
+  return checkpoint.revision > 0 ? checkpoint.revision - 1 : null;
 }
 
 function noop() {
@@ -1067,32 +1074,10 @@ function refused(reason: string): Problem {
 
 type Judgement =
   | ManifestVerdict
-  | {
-      damaged: true;
-      /** Set when the manifest itself decoded and something it names did not verify. */
-      manifest?: CheckpointManifest;
-      reason: string;
-      status: "rejected";
-    };
+  | { damaged: true; reason: string; status: "rejected" };
 
-function damaged(reason: string, manifest?: CheckpointManifest): Judgement {
-  return {
-    damaged: true,
-    reason,
-    status: "rejected",
-    ...(manifest === undefined ? {} : { manifest }),
-  };
-}
-
-/** Every object a manifest names apart from its workspace bundle. */
-function objectRefsOf(manifest: CheckpointManifest) {
-  return [
-    ...manifest.transcripts.root.parts,
-    ...Object.values(manifest.transcripts.subagents).flatMap(
-      (revision) => revision.parts,
-    ),
-    ...manifest.workspace.untracked,
-  ];
+function damaged(reason: string): Judgement {
+  return { damaged: true, reason, status: "rejected" };
 }
 
 function rejected(reason: string): ManifestVerdict {

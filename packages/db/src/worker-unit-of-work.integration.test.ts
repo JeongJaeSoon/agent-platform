@@ -3551,6 +3551,17 @@ integration("worker gateway on PostgreSQL", () => {
       }),
     ).toEqual({ outcome: "committed", revision: 2 });
     expect(await row()).toEqual({ revision: null, attempt: null });
+    // The commit was built on what the restore handed out, not on the pointer
+    // it skipped, and a later fallback walks back along that.
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 2,
+      parentRevision: 0,
+    });
+    expect(
+      (
+        await store.listCheckpoints(sessionId, { belowRevision: 2, limit: 1 })
+      )[0],
+    ).toMatchObject({ revision: 1, parentRevision: 0 });
 
     await db
       .update(sessions)

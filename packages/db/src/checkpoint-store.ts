@@ -51,6 +51,7 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
           manifestSha256: checkpoints.manifestSha256,
           manifestVersion: checkpoints.manifestVersion,
           versionsHeld: checkpoints.versionsHeld,
+          parentRevision: checkpoints.parentRevision,
           committedAt: checkpoints.committedAt,
           turnSequence: turns.sequence,
         })
@@ -69,6 +70,7 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
         manifestRef: row.manifestRef,
         manifestSha256: row.manifestSha256,
         manifestVersion: row.manifestVersion,
+        parentRevision: row.parentRevision,
         revision: row.revision,
         versionsHeld: row.versionsHeld,
         turnId: row.turnSequence === null ? null : String(row.turnSequence),

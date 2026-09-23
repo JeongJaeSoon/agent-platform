@@ -728,6 +728,8 @@ export const checkpoints = pgTable(
     manifestVersion: text("manifest_version"),
     // Set only by a locked finalize (CheckpointPointer.versionsHeld).
     versionsHeld: boolean("versions_held").notNull().default(false),
+    // CheckpointPointer.parentRevision: what a restore falls back along.
+    parentRevision: integer("parent_revision"),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
