@@ -4,10 +4,10 @@ import {
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
 } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
 import { TERMINATE_DEADLINE_MS } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import { runReconciler } from "./reconcile.ts";
 
 export async function main(
@@ -18,11 +18,16 @@ export async function main(
   if (!databaseUrl) {
     throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
   }
-  const pool = new Pool({ connectionString: databaseUrl });
-  const db = drizzle(pool, { schema });
   const logger = createLogger(
     environment.LOG_LEVEL === undefined ? {} : { level: environment.LOG_LEVEL },
   );
+  const pool = createEnforcedPool(
+    databaseUrl,
+    logger,
+    "reconciler",
+    JOB_POOL_TIMEOUTS,
+  );
+  const db = drizzle(pool, { schema });
   try {
     await runReconciler({
       environment: {

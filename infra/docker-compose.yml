@@ -200,9 +200,14 @@ services:
   # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
   # engages and `compose ps` shows it restarting, and the healthcheck goes
   # unhealthy when no pass has succeeded for SCHEDULER_HEALTH_STALE_SEC. A
-  # pass that hangs (the pool has no query deadline yet, 94S-255) is killed
-  # after SCHEDULER_PASS_TIMEOUT_SEC and counts as a failure, since Docker
-  # never restarts a container for being unhealthy.
+  # frozen database ends a pass on its own: JOB_POOL_TIMEOUTS
+  # (packages/db/src/pool.ts) bound the failing statement to connect 5s +
+  # read 20s and the pass-lock unlock to another 20s, and every store call
+  # after a lost connection fails at once, so the pass exits 1 about 45s in
+  # (94S-255). SCHEDULER_PASS_TIMEOUT_SEC stays above that budget as the
+  # watchdog for anything else that hangs — Docker calls have no such
+  # bound — and a killed pass counts as a failure too, since Docker never
+  # restarts a container for being unhealthy.
   scheduler:
     build:
       context: ..
