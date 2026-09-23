@@ -799,7 +799,9 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         turn2.status === "completed" &&
         checkpoints.length === 1 &&
         committed?.revision === 0 &&
-        committed.turn_id === turnId &&
+        committed.turn_id ===
+          (await turnRows(sessionId)).find((t) => String(t.sequence) === turnId)
+            ?.id &&
         !committed.manifest_ref.startsWith(orphanDirectory) &&
         verified !== null &&
         verified.problems.length === 0,
@@ -858,7 +860,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "a mirror error is recorded, blocks the checkpoint, and refuses new input",
       input: "fail every PUT under this session's transcripts/",
       expected:
-        "checkpoint_pending_reason mirror_error; no checkpoints row; POST messages 409 CHECKPOINT_UNAVAILABLE",
+        "checkpoint_pending_reason mirror_error; the turn not completed; no checkpoints row; POST messages refused 409 (CHECKPOINT_UNAVAILABLE, or RECOVERY_REQUIRED once the drained worker left the turn unknown)",
       actual: {
         failed_puts: failedPuts,
         pending_reason: blocked.checkpoint_pending_reason,
@@ -874,8 +876,11 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         failedPuts > 0 &&
         blocked.checkpoint_pending_reason === "mirror_error" &&
         checkpoints.length === 0 &&
+        turn.status !== "completed" &&
         next.status === 409 &&
-        JSON.stringify(next.body).includes("CHECKPOINT_UNAVAILABLE"),
+        /CHECKPOINT_UNAVAILABLE|RECOVERY_REQUIRED/.test(
+          JSON.stringify(next.body),
+        ),
     });
     if (worker) await stopWorker(worker);
     expect(report.failed().filter((c) => c.id.startsWith("C-"))).toEqual([]);
@@ -956,8 +961,15 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       await run(["docker", "unpause", worker.name], { allowFail: true });
       await scheduler("start");
     }
+    const turns = await waitFor(
+      "the lost turn to settle",
+      async () => {
+        const found = await turnRows(sessionId);
+        return found.every((t) => t.status !== "running") ? found : null;
+      },
+      120_000,
+    ).catch(() => turnRows(sessionId));
     const session = await sessionRow(sessionId);
-    const turns = await turnRows(sessionId);
     const checkpoints = await checkpointRows(sessionId);
     const turnPut = (await chaos.log(sessionId)).filter(
       (entry) =>
