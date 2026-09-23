@@ -159,6 +159,15 @@ describe("database host resolution (94S-343)", () => {
     }
   });
 
+  test.each(["ENOTFOUND", "EAI_AGAIN", "ETIMEOUT", "ESERVFAIL"])(
+    "a %s lookup failure is a lost connection",
+    (code) => {
+      expect(
+        isConnectionFailure(Object.assign(new Error("lookup"), { code })),
+      ).toBe(true);
+    },
+  );
+
   test("pg dials through that socket", () => {
     const client = new Client(enforcedConfig(url, JOB_POOL_TIMEOUTS));
     const { stream } = (

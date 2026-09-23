@@ -71,7 +71,8 @@ status_of() {
 limits() { status_of -H "authorization: Bearer ${api_key}" "${api_url}/v1/limits"; }
 readyz() { status_of "${api_url}/readyz"; }
 listener_connects() {
-  dc logs --no-color api 2>/dev/null | grep -c '"Session event listener connected"' || true
+  dc logs --no-color api >"$out/api.log" 2>&1 || fail "could not read the API log"
+  grep -c '"Session event listener connected"' "$out/api.log" || true
 }
 
 [ "$(readyz)" = 200 ] || fail "readyz before the restart"
@@ -116,7 +117,9 @@ pass "readyz, GET /v1/limits and the event listener back ${ready_after}s after t
 sleep 3
 since="$(date -u -r "$((restarted_at + ready_after))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
   date -u -d "@$((restarted_at + ready_after))" +%Y-%m-%dT%H:%M:%SZ)"
-if dc logs --no-color --since "$since" api 2>/dev/null | grep -q "${old_address}:5432"; then
+dc logs --no-color --since "$since" api >"$out/api-after.log" 2>&1 ||
+  fail "could not read the API log"
+if grep -q "${old_address}:5432" "$out/api-after.log"; then
   fail "API still dials ${old_address}:5432 after recovering"
 fi
 pass "no API connection to the old address after recovery"

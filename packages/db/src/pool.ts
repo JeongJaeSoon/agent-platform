@@ -381,7 +381,9 @@ export function watchIdleErrors(
   return pool;
 }
 
-// Node socket errors that mean the database is out of reach.
+// Node socket errors that mean the database is out of reach, and the name
+// resolution failures Bun reports for its host (lookupEveryTime strips the
+// DNS_ prefix).
 const SOCKET_ERROR_CODES = new Set([
   "EPIPE",
   "ETIMEDOUT",
@@ -391,6 +393,8 @@ const SOCKET_ERROR_CODES = new Set([
   "ENETUNREACH",
   "EAI_AGAIN",
   "ENOTFOUND",
+  "ETIMEOUT",
+  "ESERVFAIL",
 ]);
 
 // What pg raises without a code when the socket drops, a timeout fires, or a
