@@ -177,6 +177,26 @@ async function stopWorker(container: WorkerContainer): Promise<number> {
   return exit;
 }
 
+/** `docker ps` names the image by tag, or by short id once the tag moved on. */
+async function sameImage(listed: string): Promise<boolean> {
+  if (listed === env?.workerImage) return true;
+  const { stdout } = await run(
+    [
+      "docker",
+      "image",
+      "inspect",
+      "--format",
+      "{{.Id}}",
+      env?.workerImage ?? "",
+    ],
+    { allowFail: true },
+  );
+  return (
+    listed.length >= 12 &&
+    stdout.trim().replace("sha256:", "").startsWith(listed)
+  );
+}
+
 async function workspaceVolumes(sessionId: string): Promise<string[]> {
   const { stdout } = await run([
     "docker",
@@ -311,6 +331,10 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
           input: {
             description: "write the subagent file",
             subagent_type: "general-purpose",
+            // Foreground: a subagent still running when the turn ends holds
+            // the checkpoint back (background_writer), and this turn's
+            // checkpoint is what the gate compares.
+            run_in_background: false,
             prompt: prompt("Write the file.", {
               id: "A1sub",
               steps: [write("/workspace/sub.txt", "written by the subagent\n")],
@@ -340,7 +364,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         container: first.name,
         image: first.image,
       },
-      pass: turn1.status === "completed" && first.image === env?.workerImage,
+      pass: turn1.status === "completed" && (await sameImage(first.image)),
     });
 
     // Turn 2 reads and rewrites the file on the same engine, and loses the
@@ -361,11 +385,8 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       ],
       final: "A2 DONE",
     };
-    const posted2 = await api.postMessage(
-      sessionId,
-      prompt("Turn two.", spec2),
-    );
-    const turn2 = await api.settle(sessionId, posted2.body.turn_id, TURN_MS);
+    const turnId2 = await api.message(sessionId, prompt("Turn two.", spec2));
+    const turn2 = await api.settle(sessionId, turnId2, TURN_MS);
     await chaos.disarm(lost);
     const engine2 = await workers.engine(first.name);
     report.check({
@@ -550,10 +571,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       steps: [read("/workspace/gate.txt"), read("/workspace/sub.txt")],
       final: "A3 DONE",
     };
-    const posted3 = await api.postMessage(
-      sessionId,
-      prompt("Turn three.", spec3),
-    );
+    const turnId3 = await api.message(sessionId, prompt("Turn three.", spec3));
     const second = await waitFor(
       "a new generation",
       async () =>
@@ -564,7 +582,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       500,
     );
     workers.follow(second.name);
-    const turn3 = await api.settle(sessionId, posted3.body.turn_id, TURN_MS);
+    const turn3 = await api.settle(sessionId, turnId3, TURN_MS);
     const claimed = await logged(second, "worker.claimed");
     const restored = await logged(second, "worker.checkpoint.restored");
     const after = await workers.workspace(second.name, tracked);
@@ -607,7 +625,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       criterion: "정확한 SHA·파일 복원",
       title: "the restored workspace is the checkpointed one, byte for byte",
       input:
-        "HEAD, branch, status, sha256 and mode of the files, before stop and after restore",
+        "HEAD, branch, status, sha256 and executable bit of the files, before stop and after restore",
       expected: before,
       actual: after,
       pass:
@@ -755,8 +773,8 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       steps: [write("/workspace/b.txt", "b turn 2\n")],
       final: "B2 DONE",
     };
-    const posted = await api.postMessage(sessionId, prompt("Turn two.", spec2));
-    const turn2 = await api.settle(sessionId, posted.body.turn_id, TURN_MS);
+    const turnId = await api.message(sessionId, prompt("Turn two.", spec2));
+    const turn2 = await api.settle(sessionId, turnId, TURN_MS);
     const checkpoints = await checkpointRows(sessionId);
     const committed = checkpoints[0];
     const verified = committed
@@ -781,7 +799,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         turn2.status === "completed" &&
         checkpoints.length === 1 &&
         committed?.revision === 0 &&
-        committed.turn_id === posted.body.turn_id &&
+        committed.turn_id === turnId &&
         !committed.manifest_ref.startsWith(orphanDirectory) &&
         verified !== null &&
         verified.problems.length === 0,

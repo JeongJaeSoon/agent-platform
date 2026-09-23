@@ -221,6 +221,17 @@ export class PublicApi {
     return this.call("POST", `/v1/sessions/${sessionId}/messages`, { message });
   }
 
+  /** A message the scenario needs accepted; anything else ends it here. */
+  async message(sessionId: string, message: string): Promise<string> {
+    const posted = await this.postMessage(sessionId, message);
+    if (posted.status !== 202) {
+      throw new Error(
+        `message ${posted.status} ${JSON.stringify(posted.body)}`,
+      );
+    }
+    return posted.body.turn_id;
+  }
+
   async session(sessionId: string): Promise<any> {
     return (await this.call("GET", `/v1/sessions/${sessionId}`)).body;
   }
@@ -681,7 +692,12 @@ export class Workers {
     return { command: command.join(" ").trim(), pid: Number(pid), startTicks };
   }
 
-  /** HEAD, branch, status and file digests of the mounted workspace. */
+  /**
+   * HEAD, branch, status, file digests and executable bits of the mounted
+   * workspace. Only the executable bit: that is the one mode bit a checkpoint
+   * carries, and restore writes the rest owner-only (runtime-core
+   * workspace-restore.ts, 94S-214).
+   */
   async workspace(name: string, files: string[]): Promise<string> {
     const script = [
       "cd /workspace",
@@ -689,7 +705,7 @@ export class Workers {
       "git symbolic-ref HEAD",
       "git status --porcelain=v1 -uall",
       `sha256sum ${files.join(" ")}`,
-      `stat -c '%a %n' ${files.join(" ")}`,
+      `for f in ${files.join(" ")}; do if [ -x "$f" ]; then echo "x $f"; else echo "- $f"; fi; done`,
     ].join(" && ");
     return (await run(["docker", "exec", name, "sh", "-c", script])).stdout;
   }

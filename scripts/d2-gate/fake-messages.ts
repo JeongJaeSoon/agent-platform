@@ -62,7 +62,9 @@ export function planOf(
     if (message?.role !== "user") continue;
     for (const block of blocksOf(message)) {
       if (block.type !== "text" || block.text === undefined) continue;
-      const at = block.text.lastIndexOf(SPEC_MARKER);
+      // The first marker: an Agent step's prompt carries the subagent's
+      // spec inside this one, escaped as a JSON string.
+      const at = block.text.indexOf(SPEC_MARKER);
       if (at < 0) continue;
       const spec = JSON.parse(
         firstJsonObject(block.text.slice(at + SPEC_MARKER.length)),
