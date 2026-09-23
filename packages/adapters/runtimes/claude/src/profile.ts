@@ -1,8 +1,10 @@
 import { tmpdir } from "node:os";
 import { z } from "zod";
 
+import { describeComponents } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 
+const principalSchema = z.object({ ownerScope: z.string().min(1) }).strict();
 const profileSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -11,12 +13,14 @@ const profileSchema = z.discriminatedUnion("kind", [
       auth: z
         .object({ kind: z.literal("api_key"), value: z.string().min(1) })
         .strict(),
+      principal: principalSchema,
     })
     .strict(),
   z
     .object({
       kind: z.literal("litellm"),
       endpoint: z.string().url(),
+      principal: principalSchema,
       auth: z.discriminatedUnion("kind", [
         z
           .object({ kind: z.literal("api_key"), value: z.string().min(1) })
@@ -47,6 +51,11 @@ export function validateRuntimeConfig(
   if (!policy.models.includes(config.model)) {
     throw new Error("Runtime model is not approved");
   }
+  // A component the fingerprint cannot name makes every checkpoint of this
+  // run unverifiable, and a resume unmatchable. Refusing here, for new and
+  // resumed runs alike, is what turns that into a start-time error with a
+  // reason instead of a checkpoint that quietly never commits.
+  describeComponents(config);
   if (
     config.mode === "resume" &&
     config.localTranscriptResume !== true &&
@@ -121,16 +130,21 @@ export function runtimeEnvironment(
   return environment;
 }
 
-export function publicProfile(profile: RuntimeProfile): Omit<
-  RuntimeProfile,
-  "auth"
-> & {
+/**
+ * The profile with the credential left behind and the principal kept: what
+ * may be hashed, logged or compared without leaking a secret.
+ */
+export function publicProfile(profile: RuntimeProfile): {
   auth_kind: RuntimeProfile["auth"]["kind"];
+  endpoint: string;
+  kind: RuntimeProfile["kind"];
+  principal: { ownerScope: string };
 } {
   return {
     kind: profile.kind,
     endpoint: normalizeEndpoint(profile.endpoint),
     auth_kind: profile.auth.kind,
+    principal: { ownerScope: profile.principal.ownerScope },
   };
 }
 

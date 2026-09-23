@@ -416,6 +416,7 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             ...resolveProfile(binding.profileId),
             workspace: { repository: binding.repository },
+            principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
           };
         }

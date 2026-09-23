@@ -230,6 +230,8 @@ describe("/internal/worker", () => {
     expect(binding.runtime_config.provider.auth.value).toBe(
       "catalog-provider-key",
     );
+    // The seeded session's owner rides the claim as the checkpoint principal.
+    expect(binding.principal).toEqual({ owner_scope: "owner-a" });
 
     const next = nextInputResponseSchema.parse(
       await (await post("next-input", token, scope(binding))).json(),

@@ -63,6 +63,7 @@ const config = {
     kind: "anthropic" as const,
     endpoint: "https://api.anthropic.test",
     auth: { kind: "api_key" as const, value: "placeholder" },
+    principal: { ownerScope: "owner-a" },
   },
   tools: ["Bash"],
 };

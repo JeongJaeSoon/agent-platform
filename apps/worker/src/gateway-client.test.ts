@@ -94,6 +94,7 @@ describe("HttpWorkerGatewayClient", () => {
             branch: "main",
           },
         },
+        principal: { owner_scope: "owner-a" },
         restore: null,
       }),
     );
