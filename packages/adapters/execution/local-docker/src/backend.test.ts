@@ -84,6 +84,8 @@ class FakeDocker {
   refuseDisconnects = false;
   /** The next network create answers 409 as if a racer had just made it. */
   networkCreateRace: FakeNetwork | null = null;
+  /** Containers whose endpoint names its network without the id. */
+  readonly nameOnlyEndpoints = new Set<string>();
   /** What `GET /version` reports; 1.48 is Docker 28. */
   apiVersion = "1.48";
   /**
@@ -193,7 +195,9 @@ class FakeDocker {
       const name = network?.name ?? networkMode.replace(/^net-/, "");
       attachments[name] = {
         Aliases: null,
-        NetworkID: network?.id ?? networkMode,
+        NetworkID: this.nameOnlyEndpoints.has(id)
+          ? ""
+          : (network?.id ?? networkMode),
       };
     }
     for (const network of this.networks.values()) {
@@ -1923,6 +1927,24 @@ describe("LocalDockerBackend worker networks", () => {
       await expect(backend.assertReplaceable(intent)).rejects.toThrow(
         "gives the host an address on it",
       );
+    }
+  });
+
+  test("an endpoint without this network's id earns the grace only before the worker ever ran", async () => {
+    for (const [status, allowed] of [
+      ["created", true],
+      ["running", false],
+      ["exited", false],
+    ] as const) {
+      docker.networks.clear();
+      docker.containers.clear();
+      const intent = intentFor();
+      const { worker } = await legacyWorker(intent);
+      worker.status = status;
+      docker.nameOnlyEndpoints.add(worker.id);
+      const attempt = backend.assertReplaceable(intent);
+      if (allowed) await expect(attempt).resolves.toBeUndefined();
+      else await expect(attempt).rejects.toThrow("gives the host an address");
     }
   });
 

@@ -968,9 +968,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     const joined = network.Name in (container.NetworkSettings?.Networks ?? {});
     const problem =
       workerNetworkProblem(network, ref, this.config.installationId, {
-        // A claimed contract-5 worker is torn down without a replacement
-        // check, so the pass that does it may reach here first; taking the
-        // proxy off would cut a worker that is about to be drained anyway.
+        // A contract-5 worker keeps what contract 5 gave it until it is
+        // replaced or drained — including on a daemon the preflight
+        // refused, where no pass runs to replace it. No operation id is
+        // compared: the network never carried one, and a same-named worker
+        // of another operation is refused by every launch path anyway.
         hostAddress: predatesHostIsolation(container, network)
           ? "tolerated"
           : "refused",
@@ -1763,11 +1765,14 @@ function predatesHostIsolation(
     return false;
   }
   const endpoint = container.NetworkSettings?.Networks?.[network.Name];
+  if (endpoint === undefined) return false;
+  if (endpoint.NetworkID === network.Id) return true;
+  // A container that never started records its network by name only; it
+  // runs nothing, so the name is enough. One that ran carries the id, and
+  // without this network's id it is on some other network of that name.
   return (
-    endpoint !== undefined &&
-    (endpoint.NetworkID === undefined ||
-      endpoint.NetworkID === "" ||
-      endpoint.NetworkID === network.Id)
+    (endpoint.NetworkID === undefined || endpoint.NetworkID === "") &&
+    container.State.Status === "created"
   );
 }
 
