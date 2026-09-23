@@ -520,16 +520,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   /**
    * What the currently committed checkpoint already proved. A pointer that
    * cannot be read yields nothing, which only costs a re-hash.
+   *
+   * In `locked` only a held manifest vouches for the versions it names: the
+   * hold is placed after every one of them was hashed, so it is the record
+   * that a locked finalize committed it. A pointer committed under
+   * `unversioned` recorded whatever version the worker reported, and nothing
+   * ever read those; trusting them would let a same-length stranger through.
    */
   async function verifiedRefs(sessionId: string): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
       const pointer = await store.readPointer(sessionId);
       if (pointer === null) return tokens;
-      const bytes = await objects.get(
-        pointer.manifestRef,
-        pinnedVersion(pointer.manifestVersion),
-      );
+      const version = pinnedVersion(pointer.manifestVersion);
+      if (protection === "locked") {
+        if (version === undefined) return tokens;
+        const head = await objects.head(pointer.manifestRef, version);
+        if (head?.held !== true) return tokens;
+      }
+      const bytes = await objects.get(pointer.manifestRef, version);
       if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
         return tokens;
       }
@@ -729,7 +738,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           ? await store.readPointer(input.sessionId)
           : input.pointer;
       if (pointer === null) return { status: "none" };
+      const pinned = pinnedVersions();
       const verdict = await validateManifest({
+        pinned,
         checkpoint: {
           manifest_ref: pointer.manifestRef,
           manifest_sha256: pointer.manifestSha256,
@@ -771,6 +782,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           mismatches: compatibility.mismatches,
         };
       }
+      // A no-op for a checkpoint a locked finalize committed. One committed
+      // under `unversioned` was just hashed version by version above, since
+      // `verifiedRefs` trusts none of it, and is held here before any worker
+      // is told to download it.
+      if (protection === "locked") await holdAll(pinned.unheld());
       return {
         status: "ready",
         plan: planOf(

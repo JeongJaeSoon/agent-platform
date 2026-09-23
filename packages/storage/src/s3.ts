@@ -287,7 +287,7 @@ export async function getObjectVersion(
       return version === undefined ? { bytes } : { bytes, version };
     } catch (error) {
       if (isMissingObject(error)) return undefined;
-      if (options.version !== undefined && isMalformedVersion(error)) {
+      if (options.version !== undefined && isUnreadableVersion(error)) {
         return undefined;
       }
       if (!(error instanceof BodyStallError)) throw error;
@@ -312,16 +312,20 @@ export function storedVersion(value: string | undefined): string | undefined {
 }
 
 /**
- * AWS answers a version id it cannot parse with 400 rather than 404. The id
+ * A version-specific read that names something other than an object version:
+ * an id AWS cannot parse (400), or the id of a delete marker (405). The id
  * came from a manifest a worker wrote, so to the caller it is one more version
  * the store does not have — not an outage worth retrying.
  */
-export function isMalformedVersion(error: unknown): boolean {
+export function isUnreadableVersion(error: unknown): boolean {
   const value = awsError(error);
   return (
     value?.name === "InvalidArgument" ||
     value?.Code === "InvalidArgument" ||
-    value?.$metadata?.httpStatusCode === 400
+    value?.name === "MethodNotAllowed" ||
+    value?.Code === "MethodNotAllowed" ||
+    value?.$metadata?.httpStatusCode === 400 ||
+    value?.$metadata?.httpStatusCode === 405
   );
 }
 

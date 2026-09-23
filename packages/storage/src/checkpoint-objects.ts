@@ -15,9 +15,9 @@ import {
   type BodyReadBounds,
   getObjectVersion,
   isConditionalConflict,
-  isMalformedVersion,
   isMissingObject,
   isPreconditionFailed,
+  isUnreadableVersion,
   type S3ClientLike,
   sha256,
   storedVersion,
@@ -99,7 +99,7 @@ export function createCheckpointObjectStore(
         };
       } catch (error) {
         if (isMissingObject(error)) return undefined;
-        if (version !== undefined && isMalformedVersion(error))
+        if (version !== undefined && isUnreadableVersion(error))
           return undefined;
         throw error;
       }

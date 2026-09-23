@@ -460,6 +460,72 @@ describe("unversioned", () => {
   });
 });
 
+describe("unversioned, then locked", () => {
+  function unversionedService() {
+    return createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+  }
+
+  test("a version an unversioned commit recorded but never read is not trusted once locked", async () => {
+    // The key's current bytes are what unversioned verifies; the version the
+    // ref names holds different bytes of the same length.
+    const key = `${prefix}mirror/part-0.jsonl`;
+    const older = await upload(key, encode("a\n"));
+    await objects.put(key, encode("b\n"));
+    const stranger: ObjectRef = {
+      ...older,
+      sha256: sha256(encode("b\n")),
+    };
+    const locked = service;
+    service = unversionedService();
+    const { checkpoint } = await publish(0, [stranger]);
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 0,
+    });
+    expect(checkpoints.pointer()?.manifestVersion).toBe(
+      checkpoint.manifest_version,
+    );
+
+    const result = await locked.getRestorePlan({ runtime, sessionId });
+    expect(result).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining(key),
+    });
+    expect(await objects.head(key, older.version)).not.toHaveProperty("held");
+  });
+
+  test("an honest unversioned commit is hashed by version and held before a locked restore hands it out", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const locked = service;
+    service = unversionedService();
+    const { checkpoint, manifest } = await publish(0, [part]);
+    await finalize(checkpoint);
+    for (const ref of everyRef(manifest)) {
+      expect(await objects.head(ref.key, ref.version)).not.toHaveProperty(
+        "held",
+      );
+    }
+
+    const result = await locked.getRestorePlan({ runtime, sessionId });
+    expect(result.status).toBe("ready");
+    for (const ref of everyRef(manifest)) {
+      expect(await objects.head(ref.key, ref.version)).toMatchObject({
+        held: true,
+      });
+    }
+    expect(
+      await objects.head(checkpoint.manifest_ref, checkpoint.manifest_version),
+    ).toMatchObject({ held: true });
+  });
+});
+
 function encode(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }

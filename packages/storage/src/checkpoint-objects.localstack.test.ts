@@ -214,8 +214,15 @@ localstackTest(
 
         // A delete marker hides the key and lets create-only land again,
         // and neither touches the version a checkpoint names.
-        await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+        const marker = (await s3.send(
+          new DeleteObjectCommand({ Bucket: bucket, Key: key }),
+        )) as { DeleteMarker?: boolean; VersionId?: string };
+        expect(marker.DeleteMarker).toBe(true);
         expect(await store.get(key)).toBeUndefined();
+        // A manifest naming the marker's own id names nothing readable: S3
+        // answers 405 there, which is absence, not an outage to retry.
+        expect(await store.head(key, marker.VersionId)).toBeUndefined();
+        expect(await store.get(key, marker.VersionId)).toBeUndefined();
         const reused = await store.putImmutable(key, encode("three\n"));
         expect(reused.outcome).toBe("created");
         expect(await store.get(key, version)).toEqual(encode("one\n"));
