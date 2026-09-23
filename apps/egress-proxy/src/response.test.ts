@@ -74,8 +74,29 @@ describe("response head rewriter", () => {
     expect(rewriter.push(body)).toEqual({ bytes: body });
   });
 
+  test("heads that never reached the client do not count as started", () => {
+    const rewriter = createResponseHeadRewriter(MAX);
+    const result = rewriter.push(
+      latin1("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nBad\r\n\r\n"),
+    );
+    expect(result).toEqual({ error: "malformed response header field" });
+    expect(rewriter.started).toBe(false);
+    const sent = createResponseHeadRewriter(MAX);
+    sent.push(latin1("HTTP/1.1 100 Continue\r\n\r\n"));
+    expect(sent.started).toBe(true);
+  });
+
   test.each([
     ["garbage\r\n\r\n", "malformed response status line"],
+    [
+      "HTTP/1.1 200 OK\r\nBadHeader\r\n\r\nbody",
+      "malformed response header field",
+    ],
+    ["HTTP/1.1 200 OK\r\nBad Name: x\r\n\r\n", "malformed response header"],
+    [
+      "HTTP/1.1 200 OK\r\nX: a\r\n  folded\r\n\r\n",
+      "malformed response header",
+    ],
     ["HTTP/1.1 101 Switching Protocols\r\n\r\n", "unexpected 101 response"],
     [
       "HTTP/1.1 200 OK\r\nConnection: content-length\r\nContent-Length: 2\r\n\r\n",

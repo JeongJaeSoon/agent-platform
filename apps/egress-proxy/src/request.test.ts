@@ -164,6 +164,9 @@ describe("request body framing", () => {
     ["2\r\nabXY", "chunk data not followed by CRLF"],
     [`${"1".repeat(5000)}`, "chunk line is too long"],
     [`0\r\n${"x-pad: a\r\n".repeat(2000)}`, "chunked trailer is too large"],
+    // The next request dressed as a trailer.
+    ["0\r\nGET /secret HTTP/1.1\r\n", "malformed chunked trailer field"],
+    ["0\r\nx-sum: 1\r\n  folded\r\n", "malformed chunked trailer field"],
   ])("a malformed chunked body is an error: %#", (bytes, error) => {
     const framer = createBodyFramer({ kind: "chunked" });
     expect(framer.take(new TextEncoder().encode(bytes as string))).toEqual({

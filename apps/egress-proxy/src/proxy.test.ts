@@ -36,9 +36,11 @@ describe("egress proxy", () => {
   let upstream: Bun.Server<undefined>;
   let upstreamPort = 0;
   let other: Bun.Server<undefined>;
-  let scripted: TCPSocketListener<undefined>;
+  let scripted: TCPSocketListener<{ answered: boolean }>;
   /** Everything `scripted.test` was sent, across connections. */
   let scriptedHeard = "";
+  /** Connections to `scripted.test` that have closed. */
+  let scriptedClosed = 0;
   let echo: TCPSocketListener<EchoState>;
   /** Every byte the sink upstream ever received, across connections. */
   let sunk = 0;
@@ -91,13 +93,23 @@ describe("egress proxy", () => {
     });
     // Answers every request head with the response its path names, cut into
     // separate writes so the proxy has to put a head back together.
-    scripted = Bun.listen<undefined>({
+    scripted = Bun.listen<{ answered: boolean }>({
       hostname: "127.0.0.1",
       port: 0,
       socket: {
+        close() {
+          scriptedClosed += 1;
+        },
+        open(socket) {
+          socket.data = { answered: false };
+        },
         data(socket, chunk) {
           const head = new TextDecoder().decode(chunk);
           scriptedHeard += head;
+          // One answer per connection; later chunks are a body, or bytes
+          // that should never have arrived.
+          if (socket.data.answered) return;
+          socket.data.answered = true;
           const path = head.split(" ")[1] ?? "";
           const parts = SCRIPTS[path];
           if (parts === undefined) {
@@ -273,12 +285,43 @@ describe("egress proxy", () => {
         ),
     );
     await talk.waitFor("\r\n\r\nok");
-    await Bun.sleep(50);
+    // The upstream's connection ends only after the client's: everything
+    // the proxy was ever going to send it has arrived by then.
+    const closed = scriptedClosed;
+    talk.close();
+    expect(await waitFor(() => scriptedClosed > closed, 2_000)).toBe(true);
     expect(scriptedHeard).toContain("POST /keep-alive HTTP/1.1");
     expect(scriptedHeard).toContain("hello");
     expect(scriptedHeard).not.toContain("stolen");
     expect(scriptedHeard).not.toContain("meant-for-other");
-    talk.close();
+  });
+
+  test("bytes past a request do not count against the early-byte cap", async () => {
+    // A lookup slow enough that everything arrives while still connecting.
+    const slow = await startEgressProxy({
+      logger: silent,
+      maxBufferedBytes: 1024,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+      },
+      port: 0,
+      resolve: async (host) => {
+        await Bun.sleep(100);
+        return resolve(host);
+      },
+    });
+    try {
+      const talk = await connect(slow.port);
+      talk.send(
+        request(`GET http://gateway.test:${upstreamPort}/early HTTP/1.1`) +
+          "x".repeat(8 * 1024),
+      );
+      expect(await talk.waitFor("upstream /early")).toContain("HTTP/1.1 200");
+      talk.close();
+    } finally {
+      slow.stop();
+    }
   });
 
   test("a chunked body is forwarded whole and ends where its framing says", async () => {

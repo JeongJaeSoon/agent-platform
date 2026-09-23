@@ -18,7 +18,7 @@
  * the one request reaches the upstream — is `createBodyFramer` in request.ts.
  */
 
-import { headEnd } from "./request.ts";
+import { headEnd, parseField } from "./request.ts";
 
 /** Hop-by-hop headers of the upstream's hop, none of which reach the client. */
 const HOP_BY_HOP: ReadonlySet<string> = new Set([
@@ -60,6 +60,12 @@ export function createResponseHeadRewriter(
     },
     push(chunk) {
       if (done) return { bytes: chunk };
+      // Only what is returned reaches the client: heads assembled in a push
+      // that then fails never do, and must not count as started.
+      const handOver = (out: Uint8Array[]) => {
+        if (out.length > 0) started = true;
+        return { bytes: join(out) };
+      };
       buffer = concat(buffer, chunk);
       const out: Uint8Array[] = [];
       for (;;) {
@@ -70,7 +76,7 @@ export function createResponseHeadRewriter(
             error: `response head is larger than ${maxHeadBytes} bytes`,
           };
         }
-        if (end < 0) return { bytes: join(out) };
+        if (end < 0) return handOver(out);
         const lines = splitLines(buffer.subarray(0, end - 4));
         const status = statusOf(lines[0] ?? new Uint8Array(0));
         if (status === null) return { error: "malformed response status line" };
@@ -79,7 +85,6 @@ export function createResponseHeadRewriter(
         if (status === 101) return { error: "unexpected 101 response" };
         const kept = withoutHopFields(lines);
         if (typeof kept === "string") return { error: kept };
-        started = true;
         consumed += end;
         buffer = buffer.slice(end);
         if (status < 200) {
@@ -89,7 +94,7 @@ export function createResponseHeadRewriter(
         out.push(kept, CLOSE, buffer);
         buffer = new Uint8Array(0);
         done = true;
-        return { bytes: join(out) };
+        return handOver(out);
       }
     },
   };
@@ -118,9 +123,10 @@ function withoutHopFields(lines: Uint8Array[]): Uint8Array | string {
   }
   const kept: Uint8Array[] = [];
   for (const [index, line] of lines.entries()) {
-    const name = index === 0 ? undefined : fieldOf(line)?.name;
-    if (name !== undefined && (HOP_BY_HOP.has(name) || named.has(name))) {
-      continue;
+    if (index > 0) {
+      const name = fieldOf(line)?.name;
+      if (name === undefined) return "malformed response header field";
+      if (HOP_BY_HOP.has(name) || named.has(name)) continue;
     }
     kept.push(line, CRLF);
   }
@@ -132,16 +138,15 @@ function statusOf(line: Uint8Array): number | null {
   return match === null ? null : Number(match[1]);
 }
 
-/** Name lower-cased and value trimmed; undefined for a line with no colon. */
+/**
+ * Name lower-cased and value trimmed; undefined for anything that is not a
+ * header field — no colon, a name that is not a token, or an obs-fold
+ * continuation, none of which a client should be left to interpret.
+ */
 function fieldOf(
   line: Uint8Array,
 ): { name: string; value: string } | undefined {
-  const colon = line.indexOf(58);
-  if (colon <= 0) return undefined;
-  return {
-    name: ascii(line.subarray(0, colon)).trim().toLowerCase(),
-    value: ascii(line.subarray(colon + 1)).trim(),
-  };
+  return parseField(ascii(line));
 }
 
 function splitLines(head: Uint8Array): Uint8Array[] {

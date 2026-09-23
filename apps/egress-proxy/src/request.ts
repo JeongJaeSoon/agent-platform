@@ -159,6 +159,19 @@ export function splitAuthority(
   return { host, port };
 }
 
+const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/** A `name: value` line, name lower-cased; undefined for anything else. */
+export function parseField(
+  line: string,
+): { name: string; value: string } | undefined {
+  const colon = line.indexOf(":");
+  if (colon <= 0) return undefined;
+  const name = line.slice(0, colon);
+  if (!TOKEN.test(name)) return undefined;
+  return { name: name.toLowerCase(), value: line.slice(colon + 1).trim() };
+}
+
 /** Index just past the CRLFCRLF that ends the head, or -1. */
 export function headEnd(buffer: Uint8Array): number {
   for (let i = 3; i < buffer.byteLength; i += 1) {
@@ -258,6 +271,11 @@ export function createBodyFramer(body: RequestBody): BodyFramer {
         line = [];
         if (state === "trailer") {
           if (text === "") state = "done";
+          // A trailer that is not a field could be the next request riding
+          // in the body's tail.
+          else if (parseField(text) === undefined) {
+            return { error: "malformed chunked trailer field" };
+          }
           continue;
         }
         const size = /^([0-9a-fA-F]{1,12})(?:[ \t]*;.*)?$/.exec(text)?.[1];

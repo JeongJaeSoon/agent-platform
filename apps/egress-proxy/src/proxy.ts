@@ -306,15 +306,7 @@ export async function startEgressProxy(
     const state = socket.data;
     if (state.phase === "closed") return;
     if (state.phase === "connecting") {
-      // The client can keep sending while we resolve and connect; that
-      // window is bounded in time but not in bytes unless we bound it.
-      state.earlyBytes += chunk.byteLength;
-      if (state.earlyBytes > maxBuffered) {
-        logger.warn("Dropping a connection that outran the upstream handshake");
-        drop(socket);
-        return;
-      }
-      state.early.push(chunk);
+      holdEarly(socket, chunk);
       return;
     }
     if (state.phase === "inspecting") {
@@ -394,17 +386,8 @@ export async function startEgressProxy(
     }
     state.phase = "connecting";
     if (request.kind === "forward") state.body = createBodyFramer(request.body);
-    if (rest.byteLength > 0) {
-      // Bytes pipelined in the same segment as the head are early bytes too,
-      // and count against the same cap.
-      state.early.push(rest);
-      state.earlyBytes += rest.byteLength;
-      if (state.earlyBytes > maxBuffered) {
-        logger.warn("Dropping a connection that outran the upstream handshake");
-        drop(socket);
-        return;
-      }
-    }
+    // Bytes pipelined in the same segment as the head are early bytes too.
+    if (!holdEarly(socket, rest)) return;
     const expiry = Date.now() + dispatchTimeoutMs;
     const left = (): number => expiry - Date.now();
     let decision: Awaited<ReturnType<typeof decideEgress>>;
@@ -544,14 +527,32 @@ export async function startEgressProxy(
     // are queued whatever the cap says; only the reading stops.
     let keepingUp = true;
     for (const pending of state.early.splice(0)) {
-      const bytes = requestBytes(socket, pending);
-      if (bytes === null) return;
-      if (bytes.byteLength === 0) continue;
-      keepingUp = push(upstream, state.toUpstream, bytes, maxBuffered);
+      keepingUp = push(upstream, state.toUpstream, pending, maxBuffered);
     }
     if (!keepingUp) {
       stall(socket, socket, "Dropping a connection whose upstream fell behind");
     }
+  }
+
+  /**
+   * Keeps what the client sends while the upstream is still being dialled.
+   * That window is bounded in time but not in bytes unless we bound it, and
+   * the bound counts only what will be delivered: bytes past a request are
+   * discarded here, not held. False once the connection has been dropped.
+   */
+  function holdEarly(socket: Socket<ClientState>, chunk: Uint8Array): boolean {
+    const state = socket.data;
+    const bytes = requestBytes(socket, chunk);
+    if (bytes === null) return false;
+    if (bytes.byteLength === 0) return true;
+    state.earlyBytes += bytes.byteLength;
+    if (state.earlyBytes > maxBuffered) {
+      logger.warn("Dropping a connection that outran the upstream handshake");
+      drop(socket);
+      return false;
+    }
+    state.early.push(bytes);
+    return true;
   }
 
   /**
