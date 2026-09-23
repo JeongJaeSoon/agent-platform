@@ -4,9 +4,11 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -194,6 +196,44 @@ describe("restoring a captured checkout", () => {
     await expect(
       git(restored, "symbolic-ref", "--quiet", "HEAD"),
     ).rejects.toThrow();
+  });
+
+  test("clears a root holding more names than one pass reads", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    const capture = await captured();
+    const target = await staleRoot();
+    for (let index = 0; index < 1_100; index += 1) {
+      await writeFile(join(target, `stale-${index}`), "");
+    }
+
+    await restoreCheckpointTree({
+      origin: "https://git.example.test/acme/app.git",
+      root: target,
+      signal: new AbortController().signal,
+      staged: await stage(capture),
+    });
+
+    expect((await readdir(target)).sort()).toEqual([".git", "a.txt"]);
+  });
+
+  test("refuses a root that is a link, before removing anything behind it", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    const capture = await captured();
+    const outside = await staleRoot();
+    const link = join(scratch, "linked-root");
+    await symlink(outside, link);
+
+    await expect(
+      restoreCheckpointTree({
+        origin: "https://git.example.test/acme/app.git",
+        root: link,
+        signal: new AbortController().signal,
+        staged: await stage(capture),
+      }),
+    ).rejects.toThrow("is not a directory");
+    expect(
+      await readFile(join(outside, "written-after-the-checkpoint.txt"), "utf8"),
+    ).toBe("stale\n");
   });
 
   test("touches nothing once stopped before the first removal", async () => {

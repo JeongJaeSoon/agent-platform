@@ -352,9 +352,10 @@ export class ClaudeSessionStore implements TranscriptMirror {
     adopted: readonly ObjectRef[],
     own: readonly string[],
   ): Promise<TranscriptRevision> {
-    const [adoptedBodies, ownBodies] = await Promise.all([
+    const [adoptedBodies, ownBodies, ownVersions] = await Promise.all([
       Promise.all(adopted.map((part) => this.#adoptedBody(part))),
       Promise.all(own.map((part) => this.#cached(part))),
+      Promise.all(own.map((part) => this.#versionOf(part))),
     ]);
     // Adopted parts keep the refs the checkpoint pinned rather than ones
     // recomputed here: they are the claim a restore will check the bytes
@@ -363,7 +364,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
       ...adopted,
       ...own.map((part, index) => {
         const body = ownBodies[index] ?? new Uint8Array();
-        const version = this.#versions.get(part);
+        const version = ownVersions[index];
         return {
           bytes: body.byteLength,
           key: part,
@@ -379,6 +380,20 @@ export class ClaudeSessionStore implements TranscriptMirror {
       parts: refs,
       sha256: digestParts(refs),
     };
+  }
+
+  /**
+   * The version a part of this generation was written as. A PUT whose answer
+   * was lost stored the part all the same, and a checkpoint that names it
+   * without a version is one a locked store refuses, every time after. The
+   * key is create-only, so the one version it holds is the one written.
+   */
+  async #versionOf(key: string): Promise<string | undefined> {
+    const known = this.#versions.get(key);
+    if (known !== undefined) return known;
+    const version = (await this.#objects.head(key))?.version;
+    if (version !== undefined) this.#versions.set(key, version);
+    return version;
   }
 
   /** Restores exactly the parts the revision names, or throws. */

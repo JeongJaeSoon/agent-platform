@@ -343,9 +343,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         staged,
       });
       for (const file of manifest.workspace.untracked) {
+        const bytes = await readFile(spooled.get(file.key) as string);
         signal.throwIfAborted();
         const refusal = await writeWorkspaceFile({
-          bytes: await readFile(spooled.get(file.key) as string),
+          bytes,
           executable: file.executable === true,
           path: file.path,
           workspaceRoot,

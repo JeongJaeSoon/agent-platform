@@ -1,4 +1,4 @@
-import { readdir, rm } from "node:fs/promises";
+import { lstat, opendir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   type CommittedClaudeMd,
@@ -33,6 +33,8 @@ export type StagedCheckpoint = {
 
 const STAGED = "refs/bundle/";
 const RESTORING = "refs/restore/";
+/** Names read from the old root before any of them is removed. */
+const CLEAR_BATCH = 1024;
 
 /**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
@@ -174,9 +176,25 @@ export async function restoreCheckpointTree(input: {
   staged: StagedCheckpoint;
 }): Promise<void> {
   const { root, signal, staged } = input;
-  for (const entry of await readdir(root)) {
-    signal.throwIfAborted();
-    await rm(join(root, entry), { force: true, recursive: true });
+  // Everything below deletes through `root`: a link there would aim it
+  // somewhere else.
+  if (!(await lstat(root)).isDirectory()) {
+    throw new Error(`the workspace root ${root} is not a directory`);
+  }
+  // In batches, so an execution that left millions of names behind is not
+  // read into memory at once. Each pass starts over, since what a directory
+  // stream returns after its own entries are removed is unspecified.
+  for (;;) {
+    const batch: string[] = [];
+    for await (const entry of await opendir(root)) {
+      batch.push(entry.name);
+      if (batch.length === CLEAR_BATCH) break;
+    }
+    if (batch.length === 0) break;
+    for (const name of batch) {
+      signal.throwIfAborted();
+      await rm(join(root, name), { force: true, recursive: true });
+    }
   }
   const git = localGit(root, signal, {});
   await check(git(["init", "--quiet", "--template="]), "init");

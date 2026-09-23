@@ -169,6 +169,27 @@ describe("Claude session store", () => {
     expect(mirror.appendFailures).toBe(1);
   });
 
+  test("names by version a part whose write landed but whose answer was lost", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const putImmutable = objects.putImmutable.bind(objects);
+    let lost = 1;
+    objects.putImmutable = async (key, bytes) => {
+      const written = await putImmutable(key, bytes);
+      if (lost-- > 0) throw new Error("connection reset");
+      return written;
+    };
+    const { mirror } = store(objects);
+    await expect(mirror.append(root, [entry("a", "first")])).rejects.toThrow(
+      "connection reset",
+    );
+    await mirror.append(root, [entry("a", "first")]);
+
+    const parts = (await mirror.captureRevision(root))?.parts ?? [];
+
+    expect(parts).toHaveLength(2);
+    expect(parts.every((part) => part.version !== undefined)).toBe(true);
+  });
+
   test("is unsettled from a failed append until a later one for that transcript lands", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const { mirror } = store(objects);
