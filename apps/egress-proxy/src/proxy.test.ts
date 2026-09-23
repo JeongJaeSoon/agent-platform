@@ -35,6 +35,10 @@ function echoDrain(socket: {
 describe("egress proxy", () => {
   let upstream: Bun.Server<undefined>;
   let upstreamPort = 0;
+  let other: Bun.Server<undefined>;
+  let scripted: TCPSocketListener<undefined>;
+  /** Everything `scripted.test` was sent, across connections. */
+  let scriptedHeard = "";
   let echo: TCPSocketListener<EchoState>;
   /** Every byte the sink upstream ever received, across connections. */
   let sunk = 0;
@@ -45,6 +49,8 @@ describe("egress proxy", () => {
   const resolve: EgressResolver = async (host) => {
     switch (host) {
       case "gateway.test":
+      case "other.test":
+      case "scripted.test":
       case "tunnel.test":
       case "sink.test":
       // The OS resolver answers an address literal with itself.
@@ -67,12 +73,50 @@ describe("egress proxy", () => {
         // A body far past a socket's write buffer, so the proxy has to queue
         // and drain rather than write it all in one go.
         if (url.pathname === "/large") return new Response(BIG);
+        // Answered after a timer, as the API answers after its database: Bun
+        // then leaves the connection open despite the `connection: close`.
+        if (url.pathname === "/claim") await Bun.sleep(10);
         return new Response(`upstream ${url.pathname} ${await request.text()}`);
       },
       hostname: "127.0.0.1",
       port: 0,
     });
     upstreamPort = upstream.port ?? 0;
+    // A second origin, so a request that lands on the first one shows.
+    other = Bun.serve({
+      fetch: async (request) =>
+        new Response(`other ${new URL(request.url).pathname}`),
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    // Answers every request head with the response its path names, cut into
+    // separate writes so the proxy has to put a head back together.
+    scripted = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket, chunk) {
+          const head = new TextDecoder().decode(chunk);
+          scriptedHeard += head;
+          const path = head.split(" ")[1] ?? "";
+          const parts = SCRIPTS[path];
+          if (parts === undefined) {
+            socket.end();
+            return;
+          }
+          void (async () => {
+            for (const part of parts) {
+              if (part === END) {
+                socket.end();
+                return;
+              }
+              socket.write(part);
+              await Bun.sleep(5);
+            }
+          })();
+        },
+      },
+    });
     // An echo server that respects backpressure; one that does not would
     // drop bytes under load and make the proxy look like the culprit.
     echo = Bun.listen<EchoState>({
@@ -109,6 +153,8 @@ describe("egress proxy", () => {
         allow: [{ host: "public.test", port: 443 }],
         allowPrivate: [
           { host: "gateway.test", port: upstreamPort },
+          { host: "other.test", port: other.port ?? 0 },
+          { host: "scripted.test", port: scripted.port },
           { host: "tunnel.test", port: echo.port },
           { host: "sink.test", port: sink.port },
           { host: "127.0.0.1", port: echo.port },
@@ -124,7 +170,143 @@ describe("egress proxy", () => {
     proxy.stop();
     echo.stop(true);
     sink.stop(true);
+    scripted.stop(true);
+    await other.stop(true);
     await upstream.stop(true);
+  });
+
+  // 94S-299. Bun.serve ignores the `connection: close` the proxy forwards
+  // whenever its handler answers after an await, so the upstream stays open;
+  // a client that reads the response as keep-alive then sends its next
+  // request — to any origin — down the same socket, and the proxy used to
+  // pipe it to the first upstream. The worker's S3 list after its gateway
+  // claim reached the API and failed as an XML parse error.
+  test("a client's pooled proxy connection never carries its next request to the last upstream", async () => {
+    const via = `http://127.0.0.1:${proxy.port}`;
+    const client = Bun.spawn(
+      [
+        process.execPath,
+        new URL("./testing/pooled-client.ts", import.meta.url).pathname,
+        `http://gateway.test:${upstreamPort}/claim`,
+        `http://other.test:${other.port}/list`,
+      ],
+      {
+        env: { ...process.env, HTTP_PROXY: via, http_proxy: via },
+        stderr: "pipe",
+        stdout: "pipe",
+      },
+    );
+    const [out, err, code] = await Promise.all([
+      new Response(client.stdout).text(),
+      new Response(client.stderr).text(),
+      client.exited,
+    ]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out.trim().split("\n")).toEqual([
+      "upstream /claim x",
+      "other /list",
+    ]);
+  });
+
+  test("a forwarded response tells the client the connection closes", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(
+        `GET http://scripted.test:${scripted.port}/keep-alive HTTP/1.1`,
+        "host: scripted.test",
+      ),
+    );
+    const response = await talk.waitFor("\r\n\r\nok");
+    const head = response.slice(0, response.indexOf("\r\n\r\n")).toLowerCase();
+    expect(head).toStartWith("http/1.1 200 ok\r\n");
+    expect(head).toContain("\r\nconnection: close");
+    expect(head).not.toContain("keep-alive");
+    // A header the upstream's own Connection named is hop-by-hop too.
+    expect(head).not.toContain("x-hop");
+    expect(head).toContain("\r\nx-end-to-end: kept");
+    talk.close();
+  });
+
+  test("an interim 100 passes as it is and the final head is the one rewritten", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(
+        `POST http://scripted.test:${scripted.port}/continue HTTP/1.1`,
+        "expect: 100-continue",
+        "content-length: 0",
+      ),
+    );
+    const response = await talk.waitFor("\r\n\r\ndone");
+    expect(response).toStartWith(
+      "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 201 Created\r\n",
+    );
+    const final = response.slice(response.indexOf("HTTP/1.1 201"));
+    expect(final.slice(0, final.indexOf("\r\n\r\n"))).toContain(
+      "\r\nconnection: close",
+    );
+    talk.close();
+  });
+
+  test("an upstream that closes inside its response head is a 502, not a torn head", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(`GET http://scripted.test:${scripted.port}/torn HTTP/1.1`),
+    );
+    const response = await talk.waitFor("502");
+    expect(response).toStartWith("HTTP/1.1 502 Bad Gateway\r\n");
+    expect(response).not.toContain("content-le\r\n");
+    expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+  });
+
+  test("nothing a client sends past its request reaches the upstream", async () => {
+    const talk = await connect(proxy.port);
+    // One write: the second request rides in the same segment as the first.
+    talk.send(
+      request(
+        `POST http://scripted.test:${scripted.port}/keep-alive HTTP/1.1`,
+        "content-length: 5",
+      ) +
+        "hello" +
+        request(
+          `GET http://other.test:${other.port}/stolen HTTP/1.1`,
+          "authorization: meant-for-other",
+        ),
+    );
+    await talk.waitFor("\r\n\r\nok");
+    await Bun.sleep(50);
+    expect(scriptedHeard).toContain("POST /keep-alive HTTP/1.1");
+    expect(scriptedHeard).toContain("hello");
+    expect(scriptedHeard).not.toContain("stolen");
+    expect(scriptedHeard).not.toContain("meant-for-other");
+    talk.close();
+  });
+
+  test("a chunked body is forwarded whole and ends where its framing says", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(
+        `POST http://gateway.test:${upstreamPort}/chunked HTTP/1.1`,
+        "transfer-encoding: chunked",
+      ),
+    );
+    talk.send("5\r\nhello\r\n");
+    await Bun.sleep(20);
+    talk.send(
+      "6\r\n world\r\n0\r\n\r\nGET http://other.test/ HTTP/1.1\r\n\r\n",
+    );
+    const response = await talk.waitFor("upstream /chunked hello world");
+    expect(response).toContain("connection: close");
+    expect(response).not.toContain("other /");
+    talk.close();
+  });
+
+  test("an oversized response head is a 502 instead of being buffered", async () => {
+    const talk = await connect(proxy.port);
+    talk.send(
+      request(`GET http://scripted.test:${scripted.port}/huge-head HTTP/1.1`),
+    );
+    expect(await talk.waitFor("502")).toContain("response head");
+    expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
   });
 
   test("an allowlisted absolute-form request reaches the upstream", async () => {
@@ -863,6 +1045,26 @@ describe("egress proxy", () => {
 });
 
 const HEAD_200 = "HTTP/1.1 200 Connection Established\r\n\r\n";
+
+const END = Symbol("end");
+/** What `scripted.test` writes for each path, one write per element. */
+const SCRIPTS: Record<string, Array<string | typeof END>> = {
+  "/continue": [
+    "HTTP/1.1 100 Continue\r\n\r\n",
+    "HTTP/1.1 201 Created\r\ncontent-length: 4\r\n\r\ndone",
+  ],
+  "/huge-head": [
+    `HTTP/1.1 200 OK\r\nx-pad: ${"a".repeat(20_000)}`,
+    "\r\ncontent-length: 2\r\n\r\nok",
+  ],
+  // Stays open after the body, as Bun.serve does after an async answer.
+  "/keep-alive": [
+    "HTTP/1.1 200 OK\r\nConnection: keep-alive, X-Hop\r\n",
+    "Keep-Alive: timeout=5\r\nX-Hop: 1\r\nX-End-To-End: kept\r\n",
+    "content-length: 2\r\n\r\nok",
+  ],
+  "/torn": ["HTTP/1.1 200 OK\r\ncontent-le", END],
+};
 
 function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   const out = new Uint8Array(left.byteLength + right.byteLength);

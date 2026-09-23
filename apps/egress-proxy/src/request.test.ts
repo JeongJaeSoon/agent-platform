@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRequestHead } from "./request.ts";
+import { createBodyFramer, parseRequestHead } from "./request.ts";
 
 function head(...lines: string[]): string {
   return lines.join("\r\n");
@@ -112,3 +112,74 @@ describe("parseRequestHead", () => {
     });
   });
 });
+
+describe("request body framing", () => {
+  const bodyOf = (...lines: string[]) =>
+    parseRequestHead(head("POST http://a.test/ HTTP/1.1", ...lines));
+
+  test("the head says where the body ends, and no framing means no body", () => {
+    expect(bodyOf("Content-Length: 12")).toMatchObject({
+      body: { bytes: 12, kind: "length" },
+    });
+    expect(bodyOf("Transfer-Encoding: Chunked")).toMatchObject({
+      body: { kind: "chunked" },
+    });
+    expect(bodyOf()).toMatchObject({ body: { bytes: 0, kind: "length" } });
+  });
+
+  test.each([
+    ["Content-Length: +4", 400],
+    ["Content-Length: 4, 4", 400],
+    ["Content-Length: 99999999999999999999", 400],
+    ["Transfer-Encoding: gzip, chunked", 501],
+  ])("%s is refused", (line, status) => {
+    expect(bodyOf(line)).toMatchObject({ kind: "invalid", status });
+  });
+
+  test("a length body forwards its bytes and drops what follows", () => {
+    const framer = createBodyFramer({ bytes: 5, kind: "length" });
+    expect(take(framer, "hel")).toEqual({ dropped: 0, forward: "hel" });
+    expect(take(framer, "loGET http://b.test/")).toEqual({
+      dropped: 18,
+      forward: "lo",
+    });
+    expect(take(framer, "more")).toEqual({ dropped: 4, forward: "" });
+  });
+
+  test("a chunked body ends after its trailer, however the bytes are cut", () => {
+    const body = "5;ext=1\r\nhello\r\n6\r\n world\r\n0\r\nx-sum: 1\r\n\r\n";
+    const next = "GET http://b.test/ HTTP/1.1\r\n\r\n";
+    for (let cut = 1; cut < body.length + next.length; cut += 1) {
+      const framer = createBodyFramer({ kind: "chunked" });
+      const all = body + next;
+      const first = take(framer, all.slice(0, cut));
+      const second = take(framer, all.slice(cut));
+      expect(first.forward + second.forward).toBe(body);
+      expect(first.dropped + second.dropped).toBe(next.length);
+    }
+  });
+
+  test.each([
+    ["zz\r\n", "malformed chunk size"],
+    ["2\r\nabXY", "chunk data not followed by CRLF"],
+    [`${"1".repeat(5000)}`, "chunk line is too long"],
+    [`0\r\n${"x-pad: a\r\n".repeat(2000)}`, "chunked trailer is too large"],
+  ])("a malformed chunked body is an error: %#", (bytes, error) => {
+    const framer = createBodyFramer({ kind: "chunked" });
+    expect(framer.take(new TextEncoder().encode(bytes as string))).toEqual({
+      error: error as string,
+    });
+  });
+});
+
+function take(
+  framer: ReturnType<typeof createBodyFramer>,
+  text: string,
+): { dropped: number; forward: string } {
+  const result = framer.take(new TextEncoder().encode(text));
+  if ("error" in result) throw new Error(result.error);
+  return {
+    dropped: result.dropped,
+    forward: new TextDecoder().decode(result.forward),
+  };
+}
