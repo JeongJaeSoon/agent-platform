@@ -30,6 +30,13 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
  */
 
 const PROFILE = "profile-a";
+/** The one (profile, repository) pair this host runs; every session is on it. */
+const RUNNABLE = {
+  branch: "main",
+  profileId: PROFILE,
+  repositoryId: "repo-a",
+  url: "https://example.invalid/repo.git",
+};
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 
 let client: PGlite;
@@ -136,11 +143,12 @@ async function queuedSession(): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(sessions).values({
     admissionState: "active",
-    branch: `session/${id}`,
+    branch: RUNNABLE.branch,
     id,
     ownerId: "owner-a",
     profileId: PROFILE,
-    repoUrl: "https://example.invalid/repo.git",
+    repoUrl: RUNNABLE.url,
+    repositoryId: RUNNABLE.repositoryId,
   });
   await db.insert(turns).values({
     message: "hello",
@@ -155,6 +163,7 @@ async function queuedSession(): Promise<string> {
 function claim(ref: ExecutionRef, nonce: string) {
   return work.claimAtomic({
     attemptId: `att-${crypto.randomUUID()}`,
+    costLimitUsd: 1_000,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,
     executionGeneration: ref.generation,
@@ -162,7 +171,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     leaseTtlMs: 60_000,
     nonceHash: hashWorkerToken(nonce),
     now: new Date(),
-    runnableProfiles: [PROFILE],
+    runnable: [RUNNABLE],
   });
 }
 
@@ -179,6 +188,7 @@ beforeEach(async () => {
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   store = createPostgresSchedulerStore(db, {
+    sessionCostLimitUsd: 1_000,
     connectForLock: async () => ({
       query: async (text: string) => {
         const result = await client.query<Record<string, unknown>>(text);
