@@ -805,6 +805,7 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
         "SESSION_RESUMING",
       ],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "workspace_reclaiming" }, 503, "BACKEND_UNAVAILABLE"],
       [{ outcome: "not_found" }, 404, "NOT_FOUND"],
       [
         { outcome: "revision_conflict", currentRevision: 2 },
@@ -820,5 +821,26 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
       expect(response.status, code).toBe(status);
       expect(await errorCode(response)).toBe(code);
     }
+  });
+
+  test("a workspace being reclaimed is worth retrying; the other refusals are not", async () => {
+    const refused = async (
+      result: Awaited<ReturnType<SessionControl["resumeAtomic"]>>,
+    ) => {
+      const response = await resume(
+        { expected_revision: 1 },
+        { resumeAtomic: async () => result },
+      );
+      return apiErrorResponseSchema.parse(await response.json()).error;
+    };
+
+    expect(await refused({ outcome: "workspace_reclaiming" })).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(await refused({ outcome: "checkpoint_unavailable" })).toMatchObject({
+      code: "CHECKPOINT_UNAVAILABLE",
+      retryable: false,
+    });
   });
 });

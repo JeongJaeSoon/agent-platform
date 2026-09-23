@@ -25,6 +25,8 @@ const SPEC = {
   image: "sha256:worker",
   resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
 };
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const DAY = { stoppedTtlMs: DAY_MS };
 
 async function insertUnassigned(
   overrides: Partial<typeof sessions.$inferInsert> = {},
@@ -1220,14 +1222,10 @@ describe("PostgresSchedulerStore", () => {
     const closed = await insertUnassigned({ admissionState: "closed" });
     const gone = crypto.randomUUID();
 
-    const retained = await store.filterRetainedSessions([
-      active,
-      paused,
-      recovery,
-      stopped,
-      closed,
-      gone,
-    ]);
+    const retained = await store.filterRetainedSessions(
+      [active, paused, recovery, stopped, closed, gone],
+      DAY,
+    );
 
     // Everything but `closed` is resumed into the same working tree, so the
     // workspace has to outlive the container. `stopped` is the one that looks
@@ -1255,7 +1253,7 @@ describe("PostgresSchedulerStore", () => {
       .set({ admissionState: "closed" })
       .where(eq(sessions.id, sessionId));
 
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
 
@@ -1267,15 +1265,15 @@ describe("PostgresSchedulerStore", () => {
     });
     // Seeing it terminated is not the release: the launch keeps its slot, and
     // the session with it, until the pass confirms the resource is gone.
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
 
     await store.confirmExecutionGone(intent.executionId, NOW, null);
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([]);
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([]);
   });
 
-  test("a stopped session keeps its workspace once its container is gone", async () => {
+  test("a stopped session keeps its workspace for its TTL once its container is gone", async () => {
     // The regression this guards: `stopped` reads as terminal but is the
     // state an explicit resume comes back from, into this very volume.
     const sessionId = await insertUnassigned();
@@ -1297,9 +1295,9 @@ describe("PostgresSchedulerStore", () => {
       providerRef: null,
       state: "terminated",
     });
-    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    await store.confirmExecutionGone(intent.executionId, new Date(), null);
 
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
   });
@@ -1307,10 +1305,183 @@ describe("PostgresSchedulerStore", () => {
   test("an id that is not a session id is retained rather than judged", async () => {
     // A volume labelled with something else is not ours to reason about, and
     // binding it to a uuid column would throw and take the whole GC step down.
-    expect(await store.filterRetainedSessions(["not-a-uuid"])).toEqual([
+    expect(await store.filterRetainedSessions(["not-a-uuid"], DAY)).toEqual([
       "not-a-uuid",
     ]);
-    expect(await store.filterRetainedSessions([])).toEqual([]);
+    expect(await store.filterRetainedSessions([], DAY)).toEqual([]);
+  });
+  test("a stopped session is kept for its TTL and is a candidate after it", async () => {
+    const recent = await insertUnassigned({ admissionState: "stopped" });
+    const old = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+    });
+    const oldPaused = await insertUnassigned({
+      admissionState: "paused",
+      updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+    });
+
+    // Only `stopped` expires: a paused session resumes through its own path.
+    expect(
+      new Set(
+        await store.filterRetainedSessions([recent, old, oldPaused], DAY),
+      ),
+    ).toEqual(new Set([recent, oldPaused]));
+    // A zero TTL makes every stopped session a candidate at once.
+    expect(
+      await store.filterRetainedSessions([recent], { stoppedTtlMs: 0 }),
+    ).toEqual([]);
+  });
+
+  test("a claim is needed only where a resume could still come back", async () => {
+    const closed = await insertUnassigned({ admissionState: "closed" });
+    const input = { stoppedTtlMs: DAY_MS, workspaceId: "ap-ws-x" };
+
+    expect(
+      await store.claimWorkspaceReclaim({ ...input, sessionId: closed }),
+    ).toEqual({ kind: "unclaimed" });
+    expect(
+      await store.claimWorkspaceReclaim({
+        ...input,
+        sessionId: crypto.randomUUID(),
+      }),
+    ).toEqual({ kind: "unclaimed" });
+    expect(
+      await store.claimWorkspaceReclaim({ ...input, sessionId: "not-a-uuid" }),
+    ).toEqual({ kind: "retained" });
+  });
+
+  test("an expired stopped session is claimed once, and nothing else is", async () => {
+    const stoppedAt = new Date(Date.now() - DAY_MS - 60_000);
+    const active = await insertUnassigned({ updatedAt: stoppedAt });
+    const recent = await insertUnassigned({ admissionState: "stopped" });
+    const old = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const claim = (sessionId: string) =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: `ap-ws-${sessionId}`,
+      });
+
+    expect(await claim(active)).toEqual({ kind: "retained" });
+    expect(await claim(recent)).toEqual({ kind: "retained" });
+    const claimed = await claim(old);
+    if (claimed.kind !== "claimed") throw new Error("not claimed");
+    // One at a time: the pending claim is settled by the sweep, not doubled.
+    expect(await claim(old)).toEqual({ kind: "retained" });
+
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, old));
+    expect(row?.workspaceReclaimId).toBe(claimed.claimId);
+    expect(row?.workspaceReclaimWorkspaceId).toBe(`ap-ws-${old}`);
+    expect(row?.workspaceReclaimClaimedAt).not.toBeNull();
+    // The stop's clock is what the TTL reads; claiming must not move it.
+    expect(row?.updatedAt).toEqual(stoppedAt);
+    expect(await store.listPendingWorkspaceReclaims()).toEqual([
+      {
+        claimId: claimed.claimId,
+        sessionId: old,
+        workspaceId: `ap-ws-${old}`,
+      },
+    ]);
+  });
+
+  test("a stopped session whose launch still holds its slot is not claimed", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "stopped",
+        updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+      })
+      .where(eq(sessions.id, sessionId));
+    const claim = () =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: "ap-ws-held",
+      });
+
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
+      sessionId,
+    ]);
+    expect(await claim()).toEqual({ kind: "retained" });
+
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    await db
+      .update(sessions)
+      .set({ updatedAt: new Date(Date.now() - DAY_MS - 60_000) })
+      .where(eq(sessions.id, sessionId));
+
+    expect((await claim()).kind).toBe("claimed");
+  });
+
+  test("a claim is settled only by its own id", async () => {
+    const stoppedAt = new Date(Date.now() - DAY_MS - 60_000);
+    const removed = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const released = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const claimOf = async (sessionId: string) => {
+      const result = await store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: "ap-ws-y",
+      });
+      if (result.kind !== "claimed") throw new Error("not claimed");
+      return result.claimId;
+    };
+    const removedClaim = await claimOf(removed);
+    const releasedClaim = await claimOf(released);
+    const rowOf = async (sessionId: string) =>
+      (await db.select().from(sessions).where(eq(sessions.id, sessionId)))[0];
+
+    await store.finishWorkspaceReclaim({
+      claimId: crypto.randomUUID(),
+      outcome: "removed",
+      sessionId: removed,
+    });
+    expect((await rowOf(removed))?.workspaceReclaimId).toBe(removedClaim);
+
+    await store.finishWorkspaceReclaim({
+      claimId: removedClaim,
+      outcome: "removed",
+      sessionId: removed,
+    });
+    await store.finishWorkspaceReclaim({
+      claimId: releasedClaim,
+      outcome: "released",
+      sessionId: released,
+    });
+
+    const afterRemoved = await rowOf(removed);
+    expect(afterRemoved?.workspaceReclaimId).toBeNull();
+    expect(afterRemoved?.workspaceReclaimWorkspaceId).toBeNull();
+    expect(afterRemoved?.workspaceReclaimedAt).not.toBeNull();
+    expect(afterRemoved?.updatedAt).toEqual(stoppedAt);
+    const afterReleased = await rowOf(released);
+    expect(afterReleased?.workspaceReclaimId).toBeNull();
+    expect(afterReleased?.workspaceReclaimedAt).toBeNull();
+    expect(await store.listPendingWorkspaceReclaims()).toEqual([]);
   });
 });
 

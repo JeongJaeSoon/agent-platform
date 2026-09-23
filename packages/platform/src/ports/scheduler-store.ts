@@ -135,6 +135,17 @@ export type PassLock = {
   release(): Promise<void>;
 };
 
+export type WorkspaceReclaimClaim =
+  | { kind: "retained" }
+  | { kind: "unclaimed" }
+  | { kind: "claimed"; claimId: string };
+
+export type PendingWorkspaceReclaim = {
+  claimId: string;
+  sessionId: string;
+  workspaceId: string;
+};
+
 /**
  * Durable side of the scheduler. Every method is its own transaction so the
  * provider call always happens after the intent is committed.
@@ -276,6 +287,45 @@ export interface SchedulerStore {
    *
    * Ids the store cannot judge come back retained, so a workspace labelled
    * with something that is not a session id is left alone rather than reaped.
+   *
+   * A `stopped` session is retained until it has been stopped for
+   * `stoppedTtlMs`; past that it is a candidate, and only a
+   * `claimWorkspaceReclaim` decides whether its workspace goes.
    */
-  filterRetainedSessions(sessionIds: string[]): Promise<string[]>;
+  filterRetainedSessions(
+    sessionIds: string[],
+    options: { stoppedTtlMs: number },
+  ): Promise<string[]>;
+
+  /**
+   * Decides, under the session's lock, whether this workspace may be removed.
+   * `unclaimed`: nothing can come back to the session (closed, or no row), so
+   * the removal needs no claim. `claimed`: a stopped session past its TTL;
+   * resume refuses until `finishWorkspaceReclaim` settles the token. Anything
+   * else — resumed since, stopped too recently, a launch holding its slot, a
+   * claim already pending — is `retained`.
+   */
+  claimWorkspaceReclaim(input: {
+    sessionId: string;
+    workspaceId: string;
+    stoppedTtlMs: number;
+  }): Promise<WorkspaceReclaimClaim>;
+
+  /**
+   * Settles a claim by its id: `removed` records the workspace gone,
+   * `released` gives the session its workspace back. A token that no longer
+   * matches changes nothing.
+   */
+  finishWorkspaceReclaim(input: {
+    claimId: string;
+    sessionId: string;
+    outcome: "removed" | "released";
+  }): Promise<void>;
+
+  /**
+   * Claims a removal never settled — the pass died, or the daemon did not
+   * answer. Asked apart from the workspace listing, because a removal that
+   * went through leaves nothing to list.
+   */
+  listPendingWorkspaceReclaims(): Promise<PendingWorkspaceReclaim[]>;
 }

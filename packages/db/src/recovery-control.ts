@@ -661,6 +661,10 @@ export function resumeAtomic(
       return { outcome: "checkpoint_unavailable" };
     }
     if (session.podId !== null) return { outcome: "unsupported" };
+    // Checked last, so a refusal that retrying cannot fix is the one given.
+    if (session.workspaceReclaimId !== null) {
+      return { outcome: "workspace_reclaiming" };
+    }
 
     const [queuedRow] = await tx
       .select({ queued: count() })
@@ -675,6 +679,7 @@ export function resumeAtomic(
         admissionState: "active",
         status: queued > 0 ? "queued" : "idle",
         updatedAt: now,
+        workspaceReclaimedAt: null,
       })
       .where(eq(sessions.id, sessionId));
     if (queued > 0) {

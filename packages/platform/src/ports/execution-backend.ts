@@ -199,8 +199,16 @@ export interface ExecutionBackend {
    * Implementations may drop resources too young to judge.
    */
   listWorkspaces?(): Promise<ManagedWorkspace[]>;
-  /** Removes it only if it is still this installation's and unused. */
-  removeWorkspace?(id: string): Promise<WorkspaceRemovalResult>;
+  /**
+   * Removes it only if it is still this installation's and unused, and —
+   * when `owner` is given — still the workspace of that session. GC judged
+   * the session, not the name, so a name that now carries another session's
+   * workspace is `not_ours`.
+   */
+  removeWorkspace?(
+    id: string,
+    owner?: { sessionId: string },
+  ): Promise<WorkspaceRemovalResult>;
   /**
    * Brings the per-execution isolation resources the backend created back in
    * line with the executions that still exist: removes the ones whose

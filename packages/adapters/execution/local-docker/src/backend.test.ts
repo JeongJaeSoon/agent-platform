@@ -3198,4 +3198,19 @@ describe("LocalDockerBackend workspace GC", () => {
     });
     expect(docker.volumes.has("ap-ws-test-b-session-3")).toBe(true);
   });
+
+  test("a removal asked for one session leaves another session's volume", async () => {
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    expect(
+      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+        sessionId: "session-2",
+      }),
+    ).toEqual({ outcome: "not_ours" });
+    expect(docker.volumes.has("ap-ws-test-a-session-1")).toBe(true);
+    expect(
+      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+        sessionId: "session-1",
+      }),
+    ).toEqual({ outcome: "removed" });
+  });
 });

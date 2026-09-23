@@ -91,13 +91,16 @@ export async function main(
         "Workspace quota preflight failed; reclaiming workspaces before giving up",
         { error: messageOf(error) },
       );
-      await reclaimWorkspaces({ backend, logger, store }).catch(
-        (reclaimError: unknown) => {
-          logger.error("Workspace reclaim failed", {
-            error: messageOf(reclaimError),
-          });
-        },
-      );
+      await reclaimWorkspaces({
+        backend,
+        logger,
+        stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
+        store,
+      }).catch((reclaimError: unknown) => {
+        logger.error("Workspace reclaim failed", {
+          error: messageOf(reclaimError),
+        });
+      });
       throw error;
     }
     const summary = await runScheduler({
@@ -106,6 +109,7 @@ export async function main(
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
+      stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
     });
     // The pass records a lost connection against each execution it was

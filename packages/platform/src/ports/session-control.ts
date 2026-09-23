@@ -104,7 +104,10 @@ export type ResumeSessionResult =
   // untrusted (checkpoint_pending_reason).
   | { outcome: "checkpoint_unavailable" }
   // Legacy pod binding, as for terminate.
-  | { outcome: "unsupported" };
+  | { outcome: "unsupported" }
+  // GC has claimed the stopped session's workspace and not yet settled the
+  // removal; the same request succeeds once it has.
+  | { outcome: "workspace_reclaiming" };
 
 /**
  * api.md § 승인·중단·강제 종료: the terminate transaction blocks dispatch,

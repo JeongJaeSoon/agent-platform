@@ -8,6 +8,7 @@ import type {
   NetworkReconcileResult,
   TerminateExecutionResult,
   TerminateOptions,
+  WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import {
   launchSpecFingerprint,
@@ -15,9 +16,11 @@ import {
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  PendingWorkspaceReclaim,
   ReplaceReason,
   SchedulerStore,
   StoredLaunchIntent,
+  WorkspaceReclaimClaim,
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 
@@ -32,6 +35,14 @@ export const TERMINATE_DEADLINE_MS = 30_000;
  * that will judge its replacement the same way.
  */
 export const DEFAULT_REPLACEMENT_LIMIT = 3;
+
+/**
+ * How long a `stopped` session keeps its workspace before GC may take it.
+ * Long enough that a session stopped for the night comes back to its volume;
+ * past it, a resume restores from the checkpoint instead, and a session that
+ * has none had nothing a resume could have used.
+ */
+export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
 
 export type SchedulerLogger = {
   error(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -49,12 +60,14 @@ export type SchedulerOptions = {
   replacementLimit?: number;
   resources: ExecutionResources;
   slotLimit: number;
+  /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
+  stoppedWorkspaceTtlMs?: number;
   store: SchedulerStore;
 };
 
 export type ReclaimOptions = Pick<
   SchedulerOptions,
-  "backend" | "logger" | "store"
+  "backend" | "logger" | "stoppedWorkspaceTtlMs" | "store"
 >;
 
 export type SchedulerRunSummary = {
@@ -244,8 +257,9 @@ export async function reclaimNetworks(
 }
 
 /**
- * Reclaim the workspace volumes of sessions nothing will come back to. Runs
- * as the last step of a pass, and on its own from `reclaimWorkspaces`.
+ * Reclaim the workspace volumes of sessions nothing will come back to, and
+ * of sessions stopped for longer than their TTL. Runs as the last step of a
+ * pass, and on its own from `reclaimWorkspaces`.
  */
 async function collectWorkspaces(
   options: ReclaimOptions,
@@ -257,6 +271,30 @@ async function collectWorkspaces(
   // A backend whose workspaces it does not own leaves both out; there is
   // then nothing here to reclaim.
   if (!listWorkspaces || !removeWorkspace) return;
+  const stoppedTtlMs =
+    options.stoppedWorkspaceTtlMs ?? DEFAULT_STOPPED_WORKSPACE_TTL_MS;
+  const removal: WorkspaceRemoval = {
+    logger,
+    remove: (id, sessionId) => removeWorkspace.call(backend, id, { sessionId }),
+    store,
+    summary,
+  };
+  let pending: PendingWorkspaceReclaim[];
+  try {
+    // A claim an earlier pass could not settle keeps its session from
+    // resuming, and its volume may already be gone from any listing.
+    pending = await store.listPendingWorkspaceReclaims();
+  } catch (error) {
+    summary.workspaceScanFailed = true;
+    logger.error("Listing pending workspace reclaims failed; none reclaimed", {
+      error: messageOf(error),
+    });
+    return;
+  }
+  for (const claim of pending) {
+    lock.throwIfAborted();
+    await removeClaimed(removal, claim);
+  }
   let workspaces: ManagedWorkspace[];
   let retained: Set<string>;
   try {
@@ -272,7 +310,9 @@ async function collectWorkspaces(
     retained =
       labelled.length === 0
         ? new Set<string>()
-        : new Set(await store.filterRetainedSessions(labelled));
+        : new Set(
+            await store.filterRetainedSessions(labelled, { stoppedTtlMs }),
+          );
   } catch (error) {
     // Nothing was removed, so nothing is inconsistent; the next pass
     // reclaims whatever this one could not even look at. It is still a
@@ -297,9 +337,36 @@ async function collectWorkspaces(
     }
     if (retained.has(sessionId)) continue;
     lock.throwIfAborted();
-    let outcome: string;
+    // The listing's verdict was read without a lock; this one is taken
+    // under the session's, which is what a resume waits on.
+    let claim: WorkspaceReclaimClaim;
     try {
-      outcome = (await removeWorkspace.call(backend, id)).outcome;
+      claim = await store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs,
+        workspaceId: id,
+      });
+    } catch (error) {
+      summary.workspacesFailed.push(id);
+      logger.error("Claiming workspace for reclaim failed", {
+        error: messageOf(error),
+        session_id: sessionId,
+        workspace_id: id,
+      });
+      continue;
+    }
+    if (claim.kind === "retained") continue;
+    if (claim.kind === "claimed") {
+      await removeClaimed(removal, {
+        sessionId,
+        claimId: claim.claimId,
+        workspaceId: id,
+      });
+      continue;
+    }
+    let outcome: WorkspaceRemovalResult["outcome"];
+    try {
+      outcome = (await removal.remove(id, sessionId)).outcome;
     } catch (error) {
       summary.workspacesFailed.push(id);
       logger.error("Reclaiming workspace failed", {
@@ -309,22 +376,81 @@ async function collectWorkspaces(
       });
       continue;
     }
-    if (outcome === "removed" || outcome === "absent") {
-      summary.workspacesReclaimed.push(id);
-      logger.info("Workspace reclaimed", {
-        outcome,
-        session_id: sessionId,
-        workspace_id: id,
-      });
-      continue;
-    }
-    summary.workspacesUnresolved.push(id);
-    logger.warn("Workspace was not reclaimed", {
+    recordRemoval(removal, sessionId, id, outcome);
+  }
+}
+
+type WorkspaceRemoval = {
+  logger: SchedulerLogger;
+  remove: (id: string, sessionId: string) => Promise<WorkspaceRemovalResult>;
+  store: SchedulerStore;
+  summary: SchedulerRunSummary;
+};
+
+/**
+ * Removes a claimed workspace and settles the claim. A removal that threw
+ * keeps the claim, and with it the session's resume on hold: whether the
+ * volume is still there is unknown, and the next pass finds out.
+ */
+async function removeClaimed(
+  removal: WorkspaceRemoval,
+  claim: PendingWorkspaceReclaim,
+): Promise<void> {
+  const { logger, store, summary } = removal;
+  const { claimId, sessionId, workspaceId } = claim;
+  let outcome: WorkspaceRemovalResult["outcome"];
+  try {
+    outcome = (await removal.remove(workspaceId, sessionId)).outcome;
+  } catch (error) {
+    summary.workspacesFailed.push(workspaceId);
+    logger.error("Reclaiming claimed workspace failed; claim kept for retry", {
+      error: messageOf(error),
+      session_id: sessionId,
+      workspace_id: workspaceId,
+    });
+    return;
+  }
+  try {
+    await store.finishWorkspaceReclaim({
+      outcome:
+        outcome === "removed" || outcome === "absent" ? "removed" : "released",
+      claimId,
+      sessionId,
+    });
+  } catch (error) {
+    summary.workspacesFailed.push(workspaceId);
+    logger.error("Settling workspace reclaim failed; claim kept for retry", {
+      error: messageOf(error),
+      outcome,
+      session_id: sessionId,
+      workspace_id: workspaceId,
+    });
+    return;
+  }
+  recordRemoval(removal, sessionId, workspaceId, outcome);
+}
+
+function recordRemoval(
+  { logger, summary }: WorkspaceRemoval,
+  sessionId: string,
+  id: string,
+  outcome: WorkspaceRemovalResult["outcome"],
+): void {
+  if (outcome === "removed" || outcome === "absent") {
+    summary.workspacesReclaimed.push(id);
+    logger.info("Workspace reclaimed", {
       outcome,
       session_id: sessionId,
       workspace_id: id,
     });
+    return;
   }
+  summary.workspacesUnresolved.push(id);
+  logger.warn("Workspace was not reclaimed", {
+    outcome,
+    session_id: sessionId,
+    workspace_id: id,
+  });
 }
 
 /**

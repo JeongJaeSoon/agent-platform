@@ -393,6 +393,20 @@ export const sessions = pgTable(
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
       withTimezone: true,
     }),
+    // A stopped session's workspace being reclaimed (94S-225): set under the
+    // session lock before the volume is removed, cleared by the claim id that
+    // set it once the removal settles. Resume refuses while it is set, so a
+    // resumed session never has its workspace removed underneath it.
+    workspaceReclaimId: text("workspace_reclaim_id"),
+    workspaceReclaimWorkspaceId: text("workspace_reclaim_workspace_id"),
+    workspaceReclaimClaimedAt: timestamp("workspace_reclaim_claimed_at", {
+      withTimezone: true,
+    }),
+    // The stopped session's workspace is gone; a resume comes back on a new
+    // one restored from the checkpoint. Cleared by that resume.
+    workspaceReclaimedAt: timestamp("workspace_reclaimed_at", {
+      withTimezone: true,
+    }),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
