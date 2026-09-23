@@ -4,6 +4,7 @@ import {
   hashWorkerToken,
   type LaunchIntent,
   launchNonceFingerprint,
+  launchSpecFingerprint,
 } from "@agent-platform/platform";
 import {
   containerNameFor,
@@ -13,6 +14,7 @@ import {
   IsolationContractError,
   isolationStampFor,
   LABELS,
+  LaunchSpecMismatchError,
   LocalDockerBackend,
   NetworkIsolationError,
   NO_PROXY_VALUE,
@@ -98,6 +100,8 @@ class FakeDocker {
     [];
   /** Image name → the `VOLUME` paths it declares. */
   readonly images = new Map<string, string[]>([["worker:test", []]]);
+  /** References whose inspect comes back without an id. */
+  readonly imagesWithoutId = new Set<string>();
   /** A `docker volume prune` that lands between the check and the create. */
   pruneVolumesOnCreate = false;
   private nextId = 1;
@@ -413,7 +417,11 @@ class FakeDocker {
     }
     const image = path.match(/^\/images\/(.+)\/json$/);
     if (request.method === "GET" && image) {
-      const name = decodeURIComponent(image[1] ?? "");
+      const requested = decodeURIComponent(image[1] ?? "");
+      // Docker answers for an image by its id as well as by its tag.
+      const name =
+        [...this.images.keys()].find((tag) => imageIdOf(tag) === requested) ??
+        requested;
       const declared = this.images.get(name);
       if (declared === undefined) {
         return json({ message: `No such image: ${name}` }, 404);
@@ -425,7 +433,7 @@ class FakeDocker {
               ? null
               : Object.fromEntries(declared.map((v) => [v, {}])),
         },
-        Id: `sha256:${name.replace(/[^a-z0-9]/g, "")}`,
+        Id: this.imagesWithoutId.has(name) ? "" : imageIdOf(name),
       });
     }
     if (request.method === "GET" && path === "/version") {
@@ -666,6 +674,7 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
       nonceIssues += 1;
       return "nonce-abc";
     },
+    launchSpec: null,
     operationId: "op-1",
     resources: RESOURCES,
     sessionId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -1444,6 +1453,92 @@ describe("LocalDockerBackend.inspect", () => {
 
     await expect(backend.ensureExecution(intentFor())).resolves.toMatchObject({
       created: true,
+    });
+  });
+
+  test("resolveImage pins the reference to the image id the daemon has", async () => {
+    expect(await backend.resolveImage("worker:test")).toBe("sha256:workertest");
+    // The id resolves to itself, so a pinned launch can be created again.
+    expect(await backend.resolveImage("sha256:workertest")).toBe(
+      "sha256:workertest",
+    );
+    docker.images.set("worker:test", ["/data"]);
+    await expect(backend.resolveImage("worker:test")).rejects.toThrow(
+      "declares VOLUME",
+    );
+    await expect(backend.resolveImage("worker:missing")).rejects.toThrow(
+      "is not on this daemon",
+    );
+    // Without an id there is nothing to pin to; the tag is never passed
+    // through in its place.
+    docker.imagesWithoutId.add("worker:test");
+    docker.images.set("worker:test", []);
+    await expect(backend.resolveImage("worker:test")).rejects.toThrow(
+      "carries no id",
+    );
+  });
+
+  test("a launch with a stored spec is labelled with it, one without is not", async () => {
+    const spec = launchSpecFingerprint("sha256:workertest", RESOURCES);
+    const pinned = intentFor({ image: "sha256:workertest", launchSpec: spec });
+    await backend.ensureExecution(pinned);
+    const created = docker.containers.get(containerNameFor(pinned, "test-a"));
+    expect(created?.body.Labels[LABELS.launchSpec]).toBe(spec);
+    expect(created?.body.Image).toBe("sha256:workertest");
+    expect(await backend.inspect(pinned)).toMatchObject({
+      found: true,
+      launchSpec: spec,
+    });
+
+    const legacy = intentFor({ executionId: "exec-legacy" });
+    await backend.ensureExecution(legacy);
+    const unlabelled = docker.containers.get(
+      containerNameFor(legacy, "test-a"),
+    );
+    expect(LABELS.launchSpec in (unlabelled?.body.Labels ?? {})).toBe(false);
+    expect(await backend.inspect(legacy)).toMatchObject({
+      found: true,
+      launchSpec: null,
+    });
+  });
+
+  test("a container built from another spec is refused, never adopted or removed", async () => {
+    // It may hold the credential the registry accepts, and a worker may be
+    // presenting it right now; only the scheduler's fenced replacement may
+    // take it away.
+    const intent = intentFor({
+      launchSpec: launchSpecFingerprint("worker:test", RESOURCES),
+    });
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.launchSpec] = launchSpecFingerprint(
+      "sha256:other",
+      RESOURCES,
+    );
+    docker.add(containerNameFor(intent, "test-a"), body);
+    const before = nonceIssues;
+
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      LaunchSpecMismatchError,
+    );
+    expect(docker.containers.size).toBe(1);
+    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
+      0,
+    );
+    expect(nonceIssues).toBe(before);
+  });
+
+  test("a container without the spec label is adopted as before", async () => {
+    const intent = intentFor({
+      launchSpec: launchSpecFingerprint("worker:test", RESOURCES),
+    });
+    const body = await createBodyOf(intentFor());
+    delete body.Labels[LABELS.launchSpec];
+    const existing = docker.add(containerNameFor(intent, "test-a"), body);
+
+    expect(await backend.ensureExecution(intent)).toEqual({
+      created: false,
+      providerRef: existing.id,
+      state: "running",
     });
   });
 
@@ -2700,6 +2795,10 @@ describe("names", () => {
 });
 
 /** Runs a throwaway backend against a throwaway daemon to capture the body. */
+function imageIdOf(tag: string): string {
+  return `sha256:${tag.replace(/[^a-z0-9]/g, "")}`;
+}
+
 async function createBodyOf(
   intent: LaunchIntent,
 ): Promise<ContainerCreateBody> {

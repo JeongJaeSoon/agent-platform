@@ -126,6 +126,7 @@ function messageOf(error: unknown): string {
 /** Non-zero when the pass left work undone, so cron/supervisors notice. */
 export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
+    summary.imageUnresolved ||
     summary.killFailed.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.

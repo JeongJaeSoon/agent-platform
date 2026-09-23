@@ -233,6 +233,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       }),
       image: IMAGE,
       issueBootstrapNonce: async () => "wln-orphan",
+      launchSpec: null,
       operationId: crypto.randomUUID(),
       resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },
       sessionId,

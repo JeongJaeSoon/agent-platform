@@ -1,0 +1,268 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  type EnsureExecutionResult,
+  type ExecutionBackend,
+  type ExecutionObservation,
+  type ExecutionRef,
+  hashWorkerToken,
+  type LaunchIntent,
+  runScheduler,
+  type SchedulerLogger,
+} from "@agent-platform/platform";
+import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import * as schema from "./schema.ts";
+import {
+  sessions,
+  turns,
+  unassignedSessions,
+  workerLaunches,
+} from "./schema.ts";
+import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+
+/**
+ * The claim lifecycle end to end, on the real store and the real claim:
+ * the scheduler drives a fake provider, and a worker presents the nonce the
+ * provider was created with, the way the gateway's bootstrapClaim does.
+ */
+
+const PROFILE = "profile-a";
+const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
+
+let client: PGlite;
+let db: PgliteDatabase<typeof schema>;
+let store: ReturnType<typeof createPostgresSchedulerStore>;
+let work: ReturnType<typeof createPostgresWorkerUnitOfWork>;
+
+/** A provider that holds each container's nonce the way its env would. */
+class NonceHoldingBackend implements ExecutionBackend {
+  readonly kind = "local_docker" as const;
+  readonly containers = new Map<
+    string,
+    { intent: LaunchIntent; nonce: string; state: "running" }
+  >();
+  readonly ensured: LaunchIntent[] = [];
+  /** Throws after the credential is minted, like a create that failed. */
+  failNextCreate = false;
+
+  capabilities() {
+    return { suspend: false };
+  }
+
+  async resolveImage(reference: string): Promise<string> {
+    return `sha256:${reference}`;
+  }
+
+  async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
+    this.ensured.push(intent);
+    const key = keyOf(intent);
+    const existing = this.containers.get(key);
+    if (existing) return { created: false, providerRef: key, state: "running" };
+    const nonce = await intent.issueBootstrapNonce();
+    if (this.failNextCreate) {
+      this.failNextCreate = false;
+      throw new Error("create failed");
+    }
+    this.containers.set(key, { intent, nonce, state: "running" });
+    return { created: true, providerRef: key, state: "running" };
+  }
+
+  async inspect(ref: ExecutionRef): Promise<ExecutionObservation> {
+    const container = this.containers.get(keyOf(ref));
+    return container
+      ? {
+          found: true,
+          observedAt: new Date(),
+          providerRef: keyOf(ref),
+          state: container.state,
+        }
+      : {
+          found: false,
+          observedAt: new Date(),
+          providerRef: null,
+          state: "unknown",
+        };
+  }
+
+  async listManaged() {
+    return [...this.containers.values()].map(({ intent, state }) => ({
+      executionId: intent.executionId,
+      generation: intent.generation,
+      providerRef: keyOf(intent),
+      sessionId: intent.sessionId,
+      state,
+    }));
+  }
+
+  async terminate(ref: ExecutionRef) {
+    return this.containers.delete(keyOf(ref))
+      ? { outcome: "terminated" as const, providerRef: keyOf(ref) }
+      : { outcome: "absent" as const };
+  }
+
+  nonceOf(ref: ExecutionRef): string {
+    const container = this.containers.get(keyOf(ref));
+    if (!container) throw new Error(`no container for ${keyOf(ref)}`);
+    return container.nonce;
+  }
+}
+
+function keyOf(ref: ExecutionRef): string {
+  return `${ref.executionId}#${ref.generation}`;
+}
+
+const silent: SchedulerLogger = {
+  error: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+};
+
+function pass(backend: ExecutionBackend) {
+  return runScheduler({
+    backend,
+    image: "worker:test",
+    logger: silent,
+    resources: RESOURCES,
+    slotLimit: 10,
+    store,
+  });
+}
+
+/** A session with one queued turn, waiting for a launch. */
+async function queuedSession(): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.insert(sessions).values({
+    admissionState: "active",
+    branch: `session/${id}`,
+    id,
+    ownerId: "owner-a",
+    profileId: PROFILE,
+    repoUrl: "https://example.invalid/repo.git",
+  });
+  await db.insert(turns).values({
+    message: "hello",
+    sequence: 1,
+    sessionId: id,
+    status: "queued",
+  });
+  await db.insert(unassignedSessions).values({ sessionId: id });
+  return id;
+}
+
+function claim(ref: ExecutionRef, nonce: string) {
+  return work.claimAtomic({
+    attemptId: `att-${crypto.randomUUID()}`,
+    credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
+    credentialTtlMs: 60_000,
+    executionGeneration: ref.generation,
+    executionId: ref.executionId,
+    leaseTtlMs: 60_000,
+    nonceHash: hashWorkerToken(nonce),
+    now: new Date(),
+    runnableProfiles: [PROFILE],
+  });
+}
+
+async function launchesOf(sessionId: string) {
+  return db
+    .select()
+    .from(workerLaunches)
+    .where(eq(workerLaunches.sessionId, sessionId))
+    .orderBy(workerLaunches.generation);
+}
+
+beforeEach(async () => {
+  client = new PGlite();
+  db = drizzle(client, { schema });
+  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
+  store = createPostgresSchedulerStore(db, {
+    connectForLock: async () => ({
+      query: async (text: string) => {
+        const result = await client.query<Record<string, unknown>>(text);
+        return { rows: result.rows };
+      },
+      release: () => undefined,
+      on: () => undefined,
+      off: () => undefined,
+    }),
+  });
+  work = createPostgresWorkerUnitOfWork(db);
+});
+
+afterEach(async () => {
+  await client.close();
+});
+
+describe("claim lifecycle", () => {
+  test("a claimed execution lost after its claim comes back as the next generation with a new nonce; the old nonce claims nothing", async () => {
+    const backend = new NonceHoldingBackend();
+    const sessionId = await queuedSession();
+
+    const first = await pass(backend);
+    expect(first.launched).toHaveLength(1);
+    const [gen1] = first.launched;
+    if (!gen1) throw new Error("nothing launched");
+    const oldNonce = backend.nonceOf(gen1);
+    expect((await claim(gen1, oldNonce)).outcome).toBe("claimed");
+
+    // The worker dies and takes its container with it, after the claim.
+    backend.containers.delete(keyOf(gen1));
+    const second = await pass(backend);
+
+    // The spent launch is closed, never re-created under its own identity,
+    // and the session it gave back is launched again one generation on.
+    expect(second.terminatedObserved).toEqual([gen1]);
+    expect(second.reensured).toEqual([]);
+    expect(second.launched).toHaveLength(1);
+    const [gen2] = second.launched;
+    if (!gen2) throw new Error("nothing relaunched");
+    expect(gen2.generation).toBe(gen1.generation + 1);
+    expect(gen2.executionId).not.toBe(gen1.executionId);
+    const newNonce = backend.nonceOf(gen2);
+    expect(newNonce).not.toBe(oldNonce);
+    const launches = await launchesOf(sessionId);
+    expect(launches.map((l) => l.generation)).toEqual([1, 2]);
+    expect(launches[0]?.slotReleasedAt).not.toBeNull();
+    expect(launches[1]?.slotReleasedAt).toBeNull();
+    const [intent1, intent2] = backend.ensured;
+    expect(intent2?.operationId).not.toBe(intent1?.operationId);
+
+    // The old nonce opens neither the launch it was issued for nor the new
+    // one; only the new nonce binds the new generation.
+    expect((await claim(gen1, oldNonce)).outcome).toBe("invalid_credential");
+    expect((await claim(gen2, oldNonce)).outcome).toBe("invalid_credential");
+    const bound = await claim(gen2, newNonce);
+    expect(bound.outcome).toBe("claimed");
+    if (bound.outcome !== "claimed") throw new Error("unreachable");
+    expect(bound.binding.executionGeneration).toBe(2);
+  });
+
+  test("a create that failed before any claim is retried as the same intent, and only the credential it finally holds is accepted", async () => {
+    const backend = new NonceHoldingBackend();
+    const sessionId = await queuedSession();
+    backend.failNextCreate = true;
+
+    const first = await pass(backend);
+    expect(first.launched).toEqual([]);
+    expect(first.failedLaunches).toHaveLength(1);
+    const [ref] = first.failedLaunches;
+    if (!ref) throw new Error("nothing attempted");
+
+    const second = await pass(backend);
+    expect(second.reensured).toEqual([ref]);
+    expect(second.launched).toEqual([]);
+    const [failed, retried] = backend.ensured;
+    // The same launch: execution, generation and the provider's idempotency
+    // key all carry over. The nonce is minted again on the create path, so
+    // whatever the failed create was handed is already dead.
+    expect(retried?.executionId).toBe(failed?.executionId ?? "");
+    expect(retried?.generation).toBe(1);
+    expect(retried?.operationId).toBe(failed?.operationId ?? "");
+    expect(await launchesOf(sessionId)).toHaveLength(1);
+
+    expect((await claim(ref, backend.nonceOf(ref))).outcome).toBe("claimed");
+  });
+});

@@ -3,6 +3,7 @@ import {
   hashWorkerToken,
   type LaunchIntent,
   launchNonceFingerprint,
+  launchSpecFingerprint,
 } from "@agent-platform/platform";
 import {
   ENV,
@@ -65,6 +66,7 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
     generation: 1,
     image: IMAGE,
     issueBootstrapNonce: async () => `wln-${suffix}`,
+    launchSpec: launchSpecFingerprint(IMAGE, RESOURCES),
     operationId: `op-${suffix}`,
     resources: RESOURCES,
     sessionId: crypto.randomUUID(),

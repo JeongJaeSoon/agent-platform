@@ -21,6 +21,7 @@ import {
   generateLaunchNonce,
   hashWorkerToken,
   launchNonceFingerprint,
+  parseExecutionResources,
 } from "@agent-platform/platform";
 import {
   and,
@@ -268,7 +269,9 @@ export function createPostgresSchedulerStore(
         const intent: StoredLaunchIntent = {
           executionId: `exec-${randomUUID()}`,
           generation: (latest?.generation ?? 0) + 1,
+          image: input.image,
           operationId: randomUUID(),
+          resources: parseExecutionResources(input.resources),
           sessionId: input.sessionId,
         };
         await tx.insert(executions).values({
@@ -290,8 +293,10 @@ export function createPostgresSchedulerStore(
           createdAt: input.now,
           executionId: intent.executionId,
           generation: intent.generation,
+          image: intent.image,
           // The claim has to find the session where it is waiting.
           partition: signal.partition,
+          resources: intent.resources,
           sessionId: intent.sessionId,
           slotReservedAt: input.now,
         });
@@ -484,6 +489,7 @@ export function createPostgresSchedulerStore(
           desiredState: executions.desiredState,
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
+          image: workerLaunches.image,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
           nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
           nonceHash: workerLaunches.nonceHash,
@@ -492,6 +498,7 @@ export function createPostgresSchedulerStore(
           providerRef: executions.providerRef,
           replacementCount: workerLaunches.replacementCount,
           replacementReason: workerLaunches.replacementReason,
+          resources: workerLaunches.resources,
           sessionId: executions.sessionId,
         })
         .from(workerLaunches)
@@ -509,6 +516,7 @@ export function createPostgresSchedulerStore(
           row.desiredState === "terminated" ? "terminated" : "running",
         executionId: row.executionId,
         generation: row.generation,
+        image: row.image,
         nonceExpiresAt: row.nonceExpiresAt,
         // Null while no credential was issued; the comparison yields null too.
         nonceExpired: row.nonceExpired === true,
@@ -523,6 +531,12 @@ export function createPostgresSchedulerStore(
             ? null
             : replaceReasonOf(row.replacementReason),
         replacementCount: row.replacementCount,
+        // The CHECK keeps the two null together; a shape the scheduler
+        // could not launch fails here rather than at some later create.
+        resources:
+          row.resources === null
+            ? null
+            : parseExecutionResources(row.resources),
         sessionId: row.sessionId,
       }));
     },
@@ -652,6 +666,7 @@ const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([
 const REPLACE_REASONS = new Set<ReplaceReason>([
   "credential_mismatch",
   "nonce_expired",
+  "spec_mismatch",
   "stale_isolation",
 ]);
 

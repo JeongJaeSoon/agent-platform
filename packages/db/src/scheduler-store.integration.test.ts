@@ -13,6 +13,10 @@ import { sessions, unassignedSessions, workerLaunches } from "./schema.ts";
  */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
+const SPEC = {
+  image: "sha256:worker",
+  resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
+};
 
 integration("PostgresSchedulerStore under concurrent reservations", () => {
   let database: TempDatabase;
@@ -99,6 +103,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     // Two passes each believe 10 slots are free and reserve concurrently.
     const attempts = [...ids, ...ids].map((sessionId) =>
       store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: new Date(),
         sessionId,
@@ -129,6 +134,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     });
     await db.insert(unassignedSessions).values({ sessionId });
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: new Date(),
       sessionId,
@@ -261,6 +267,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     await db.insert(unassignedSessions).values({ sessionId: id });
     // The race test above keeps its ten slots; this one needs one more.
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: new Date(),
       sessionId: id,

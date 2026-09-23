@@ -20,6 +20,11 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let store: ReturnType<typeof createPostgresSchedulerStore>;
 const NOW = new Date("2026-09-22T00:00:00Z");
+/** What the scheduler pins a launch to; the store only keeps it. */
+const SPEC = {
+  image: "sha256:worker",
+  resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
+};
 
 async function insertUnassigned(
   overrides: Partial<typeof sessions.$inferInsert> = {},
@@ -85,6 +90,7 @@ describe("PostgresSchedulerStore", () => {
   test("reserveLaunch commits one intent per session and refuses a second live one", async () => {
     const sessionId = await insertUnassigned();
     const first = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -94,6 +100,7 @@ describe("PostgresSchedulerStore", () => {
     expect(first?.executionId).toMatch(/^exec-[0-9a-f-]{36}$/);
 
     const second = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -141,6 +148,7 @@ describe("PostgresSchedulerStore", () => {
   test("a new generation follows a terminated one", async () => {
     const sessionId = await insertUnassigned();
     const first = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -149,6 +157,7 @@ describe("PostgresSchedulerStore", () => {
     if (!first) throw new Error("no intent");
     await store.confirmExecutionGone(first.executionId, NOW, null);
     const second = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -163,6 +172,7 @@ describe("PostgresSchedulerStore", () => {
     const paused = await insertUnassigned({ admissionState: "paused" });
     expect(
       await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId: paused,
@@ -176,6 +186,7 @@ describe("PostgresSchedulerStore", () => {
       .where(eq(unassignedSessions.sessionId, claimed));
     expect(
       await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId: claimed,
@@ -185,6 +196,7 @@ describe("PostgresSchedulerStore", () => {
 
     expect(
       await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId: crypto.randomUUID(),
@@ -203,6 +215,7 @@ describe("PostgresSchedulerStore", () => {
     await insertUnassigned({ admissionState: "stopping" });
 
     const launched = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId: ids[0] ?? "",
@@ -245,6 +258,7 @@ describe("PostgresSchedulerStore", () => {
   test("listActiveExecutions returns open launches and, for this backend, ones without an intent", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -275,6 +289,8 @@ describe("PostgresSchedulerStore", () => {
         desiredState: "running",
         executionId: intent.executionId,
         generation: 1,
+        // Handed back exactly as the reservation stored it.
+        image: SPEC.image,
         nonceExpired: false,
         nonceExpiresAt: null,
         nonceFingerprint: null,
@@ -283,6 +299,7 @@ describe("PostgresSchedulerStore", () => {
         pendingReplacement: null,
         providerRef: null,
         replacementCount: 0,
+        resources: SPEC.resources,
         sessionId,
       },
       {
@@ -291,6 +308,7 @@ describe("PostgresSchedulerStore", () => {
         desiredState: "running",
         executionId: "exec-legacy",
         generation: 1,
+        image: null,
         nonceExpired: false,
         nonceExpiresAt: null,
         nonceFingerprint: null,
@@ -299,6 +317,7 @@ describe("PostgresSchedulerStore", () => {
         pendingReplacement: null,
         providerRef: null,
         replacementCount: 0,
+        resources: null,
         sessionId: legacySession,
       },
     ]);
@@ -311,6 +330,7 @@ describe("PostgresSchedulerStore", () => {
   test("another backend's intent is not ours", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "eks_job",
       now: NOW,
       sessionId,
@@ -325,6 +345,7 @@ describe("PostgresSchedulerStore", () => {
   test("recordObservation updates state, time and provider ref for the exact generation", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -373,6 +394,7 @@ describe("PostgresSchedulerStore", () => {
     const a = await insertUnassigned();
     const b = await insertUnassigned();
     const first = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId: a,
@@ -381,6 +403,7 @@ describe("PostgresSchedulerStore", () => {
     expect(first).not.toBeNull();
     expect(
       await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId: b,
@@ -391,6 +414,7 @@ describe("PostgresSchedulerStore", () => {
     await store.confirmExecutionGone(first.executionId, NOW, null);
     expect(
       await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId: b,
@@ -404,6 +428,7 @@ describe("PostgresSchedulerStore", () => {
     const sessionId = await insertUnassigned();
     for (let round = 0; round < 4; round += 1) {
       const intent = await store.reserveLaunch({
+        ...SPEC,
         backend: "local_docker",
         now: NOW,
         sessionId,
@@ -426,6 +451,7 @@ describe("PostgresSchedulerStore", () => {
   test("issueBootstrapNonce stores only a hash, rotates it, and stops once claimed", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -478,6 +504,7 @@ describe("PostgresSchedulerStore", () => {
   test("bootstrapCredentialState follows the stored hash, the claim, and the slot", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -550,6 +577,7 @@ describe("PostgresSchedulerStore", () => {
   test("revokeBootstrapNonce shuts the door only while it is still open", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -590,6 +618,7 @@ describe("PostgresSchedulerStore", () => {
     // A claim that committed first wins outright, however stale the expiry.
     const claimed = await insertUnassigned();
     const other = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId: claimed,
@@ -625,6 +654,7 @@ describe("PostgresSchedulerStore", () => {
   test("requestReplacement records the intent, counts it, shuts the door, and refuses a launch that moved on", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -737,6 +767,7 @@ describe("PostgresSchedulerStore", () => {
     // Nor one that bound a worker: its resource is not to be rebuilt.
     const claimedSession = await insertUnassigned();
     const other = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId: claimedSession,
@@ -772,6 +803,7 @@ describe("PostgresSchedulerStore", () => {
   test("a launch with a pending replacement cannot be confirmed gone until it settles", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -806,6 +838,7 @@ describe("PostgresSchedulerStore", () => {
   test("confirmExecutionGone with another incarnation is a no-op", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -880,6 +913,7 @@ describe("PostgresSchedulerStore", () => {
   test("a row-read incarnation also carries the claim it showed", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -925,6 +959,7 @@ describe("PostgresSchedulerStore", () => {
   test("a launch asked to go is killed, never rebuilt or held for a rebuild", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -967,6 +1002,7 @@ describe("PostgresSchedulerStore", () => {
   test("settling a replacement leaves one asked for since alone", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -995,6 +1031,7 @@ describe("PostgresSchedulerStore", () => {
   test("a pending replacement defers an exit confirmation and says so", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -1013,6 +1050,7 @@ describe("PostgresSchedulerStore", () => {
   test("confirmExecutionGone without an incarnation speaks for whatever the launch runs", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -1027,9 +1065,94 @@ describe("PostgresSchedulerStore", () => {
     expect(await store.listActiveExecutions("local_docker")).toEqual([]);
   });
 
+  test("reserveLaunch stores the pinned image and limits with the launch, and refuses limits nothing could launch", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    expect(intent).toMatchObject(SPEC);
+    const [row] = await db.select().from(workerLaunches);
+    expect(row?.image).toBe(SPEC.image);
+    expect(row?.resources).toEqual(SPEC.resources);
+    const [active] = await store.listActiveExecutions("local_docker");
+    expect(active).toMatchObject(SPEC);
+
+    const other = await insertUnassigned();
+    await expect(
+      store.reserveLaunch({
+        ...SPEC,
+        backend: "local_docker",
+        now: NOW,
+        resources: { ...SPEC.resources, memoryBytes: 0 },
+        sessionId: other,
+        slotLimit: 10,
+      }),
+    ).rejects.toThrow("memoryBytes 0 is not a positive integer");
+    expect(await db.select().from(workerLaunches)).toHaveLength(1);
+  });
+
+  test("a launch holds both halves of its spec or neither, and a stored spec that is not one fails loudly", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const failure = await db
+      .update(workerLaunches)
+      .set({ resources: null })
+      .where(eq(workerLaunches.executionId, intent.executionId))
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(String((failure as Error).cause)).toMatch(
+      /worker_launches_launch_spec_check/,
+    );
+
+    await db
+      .update(workerLaunches)
+      .set({ resources: { cpus: 1 } })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    await expect(store.listActiveExecutions("local_docker")).rejects.toThrow(
+      "memoryBytes undefined is not a positive integer",
+    );
+  });
+
+  test("a spec mismatch is a replacement reason like the others", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const nonce = await store.issueBootstrapNonce(intent);
+    expect(
+      await store.requestReplacement(
+        intent,
+        "spec_mismatch",
+        0,
+        launchNonceFingerprint(sha256(nonce)),
+      ),
+    ).toBe(1);
+    const [active] = await store.listActiveExecutions("local_docker");
+    expect(active?.pendingReplacement).toBe("spec_mismatch");
+  });
+
   test("the schema refuses a replacement reason it does not know", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -1064,6 +1187,7 @@ describe("PostgresSchedulerStore", () => {
   test("filterKnown keeps refs whose row exists with the same generation", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -1119,6 +1243,7 @@ describe("PostgresSchedulerStore", () => {
     // volume in that window would pull it out from under a running worker.
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,
@@ -1155,6 +1280,7 @@ describe("PostgresSchedulerStore", () => {
     // state an explicit resume comes back from, into this very volume.
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,

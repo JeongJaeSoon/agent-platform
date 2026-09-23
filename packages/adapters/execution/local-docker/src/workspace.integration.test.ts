@@ -99,6 +99,7 @@ integration("workspace volumes against a real daemon", () => {
         fingerprint: launchNonceFingerprint(hashWorkerToken(`wln-${suffix}`)),
       }),
       issueBootstrapNonce: async () => `wln-${suffix}`,
+      launchSpec: null,
       operationId: `op-${suffix}`,
       resources: { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 },
       sessionId,
