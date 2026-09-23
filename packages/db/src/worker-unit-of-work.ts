@@ -1001,10 +1001,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         expectFenced(updated, "attempt");
         const [beat] = updated;
         if (!beat) throw new Error("Fenced attempt write returned no row");
-        if (input.transcript !== undefined) {
+        const persistedAt = input.transcript?.persistedAt ?? null;
+        const mirrorError = input.transcript?.mirrorError ?? null;
+        // A mirror that has written nothing yet reports nulls on every beat
+        // until its first batch lands; there is nothing to record, and an
+        // empty SET is an error in drizzle (94S-309).
+        if (persistedAt !== null || mirrorError !== null) {
           // A late heartbeat cannot walk the mirror mark backwards, and an
           // error only sets the reason: clearing is a checkpoint's to do.
-          const persistedAt = input.transcript.persistedAt;
           expectFenced(
             await tx
               .update(sessions)
@@ -1014,7 +1018,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   : {
                       lastTranscriptPersistedAt: sql`GREATEST(${sessions.lastTranscriptPersistedAt}, ${persistedAt})`,
                     }),
-                ...(input.transcript.mirrorError === null
+                ...(mirrorError === null
                   ? {}
                   : {
                       checkpointPendingReason: "mirror_error",
