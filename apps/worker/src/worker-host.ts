@@ -310,31 +310,32 @@ export class WorkerHost {
         "Starting the session",
         this.options.timeouts.startupTimeoutMs,
       );
-      let plan: RuntimeResumePlan | undefined;
+      let ready = false;
       try {
-        plan = await this.startUp(claim);
+        const plan = await this.startUp(claim);
+        if (plan !== undefined && this.stopping === undefined) {
+          run = launcher.start(
+            {
+              ...plan,
+              committedClaudeMd:
+                plan.mode === "resume" && plan.committedClaudeMd !== undefined
+                  ? plan.committedClaudeMd
+                  : () => this.options.workspace.committedClaudeMd(),
+              correlationId: `${claim.session_id}:${claim.attempt_id}`,
+              principal: claim.principal,
+              runtimeConfig: claim.runtime_config,
+            },
+            { onPermission: (request) => this.onPermission(request) },
+          );
+          this.engine = run;
+          this.attemptState = "running";
+          this.pumping = this.pump(run);
+          ready = await this.reportReady(run, plan, claim);
+        }
       } finally {
         startup.disarm();
       }
-      if (plan !== undefined && this.stopping === undefined) {
-        run = launcher.start(
-          {
-            ...plan,
-            committedClaudeMd:
-              plan.mode === "resume" && plan.committedClaudeMd !== undefined
-                ? plan.committedClaudeMd
-                : () => this.options.workspace.committedClaudeMd(),
-            correlationId: `${claim.session_id}:${claim.attempt_id}`,
-            principal: claim.principal,
-            runtimeConfig: claim.runtime_config,
-          },
-          { onPermission: (request) => this.onPermission(request) },
-        );
-        this.engine = run;
-        this.attemptState = "running";
-        this.pumping = this.pump(run);
-        await this.turnLoop(run);
-      }
+      if (run !== undefined && ready) await this.turnLoop(run);
     } catch (error) {
       // A worker that failed but still owns the session gives it back, so
       // recovery does not have to wait for the lease to lapse.
@@ -410,6 +411,48 @@ export class WorkerHost {
       () => {},
     );
     return this.untilStopped(restoring);
+  }
+
+  /**
+   * Tells the gateway this attempt restored what its claim named and can
+   * take input: a session resumed out of `paused` admits none until then
+   * (94S-138). A resumed engine is waited on first — its transcript loaded,
+   * the engine initialized — so a restore that fails there fails the resume
+   * instead of reaching the first turn. The revision reported is the one the
+   * restore loaded (the claim's, for a plan resuming this container's disk);
+   * a plan that fell back to a fresh engine reports none, which the gateway
+   * refuses for a resuming session. A
+   * claim with nothing to restore has nothing to prove and sends no report,
+   * so a worker ahead of its API still serves new sessions. Inside the
+   * startup budget. False once stopped.
+   */
+  private async reportReady(
+    run: AgentRun,
+    plan: RuntimeResumePlan,
+    claim: BootstrapClaimResponse,
+  ): Promise<boolean> {
+    if (claim.restore === null) return true;
+    if (plan.mode === "resume") {
+      const loaded = await this.untilStopped(run.ready().then(() => true));
+      if (loaded === undefined || this.stopping !== undefined) return false;
+    }
+    const restored =
+      plan.mode === "resume"
+        ? (plan.restoredRevision ?? claim.restore.revision)
+        : null;
+    const answer = await this.untilStopped(
+      this.withRetry(() =>
+        this.options.gateway.ready({
+          ...this.scope,
+          restored_revision: restored,
+        }),
+      ),
+    );
+    if (answer === undefined || this.stopping !== undefined) return false;
+    if (answer.activated) {
+      this.logger.info("worker.resume.ready", { restore_revision: restored });
+    }
+    return true;
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -561,8 +604,13 @@ export class WorkerHost {
       }
       // Between turns, the one safe boundary a pause waits for.
       if (this.pauseControl !== undefined) {
-        await this.commitPause(this.pauseControl);
-        return;
+        if ((await this.commitPause(this.pauseControl)) !== "withdrawn") {
+          return;
+        }
+        // The pause was cancelled: the same engine carries on, and the time
+        // spent held is not idleness.
+        lastInputAt = this.now().getTime();
+        continue;
       }
       // Not raced with a drain: an input the gateway hands over is this
       // attempt's to finish, and one dropped here stays open until the
@@ -614,17 +662,22 @@ export class WorkerHost {
    * The turn is finished and finalized with its checkpoint; asking the
    * coordinator to commit the pause is the release itself. Everything the
    * attempt owes goes out first, since nothing it writes lands afterwards.
-   * A refusal — no safe checkpoint yet, or the pause is no longer open —
-   * keeps the lease and the engine: the session stays pausing and shows
-   * why, and only a later stop (terminate fences it, SIGTERM drains it)
-   * ends this attempt.
+   * A refusal for want of a safe checkpoint keeps the lease and the engine:
+   * the session stays pausing and shows why, and the release is asked again
+   * every heartbeat interval until it commits or something else stops this
+   * attempt (terminate fences it, SIGTERM drains it). Once the pause is no
+   * longer the open one — a resume cancelled it (94S-138), or a newer pause
+   * replaced it — the answer is REQUEST_STALE and the attempt goes back to
+   * its input loop as if it had never been asked.
    */
-  private async commitPause(controlId: string): Promise<void> {
+  private async commitPause(
+    controlId: string,
+  ): Promise<"committed" | "withdrawn" | "ended"> {
     const flushed = await settledWithin(
       this.publisher?.idle() ?? Promise.resolve(),
       this.options.timeouts.requestTimeoutMs,
     );
-    if (!flushed || this.ownerLost) return;
+    if (!flushed || this.ownerLost) return "ended";
     await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
     // A mirror error latched while flushing is already draining; the
     // shutdown releases only once the gateway has recorded it, which a pause
@@ -632,39 +685,55 @@ export class WorkerHost {
     // may go unrecorded, and costs nothing: the turn's checkpoint pinned only
     // writes that had already settled, so the failed batch came after it,
     // and a resume starts from that checkpoint rather than this engine.
-    if (this.mirrorError !== undefined) return;
-    try {
-      const response = await this.withRetry(() =>
-        this.options.gateway.release({
-          ...this.scope,
-          turn_id: null,
-          reason: "pause",
-          pause_control_id: controlId,
-        }),
-      );
-      this.released = response.released;
-      if (!response.released) {
-        // Only a superseded epoch answers so; the heartbeat says the same.
-        this.lose("The pause release found the binding already superseded");
-        return;
+    if (this.mirrorError !== undefined) return "ended";
+    let held = false;
+    for (;;) {
+      try {
+        const response = await this.withRetry(() =>
+          this.options.gateway.release({
+            ...this.scope,
+            turn_id: null,
+            reason: "pause",
+            pause_control_id: controlId,
+          }),
+        );
+        this.released = response.released;
+        if (!response.released) {
+          // Only a superseded epoch answers so; the heartbeat says the same.
+          this.lose("The pause release found the binding already superseded");
+          return "ended";
+        }
+        this.logger.info("worker.pause.committed", { control_id: controlId });
+        this.stop({
+          kind: "paused",
+          reason: "Paused; the execution is released",
+        });
+        return "committed";
+      } catch (error) {
+        if (this.ownerLost) return "ended";
+        const code =
+          error instanceof WorkerGatewayRequestError ? error.code : null;
+        if (code === "REQUEST_STALE") {
+          // A newer pause the poll has since delivered is kept.
+          if (this.pauseControl === controlId) this.pauseControl = undefined;
+          this.logger.info("worker.pause.withdrawn", {
+            control_id: controlId,
+          });
+          return "withdrawn";
+        }
+        if (code !== "CHECKPOINT_UNAVAILABLE") throw error;
+        if (!held) {
+          held = true;
+          this.logger.warn("worker.pause.blocked", {
+            control_id: controlId,
+            reason: describe(error),
+          });
+        }
+        await this.untilStopped(
+          this.sleep(this.options.timeouts.heartbeatIntervalMs),
+        );
+        if (this.stopping !== undefined) return "ended";
       }
-      this.logger.info("worker.pause.committed", { control_id: controlId });
-      this.stop({
-        kind: "paused",
-        reason: "Paused; the execution is released",
-      });
-    } catch (error) {
-      if (this.ownerLost) return;
-      const refused =
-        error instanceof WorkerGatewayRequestError &&
-        (error.code === "CHECKPOINT_UNAVAILABLE" ||
-          error.code === "REQUEST_STALE");
-      if (!refused) throw error;
-      this.logger.warn("worker.pause.blocked", {
-        control_id: controlId,
-        reason: describe(error),
-      });
-      await this.stopped;
     }
   }
 

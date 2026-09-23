@@ -113,6 +113,11 @@ export class ClaudeSdkRun implements AgentRun {
     this.input.finish();
   }
 
+  async ready(): Promise<void> {
+    await this.history.uuids();
+    await this.sdkQuery.initializationResult();
+  }
+
   async holdsInput(uuid: string): Promise<boolean> {
     if (this.ledger.wasSent(uuid)) return true;
     return (await this.history.uuids()).has(uuid);

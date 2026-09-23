@@ -1,6 +1,9 @@
+import { sessionEventPayloadSchema } from "@agent-platform/contracts";
+import { storedPendingReasonHoldsWork } from "@agent-platform/platform";
 import { and, eq, min, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  events,
   idempotencyKeys,
   receipts,
   sessions,
@@ -24,6 +27,12 @@ export function parseTurnSequence(turnId: string): number | null {
 }
 
 export const OPEN_TURN_STATUSES = ["running", "needs_input"];
+
+// What a worker may be launched for and claim: an active session, and a
+// resuming one, whose new worker restores the pause's checkpoint first.
+export const LAUNCHABLE_ADMISSION_STATES: Array<
+  (typeof sessions.admissionState.enumValues)[number]
+> = ["active", "resuming"];
 
 // Receipts written for the inputs a decision or a cancellation settles.
 export const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
@@ -164,4 +173,59 @@ export async function lockSessionForControl(
  */
 export function controlClock(callerNow: Date, startedAt: number): Date {
   return new Date(callerNow.getTime() + Math.max(0, Date.now() - startedAt));
+}
+
+/**
+ * Whether the checkpoint the session points at can be restored from. A
+ * blocking reason (94S-201: a dropped transcript mirror batch) means the
+ * pointer may have been taken by the run whose mirror is missing entries, so
+ * it is not trusted until a later run commits past it. An advisory one (the
+ * run was not quiescent) only says the newest turn went uncaptured; the
+ * pointer it left is still the one to resume from (94S-284) — distrusting
+ * it would wedge a stopped session, which no later commit ever reaches.
+ *
+ * Deliberately coarse: a pointer committed by an earlier, healthy run would
+ * be safe, but checkpoints do not record their attempt. If that case shows
+ * up in practice, key the check on the pointer's attempt against
+ * checkpoint_pending_attempt_id instead.
+ */
+export function hasRestorePoint<
+  T extends {
+    checkpointRevision: number | null;
+    checkpointPendingReason: string | null;
+  },
+>(session: T): session is T & { checkpointRevision: number } {
+  return (
+    session.checkpointRevision !== null &&
+    !storedPendingReasonHoldsWork(session.checkpointPendingReason)
+  );
+}
+
+// Every control decision leaves its audit record on the session's event
+// stream, where the operator and the SSE reader (94S-126) both find it.
+// Like every other writer to `events`, it holds the payload to the public
+// event contract before storing it: the reader parses each row with the
+// same schema, and a row it cannot parse is lost to every client (94S-283).
+export async function recordAudit(
+  tx: Database,
+  input: {
+    sessionId: string;
+    type: "system" | "status";
+    payload: Record<string, unknown>;
+    turnRowId: number | null;
+    now: Date;
+  },
+) {
+  const checked = sessionEventPayloadSchema.parse({
+    event: input.type,
+    data: input.payload,
+  });
+  await tx.insert(events).values({
+    sessionId: input.sessionId,
+    type: checked.event,
+    payload: checked.data,
+    turnId: input.turnRowId,
+    occurredAt: input.now,
+  });
+  await tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`);
 }

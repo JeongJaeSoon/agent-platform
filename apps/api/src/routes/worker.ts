@@ -19,6 +19,8 @@ import {
   releaseResponseSchema,
   restorePlanRequestSchema,
   restorePlanResponseSchema,
+  workerReadyRequestSchema,
+  workerReadyResponseSchema,
 } from "@agent-platform/contracts";
 import {
   type WorkerGateway,
@@ -128,6 +130,12 @@ export function registerWorkerRoutes(
     restorePlanRequestSchema,
     restorePlanResponseSchema,
     (principal, body) => gateway.restorePlan(principal, body),
+  );
+  call(
+    "/ready",
+    workerReadyRequestSchema,
+    workerReadyResponseSchema,
+    (principal, body) => gateway.ready(principal, body),
   );
   call(
     "/register-pending",

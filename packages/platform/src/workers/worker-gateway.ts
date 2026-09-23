@@ -25,6 +25,8 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  WorkerReadyRequest,
+  WorkerReadyResponse,
   WorkerScope,
 } from "@agent-platform/contracts";
 import { executionBackendSchema } from "@agent-platform/contracts";
@@ -943,6 +945,31 @@ export function createWorkerGateway(deps: {
           pointer: state.pointer,
         }),
       );
+      // A refusal is the end of a resume from `paused` that stands on this
+      // pointer; the session is handed to an operator in its own fenced
+      // transaction, rechecked there. Any other session is left alone.
+      const refusal =
+        result.status === "ready"
+          ? null
+          : result.status === "none"
+            ? "no committed checkpoint to restore"
+            : result.status === "unavailable"
+              ? result.reason
+              : `the checkpoint is incompatible with this worker: ${result.mismatches
+                  .map((m) => `${m.field} ${m.expected} != ${m.found}`)
+                  .join(", ")}`;
+      if (refusal !== null) {
+        const failed = await work.failResumeAtomic({
+          fence,
+          now: now(),
+          pointerRevision: state.pointer?.revision ?? null,
+          error: {
+            code: "CHECKPOINT_UNAVAILABLE",
+            message: `the resume could not restore its checkpoint: ${refusal}`,
+          },
+        });
+        if (failed.outcome !== "ok") rejected(failed);
+      }
       return restorePlanOnWire(result);
     },
 
@@ -978,6 +1005,27 @@ export function createWorkerGateway(deps: {
         }
       }
       return { released: result.released };
+    },
+
+    async ready(
+      principal: WorkerPrincipal,
+      request: WorkerReadyRequest,
+    ): Promise<WorkerReadyResponse> {
+      const fence = requireScope(principal, request);
+      const result = await work.readyAtomic({
+        fence,
+        now: now(),
+        restoredRevision: request.restored_revision,
+      });
+      if (result.outcome === "restore_mismatch") {
+        throw new WorkerGatewayError(
+          409,
+          "CHECKPOINT_UNAVAILABLE",
+          "The session was not resumed onto the checkpoint this worker restored; the resume failed",
+        );
+      }
+      if (result.outcome !== "ok") rejected(result);
+      return { activated: result.activated };
     },
 
     // Server side, for the backend/reconciler that observed the exit.
