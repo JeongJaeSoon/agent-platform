@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import {
-  DEFAULT_STATUS_FILE,
   healthStaleSecFromEnv,
   type PassLoopEnvironment,
+  type PassLoopRole,
   type PassStatus,
+  statusFileFromEnv,
 } from "./loop.ts";
 
 /**
@@ -12,7 +13,8 @@ import {
  * The first two catch a pass that hangs or fails right after a success; the
  * last catches a loop that stops finishing passes at all, however it stalls.
  * One failed pass is enough: Docker only calls the service unhealthy after
- * the healthcheck's retries, by which time the next pass has run.
+ * the healthcheck's retries, by which time the next pass has run. A skipped
+ * pass refreshes nothing, so a loop that only skips goes stale.
  */
 export function judgeHealth(
   status: PassStatus | null,
@@ -64,17 +66,10 @@ export async function readStatus(path: string): Promise<PassStatus | null> {
 
 export async function checkHealth(
   environment: PassLoopEnvironment,
+  role: PassLoopRole,
   now = new Date(),
 ): Promise<{ healthy: boolean; reason: string }> {
-  const staleMs = healthStaleSecFromEnv(environment) * 1000;
-  const status = await readStatus(
-    environment.RECONCILER_STATUS_FILE ?? DEFAULT_STATUS_FILE,
-  );
+  const staleMs = healthStaleSecFromEnv(environment, role) * 1000;
+  const status = await readStatus(statusFileFromEnv(environment, role));
   return judgeHealth(status, now, staleMs);
-}
-
-if (import.meta.main) {
-  const { healthy, reason } = await checkHealth(process.env);
-  (healthy ? console.log : console.error)(reason);
-  process.exitCode = healthy ? 0 : 1;
 }

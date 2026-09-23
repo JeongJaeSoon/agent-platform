@@ -5,11 +5,16 @@ import { join } from "node:path";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { checkHealth, judgeHealth, readStatus } from "./health.ts";
 import {
+  PASS_LOOP_ROLES,
+  PASS_SKIPPED_EXIT,
   type PassLoopConfig,
   type PassStatus,
   passLoopConfigFromEnv,
   runPassLoop,
 } from "./loop.ts";
+
+const RECONCILER = PASS_LOOP_ROLES.reconciler;
+const SCHEDULER = PASS_LOOP_ROLES.scheduler;
 
 const bun = (script: string) => [process.execPath, "-e", script];
 const HANGS = bun("await Bun.sleep(60_000)");
@@ -18,6 +23,7 @@ const IGNORES_SIGTERM = bun(
 );
 const SUCCEEDS = bun("process.exit(0)");
 const FAILS = bun("process.exit(3)");
+const SKIPS = bun(`process.exit(${PASS_SKIPPED_EXIT})`);
 
 describe("pass loop", () => {
   let dir: string;
@@ -26,7 +32,7 @@ describe("pass loop", () => {
   let logger: StructuredLogger;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "reconciler-loop-"));
+    dir = await mkdtemp(join(tmpdir(), "pass-loop-"));
     config = {
       intervalMs: 10,
       // Room for a loaded machine to start bun; the hang tests cut it.
@@ -110,6 +116,7 @@ describe("pass loop", () => {
           passes += 1;
           if (passes === 3) controller.abort();
         },
+        warn: (message, fields) => logger.warn(message, fields),
         error: (message, fields) => logger.error(message, fields),
       },
       signal: controller.signal,
@@ -148,6 +155,7 @@ describe("pass loop", () => {
           logger.info(message, fields);
           controller.abort();
         },
+        warn: (message, fields) => logger.warn(message, fields),
         error(message, fields) {
           logger.error(message, fields);
           run += 1;
@@ -257,7 +265,7 @@ describe("pass loop", () => {
       RECONCILER_STATUS_FILE: config.statusFile,
       RECONCILER_HEALTH_STALE_SEC: "5",
     };
-    expect((await checkHealth(environment)).healthy).toBe(false);
+    expect((await checkHealth(environment, RECONCILER)).healthy).toBe(false);
     const controller = new AbortController();
     await runPassLoop({
       name: "Test",
@@ -265,20 +273,76 @@ describe("pass loop", () => {
       config,
       logger: {
         info: () => controller.abort(),
+        warn: () => {},
         error: () => {},
       },
       signal: controller.signal,
     });
-    expect((await checkHealth(environment)).healthy).toBe(true);
+    expect((await checkHealth(environment, RECONCILER)).healthy).toBe(true);
     expect(
-      (await checkHealth(environment, new Date(Date.now() + 10_000))).healthy,
+      (
+        await checkHealth(
+          environment,
+          RECONCILER,
+          new Date(Date.now() + 10_000),
+        )
+      ).healthy,
     ).toBe(false);
+    // Another role's settings do not reach this file.
+    expect(
+      (
+        await checkHealth(
+          { SCHEDULER_STATUS_FILE: join(dir, "missing.json") },
+          SCHEDULER,
+        )
+      ).healthy,
+    ).toBe(false);
+  }, 30_000);
+
+  test("a skipped pass is neither a success nor a failure", async () => {
+    const controller = new AbortController();
+    let passes = 0;
+    const code = await runPassLoop({
+      name: "Test",
+      command: SKIPS,
+      config: { ...config, maxConsecutiveFailures: 1 },
+      logger: {
+        info: (message, fields) => logger.info(message, fields),
+        warn(message, fields) {
+          logger.warn(message, fields);
+          passes += 1;
+          if (passes === 3) controller.abort();
+        },
+        error: (message, fields) => logger.error(message, fields),
+      },
+      signal: controller.signal,
+    });
+    // Three skips and a failure limit of one: skips never count toward it.
+    expect(code).toBe(0);
+    const status = await readStatus(config.statusFile);
+    expect(status).toMatchObject({
+      passes: 3,
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+    });
+    expect(status?.lastSkippedAt).not.toBeNull();
+    expect(messages()).toEqual([
+      "Test pass skipped; another pass holds the lock",
+      "Test pass skipped; another pass holds the lock",
+      "Test pass skipped; another pass holds the lock",
+    ]);
+    // A loop that only ever skips has done nothing, and is not healthy.
+    expect(judgeHealth(status, new Date(), 60_000)).toEqual({
+      healthy: false,
+      reason: `no pass has succeeded since ${status?.loopStartedAt}`,
+    });
   }, 30_000);
 });
 
 describe("pass loop configuration", () => {
-  test("defaults", () => {
-    expect(passLoopConfigFromEnv({})).toEqual({
+  test("defaults: the reconciler keeps 94S-320's", () => {
+    expect(passLoopConfigFromEnv({}, RECONCILER)).toEqual({
       intervalMs: 10_000,
       passTimeoutMs: 60_000,
       killGraceMs: 10_000,
@@ -287,15 +351,44 @@ describe("pass loop configuration", () => {
     });
   });
 
+  test("defaults: the scheduler's", () => {
+    expect(passLoopConfigFromEnv({}, SCHEDULER)).toEqual({
+      intervalMs: 5_000,
+      passTimeoutMs: 120_000,
+      killGraceMs: 30_000,
+      maxConsecutiveFailures: 3,
+      statusFile: "/tmp/scheduler-status.json",
+    });
+  });
+
+  test("each role reads only its own prefix", () => {
+    const environment = {
+      RECONCILER_INTERVAL_SEC: "20",
+      SCHEDULER_INTERVAL_SEC: "7",
+      SCHEDULER_STATUS_FILE: "/run/scheduler.json",
+    };
+    expect(passLoopConfigFromEnv(environment, RECONCILER)).toMatchObject({
+      intervalMs: 20_000,
+      statusFile: "/tmp/reconciler-status.json",
+    });
+    expect(passLoopConfigFromEnv(environment, SCHEDULER)).toMatchObject({
+      intervalMs: 7_000,
+      statusFile: "/run/scheduler.json",
+    });
+  });
+
   test("reads every setting from the environment", () => {
     expect(
-      passLoopConfigFromEnv({
-        RECONCILER_INTERVAL_SEC: "30",
-        RECONCILER_PASS_TIMEOUT_SEC: "90",
-        RECONCILER_MAX_CONSECUTIVE_FAILURES: "5",
-        RECONCILER_HEALTH_STALE_SEC: "180",
-        RECONCILER_STATUS_FILE: "/run/status.json",
-      }),
+      passLoopConfigFromEnv(
+        {
+          RECONCILER_INTERVAL_SEC: "30",
+          RECONCILER_PASS_TIMEOUT_SEC: "90",
+          RECONCILER_MAX_CONSECUTIVE_FAILURES: "5",
+          RECONCILER_HEALTH_STALE_SEC: "180",
+          RECONCILER_STATUS_FILE: "/run/status.json",
+        },
+        RECONCILER,
+      ),
     ).toEqual({
       intervalMs: 30_000,
       passTimeoutMs: 90_000,
@@ -307,23 +400,28 @@ describe("pass loop configuration", () => {
 
   test("refuses values that are not positive integers", () => {
     for (const RECONCILER_INTERVAL_SEC of ["0", "-1", "1.5", "ten"]) {
-      expect(() => passLoopConfigFromEnv({ RECONCILER_INTERVAL_SEC })).toThrow(
-        "RECONCILER_INTERVAL_SEC must be a positive integer",
-      );
+      expect(() =>
+        passLoopConfigFromEnv({ RECONCILER_INTERVAL_SEC }, RECONCILER),
+      ).toThrow("RECONCILER_INTERVAL_SEC must be a positive integer");
     }
     expect(() =>
-      passLoopConfigFromEnv({ RECONCILER_PASS_TIMEOUT_SEC: "0" }),
+      passLoopConfigFromEnv({ RECONCILER_PASS_TIMEOUT_SEC: "0" }, RECONCILER),
     ).toThrow("RECONCILER_PASS_TIMEOUT_SEC must be a positive integer");
   });
 
   test("refuses a stale window that every healthy loop would fall outside", () => {
     expect(() =>
-      passLoopConfigFromEnv({
-        RECONCILER_INTERVAL_SEC: "30",
-        RECONCILER_HEALTH_STALE_SEC: "90",
-      }),
+      passLoopConfigFromEnv(
+        { RECONCILER_INTERVAL_SEC: "30", RECONCILER_HEALTH_STALE_SEC: "90" },
+        RECONCILER,
+      ),
     ).toThrow(
       "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC",
+    );
+    expect(() =>
+      passLoopConfigFromEnv({ SCHEDULER_HEALTH_STALE_SEC: "60" }, SCHEDULER),
+    ).toThrow(
+      "SCHEDULER_HEALTH_STALE_SEC must be greater than SCHEDULER_INTERVAL_SEC + SCHEDULER_PASS_TIMEOUT_SEC",
     );
   });
 });

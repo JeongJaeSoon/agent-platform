@@ -246,6 +246,7 @@ async function reconcileOnce(): Promise<string> {
     "run",
     "apps/control-host/src/main.ts",
     "reconciler",
+    "--once",
   ]);
   return `${stdout}${stderr}`;
 }

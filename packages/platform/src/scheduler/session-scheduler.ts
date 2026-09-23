@@ -90,6 +90,12 @@ export type SchedulerOptions = {
   slotLimit: number;
   /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
   stoppedWorkspaceTtlMs?: number;
+  /**
+   * Shutdown: the pass stops where it would stop on losing its lock, so
+   * nothing is reserved or launched after it and the next pass re-observes
+   * whatever was in flight.
+   */
+  stop?: AbortSignal;
   store: SchedulerStore;
 };
 
@@ -234,7 +240,12 @@ export async function runScheduler(
   }
   let summary: SchedulerRunSummary;
   try {
-    summary = await pass(options, lock.signal);
+    summary = await pass(
+      options,
+      options.stop === undefined
+        ? lock.signal
+        : AbortSignal.any([lock.signal, options.stop]),
+    );
   } finally {
     await lock.release();
   }

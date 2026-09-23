@@ -1,86 +1,136 @@
 import { rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { createLogger } from "@agent-platform/observability";
 
 /**
- * Runs the reconciler one pass per child process, forever (94S-320). The pass
- * itself (`main.ts`) keeps its one-shot contract; this loop is what turns it
- * into a service: a pass that hangs is killed and counted as a failure, a run
- * of failures ends the process so the restart policy engages, and every pass
- * leaves its outcome in a status file the healthcheck (`health.ts`) reads. A
- * child per pass rather than a call in-process, because only a process can be
- * killed whatever it is stuck in, and a fresh pool per pass is what `main.ts`
- * already promises. Passes never overlap: the next starts after the last one
- * has exited, killed or not.
- *
- * Nothing in `runPassLoop` is reconciler-specific: it takes the command and
- * a name for its log lines, and only the env parser below reads RECONCILER_*.
- * Moves into the control host's reconciler role with 94S-117, which is meant
- * to keep these settings and this status file as they are, and may run the
- * scheduler role under the same loop.
+ * Runs a role one pass per child process, forever (94S-320, 94S-117). The
+ * pass (`main.ts <role> --once`) keeps its one-shot contract; this loop is
+ * what turns it into a service: a pass that hangs is stopped and counted as a
+ * failure, a run of failures ends the process so the restart policy engages,
+ * and every pass leaves its outcome in a status file the healthcheck
+ * (`health.ts`) reads. A child per pass rather than a call in-process,
+ * because only a process can be killed whatever it is stuck in, and a fresh
+ * pool per pass is what each pass already promises. Passes never overlap:
+ * the next starts after the last one has exited, killed or not.
  */
 
 export type PassLoopConfig = {
   intervalMs: number;
   passTimeoutMs: number;
-  // SIGTERM first so a pass can end its transaction; SIGKILL after this.
+  // SIGTERM asks a pass to stop at its next safe point; SIGKILL after this.
   killGraceMs: number;
   maxConsecutiveFailures: number;
   statusFile: string;
 };
 
-export type PassLoopEnvironment = {
-  RECONCILER_INTERVAL_SEC?: string | undefined;
-  RECONCILER_PASS_TIMEOUT_SEC?: string | undefined;
-  RECONCILER_MAX_CONSECUTIVE_FAILURES?: string | undefined;
-  RECONCILER_HEALTH_STALE_SEC?: string | undefined;
-  RECONCILER_STATUS_FILE?: string | undefined;
-  // So the process environment passes as it is.
-  [name: string]: string | undefined;
+/** One role's defaults; its settings are read from `${prefix}_*`. */
+export type PassLoopRole = {
+  prefix: string;
+  intervalSec: number;
+  passTimeoutSec: number;
+  maxConsecutiveFailures: number;
+  healthStaleSec: number;
+  stopGraceSec: number;
+  statusFile: string;
 };
 
-export const DEFAULT_STATUS_FILE = "/tmp/reconciler-status.json";
+export const PASS_LOOP_ROLES = {
+  // 94S-320's settings and status file, kept as they were.
+  reconciler: {
+    prefix: "RECONCILER",
+    intervalSec: 10,
+    // Above the ~45s a frozen database takes to fail a pass on its own
+    // (JOB_POOL_TIMEOUTS); this is the watchdog for everything else.
+    passTimeoutSec: 60,
+    maxConsecutiveFailures: 3,
+    healthStaleSec: 90,
+    // Every write is a transaction re-judged under row locks, so a pass
+    // ended anywhere loses nothing; the grace only lets it roll back.
+    stopGraceSec: 10,
+    statusFile: "/tmp/reconciler-status.json",
+  },
+  scheduler: {
+    prefix: "SCHEDULER",
+    intervalSec: 5,
+    passTimeoutSec: 120,
+    maxConsecutiveFailures: 3,
+    healthStaleSec: 140,
+    // A stopped pass finishes the Docker call it is in (each bounded by the
+    // backend's own timeouts) and stops before the next reservation.
+    stopGraceSec: 30,
+    statusFile: "/tmp/scheduler-status.json",
+  },
+} as const satisfies Record<string, PassLoopRole>;
+
+export type PassLoopRoleName = keyof typeof PASS_LOOP_ROLES;
+
+/**
+ * A pass that found nothing it may do (another pass holds the scheduler's
+ * lock) exits with this: neither a success, which would keep a blocked loop
+ * looking healthy, nor a failure, which would restart a loop that is fine.
+ * EX_TEMPFAIL from sysexits.h.
+ */
+export const PASS_SKIPPED_EXIT = 75;
+
+export type PassLoopEnvironment = Readonly<Record<string, string | undefined>>;
 
 export function passLoopConfigFromEnv(
   environment: PassLoopEnvironment,
+  role: PassLoopRole,
 ): PassLoopConfig {
-  const intervalSec = positiveInteger(
-    environment.RECONCILER_INTERVAL_SEC ?? "10",
-    "RECONCILER_INTERVAL_SEC",
+  const intervalSec = setting(environment, role, "INTERVAL_SEC");
+  const passTimeoutSec = setting(environment, role, "PASS_TIMEOUT_SEC");
+  const maxConsecutiveFailures = setting(
+    environment,
+    role,
+    "MAX_CONSECUTIVE_FAILURES",
   );
-  // Above the ~45s a frozen database takes to fail a pass on its own
-  // (JOB_POOL_TIMEOUTS); this is the watchdog for everything else.
-  const passTimeoutSec = positiveInteger(
-    environment.RECONCILER_PASS_TIMEOUT_SEC ?? "60",
-    "RECONCILER_PASS_TIMEOUT_SEC",
-  );
-  const maxConsecutiveFailures = positiveInteger(
-    environment.RECONCILER_MAX_CONSECUTIVE_FAILURES ?? "3",
-    "RECONCILER_MAX_CONSECUTIVE_FAILURES",
-  );
-  const healthStaleSec = healthStaleSecFromEnv(environment);
+  const healthStaleSec = healthStaleSecFromEnv(environment, role);
   // Two successes can be a full pass apart plus the interval; a window no
   // longer than that reads a healthy loop as stale between them.
   if (healthStaleSec <= intervalSec + passTimeoutSec) {
+    const name = (suffix: string) => `${role.prefix}_${suffix}`;
     throw new Error(
-      "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC",
+      `${name("HEALTH_STALE_SEC")} must be greater than ${name("INTERVAL_SEC")} + ${name("PASS_TIMEOUT_SEC")}`,
     );
   }
   return {
     intervalMs: intervalSec * 1000,
     passTimeoutMs: passTimeoutSec * 1000,
-    killGraceMs: 10_000,
+    killGraceMs: role.stopGraceSec * 1000,
     maxConsecutiveFailures,
-    statusFile: environment.RECONCILER_STATUS_FILE ?? DEFAULT_STATUS_FILE,
+    statusFile: statusFileFromEnv(environment, role),
   };
 }
 
 export function healthStaleSecFromEnv(
   environment: PassLoopEnvironment,
+  role: PassLoopRole,
 ): number {
+  return setting(environment, role, "HEALTH_STALE_SEC");
+}
+
+export function statusFileFromEnv(
+  environment: PassLoopEnvironment,
+  role: PassLoopRole,
+): string {
+  return environment[`${role.prefix}_STATUS_FILE`] ?? role.statusFile;
+}
+
+const DEFAULTS = {
+  INTERVAL_SEC: "intervalSec",
+  PASS_TIMEOUT_SEC: "passTimeoutSec",
+  MAX_CONSECUTIVE_FAILURES: "maxConsecutiveFailures",
+  HEALTH_STALE_SEC: "healthStaleSec",
+} as const;
+
+function setting(
+  environment: PassLoopEnvironment,
+  role: PassLoopRole,
+  suffix: keyof typeof DEFAULTS,
+): number {
+  const name = `${role.prefix}_${suffix}`;
   return positiveInteger(
-    environment.RECONCILER_HEALTH_STALE_SEC ?? "90",
-    "RECONCILER_HEALTH_STALE_SEC",
+    environment[name] ?? String(role[DEFAULTS[suffix]]),
+    name,
   );
 }
 
@@ -91,6 +141,7 @@ export type PassStatus = {
   lastSuccessAt: string | null;
   lastFailureAt: string | null;
   lastFailureReason: string | null;
+  lastSkippedAt: string | null;
   lastPassDurationMs: number | null;
   consecutiveFailures: number;
   // Set while a pass runs: past it, the pass is stuck until the kill lands.
@@ -99,12 +150,20 @@ export type PassStatus = {
 
 export type PassLoopLogger = {
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
+  warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
   error(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
 
+type PassOutcome =
+  | { outcome: "succeeded" }
+  | { outcome: "skipped" }
+  | { outcome: "failed"; reason: string };
+
 /**
  * Resolves with the process exit code: 1 once `maxConsecutiveFailures`
- * passes in a row failed, 0 when `signal` stopped the loop.
+ * passes in a row failed, 0 when `signal` stopped the loop. On `signal` no
+ * new pass starts and the running one is asked to stop (SIGTERM), then
+ * killed once `killGraceMs` has passed.
  */
 export async function runPassLoop(input: {
   name: string;
@@ -122,6 +181,7 @@ export async function runPassLoop(input: {
     lastSuccessAt: null,
     lastFailureAt: null,
     lastFailureReason: null,
+    lastSkippedAt: null,
     lastPassDurationMs: null,
     consecutiveFailures: 0,
     passDeadlineAt: null,
@@ -133,25 +193,30 @@ export async function runPassLoop(input: {
     ).toISOString();
     await writeStatus(config.statusFile, status, logger);
     const started = performance.now();
-    const failure = await runPass(command, config, signal);
+    const result = await runPass(command, config, signal);
     const durationMs = Math.round(performance.now() - started);
     // A pass cut short by shutdown is neither a success nor a failure.
     if (signal?.aborted) break;
     status.passDeadlineAt = null;
     status.passes += 1;
     status.lastPassDurationMs = durationMs;
-    if (failure === null) {
+    if (result.outcome === "succeeded") {
       status.lastSuccessAt = now().toISOString();
       status.consecutiveFailures = 0;
       logger.info(`${name} pass completed`, { duration_ms: durationMs });
+    } else if (result.outcome === "skipped") {
+      status.lastSkippedAt = now().toISOString();
+      logger.warn(`${name} pass skipped; another pass holds the lock`, {
+        duration_ms: durationMs,
+      });
     } else {
       status.lastFailureAt = now().toISOString();
-      status.lastFailureReason = failure;
+      status.lastFailureReason = result.reason;
       status.consecutiveFailures += 1;
       logger.error(`${name} pass failed`, {
         consecutive_failures: status.consecutiveFailures,
         duration_ms: durationMs,
-        reason: failure,
+        reason: result.reason,
       });
     }
     await writeStatus(config.statusFile, status, logger);
@@ -166,12 +231,11 @@ export async function runPassLoop(input: {
   return 0;
 }
 
-/** null on success, otherwise why the pass failed. */
 async function runPass(
   command: readonly string[],
   config: PassLoopConfig,
   signal: AbortSignal | undefined,
-): Promise<string | null> {
+): Promise<PassOutcome> {
   const child = Bun.spawn([...command], {
     stdin: "ignore",
     stdout: "inherit",
@@ -191,12 +255,17 @@ async function runPass(
   try {
     const code = await child.exited;
     if (timedOut) {
-      return `pass did not finish within ${config.passTimeoutMs / 1000}s and was killed`;
+      return {
+        outcome: "failed",
+        reason: `pass did not finish within ${config.passTimeoutMs / 1000}s and was killed`,
+      };
     }
-    if (code === 0) return null;
-    return child.signalCode === null
-      ? `pass exited with code ${code}`
-      : `pass ended by ${child.signalCode}`;
+    if (child.signalCode !== null) {
+      return { outcome: "failed", reason: `pass ended by ${child.signalCode}` };
+    }
+    if (code === 0) return { outcome: "succeeded" };
+    if (code === PASS_SKIPPED_EXIT) return { outcome: "skipped" };
+    return { outcome: "failed", reason: `pass exited with code ${code}` };
   } finally {
     clearTimeout(deadline);
     clearTimeout(killTimer);
@@ -242,33 +311,4 @@ function positiveInteger(value: string, name: string): number {
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
-}
-
-if (import.meta.main) {
-  const config = passLoopConfigFromEnv(process.env);
-  const logger = createLogger(
-    process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
-  );
-  const shutdown = new AbortController();
-  for (const name of ["SIGTERM", "SIGINT"] as const) {
-    process.on(name, () => shutdown.abort());
-  }
-  logger.info("Reconciler loop started", {
-    interval_ms: config.intervalMs,
-    max_consecutive_failures: config.maxConsecutiveFailures,
-    pass_timeout_ms: config.passTimeoutMs,
-    status_file: config.statusFile,
-  });
-  process.exitCode = await runPassLoop({
-    name: "Reconciler",
-    command: [
-      process.execPath,
-      "run",
-      join(import.meta.dir, "..", "main.ts"),
-      "reconciler",
-    ],
-    config,
-    logger,
-    signal: shutdown.signal,
-  });
 }

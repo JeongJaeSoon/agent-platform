@@ -7,6 +7,7 @@ import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
 } from "../apps/control-host/src/api/shutdown.ts";
+import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -102,15 +103,44 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(services.scheduler?.image).toBe(services.api?.image);
   });
 
-  test("the scheduler loop surfaces persistent failure", () => {
-    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
-    expect(schedulerBlock).toContain("SCHEDULER_MAX_CONSECUTIVE_FAILURES");
-    expect(schedulerBlock).toMatch(/exit 1/);
-    // A hung pass must count as a failure; unhealthy alone never restarts.
-    expect(schedulerBlock).toContain("timeout -k 10");
-    expect(schedulerBlock).toContain("touch /tmp/scheduler-last-ok");
-    expect(schedulerBlock).toContain("find /tmp/scheduler-last-ok -newermt");
-  });
+  test.each(["scheduler", "reconciler"] as const)(
+    "the %s runs as its role's supervised pass loop",
+    (role) => {
+      const service = composeServices("infra/docker-compose.yml")[role];
+      const loop = PASS_LOOP_ROLES[role];
+      expect(service?.command).toEqual([
+        "bun",
+        "run",
+        "apps/control-host/src/main.ts",
+        role,
+      ]);
+      expect(service?.healthcheck?.test).toEqual([
+        "CMD",
+        "bun",
+        "run",
+        "apps/control-host/src/main.ts",
+        role,
+        "--health",
+      ]);
+      // Unhealthy alone never restarts a container; the loop exits instead.
+      expect(service?.restart).toBe("unless-stopped");
+      // Compose's defaults are the loop's own, so neither drifts alone.
+      for (const [suffix, value] of [
+        ["INTERVAL_SEC", loop.intervalSec],
+        ["PASS_TIMEOUT_SEC", loop.passTimeoutSec],
+        ["MAX_CONSECUTIVE_FAILURES", loop.maxConsecutiveFailures],
+        ["HEALTH_STALE_SEC", loop.healthStaleSec],
+      ] as const) {
+        const name = `${loop.prefix}_${suffix}`;
+        expect(service?.environment?.[name]).toBe(`$` + `{${name}:-${value}}`);
+      }
+      // Docker waits for the pass in flight to stop before killing the loop.
+      const graceSeconds = Number(
+        String(service?.stop_grace_period).match(/^(\d+)s$/)?.[1],
+      );
+      expect(graceSeconds).toBeGreaterThanOrEqual(loop.stopGraceSec + 5);
+    },
+  );
 
   test("env example names the variables the scheduler actually reads", () => {
     const example = read(EXAMPLE_ENV_PATH);
@@ -183,21 +213,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(api?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
     expect(reconciler?.build).toBeUndefined();
     expect(reconciler?.image).toBe(api?.image);
-    expect(reconcilerBlock).toContain(
-      'command: ["bun", "run", "apps/control-host/src/reconciler/loop.ts"]',
-    );
-    expect(reconcilerBlock).toContain("restart: unless-stopped");
-    expect(reconcilerBlock).toContain(
-      'test: ["CMD", "bun", "run", "apps/control-host/src/reconciler/health.ts"]',
-    );
-    for (const name of [
-      "RECONCILER_INTERVAL_SEC",
-      "RECONCILER_PASS_TIMEOUT_SEC",
-      "RECONCILER_MAX_CONSECUTIVE_FAILURES",
-      "RECONCILER_HEALTH_STALE_SEC",
-    ]) {
-      expect(reconcilerBlock).toContain(`${name}: $` + `{${name}:-`);
-    }
     // It refuses to start with HEARTBEAT_TTL_SEC set, which an env file
     // shared with the API would hand it; nor does it listen on anything.
     expect(reconcilerBlock).not.toContain("env_file");
@@ -264,7 +279,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 type ComposeService = {
   image?: string;
   build?: { dockerfile?: string };
+  command?: string[];
+  environment?: Record<string, string>;
+  healthcheck?: { test?: string[] };
   ports?: (string | { host_ip?: string })[];
+  restart?: string;
+  stop_grace_period?: string;
   volumes?: string[];
 };
 
