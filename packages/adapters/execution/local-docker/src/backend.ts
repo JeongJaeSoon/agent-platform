@@ -214,6 +214,11 @@ const GATEWAY_MODE_MIN_API = [1, 48] as const;
  * settings that shape the isolation. The version alone would miss a moved
  * network or a repointed proxy, neither of which needs a code change, and
  * both of which leave the old container on the old boundary.
+ *
+ * CPU, memory and pids limits stay out on purpose: they belong to the launch,
+ * pinned at reservation and checked through the launch-spec label, so a
+ * lowered limit takes effect from the next launch instead of retiring every
+ * running worker at once.
  */
 export function isolationStampFor(config: LocalDockerBackendConfig): string {
   const shape = JSON.stringify([
