@@ -35,6 +35,7 @@ import {
   bootstrapResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  WEB_SESSION_COOKIE_NAME,
 } from "./domain/index.ts";
 import {
   apiErrorResponseSchema,
@@ -501,7 +502,11 @@ export function buildOpenApiDocument() {
     components: {
       securitySchemes: {
         bearerApiKey: { type: "http", scheme: "bearer" },
-        cookieSession: { type: "apiKey", in: "cookie", name: "ap_session" },
+        cookieSession: {
+          type: "apiKey",
+          in: "cookie",
+          name: WEB_SESSION_COOKIE_NAME,
+        },
       },
       schemas,
     },

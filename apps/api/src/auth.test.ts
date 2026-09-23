@@ -395,6 +395,7 @@ describe("login, logout, me", () => {
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Lax");
     expect(cookie).toContain("Path=/");
+    expect(cookie).not.toContain("Domain=");
     const token = cookieOf(response).split("=")[1] ?? "";
     expect(h.identity.sessions[0]?.tokenHash).toBe(
       Buffer.from(hashWebSessionToken(token)).toString("hex"),
@@ -679,6 +680,18 @@ describe("principal middleware", () => {
         })
       ).status,
     ).toBe(401);
+
+    // A sibling subdomain can set `ap_session` with Domain and a longer Path,
+    // which browsers send first; it cannot set the `__Host-` name, so the
+    // planted cookie is simply not ours.
+    expect(WEB_SESSION_COOKIE_NAME).toStartWith("__Host-");
+    const shadowed = await h.app.request("/v1/whoami", {
+      headers: { Cookie: `ap_session=aps_planted; ${cookie}` },
+    });
+    expect(shadowed.status).toBe(200);
+    expect(await shadowed.json()).toMatchObject({
+      principal: { kind: "user", workspace_id: workspaceId },
+    });
   });
 
   test("routes outside the public allowlist stay 401 without credentials", async () => {

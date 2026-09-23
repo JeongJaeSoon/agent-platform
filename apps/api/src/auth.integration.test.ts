@@ -275,7 +275,9 @@ integration("auth API on PostgreSQL", () => {
 
   test("a session idle past the renew window slides in the DB and in the cookie", async () => {
     const fresh = cookieOf(await login());
-    const hash = hashWebSessionToken(fresh.slice(11));
+    const hash = hashWebSessionToken(
+      fresh.slice(`${WEB_SESSION_COOKIE_NAME}=`.length),
+    );
     await db
       .update(webSessions)
       .set({
@@ -306,7 +308,14 @@ integration("auth API on PostgreSQL", () => {
     await db
       .update(webSessions)
       .set({ expiresAt: sql`clock_timestamp() - interval '1 second'` })
-      .where(eq(webSessions.tokenHash, hashWebSessionToken(cookie.slice(11))));
+      .where(
+        eq(
+          webSessions.tokenHash,
+          hashWebSessionToken(
+            cookie.slice(`${WEB_SESSION_COOKIE_NAME}=`.length),
+          ),
+        ),
+      );
     const expired = await app.request("/v1/auth/me", {
       headers: { Cookie: cookie },
     });
@@ -321,7 +330,14 @@ integration("auth API on PostgreSQL", () => {
     const [row] = await db
       .select({ revokedAt: webSessions.revokedAt })
       .from(webSessions)
-      .where(eq(webSessions.tokenHash, hashWebSessionToken(fresh.slice(11))));
+      .where(
+        eq(
+          webSessions.tokenHash,
+          hashWebSessionToken(
+            fresh.slice(`${WEB_SESSION_COOKIE_NAME}=`.length),
+          ),
+        ),
+      );
     expect(row?.revokedAt).not.toBeNull();
     expect(
       (await app.request("/v1/auth/me", { headers: { Cookie: fresh } })).status,

@@ -14,7 +14,7 @@
       "cookieSession": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "ap_session"
+        "name": "__Host-ap_session"
       }
     },
     "schemas": {
