@@ -21,7 +21,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
@@ -32,6 +32,7 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  attempts,
   pendingRequests,
   queueMessages,
   receipts,
@@ -632,6 +633,31 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(await failure(register(worker, permission("ls")))).toBe(
       "STALE_EPOCH",
     );
+  });
+
+  test("a poll past the lease settles nothing and delivers nothing", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    const accepted = await answer(owner, sessionId, {
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    await db
+      .update(attempts)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(attempts.id, worker.scope.attempt_id));
+    expect(
+      await failure(
+        poll(worker, 0, [{ request_id: requestId, outcome: "answered" }]),
+      ),
+    ).toBe("LEASE_EXPIRED");
+    const [row] = await db
+      .select()
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    expect(row?.settledAt).toBeNull();
+    expect((await receiptOf(accepted.receipt_id))?.status).toBe("accepted");
   });
 
   test("a settlement that says the answer was dropped fails its receipt", async () => {

@@ -133,61 +133,27 @@ export function createPostgresWorkerPendingStore(
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
-        if (input.settled.length > 0) {
-          const at = await dbNow(tx);
-          if (!leaseHeld(fenced.attempt, at)) {
-            return { outcome: "lease_expired" };
-          }
-          const rows = await tx
-            .select()
-            .from(pendingRequests)
-            .where(
-              and(
-                eq(pendingRequests.sessionId, fence.sessionId),
-                eq(pendingRequests.attemptId, fence.attemptId),
-                inArray(
-                  pendingRequests.requestId,
-                  input.settled.map((item) => item.request_id),
-                ),
-              ),
-            )
-            .orderBy(asc(pendingRequests.requestId))
-            .for("update");
-          const byId = new Map(rows.map((row) => [row.requestId, row]));
-          for (const settlement of input.settled) {
-            const row = byId.get(settlement.request_id);
-            // Unknown or already settled: the first word stands, and a
-            // repeat of it is what a retried poll looks like.
-            if (!row || row.settledAt !== null) continue;
-            // Nothing was delivered, so there is nothing to have answered.
-            if (settlement.outcome === "answered" && row.answeredAt === null) {
-              continue;
-            }
-            await tx
-              .update(pendingRequests)
-              .set({
-                settledAt: at,
-                settledOutcome: settlement.outcome,
-                resolvedAt: row.resolvedAt ?? at,
-              })
-              .where(eq(pendingRequests.requestId, row.requestId));
-            row.settledAt = at;
-            if (row.answerReceiptId !== null) {
-              const effect = RECEIPT_BY_OUTCOME[settlement.outcome];
-              await tx
-                .update(receipts)
-                .set({ ...effect, updatedAt: at })
+        const locked =
+          input.settled.length === 0
+            ? []
+            : await tx
+                .select()
+                .from(pendingRequests)
                 .where(
                   and(
-                    eq(receipts.id, row.answerReceiptId),
-                    eq(receipts.status, "accepted"),
+                    eq(pendingRequests.sessionId, fence.sessionId),
+                    eq(pendingRequests.attemptId, fence.attemptId),
+                    inArray(
+                      pendingRequests.requestId,
+                      input.settled.map((item) => item.request_id),
+                    ),
                   ),
-                );
-            }
-          }
-        }
-        const rows = await tx
+                )
+                .orderBy(asc(pendingRequests.requestId))
+                .for("update");
+        const due = await tx
           .select({
+            requestId: pendingRequests.requestId,
             sequence: pendingRequests.answerSequence,
             answer: pendingRequests.answer,
             inputHash: pendingRequests.inputHash,
@@ -200,11 +166,49 @@ export function createPostgresWorkerPendingStore(
             ),
           )
           .orderBy(asc(pendingRequests.answerSequence));
-        // The reads above can wait on locks; an answer handed over after the
-        // lease ended would let the engine act for an owner that is gone.
-        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+        // Judged after every read that can wait on a lock and before the
+        // first write: returning lease_expired does not roll back, and an
+        // answer handed over after the lease ended would let the engine act
+        // for an owner that is gone.
+        const at = await dbNow(tx);
+        if (!leaseHeld(fenced.attempt, at)) {
           return { outcome: "lease_expired" };
         }
+        const byId = new Map(locked.map((row) => [row.requestId, row]));
+        const settledNow = new Set<string>();
+        for (const settlement of input.settled) {
+          const row = byId.get(settlement.request_id);
+          // Unknown or already settled: the first word stands, and a
+          // repeat of it is what a retried poll looks like.
+          if (!row || row.settledAt !== null) continue;
+          // Nothing was delivered, so there is nothing to have answered.
+          if (settlement.outcome === "answered" && row.answeredAt === null) {
+            continue;
+          }
+          await tx
+            .update(pendingRequests)
+            .set({
+              settledAt: at,
+              settledOutcome: settlement.outcome,
+              resolvedAt: row.resolvedAt ?? at,
+            })
+            .where(eq(pendingRequests.requestId, row.requestId));
+          row.settledAt = at;
+          settledNow.add(row.requestId);
+          if (row.answerReceiptId !== null) {
+            const effect = RECEIPT_BY_OUTCOME[settlement.outcome];
+            await tx
+              .update(receipts)
+              .set({ ...effect, updatedAt: at })
+              .where(
+                and(
+                  eq(receipts.id, row.answerReceiptId),
+                  eq(receipts.status, "accepted"),
+                ),
+              );
+          }
+        }
+        const rows = due.filter((row) => !settledNow.has(row.requestId));
         return {
           outcome: "ok",
           answers: rows.map((row) => ({

@@ -296,7 +296,15 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   ): Promise<PendingControlResponse> {
     this.calls.push("pendingControl");
     for (const item of request.settled ?? []) {
-      if (!this.settled.some((done) => done.request_id === item.request_id)) {
+      // Like the real gateway: a request with no row has nothing to settle,
+      // and the first word on one stands.
+      const known = this.registrations.some(
+        (entry) => entry.request_id === item.request_id,
+      );
+      if (
+        known &&
+        !this.settled.some((done) => done.request_id === item.request_id)
+      ) {
         this.settled.push(item);
       }
     }

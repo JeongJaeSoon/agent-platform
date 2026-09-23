@@ -270,9 +270,17 @@ export function createPostgresPendingRequests(
           .limit(1)
           .for("update");
         if (!pending) return { outcome: "not_found" };
-        const at = await dbNow(tx);
-
         if (pending.answeredAt !== null) return { outcome: "expired" };
+
+        const [last] = await tx
+          .select({ sequence: max(pendingRequests.answerSequence) })
+          .from(pendingRequests)
+          .where(eq(pendingRequests.sessionId, sessionId));
+        const sequence = (last?.sequence ?? 0) + 1;
+        // Read last before the writes: a lease or TTL judged on an earlier
+        // reading could lapse under the remaining reads and accept an
+        // answer nobody can take.
+        const at = await dbNow(tx);
         // The session row is locked, so nothing can move the epoch, the
         // lease or the turn while this reads them.
         const [asker] = await tx
@@ -299,11 +307,6 @@ export function createPostgresPendingRequests(
         );
         if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
 
-        const [last] = await tx
-          .select({ sequence: max(pendingRequests.answerSequence) })
-          .from(pendingRequests)
-          .where(eq(pendingRequests.sessionId, sessionId));
-        const sequence = (last?.sequence ?? 0) + 1;
         const receiptId = randomUUID();
         await tx.insert(receipts).values({
           id: receiptId,

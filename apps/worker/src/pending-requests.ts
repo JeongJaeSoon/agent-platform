@@ -70,6 +70,9 @@ export class PendingRequestRegistry {
   private readonly pending = new Map<string, Pending>();
   // Unsent settlements; a poll removes only what it carried, once it lands.
   private readonly settlements = new Map<string, Outcome>();
+  // Registrations still in flight, including ones whose callback has closed
+  // but whose row may or may not exist yet.
+  private readonly registering = new Set<Promise<void>>();
   private answersAfter = 0;
   private polling: Promise<void> | undefined;
 
@@ -119,7 +122,13 @@ export class PendingRequestRegistry {
       );
     request.signal.addEventListener("abort", onAbort, { once: true });
     if (request.signal.aborted) onAbort();
-    void this.register(requestId, request, questions, inputHash);
+    const registration = this.register(
+      requestId,
+      request,
+      questions,
+      inputHash,
+    ).finally(() => this.registering.delete(registration));
+    this.registering.add(registration);
     try {
       return await decision;
     } finally {
@@ -135,30 +144,33 @@ export class PendingRequestRegistry {
   }
 
   /**
-   * Gives the settlements still unsent one bounded chance to land, so a
-   * shutdown tells the gateway what happened to the answers it handed out
-   * instead of leaving their receipts unknown.
+   * Gives the registrations still in flight and the settlements still unsent
+   * one bounded chance to land, so a shutdown tells the gateway what happened
+   * to what it holds instead of leaving receipts unknown.
    */
   async flush(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    if (this.registering.size > 0) {
+      await within(Promise.all(this.registering), timeoutMs);
+    }
     if (this.settlements.size === 0) return;
     this.poll();
-    const polling = this.polling;
-    if (polling === undefined) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      polling,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, timeoutMs);
-      }),
-    ]);
-    clearTimeout(timer);
+    if (this.polling !== undefined) {
+      await within(this.polling, deadline - Date.now());
+    }
   }
 
-  /** Asks the gateway now rather than at the next interval. */
-  poll(): void {
+  /**
+   * Asks the gateway now rather than at the next interval. `force` asks once
+   * even with nothing held here: the gateway can hold an answer for a request
+   * whose registration outcome this worker never learned.
+   */
+  poll(force = false): void {
     if (this.polling !== undefined) return;
-    if (this.pending.size === 0 && this.settlements.size === 0) return;
-    this.polling = this.pollLoop().finally(() => {
+    if (!force && this.pending.size === 0 && this.settlements.size === 0) {
+      return;
+    }
+    this.polling = this.pollLoop(force).finally(() => {
       this.polling = undefined;
     });
   }
@@ -230,28 +242,34 @@ export class PendingRequestRegistry {
                 .safeParse((display as { questions?: unknown }).questions)
                 .data ?? questions,
           };
-    while (this.pending.has(requestId)) {
-      const scope = this.options.scope();
-      if (scope.turn_id === null) {
-        this.close(
-          requestId,
-          { behavior: "deny", message: "No turn is running to ask in" },
-          "cancelled",
-        );
-        return;
-      }
+    const turnId = this.options.scope().turn_id;
+    if (turnId === null) {
+      this.close(
+        requestId,
+        { behavior: "deny", message: "No turn is running to ask in" },
+        "cancelled",
+      );
+      return;
+    }
+    // Once a call has gone out, a closed callback does not end the loop: the
+    // row may exist without this worker knowing, answerable by anyone who
+    // lists it. Only an outcome the gateway states — registered, refused, or
+    // this worker gone — ends it.
+    let sent = false;
+    while (sent || this.pending.has(requestId)) {
+      sent = true;
       try {
         const response = await this.options.gateway.registerPending({
-          ...scope,
-          turn_id: scope.turn_id,
+          ...this.options.scope(),
+          turn_id: turnId,
           request_id: requestId,
           input_hash: inputHash,
           request: body,
         });
         const entry = this.pending.get(requestId);
         if (entry === undefined) {
-          // Closed while the registration was in flight, so the settlement
-          // may have gone out before the row existed; send it again.
+          // The settlement may have gone out before the row existed and been
+          // ignored; the gateway keeps whichever word reached it first.
           if (!this.settlements.has(requestId)) {
             this.settlements.set(requestId, "cancelled");
           }
@@ -276,6 +294,7 @@ export class PendingRequestRegistry {
           return;
         }
         if (!isRetryable(error)) {
+          // A refused call left no row, or found one already settled.
           this.close(
             requestId,
             {
@@ -284,6 +303,7 @@ export class PendingRequestRegistry {
             },
             "cancelled",
           );
+          this.settlements.delete(requestId);
           return;
         }
       }
@@ -291,10 +311,12 @@ export class PendingRequestRegistry {
     }
   }
 
-  private async pollLoop(): Promise<void> {
+  private async pollLoop(force: boolean): Promise<void> {
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    while (this.pending.size > 0 || this.settlements.size > 0) {
+    let once = force;
+    while (once || this.pending.size > 0 || this.settlements.size > 0) {
+      once = false;
       // The rest waits for the next poll, which comes at once while any is
       // left.
       let sent = false;
@@ -427,6 +449,17 @@ export class PendingRequestRegistry {
       "answered",
     );
   }
+}
+
+async function within(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, ms));
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 // Over the arguments the engine will act on, before any redaction: an

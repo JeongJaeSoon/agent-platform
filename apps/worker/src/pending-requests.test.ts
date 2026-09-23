@@ -506,6 +506,74 @@ describe("PendingRequestRegistry", () => {
     await other;
   });
 
+  test("replays a registration whose reply was lost after its callback closed, then settles it", async () => {
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.registerPending.bind(gateway);
+    let calls = 0;
+    let release: (() => void) | undefined;
+    gateway.registerPending = async (request) => {
+      calls += 1;
+      if (calls === 1) {
+        // The row commits only after the callback's settlement went out,
+        // and the reply never makes it back.
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await original(request);
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      }
+      return original(request);
+    };
+    const harness = registry({ gateway });
+    const controller = new AbortController();
+    const decision = harness.registry.request({
+      ...permission("req-lost"),
+      signal: controller.signal,
+    });
+    await waitFor(() => release !== undefined, "the held registration");
+    controller.abort();
+    expect((await decision).behavior).toBe("deny");
+    await waitFor(() => harness.registry.outstanding === 0, "the close");
+    expect(gateway.settled).toEqual([]);
+    release?.();
+    await harness.registry.flush(1_000);
+
+    expect(calls).toBe(2);
+    const requestId = gateway.registrations[0]?.request_id;
+    expect(gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
+    // It never became something to answer.
+    expect(harness.published).toHaveLength(0);
+  });
+
+  test("a forced poll picks up an answer for a request this worker no longer holds", async () => {
+    const harness = registry();
+    const decision = harness.registry.request(permission("req-orphan"));
+    const requestId = await harness.idFor("req-orphan");
+    harness.registry.cancelAll("gone");
+    await decision;
+    await harness.registry.flush(1_000);
+    // The gateway lost the settlement's effect; only its heartbeat says an
+    // answer is waiting.
+    harness.gateway.settled.length = 0;
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    harness.registry.poll();
+    expect(harness.gateway.settled).toEqual([]);
+    harness.registry.poll(true);
+    await waitFor(
+      () => harness.gateway.settled.length > 0,
+      "the orphan's settlement",
+    );
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
+  });
+
   test("keeps a settlement made while a poll carrying others is in flight", async () => {
     const seen: PendingControlRequest[] = [];
     let release: (() => void) | undefined;

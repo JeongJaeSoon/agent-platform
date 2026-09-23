@@ -220,7 +220,7 @@ export class WorkerHost {
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
       leaseExpiresAt: new Date(claim.lease_expires_at),
       onLost: (reason) => this.lose(reason),
-      onControlPending: () => this.pending?.poll(),
+      onControlPending: () => this.pending?.poll(true),
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
