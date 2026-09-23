@@ -107,6 +107,9 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "context_reset_checkpoint_revision",
     // 94S-278; arrives as false
     "input_announced",
+    // 94S-321
+    "execution_revoked_at",
+    "execution_revoked_reason",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],

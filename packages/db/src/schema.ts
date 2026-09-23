@@ -451,9 +451,21 @@ export const sessions = pgTable(
     // needs_input (94S-278). A record of what was published, not a state:
     // it flips only in the transaction that writes that status event.
     inputAnnounced: boolean("input_announced").notNull().default(false),
+    // An operator revoked this session's execution authority (94S-321).
+    // Independent of admission_state on purpose: every lifecycle path that
+    // would dispatch again (resume, start_fresh, a claim) refuses while it
+    // is set, and only the operator's restore command clears it.
+    executionRevokedAt: timestamp("execution_revoked_at", {
+      withTimezone: true,
+    }),
+    executionRevokedReason: text("execution_revoked_reason"),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+    check(
+      "sessions_execution_revoked_check",
+      sql`(${table.executionRevokedAt} IS NULL) = (${table.executionRevokedReason} IS NULL)`,
+    ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
       .where(sql`${table.podId} IS NOT NULL`),
@@ -623,10 +635,11 @@ export const receipts = pgTable(
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
+    // An execution revocation (94S-321) is swept the same way.
     index("receipts_open_terminate_idx")
       .on(table.createdAt)
       .where(
-        sql`${table.operation} = 'terminate' AND ${table.status} = 'accepted'`,
+        sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
       ),
   ],
 );

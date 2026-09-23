@@ -59,10 +59,12 @@ integration("auth API on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
     const keys = new DatabaseApiKeyStore(db);
-    apiKey = await issueApiKey(keys, {
-      ownerId: "key-owner",
-      scopes: [...SESSION_SCOPE_VALUES],
-    });
+    apiKey = (
+      await issueApiKey(keys, {
+        ownerId: "key-owner",
+        scopes: [...SESSION_SCOPE_VALUES],
+      })
+    ).plaintext;
     const identity = new DatabaseIdentityStore(db);
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {

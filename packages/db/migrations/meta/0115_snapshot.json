@@ -1,5 +1,5 @@
 {
-  "id": "7f5c5765-7d3a-4ed3-9ebd-2da0e69582a2",
+  "id": "c2f0c56b-0774-40af-9c12-3e0a9458e9aa",
   "prevId": "d8c98568-fc70-4b10-aa2c-40128786d3f6",
   "version": "7",
   "dialect": "postgresql",
@@ -297,12 +297,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "collected_at": {
-          "name": "collected_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -1790,7 +1784,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"receipts\".\"operation\" = 'terminate' AND \"receipts\".\"status\" = 'accepted'",
+          "where": "\"receipts\".\"operation\" IN ('terminate', 'revoke_execution') AND \"receipts\".\"status\" = 'accepted'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2041,6 +2035,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "execution_revoked_at": {
+          "name": "execution_revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_revoked_reason": {
+          "name": "execution_revoked_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2126,6 +2132,10 @@
         "sessions_cost_usd_nonneg": {
           "name": "sessions_cost_usd_nonneg",
           "value": "\"sessions\".\"cost_usd\" >= 0"
+        },
+        "sessions_execution_revoked_check": {
+          "name": "sessions_execution_revoked_check",
+          "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
         }
       },
       "isRLSEnabled": false

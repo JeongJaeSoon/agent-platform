@@ -69,6 +69,7 @@ import {
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
+  KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
@@ -601,6 +602,9 @@ function replayableBinding(
 ): boolean {
   return (
     LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
+    // An operator's revocation (94S-321) must not see a token rotated in
+    // after it, whatever state it left the session in.
+    session.executionRevokedAt === null &&
     session.podId === launch.executionId &&
     session.executionId === launch.executionId &&
     session.executionGeneration === launch.generation &&
@@ -916,6 +920,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               eq(unassignedSessions.partition, launch.partition),
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+              isNull(sessions.executionRevokedAt),
               runnableCondition(input.runnable),
               lt(sessions.costUsd, input.costLimitUsd),
               ...(launch.sessionId === null
@@ -954,7 +959,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (
           !locked ||
           locked.podId !== null ||
-          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState)
+          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
+          locked.executionRevokedAt !== null
         ) {
           return { outcome: "no_session" };
         }
@@ -2235,7 +2241,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             })
             .where(openPauseReceipt(session.id));
         }
-        // The terminate receipt succeeds only here, on the observed absence;
+        // The terminate receipt, and an execution revocation's (94S-321),
+        // succeeds only here, on the observed absence;
         // one that already went `unknown` past its deadline is upgraded. The
         // turn it names is the earliest still unknown, whether it became so
         // just now or in an earlier exit the session is still recovering from.
@@ -2252,7 +2259,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           })
           .where(
             and(
-              eq(receipts.operation, "terminate"),
+              inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
               inArray(receipts.status, ["accepted", "unknown"]),
               sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
             ),

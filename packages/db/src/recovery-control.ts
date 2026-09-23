@@ -471,6 +471,10 @@ async function startFresh(
     };
   }
   if (session.executionId !== null) return { outcome: "execution_unconfirmed" };
+  // start_fresh dispatches queued input like a resume does.
+  if (session.executionRevokedAt !== null) {
+    return { outcome: "execution_revoked" };
+  }
   const unknown = await earliestUnknownTurn(tx, session.id);
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
@@ -760,6 +764,11 @@ export function resumeAtomic(
         outcome: "revision_conflict",
         currentRevision: session.revision,
       };
+    }
+    // 94S-321: whatever state the revocation left, the owner cannot bring
+    // the execution back; only the operator's restore lifts it.
+    if (session.executionRevokedAt !== null) {
+      return { outcome: "execution_revoked" };
     }
     // stopping: the kill is not yet observed. recovery_required: a turn is
     // unknown. Both are RECOVERY_REQUIRED to the caller.

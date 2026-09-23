@@ -346,7 +346,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     }
     if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
-        409,
+        this.heartbeatFailure === "UNAUTHORIZED" ? 401 : 409,
         this.heartbeatFailure,
         `heartbeat failed with ${this.heartbeatFailure}`,
         false,

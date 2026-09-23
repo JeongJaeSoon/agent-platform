@@ -194,6 +194,26 @@ describe("Heartbeat", () => {
     expect(lost[0]).toContain("LEASE_EXPIRED");
   });
 
+  // 94S-321: an operator's execution revocation revokes the session token,
+  // so the next beat does not even authenticate. That is a stop, never a
+  // gateway outage to ride out until the lease lapses.
+  test("declares ownership lost when its token is revoked", async () => {
+    const { heartbeat: beat, lost } = heartbeat(async () => {
+      throw new WorkerGatewayRequestError(
+        401,
+        "UNAUTHORIZED",
+        "Worker token is missing, expired or revoked",
+        true,
+      );
+    });
+    beat.start();
+    await settle();
+    await beat.stop();
+
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("UNAUTHORIZED");
+  });
+
   test("declares ownership lost when the session's authorization moves on", async () => {
     const { heartbeat: beat, lost } = heartbeat(async () =>
       answer(30_000, scope.auth_revision + 1),

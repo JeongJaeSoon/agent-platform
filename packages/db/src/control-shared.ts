@@ -131,11 +131,14 @@ export async function transactionWithBindingRetry<T>(
  */
 export async function lockSessionForControl(
   tx: Database,
-  input: { sessionId: string; ownerId: string; attempt: number },
+  // No owner for an operator command, which acts on any session (94S-321).
+  input: { sessionId: string; ownerId?: string; attempt: number },
 ) {
   const owned = and(
     eq(sessions.id, input.sessionId),
-    eq(sessions.ownerId, input.ownerId),
+    input.ownerId === undefined
+      ? undefined
+      : eq(sessions.ownerId, input.ownerId),
   );
   const [peek] = await tx
     .select({ executionId: sessions.executionId })

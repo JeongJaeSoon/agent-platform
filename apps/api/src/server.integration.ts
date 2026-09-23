@@ -100,7 +100,10 @@ async function configDir(
   return dir;
 }
 
-async function issueKey(ownerId: string, scopes: string): Promise<string> {
+async function issueKey(
+  ownerId: string,
+  scopes: string,
+): Promise<{ plaintext: string; keyId: string }> {
   const keyProcess = Bun.spawn(
     ["bun", "run", "src/keys.ts", "create", ownerId, "--scopes", scopes],
     {
@@ -119,7 +122,39 @@ async function issueKey(ownerId: string, scopes: string): Promise<string> {
   expect(keyOutput.trim().split("\n")).toHaveLength(1);
   const plaintext = keyOutput.trim();
   expect(plaintext).toStartWith("csp_");
-  return plaintext;
+  const keyId = /^key_id (\S+)$/m.exec(keyError)?.[1];
+  expect(keyId, keyError).toBeDefined();
+  return { plaintext, keyId: keyId ?? "" };
+}
+
+async function grantsCli(
+  ...args: string[]
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return cli("src/grants.ts", args);
+}
+
+async function keysCli(
+  ...args: string[]
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return cli("src/keys.ts", args);
+}
+
+async function cli(
+  script: string,
+  args: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const child = Bun.spawn(["bun", "run", script, ...args], {
+    cwd: `${import.meta.dir}/..`,
+    env: { ...Bun.env, DATABASE_URL: databaseUrl },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { exitCode, stdout, stderr };
 }
 
 // Runs the server to exit and hands back what it said; for configurations
@@ -189,9 +224,15 @@ integration("API server on PostgreSQL", () => {
   test(
     "issues scoped keys that store a digest, and serves the catalog and scopes over HTTP",
     async () => {
-      const plaintext = await issueKey(ownerId, "sessions:read,sessions:write");
-      const readOnly = await issueKey(ownerId, "sessions:read");
-      const owner = await issueKey(
+      const { plaintext } = await issueKey(
+        ownerId,
+        "sessions:read,sessions:write",
+      );
+      const { plaintext: readOnly, keyId: readOnlyId } = await issueKey(
+        ownerId,
+        "sessions:read",
+      );
+      const { plaintext: owner } = await issueKey(
         ownerId,
         "sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover",
       );
@@ -338,6 +379,59 @@ integration("API server on PostgreSQL", () => {
         );
         expect(admitted.status).not.toBe(403);
         expect(admitted.status).toBeLessThan(500);
+
+        // 94S-321: the operator command revokes one key; the server has no
+        // key cache, so the very next request with it is 401 and the other
+        // keys of the same owner keep working.
+        const revoked = await keysCli("revoke", readOnlyId);
+        expect(revoked.exitCode, revoked.stderr).toBe(0);
+        expect(revoked.stdout).toStartWith(`revoked ${readOnlyId} `);
+        expect(
+          (await call(readOnly, "GET", `/sessions/${sessionId}`)).status,
+        ).toBe(401);
+        expect(
+          (await call(plaintext, "GET", `/sessions/${sessionId}`)).status,
+        ).toBe(200);
+        const again = await keysCli("revoke", readOnlyId);
+        expect(again.exitCode, again.stderr).toBe(0);
+        expect(again.stdout).toStartWith(`already_revoked ${readOnlyId} `);
+        const missing = await keysCli("revoke", crypto.randomUUID());
+        expect(missing.exitCode).toBe(1);
+        expect(missing.stderr).toContain("not found");
+
+        // The operator's execution revocation: the session stops, and its
+        // owner, whose key still works, cannot bring it back.
+        const grant = await grantsCli(
+          "revoke",
+          sessionId,
+          "--reason",
+          "integration",
+        );
+        expect(grant.exitCode, grant.stderr).toBe(0);
+        expect(grant.stdout).toStartWith(`revoked ${sessionId} `);
+        expect(grant.stdout).toContain("receipt_status=succeeded");
+        const stopped = (await (
+          await call(owner, "GET", `/sessions/${sessionId}`)
+        ).json()) as { admission_state: string; revision: number };
+        expect(stopped.admission_state).toBe("stopped");
+        const resumed = await call(
+          owner,
+          "POST",
+          `/sessions/${sessionId}/resume`,
+          { expected_revision: stopped.revision },
+        );
+        expect(resumed.status).toBe(403);
+        expect(await resumed.json()).toMatchObject({
+          error: { code: "FORBIDDEN" },
+        });
+        const restored = await grantsCli(
+          "restore",
+          sessionId,
+          "--reason",
+          "integration",
+        );
+        expect(restored.exitCode, restored.stderr).toBe(0);
+        expect(restored.stdout).toStartWith(`restored ${sessionId} `);
       } finally {
         server.kill("SIGTERM");
         exitCode = await server.exited;

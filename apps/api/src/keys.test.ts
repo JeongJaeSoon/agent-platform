@@ -9,7 +9,7 @@ import {
 describe("API key issuance", () => {
   test("persists only a SHA-256 digest and the scopes, returns plaintext once", async () => {
     const persisted: Parameters<ApiKeyWriter["create"]>[0][] = [];
-    const writer: ApiKeyWriter = {
+    const writer: Pick<ApiKeyWriter, "create"> = {
       async create(input) {
         persisted.push(input);
       },
@@ -21,7 +21,8 @@ describe("API key issuance", () => {
       () => plaintext,
     );
 
-    expect(issued).toBe(plaintext);
+    expect(issued.plaintext).toBe(plaintext);
+    expect(issued.keyId).toBe(persisted[0]?.id ?? "");
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toEqual({
       id: expect.any(String),
@@ -36,7 +37,7 @@ describe("API key issuance", () => {
 
   test("rejects an empty owner or an empty scope list before persistence", async () => {
     let writes = 0;
-    const writer: ApiKeyWriter = {
+    const writer: Pick<ApiKeyWriter, "create"> = {
       async create() {
         writes += 1;
       },
@@ -61,12 +62,17 @@ describe("keys CLI arguments", () => {
         "sessions:write, sessions:read,sessions:write",
       ]),
     ).toEqual({
+      command: "create",
       ownerId: "owner-a",
       scopes: ["sessions:read", "sessions:write"],
     });
     expect(
       parseKeysCommand(["create", "owner-a", "--scopes=sessions:recover"]),
-    ).toEqual({ ownerId: "owner-a", scopes: ["sessions:recover"] });
+    ).toEqual({
+      command: "create",
+      ownerId: "owner-a",
+      scopes: ["sessions:recover"],
+    });
   });
 
   test("--scopes is required: no silent all-scope key", () => {
@@ -94,6 +100,22 @@ describe("keys CLI arguments", () => {
         "sessions:read",
       ]),
     ).toThrow("Usage");
-    expect(() => parseKeysCommand(["revoke", "owner-a"])).toThrow("Usage");
+    expect(() => parseKeysCommand(["rotate", "owner-a"])).toThrow("Usage");
+  });
+
+  test("revoke <key_id> takes one UUID and no scopes", () => {
+    const keyId = "0B9F1C2E-6A4D-4E8B-9C3F-1D2E3F4A5B6C";
+    expect(parseKeysCommand(["revoke", keyId])).toEqual({
+      command: "revoke",
+      keyId: keyId.toLowerCase(),
+    });
+    expect(() => parseKeysCommand(["revoke", "owner-a"])).toThrow(
+      "key_id must be a UUID",
+    );
+    expect(() => parseKeysCommand(["revoke"])).toThrow("Usage");
+    expect(() =>
+      parseKeysCommand(["revoke", keyId, "--scopes", "sessions:read"]),
+    ).toThrow("Usage");
+    expect(() => parseKeysCommand(["revoke", keyId, "extra"])).toThrow("Usage");
   });
 });

@@ -40,6 +40,12 @@ import {
 import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 
 const TERMINATE = "terminate";
+export const REVOKE_EXECUTION = "revoke_execution";
+// Receipts that settle on the observed absence of the execution they asked
+// to kill, and go `unknown` when that is not observed in time. A session
+// cannot be bound again while either is open (terminate stops dispatch, a
+// revocation blocks it), so the session identifies the execution.
+export const KILL_RECEIPT_OPERATIONS = [TERMINATE, REVOKE_EXECUTION];
 
 export { earliestUnknownTurn } from "./control-shared.ts";
 
@@ -72,7 +78,7 @@ export async function expireOverdueTerminations(
   input: { now: Date; deadlineMs: number; dryRun?: boolean },
 ): Promise<number> {
   const overdueWhere = and(
-    eq(receipts.operation, TERMINATE),
+    inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
     eq(receipts.status, "accepted"),
     // The receipt was stamped by the database clock, so the deadline is
     // measured on it too; `now` only stamps the update.
@@ -95,15 +101,166 @@ export async function expireOverdueTerminations(
       },
       updatedAt: input.now,
     })
-    .where(
-      and(
-        eq(receipts.operation, TERMINATE),
-        eq(receipts.status, "accepted"),
-        lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
-      ),
-    )
+    .where(overdueWhere)
     .returning({ id: receipts.id });
   return overdue.length;
+}
+
+type SessionRow = typeof sessions.$inferSelect;
+
+/**
+ * What stopping a session's execution writes, apart from the session row:
+ * the terminate transaction (api.md § 승인·중단·강제 종료) and the operator's
+ * execution revocation (94S-321) make the same writes. Queued input is
+ * cancelled, open questions are closed, the bound generation's kill intent
+ * is recorded and a pause or resume still in flight is superseded. The
+ * caller holds the launch and session row locks (lockSessionForControl),
+ * moves the session's epoch in the same transaction and then hands
+ * `inputWait` to announceInputWaitEnded (94S-278), once the session row says
+ * where it now is; `by` names the command in the errors the superseded
+ * receipts carry.
+ */
+export async function stopExecution(
+  tx: Database,
+  session: SessionRow,
+  input: { now: Date; by: "terminate" | "execution revocation" },
+): Promise<{
+  pendingKill: boolean;
+  inputWait: { waitingBefore: boolean; at: Date };
+}> {
+  const { now, by } = input;
+  const sessionId = session.id;
+  // Queued input will never run: its turns end as cancelled, its queue
+  // rows go, and whoever submitted it learns so through the receipt.
+  const cancelled = await tx
+    .update(turns)
+    .set({
+      status: "cancelled",
+      endedAt: now,
+      terminalReason: "terminated",
+    })
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")))
+    .returning({ id: turns.id, sequence: turns.sequence });
+  if (cancelled.length > 0) {
+    await tx.delete(queueMessages).where(
+      inArray(
+        queueMessages.turnId,
+        cancelled.map((turn) => turn.id),
+      ),
+    );
+    await tx
+      .update(receipts)
+      .set({
+        status: "failed",
+        error: {
+          code: "SESSION_STOPPED",
+          message: `input cancelled by ${by} before it ran`,
+        },
+        // `result` stays the acceptance response (receiptSchema.result).
+        updatedAt: now,
+      })
+      .where(
+        and(
+          inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+          eq(receipts.status, "accepted"),
+          sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
+          inArray(
+            sql`${receipts.targetRef}->>'turn_id'`,
+            cancelled.map((turn) => String(turn.sequence)),
+          ),
+        ),
+      );
+  }
+  // Judged on the database clock, which is what the projection reads with;
+  // the caller's clock only stamps the rows.
+  const at = await dbNow(tx);
+  const waitingBefore = await inputWaitBefore(tx, session, at);
+  // A question nobody can answer any more: the worker that asked is being
+  // fenced out, so an answer would land on nothing.
+  await tx
+    .update(pendingRequests)
+    .set({ resolvedAt: now })
+    .where(
+      and(
+        eq(pendingRequests.sessionId, sessionId),
+        isNull(pendingRequests.resolvedAt),
+      ),
+    );
+  // The kill outbox. An executions row is one generation, so asking for this
+  // row is asking for exactly the generation the session is bound to. The
+  // scheduler carries it out and confirmExecutionGone settles the session
+  // and the receipt once the resource is absent.
+  const pendingKill = session.executionId !== null;
+  if (session.executionId !== null) {
+    const outbox = await tx
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, session.executionId))
+      .returning({ id: executions.id });
+    // A bound session without its executions row is a broken invariant,
+    // not evidence that nothing is running.
+    if (outbox.length !== 1) {
+      throw new Error(
+        `Session ${sessionId} points at execution ${session.executionId} which has no row`,
+      );
+    }
+    // 94S-220: a launch the scheduler meant to rebuild would otherwise be
+    // rebuilt after the kill, and confirmExecutionGone would refuse the exit
+    // as "the rebuild in progress". The intent is cancelled under the launch
+    // row lock the caller took; replacement_count is the scheduler's CAS and
+    // stays as it is.
+    await tx
+      .update(workerLaunches)
+      .set({ replacementReason: null })
+      .where(eq(workerLaunches.executionId, session.executionId));
+  }
+  // A pause still draining is overtaken: the kill ends the execution before
+  // any checkpoint the pause was waiting for. Likewise a resume still
+  // waiting on its worker's restore.
+  if (session.admissionState === "pausing") {
+    await tx
+      .update(receipts)
+      .set({
+        status: "failed",
+        error: {
+          code: "CONTROL_SUPERSEDED",
+          message: `superseded by ${by} before the pause completed`,
+        },
+        updatedAt: now,
+      })
+      .where(openPauseReceipt(sessionId));
+  }
+  if (session.admissionState === "resuming") {
+    await tx
+      .update(receipts)
+      .set({
+        status: "failed",
+        error: {
+          code: "CONTROL_SUPERSEDED",
+          message: `superseded by ${by} before the resume completed`,
+        },
+        updatedAt: now,
+      })
+      .where(openResumeReceipt(sessionId));
+  }
+  return { pendingKill, inputWait: { waitingBefore, at } };
+}
+
+/**
+ * Where a stopped execution leaves the session. The caller moves the epoch
+ * in the same update: from then every request the old worker makes is 409
+ * STALE_EPOCH, whether or not its container is still up. A session already
+ * waiting on an operator keeps `recovery_required`: the kill does not answer
+ * what its unknown turn did, so it must not clear that barrier.
+ */
+export function stoppedAdmission(
+  session: Pick<SessionRow, "admissionState">,
+  pendingKill: boolean,
+) {
+  if (session.admissionState === "recovery_required") return {};
+  return pendingKill
+    ? { admissionState: "stopping" as const }
+    : { admissionState: "stopped" as const, status: "stopped" as const };
 }
 
 export function createPostgresSessionControl(db: Database): SessionControl {
@@ -166,151 +323,23 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           return { outcome: "unsupported" };
         }
 
-        // Queued input will never run: its turns end as cancelled, its queue
-        // rows go, and whoever submitted it learns so through the receipt.
-        const cancelled = await tx
-          .update(turns)
-          .set({
-            status: "cancelled",
-            endedAt: now,
-            terminalReason: "terminated",
-          })
-          .where(
-            and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")),
-          )
-          .returning({ id: turns.id, sequence: turns.sequence });
-        if (cancelled.length > 0) {
-          await tx.delete(queueMessages).where(
-            inArray(
-              queueMessages.turnId,
-              cancelled.map((turn) => turn.id),
-            ),
-          );
-          await tx
-            .update(receipts)
-            .set({
-              status: "failed",
-              error: {
-                code: "SESSION_STOPPED",
-                message: "input cancelled by terminate before it ran",
-              },
-              // `result` stays the acceptance response (receiptSchema.result).
-              updatedAt: now,
-            })
-            .where(
-              and(
-                inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
-                eq(receipts.status, "accepted"),
-                sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
-                inArray(
-                  sql`${receipts.targetRef}->>'turn_id'`,
-                  cancelled.map((turn) => String(turn.sequence)),
-                ),
-              ),
-            );
-        }
-        // Judged on the database clock, which is what the projection reads
-        // with; the caller's clock above only stamps the rows.
-        const at = await dbNow(tx);
-        const waitingBefore = await inputWaitBefore(tx, session, at);
-        // A question nobody can answer any more: the worker that asked is
-        // being fenced out, so an answer would land on nothing.
-        await tx
-          .update(pendingRequests)
-          .set({ resolvedAt: now })
-          .where(
-            and(
-              eq(pendingRequests.sessionId, sessionId),
-              isNull(pendingRequests.resolvedAt),
-            ),
-          );
-        // The kill outbox. An executions row is one generation, so asking
-        // for this row is asking for exactly the generation the session is
-        // bound to. The scheduler carries it out and confirmExecutionGone
-        // settles the session and this receipt once the resource is absent.
-        const outbox =
-          session.executionId === null
-            ? []
-            : await tx
-                .update(executions)
-                .set({ desiredState: "terminated" })
-                .where(eq(executions.id, session.executionId))
-                .returning({ id: executions.id });
-        const pendingKill = session.executionId !== null;
-        if (session.executionId !== null) {
-          // 94S-220: a launch the scheduler meant to rebuild would otherwise
-          // be rebuilt after the kill, and confirmExecutionGone would refuse
-          // the exit as "the rebuild in progress". The intent is cancelled
-          // under the launch row lock taken above; replacement_count is the
-          // scheduler's CAS and stays as it is.
-          await tx
-            .update(workerLaunches)
-            .set({ replacementReason: null })
-            .where(eq(workerLaunches.executionId, session.executionId));
-        }
-        if (pendingKill && outbox.length !== 1) {
-          // A bound session without its executions row is a broken
-          // invariant, not evidence that nothing is running.
-          throw new Error(
-            `Session ${sessionId} points at execution ${session.executionId} which has no row`,
-          );
-        }
-        // A pause still draining is overtaken: the kill ends the execution
-        // before any checkpoint the pause was waiting for.
-        if (session.admissionState === "pausing") {
-          await tx
-            .update(receipts)
-            .set({
-              status: "failed",
-              error: {
-                code: "CONTROL_SUPERSEDED",
-                message: "superseded by terminate before the pause completed",
-              },
-              updatedAt: now,
-            })
-            .where(openPauseReceipt(sessionId));
-        }
-        // Likewise a resume still waiting on its worker's restore.
-        if (session.admissionState === "resuming") {
-          await tx
-            .update(receipts)
-            .set({
-              status: "failed",
-              error: {
-                code: "CONTROL_SUPERSEDED",
-                message: "superseded by terminate before the resume completed",
-              },
-              updatedAt: now,
-            })
-            .where(openResumeReceipt(sessionId));
-        }
-        // The epoch moves on in the same transaction: from here every
-        // request the old worker makes is 409 STALE_EPOCH, whether or not
-        // its container is still up. A session already waiting on an
-        // operator keeps `recovery_required`: the kill does not answer what
-        // its unknown turn did, so it must not clear that barrier.
-        const keepsRecovery = session.admissionState === "recovery_required";
+        const { pendingKill, inputWait } = await stopExecution(tx, session, {
+          now,
+          by: TERMINATE,
+        });
         await tx
           .update(sessions)
           .set({
             revision: sql`${sessions.revision} + 1`,
             leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
             updatedAt: now,
-            ...(keepsRecovery
-              ? {}
-              : pendingKill
-                ? { admissionState: "stopping" as const }
-                : {
-                    admissionState: "stopped" as const,
-                    status: "stopped" as const,
-                  }),
+            ...stoppedAdmission(session, pendingKill),
           })
           .where(eq(sessions.id, sessionId));
         await announceInputWaitEnded(tx, {
           sessionId,
-          waitingBefore,
+          ...inputWait,
           turnRowId: null,
-          at,
         });
 
         const receiptId = randomUUID();
