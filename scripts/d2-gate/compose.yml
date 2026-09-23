@@ -42,10 +42,8 @@ services:
   gate-chaos:
     image: oven/bun:1.3.10
     command: ["bun", "run", "/app/scripts/d2-gate/chaos.ts"]
-    # One name per upstream, as the product has (api, localstack): the
-    # egress proxy pipes whatever follows a forwarded request to the same
-    # upstream, and Bun reuses a proxied connection for another port of the
-    # same host, so one shared name sent object store calls to the gateway.
+    # One name per upstream, as the product has (api, localstack), so the
+    # egress proxy sees the same host:port pairs it would in production.
     networks:
       default:
         aliases: [gate-gateway, gate-s3]

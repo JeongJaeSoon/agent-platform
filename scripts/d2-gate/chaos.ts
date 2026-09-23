@@ -81,19 +81,6 @@ function s3Error(): Response {
   );
 }
 
-/**
- * The egress proxy forwards one request per connection and then pipes the
- * rest of the connection to the same upstream, trusting the upstream to
- * close it (`connection: close`). Bun.serve keeps it open, so a client that
- * reuses the connection for its next request — Bun does, even for another
- * host behind the same proxy — would reach whichever upstream answered
- * first. Closing here keeps each worker request on the upstream it named.
- */
-function closing(response: Response): Response {
-  response.headers.set("connection", "close");
-  return response;
-}
-
 async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = `${url.pathname}${url.search}`;
@@ -124,7 +111,7 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   log.push(entry);
   if (rule?.action === "fail") {
     entry.status = 500;
-    return closing(s3Error());
+    return s3Error();
   }
   const headers = new Headers(request.headers);
   for (const name of HOP_HEADERS) headers.delete(name);
@@ -140,9 +127,9 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   if (rule?.action === "lose_response") {
     await response.arrayBuffer();
     entry.status = 502;
-    return closing(
-      new Response("bad gateway (injected by the D2 gate)", { status: 502 }),
-    );
+    return new Response("bad gateway (injected by the D2 gate)", {
+      status: 502,
+    });
   }
   entry.status = response.status;
   // fetch has already decoded the body, so its length and coding no longer
@@ -151,9 +138,10 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("transfer-encoding");
-  return closing(
-    new Response(response.body, { headers: out, status: response.status }),
-  );
+  return new Response(response.body, {
+    headers: out,
+    status: response.status,
+  });
 }
 
 for (const upstream of Object.keys(UPSTREAMS) as Upstream[]) {
