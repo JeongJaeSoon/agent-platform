@@ -122,6 +122,11 @@ export const sessionDurabilitySchema = z.object({
   last_completed_turn_id: turnIdSchema.nullable(),
   last_checkpointed_turn_id: turnIdSchema.nullable(),
   checkpoint_pending_reason: z.string().min(1).nullable(),
+  // The earlier revision the session was last restored from because the
+  // checkpoint at checkpoint_revision was damaged (94S-204). While set, the
+  // session holds that revision's state and has lost what the newer ones
+  // recorded; the next committed checkpoint clears it.
+  checkpoint_fallback_revision: revisionSchema.nullable(),
 });
 
 export const sessionSummarySchema = z.object({

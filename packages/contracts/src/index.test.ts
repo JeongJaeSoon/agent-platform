@@ -148,6 +148,7 @@ describe("session contracts", () => {
         last_completed_turn_id: null,
         last_checkpointed_turn_id: null,
         checkpoint_pending_reason: null,
+        checkpoint_fallback_revision: null,
       },
       created_at: AT,
       updated_at: AT,

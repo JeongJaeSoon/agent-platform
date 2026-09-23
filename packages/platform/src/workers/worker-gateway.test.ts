@@ -6,6 +6,8 @@ import {
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
   NextInputInput,
+  RestoreBaseInput,
+  RestoreBaseResult,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
@@ -53,6 +55,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
     checkpointStateAtomic: unimplemented,
+    recordRestoreBaseAtomic: unimplemented,
     releaseAtomic: unimplemented,
     confirmExecutionGoneAtomic: unimplemented,
     countReservedSlots: unimplemented,
@@ -634,6 +637,8 @@ describe("WorkerGateway", () => {
 
   test("restorePlan puts the service's plan on the wire and passes refusals through", async () => {
     const seen: unknown[] = [];
+    const recorded: RestoreBaseInput[] = [];
+    let base: RestoreBaseResult = { outcome: "ok" };
     let answer: Awaited<ReturnType<CheckpointProtocol["getRestorePlan"]>> = {
       status: "none",
     };
@@ -641,6 +646,10 @@ describe("WorkerGateway", () => {
       work: work({
         async checkpointStateAtomic() {
           return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+        async recordRestoreBaseAtomic(input) {
+          recorded.push(input);
+          return base;
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -750,6 +759,32 @@ describe("WorkerGateway", () => {
         },
       },
     });
+    // Each ready plan is recorded before it is handed out: the plain one
+    // clears any earlier fallback, this one records its own.
+    expect(recorded.map((input) => input.fallback)).toEqual([
+      null,
+      {
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
+    ]);
+    for (const [result, expected] of [
+      [
+        { outcome: "pointer_moved", currentRevision: 2 },
+        { status: 409, code: "REVISION_CONFLICT" },
+      ],
+      [
+        { outcome: "base_changed", recordedRevision: 3 },
+        { status: 409, code: "CHECKPOINT_UNAVAILABLE" },
+      ],
+      [{ outcome: "stale_epoch" }, { status: 409, code: "STALE_EPOCH" }],
+    ] as const) {
+      base = result;
+      await expect(
+        instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+      ).rejects.toMatchObject(expected);
+    }
+    base = { outcome: "ok" };
 
     answer = {
       status: "incompatible",
@@ -766,6 +801,28 @@ describe("WorkerGateway", () => {
       mismatches: [
         { field: "sdkVersion", expected: "0.3.270", found: "0.3.1" },
       ],
+    });
+    answer = {
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        { field: "sdkVersion", expected: "0.3.270", found: "0.3.1" },
+      ],
+      fallback: {
+        pointerRevision: 1,
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toMatchObject({
+      status: "incompatible",
+      fallback: {
+        pointer_revision: 1,
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
     });
     answer = {
       status: "unavailable",

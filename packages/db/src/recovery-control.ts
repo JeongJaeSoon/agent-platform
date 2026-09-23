@@ -86,6 +86,22 @@ export function hasRestorePoint<
 }
 
 /**
+ * The checkpoint revision the session's state is actually based on: the
+ * pointer's, unless the last restore fell back to an earlier revision
+ * because the pointer's checkpoint was damaged (94S-204) and nothing has
+ * committed since. Coverage is judged on this one — the pointer's turn
+ * watermark describes work the running session no longer has.
+ */
+export function restoreBaseRevision(
+  session: Pick<
+    SessionRow,
+    "checkpointRevision" | "checkpointFallbackRevision"
+  >,
+): number | null {
+  return session.checkpointFallbackRevision ?? session.checkpointRevision;
+}
+
+/**
  * Where a recovery close applies: a session waiting on an operator
  * (recovery_required), one whose terminate is still waiting on the kill
  * (stopping), and a stopped one that cannot be resumed — no restore point,
@@ -112,9 +128,10 @@ async function closableByRecovery(
 /**
  * api.md § 최소 운영 복구: confirm_completed needs a consistent checkpoint up
  * to the input's watermark. The pointer is only ever moved by finalize, so
- * "consistent" means the committed checkpoint the session points at was
- * taken at or after the target turn. An older one would resume the session
- * without the work the operator is confirming.
+ * "consistent" means the committed checkpoint the session's state is based
+ * on — the pointer's, or the earlier one a fallback restored — was taken at
+ * or after the target turn. An older one would resume the session without
+ * the work the operator is confirming.
  */
 async function checkpointCovers(
   tx: Database,
@@ -129,7 +146,10 @@ async function checkpointCovers(
     .where(
       and(
         eq(checkpoints.sessionId, session.id),
-        eq(checkpoints.revision, session.checkpointRevision),
+        eq(
+          checkpoints.revision,
+          restoreBaseRevision(session) ?? session.checkpointRevision,
+        ),
       ),
     )
     .limit(1);

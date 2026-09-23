@@ -555,6 +555,41 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(abandoned.outcome).toBe("accepted");
   });
 
+  test("confirm_completed is judged on the revision a fallback restored, not on the damaged pointer (94S-204)", async () => {
+    const { session, row } = await unknownSession("fallback-cp", {
+      checkpointRevision: 5,
+      checkpointCoversTurn1: true,
+    });
+    // An earlier revision taken before turn 1, which the last restore fell
+    // back to because revision 5 was damaged.
+    await db.insert(checkpoints).values({
+      sessionId: session.session_id,
+      revision: 4,
+      manifestRef: `manifests/${session.session_id}/4`,
+      manifestSha256: "0".repeat(64),
+      turnId: null,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: 4 })
+      .where(eq(sessions.id, session.session_id));
+    const confirm = {
+      decision: "confirm_completed",
+      expected_revision: row.revision,
+      target_turn_id: "1",
+      evidence_ref: "s3://audit/turn-1",
+      reason: "work was done outside",
+    } as const;
+    expect(await decide(session, confirm)).toEqual({
+      outcome: "checkpoint_not_covering",
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: null })
+      .where(eq(sessions.id, session.session_id));
+    expect((await decide(session, confirm)).outcome).toBe("accepted");
+  });
+
   test("a durable checkpoint blocker leaves no restore point: confirm_completed refused, resume refused, close allowed", async () => {
     const { session, row, claimed } = await unknownSession("mirror-error", {
       checkpointRevision: 3,

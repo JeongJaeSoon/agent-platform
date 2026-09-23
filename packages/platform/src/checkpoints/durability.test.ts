@@ -63,6 +63,7 @@ describe("a run that was not quiescent", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: null,
+        checkpointFallbackRevision: null,
         checkpointRevision: 3,
         lastCheckpointedTurnId: "3",
         lastCompletedTurnId: "4",
@@ -112,6 +113,7 @@ describe("durability projection", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: new Date("2026-09-22T00:00:01.000Z"),
+        checkpointFallbackRevision: null,
         checkpointRevision: 4,
         lastCheckpointedTurnId: "7",
         lastCompletedTurnId: "9",
@@ -120,6 +122,7 @@ describe("durability projection", () => {
       }),
     ).toEqual({
       checkpoint_committed_at: "2026-09-22T00:00:01.000Z",
+      checkpoint_fallback_revision: null,
       checkpoint_pending_reason: "mirror_error",
       checkpoint_revision: 4,
       last_checkpointed_turn_id: "7",
@@ -132,6 +135,7 @@ describe("durability projection", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: null,
+        checkpointFallbackRevision: null,
         checkpointRevision: null,
         lastCheckpointedTurnId: null,
         lastCompletedTurnId: null,
@@ -140,6 +144,7 @@ describe("durability projection", () => {
       }),
     ).toEqual({
       checkpoint_committed_at: null,
+      checkpoint_fallback_revision: null,
       checkpoint_pending_reason: null,
       checkpoint_revision: null,
       last_checkpointed_turn_id: null,
@@ -148,9 +153,27 @@ describe("durability projection", () => {
     });
   });
 
+  test("a session restored from an earlier revision says which one (94S-204)", () => {
+    expect(
+      projectDurability({
+        checkpointCommittedAt: null,
+        checkpointFallbackRevision: 2,
+        checkpointRevision: 4,
+        lastCheckpointedTurnId: "9",
+        lastCompletedTurnId: "9",
+        lastTranscriptPersistedAt: null,
+        pendingReason: null,
+      }),
+    ).toMatchObject({
+      checkpoint_fallback_revision: 2,
+      checkpoint_revision: 4,
+    });
+  });
+
   test("a completed turn ahead of the checkpointed one is visible as such", () => {
     const durability = projectDurability({
       checkpointCommittedAt: new Date("2026-09-22T00:00:01.000Z"),
+      checkpointFallbackRevision: null,
       checkpointRevision: 1,
       lastCheckpointedTurnId: "3",
       lastCompletedTurnId: "5",

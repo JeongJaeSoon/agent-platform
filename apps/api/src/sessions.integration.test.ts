@@ -547,6 +547,7 @@ integration("sessions API on PostgreSQL", () => {
       getSessionResponseSchema.parse(await response.json()).durability,
     ).toEqual({
       checkpoint_committed_at: null,
+      checkpoint_fallback_revision: null,
       checkpoint_pending_reason: "mirror_error",
       checkpoint_revision: null,
       last_checkpointed_turn_id: null,

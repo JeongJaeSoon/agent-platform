@@ -31,7 +31,11 @@ import {
 } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { hasRestorePoint, recordAudit } from "./recovery-control.ts";
+import {
+  hasRestorePoint,
+  recordAudit,
+  restoreBaseRevision,
+} from "./recovery-control.ts";
 import {
   attempts,
   checkpoints,
@@ -69,7 +73,10 @@ export async function pauseBlocker(
   tx: Database,
   session: Pick<
     SessionRow,
-    "id" | "checkpointRevision" | "checkpointPendingReason"
+    | "id"
+    | "checkpointRevision"
+    | "checkpointFallbackRevision"
+    | "checkpointPendingReason"
   >,
 ): Promise<PauseBlockedReason | null> {
   // A dropped mirror batch outranks everything: no amount of waiting makes
@@ -119,6 +126,8 @@ export async function pauseBlocker(
   // worker yet) records no turn it was taken after, so it is not counted as
   // covering one; the inner join below leaves it out. Record a watermark on
   // checkpoints when a drain starts committing them.
+  // After a fallback restore it is the earlier revision the session runs
+  // on that has to cover the last turn (94S-204), not the damaged pointer.
   const [pointer] = await tx
     .select({ sequence: turns.sequence })
     .from(checkpoints)
@@ -126,7 +135,10 @@ export async function pauseBlocker(
     .where(
       and(
         eq(checkpoints.sessionId, session.id),
-        eq(checkpoints.revision, session.checkpointRevision),
+        eq(
+          checkpoints.revision,
+          restoreBaseRevision(session) ?? session.checkpointRevision,
+        ),
       ),
     )
     .limit(1);
@@ -174,7 +186,11 @@ export async function pauseAttention(
   db: Database,
   session: Pick<
     SessionRow,
-    "id" | "admissionState" | "checkpointRevision" | "checkpointPendingReason"
+    | "id"
+    | "admissionState"
+    | "checkpointRevision"
+    | "checkpointFallbackRevision"
+    | "checkpointPendingReason"
   >,
 ): Promise<SessionAttention | null> {
   if (session.admissionState !== "pausing") return null;

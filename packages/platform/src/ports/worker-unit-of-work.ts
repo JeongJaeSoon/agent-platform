@@ -197,6 +197,30 @@ export type CheckpointStateResult =
     }
   | FenceRejection;
 
+/**
+ * What a served restore plan was built on (94S-204). `fallback` is set when
+ * the plan restores an earlier revision because the pointer's checkpoint was
+ * damaged, and null when it restores the pointer itself.
+ */
+export type RestoreBaseInput = {
+  fence: WorkerFence;
+  now: Date;
+  /** The pointer revision the plan was judged against. */
+  pointerRevision: number;
+  fallback: {
+    revision: number;
+    skipped: readonly { reason: string; revision: number }[];
+  } | null;
+};
+export type RestoreBaseResult =
+  | { outcome: "ok" }
+  // The pointer is no longer the one the plan was judged against.
+  | { outcome: "pointer_moved"; currentRevision: number | null }
+  // This attempt was already handed a different earlier revision for the
+  // same pointer; it must not restore two.
+  | { outcome: "base_changed"; recordedRevision: number }
+  | FenceRejection;
+
 export type ReleaseInput = {
   fence: WorkerFence;
   now: Date;
@@ -279,6 +303,10 @@ export interface WorkerUnitOfWork {
   checkpointStateAtomic(
     input: CheckpointStateInput,
   ): Promise<CheckpointStateResult>;
+  // Records which revision a restore plan hands the attempt, before the
+  // plan is returned: a fallback is written to the session and announced on
+  // its event stream, and a plan on the pointer clears an earlier fallback.
+  recordRestoreBaseAtomic(input: RestoreBaseInput): Promise<RestoreBaseResult>;
   releaseAtomic(input: ReleaseInput): Promise<ReleaseResult>;
   // Called once the backend has observed the execution is gone; only then
   // does the session become claimable again and the launch slot return.

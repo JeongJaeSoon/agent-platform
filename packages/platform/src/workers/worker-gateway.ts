@@ -30,6 +30,7 @@ import type {
 import { executionBackendSchema } from "@agent-platform/contracts";
 import type {
   CheckpointRequestDecision,
+  RestoreFallback,
   RestorePlan,
   RestorePlanResult,
 } from "../checkpoints/checkpoint-service.ts";
@@ -292,16 +293,18 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
       object_keys: [...plan.objectKeys],
       ...(plan.fallback === undefined
         ? {}
-        : {
-            fallback: {
-              pointer_revision: plan.fallback.pointerRevision,
-              skipped: plan.fallback.skipped.map((skip) => ({
-                revision: skip.revision,
-                reason: skip.reason,
-              })),
-            },
-          }),
+        : { fallback: fallbackOnWire(plan.fallback) }),
     },
+  };
+}
+
+function fallbackOnWire(fallback: RestoreFallback) {
+  return {
+    pointer_revision: fallback.pointerRevision,
+    skipped: fallback.skipped.map((skip) => ({
+      revision: skip.revision,
+      reason: skip.reason,
+    })),
   };
 }
 
@@ -913,9 +916,47 @@ export function createWorkerGateway(deps: {
             status: "incompatible",
             code: result.code,
             mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
+            ...(result.fallback === undefined
+              ? {}
+              : {
+                  fallback: {
+                    ...fallbackOnWire(result.fallback),
+                    revision: result.fallback.revision,
+                  },
+                }),
           };
         default:
+          break;
+      }
+      // A ready plan exists only with a pointer: "none" answered above.
+      const pointerRevision = state.pointer?.revision ?? result.plan.revision;
+      const fallback = result.plan.fallback;
+      const recorded = await work.recordRestoreBaseAtomic({
+        fence,
+        now: now(),
+        pointerRevision,
+        fallback:
+          fallback === undefined
+            ? null
+            : { revision: result.plan.revision, skipped: fallback.skipped },
+      });
+      switch (recorded.outcome) {
+        case "ok":
           return planOnWire(result.plan);
+        case "pointer_moved":
+          throw new WorkerGatewayError(
+            409,
+            "REVISION_CONFLICT",
+            `The checkpoint pointer moved to ${recorded.currentRevision ?? "none"} while the plan was judged; ask for the plan again`,
+          );
+        case "base_changed":
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `This attempt was already handed revision ${recorded.recordedRevision} to restore in place of the damaged pointer; a new attempt must start over`,
+          );
+        default:
+          return rejected(recorded);
       }
     },
 

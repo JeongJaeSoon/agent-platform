@@ -626,6 +626,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         attention: await pauseAttention(db, row),
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
+          checkpointFallbackRevision: row.checkpointFallbackRevision,
           checkpointRevision: row.checkpointRevision,
           lastCheckpointedTurnId:
             checkpoint?.sequence == null ? null : String(checkpoint.sequence),
