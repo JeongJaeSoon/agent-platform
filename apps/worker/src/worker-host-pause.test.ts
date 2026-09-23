@@ -35,18 +35,22 @@ const timeouts: WorkerTimeouts = {
   startupTimeoutMs: 60_000,
 };
 
-// Every turn's capture commits, so finalize always carries a checkpoint.
-const committed: WorkerCheckpointPort = {
-  restorePlan: async () => ({ mode: "new" }),
-  capture: async (preparation) =>
-    preparation.status === "ready"
-      ? {
-          revision: 1,
-          manifest_ref: "checkpoints/1.json",
-          manifest_sha256: "a".repeat(64),
-        }
-      : null,
-};
+// Every turn's capture commits at the pointer's next revision, so finalize
+// always carries a checkpoint the fake gateway accepts.
+function committedOn(gateway: FakeWorkerGateway): WorkerCheckpointPort {
+  return {
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation) => {
+      if (preparation.status !== "ready") return null;
+      const revision = (gateway.checkpointRevision ?? -1) + 1;
+      return {
+        revision,
+        manifest_ref: `checkpoints/${revision}.json`,
+        manifest_sha256: "a".repeat(64),
+      };
+    },
+  };
+}
 
 const PAUSE: ControlIntent = {
   control_id: "0b6f7d1e-6a55-4c1e-9d59-2f7ad3a4c001",
@@ -99,7 +103,7 @@ function harness(
     }),
   };
   const host = new WorkerHost({
-    checkpoints: committed,
+    checkpoints: committedOn(gateway),
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
     logger,
@@ -164,7 +168,7 @@ describe("WorkerHost pause (94S-137)", () => {
     expect(runtime.inputs.map((input) => input.message)).toEqual([
       "first message",
     ]);
-    expect(gateway.finalized[0]?.checkpoint?.revision).toBe(1);
+    expect(gateway.finalized[0]?.checkpoint?.revision).toBe(0);
     expect(gateway.releases).toHaveLength(1);
     expect(gateway.releases[0]?.pause_control_id).toBe(PAUSE.control_id);
     // The order the pause is carried out in.

@@ -70,9 +70,11 @@ const timeouts: WorkerTimeouts = {
   heartbeatIntervalMs: 60_000,
   idleTimeoutMs: 300,
   maxTurnMs: 60_000,
+  nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 100,
   questionTimeoutMs: 10_000,
   requestTimeoutMs: 5_000,
+  startupTimeoutMs: 60_000,
 };
 
 let isolated: IsolatedWorkspace | undefined;
