@@ -202,10 +202,12 @@ export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
-// Floored: `at` carries the database's sub-millisecond part, and the worker
-// may only ever be told less than it has.
+// The worker may only ever be told less than it has. `at` came through a
+// Date, which drops the database's sub-millisecond part, so it may stand up
+// to 1ms before the instant actually read: counted from the next whole
+// millisecond instead.
 function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
-  return Math.max(0, Math.floor(leaseExpiresAt.getTime() - at.getTime()));
+  return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
