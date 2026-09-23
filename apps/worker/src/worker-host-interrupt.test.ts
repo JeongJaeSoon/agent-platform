@@ -251,11 +251,13 @@ describe("WorkerHost interrupt", () => {
     ]);
   });
 
+  // The delays below only need to outlast the interrupt's way to the engine;
+  // they are generous because a loaded runner stretches that way.
   test("an abort that follows a refused interrupt is a failure, not an interrupt", async () => {
     const { gateway, host, runtime } = harness(
       [
         { type: "await-input" },
-        { type: "delay", delayMs: 200 },
+        { type: "delay", delayMs: 1_000 },
         {
           type: "emit",
           message: errorResult(uuidForTurn(1), "aborted_streaming"),
@@ -300,7 +302,7 @@ describe("WorkerHost interrupt", () => {
       const { gateway, host, runtime } = harness(
         [
           { type: "await-input" },
-          { type: "delay", delayMs: 200 },
+          { type: "delay", delayMs: 1_000 },
           { type: "emit", message },
           { type: "await-input" },
         ],
