@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { discover } from "../.github/scripts/test-shard.ts";
+import { discover } from "../.github/scripts/test-files.ts";
 import { PARTS, partOf, pick } from "../.github/scripts/unit-part.ts";
 
 const repo = join(import.meta.dir, "..");
