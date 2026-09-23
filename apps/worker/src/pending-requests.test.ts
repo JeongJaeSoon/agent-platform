@@ -1,14 +1,26 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  PendingControlResponse,
-  PostSessionAnswerRequest,
-  SessionEvent,
-  WorkerScope,
+import { createHash } from "node:crypto";
+import {
+  canonicalJson,
+  PENDING_SETTLEMENTS_MAX,
+  type PendingControlRequest,
+  type PendingControlResponse,
+  type PostSessionAnswerRequest,
+  pendingControlRequestSchema,
+  type RegisterPendingRequest,
+  type RegisterPendingResponse,
+  type SessionEvent,
+  type WorkerScope,
 } from "@agent-platform/contracts";
 import type { PermissionRequest } from "@agent-platform/runtime-core";
 
+import { FakeWorkerGateway } from "./fake-gateway.ts";
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
-import { PendingRequestRegistry, QUESTION_TOOL } from "./pending-requests.ts";
+import {
+  PendingRequestRegistry,
+  type PendingRequestsOptions,
+  QUESTION_TOOL,
+} from "./pending-requests.ts";
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",
@@ -19,42 +31,60 @@ const scope: WorkerScope = {
   auth_revision: 0,
 };
 
-function registry(options: { timeoutMs?: number } = {}) {
-  const answers: Array<{ answer: PostSessionAnswerRequest; sequence: number }> =
-    [];
+async function waitFor(check: () => boolean, what: string) {
+  const deadline = Date.now() + 2_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(1);
+  }
+}
+
+function registry(
+  options: Partial<PendingRequestsOptions> & { timeoutMs?: number } = {},
+) {
+  const gateway = new FakeWorkerGateway();
   const published: SessionEvent[] = [];
-  const polls: number[] = [];
+  const lost: unknown[] = [];
   const instance = new PendingRequestRegistry({
-    gateway: {
-      async pendingControl(request): Promise<PendingControlResponse> {
-        polls.push(request.answers_after);
-        return {
-          control: null,
-          answers: answers.filter(
-            (entry) => entry.sequence > request.answers_after,
-          ),
-        };
-      },
-    },
+    gateway,
     publish: (event) => published.push(event),
     scope: () => scope,
-    timeoutMs: options.timeoutMs ?? 30_000,
+    timeoutMs: 30_000,
     pollIntervalMs: 1,
+    onOwnershipLost: (error) => lost.push(error),
+    ...options,
   });
+  // The id the worker minted for the callback the engine raised as this
+  // tool use, once its question event is out.
+  const idFor = async (sdkRequestId: string) => {
+    const toolUseId = `toolu_${sdkRequestId}`;
+    const find = () =>
+      published.find(
+        (event) =>
+          event.event === "question" && event.data.tool_use_id === toolUseId,
+      );
+    await waitFor(() => find() !== undefined, `the ${toolUseId} event`);
+    const event = find();
+    return event?.event === "question" ? event.data.request_id : "";
+  };
   return {
-    answers,
-    polls,
+    gateway,
+    lost,
     published,
     registry: instance,
-    answer(answer: PostSessionAnswerRequest) {
-      answers.push({ answer, sequence: answers.length + 1 });
+    idFor,
+    // Answers the callback the engine knows as `request_id`.
+    async answer(answer: PostSessionAnswerRequest) {
+      const requestId = await idFor(answer.request_id);
+      gateway.answer({ ...answer, request_id: requestId });
+      return requestId;
     },
   };
 }
 
-function permission(requestId: string): PermissionRequest {
+function permission(requestId: string, command = "ls"): PermissionRequest {
   return {
-    input: { command: "ls" },
+    input: { command },
     requestId,
     signal: new AbortController().signal,
     tool: "Bash",
@@ -85,35 +115,67 @@ function question(requestId: string): PermissionRequest {
 }
 
 describe("PendingRequestRegistry", () => {
-  test("registers a permission as a question event and allows it once answered", async () => {
+  test("registers before publishing, under an id of its own and the raw arguments' hash", async () => {
     const harness = registry();
-    const decision = harness.registry.request(permission("req-allow"));
-    await Bun.sleep(1);
+    const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    const request = permission("req-allow", `curl -H 'x-api-key: ${secret}'`);
+    const decision = harness.registry.request(request);
+    const requestId = await harness.idFor("req-allow");
 
-    expect(harness.published).toHaveLength(1);
+    expect(requestId).toMatch(/^req_[0-9a-f-]{36}$/);
+    const [registration] = harness.gateway.registered();
+    expect(registration?.request_id).toBe(requestId);
+    expect(registration?.turn_id).toBe("1");
+    expect(registration?.input_hash).toBe(
+      createHash("sha256")
+        .update(canonicalJson({ tool: "Bash", input: request.input }))
+        .digest("hex"),
+    );
+    // What clients see is the redacted copy; the hash is not.
+    expect(JSON.stringify(registration?.request)).not.toContain(secret);
+    expect(harness.gateway.calls.indexOf("registerPending")).toBeGreaterThan(
+      -1,
+    );
     const event = harness.published[0];
-    expect(event?.event).toBe("question");
     expect(event?.event === "question" ? event.data : null).toMatchObject({
-      request_id: "req-allow",
+      request_id: requestId,
       kind: "permission",
       tool: "Bash",
       tool_use_id: "toolu_req-allow",
     });
     expect(harness.registry.outstanding).toBe(1);
 
-    harness.answer({
+    await harness.answer({
       request_id: "req-allow",
       kind: "permission",
       decision: "allow",
     });
     expect(await decision).toEqual({ behavior: "allow" });
     expect(harness.registry.outstanding).toBe(0);
+    await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "answered" },
+    ]);
+  });
+
+  test("mints a new id for every callback, even when the engine repeats its own", async () => {
+    const harness = registry();
+    const first = harness.registry.request(permission("req-same"));
+    const firstId = await harness.idFor("req-same");
+    harness.registry.cancelAll("next");
+    await first;
+    harness.published.length = 0;
+    const second = harness.registry.request(permission("req-same"));
+    const secondId = await harness.idFor("req-same");
+    expect(secondId).not.toBe(firstId);
+    harness.registry.cancelAll("done");
+    await second;
   });
 
   test("passes a denial's reason to the callback", async () => {
     const harness = registry();
     const decision = harness.registry.request(permission("req-deny"));
-    harness.answer({
+    await harness.answer({
       request_id: "req-deny",
       kind: "permission",
       decision: "deny",
@@ -129,14 +191,26 @@ describe("PendingRequestRegistry", () => {
   test("turns a question answer into the input shape the SDK expects", async () => {
     const harness = registry();
     const decision = harness.registry.request(question("req-question"));
-    await Bun.sleep(1);
+    await harness.idFor("req-question");
 
-    const event = harness.published[0];
-    expect(event?.event === "question" ? event.data.kind : null).toBe(
-      "question",
-    );
+    const [registration] = harness.gateway.registered();
+    expect(registration?.request).toEqual({
+      kind: "question",
+      questions: [
+        {
+          question_id: "q0",
+          prompt: "Which environment?",
+          options: [
+            { option_id: "q0o0", label: "staging" },
+            { option_id: "q0o1", label: "production" },
+          ],
+          multi_select: false,
+          allow_free_text: true,
+        },
+      ],
+    });
 
-    harness.answer({
+    await harness.answer({
       request_id: "req-question",
       kind: "question",
       answers: [{ question_id: "q0", selected_option_ids: ["q0o1"] }],
@@ -154,7 +228,7 @@ describe("PendingRequestRegistry", () => {
   test("carries free text through as the answer", async () => {
     const harness = registry();
     const decision = harness.registry.request(question("req-free"));
-    harness.answer({
+    await harness.answer({
       request_id: "req-free",
       kind: "question",
       answers: [
@@ -203,7 +277,7 @@ describe("PendingRequestRegistry", () => {
   ] as const)("denies an answer that %s", async (_label, answers, message) => {
     const harness = registry();
     const decision = harness.registry.request(question("req-bad"));
-    harness.answer({
+    const requestId = await harness.answer({
       request_id: "req-bad",
       kind: "question",
       answers: answers.map((answer) => ({
@@ -217,43 +291,107 @@ describe("PendingRequestRegistry", () => {
     expect(settled.behavior === "deny" ? settled.message : "").toContain(
       message,
     );
+    // Dropped, not delivered: the receipt must not read as succeeded.
+    await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
   });
 
-  test("denies at once while the gateway has no route to answer through", async () => {
-    let polls = 0;
-    const instance = new PendingRequestRegistry({
-      gateway: {
-        async pendingControl() {
-          polls += 1;
-          throw new WorkerGatewayRequestError(404, null, "no route", false);
-        },
-      },
-      publish: () => {},
-      scope: () => scope,
-      timeoutMs: 30_000,
-      pollIntervalMs: 1,
+  test("refuses an answer given for other arguments than the callback's", async () => {
+    const harness = registry();
+    const decision = harness.registry.request(permission("req-swapped"));
+    const requestId = await harness.idFor("req-swapped");
+    const [registration] = harness.gateway.registered();
+    // A registration under the same id with different arguments, as a
+    // collision would produce.
+    harness.gateway.registrations.unshift({
+      ...(registration as RegisterPendingRequest),
+      input_hash: "f".repeat(64),
+    });
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
     });
 
-    const first = await instance.request(permission("req-first"));
-    const second = await instance.request(permission("req-second"));
-
-    expect(first).toEqual({
+    expect(await decision).toEqual({
       behavior: "deny",
-      message: expect.stringContaining("94S-127"),
+      message: "The answer was given for different tool arguments",
     });
-    expect(second.behavior).toBe("deny");
-    // Learned once: the second request does not ask again.
-    expect(polls).toBe(1);
+  });
+
+  test("denies what the gateway will not take, and retries what it merely could not", async () => {
+    let attempts = 0;
+    const flaky: PendingRequestsOptions["gateway"] = {
+      async registerPending(): Promise<RegisterPendingResponse> {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+        }
+        throw new WorkerGatewayRequestError(
+          404,
+          "NOT_FOUND",
+          "This gateway does not serve pending requests",
+          false,
+        );
+      },
+      async pendingControl(): Promise<PendingControlResponse> {
+        return { control: null, answers: [] };
+      },
+    };
+    const harness = registry({ gateway: flaky });
+
+    const decision = await harness.registry.request(permission("req-refused"));
+
+    expect(attempts).toBe(2);
+    expect(decision.behavior).toBe("deny");
+    expect(decision.behavior === "deny" ? decision.message : "").toContain(
+      "does not serve pending requests",
+    );
+    // Nobody was told about a request nobody could answer.
+    expect(harness.published).toHaveLength(0);
+  });
+
+  test("gives up the session when registration learns it lost ownership", async () => {
+    const gateway: PendingRequestsOptions["gateway"] = {
+      async registerPending(): Promise<RegisterPendingResponse> {
+        throw new WorkerGatewayRequestError(
+          409,
+          "STALE_EPOCH",
+          "Another epoch owns this session",
+          false,
+        );
+      },
+      async pendingControl(): Promise<PendingControlResponse> {
+        throw new WorkerGatewayRequestError(
+          409,
+          "STALE_EPOCH",
+          "Another epoch owns this session",
+          false,
+        );
+      },
+    };
+    const harness = registry({ gateway });
+
+    const decision = await harness.registry.request(permission("req-owner"));
+
+    expect(decision).toEqual({
+      behavior: "deny",
+      message: "This worker no longer owns the session",
+    });
+    expect(harness.lost.length).toBeGreaterThan(0);
   });
 
   test("holds several requests independently and answers them out of order", async () => {
     const harness = registry();
     const first = harness.registry.request(permission("req-1"));
-    const second = harness.registry.request(permission("req-2"));
-    await Bun.sleep(1);
+    const second = harness.registry.request(permission("req-2", "pwd"));
+    await harness.idFor("req-1");
+    await harness.idFor("req-2");
     expect(harness.registry.outstanding).toBe(2);
 
-    harness.answer({
+    await harness.answer({
       request_id: "req-2",
       kind: "permission",
       decision: "allow",
@@ -261,7 +399,7 @@ describe("PendingRequestRegistry", () => {
     expect(await second).toEqual({ behavior: "allow" });
     expect(harness.registry.outstanding).toBe(1);
 
-    harness.answer({
+    await harness.answer({
       request_id: "req-1",
       kind: "permission",
       decision: "deny",
@@ -270,7 +408,7 @@ describe("PendingRequestRegistry", () => {
     expect(await first).toEqual({ behavior: "deny", message: "no" });
   });
 
-  test("denies a request nobody answered before it expired", async () => {
+  test("denies a request nobody answered before it expired, and says so", async () => {
     const harness = registry({ timeoutMs: 5 });
     const decision = await harness.registry.request(permission("req-late"));
 
@@ -278,12 +416,30 @@ describe("PendingRequestRegistry", () => {
     expect(decision.behavior === "deny" ? decision.message : "").toContain(
       "No answer arrived",
     );
+    await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+    expect(harness.gateway.settled[0]?.outcome).toBe("expired");
+  });
+
+  test("never waits longer than the gateway takes answers", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.registerPending = async (request) => ({
+      request_id: request.request_id,
+      expires_at: new Date(Date.now() + 5).toISOString(),
+      expires_in_ms: 5,
+    });
+    const harness = registry({ gateway, timeoutMs: 60_000 });
+    const started = Date.now();
+
+    const decision = await harness.registry.request(permission("req-short"));
+
+    expect(decision.behavior).toBe("deny");
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   test("refuses an answer of the wrong kind rather than applying it", async () => {
     const harness = registry();
     const decision = harness.registry.request(permission("req-mixed"));
-    harness.answer({
+    await harness.answer({
       request_id: "req-mixed",
       kind: "question",
       answers: [{ question_id: "q0", selected_option_ids: ["q0o0"] }],
@@ -295,16 +451,20 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
-  test("denies everything still waiting when the run stops", async () => {
+  test("denies everything still waiting when the run stops, and reports it", async () => {
     const harness = registry();
     const decision = harness.registry.request(permission("req-cancel"));
-    await Bun.sleep(1);
+    const requestId = await harness.idFor("req-cancel");
     harness.registry.cancelAll("Worker is shutting down");
 
     expect(await decision).toEqual({
       behavior: "deny",
       message: "Worker is shutting down",
     });
+    await harness.registry.flush(1_000);
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
   });
 
   test("stops waiting when the engine aborts the callback", async () => {
@@ -319,26 +479,222 @@ describe("PendingRequestRegistry", () => {
     expect((await decision).behavior).toBe("deny");
   });
 
+  test("reports an answer whose callback is already gone instead of dropping it", async () => {
+    const harness = registry();
+    const decision = harness.registry.request(permission("req-gone"));
+    const requestId = await harness.idFor("req-gone");
+    harness.registry.cancelAll("gone");
+    await decision;
+    await harness.registry.flush(1_000);
+    harness.gateway.settled.length = 0;
+    // An answer for it still reaches this worker (it was stored just before
+    // the settlement landed); a live request keeps the poll going.
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    const other = harness.registry.request(permission("req-other"));
+    await waitFor(
+      () => harness.gateway.settled.some((s) => s.request_id === requestId),
+      "the stray answer's settlement",
+    );
+    expect(
+      harness.gateway.settled.find((s) => s.request_id === requestId)?.outcome,
+    ).toBe("cancelled");
+    harness.registry.cancelAll("done");
+    await other;
+  });
+
+  test("replays a registration whose reply was lost after its callback closed, then settles it", async () => {
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.registerPending.bind(gateway);
+    let calls = 0;
+    let release: (() => void) | undefined;
+    gateway.registerPending = async (request) => {
+      calls += 1;
+      if (calls === 1) {
+        // The row commits only after the callback's settlement went out,
+        // and the reply never makes it back.
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await original(request);
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      }
+      return original(request);
+    };
+    const harness = registry({ gateway });
+    const controller = new AbortController();
+    const decision = harness.registry.request({
+      ...permission("req-lost"),
+      signal: controller.signal,
+    });
+    await waitFor(() => release !== undefined, "the held registration");
+    controller.abort();
+    expect((await decision).behavior).toBe("deny");
+    await waitFor(() => harness.registry.outstanding === 0, "the close");
+    expect(gateway.settled).toEqual([]);
+    release?.();
+    await harness.registry.flush(1_000);
+
+    expect(calls).toBe(2);
+    const requestId = gateway.registrations[0]?.request_id ?? "";
+    expect(gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
+    // It never became something to answer.
+    expect(harness.published).toHaveLength(0);
+  });
+
+  test("stops retrying a registration of unknown outcome once stopped", async () => {
+    let calls = 0;
+    const down: PendingRequestsOptions["gateway"] = {
+      async registerPending(): Promise<RegisterPendingResponse> {
+        calls += 1;
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      },
+      async pendingControl(): Promise<PendingControlResponse> {
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      },
+    };
+    const harness = registry({ gateway: down });
+    const decision = harness.registry.request(permission("req-down"));
+    await waitFor(() => calls > 0, "the first registration");
+    harness.registry.cancelAll("drain");
+    await decision;
+    // The callback is gone but the row may exist: the retries go on.
+    await waitFor(() => calls > 2, "the retries after the close");
+    harness.registry.stop();
+    await harness.registry.flush(50);
+    const settled = calls;
+    await Bun.sleep(50);
+    expect(calls).toBe(settled);
+    expect(
+      (await harness.registry.request(permission("req-late"))).behavior,
+    ).toBe("deny");
+  });
+
+  test("a forced poll picks up an answer for a request this worker no longer holds", async () => {
+    const harness = registry();
+    const decision = harness.registry.request(permission("req-orphan"));
+    const requestId = await harness.idFor("req-orphan");
+    harness.registry.cancelAll("gone");
+    await decision;
+    await harness.registry.flush(1_000);
+    // The gateway lost the settlement's effect; only its heartbeat says an
+    // answer is waiting.
+    harness.gateway.settled.length = 0;
+    harness.gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    harness.registry.poll();
+    expect(harness.gateway.settled).toEqual([]);
+    harness.registry.poll(true);
+    await waitFor(
+      () => harness.gateway.settled.length > 0,
+      "the orphan's settlement",
+    );
+    expect(harness.gateway.settled).toEqual([
+      { request_id: requestId, outcome: "cancelled" },
+    ]);
+  });
+
+  test("keeps a settlement made while a poll carrying others is in flight", async () => {
+    const seen: PendingControlRequest[] = [];
+    let release: (() => void) | undefined;
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.pendingControl.bind(gateway);
+    gateway.pendingControl = async (request) => {
+      seen.push(request);
+      if (seen.length === 1 && release === undefined) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return original(request);
+    };
+    const harness = registry({ gateway });
+    const first = harness.registry.request(permission("req-x"));
+    const second = harness.registry.request(permission("req-y", "pwd"));
+    const x = await harness.idFor("req-x");
+    const y = await harness.idFor("req-y");
+    await waitFor(() => release !== undefined, "the held poll");
+    harness.registry.cancelAll("stop");
+    await first;
+    await second;
+    release?.();
+    await harness.registry.flush(1_000);
+
+    expect(gateway.settled.map((s) => s.request_id).sort()).toEqual(
+      [x, y].sort(),
+    );
+  });
+
   test("never replays an answer it already consumed", async () => {
     const harness = registry();
     const first = harness.registry.request(permission("req-a"));
-    harness.answer({
+    await harness.answer({
       request_id: "req-a",
       kind: "permission",
       decision: "allow",
     });
     await first;
 
-    const second = harness.registry.request(permission("req-b"));
-    await Bun.sleep(5);
+    const polls: number[] = [];
+    const original = harness.gateway.pendingControl.bind(harness.gateway);
+    harness.gateway.pendingControl = async (request) => {
+      polls.push(request.answers_after);
+      return original(request);
+    };
+    const second = harness.registry.request(permission("req-b", "pwd"));
+    await harness.idFor("req-b");
     expect(harness.registry.outstanding).toBe(1);
-    harness.answer({
+    await harness.answer({
       request_id: "req-b",
       kind: "permission",
       decision: "allow",
     });
     expect(await second).toEqual({ behavior: "allow" });
     // The second poll cycle starts past the answer the first request consumed.
-    expect(harness.polls.some((after) => after >= 1)).toBe(true);
+    expect(polls.every((after) => after >= 1)).toBe(true);
+  });
+
+  test("sends a settlement backlog larger than one call carries, in batches", async () => {
+    const gateway = new FakeWorkerGateway();
+    const original = gateway.pendingControl.bind(gateway);
+    const sizes: number[] = [];
+    // The transport the real route has: a body over the cap is a 400.
+    gateway.pendingControl = async (request) => {
+      if (!pendingControlRequestSchema.safeParse(request).success) {
+        throw new WorkerGatewayRequestError(
+          400,
+          "BAD_REQUEST",
+          "invalid",
+          false,
+        );
+      }
+      sizes.push(request.settled?.length ?? 0);
+      return original(request);
+    };
+    const harness = registry({ gateway });
+    const count = PENDING_SETTLEMENTS_MAX + 1;
+    const decisions = Array.from({ length: count }, (_, index) =>
+      harness.registry.request(
+        permission(`req-many-${index}`, `echo ${index}`),
+      ),
+    );
+    await waitFor(
+      () => gateway.registered().length === count,
+      "every registration",
+    );
+    harness.registry.cancelAll("stop");
+    await Promise.all(decisions);
+    await harness.registry.flush(2_000);
+
+    expect(gateway.settled).toHaveLength(count);
+    expect(Math.max(...sizes)).toBe(PENDING_SETTLEMENTS_MAX);
   });
 });

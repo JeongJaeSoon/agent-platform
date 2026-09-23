@@ -12,6 +12,8 @@ import type {
   NextInputResponse,
   PendingControlRequest,
   PendingControlResponse,
+  RegisterPendingRequest,
+  RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
 } from "@agent-platform/contracts";
@@ -26,6 +28,14 @@ export interface WorkerGatewayClient {
   nextInput(request: NextInputRequest): Promise<NextInputResponse>;
   heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse>;
   appendEvents(request: AppendEventsRequest): Promise<AppendEventsResponse>;
+  /**
+   * Makes a permission or question the engine is waiting on visible to
+   * clients. Called before anyone is told about it, and retried under the
+   * same request id until it lands.
+   */
+  registerPending(
+    request: RegisterPendingRequest,
+  ): Promise<RegisterPendingResponse>;
   /**
    * Answers to the pending requests this attempt registered, plus any control
    * intent aimed at it. The worker polls it while a permission or question is

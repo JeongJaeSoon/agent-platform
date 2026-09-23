@@ -1,9 +1,16 @@
-import type {
-  PendingQuestion,
-  PostSessionAnswerRequest,
-  QuestionAnswer,
-  SessionEvent,
-  WorkerScope,
+import { createHash, randomUUID } from "node:crypto";
+import {
+  canonicalJson,
+  PENDING_SETTLEMENTS_MAX,
+  type PendingQuestion,
+  type PendingSettlement,
+  type PostSessionAnswerRequest,
+  pendingQuestionSchema,
+  type QuestionAnswer,
+  questionAnswerMismatch,
+  type RegisterPendingRequest,
+  type SessionEvent,
+  type WorkerScope,
 } from "@agent-platform/contracts";
 import { pendingRequestEvent } from "@agent-platform/runtime-claude";
 import type {
@@ -12,57 +19,64 @@ import type {
   WorkerGatewayClient,
 } from "@agent-platform/runtime-core";
 
-import {
-  isOwnershipLost,
-  WorkerGatewayRequestError,
-} from "./gateway-client.ts";
+import { isOwnershipLost, isRetryable } from "./gateway-client.ts";
 
 /** The tool the engine uses to put a question to the person, not to use a capability. */
 export const QUESTION_TOOL = "AskUserQuestion";
 
 export type PendingRequestsOptions = {
-  gateway: Pick<WorkerGatewayClient, "pendingControl">;
+  gateway: Pick<WorkerGatewayClient, "registerPending" | "pendingControl">;
   /** Puts the `question` event into the same stream the frames go to. */
   publish: (event: SessionEvent) => void;
   scope: () => WorkerScope;
-  /** Denied once nothing has answered it (DESIGN §6.4: 30 minutes). */
+  /**
+   * The longest this worker holds a callback, registered or not. Once the
+   * gateway says how long answers are taken, the wait never outlasts that.
+   */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
+type Outcome = PendingSettlement["outcome"];
+
 type Pending = {
   kind: "permission" | "question";
   questions: PendingQuestion[];
   input: Record<string, unknown>;
+  inputHash: string;
   settle: (decision: PermissionDecision) => void;
+  deadline: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
-const NO_ANSWER_PATH =
-  "This control plane cannot deliver answers yet (pending-control, 94S-127)";
+const MAX_REGISTER_BACKOFF_MS = 30_000;
 
 /**
- * The turn's pending-request map. Each `canUseTool` callback is published as a
- * `question` event, then held until its own answer arrives — never a single
- * waiting slot, because one assistant message can ask several things at once
- * and answers come back in any order.
+ * The turn's pending-request map. Each `canUseTool` callback is registered
+ * with the gateway under an id this worker mints, published as a `question`
+ * event, then held until its own answer arrives — never a single waiting
+ * slot, because one assistant message can ask several things at once and
+ * answers come back in any order.
  *
  * Nothing here decides on the caller's behalf: an answer that never comes is
- * denied when it expires, and so is one whose kind does not match the request.
+ * denied when it expires, and so is one that does not fit the request. How
+ * each request ended goes back to the gateway, so the answer's receipt says
+ * whether it reached the engine.
  */
 export class PendingRequestRegistry {
   private readonly options: PendingRequestsOptions;
   private readonly pending = new Map<string, Pending>();
+  // Unsent settlements; a poll removes only what it carried, once it lands.
+  private readonly settlements = new Map<string, Outcome>();
+  // Registrations still in flight, including ones whose callback has closed
+  // but whose row may or may not exist yet.
+  private readonly registering = new Set<Promise<void>>();
   private answersAfter = 0;
   private polling: Promise<void> | undefined;
-  /**
-   * The gateway has no pending-control route. Until 94S-127 serves one,
-   * nothing can ever answer, and holding the engine for the full timeout
-   * would only keep the lease busy before the same denial.
-   */
-  private unanswerable = false;
+  private stopped = false;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -74,48 +88,58 @@ export class PendingRequestRegistry {
 
   /** Registers one callback and resolves with the decision the SDK gets back. */
   async request(request: PermissionRequest): Promise<PermissionDecision> {
-    if (this.unanswerable) return { behavior: "deny", message: NO_ANSWER_PATH };
+    if (this.stopped) {
+      return {
+        behavior: "deny",
+        message: "This worker is no longer taking requests",
+      };
+    }
     const questions = questionsOf(request);
     const kind = questions === null ? "permission" : "question";
+    const inputHash = hashOf(request);
+    if (inputHash === null) {
+      return {
+        behavior: "deny",
+        message: "The tool arguments cannot be identified for an approval",
+      };
+    }
+    // Fresh per callback: an engine-side id can come round again, and an
+    // answer given for one call must never land on another.
+    const requestId = `req_${randomUUID()}`;
     const decision = new Promise<PermissionDecision>((resolve) => {
-      this.pending.set(request.requestId, {
+      this.pending.set(requestId, {
         kind,
         questions: questions ?? [],
         input: request.input,
+        inputHash,
         settle: resolve,
+        deadline: Date.now() + this.options.timeoutMs,
+        timer: undefined,
       });
     });
-    this.options.publish(
-      pendingRequestEvent(
-        {
-          input: kind === "question" ? { questions } : request.input,
-          kind,
-          requestId: request.requestId,
-          tool: request.tool,
-          toolUseId: request.toolUseId,
-        },
-        `pending:${request.requestId}`,
-      ),
-    );
-    this.poll();
-
-    const timer = setTimeout(() => {
-      this.close(request.requestId, {
-        behavior: "deny",
-        message: `No answer arrived within ${Math.round(this.options.timeoutMs / 1000)}s`,
-      });
-    }, this.options.timeoutMs);
+    this.arm(requestId);
     // An aborted run must not leave the engine waiting on a person.
     const onAbort = () =>
-      this.close(request.requestId, {
-        behavior: "deny",
-        message: "The run stopped before this was answered",
-      });
+      this.close(
+        requestId,
+        {
+          behavior: "deny",
+          message: "The run stopped before this was answered",
+        },
+        "cancelled",
+      );
     request.signal.addEventListener("abort", onAbort, { once: true });
+    if (request.signal.aborted) onAbort();
+    const registration = this.register(
+      requestId,
+      request,
+      questions,
+      inputHash,
+    ).finally(() => this.registering.delete(registration));
+    this.registering.add(registration);
     try {
       return await decision;
     } finally {
-      clearTimeout(timer);
       request.signal.removeEventListener("abort", onAbort);
     }
   }
@@ -123,68 +147,281 @@ export class PendingRequestRegistry {
   /** Denies everything still waiting; used by drain and by ownership loss. */
   cancelAll(reason: string): void {
     for (const requestId of [...this.pending.keys()]) {
-      this.close(requestId, { behavior: "deny", message: reason });
+      this.close(requestId, { behavior: "deny", message: reason }, "cancelled");
     }
   }
 
-  private close(requestId: string, decision: PermissionDecision): void {
-    const entry = this.pending.get(requestId);
-    if (entry === undefined) return;
-    this.pending.delete(requestId);
-    entry.settle(decision);
+  /**
+   * Gives the registrations still in flight and the settlements still unsent
+   * one bounded chance to land, so a shutdown tells the gateway what happened
+   * to what it holds instead of leaving receipts unknown.
+   */
+  async flush(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    if (this.registering.size > 0) {
+      await within(Promise.all(this.registering), timeoutMs);
+    }
+    if (this.settlements.size === 0) return;
+    this.poll();
+    if (this.polling !== undefined) {
+      await within(this.polling, deadline - Date.now());
+    }
   }
 
-  private poll(): void {
-    if (this.polling !== undefined) return;
-    this.polling = this.pollLoop().finally(() => {
+  /**
+   * Ends every retry and poll this registry runs. Called once nothing more
+   * will be said to the gateway: after the final flush, or on owner loss.
+   */
+  stop(): void {
+    this.stopped = true;
+  }
+
+  /**
+   * Asks the gateway now rather than at the next interval. `force` asks once
+   * even with nothing held here: the gateway can hold an answer for a request
+   * whose registration outcome this worker never learned.
+   */
+  poll(force = false): void {
+    if (this.polling !== undefined || this.stopped) return;
+    if (!force && this.pending.size === 0 && this.settlements.size === 0) {
+      return;
+    }
+    this.polling = this.pollLoop(force).finally(() => {
       this.polling = undefined;
     });
   }
 
-  private async pollLoop(): Promise<void> {
+  private arm(requestId: string): void {
+    const entry = this.pending.get(requestId);
+    if (entry === undefined) return;
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(
+      () => {
+        this.close(
+          requestId,
+          {
+            behavior: "deny",
+            message: `No answer arrived within ${Math.round(this.options.timeoutMs / 1000)}s`,
+          },
+          "expired",
+        );
+      },
+      Math.max(0, entry.deadline - Date.now()),
+    );
+  }
+
+  private close(
+    requestId: string,
+    decision: PermissionDecision,
+    outcome: Outcome,
+  ): void {
+    const entry = this.pending.get(requestId);
+    if (entry === undefined) return;
+    this.pending.delete(requestId);
+    clearTimeout(entry.timer);
+    this.settlements.set(requestId, outcome);
+    entry.settle(decision);
+    this.poll();
+  }
+
+  private async register(
+    requestId: string,
+    request: PermissionRequest,
+    questions: PendingQuestion[] | null,
+    inputHash: string,
+  ): Promise<void> {
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    while (this.pending.size > 0) {
+    // The display copy is the redacted one the event carries; the hash above
+    // was taken over the real arguments.
+    const event = pendingRequestEvent(
+      {
+        input: questions === null ? request.input : { questions },
+        kind: questions === null ? "permission" : "question",
+        requestId,
+        tool: request.tool,
+        toolUseId: request.toolUseId,
+      },
+      `pending:${requestId}`,
+    );
+    const display = event.event === "question" ? event.data.input : {};
+    const body: RegisterPendingRequest["request"] =
+      questions === null
+        ? { kind: "permission", tool: request.tool, input: display }
+        : {
+            kind: "question",
+            // Redaction keeps the shape, so ids still line up with the
+            // unredacted copy the answer is turned back into.
+            questions:
+              pendingQuestionSchema
+                .array()
+                .safeParse((display as { questions?: unknown }).questions)
+                .data ?? questions,
+          };
+    const turnId = this.options.scope().turn_id;
+    if (turnId === null) {
+      this.close(
+        requestId,
+        { behavior: "deny", message: "No turn is running to ask in" },
+        "cancelled",
+      );
+      return;
+    }
+    // Once a call has gone out, a closed callback does not end the loop: the
+    // row may exist without this worker knowing, answerable by anyone who
+    // lists it. Only an outcome the gateway states — registered, refused, or
+    // this worker gone — ends it.
+    let sent = false;
+    let backoff = interval;
+    while (!this.stopped && (sent || this.pending.has(requestId))) {
+      sent = true;
       try {
-        const response = await this.options.gateway.pendingControl({
+        const response = await this.options.gateway.registerPending({
           ...this.options.scope(),
-          answers_after: this.answersAfter,
+          turn_id: turnId,
+          request_id: requestId,
+          input_hash: inputHash,
+          request: body,
         });
-        // `control` stays unread until 94S-128 gives the gateway something to
-        // put there; no intent can be issued today.
-        for (const { sequence, answer } of response.answers) {
-          if (sequence <= this.answersAfter) continue;
-          this.answersAfter = Math.max(this.answersAfter, sequence);
-          this.apply(answer);
+        const entry = this.pending.get(requestId);
+        if (entry === undefined) {
+          // The settlement may have gone out before the row existed and been
+          // ignored; the gateway keeps whichever word reached it first.
+          if (!this.settlements.has(requestId)) {
+            this.settlements.set(requestId, "cancelled");
+          }
+          this.poll();
+          return;
         }
+        // Waiting past the server's expiry would only hold the engine for
+        // answers that can no longer be given; the margin lets an answer
+        // taken just before it still be picked up.
+        entry.deadline = Math.min(
+          entry.deadline,
+          Date.now() + response.expires_in_ms + 2 * interval,
+        );
+        this.arm(requestId);
+        this.options.publish(event);
+        this.poll();
+        return;
       } catch (error) {
         if (isOwnershipLost(error)) {
           this.options.onOwnershipLost?.(error);
           this.cancelAll("This worker no longer owns the session");
+          this.stop();
           return;
         }
-        if (
-          error instanceof WorkerGatewayRequestError &&
-          error.status === 404
-        ) {
-          this.unanswerable = true;
-          this.cancelAll(NO_ANSWER_PATH);
+        if (!isRetryable(error)) {
+          // A refused call left no row, or found one already settled.
+          this.close(
+            requestId,
+            {
+              behavior: "deny",
+              message: `The control plane did not take this request: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            "cancelled",
+          );
+          this.settlements.delete(requestId);
           return;
         }
-        // Anything else leaves the request waiting for its own expiry.
       }
-      if (this.pending.size > 0) await sleep(interval);
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, MAX_REGISTER_BACKOFF_MS);
     }
   }
 
-  private apply(answer: PostSessionAnswerRequest): void {
+  private async pollLoop(force: boolean): Promise<void> {
+    const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
+    const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    let once = force;
+    while (
+      !this.stopped &&
+      (once || this.pending.size > 0 || this.settlements.size > 0)
+    ) {
+      once = false;
+      // The rest waits for the next poll, which comes at once while any is
+      // left.
+      let sent = false;
+      const batch = [...this.settlements]
+        .slice(0, PENDING_SETTLEMENTS_MAX)
+        .map(([request_id, outcome]) => ({ request_id, outcome }));
+      try {
+        const response = await this.options.gateway.pendingControl({
+          ...this.options.scope(),
+          answers_after: this.answersAfter,
+          ...(batch.length > 0 ? { settled: batch } : {}),
+        });
+        this.forget(batch);
+        sent = true;
+        // `control` stays unread until 94S-128 gives the gateway something to
+        // put there; no intent can be issued today.
+        const answers = [...response.answers].sort(
+          (a, b) => a.sequence - b.sequence,
+        );
+        for (const { sequence, answer, input_hash } of answers) {
+          if (sequence <= this.answersAfter) continue;
+          this.answersAfter = sequence;
+          this.apply(answer, input_hash);
+        }
+      } catch (error) {
+        if (isOwnershipLost(error)) {
+          // Nothing this attempt says will be accepted any more, and the
+          // gateway settles what it handed out when the execution is gone.
+          this.options.onOwnershipLost?.(error);
+          this.cancelAll("This worker no longer owns the session");
+          this.settlements.clear();
+          this.stop();
+          return;
+        }
+        // Resending would be refused the same way; the answers themselves
+        // stay waiting for their own expiry.
+        if (!isRetryable(error)) this.forget(batch);
+      }
+      const backlog = sent && batch.length === PENDING_SETTLEMENTS_MAX;
+      if (!backlog && (this.pending.size > 0 || this.settlements.size > 0)) {
+        await sleep(interval);
+      }
+    }
+  }
+
+  private forget(batch: PendingSettlement[]): void {
+    for (const item of batch) {
+      if (this.settlements.get(item.request_id) === item.outcome) {
+        this.settlements.delete(item.request_id);
+      }
+    }
+  }
+
+  private apply(answer: PostSessionAnswerRequest, inputHash: string): void {
     const entry = this.pending.get(answer.request_id);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      // Its callback is already gone: say so, or the receipt would wait on
+      // a request nobody holds.
+      if (!this.settlements.has(answer.request_id)) {
+        this.settlements.set(answer.request_id, "cancelled");
+      }
+      return;
+    }
+    if (entry.inputHash !== inputHash) {
+      this.close(
+        answer.request_id,
+        {
+          behavior: "deny",
+          message: "The answer was given for different tool arguments",
+        },
+        "cancelled",
+      );
+      return;
+    }
     if (entry.kind !== answer.kind) {
-      this.close(answer.request_id, {
-        behavior: "deny",
-        message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
-      });
+      this.close(
+        answer.request_id,
+        {
+          behavior: "deny",
+          message: `A ${answer.kind} answer cannot settle a ${entry.kind} request`,
+        },
+        "cancelled",
+      );
       return;
     }
     if (answer.kind === "permission") {
@@ -196,83 +433,73 @@ export class PendingRequestRegistry {
               behavior: "deny",
               message: answer.reason ?? "Denied without a reason",
             },
+        "answered",
       );
       return;
     }
-    const invalid = invalidAnswers(entry.questions, answer.answers);
+    const invalid = questionAnswerMismatch(entry.questions, answer.answers);
     if (invalid !== null) {
-      // Allowing a partial or made-up answer would let the engine act on
-      // something nobody chose.
-      this.close(answer.request_id, { behavior: "deny", message: invalid });
+      // The gateway refuses these already; acting on one that slipped through
+      // would let the engine act on something nobody chose.
+      this.close(
+        answer.request_id,
+        { behavior: "deny", message: invalid },
+        "cancelled",
+      );
       return;
     }
-    this.close(answer.request_id, {
-      behavior: "allow",
-      updatedInput: {
-        ...entry.input,
-        // 94S-91 fixed this shape against the real SDK: the answers ride back
-        // on the tool input, keyed by the question they answer.
-        answers: Object.fromEntries(
-          entry.questions.map((question) => [
-            question.prompt,
-            answerText(
-              question,
-              answer.answers.find(
-                (item) => item.question_id === question.question_id,
-              ) as QuestionAnswer,
-            ),
-          ]),
-        ),
+    this.close(
+      answer.request_id,
+      {
+        behavior: "allow",
+        updatedInput: {
+          ...entry.input,
+          // 94S-91 fixed this shape against the real SDK: the answers ride
+          // back on the tool input, keyed by the question they answer.
+          answers: Object.fromEntries(
+            entry.questions.map((question) => [
+              question.prompt,
+              answerText(
+                question,
+                answer.answers.find(
+                  (item) => item.question_id === question.question_id,
+                ) as QuestionAnswer,
+              ),
+            ]),
+          ),
+        },
       },
-    });
+      "answered",
+    );
   }
 }
 
-/**
- * Why an answer cannot stand for the questions asked, or null when it can:
- * exactly one answer per question, only options that question offered, one
- * of them unless it is multi-select, and free text only where allowed.
- */
-function invalidAnswers(
-  questions: PendingQuestion[],
-  answers: QuestionAnswer[],
-): string | null {
-  const seen = new Set<string>();
-  for (const answer of answers) {
-    const question = questions.find(
-      (candidate) => candidate.question_id === answer.question_id,
-    );
-    if (question === undefined) {
-      return `No question ${answer.question_id} was asked`;
-    }
-    if (seen.has(answer.question_id)) {
-      return `Question ${answer.question_id} was answered twice`;
-    }
-    seen.add(answer.question_id);
-    const selected = new Set(answer.selected_option_ids);
-    if (selected.size !== answer.selected_option_ids.length) {
-      return `Question ${answer.question_id} selects an option twice`;
-    }
-    for (const id of selected) {
-      if (!question.options.some((option) => option.option_id === id)) {
-        return `Question ${answer.question_id} has no option ${id}`;
-      }
-    }
-    if (!question.multi_select && selected.size > 1) {
-      return `Question ${answer.question_id} takes one option`;
-    }
-    if (answer.free_text !== undefined && !question.allow_free_text) {
-      return `Question ${answer.question_id} takes no free text`;
-    }
+async function within(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, ms));
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
+// Over the arguments the engine will act on, before any redaction: an
+// approval is for exactly these, and the display copy cannot tell apart two
+// calls that differ only in a redacted value.
+function hashOf(request: PermissionRequest): string | null {
+  try {
+    return createHash("sha256")
+      .update(canonicalJson({ tool: request.tool, input: request.input }))
+      .digest("hex");
+  } catch {
+    return null;
   }
-  const missing = questions.find((question) => !seen.has(question.question_id));
-  return missing === undefined
-    ? null
-    : `Question ${missing.question_id} was not answered`;
 }
 
 function answerText(question: PendingQuestion, answer: QuestionAnswer): string {
-  // Every id was checked against the question's options by invalidAnswers.
+  // Every id was checked against the question's options by the mismatch check.
   const labels = answer.selected_option_ids.map(
     (id) =>
       question.options.find((candidate) => candidate.option_id === id)?.label ??

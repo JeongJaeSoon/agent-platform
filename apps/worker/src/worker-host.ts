@@ -220,6 +220,7 @@ export class WorkerHost {
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
       leaseExpiresAt: new Date(claim.lease_expires_at),
       onLost: (reason) => this.lose(reason),
+      onControlPending: () => this.pending?.poll(true),
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
@@ -378,6 +379,7 @@ export class WorkerHost {
     // queued tail is dropped rather than retried against someone else's lease.
     this.publisher?.abandon(reason);
     this.pending?.cancelAll("This worker no longer owns the session");
+    this.pending?.stop();
   }
 
   private async claim(): Promise<BootstrapClaimResponse | null> {
@@ -724,6 +726,15 @@ export class WorkerHost {
         reason: "The drain budget ran out",
       });
     }
+    if (this.reportedOwnerLost()) return;
+    // How each request ended decides its answer's receipt; once released,
+    // the gateway can only call the undelivered ones unknown.
+    await this.pending?.flush(
+      this.withinGrace(this.options.timeouts.requestTimeoutMs),
+    );
+    // What did not land by now never will; nothing may keep retrying past
+    // the release.
+    this.pending?.stop();
     if (this.reportedOwnerLost()) return;
     this.released = true;
     const releasing = this.options.gateway

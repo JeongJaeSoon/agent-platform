@@ -455,6 +455,7 @@ describe("worker protocol", () => {
               kind: "permission",
               decision: "allow",
             },
+            input_hash: "a".repeat(64),
           },
         ],
       }).answers[0]?.sequence,

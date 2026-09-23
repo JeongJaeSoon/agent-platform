@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { postSessionAnswerRequestSchema } from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
+import { pendingQuestionSchema } from "../api/pending.ts";
 import {
   attemptStateSchema,
   permissionModeSchema,
@@ -14,6 +15,8 @@ import {
   executionIdSchema,
   INT4_MAX,
   opaqueCursorSchema,
+  requestIdSchema,
+  requiredUnknownSchema,
   revisionSchema,
   sessionIdSchema,
   timestampSchema,
@@ -199,10 +202,68 @@ export const appendEventsResponseSchema = z.object({
   cursor: opaqueCursorSchema,
 });
 
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+// A permission or question the attempt is holding a live callback for. The
+// worker registers it before anyone is told about it, so every request a
+// client can see is one an answer can reach. `input_hash` is taken over the
+// callback's own arguments, before redaction: the display copy below is
+// redacted, and two different arguments must never share an approval.
+export const registerPendingRequestSchema = workerScopeSchema
+  .extend({
+    turn_id: turnIdSchema,
+    request_id: requestIdSchema,
+    input_hash: sha256HexSchema,
+    request: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("permission"),
+          tool: z.string().min(1),
+          input: requiredUnknownSchema,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("question"),
+          questions: z.array(pendingQuestionSchema).min(1),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+// `expires_in_ms` is what is left, measured on the server's clock: a replay
+// never restarts the lifetime, and the worker needs no clock agreement to
+// know how long answers are still accepted.
+export const registerPendingResponseSchema = z.object({
+  request_id: requestIdSchema,
+  expires_at: timestampSchema,
+  expires_in_ms: z.number().int().nonnegative(),
+});
+
+// How a registered request ended on the worker: `answered` once the callback
+// got the delivered answer (a deny included), `expired` when nothing reached
+// it in time, `cancelled` when the callback went away first.
+export const pendingSettlementSchema = z
+  .object({
+    request_id: requestIdSchema,
+    outcome: z.enum(["answered", "expired", "cancelled"]),
+  })
+  .strict();
+
+export const PENDING_SETTLEMENTS_MAX = 256;
+
 // Answers are redelivered until the worker advances answers_after, so a crash
 // between applying an answer and the next poll replays the same sequence.
+// Settlements ride along and are resent until a call carrying them succeeds;
+// they are independent of the cursor, which only says what was seen.
 export const pendingControlRequestSchema = workerScopeSchema
-  .extend({ answers_after: z.number().int().nonnegative() })
+  .extend({
+    answers_after: z.number().int().nonnegative(),
+    settled: z
+      .array(pendingSettlementSchema)
+      .max(PENDING_SETTLEMENTS_MAX)
+      .optional(),
+  })
   .strict();
 export const controlIntentSchema = z.object({
   control_id: z.string().min(1),
@@ -210,12 +271,16 @@ export const controlIntentSchema = z.object({
   target_turn_id: turnIdSchema.nullable(),
   issued_at: timestampSchema,
 });
+// In ascending sequence order.
 export const pendingControlResponseSchema = z.object({
   control: controlIntentSchema.nullable(),
   answers: z.array(
     z.object({
       sequence: z.number().int().positive(),
       answer: postSessionAnswerRequestSchema,
+      // The registered hash, so the worker applies the answer only to the
+      // callback it was given for.
+      input_hash: sha256HexSchema,
     }),
   ),
 });
@@ -266,6 +331,13 @@ export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 export type WorkerEvent = z.infer<typeof workerEventSchema>;
 export type AppendEventsRequest = z.infer<typeof appendEventsRequestSchema>;
 export type AppendEventsResponse = z.infer<typeof appendEventsResponseSchema>;
+export type RegisterPendingRequest = z.infer<
+  typeof registerPendingRequestSchema
+>;
+export type RegisterPendingResponse = z.infer<
+  typeof registerPendingResponseSchema
+>;
+export type PendingSettlement = z.infer<typeof pendingSettlementSchema>;
 export type PendingControlRequest = z.infer<typeof pendingControlRequestSchema>;
 export type ControlIntent = z.infer<typeof controlIntentSchema>;
 export type PendingControlResponse = z.infer<

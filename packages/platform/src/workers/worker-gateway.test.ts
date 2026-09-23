@@ -451,4 +451,30 @@ describe("WorkerGateway", () => {
       }),
     ).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
+
+  test("a gateway without a pending store refuses registration and never reports answers waiting", async () => {
+    const { instance } = gateway({
+      heartbeatAtomic: async () => ({
+        outcome: "ok",
+        leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+        authRevision: 0,
+      }),
+    });
+    const refused = await instance
+      .registerPending(principal, {
+        ...scope,
+        turn_id: "1",
+        request_id: "req_1",
+        input_hash: "a".repeat(64),
+        request: { kind: "permission", tool: "Bash", input: {} },
+      })
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(WorkerGatewayError);
+    expect((refused as WorkerGatewayError).status).toBe(404);
+    const beat = await instance.heartbeat(principal, {
+      ...scope,
+      attempt_state: "running",
+    });
+    expect(beat.control_pending).toBe(false);
+  });
 });

@@ -375,18 +375,18 @@ describe("WorkerHost approvals", () => {
       "three question events",
     );
     gateway.answer({
-      request_id: "req-allow",
+      request_id: gateway.requestIdFor("toolu_allow"),
       kind: "permission",
       decision: "allow",
     });
     gateway.answer({
-      request_id: "req-deny",
+      request_id: gateway.requestIdFor("toolu_deny"),
       kind: "permission",
       decision: "deny",
       reason: "Not on this workspace",
     });
     gateway.answer({
-      request_id: "req-question",
+      request_id: gateway.requestIdFor("toolu_question"),
       kind: "question",
       answers: [{ question_id: "q0", selected_option_ids: ["q0o0"] }],
     });
@@ -410,6 +410,15 @@ describe("WorkerHost approvals", () => {
       .questions()
       .map((event) => (event.event === "question" ? event.data.kind : null));
     expect(kinds.sort()).toEqual(["permission", "permission", "question"]);
+    // Every answer is reported as delivered before the worker lets go.
+    expect(gateway.settled.map((item) => item.outcome)).toEqual([
+      "answered",
+      "answered",
+      "answered",
+    ]);
+    expect(gateway.calls.lastIndexOf("pendingControl")).toBeLessThan(
+      gateway.calls.lastIndexOf("release"),
+    );
   });
 
   test("denies a request nobody answered rather than holding the turn open", async () => {

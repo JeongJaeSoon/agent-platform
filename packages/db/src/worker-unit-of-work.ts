@@ -47,6 +47,7 @@ import {
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { encodeEventCursor } from "./event-cursor.ts";
+import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -74,7 +75,7 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   running: 1,
   draining: 2,
 };
-const OPEN_TURN_STATUSES = ["running", "needs_input"];
+export const OPEN_TURN_STATUSES = ["running", "needs_input"];
 const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 const TURN_ID = /^[1-9]\d{0,9}$/;
 // turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
@@ -156,14 +157,17 @@ type Fenced =
 // trips and any of them can block on a lock. The lease is therefore judged
 // again just before the first write, so nothing commits — and no work is
 // handed out — under a lease that ended mid-transaction.
-function leaseHeld(attempt: AttemptRow, at: Date): boolean {
+export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
-async function acquireFence(tx: Database, fence: WorkerFence): Promise<Fenced> {
+export async function acquireFence(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<Fenced> {
   const [row] = await tx
     .select({ session: sessions, attempt: attempts })
     .from(sessions)
@@ -337,7 +341,7 @@ async function contiguousThrough(
   return end?.through ?? 0;
 }
 
-function parseTurnId(turnId: string): number | null {
+export function parseTurnId(turnId: string): number | null {
   if (!TURN_ID.test(turnId)) return null;
   const sequence = Number(turnId);
   return sequence <= SEQUENCE_MAX ? sequence : null;
@@ -1236,6 +1240,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               isNull(pendingRequests.resolvedAt),
             ),
           );
+        await abandonUndeliveredAnswers(tx, session.id, now);
         for (const turn of unresolved) {
           await tx
             .update(receipts)

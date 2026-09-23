@@ -16,6 +16,8 @@ export type HeartbeatOptions = {
   leaseExpiresAt: Date;
   /** Called once, with why this attempt stopped owning the session. */
   onLost: (reason: string) => void;
+  /** An answer or control intent is waiting to be fetched. */
+  onControlPending?: () => void;
   now?: () => Date;
 };
 
@@ -101,6 +103,7 @@ export class Heartbeat {
         return;
       }
       this.lease = new Date(response.lease_expires_at);
+      if (response.control_pending) this.options.onControlPending?.();
       if (response.auth_revision !== scope.auth_revision) {
         // The session's authorization moved on, so this token's binding is
         // already behind and every write it makes would be fenced out.

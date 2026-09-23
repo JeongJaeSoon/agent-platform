@@ -3,6 +3,8 @@ export * from "./enqueue.ts";
 export * from "./event-cursor.ts";
 export * from "./lease-reconcile.ts";
 export * from "./migration-head.ts";
+export * from "./pending-control.ts";
+export * from "./pending-requests.ts";
 export * from "./postgres-unit-of-work.ts";
 export * from "./queries.ts";
 export * from "./scheduler-store.ts";

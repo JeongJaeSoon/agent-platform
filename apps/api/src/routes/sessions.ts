@@ -82,7 +82,9 @@ export const sessionRouteErrors: Record<string, number[]> = {
   "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],
 };
 
-function requireIdempotencyKey(context: Context<ApiEnvironment>): string {
+export function requireIdempotencyKey(
+  context: Context<ApiEnvironment>,
+): string {
   const key = idempotencyKeySchema.safeParse(
     context.req.header("Idempotency-Key"),
   );
