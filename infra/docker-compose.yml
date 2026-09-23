@@ -139,6 +139,16 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # Checkpoint object store (94S-201): the same LocalStack bucket the
+      # scheduler hands each worker. The API reads manifests, transcripts
+      # and workspace bundles back from it to verify a checkpoint before the
+      # session pointer advances; without these the API refuses to start
+      # (CHECKPOINT_OBJECT_STORE=disabled is the explicit opt-out).
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       # SESSION_CATALOG_JSON is deliberately not defaulted: the API parses an
       # empty string as JSON and refuses to start. Put it in ../.env when
       # sessions should be creatable; unset, POST /v1/sessions answers 422.

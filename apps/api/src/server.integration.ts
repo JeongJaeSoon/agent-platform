@@ -122,6 +122,10 @@ integration("API server on PostgreSQL", () => {
         env: {
           ...process.env,
           AUTH_MODE: "api-key",
+          // The process refuses to start without an object store unless told
+          // there is none; this test is about the HTTP process, not S3.
+          CHECKPOINT_OBJECT_STORE:
+            process.env.CHECKPOINT_OBJECT_STORE ?? "disabled",
           DATABASE_URL: databaseUrl,
           PORT: String(port),
         },

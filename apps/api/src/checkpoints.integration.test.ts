@@ -1,0 +1,324 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import * as schema from "@agent-platform/db";
+import {
+  createPostgresSessionUnitOfWork,
+  createPostgresWorkerUnitOfWork,
+} from "@agent-platform/db";
+import {
+  createWorkerGateway,
+  manifestRefFor,
+  sessionObjectPrefix,
+  type WorkerPrincipal,
+} from "@agent-platform/platform";
+import {
+  CLAUDE_RUNTIME_FINGERPRINT,
+  claudeCheckpointCodec,
+  digestParts,
+} from "@agent-platform/runtime-claude-codec";
+import type {
+  CheckpointManifest,
+  CheckpointObjectStore,
+} from "@agent-platform/runtime-core";
+import {
+  createCheckpointObjectStore,
+  createStorageS3Client,
+} from "@agent-platform/storage";
+import {
+  createGitBundle,
+  type GitBundleFixture,
+} from "@agent-platform/testkit/git-bundle";
+import {
+  createLocalstackBucket,
+  type LocalstackBucket,
+  localstackEnabled,
+} from "@agent-platform/testkit/localstack";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
+import { createApiCheckpoints } from "./checkpoints.ts";
+
+/**
+ * The product composition against real stores: the worker gateway bound to
+ * `createApiCheckpoints` over LocalStack S3 and PostgreSQL, driven the way a
+ * worker drives it — ask, upload, finalize, ask for the restore plan.
+ */
+const integration =
+  testDatabaseUrl() && localstackEnabled() ? describe : describe.skip;
+
+const PROFILE_SHA = "c".repeat(64);
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let bucket: LocalstackBucket;
+  let bundle: GitBundleFixture;
+  let objects: CheckpointObjectStore;
+  let gateway: ReturnType<typeof createWorkerGateway>;
+  const clock = new Date("2026-09-23T00:00:00.000Z");
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "api_ckpt_it" });
+    pool = new Pool({ connectionString: database.url, max: 4 });
+    db = drizzle(pool, { schema });
+    await migrate(db, {
+      migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
+    });
+    bucket = await createLocalstackBucket({ prefix: "api-ckpt-it" });
+    bundle = await createGitBundle();
+    // The worker's side of the store: same bucket, its own client.
+    objects = createCheckpointObjectStore({
+      bucket: bucket.bucket,
+      client: createStorageS3Client({ s3: bucket.env }),
+    });
+    const checkpoints = createApiCheckpoints(db, {
+      accessKeyId: bucket.env.accessKeyId,
+      bucket: bucket.bucket,
+      endpoint: bucket.env.endpoint,
+      region: bucket.env.region,
+      secretAccessKey: bucket.env.secretAccessKey,
+    });
+    if (checkpoints.protocol === undefined) {
+      throw new Error("an object store was configured; expected a protocol");
+    }
+    gateway = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: { kind: "api_key", value: "catalog-provider-key" },
+            },
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: checkpoints.verifier,
+      checkpointProtocol: checkpoints.protocol,
+      options: { leaseTtlMs: 30_000, now: () => clock, sleep: async () => {} },
+    });
+  }, 120_000);
+
+  afterAll(async () => {
+    await bucket?.destroy();
+    await pool?.end();
+    await database?.drop();
+  });
+
+  async function put(key: string, bytes: Uint8Array) {
+    await objects.put(key, bytes);
+    return { bytes: bytes.byteLength, key, sha256: sha256(bytes) };
+  }
+
+  async function claimedSession() {
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      principal: { ownerId: "owner-a" },
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: "hash",
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+      message: "hello worker",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const executionId = crypto.randomUUID();
+    const launch = await gateway.registerLaunch({
+      executionId,
+      generation: 1,
+      backend: "local_docker",
+    });
+    if (launch.nonce === null) throw new Error("launch already registered");
+    const claimed = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: executionId,
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: launch.nonce },
+      },
+    );
+    const principal: WorkerPrincipal = {
+      kind: "session",
+      attemptId: claimed.attempt_id,
+      sessionId: claimed.session_id,
+      leaseEpoch: claimed.lease_epoch,
+      executionGeneration: claimed.execution_generation,
+      authRevision: claimed.auth_revision,
+    };
+    const scope = {
+      session_id: claimed.session_id,
+      turn_id: null,
+      attempt_id: claimed.attempt_id,
+      lease_epoch: claimed.lease_epoch,
+      execution_generation: claimed.execution_generation,
+      auth_revision: claimed.auth_revision,
+    };
+    const next = await gateway.nextInput(principal, scope);
+    if (!next.input) throw new Error("no input delivered");
+    return { claimed, principal, scope, turnId: next.input.turn_id };
+  }
+
+  test("a worker asks, uploads, finalizes with a verified checkpoint and gets a restore plan back", async () => {
+    const { claimed, principal, scope, turnId } = await claimedSession();
+    const sessionId = claimed.session_id;
+    const prefix = sessionObjectPrefix(sessionId);
+
+    const asked = await gateway.requestCheckpoint(principal, {
+      ...scope,
+      preparation: { status: "ready" },
+    });
+    expect(asked).toEqual({
+      status: "ready",
+      revision: 0,
+      manifest_ref: manifestRefFor(sessionId, 0, claimed.attempt_id),
+    });
+    if (asked.status !== "ready") return;
+
+    const rootPart = await put(
+      `${prefix}mirror/root-0.jsonl`,
+      new TextEncoder().encode('{"type":"user"}\n'),
+    );
+    const bundleRef = await put(
+      `${prefix}checkpoints/0000000000/${claimed.attempt_id}/workspace.bundle`,
+      bundle.bytes,
+    );
+    const manifest: CheckpointManifest = {
+      createdAt: clock.toISOString(),
+      cwd: "/workspace",
+      engine: "claude",
+      resume: "sdk-session-1",
+      revision: 0,
+      runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+      sessionId,
+      transcripts: {
+        root: {
+          entryCount: 1,
+          parts: [rootPart],
+          sha256: digestParts([rootPart]),
+        },
+        subagents: {},
+      },
+      version: 2,
+      workspace: {
+        bundle: bundleRef,
+        gitCommit: bundle.commit,
+        untracked: [],
+      },
+    };
+    const encoded = claudeCheckpointCodec.encode(manifest);
+    await put(asked.manifest_ref, encoded.bytes);
+
+    const terminal = {
+      status: "completed" as const,
+      reason: null,
+      result: null,
+      usage: null,
+    };
+    // A digest that does not match what was uploaded never moves the pointer.
+    await expect(
+      gateway.finalize(principal, {
+        ...scope,
+        turn_id: turnId,
+        finalize_key: "fin-bad",
+        final_source_sequence: 0,
+        terminal,
+        checkpoint: {
+          revision: 0,
+          manifest_ref: asked.manifest_ref,
+          manifest_sha256: "f".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+
+    const finalized = await gateway.finalize(principal, {
+      ...scope,
+      turn_id: turnId,
+      finalize_key: "fin-ok",
+      final_source_sequence: 0,
+      terminal,
+      checkpoint: {
+        revision: 0,
+        manifest_ref: asked.manifest_ref,
+        manifest_sha256: encoded.sha256,
+      },
+    });
+    expect(finalized).toMatchObject({
+      status: "completed",
+      checkpoint_revision: 0,
+    });
+
+    // The next request is built from the pointer that finalize moved.
+    expect(
+      await gateway.requestCheckpoint(principal, {
+        ...scope,
+        preparation: { status: "ready" },
+      }),
+    ).toEqual({
+      status: "ready",
+      revision: 1,
+      manifest_ref: manifestRefFor(sessionId, 1, claimed.attempt_id),
+    });
+
+    const runtime = {
+      engine: "claude",
+      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      profile_sha256: PROFILE_SHA,
+    };
+    expect(await gateway.restorePlan(principal, { ...scope, runtime })).toEqual(
+      {
+        status: "ready",
+        plan: {
+          revision: 0,
+          manifest_ref: asked.manifest_ref,
+          engine: "claude",
+          resume: "sdk-session-1",
+          cwd: "/workspace",
+          git_commit: bundle.commit,
+          artifacts: [
+            { kind: "transcript_root", label: "", objects: [rootPart] },
+            { kind: "workspace_bundle", label: "", objects: [bundleRef] },
+          ],
+          object_keys: [rootPart.key, bundleRef.key],
+        },
+      },
+    );
+    expect(
+      await gateway.restorePlan(principal, {
+        ...scope,
+        runtime: { ...runtime, sdk_version: "0.0.1" },
+      }),
+    ).toMatchObject({
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        {
+          field: "sdkVersion",
+          expected: "0.0.1",
+          found: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+        },
+      ],
+    });
+  }, 60_000);
+});

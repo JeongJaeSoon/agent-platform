@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import type { CheckpointManifest } from "@agent-platform/runtime-core";
-
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
@@ -11,7 +11,6 @@ import {
 } from "./checkpoint-codec.ts";
 import { UnidentifiedComponentError } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
-import { digestParts } from "./transcript-digest.ts";
 
 const profileSha256 = "a".repeat(64);
 const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };
@@ -149,6 +148,28 @@ describe("Claude checkpoint codec", () => {
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
     ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
+  test("refuses a subagent label that is not a safe relative subpath", () => {
+    for (const label of [
+      "../escape",
+      "a/../b",
+      "/abs",
+      "a//b",
+      "./a",
+      "a\\b",
+    ]) {
+      const { bytes } = encodeCheckpointManifest(manifest());
+      const body = JSON.parse(new TextDecoder().decode(bytes));
+      body.transcripts.subagents = {
+        [label]: body.transcripts.subagents["agents/reviewer"],
+      };
+      expect(() =>
+        decodeCheckpointManifest(
+          new TextEncoder().encode(JSON.stringify(body)),
+        ),
+      ).toThrow(/Invalid Claude checkpoint manifest/);
+    }
   });
 
   test("refuses a version 1 manifest instead of reading it as this shape", () => {

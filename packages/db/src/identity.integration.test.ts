@@ -82,8 +82,17 @@ async function legacySnapshot(pool: Pool): Promise<Record<string, unknown[]>> {
   }
   return snapshot;
 }
+// Columns later migrations add on top of 0008; every one of them arrives null.
 const ADDED_COLUMNS: Record<string, string[]> = {
-  sessions: ["workspace_id", "created_by_user_id", "agent_release_id"],
+  sessions: [
+    "workspace_id",
+    "created_by_user_id",
+    "agent_release_id",
+    // 0104 (94S-201)
+    "checkpoint_pending_reason",
+    "checkpoint_pending_attempt_id",
+    "last_transcript_persisted_at",
+  ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
   receipts: ["actor"],
@@ -151,8 +160,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 4, total: 13 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 13 });
+      expect(first).toEqual({ adopted: 0, applied: 5, total: 14 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 14 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

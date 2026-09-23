@@ -6,6 +6,8 @@ import type {
   AttemptState,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
+  CheckpointRequest,
+  CheckpointRequestResponse,
   ExecutionBackend,
   FinalizeRequest,
   FinalizeResponse,
@@ -19,11 +21,20 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RestorePlanRequest,
+  RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
   WorkerScope,
 } from "@agent-platform/contracts";
 import { executionBackendSchema } from "@agent-platform/contracts";
+import type {
+  CheckpointRequestDecision,
+  RestorePlan,
+  RestorePlanResult,
+} from "../checkpoints/checkpoint-service.ts";
+import { checkpointPendingReason } from "../checkpoints/durability.ts";
+import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
@@ -36,7 +47,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 
-export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409;
+export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
 // A heartbeat says the attempt is alive. "allocated" would walk the attempt
 // back to the state a claim leaves behind, which reopens the one-shot
@@ -61,6 +72,31 @@ export class WorkerGatewayError extends Error {
 
 // The caller as the route layer established it from the bearer token.
 export type WorkerPrincipal = Exclude<ResolvedCredential, null>;
+
+/**
+ * The server side of the checkpoint protocol, which `CheckpointService`
+ * satisfies. Separate from the verifier so a composition without an object
+ * store can still bind the gateway: it then answers every checkpoint request
+ * and restore plan with CHECKPOINT_UNAVAILABLE instead of guessing.
+ */
+export type CheckpointProtocol = {
+  requestCheckpoint(input: {
+    attemptId: string;
+    preparation: CheckpointRequest["preparation"];
+    sessionId: string;
+    pointer: CheckpointPointer | null;
+  }): Promise<CheckpointRequestDecision>;
+  getRestorePlan(input: {
+    runtime: {
+      cliVersion: string;
+      engine: string;
+      profileSha256: string;
+      sdkVersion: string;
+    };
+    sessionId: string;
+    pointer: CheckpointPointer | null;
+  }): Promise<RestorePlanResult>;
+};
 
 export type WorkerGatewayOptions = {
   /** How long a heartbeat extends the lease. */
@@ -141,6 +177,26 @@ function rejected(rejection: FenceRejection): never {
   );
 }
 
+/**
+ * The checkpoint service answers a bad checkpoint with a verdict and throws
+ * only when it could not reach a verdict: S3, git or the manifest read
+ * failed underneath it. Left alone, that throw becomes a non-retryable 500
+ * and the worker abandons a checkpoint that may be perfectly healthy.
+ */
+async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof WorkerGatewayError) throw error;
+    throw new WorkerGatewayError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      `Checkpoint storage could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      true,
+    );
+  }
+}
+
 // Both the replay lookup and the commit answer in the same shape.
 function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   switch (result.outcome) {
@@ -162,6 +218,18 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
         "CHECKPOINT_UNAVAILABLE",
         `Checkpoint rejected: ${result.reason}`,
       );
+    case "checkpoint_conflict":
+      throw new WorkerGatewayError(
+        409,
+        "REVISION_CONFLICT",
+        `The checkpoint pointer stands at ${result.currentRevision ?? "none"}; request the next revision and upload again`,
+      );
+    case "checkpoint_required":
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        `Session cannot be checkpointed: ${result.reason}; a completed turn is recorded only with a verified checkpoint`,
+      );
     case "events_incomplete":
       throw new WorkerGatewayError(
         409,
@@ -180,16 +248,66 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   }
 }
 
+function planOnWire(plan: RestorePlan): RestorePlanResponse {
+  return {
+    status: "ready",
+    plan: {
+      revision: plan.revision,
+      manifest_ref: plan.manifestRef,
+      engine: plan.engine,
+      resume: plan.resume,
+      cwd: plan.cwd,
+      git_commit: plan.gitCommit,
+      artifacts: plan.artifacts.map((artifact) =>
+        artifact.kind === "workspace_untracked"
+          ? {
+              kind: artifact.kind,
+              label: artifact.label,
+              objects: artifact.objects.map((object) => ({
+                key: object.key,
+                bytes: object.bytes,
+                sha256: object.sha256,
+                path: object.path,
+              })),
+            }
+          : {
+              kind: artifact.kind,
+              label: artifact.label,
+              objects: artifact.objects.map((object) => ({
+                key: object.key,
+                bytes: object.bytes,
+                sha256: object.sha256,
+              })),
+            },
+      ),
+      object_keys: [...plan.objectKeys],
+    },
+  };
+}
+
 export function createWorkerGateway(deps: {
   work: WorkerUnitOfWork;
   catalog: SessionCatalog;
   checkpoints: CheckpointVerifier;
+  // Absent when no object store is configured; see CheckpointProtocol.
+  checkpointProtocol?: CheckpointProtocol;
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending } = deps;
+  const protocol = deps.checkpointProtocol;
+  function requireProtocol(): CheckpointProtocol {
+    if (protocol === undefined) {
+      throw new WorkerGatewayError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        "No checkpoint object store is configured on this control plane",
+      );
+    }
+    return protocol;
+  }
   const now = deps.options.now ?? (() => new Date());
   const sleep =
     deps.options.sleep ??
@@ -490,6 +608,17 @@ export function createWorkerGateway(deps: {
         now: at,
         leaseTtlMs,
         attemptState: request.attempt_state,
+        ...(request.transcript === undefined
+          ? {}
+          : {
+              transcript: {
+                persistedAt:
+                  request.transcript.persisted_at === null
+                    ? null
+                    : new Date(request.transcript.persisted_at),
+                mirrorError: request.transcript.mirror_error,
+              },
+            }),
       });
       if (result.outcome !== "ok") rejected(result);
       return {
@@ -625,12 +754,15 @@ export function createWorkerGateway(deps: {
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       if (request.checkpoint) {
-        const verdict = await checkpoints.verify({
-          fence,
-          turnId: request.turn_id,
-          checkpoint: request.checkpoint,
-          at: attempt.now,
-        });
+        const checkpoint = request.checkpoint;
+        const verdict = await checkpointInfrastructure(() =>
+          checkpoints.verify({
+            fence,
+            turnId: request.turn_id,
+            checkpoint,
+            at: attempt.now,
+          }),
+        );
         if (verdict.status === "rejected") {
           throw new WorkerGatewayError(
             409,
@@ -645,6 +777,103 @@ export function createWorkerGateway(deps: {
       return finalizeAnswer(
         await work.finalizeAtomic({ ...attempt, now: now() }),
       );
+    },
+
+    // Where the next checkpoint goes. The fenced read comes first: a stale
+    // attempt gets STALE_EPOCH here rather than a key it would upload to for
+    // nothing, and the runtime's durable refusal is recorded before the
+    // answer says "blocked", so a crash in between cannot lose it.
+    async requestCheckpoint(
+      principal: WorkerPrincipal,
+      request: CheckpointRequest,
+    ): Promise<CheckpointRequestResponse> {
+      const fence = requireScope(principal, request);
+      const service = requireProtocol();
+      const durable =
+        request.preparation.status === "rejected"
+          ? checkpointPendingReason(request.preparation)
+          : null;
+      const state = await work.checkpointStateAtomic({
+        fence,
+        now: now(),
+        ...(durable === null ? {} : { pendingReason: durable }),
+      });
+      if (state.outcome !== "ok") rejected(state);
+      if (request.preparation.status === "rejected") {
+        return {
+          status: "blocked",
+          reason: request.preparation.reason,
+          detail: request.preparation.detail,
+        };
+      }
+      // Built from the pointer the fenced transaction read, so the answer
+      // and the fence come from one snapshot. The revision it names is the
+      // only one finalize will accept next; a pointer that moves in between
+      // (another finalize of this attempt) makes the upload a 409 there.
+      const preparation = request.preparation;
+      const decision = await checkpointInfrastructure(() =>
+        service.requestCheckpoint({
+          attemptId: fence.attemptId,
+          preparation,
+          sessionId: fence.sessionId,
+          pointer: state.pointer,
+        }),
+      );
+      if (decision.status === "blocked") {
+        return {
+          status: "blocked",
+          reason: decision.reason,
+          detail: decision.detail,
+        };
+      }
+      return {
+        status: "ready",
+        revision: decision.request.revision,
+        manifest_ref: decision.request.manifestRef,
+      };
+    },
+
+    // The committed checkpoint as a download list, or the reason there is
+    // none the worker may resume from. Fenced like every post-claim call: a
+    // worker that no longer owns the session learns that, not the plan.
+    async restorePlan(
+      principal: WorkerPrincipal,
+      request: RestorePlanRequest,
+    ): Promise<RestorePlanResponse> {
+      const fence = requireScope(principal, request);
+      const service = requireProtocol();
+      const state = await work.checkpointStateAtomic({ fence, now: now() });
+      if (state.outcome !== "ok") rejected(state);
+      const result = await checkpointInfrastructure(() =>
+        service.getRestorePlan({
+          runtime: {
+            cliVersion: request.runtime.cli_version,
+            engine: request.runtime.engine,
+            profileSha256: request.runtime.profile_sha256,
+            sdkVersion: request.runtime.sdk_version,
+          },
+          sessionId: fence.sessionId,
+          pointer: state.pointer,
+        }),
+      );
+      switch (result.status) {
+        case "none":
+          return { status: "none" };
+        case "unavailable":
+          return {
+            status: "unavailable",
+            code: result.code,
+            reason: result.reason,
+          };
+        case "incompatible":
+          return {
+            status: "incompatible",
+            code: result.code,
+            mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
+          };
+        default:
+          return planOnWire(result.plan);
+      }
     },
 
     async release(

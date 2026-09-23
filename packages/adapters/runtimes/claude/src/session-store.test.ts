@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import type { TranscriptEntry } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@agent-platform/testkit/checkpoint-objects";
-
 import {
   ClaudeSessionStore,
   type TranscriptInheritance,
 } from "./session-store.ts";
-import { digestParts } from "./transcript-digest.ts";
 
 const projectKey = "-workspace";
 const sessionId = "session-1";

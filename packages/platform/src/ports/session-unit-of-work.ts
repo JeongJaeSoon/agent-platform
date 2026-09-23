@@ -1,5 +1,6 @@
 import type {
   AdmissionState,
+  CheckpointBlockReason,
   CreateSessionResponse,
   ListSessionsQuery,
   ListTurnsQuery,
@@ -40,7 +41,10 @@ export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
   | { outcome: "conflict" | "not_found" }
   // The session exists but its admission state does not take new input.
-  | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> };
+  | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
+  // The session cannot be checkpointed (durable pending reason): a turn run
+  // now could never be reported as durably finished, so none is accepted.
+  | { outcome: "checkpoint_unavailable"; reason: CheckpointBlockReason };
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {

@@ -1,3 +1,7 @@
+import {
+  CLAUDE_AGENT_SDK_VERSION,
+  CLAUDE_CODE_VERSION,
+} from "@agent-platform/runtime-claude-codec";
 import type {
   NativeEnvelope,
   RuntimeCapabilities,
@@ -5,9 +9,7 @@ import type {
   TranscriptMirror,
 } from "@agent-platform/runtime-core";
 
-export const CLAUDE_AGENT_SDK_VERSION = "0.3.270";
-/** The Claude Code build the pinned SDK ships and reports in `system/init`. */
-export const CLAUDE_CODE_VERSION = "2.1.270";
+export { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION };
 
 export const CLAUDE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   checkpoint: true,

@@ -1,10 +1,14 @@
 import {
   type CheckpointRef,
+  checkpointBlockReasonSchema,
   type TerminalTurnStatus,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@agent-platform/contracts";
 import {
+  type CheckpointPointer,
+  type CheckpointStateInput,
+  type CheckpointStateResult,
   type ClaimInput,
   type ClaimResult,
   type CommitEventsInput,
@@ -364,6 +368,116 @@ async function latestCheckpoint(
         manifest_sha256: row.manifestSha256,
       }
     : null;
+}
+
+/**
+ * The one place the checkpoint pointer advances. A turn's finalize and a
+ * turn-less commit (CheckpointStore.commitAtomic) both come through here,
+ * inside the caller's fenced transaction, so there is a single answer to
+ * which revision is the session's truth: the row's current pointer plus one,
+ * exactly — the server handed that number out (checkpointStateAtomic), and a
+ * manifest claiming a later one was written against a pointer that no longer
+ * stands.
+ *
+ * Committing clears the durable pending reason only when the reason came
+ * from another attempt. The runtime latches a mirror failure for its whole
+ * run, so a checkpoint from the attempt that reported it was captured before
+ * the failure at best and says nothing about the transcript since; a fresh
+ * run that re-mirrored from the local file is what a valid checkpoint
+ * proves.
+ */
+export async function advanceCheckpointPointer(
+  tx: Database,
+  input: {
+    fence: WorkerFence;
+    session: SessionRow;
+    checkpoint: CheckpointRef;
+    turnRowId: number | null;
+    now: Date;
+  },
+): Promise<
+  | { outcome: "committed"; revision: number }
+  | { outcome: "not_next"; currentRevision: number | null }
+> {
+  const next = (input.session.checkpointRevision ?? -1) + 1;
+  if (input.checkpoint.revision !== next) {
+    return {
+      outcome: "not_next",
+      currentRevision: input.session.checkpointRevision,
+    };
+  }
+  await tx.insert(checkpoints).values({
+    sessionId: input.fence.sessionId,
+    revision: input.checkpoint.revision,
+    manifestRef: input.checkpoint.manifest_ref,
+    manifestSha256: input.checkpoint.manifest_sha256,
+    turnId: input.turnRowId,
+    committedAt: input.now,
+  });
+  const resolvesPending =
+    input.session.checkpointPendingReason !== null &&
+    input.session.checkpointPendingAttemptId !== input.fence.attemptId;
+  expectFenced(
+    await tx
+      .update(sessions)
+      .set({
+        checkpointRevision: input.checkpoint.revision,
+        checkpointCommittedAt: input.now,
+        updatedAt: input.now,
+        ...(resolvesPending
+          ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
+          : {}),
+      })
+      .where(fencedSession(input.fence))
+      .returning({ id: sessions.id }),
+    "session pointer",
+  );
+  return { outcome: "committed", revision: input.checkpoint.revision };
+}
+
+/**
+ * The pointer as the session row states it, read inside the caller's
+ * transaction so it belongs to the same snapshot as the fence. A row that
+ * points at a revision with no checkpoint row is corruption, not a state, and
+ * is reported rather than read around as "no checkpoint".
+ */
+export async function readCheckpointPointer(
+  tx: Database,
+  session: Pick<
+    SessionRow,
+    "id" | "checkpointRevision" | "checkpointCommittedAt"
+  >,
+): Promise<CheckpointPointer | null> {
+  if (session.checkpointRevision === null) return null;
+  const [checkpoint] = await tx
+    .select({
+      manifestRef: checkpoints.manifestRef,
+      manifestSha256: checkpoints.manifestSha256,
+      committedAt: checkpoints.committedAt,
+      turnSequence: turns.sequence,
+    })
+    .from(checkpoints)
+    .leftJoin(turns, eq(turns.id, checkpoints.turnId))
+    .where(
+      and(
+        eq(checkpoints.sessionId, session.id),
+        eq(checkpoints.revision, session.checkpointRevision),
+      ),
+    )
+    .limit(1);
+  if (!checkpoint) {
+    throw new Error(
+      `Session ${session.id} points at checkpoint revision ${session.checkpointRevision}, which has no row`,
+    );
+  }
+  return {
+    committedAt: session.checkpointCommittedAt ?? checkpoint.committedAt,
+    manifestRef: checkpoint.manifestRef,
+    manifestSha256: checkpoint.manifestSha256,
+    revision: session.checkpointRevision,
+    turnId:
+      checkpoint.turnSequence === null ? null : String(checkpoint.turnSequence),
+  };
 }
 
 async function bindingOf(
@@ -775,6 +889,31 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         expectFenced(updated, "attempt");
         const [beat] = updated;
         if (!beat) throw new Error("Fenced attempt write returned no row");
+        if (input.transcript !== undefined) {
+          // A late heartbeat cannot walk the mirror mark backwards, and an
+          // error only sets the reason: clearing is a checkpoint's to do.
+          const persistedAt = input.transcript.persistedAt;
+          expectFenced(
+            await tx
+              .update(sessions)
+              .set({
+                ...(persistedAt === null
+                  ? {}
+                  : {
+                      lastTranscriptPersistedAt: sql`GREATEST(${sessions.lastTranscriptPersistedAt}, ${persistedAt})`,
+                    }),
+                ...(input.transcript.mirrorError === null
+                  ? {}
+                  : {
+                      checkpointPendingReason: "mirror_error",
+                      checkpointPendingAttemptId: fence.attemptId,
+                    }),
+              })
+              .where(fencedSession(fence))
+              .returning({ id: sessions.id }),
+            "session transcript",
+          );
+        }
         await tx
           .update(executions)
           .set({
@@ -988,24 +1127,37 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           return { outcome: "events_incomplete", acceptedThrough: durable };
         }
 
+        // A session the platform cannot checkpoint must not report a turn
+        // as durably finished: the SDK's success is not enough on its own.
+        // The other terminals record what happened and are never held back.
+        const pendingReason = fenced.session.checkpointPendingReason;
+        if (
+          input.terminal.status === "completed" &&
+          !input.checkpoint &&
+          pendingReason !== null
+        ) {
+          return {
+            outcome: "checkpoint_required",
+            reason: checkpointBlockReasonSchema.parse(pendingReason),
+          };
+        }
+
         let checkpointRevision: number | null = null;
         if (input.checkpoint) {
-          const current = fenced.session.checkpointRevision ?? -1;
-          if (input.checkpoint.revision <= current) {
+          const advanced = await advanceCheckpointPointer(tx, {
+            fence,
+            session: fenced.session,
+            checkpoint: input.checkpoint,
+            turnRowId: turn.id,
+            now,
+          });
+          if (advanced.outcome === "not_next") {
             return {
-              outcome: "checkpoint_rejected",
-              reason: `revision ${input.checkpoint.revision} is not above ${current}`,
+              outcome: "checkpoint_conflict",
+              currentRevision: advanced.currentRevision,
             };
           }
-          await tx.insert(checkpoints).values({
-            sessionId: fence.sessionId,
-            revision: input.checkpoint.revision,
-            manifestRef: input.checkpoint.manifest_ref,
-            manifestSha256: input.checkpoint.manifest_sha256,
-            turnId: turn.id,
-            committedAt: now,
-          });
-          checkpointRevision = input.checkpoint.revision;
+          checkpointRevision = advanced.revision;
         }
 
         const unknownOutcome = input.terminal.status === "outcome_unknown";
@@ -1080,9 +1232,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               ...(unknownOutcome
                 ? { admissionState: "recovery_required" as const }
                 : {}),
-              ...(checkpointRevision === null
-                ? {}
-                : { checkpointRevision, checkpointCommittedAt: now }),
             })
             .where(fencedSession(fence))
             .returning({ id: sessions.id }),
@@ -1095,6 +1244,40 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             status: input.terminal.status,
             checkpointRevision,
           },
+        };
+      });
+    },
+
+    checkpointStateAtomic(
+      input: CheckpointStateInput,
+    ): Promise<CheckpointStateResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        let pendingReason = fenced.session.checkpointPendingReason;
+        if (input.pendingReason !== undefined) {
+          expectFenced(
+            await tx
+              .update(sessions)
+              .set({
+                checkpointPendingReason: input.pendingReason,
+                checkpointPendingAttemptId: fence.attemptId,
+                updatedAt: input.now,
+              })
+              .where(fencedSession(fence))
+              .returning({ id: sessions.id }),
+            "session pending reason",
+          );
+          pendingReason = input.pendingReason;
+        }
+        return {
+          outcome: "ok",
+          pointer: await readCheckpointPointer(tx, fenced.session),
+          pendingReason:
+            pendingReason === null
+              ? null
+              : checkpointBlockReasonSchema.parse(pendingReason),
         };
       });
     },

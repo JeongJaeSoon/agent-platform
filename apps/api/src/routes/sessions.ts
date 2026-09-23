@@ -45,6 +45,7 @@ const STATUS_BY_CODE: Partial<
   SESSION_STOPPED: 409,
   SESSION_CLOSED: 409,
   RECOVERY_REQUIRED: 409,
+  CHECKPOINT_UNAVAILABLE: 409,
 };
 
 // pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket

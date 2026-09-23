@@ -13,7 +13,9 @@ import {
 
 import {
   type ApiCheckpointServiceDependencies,
+  checkpointStorageConfigFromEnv,
   createApiCheckpointService,
+  createApiCheckpoints,
 } from "./checkpoints.ts";
 
 /**
@@ -89,7 +91,9 @@ async function checkpointWith(bytes: Uint8Array, commit: string) {
       untracked: [],
     },
   };
-  const encoded = codecs.fake!.encode(manifest);
+  const codec = codecs.fake;
+  if (!codec) throw new Error("fake codec missing");
+  const encoded = codec.encode(manifest);
   await objects.put(manifestRef, encoded.bytes);
   return {
     objects,
@@ -153,5 +157,84 @@ describe("API checkpoint composition", () => {
     if (verdict.status === "rejected") {
       expect(verdict.reason).toContain("git fetch failed");
     }
+  });
+
+  test("reads the object store from the environment and refuses a silent absence", () => {
+    const full = {
+      AWS_ACCESS_KEY_ID: "id",
+      AWS_ENDPOINT_URL: "http://127.0.0.1:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "s",
+      S3_BUCKET: "claude-sessions",
+    };
+    expect(checkpointStorageConfigFromEnv(full)).toEqual({
+      accessKeyId: "id",
+      bucket: "claude-sessions",
+      endpoint: "http://127.0.0.1:4566",
+      region: "ap-northeast-1",
+      secretAccessKey: "s",
+    });
+    const { AWS_ENDPOINT_URL: _endpoint, ...aws } = full;
+    expect(
+      checkpointStorageConfigFromEnv({ ...aws, CHECKPOINT_OBJECT_STORE: "s3" }),
+    ).not.toHaveProperty("endpoint");
+    expect(
+      checkpointStorageConfigFromEnv({ CHECKPOINT_OBJECT_STORE: "disabled" }),
+    ).toBe("disabled");
+    // Disabled has to be said: the missing bucket is a misconfiguration.
+    expect(() => checkpointStorageConfigFromEnv({})).toThrow(
+      /S3_BUCKET is required/,
+    );
+    expect(() =>
+      checkpointStorageConfigFromEnv({ ...full, S3_BUCKET: " " }),
+    ).toThrow(/S3_BUCKET/);
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        AWS_ENDPOINT_URL: "localstack:4566",
+      }),
+    ).toThrow(/not an http\(s\) URL/);
+    // Neither refusal repeats the value: it may carry a credential.
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        AWS_ENDPOINT_URL: "ftp://user:hunter2@host",
+      }),
+    ).toThrow(/^AWS_ENDPOINT_URL is not an http\(s\) URL$/);
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        AWS_ENDPOINT_URL: "http://user:hunter2@host:4566",
+      }),
+    ).toThrow(/^AWS_ENDPOINT_URL must not carry userinfo$/);
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...full,
+        CHECKPOINT_OBJECT_STORE: "memory",
+      }),
+    ).toThrow(/CHECKPOINT_OBJECT_STORE/);
+  });
+
+  test("without an object store the gateway gets the fail-closed verifier and no protocol", async () => {
+    const wired = createApiCheckpoints({} as never, "disabled");
+    expect(wired.protocol).toBeUndefined();
+    expect(
+      await wired.verifier.verify({
+        fence: {
+          sessionId,
+          attemptId,
+          leaseEpoch: 0,
+          executionGeneration: 0,
+          authRevision: 0,
+        },
+        turnId: "1",
+        checkpoint: {
+          manifest_ref: manifestRef,
+          manifest_sha256: "0".repeat(64),
+          revision: 0,
+        },
+        at: new Date(),
+      }),
+    ).toMatchObject({ status: "rejected" });
   });
 });

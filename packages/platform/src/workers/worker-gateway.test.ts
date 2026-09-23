@@ -5,6 +5,7 @@ import type {
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
+  type CheckpointProtocol,
   createWorkerGateway,
   hashWorkerToken,
   WorkerGatewayError,
@@ -17,6 +18,12 @@ const scope = {
   lease_epoch: 1,
   execution_generation: 1,
   auth_revision: 0,
+};
+const fingerprint = {
+  engine: "claude",
+  sdk_version: "0.3.270",
+  cli_version: "2.1.270",
+  profile_sha256: "c".repeat(64),
 };
 const principal = {
   kind: "session",
@@ -41,6 +48,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     commitEventsAtomic: unimplemented,
     peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
+    checkpointStateAtomic: unimplemented,
     releaseAtomic: unimplemented,
     confirmExecutionGoneAtomic: unimplemented,
     countReservedSlots: unimplemented,
@@ -454,6 +462,386 @@ describe("WorkerGateway", () => {
         credential: { kind: "launch_nonce", nonce: "n" },
       }),
     ).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+  });
+
+  test("requestCheckpoint records the runtime's durable refusal, then answers from the fenced pointer", async () => {
+    const stateCalls: unknown[] = [];
+    const protocolCalls: unknown[] = [];
+    const pointer = {
+      committedAt: new Date("2026-09-22T00:00:00Z"),
+      manifestRef: "sessions/s/checkpoints/0000000003/att_1/manifest.json",
+      manifestSha256: "a".repeat(64),
+      revision: 3,
+      turnId: "4",
+    };
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic(input) {
+          stateCalls.push(input);
+          return { outcome: "ok", pointer, pendingReason: null };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        async requestCheckpoint(input) {
+          protocolCalls.push(input);
+          return {
+            status: "ready",
+            request: {
+              manifestRef:
+                "sessions/s/checkpoints/0000000004/att_1/manifest.json",
+              revision: 4,
+              sessionId: input.sessionId,
+            },
+          };
+        },
+        async getRestorePlan() {
+          return unimplemented();
+        },
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    expect(
+      await instance.requestCheckpoint(principal, {
+        ...scope,
+        preparation: { status: "ready" },
+      }),
+    ).toEqual({
+      status: "ready",
+      revision: 4,
+      manifest_ref: "sessions/s/checkpoints/0000000004/att_1/manifest.json",
+    });
+    // The pointer the protocol sees is the one the fenced read returned.
+    expect(protocolCalls).toEqual([
+      {
+        attemptId: "att_1",
+        preparation: { status: "ready" },
+        sessionId: scope.session_id,
+        pointer,
+      },
+    ]);
+    // A ready preparation records nothing.
+    expect(stateCalls).toHaveLength(1);
+    expect(stateCalls[0]).not.toHaveProperty("pendingReason");
+
+    // A mirror failure is the one refusal that outlives the turn: it is
+    // written before the answer, so a crash in between cannot lose it.
+    expect(
+      await instance.requestCheckpoint(principal, {
+        ...scope,
+        preparation: {
+          status: "rejected",
+          reason: "mirror_error",
+          detail: "batch 7 dropped",
+        },
+      }),
+    ).toEqual({
+      status: "blocked",
+      reason: "mirror_error",
+      detail: "batch 7 dropped",
+    });
+    expect(stateCalls[1]).toMatchObject({ pendingReason: "mirror_error" });
+    // A turn in flight is an ordinary state and leaves nothing behind.
+    await instance.requestCheckpoint(principal, {
+      ...scope,
+      preparation: {
+        status: "rejected",
+        reason: "turn_in_flight",
+        detail: "input pending",
+      },
+    });
+    expect(stateCalls[2]).not.toHaveProperty("pendingReason");
+    // The protocol was consulted for the ready request only: a refusal is
+    // answered without reading the pointer.
+    expect(protocolCalls).toHaveLength(1);
+  });
+
+  test("checkpoint protocol calls are fenced and refused outright without an object store", async () => {
+    const fenced = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return { outcome: "stale_epoch" };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        requestCheckpoint: unimplemented,
+        getRestorePlan: unimplemented,
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    await expect(
+      fenced.requestCheckpoint(principal, {
+        ...scope,
+        preparation: { status: "ready" },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+    await expect(
+      fenced.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+
+    const { instance } = gateway({});
+    for (const call of [
+      () =>
+        instance.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "ready" },
+        }),
+      () => instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        status: 409,
+        code: "CHECKPOINT_UNAVAILABLE",
+      });
+    }
+  });
+
+  test("restorePlan puts the service's plan on the wire and passes refusals through", async () => {
+    const seen: unknown[] = [];
+    let answer: Awaited<ReturnType<CheckpointProtocol["getRestorePlan"]>> = {
+      status: "none",
+    };
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        requestCheckpoint: unimplemented,
+        async getRestorePlan(input) {
+          seen.push(input);
+          return answer;
+        },
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({ status: "none" });
+    expect(seen).toEqual([
+      {
+        runtime: {
+          cliVersion: "2.1.270",
+          engine: "claude",
+          profileSha256: "c".repeat(64),
+          sdkVersion: "0.3.270",
+        },
+        sessionId: scope.session_id,
+        pointer: null,
+      },
+    ]);
+
+    const object = {
+      key: "sessions/s/mirror/root-0.jsonl",
+      bytes: 3,
+      sha256: "b".repeat(64),
+    };
+    const bundle = {
+      key: "sessions/s/checkpoints/0000000000/att_1/workspace.bundle",
+      bytes: 9,
+      sha256: "d".repeat(64),
+    };
+    answer = {
+      status: "ready",
+      plan: {
+        artifacts: [
+          { kind: "transcript_root", label: "", objects: [object] },
+          { kind: "workspace_bundle", label: "", objects: [bundle] },
+          {
+            kind: "workspace_untracked",
+            label: "",
+            objects: [{ ...object, path: "notes.md" }],
+          },
+        ],
+        cwd: "/workspace",
+        engine: "claude",
+        gitCommit: "e".repeat(40),
+        manifestRef: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        objectKeys: [object.key, bundle.key],
+        resume: "sdk-session",
+        revision: 0,
+      },
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({
+      status: "ready",
+      plan: {
+        revision: 0,
+        manifest_ref: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        engine: "claude",
+        resume: "sdk-session",
+        cwd: "/workspace",
+        git_commit: "e".repeat(40),
+        artifacts: [
+          { kind: "transcript_root", label: "", objects: [object] },
+          { kind: "workspace_bundle", label: "", objects: [bundle] },
+          {
+            kind: "workspace_untracked",
+            label: "",
+            objects: [{ ...object, path: "notes.md" }],
+          },
+        ],
+        object_keys: [object.key, bundle.key],
+      },
+    });
+
+    answer = {
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        { field: "sdkVersion", expected: "0.3.270", found: "0.3.1" },
+      ],
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        { field: "sdkVersion", expected: "0.3.270", found: "0.3.1" },
+      ],
+    });
+    answer = {
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: "manifest object is missing",
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: "manifest object is missing",
+    });
+  });
+
+  test("heartbeat forwards the transcript report as dates and leaves it out when absent", async () => {
+    const seen: unknown[] = [];
+    const { instance } = gateway({
+      async heartbeatAtomic(input) {
+        seen.push(input);
+        return {
+          outcome: "ok",
+          leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          authRevision: 0,
+        };
+      },
+    });
+    await instance.heartbeat(principal, {
+      ...scope,
+      attempt_state: "running",
+    });
+    expect(seen[0]).not.toHaveProperty("transcript");
+    await instance.heartbeat(principal, {
+      ...scope,
+      attempt_state: "running",
+      transcript: {
+        persisted_at: "2026-09-22T00:00:05.000Z",
+        mirror_error: "batch 3 dropped",
+      },
+    });
+    expect(seen[1]).toMatchObject({
+      transcript: {
+        persistedAt: new Date("2026-09-22T00:00:05.000Z"),
+        mirrorError: "batch 3 dropped",
+      },
+    });
+  });
+
+  test("a checkpoint store that throws is a retryable 503, a verdict stays a 409", async () => {
+    const outage = new Error("S3 answered 503 SlowDown");
+    const throwing = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          throw outage;
+        },
+      },
+      checkpointProtocol: {
+        async requestCheckpoint() {
+          throw outage;
+        },
+        async getRestorePlan() {
+          throw outage;
+        },
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    const finalizeRequest = {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "f",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifest_sha256: "a".repeat(64),
+      },
+    };
+    for (const call of [
+      () => throwing.finalize(principal, finalizeRequest),
+      () =>
+        throwing.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "ready" },
+        }),
+      () => throwing.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        retryable: true,
+      });
+    }
+
+    const { instance } = gateway({
+      async finalizeAtomic() {
+        return { outcome: "checkpoint_conflict", currentRevision: 4 };
+      },
+    });
+    await expect(
+      instance.finalize(principal, finalizeRequest),
+    ).rejects.toMatchObject({ status: 409, code: "REVISION_CONFLICT" });
+  });
+
+  test("a completed turn the session cannot checkpoint is answered 409 CHECKPOINT_UNAVAILABLE", async () => {
+    const { instance } = gateway({
+      async finalizeAtomic() {
+        return { outcome: "checkpoint_required", reason: "mirror_error" };
+      },
+    });
+    await expect(
+      instance.finalize(principal, {
+        ...scope,
+        turn_id: "1",
+        finalize_key: "f",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
   });
 
   test("a gateway without a pending store refuses registration and never reports answers waiting", async () => {

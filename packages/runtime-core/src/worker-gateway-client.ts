@@ -4,6 +4,8 @@ import type {
   AppendEventsResponse,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
+  CheckpointRequest,
+  CheckpointRequestResponse,
   FinalizeRequest,
   FinalizeResponse,
   HeartbeatRequest,
@@ -16,6 +18,8 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RestorePlanRequest,
+  RestorePlanResponse,
 } from "@agent-platform/contracts";
 
 // The worker's only door to the control plane. The port stays transport-free
@@ -46,6 +50,28 @@ export interface WorkerGatewayClient {
   ): Promise<PendingControlResponse>;
   finalize(request: FinalizeRequest): Promise<FinalizeResponse>;
   release(request: ReleaseRequest): Promise<ReleaseResponse>;
+}
+
+/**
+ * The checkpoint half of the door, kept as its own interface so the worker
+ * that ships without a publisher (94S-122) is not asked to implement calls it
+ * never makes. The publisher and restorer (94S-246) implement both on the
+ * HTTP client and fold this into `WorkerGatewayClient` when they land.
+ */
+export interface CheckpointGatewayClient {
+  /**
+   * Where the next checkpoint goes: the server's revision and manifest key
+   * for this attempt. Asked before every upload, never derived from the
+   * claim's restore pointer.
+   */
+  requestCheckpoint(
+    request: CheckpointRequest,
+  ): Promise<CheckpointRequestResponse>;
+  /**
+   * The committed checkpoint as a download list, judged against what this
+   * worker runs. Asked after the claim, before the engine starts.
+   */
+  restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse>;
 }
 
 // The decisions the gateway itself makes, which a worker loop switches on.

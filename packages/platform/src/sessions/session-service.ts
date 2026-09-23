@@ -22,6 +22,7 @@ import type {
   Principal,
   SessionAction,
 } from "../authorization/policy.ts";
+import { checkpointAdmission } from "../checkpoints/durability.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,
@@ -179,6 +180,15 @@ export function createSessionService(deps: {
         case "rejected": {
           const rejection = ADMISSION_REJECTIONS[result.admissionState];
           throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        case "checkpoint_unavailable": {
+          const admission = checkpointAdmission(result.reason);
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            admission.admitted
+              ? `Session cannot be checkpointed: ${result.reason}`
+              : admission.message,
+          );
         }
         default:
           return result.response;

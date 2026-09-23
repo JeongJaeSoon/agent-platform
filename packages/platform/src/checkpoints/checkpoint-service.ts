@@ -118,6 +118,16 @@ export type CheckpointServiceDependencies = {
    */
   maxConcurrentBundleVerifications?: number;
   /**
+   * Largest manifest the control plane will read, in bytes, and the most
+   * objects one may name. The worker writes the manifest, so both are
+   * untrusted: without them a claimed worker makes a finalize hold an
+   * arbitrarily large object in memory, or fan out one HEAD and GET per
+   * reference it cares to list. The size is checked with a HEAD before the
+   * body is fetched and again on the bytes that arrived.
+   */
+  maxManifestBytes?: number;
+  maxManifestObjects?: number;
+  /**
    * Largest workspace bundle the control plane will read, in bytes.
    *
    * Verifying one means holding it whole to hash it, and the S3 adapter
@@ -145,6 +155,11 @@ export type CheckpointServiceDependencies = {
 };
 
 export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
+// A reference is about 200 bytes of canonical JSON, so the object limit
+// is what binds first; both sit far above what a mirror of a long session
+// produces today (one part per flushed batch).
+export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 
 /**
@@ -183,6 +198,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const maxBundleBytes =
     deps.maxWorkspaceBundleBytes ?? DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES;
   const bundles = deps.workspaceBundles ?? rejectUnverifiedWorkspaceBundles;
+  const maxManifestBytes = deps.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES;
+  const maxManifestObjects =
+    deps.maxManifestObjects ?? DEFAULT_MAX_MANIFEST_OBJECTS;
   const bundleGate = createGate(
     deps.maxConcurrentBundleVerifications ??
       DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
@@ -199,13 +217,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verified?: ReadonlySet<string>;
   }): Promise<ManifestVerdict> {
     const { checkpoint, sessionId } = input;
+    const missing: ManifestVerdict = {
+      status: "rejected",
+      reason: `manifest object is missing: ${checkpoint.manifest_ref}`,
+    };
+    const tooLarge = (bytes: number): ManifestVerdict => ({
+      status: "rejected",
+      reason: `manifest is ${bytes} bytes, over the ${maxManifestBytes}-byte limit`,
+    });
+    const size = await objects.head(checkpoint.manifest_ref);
+    if (size === undefined) return missing;
+    if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
     const bytes = await objects.get(checkpoint.manifest_ref);
-    if (bytes === undefined) {
-      return {
-        status: "rejected",
-        reason: `manifest object is missing: ${checkpoint.manifest_ref}`,
-      };
-    }
+    if (bytes === undefined) return missing;
+    // Replaced between the two reads: judge what actually arrived.
+    if (bytes.byteLength > maxManifestBytes) return tooLarge(bytes.byteLength);
     const digest = sha256(bytes);
     if (digest !== checkpoint.manifest_sha256) {
       return {
@@ -286,6 +312,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
       ...manifest.workspace.untracked,
     ];
+    // Counted before any request goes out: the bundle is the one more.
+    if (refs.length + 1 > maxManifestObjects) {
+      return `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`;
+    }
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
@@ -448,6 +478,37 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     return tokens;
   }
 
+  /**
+   * The finalize-side check: the manifest the caller offers must be the one
+   * key this session, revision and attempt could have written, and it must
+   * validate. The caller supplies both the fence and the manifest reference,
+   * and nothing else ties them together: a confused worker could hand over
+   * the fence it holds and some other attempt's manifest, which would promote
+   * exactly the orphan that per-attempt keys exist to isolate.
+   */
+  async function verifyAttemptManifest(input: {
+    checkpoint: CheckpointRef;
+    fence: CheckpointFence;
+  }): Promise<ManifestVerdict> {
+    const sessionId = input.fence.sessionId;
+    const expectedRef = manifestRefFor(
+      sessionId,
+      input.checkpoint.revision,
+      input.fence.attemptId,
+    );
+    if (input.checkpoint.manifest_ref !== expectedRef) {
+      return {
+        status: "rejected",
+        reason: `manifest ${input.checkpoint.manifest_ref} is not this attempt's key ${expectedRef}`,
+      };
+    }
+    return validateManifest({
+      checkpoint: input.checkpoint,
+      sessionId,
+      verified: await verifiedRefs(sessionId),
+    });
+  }
+
   return {
     /**
      * Answers a checkpoint trigger: the runtime's own verdict decides whether
@@ -456,8 +517,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      */
     async requestCheckpoint(input: {
       attemptId: string;
-      preparation: CheckpointPreparation;
+      // Only the status and the refusal matter here; the engine handle a
+      // ready preparation carries stays with the worker.
+      preparation:
+        | Pick<Extract<CheckpointPreparation, { status: "ready" }>, "status">
+        | Extract<CheckpointPreparation, { status: "rejected" }>;
       sessionId: string;
+      /**
+       * The pointer as a caller's fenced transaction read it. Given, it is
+       * the snapshot the answer is built from; left out, the store is read
+       * here, unfenced.
+       */
+      pointer?: CheckpointPointer | null;
     }): Promise<CheckpointRequestDecision> {
       if (input.preparation.status === "rejected") {
         return {
@@ -466,7 +537,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           detail: input.preparation.detail,
         };
       }
-      const pointer = await store.readPointer(input.sessionId);
+      const pointer =
+        input.pointer === undefined
+          ? await store.readPointer(input.sessionId)
+          : input.pointer;
       const revision = (pointer?.revision ?? -1) + 1;
       return {
         status: "ready",
@@ -483,22 +557,23 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     },
 
     validateManifest,
+    verifyAttemptManifest,
 
     /**
-     * Promotes a validated manifest to the session pointer. A checkpoint that
-     * does not validate is never committed, and a pointer that has already
-     * moved past this revision is a conflict the caller answers with 409.
+     * Promotes a validated manifest to the session pointer on its own, with
+     * no turn to close. A checkpoint that does not validate is never
+     * committed, and a pointer that has already moved past this revision is
+     * a conflict the caller answers with 409.
      *
      * The fence travels into the same transaction as the pointer update, so a
      * worker whose lease was taken over cannot win the next revision merely by
      * uploading first — object-store ordering decides nothing here.
      *
-     * The caller supplies both the fence and the manifest reference, and
-     * nothing yet ties them together: a confused worker could hand over the
-     * fence it holds and some other attempt's manifest, which would promote
-     * exactly the orphan that per-attempt keys exist to isolate. So the
-     * reference is not taken as given — it must be the one key this session,
-     * revision and attempt could have written.
+     * Not the turn path. A checkpoint riding a turn's finalize commits through
+     * `WorkerUnitOfWork.finalizeAtomic`, in the same transaction as the turn's
+     * terminal, receipt and queue ACK (94S-201); the gateway verifies with
+     * `verifyAttemptManifest` and never calls this. This is the turn-less
+     * commit a drain or pause needs (94S-137).
      */
     async finalize(
       input: FinalizeCheckpointInput,
@@ -509,21 +584,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           reason: `fence belongs to session ${input.fence.sessionId}`,
         };
       }
-      const expectedRef = manifestRefFor(
-        input.sessionId,
-        input.checkpoint.revision,
-        input.fence.attemptId,
-      );
-      if (input.checkpoint.manifest_ref !== expectedRef) {
-        return {
-          outcome: "rejected",
-          reason: `manifest ${input.checkpoint.manifest_ref} is not this attempt's key ${expectedRef}`,
-        };
-      }
-      const verdict = await validateManifest({
+      const verdict = await verifyAttemptManifest({
         checkpoint: input.checkpoint,
-        sessionId: input.sessionId,
-        verified: await verifiedRefs(input.sessionId),
+        fence: input.fence,
       });
       if (verdict.status === "rejected") {
         return { outcome: "rejected", reason: verdict.reason };
@@ -559,10 +622,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     async getRestorePlan(input: {
       runtime: RuntimeFingerprint;
       sessionId: string;
+      /** As for requestCheckpoint: the caller's fenced snapshot, when it has one. */
+      pointer?: CheckpointPointer | null;
     }): Promise<RestorePlanResult> {
-      const pointer: CheckpointPointer | null = await store.readPointer(
-        input.sessionId,
-      );
+      const pointer: CheckpointPointer | null =
+        input.pointer === undefined
+          ? await store.readPointer(input.sessionId)
+          : input.pointer;
       if (pointer === null) return { status: "none" };
       const verdict = await validateManifest({
         checkpoint: {

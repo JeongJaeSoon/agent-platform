@@ -21,6 +21,12 @@ RUN bun install --frozen-lockfile --production \
   && test ! -e node_modules/@anthropic-ai
 
 FROM ${BUN_IMAGE} AS runtime
+# git: the checkpoint verifier fetches each workspace bundle into a scratch
+# repository (94S-228); without the executable every checkpoint finalize
+# fails with ENOENT and no pointer ever advances. The smoke test checks it.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000
 WORKDIR /app

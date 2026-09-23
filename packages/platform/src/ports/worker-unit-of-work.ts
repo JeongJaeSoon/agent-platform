@@ -1,11 +1,13 @@
 import type {
   AttemptState,
+  CheckpointBlockReason,
   CheckpointRef,
   ExecutionBackend,
   FinalizeRequest,
   WorkerEvent,
   WorkspaceRepository,
 } from "@agent-platform/contracts";
+import type { CheckpointPointer } from "./checkpoint-store.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer
@@ -112,6 +114,10 @@ export type HeartbeatInput = {
   now: Date;
   leaseTtlMs: number;
   attemptState: AttemptState;
+  // The worker's transcript mirror as of this heartbeat. `persistedAt` only
+  // ever moves the stored value forward; `mirrorError` becomes the session's
+  // durable pending reason (mirror_error) until a checkpoint commits.
+  transcript?: { persistedAt: Date | null; mirrorError: string | null };
 };
 export type HeartbeatResult =
   | { outcome: "ok"; leaseExpiresAt: Date; authRevision: number }
@@ -155,12 +161,36 @@ export type FinalizeResult =
   // The turn already reached a terminal state under a different key or body.
   | { outcome: "finalize_conflict" }
   | { outcome: "checkpoint_rejected"; reason: string }
+  // The checkpoint names a revision other than the pointer's next one:
+  // another finalize moved it first. Ask again, upload, finalize again.
+  | { outcome: "checkpoint_conflict"; currentRevision: number | null }
+  // A completed terminal was offered without a checkpoint while the session
+  // carries a durable pending reason: the turn cannot be reported as durably
+  // finished. Interrupted/failed/unknown terminals are never held back.
+  | { outcome: "checkpoint_required"; reason: CheckpointBlockReason }
   // The stream is not durable through final_source_sequence (or holds more
   // than the worker claims); acceptedThrough says what is actually stored.
   | { outcome: "events_incomplete"; acceptedThrough: number }
   | FenceRejection;
 
 export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
+
+export type CheckpointStateInput = {
+  fence: WorkerFence;
+  now: Date;
+  // A durable block reason to record; undefined leaves the stored one alone.
+  // Only a committed checkpoint clears it (finalizeAtomic / commitAtomic).
+  pendingReason?: CheckpointBlockReason;
+};
+export type CheckpointStateResult =
+  | {
+      outcome: "ok";
+      // The pointer from the same snapshot as the fence; the protocol works
+      // from this rather than re-reading it unfenced.
+      pointer: CheckpointPointer | null;
+      pendingReason: CheckpointBlockReason | null;
+    }
+  | FenceRejection;
 
 export type ReleaseInput = { fence: WorkerFence; now: Date; reason: string };
 export type ReleaseResult = { released: boolean };
@@ -185,6 +215,12 @@ export interface WorkerUnitOfWork {
   // it lets a caller settle a replay before doing work that can fail.
   peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult>;
   finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult>;
+  // The fenced read behind the checkpoint protocol: proves the caller still
+  // owns the session before a pointer is read on its behalf, and records the
+  // runtime's durable refusal when it reports one.
+  checkpointStateAtomic(
+    input: CheckpointStateInput,
+  ): Promise<CheckpointStateResult>;
   releaseAtomic(input: ReleaseInput): Promise<ReleaseResult>;
   // Called once the backend has observed the execution is gone; only then
   // does the session become claimable again and the launch slot return.
