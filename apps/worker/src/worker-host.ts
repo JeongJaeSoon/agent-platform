@@ -11,6 +11,7 @@ import type {
   TerminalTurnStatus,
   WorkerScope,
 } from "@agent-platform/contracts";
+import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
 import type {
   AgentRun,
   CheckpointLease,
@@ -32,6 +33,7 @@ import {
 } from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { PendingRequestRegistry } from "./pending-requests.ts";
+import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
 /** The gateway client plus the one thing a claim changes about it. */
@@ -116,6 +118,8 @@ type Stop = {
 };
 
 type Settlement = {
+  /** What the engine says the turn cost; absent when it said nothing. */
+  costUsd?: number;
   reason: string | null;
   result: unknown;
   status: WorkerTerminalStatus;
@@ -206,6 +210,7 @@ export class WorkerHost {
    */
   private pauseControl: string | undefined;
   private turn: Turn | undefined;
+  private readonly accounting = new TurnAccounting();
 
   constructor(options: WorkerHostOptions) {
     this.options = options;
@@ -535,6 +540,15 @@ export class WorkerHost {
       // before the pause is committed or refused.
       if (next.input === null && this.pauseControl !== undefined) continue;
       if (next.input === null) {
+        // Nothing will come however long this waits: give the slot back now
+        // rather than at the idle timeout.
+        if (next.reason === "BUDGET_EXCEEDED") {
+          this.stop({
+            kind: "idle",
+            reason: "The session has spent its cost budget (BUDGET_EXCEEDED)",
+          });
+          return;
+        }
         const idleFor = this.now().getTime() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
           this.stop({
@@ -909,6 +923,10 @@ export class WorkerHost {
                   reason: outcome.reason,
                   result: outcome.result ?? null,
                   usage: outcome.usage ?? null,
+                  cost_usd:
+                    outcome.costUsd === undefined
+                      ? null
+                      : Math.min(outcome.costUsd, MAX_TURN_COST_USD),
                 },
                 checkpoint: ref,
               })
@@ -1194,6 +1212,7 @@ export class WorkerHost {
   }
 
   private observe(native: NativeSdkMessage): void {
+    this.accounting.observe(native);
     if (native.type !== "result") return;
     const turn = this.turn;
     if (turn === undefined) return;
@@ -1207,25 +1226,31 @@ export class WorkerHost {
         `Turn ${turn.turnId} ran out of time, and the engine answered for no input`,
       );
     }
-    this.settleTurn(
-      attributed.includes(turn.uuid)
+    // A turn already closed takes nothing: its settlement is a no-op, and the
+    // cost stays for the turn that can still carry it.
+    const { costUsd, providerFailure } = turn.closed
+      ? { costUsd: undefined, providerFailure: undefined }
+      : this.accounting.settle();
+    this.settleTurn({
+      ...(attributed.includes(turn.uuid)
         ? turn.timedOut
           ? // Whatever the engine says it ended with, the budget ended it.
             {
-              ...terminalOf(native),
+              ...terminalOf(native, providerFailure),
               status: "failed",
               reason: "turn_timeout",
             }
-          : terminalOf(native)
+          : terminalOf(native, providerFailure)
         : {
             status: "outcome_unknown",
             reason: turn.timedOut
               ? "turn_timeout"
               : "The engine reported a result it attributed to no input",
-            result: resultPayload(native),
+            result: resultPayload(native, providerFailure),
             usage: native.usage ?? null,
-          },
-    );
+          }),
+      ...(costUsd === undefined ? {} : { costUsd }),
+    });
   }
 
   private async onPermission(
@@ -1549,7 +1574,10 @@ function attributedUuids(native: NativeSdkMessage): string[] {
   return [...new Set([...listed, ...last])];
 }
 
-function terminalOf(native: NativeSdkMessage): Settlement {
+function terminalOf(
+  native: NativeSdkMessage,
+  providerFailure: ProviderFailure | undefined,
+): Settlement {
   const subtype =
     typeof native.subtype === "string" ? native.subtype : "unknown";
   const interrupted = native.terminal_reason === "interrupted";
@@ -1561,18 +1589,44 @@ function terminalOf(native: NativeSdkMessage): Settlement {
       : "completed";
   return {
     status,
-    reason: status === "completed" ? null : subtype,
-    result: resultPayload(native),
+    reason: status === "completed" ? null : failureReason(native, subtype),
+    result: resultPayload(native, providerFailure),
     usage: native.usage ?? null,
   };
 }
 
-function resultPayload(native: NativeSdkMessage): unknown {
+/**
+ * A request the provider kept refusing ends as `success` with `is_error`, so
+ * the subtype says nothing there and the engine's terminal reason
+ * (`api_error`, …) is the cause.
+ */
+function failureReason(native: NativeSdkMessage, subtype: string): string {
+  if (subtype !== "success") return subtype;
+  return typeof native.terminal_reason === "string" &&
+    native.terminal_reason.length > 0
+    ? native.terminal_reason
+    : "error";
+}
+
+function resultPayload(
+  native: NativeSdkMessage,
+  providerFailure: ProviderFailure | undefined,
+): unknown {
   return {
     subtype: native.subtype ?? null,
     is_error: native.is_error ?? null,
     stop_reason: native.stop_reason ?? null,
     terminal_reason: native.terminal_reason ?? null,
+    ...(native.terminal_reason === "api_error"
+      ? {
+          api_error_status:
+            typeof native.api_error_status === "number"
+              ? native.api_error_status
+              : null,
+          provider_error: providerFailure?.error ?? null,
+          last_retry_status: providerFailure?.status ?? null,
+        }
+      : {}),
   };
 }
 

@@ -35,7 +35,13 @@ import {
 
 const ANSWER = "answer";
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
-const OPEN_TURN_STATUSES = ["running", "needs_input"];
+// Stored statuses of a session or turn in flight. No writer stores
+// needs_input any more; a row that holds it reads like running, so the
+// public status never contradicts pending_request_count.
+export const IN_FLIGHT_STATUSES: ("running" | "needs_input")[] = [
+  "running",
+  "needs_input",
+];
 
 type StoredPayload =
   | { kind: "permission"; tool: string; input: NonNullable<unknown> | null }
@@ -54,8 +60,20 @@ function askerIsLive(at: Date | typeof DB_NOW) {
     eq(attempts.authRevision, sessions.authRevision),
     notInArray(attempts.state, ENDED_ATTEMPT_STATES),
     gt(attempts.leaseExpiresAt, at),
-    inArray(turns.status, OPEN_TURN_STATUSES),
+    inArray(turns.status, IN_FLIGHT_STATUSES),
     eq(turns.attemptId, pendingRequests.attemptId),
+  );
+}
+
+// One instant for a whole statement: a status and a count read in the same
+// SELECT must not straddle an expiry or a lease end.
+const STATEMENT_NOW = sql<Date>`statement_timestamp()`;
+
+function actionable(at: typeof DB_NOW) {
+  return and(
+    isNull(pendingRequests.resolvedAt),
+    gt(pendingRequests.expiresAt, at),
+    askerIsLive(at),
   );
 }
 
@@ -65,23 +83,62 @@ function askerIsLive(at: Date | typeof DB_NOW) {
  * the list never disagree.
  */
 export function actionablePendingWhere(sessionId: string) {
-  return and(
-    eq(pendingRequests.sessionId, sessionId),
-    isNull(pendingRequests.resolvedAt),
-    gt(pendingRequests.expiresAt, DB_NOW),
-    askerIsLive(DB_NOW),
-  );
+  return and(eq(pendingRequests.sessionId, sessionId), actionable(DB_NOW));
 }
 
-// The joins every actionable-pending query needs for `askerIsLive`.
-export function countActionablePending(db: Database, sessionId: string) {
+/**
+ * The actionable requests of the outer query's `sessions` row, which
+ * `askerIsLive` compares their attempt against. Read beside that row, in the
+ * same statement, so its status and its count come from one snapshot.
+ */
+export function actionableOfSession(db: Database) {
   return db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ one: sql`1` })
+    .from(pendingRequests)
+    .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+    .where(
+      and(
+        eq(pendingRequests.sessionId, sessions.id),
+        actionable(STATEMENT_NOW),
+      ),
+    );
+}
+
+// The same, for the outer query's `turns` row.
+export function actionableOfTurn(db: Database) {
+  return db
+    .select({ one: sql`1` })
     .from(pendingRequests)
     .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
     .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
-    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
-    .where(actionablePendingWhere(sessionId));
+    .where(
+      and(
+        // Redundant with turn_id, but it is what the unresolved-by-session
+        // index is keyed on.
+        eq(pendingRequests.sessionId, turns.sessionId),
+        eq(pendingRequests.turnId, turns.id),
+        actionable(STATEMENT_NOW),
+      ),
+    );
+}
+
+export function isInFlight(status: string): boolean {
+  return (IN_FLIGHT_STATUSES as string[]).includes(status);
+}
+
+/**
+ * `needs_input` is never stored (DESIGN.md §6.4): it is a running session or
+ * turn with a request a person can still answer. Derived on read, it drops
+ * back the instant the last one is answered, settled, expires or loses its
+ * attempt, with no write or sweep to miss.
+ */
+export function publicStatus<S extends string>(
+  stored: S,
+  awaitingInput: boolean,
+): S | "needs_input" | "running" {
+  if (!isInFlight(stored)) return stored;
+  return awaitingInput ? "needs_input" : "running";
 }
 
 /**

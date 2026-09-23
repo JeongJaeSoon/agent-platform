@@ -78,6 +78,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
    * heartbeat committed.
    */
   refuseDraining = true;
+  /** Set to answer every poll the way the gateway does a session past its cost limit. */
+  overBudget = false;
   private draining = false;
   /** Set by an `outcome_unknown` terminal: the real gateway holds input back then. */
   private recoveryRequired = false;
@@ -221,6 +223,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
       runtime: this.options.runtime,
+      profile_fingerprint: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
       workspace: this.options.workspace ?? {
         repository: {
@@ -236,6 +239,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
 
   async nextInput(request: NextInputRequest): Promise<NextInputResponse> {
     this.calls.push("nextInput");
+    if (this.overBudget) {
+      return {
+        input: null,
+        lease_expires_at: this.leaseExpiresAt(),
+        draining: true,
+        reason: "BUDGET_EXCEEDED",
+      };
+    }
     // Like the real gateway, a draining attempt's poll comes back at once.
     const handsNothing =
       (this.draining && this.refuseDraining) || this.recoveryRequired;

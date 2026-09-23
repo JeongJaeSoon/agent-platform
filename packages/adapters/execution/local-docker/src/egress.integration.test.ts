@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   hashWorkerToken,
@@ -1067,6 +1067,170 @@ console.log("TLS " + response.status + " " + (await response.text()));
         ].sort(),
       );
     }, 120_000);
+
+    describe("a host process on a wildcard address", () => {
+      let hostPort = 0;
+      let stopListener: () => Promise<void> = async () => undefined;
+      /** Whether the listener is this very process, not a stand-in. */
+      let listenerIsThisProcess = false;
+
+      /**
+       * Where "the host" is depends on the daemon, not on this client. When
+       * this process holds an address the daemon gave a bridge, it shares
+       * the daemon's network namespace (native Linux, as in CI), and the
+       * listener is this process itself — a real host process. Otherwise
+       * (Docker Desktop's VM, a remote daemon) the listener is a container
+       * in the daemon host's namespace, the same position relative to the
+       * bridges.
+       */
+      beforeAll(async () => {
+        const gateway =
+          (await client.inspectNetwork(workerNetwork))?.IPAM?.Config?.[0]
+            ?.Gateway ?? "";
+        listenerIsThisProcess = Object.values(networkInterfaces())
+          .flat()
+          .some((entry) => entry?.address === gateway);
+        if (listenerIsThisProcess) {
+          const server = Bun.serve({
+            fetch: () => new Response("host-listener"),
+            hostname: "0.0.0.0",
+            port: 0,
+          });
+          hostPort = server.port ?? 0;
+          stopListener = async () => {
+            await server.stop(true);
+          };
+        } else {
+          const name = `ap-it-hostlistener-${suffix}`;
+          hostPort = 20_000 + Math.floor(Math.random() * 20_000);
+          created.push(name);
+          const response = await raw(
+            "POST",
+            `/containers/create?name=${name}`,
+            {
+              Cmd: [
+                "sh",
+                "-c",
+                `mkdir -p /www && echo host-listener > /www/index.html && exec httpd -f -p 0.0.0.0:${hostPort} -h /www`,
+              ],
+              HostConfig: { NetworkMode: "host" },
+              Image: IMAGE,
+              User: "0:0",
+            },
+          );
+          expect(response.status).toBe(201);
+          await client.startContainer(name);
+          stopListener = () => client.stopAndRemoveContainer(name, 1);
+        }
+        expect(hostPort).toBeGreaterThan(0);
+        // CI's runner is native Linux: there the acceptance check has to be
+        // made against a real host process, never the stand-in.
+        if (process.env.CI === "true" && process.platform === "linux") {
+          expect(listenerIsThisProcess).toBe(true);
+        }
+      }, 60_000);
+
+      afterAll(async () => {
+        await stopListener().catch(() => undefined);
+      });
+
+      /**
+       * Runs `command` in the daemon host's network namespace: the test
+       * process's own on native Linux, the VM's on Docker Desktop.
+       */
+      async function onDaemonHost(
+        command: string,
+      ): Promise<{ exitCode: number; output: string }> {
+        const name = `ap-it-hostns-${crypto.randomUUID().slice(0, 8)}`;
+        await raw("POST", `/containers/create?name=${name}`, {
+          Cmd: ["sh", "-c", command],
+          HostConfig: { NetworkMode: "host" },
+          Image: IMAGE,
+          Tty: true,
+        });
+        try {
+          await client.startContainer(name);
+          const waited = (await (
+            await raw("POST", `/containers/${name}/wait`)
+          ).json()) as { StatusCode: number };
+          return { exitCode: waited.StatusCode, output: await logsOf(name) };
+        } finally {
+          await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
+        }
+      }
+
+      /** Every IPv4 address the daemon host holds, loopback aside. */
+      async function daemonHostAddresses(): Promise<string[]> {
+        const listed = await onDaemonHost("ip -o -4 addr show");
+        expect(listed.exitCode).toBe(0);
+        return [...listed.output.matchAll(/inet (\d+\.\d+\.\d+\.\d+)\//g)]
+          .map((match) => match[1] ?? "")
+          .filter((address) => address !== "" && !address.startsWith("127."));
+      }
+
+      test("is reached through the gateway of a network without the gateway mode", async () => {
+        // The positive control: the listener is up, and an internal network
+        // that keeps the default mode does hand the host an address on it —
+        // one the host really holds.
+        const network = await client.inspectNetwork(workerNetwork);
+        const gateway = network?.IPAM?.Config?.[0]?.Gateway ?? "";
+        expect(gateway).not.toBe("");
+        expect(await daemonHostAddresses()).toContain(gateway);
+        const deadline = Date.now() + 30_000;
+        let reached = await probe(
+          `wget -T 5 -q -O - http://${gateway}:${hostPort}/`,
+        );
+        while (reached.exitCode !== 0 && Date.now() < deadline) {
+          await Bun.sleep(500);
+          reached = await probe(
+            `wget -T 5 -q -O - http://${gateway}:${hostPort}/`,
+          );
+        }
+        expect(reached.output).toContain("host-listener");
+        expect(reached.exitCode).toBe(0);
+      }, 60_000);
+
+      test("is reached at no address from a worker's own network, which gives the host none", async () => {
+        const network = await client.inspectNetwork(
+          networkNameFor(lateral.a, installationId),
+        );
+        expect(network?.Options).toMatchObject({
+          "com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+        });
+        const config = network?.IPAM?.Config ?? [];
+        expect(config.length).toBeGreaterThan(0);
+        expect(config.every((entry) => !entry.Gateway)).toBe(true);
+        // The bridge itself is there on the host, without an IPv4 address.
+        const bridge = `br-${network?.Id.slice(0, 12)}`;
+        const link = await onDaemonHost(`ip -o link show ${bridge}`);
+        expect(link.exitCode).toBe(0);
+        const addressed = await onDaemonHost(
+          `ip -o -4 addr show dev ${bridge}`,
+        );
+        expect(addressed.exitCode).toBe(0);
+        expect(addressed.output).not.toContain("inet ");
+
+        // The worker is alive and on its link: it reaches the proxy directly.
+        const toProxy = await execIn(lateral.a, `nc -z -w 3 ${proxyName} 3128`);
+        expect(toProxy.exitCode).toBe(0);
+        const routes = await execIn(lateral.a, "ip -4 route");
+        expect(routes.output).toContain(config[0]?.Subnet ?? "<no subnet>");
+        expect(routes.output).not.toContain("default");
+
+        // And every address the host holds is out of its reach. A network in
+        // the default mode would have put one of them on this very link.
+        const addresses = await daemonHostAddresses();
+        expect(addresses.length).toBeGreaterThan(0);
+        for (const address of addresses) {
+          const direct = await execIn(
+            lateral.a,
+            `wget -T 2 -q -Y off -O - http://${address}:${hostPort}/`,
+          );
+          expect(direct.output).not.toContain("host-listener");
+          expect(direct.exitCode).not.toBe(0);
+        }
+      }, 180_000);
+    });
 
     test("a proxy that lost its attachment is given it back by the reconcile", async () => {
       const network = networkNameFor(lateral.a, installationId);

@@ -11,18 +11,24 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  catalogRevision,
   createInterruptService,
   createPendingRequestService,
   createSessionService,
   createWorkerGateway,
-  DEFAULT_LEASE_TTL_MS,
-  isCatalogEmpty,
+  InstallationConfigError,
+  installationLimitProblems,
+  installationLimitsFromEnv,
   ownerScopedPolicy,
-  parseSessionCatalogEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
+import {
+  DEFAULT_CONFIG_DIR,
+  loadSessionCatalog,
+  secretsManagerReader,
+} from "./catalog-config.ts";
 import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
@@ -31,6 +37,7 @@ import {
 } from "./checkpoints.ts";
 import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -52,18 +59,31 @@ if (!databaseUrl) {
 }
 
 const logger = createLogger();
-const catalog = parseSessionCatalogEnv(
-  "SESSION_CATALOG_JSON",
-  process.env.SESSION_CATALOG_JSON,
-);
-if (isCatalogEmpty(catalog)) {
-  // Every POST /v1/sessions answers 422 until the catalog lists at least one
-  // profile and one repository; say so once instead of failing silently.
-  logger.warn("Session catalog is empty; session creation will be rejected", {
-    profiles: Object.keys(catalog.profiles).length,
-    repositories: Object.keys(catalog.repositories).length,
-  });
-}
+const limits = (() => {
+  try {
+    return installationLimitsFromEnv(process.env);
+  } catch (error) {
+    // Every problem in one line before the process dies, so the operator
+    // fixes the env file once instead of once per variable.
+    if (error instanceof InstallationConfigError) {
+      logger.error("Refusing to start: installation limits are invalid", {
+        problems: error.problems,
+      });
+    }
+    throw error;
+  }
+})();
+const catalog = await loadSessionCatalog({
+  dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
+  env: process.env,
+  readSecret: secretsManagerReader(process.env),
+});
+logger.info("Session catalog loaded", {
+  revision: catalogRevision(catalog),
+  profiles: Object.keys(catalog.profiles).length,
+  repositories: Object.keys(catalog.repositories).length,
+});
+const leaseTtlMs = heartbeatTtlMsFromEnv(process.env.HEARTBEAT_TTL_SEC);
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
@@ -96,6 +116,7 @@ const sessions = createSessionService({
   controls: createPostgresSessionControl(db),
   reader: createPostgresSessionReader(db),
   catalog,
+  limits,
 });
 const pendingRequests = createPendingRequestService({
   authorization: ownerScopedPolicy,
@@ -105,9 +126,6 @@ const interrupts = createInterruptService({
   authorization: ownerScopedPolicy,
   store: createPostgresTurnInterrupts(db),
 });
-// Seconds so an operator can shorten it in a test deployment; the worker
-// heartbeats at a fraction of this.
-const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
 // How long a permission or question takes answers; unset keeps 30 minutes.
 const pendingTtlSec = Number(process.env.PENDING_REQUEST_TTL_SEC);
 const workers = createWorkerGateway({
@@ -122,10 +140,8 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   options: {
-    leaseTtlMs:
-      Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
-        ? heartbeatTtlSec * 1000
-        : DEFAULT_LEASE_TTL_MS,
+    sessionCostLimitUsd: limits.sessionCostLimitUsd,
+    leaseTtlMs,
     ...(Number.isFinite(pendingTtlSec) && pendingTtlSec > 0
       ? { pendingTtlMs: pendingTtlSec * 1000 }
       : {}),
@@ -189,6 +205,9 @@ const app = createApiApp({
       "DATABASE_URL",
       { name: "AUTH_MODE", allowed: ["none", "api-key"] },
     ],
+    // The same parser the process started with: an env that changed under a
+    // running instance shows up here rather than at the next restart.
+    configProblems: installationLimitProblems,
   }),
 });
 

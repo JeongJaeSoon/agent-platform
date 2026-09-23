@@ -41,7 +41,10 @@ export const attemptSummarySchema = z.object({
 export const turnSummarySchema = z.object({
   turn_id: turnIdSchema,
   session_id: sessionIdSchema,
-  status: turnStatusSchema,
+  status: turnStatusSchema.meta({
+    description:
+      "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer.",
+  }),
   message: z.string(),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable(),

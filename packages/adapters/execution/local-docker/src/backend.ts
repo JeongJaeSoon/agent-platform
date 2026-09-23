@@ -114,6 +114,8 @@ export const ENV = {
    * sizes its drain to what it will actually get.
    */
   stopGrace: "WORKER_STOP_GRACE_SEC",
+  maxTurnSeconds: "WORKER_MAX_TURN_SEC",
+  providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -131,11 +133,27 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  * 4: the workspace volume is created explicitly, under a byte quota.
  * 5: each worker on an internal network of its own, shared only with the
  *    egress proxy, so workers no longer reach one another (94S-216).
+ * 6: that network gives the host no address on it, so a host process
+ *    listening on a wildcard address is out of reach too (94S-274).
  */
-export const ISOLATION_CONTRACT = 5;
+export const ISOLATION_CONTRACT = 6;
 
 /** The first contract whose workers each sit on a network of their own. */
 const PER_EXECUTION_NETWORK_CONTRACT = 5;
+
+/** The first contract whose networks leave the host no address on them. */
+const HOST_ISOLATED_NETWORK_CONTRACT = 6;
+
+/**
+ * Without it even an internal bridge holds an address for the host (the
+ * IPAM gateway), and whatever the host serves on that address or on a
+ * wildcard is one hop from the worker, proxy or not. `isolated` leaves the
+ * host no address on the network at all. Docker 28 (API 1.48) is the first
+ * to know the mode.
+ */
+const GATEWAY_MODE_OPTION = "com.docker.network.bridge.gateway_mode_ipv4";
+const GATEWAY_MODE = "isolated";
+const GATEWAY_MODE_MIN_API = [1, 48] as const;
 
 /**
  * What goes in the label: the contract version and a fingerprint of the
@@ -168,6 +186,10 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
+    // Same for the turn deadline and provider retries (94S-131). It also
+    // retires containers from before the limits existed, whose workers
+    // report no turn cost and so would never reach the budget.
+    config.workerLimits ?? null,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -335,6 +357,23 @@ export class NetworkIsolationError extends Error {
   }
 }
 
+/**
+ * The daemon predates the gateway mode that keeps the host off a worker's
+ * network. Refused rather than warned about: without it every host process
+ * on a wildcard address is inside the worker's reach, and nothing here
+ * could tell which of those matter. No opt-out yet — no supported target
+ * runs Docker older than 28; one that has to is the trigger for adding it.
+ */
+export class GatewayModeUnsupportedError extends Error {
+  constructor(readonly apiVersion: string) {
+    super(
+      `Docker API ${apiVersion} cannot give a worker network ${GATEWAY_MODE_OPTION}=${GATEWAY_MODE}; ` +
+        `Docker 28 (API ${GATEWAY_MODE_MIN_API.join(".")}) or later is required`,
+    );
+    this.name = "GatewayModeUnsupportedError";
+  }
+}
+
 export class ExecutionConflictError extends Error {
   constructor(
     readonly ref: ExecutionRef,
@@ -404,6 +443,10 @@ export class LocalDockerBackend implements ExecutionBackend {
    */
   async verifyNetworkIsolation(): Promise<void> {
     await this.egressProxy();
+    const { ApiVersion } = await this.client.version();
+    if (!apiAtLeast(ApiVersion, GATEWAY_MODE_MIN_API)) {
+      throw new GatewayModeUnsupportedError(ApiVersion);
+    }
   }
 
   /**
@@ -527,7 +570,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     const network = await this.ensureWorkerNetwork(
       intent,
       proxy,
-      await this.launchedContainerId(intent),
+      await this.launchedContainer(intent),
     );
     // Two passes at most. The second is the one that follows a lost create
     // race, and it judges the winner by the same rules — a container that
@@ -551,7 +594,7 @@ export class LocalDockerBackend implements ExecutionBackend {
           if (verdict === "current") assertOnlyOn(existing, network);
         } catch (error) {
           // The proxy is on the network by now. A container that took the
-          // name since `launchedContainerId` looked, or one of ours that is
+          // name since `launchedContainer` looked, or one of ours that is
           // on another network besides, must not keep it through a refusal.
           // A detach that did not hold is said in the refusal; the next
           // `reconcileNetworks` tries again and fails the pass until it does.
@@ -676,7 +719,8 @@ export class LocalDockerBackend implements ExecutionBackend {
       await this.ensureWorkerNetwork(
         intent,
         proxy,
-        await this.launchedContainerId(intent),
+        await this.launchedContainer(intent),
+        { replacing: true },
       );
       if (workspace !== null) {
         this.replacementWorkspaces.set(intent.sessionId, workspace);
@@ -929,7 +973,16 @@ export class LocalDockerBackend implements ExecutionBackend {
     );
     const joined = network.Name in (container.NetworkSettings?.Networks ?? {});
     const problem =
-      workerNetworkProblem(network, ref, this.config.installationId) ??
+      workerNetworkProblem(network, ref, this.config.installationId, {
+        // A contract-5 worker keeps what contract 5 gave it until it is
+        // replaced or drained — including on a daemon the preflight
+        // refused, where no pass runs to replace it. No operation id is
+        // compared: the network never carried one, and a same-named worker
+        // of another operation is refused by every launch path anyway.
+        hostAddress: predatesHostIsolation(container, network)
+          ? "tolerated"
+          : "refused",
+      }) ??
       (labels[LABELS.installation] !== this.config.installationId ||
       labels[LABELS.executionId] !== ref.executionId ||
       labels[LABELS.generation] !== String(ref.generation)
@@ -1024,14 +1077,14 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   /**
-   * The id of the container already under this launch's name, once it is
-   * known to be this launch's — the one member besides the proxy a worker
+   * The container already under this launch's name, once it is known to be
+   * this launch's — the one member besides the proxy a worker
    * network may have. Refuses a container that is not, before anything is
    * attached to the network it sits on.
    */
-  private async launchedContainerId(
+  private async launchedContainer(
     intent: LaunchIntent,
-  ): Promise<string | null> {
+  ): Promise<ContainerInspect | null> {
     const existing = await this.client.inspectContainer(
       containerNameFor(intent, this.config.installationId),
     );
@@ -1043,7 +1096,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       );
     }
     this.assertSameLaunch(intent, existing);
-    return existing.Id;
+    return existing;
   }
 
   /**
@@ -1067,15 +1120,40 @@ export class LocalDockerBackend implements ExecutionBackend {
    * dials. Answers with the network as the daemon holds it; the container is
    * created against its id, so a network recreated under the same name in
    * between cannot stand in for it.
+   *
+   * A network from before contract 6 cannot be given the gateway mode in
+   * place. With no worker left on it, it is removed and made again. With
+   * this launch's contract-5 worker still on it, it is kept only for a
+   * `replacing` caller, whose teardown takes it along with that worker;
+   * anyone else is refused.
    */
   private async ensureWorkerNetwork(
     intent: LaunchIntent,
     proxy: ContainerSummary,
-    workerId: string | null,
+    worker: ContainerInspect | null,
+    { replacing = false }: { replacing?: boolean } = {},
   ): Promise<NetworkInspect> {
     const { installationId } = this.config;
     const name = networkNameFor(intent, installationId);
     let network = await this.client.inspectNetwork(name);
+    if (
+      network !== null &&
+      worker === null &&
+      workerNetworkProblem(network, intent, installationId, {
+        hostAddress: "tolerated",
+      }) === null &&
+      hostAddressProblem(network) !== null
+    ) {
+      // Left behind by a teardown whose removal did not hold. Anything but
+      // the proxy still on it makes this refuse, as it would anywhere else.
+      await this.removeUnusedNetwork(
+        network,
+        await this.client.listContainers([
+          `${LABELS.egressProxy}=${installationId}`,
+        ]),
+      );
+      network = null;
+    }
     if (network === null) {
       try {
         await this.client.createNetwork({
@@ -1092,6 +1170,7 @@ export class LocalDockerBackend implements ExecutionBackend {
             [LABELS.workerNetwork]: "true",
           },
           Name: name,
+          Options: { [GATEWAY_MODE_OPTION]: GATEWAY_MODE },
         });
       } catch (error) {
         // Lost a create race; the winner is judged below like any network
@@ -1105,13 +1184,18 @@ export class LocalDockerBackend implements ExecutionBackend {
         throw new NetworkIsolationError(name, "vanished as it was created");
       }
     }
-    const problem = workerNetworkProblem(network, intent, installationId);
+    const problem = workerNetworkProblem(network, intent, installationId, {
+      hostAddress:
+        replacing && worker !== null && predatesHostIsolation(worker, network)
+          ? "tolerated"
+          : "refused",
+    });
     if (problem !== null) throw new NetworkIsolationError(name, problem);
     // By id, not by name: a container under the worker's name that is not
-    // this launch's was already refused by `launchedContainerId`.
+    // this launch's was already refused by `launchedContainer`.
     const strangers = strangersIn(
       await this.membersOf(network),
-      new Set(workerId === null ? [proxy.Id] : [proxy.Id, workerId]),
+      new Set(worker === null ? [proxy.Id] : [proxy.Id, worker.Id]),
     );
     if (strangers.length > 0) {
       throw new NetworkIsolationError(
@@ -1636,6 +1720,9 @@ function workerNetworkProblem(
   network: NetworkInspect,
   ref: ExecutionRef,
   installationId: string,
+  { hostAddress }: { hostAddress: "refused" | "tolerated" } = {
+    hostAddress: "refused",
+  },
 ): string | null {
   const labels = network.Labels ?? {};
   const name = networkNameFor(ref, installationId);
@@ -1660,6 +1747,56 @@ function workerNetworkProblem(
   }
   if (network.EnableIPv6 === true) {
     return "has IPv6 enabled, an address family this host does not check";
+  }
+  return hostAddress === "refused" ? hostAddressProblem(network) : null;
+}
+
+/**
+ * A contract-5 worker on the network it was created on — the one worker a
+ * network that gives the host an address is left standing for, until it is
+ * replaced or drained and the network goes with it. Only contract 5: an
+ * older worker sits on the shared network, which is handled apart.
+ */
+function predatesHostIsolation(
+  container: ContainerInspect,
+  network: NetworkInspect,
+): boolean {
+  const stamp = container.Config.Labels?.[LABELS.isolation];
+  const version = Number(stamp?.split(":")[0]);
+  if (
+    !Number.isInteger(version) ||
+    version < PER_EXECUTION_NETWORK_CONTRACT ||
+    version >= HOST_ISOLATED_NETWORK_CONTRACT
+  ) {
+    return false;
+  }
+  const endpoint = container.NetworkSettings?.Networks?.[network.Name];
+  if (endpoint === undefined) return false;
+  if (endpoint.NetworkID === network.Id) return true;
+  // A container that never started records its network by name only; it
+  // runs nothing, so the name is enough. One that ran carries the id, and
+  // without this network's id it is on some other network of that name.
+  return (
+    (endpoint.NetworkID === undefined || endpoint.NetworkID === "") &&
+    container.State.Status === "created"
+  );
+}
+
+/**
+ * Whether the host holds an address on the network. Both halves are asked:
+ * the option is what was requested, and a daemon that does not know it
+ * records it anyway; the missing gateway is what took effect.
+ */
+function hostAddressProblem(network: NetworkInspect): string | null {
+  const mode = network.Options?.[GATEWAY_MODE_OPTION];
+  const gateways = (network.IPAM?.Config ?? [])
+    .map((entry) => entry.Gateway ?? "")
+    .filter((gateway) => gateway !== "");
+  if (mode !== GATEWAY_MODE || gateways.length > 0) {
+    return (
+      `gives the host an address on it (${GATEWAY_MODE_OPTION}=${mode ?? "<unset>"}, ` +
+      `gateway ${gateways.join(", ") || "<none>"}); a worker on it reaches host processes on that address or a wildcard`
+    );
   }
   return null;
 }
@@ -1793,6 +1930,12 @@ export function workerEnvironmentFor(
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
     `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
+    ...(config.workerLimits === undefined
+      ? []
+      : [
+          `${ENV.maxTurnSeconds}=${config.workerLimits.maxTurnSeconds}`,
+          `${ENV.providerMaxRetries}=${config.workerLimits.providerMaxRetries}`,
+        ]),
   ];
 }
 
@@ -1816,6 +1959,17 @@ function contractVerdictOf(
 /** The fingerprint label, or null on a container from before the label. */
 function credentialFingerprintOf(container: ContainerInspect): string | null {
   return container.Config.Labels?.[LABELS.bootstrapFingerprint] ?? null;
+}
+
+/** `"1.48"` against `[1, 48]`; anything unparsable is not at least. */
+function apiAtLeast(
+  version: string,
+  [major, minor]: readonly [number, number],
+): boolean {
+  const match = /^(\d+)\.(\d+)$/.exec(version ?? "");
+  if (match === null) return false;
+  const found = [Number(match[1]), Number(match[2])] as const;
+  return found[0] > major || (found[0] === major && found[1] >= minor);
 }
 
 function messageOf(error: unknown): string {

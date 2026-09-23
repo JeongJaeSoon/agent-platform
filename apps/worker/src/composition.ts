@@ -109,6 +109,7 @@ export function claudeRuntimeRegistry(
             ...runtimeConfig.provider,
             principal: { ownerScope: principal.owner_scope },
           },
+          providerMaxRetries: config.runtime.providerMaxRetries,
           // None of the repository's own Claude settings: its hooks would run
           // commands no permission callback sees, with the provider key in
           // reach, and the claim's profile is the only policy reviewed. Its

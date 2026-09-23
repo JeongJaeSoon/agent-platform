@@ -43,10 +43,15 @@ import type {
   FenceRejection,
   FinalizeResult,
   ResolvedCredential,
+  RunnablePair,
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
+import {
+  profileFingerprint,
+  runtimeProviderOf,
+  type SessionCatalog,
+} from "../sessions/catalog.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
@@ -102,6 +107,8 @@ export type CheckpointProtocol = {
 export type WorkerGatewayOptions = {
   /** How long a heartbeat extends the lease. */
   leaseTtlMs: number;
+  /** SESSION_COST_LIMIT_USD: past it a session is dispatched nothing new. */
+  sessionCostLimitUsd: number;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /** Lifetime of a launch nonce registered through registerLaunch. */
@@ -348,8 +355,19 @@ export function createWorkerGateway(deps: {
   // Only sessions this host can actually run are claimable. Letting a
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
-  // through a queue slot. It waits for a host that knows the profile.
-  const runnableProfiles = Object.keys(catalog.profiles);
+  // through a queue slot. It waits for a host that knows the profile — and
+  // that still lets it run against the session's repository (94S-258).
+  const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
+    ([repositoryId, repository]) =>
+      repository.profiles
+        .filter((profileId) => Object.hasOwn(catalog.profiles, profileId))
+        .map((profileId) => ({
+          profileId,
+          repositoryId,
+          url: repository.url,
+          branch: repository.branch,
+        })),
+  );
 
   // Resolved at claim time, on purpose: the catalog is where an operator
   // rotates a provider credential, and the next claim (a new generation, or
@@ -360,6 +378,7 @@ export function createWorkerGateway(deps: {
   // against — its repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(profileId: string | null): {
     runtime: SessionRuntime;
+    profile_fingerprint: string;
     runtime_config: RuntimeConfig;
   } {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
@@ -377,11 +396,12 @@ export function createWorkerGateway(deps: {
         version: profile.runtime_version,
         profile_id: profileId,
       },
+      profile_fingerprint: profileFingerprint(profile),
       runtime_config: {
         model: profile.model,
         tools: profile.tools,
         permission_mode: profile.permission_mode,
-        provider: profile.provider,
+        provider: runtimeProviderOf(profile),
         ...(profile.project_settings?.claude_md === true
           ? { project_settings: profile.project_settings }
           : {}),
@@ -529,7 +549,8 @@ export function createWorkerGateway(deps: {
       const at = now();
       const sessionToken = generateSessionToken();
       const result = await work.claimAtomic({
-        runnableProfiles,
+        runnable,
+        costLimitUsd: deps.options.sessionCostLimitUsd,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -557,7 +578,7 @@ export function createWorkerGateway(deps: {
           throw new WorkerGatewayError(
             409,
             "BACKEND_UNAVAILABLE",
-            "The session's runtime profile is not in this host's catalog",
+            "The session's profile, or its pairing with the session's repository, is not in this host's catalog",
             true,
           );
         default: {
@@ -588,13 +609,19 @@ export function createWorkerGateway(deps: {
       const deadline =
         now().getTime() + Math.min(request.wait_ms ?? 0, maxWaitMs);
       for (;;) {
-        const result = await work.nextInputAtomic({ fence, now: now() });
+        const result = await work.nextInputAtomic({
+          fence,
+          now: now(),
+          costLimitUsd: deps.options.sessionCostLimitUsd,
+        });
         if (result.outcome !== "ok") rejected(result);
-        // A draining attempt is never handed new input, so waiting out the
-        // poll would only hold up its shutdown.
+        // A draining attempt is never handed new input, and neither is a
+        // session over budget, so waiting out the poll would only hold up
+        // the shutdown.
         if (
           result.input ||
           result.draining === true ||
+          result.blocked !== undefined ||
           now().getTime() >= deadline
         ) {
           return {
@@ -608,6 +635,9 @@ export function createWorkerGateway(deps: {
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),
+            ...(result.blocked === undefined
+              ? {}
+              : { draining: true, reason: result.blocked }),
           };
         }
         // Never sleep past the deadline the caller asked for: a one

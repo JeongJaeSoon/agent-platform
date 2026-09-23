@@ -30,6 +30,7 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_MAX_TURN_SEC?: string | undefined;
   WORKER_NEXT_INPUT_RETRY_SEC?: string | undefined;
   WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
+  WORKER_PROVIDER_MAX_RETRIES?: string | undefined;
   WORKER_REQUEST_TIMEOUT_SEC?: string | undefined;
   WORKER_STARTUP_TIMEOUT_SEC?: string | undefined;
   QUESTION_TIMEOUT_SEC?: string | undefined;
@@ -92,6 +93,11 @@ export type WorkerRuntimeSettings = {
   claudeConfigDir: string;
   cwd: string;
   home: string;
+  /**
+   * Retries of a failed Messages request before the turn fails: the
+   * installation's PROVIDER_MAX_RETRIES, which the launcher passes on.
+   */
+  providerMaxRetries: number;
 };
 
 export type WorkerConfig = {
@@ -138,6 +144,11 @@ export function workerConfigFromEnv(
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
+      // 2 matches the installation default, for a launcher that predates it.
+      providerMaxRetries: nonNegativeInteger(
+        environment.WORKER_PROVIDER_MAX_RETRIES ?? "2",
+        "WORKER_PROVIDER_MAX_RETRIES",
+      ),
     },
     timeouts: {
       answerPollIntervalMs: seconds(

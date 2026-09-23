@@ -4,25 +4,28 @@ import {
   localDockerConfigFromEnv,
 } from "@agent-platform/execution-local-docker";
 import {
-  DEFAULT_EXECUTION_SLOT_LIMIT,
   type ExecutionResources,
+  type InstallationLimits,
+  type InstallationLimitsEnvironment,
+  installationLimitsFromEnv,
 } from "@agent-platform/platform";
 
-export type SchedulerEnvironment = LocalDockerBackendEnvironment & {
-  DATABASE_URL?: string | undefined;
-  EXECUTION_SLOT_LIMIT?: string | undefined;
-  LOG_LEVEL?: string | undefined;
-  QUEUE_DATABASE_URL?: string | undefined;
-  WORKER_CPUS?: string | undefined;
-  WORKER_IMAGE?: string | undefined;
-  WORKER_MEMORY_MB?: string | undefined;
-  WORKER_PIDS_LIMIT?: string | undefined;
-};
+export type SchedulerEnvironment = LocalDockerBackendEnvironment &
+  InstallationLimitsEnvironment & {
+    DATABASE_URL?: string | undefined;
+    LOG_LEVEL?: string | undefined;
+    QUEUE_DATABASE_URL?: string | undefined;
+    WORKER_CPUS?: string | undefined;
+    WORKER_IMAGE?: string | undefined;
+    WORKER_MEMORY_MB?: string | undefined;
+    WORKER_PIDS_LIMIT?: string | undefined;
+  };
 
 export type SchedulerConfig = {
   databaseUrl: string;
   docker: LocalDockerBackendConfig;
   image: string;
+  limits: InstallationLimits;
   logLevel: string | undefined;
   resources: ExecutionResources;
   slotLimit: number;
@@ -43,10 +46,20 @@ export function schedulerConfigFromEnv(
   if (!environment.EXECUTION_INSTALLATION_ID) {
     throw new Error("EXECUTION_INSTALLATION_ID is required");
   }
+  // The same parser the API starts with, so the two processes cannot run
+  // under different limits from one env file.
+  const limits = installationLimitsFromEnv(environment);
   return {
     databaseUrl,
-    docker: localDockerConfigFromEnv(environment),
+    docker: {
+      ...localDockerConfigFromEnv(environment),
+      workerLimits: {
+        maxTurnSeconds: limits.maxTurnSeconds,
+        providerMaxRetries: limits.providerMaxRetries,
+      },
+    },
     image,
+    limits,
     logLevel: environment.LOG_LEVEL,
     resources: {
       cpus: cpuShare(environment.WORKER_CPUS ?? "1"),
@@ -62,10 +75,7 @@ export function schedulerConfigFromEnv(
         "WORKER_PIDS_LIMIT",
       ),
     },
-    slotLimit: nonNegativeInteger(
-      environment.EXECUTION_SLOT_LIMIT ?? String(DEFAULT_EXECUTION_SLOT_LIMIT),
-      "EXECUTION_SLOT_LIMIT",
-    ),
+    slotLimit: limits.executionSlotLimit,
   };
 }
 
@@ -92,14 +102,6 @@ function positiveInteger(value: string, name: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
-}
-
-function nonNegativeInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
 }

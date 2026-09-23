@@ -111,10 +111,18 @@ export const PAUSE_BLOCKED_REASON_VALUES = [
   "checkpoint_unavailable",
 ] as const;
 export const pauseBlockedReasonSchema = z.enum(PAUSE_BLOCKED_REASON_VALUES);
-export const sessionAttentionSchema = z.object({
-  code: z.enum(["PAUSE_BLOCKED"]),
-  reason: pauseBlockedReasonSchema,
-});
+export const sessionAttentionSchema = z.discriminatedUnion("code", [
+  z.object({
+    code: z.literal("PAUSE_BLOCKED"),
+    reason: pauseBlockedReasonSchema,
+  }),
+  // The session has spent SESSION_COST_LIMIT_USD, so no further turn is
+  // dispatched; input is still queued (94S-131).
+  z.object({
+    code: z.literal("BUDGET_EXCEEDED"),
+    reason: z.string().min(1),
+  }),
+]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
   checkpoint_committed_at: timestampSchema.nullable(),
@@ -129,11 +137,15 @@ export const sessionDurabilitySchema = z.object({
   checkpoint_fallback_revision: revisionSchema.nullable(),
 });
 
+// DESIGN.md §6.4.
+const NEEDS_INPUT_PROJECTION =
+  "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at and no status event.";
+
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,
   revision: revisionSchema,
   admission_state: admissionStateSchema,
-  status: sessionStatusSchema,
+  status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
   runtime: sessionRuntimeSchema,
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
@@ -148,7 +160,10 @@ export const sessionSummarySchema = z.object({
 export const sessionDetailSchema = sessionSummarySchema.extend({
   execution: executionObservationSchema.nullable(),
   checkpoint_revision: revisionSchema.nullable(),
-  pending_request_count: z.number().int().nonnegative(),
+  pending_request_count: z.number().int().nonnegative().meta({
+    description:
+      "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status: status reads needs_input exactly when this is above zero and the session would otherwise read running.",
+  }),
   attention: sessionAttentionSchema.nullable(),
   durability: sessionDurabilitySchema,
 });
@@ -182,7 +197,10 @@ export const createSessionResponseSchema = z.object({
   status: sessionStatusSchema,
 });
 export const listSessionsQuerySchema = paginationQuerySchema.extend({
-  status: sessionStatusSchema.optional(),
+  status: sessionStatusSchema.optional().meta({
+    description:
+      "Filters on the status each item reports, needs_input included as derived when read.",
+  }),
 });
 export const listSessionsResponseSchema = pageSchema(sessionSummarySchema);
 export const getSessionResponseSchema = sessionDetailSchema;

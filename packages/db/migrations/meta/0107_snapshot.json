@@ -1,5 +1,5 @@
 {
-  "id": "9f45b9f9-81bf-4e22-96a8-e3c6546cd0a3",
+  "id": "4bcb228c-e962-40f3-998b-11ee4b09ecc3",
   "prevId": "bc9f19f4-6676-47f2-821b-642bc4aff1dd",
   "version": "7",
   "dialect": "postgresql",
@@ -1899,18 +1899,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "checkpoint_fallback_revision": {
-          "name": "checkpoint_fallback_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "checkpoint_restore_attempt_id": {
-          "name": "checkpoint_restore_attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "last_transcript_persisted_at": {
           "name": "last_transcript_persisted_at",
           "type": "timestamp with time zone",
@@ -1967,6 +1955,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {
@@ -2032,7 +2027,50 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "sessions_cost_usd_nonneg": {
+          "name": "sessions_cost_usd_nonneg",
+          "value": "\"sessions\".\"cost_usd\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.storage_usage": {
+      "name": "storage_usage",
+      "schema": "",
+      "columns": {
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "storage_usage_bytes_nonneg": {
+          "name": "storage_usage_bytes_nonneg",
+          "value": "\"storage_usage\".\"bytes\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.turns": {

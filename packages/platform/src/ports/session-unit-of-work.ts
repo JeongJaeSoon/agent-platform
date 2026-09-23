@@ -14,6 +14,19 @@ import type {
 } from "@agent-platform/contracts";
 import type { Principal } from "../authorization/policy.ts";
 
+// Checked inside the acceptance transaction, after an idempotent replay has
+// been answered: a replay is never refused for a limit (94S-131).
+export type InputLimits = {
+  queuedInputLimitPerSession: number;
+  storageLimitBytes: number;
+};
+
+// Why an input was not queued although nothing else was wrong with it.
+// queue_full: the session already holds its limit of queued turns.
+// storage_exhausted: the message would take retained content past the
+// installation's limit.
+export type InputLimitRefusal = { outcome: "queue_full" | "storage_exhausted" };
+
 export type AcceptSessionInput = {
   principal: Principal;
   idempotencyKey: string;
@@ -23,11 +36,13 @@ export type AcceptSessionInput = {
   // of an earlier acceptance must still succeed, a new request must not.
   repository: { id: string; url: string; branch: string } | null;
   message: string;
+  limits: InputLimits;
 };
 
 export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
-  | { outcome: "conflict" | "unsupported" };
+  | { outcome: "conflict" | "unsupported" }
+  | InputLimitRefusal;
 
 export type AppendMessageInput = {
   principal: Principal;
@@ -35,6 +50,7 @@ export type AppendMessageInput = {
   idempotencyKey: string;
   payloadHash: string;
   message: string;
+  limits: InputLimits;
 };
 
 export type AppendMessageResult =
@@ -44,7 +60,8 @@ export type AppendMessageResult =
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run
   // now could never be reported as durably finished, so none is accepted.
-  | { outcome: "checkpoint_unavailable"; reason: CheckpointBlockReason };
+  | { outcome: "checkpoint_unavailable"; reason: CheckpointBlockReason }
+  | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {
@@ -52,6 +69,9 @@ export type SessionRecord = Omit<SessionSummary, "runtime"> & {
 };
 export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   profile_id: string | null;
+  // What the session has spent; the service turns it into `attention`
+  // against the current limit, so a changed limit applies at once.
+  cost_usd: number;
 };
 
 export interface SessionUnitOfWork {

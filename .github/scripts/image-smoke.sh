@@ -14,7 +14,8 @@ cleanup() {
   ids="$(docker ps -aq --filter "label=${smoke_label}")"
   [ -z "$ids" ] || docker rm -f $ids >/dev/null
 }
-trap cleanup EXIT
+config_dir=""
+trap 'cleanup; [ -z "$config_dir" ] || rm -rf "$config_dir"' EXIT
 
 # Times git out five times the way the checkpoint verifier does (own process
 # group, SIGKILL to the group) and prints how many zombies the container
@@ -45,11 +46,63 @@ console.log(zombies);
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
   local image="$1" cid pid1 server_ppid zombies control
+  # The image carries no catalog (94S-132): without one mounted the API must
+  # refuse to start rather than run someone's example profiles.
+  local refused status
+  refused="$(timeout 60 docker run --rm --label "$smoke_label" \
+    -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
+    -e CHECKPOINT_OBJECT_STORE=disabled \
+    -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
+    -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
+    -e SESSION_COST_LIMIT_USD=1 \
+    "$image" 2>&1)" && status=0 || status=$?
+  # A pattern match, not `| grep -q`: under pipefail grep's early exit can
+  # fail the printf with SIGPIPE.
+  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"profiles.yaml is missing"* ]]; then
+    printf '%s\n' "$refused" >&2
+    echo "expected the API to refuse to start without a catalog (exit $status)" >&2
+    exit 1
+  fi
+  echo "without a catalog: exit $status"
+  # A minimal catalog whose credential comes from the environment, readable
+  # by the image's uid 1000.
+  config_dir="$(mktemp -d)"
+  cat >"$config_dir/profiles.yaml" <<'YAML'
+profiles:
+  smoke:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: SMOKE_PROVIDER_KEY
+YAML
+  cat >"$config_dir/repositories.yaml" <<'YAML'
+repositories:
+  smoke:
+    url: https://git.example.invalid/smoke.git
+    branch: main
+    profiles: [smoke]
+YAML
+  chmod 755 "$config_dir"
+  chmod 644 "$config_dir"/*.yaml
   # The default command, with a database that is never reached: the server
-  # stays up (readiness answers 503) and nothing here needs it.
+  # stays up (readiness answers 503) and nothing here needs it. The
+  # installation limits have no code default (94S-131).
   cid="$(docker run -d --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
     -e CHECKPOINT_OBJECT_STORE=disabled \
+    -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
+    -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
+    -e SESSION_COST_LIMIT_USD=1 \
+    -e PLATFORM_CONFIG_DIR=/config \
+    -e SMOKE_PROVIDER_KEY=smoke-placeholder \
+    -v "$config_dir:/config:ro" \
     "$image")"
   sleep 3
   if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != true ]; then

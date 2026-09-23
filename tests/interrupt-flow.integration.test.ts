@@ -73,12 +73,20 @@ const catalog: SessionCatalog = {
       provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
-        auth: { kind: "api_key", value: "catalog-provider-key" },
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
       },
     },
   },
   repositories: {
-    "sample-app": { url: "https://example.invalid/app.git", branch: "main" },
+    "sample-app": {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      profiles: ["claude-coding-v1"],
+    },
   },
 };
 
@@ -152,13 +160,18 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
     });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
       checkpoints: { verify: async () => ({ status: "verified" }) },
       pending: createPostgresWorkerPendingStore(db),
-      options: { leaseTtlMs: 30_000 },
+      options: { leaseTtlMs: 30_000, sessionCostLimitUsd: 1_000 },
     });
     const app = createApiApp({
       authMode: "none",

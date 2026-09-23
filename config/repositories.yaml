@@ -1,0 +1,20 @@
+# Repositories sessions may run against (94S-132). A session names one by
+# id; the worker is handed the URL and branch registered here at claim time.
+#
+# `profiles` is the allowlist of profiles that may run against this
+# repository: the (profile, repository) pair is the unit of trust. A create
+# naming a pair not listed answers 422, and a queued session whose pair has
+# since been removed, or whose id now points at another URL or branch, is
+# not claimed.
+#
+# URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
+# egress proxy) and must not carry a credential (no userinfo, no query
+# string); repository access is granted to the worker separately.
+#
+# The example is the compose Gitea. Creating the sample repository in it is
+# not automated yet (94S-52).
+repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [claude-coding-local]

@@ -27,6 +27,10 @@ export type RequiredEnv =
 export interface CreateReadinessProbeOptions {
   readonly db: QueryRunner;
   readonly requiredEnv: readonly RequiredEnv[];
+  // Typed validation beyond presence, e.g. the installation limits.
+  readonly configProblems?: (
+    environment: Record<string, string | undefined>,
+  ) => string[];
   readonly environment?: Record<string, string | undefined>;
   readonly expected?: { head: MigrationHead; migrations: MigrationEntry[] };
   // Last-resort bound for each database step when the runner has no
@@ -134,7 +138,10 @@ export function createReadinessProbe(
         reason: `expected migrations up to ${expected.head.tag}: ${drift}`,
       };
     }
-    const problems = configProblems(options.requiredEnv, environment);
+    const problems = [
+      ...configProblems(options.requiredEnv, environment),
+      ...(options.configProblems?.(environment) ?? []),
+    ];
     if (problems.length > 0) {
       return {
         ready: false,

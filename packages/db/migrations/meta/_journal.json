@@ -117,8 +117,22 @@
     {
       "idx": 107,
       "version": "7",
-      "when": 1790159645643,
-      "tag": "0107_huge_sleeper",
+      "when": 1790157839835,
+      "tag": "0107_installation_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790160348518,
+      "tag": "0108_workers_lease_deadline",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1790162913956,
+      "tag": "0109_foamy_taskmaster",
       "breakpoints": true
     }
   ]

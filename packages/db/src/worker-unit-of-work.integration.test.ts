@@ -71,11 +71,21 @@ integration("worker gateway on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify({ checkpoint }) {
@@ -84,7 +94,12 @@ integration("worker gateway on PostgreSQL", () => {
             : { status: "verified" };
         },
       },
-      options: { leaseTtlMs: LEASE_TTL_MS, now, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: LEASE_TTL_MS,
+        now,
+        sleep: async () => {},
+      },
     });
   }, 60_000);
 
@@ -107,18 +122,33 @@ integration("worker gateway on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify() {
           return { status: "verified" };
         },
       },
-      options: { leaseTtlMs, now: () => clock, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs,
+        now: () => clock,
+        sleep: async () => {},
+      },
     });
 
   async function launch(partition: string, sessionId?: string) {
@@ -137,6 +167,7 @@ integration("worker gateway on PostgreSQL", () => {
   // Every test owns a partition so leftovers from other tests never compete.
   async function queuedSession(partition: string, message = "first input") {
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -190,11 +221,21 @@ integration("worker gateway on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify() {
@@ -202,6 +243,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs,
         now: () => new Date(Date.now() + offsetMs),
         sleep: async () => {},
@@ -300,9 +342,9 @@ integration("worker gateway on PostgreSQL", () => {
     });
     expect(first.restore).toBeNull();
     expect(first.session_credential.startsWith("wsc_")).toBe(true);
-    // The repository comes from the row: this gateway's catalog lists no
-    // repositories at all, which is exactly the drift the descriptor must
-    // survive. The profile comes from the catalog, resolved at claim time.
+    // The repository comes from the row, bound only because the catalog
+    // still registers that id at that URL and branch for this profile. The
+    // profile comes from the catalog, resolved at claim time.
     expect(first.workspace).toEqual({
       repository: {
         id: "sample-app",
@@ -647,6 +689,7 @@ integration("worker gateway on PostgreSQL", () => {
         .where(eq(sessions.id, session.session_id))
     )[0];
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: owner?.ownerId ?? "" },
       sessionId: session.session_id,
       idempotencyKey: crypto.randomUUID(),
@@ -874,7 +917,6 @@ integration("worker gateway on PostgreSQL", () => {
     // The legacy reconciler keys on a missing/stale workers row. Left to it,
     // it would clear pod_id and requeue while the execution may still run.
     const reconciled = await reconcileOrphanedSessions(db, {
-      leaseTtlMs: 1_000,
       now: new Date(clock.getTime() + 60_000),
     });
     expect(reconciled.map((row) => row.sessionId)).not.toContain(
@@ -898,7 +940,6 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ podId: `pod-${crypto.randomUUID()}` })
       .where(eq(sessions.id, legacy.session_id));
     const legacyRun = await reconcileOrphanedSessions(db, {
-      leaseTtlMs: 1_000,
       now: new Date(clock.getTime() + 60_000),
     });
     expect(legacyRun.map((r) => r.sessionId)).toContain(legacy.session_id);
@@ -1187,6 +1228,7 @@ integration("worker gateway on PostgreSQL", () => {
       .from(sessions)
       .where(eq(sessions.id, session.session_id));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: owner?.ownerId ?? "" },
       sessionId: session.session_id,
       idempotencyKey: crypto.randomUUID(),
@@ -1278,11 +1320,21 @@ integration("worker gateway on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify() {
@@ -1291,6 +1343,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: 400,
         now: () => clock,
         sleep: async () => {},
@@ -1342,6 +1395,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -1451,11 +1505,21 @@ integration("worker gateway on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify() {
@@ -1463,6 +1527,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         sessionTokenTtlMs: 600,
         now: () => clock,
@@ -1730,6 +1795,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -2205,6 +2271,7 @@ integration("worker gateway on PostgreSQL", () => {
     const inputs = createPostgresSessionUnitOfWork(db);
     const ownerId = `owner-${crypto.randomUUID()}`;
     const create = {
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -2250,6 +2317,7 @@ integration("worker gateway on PostgreSQL", () => {
     await finalizeTurn("1", "completed");
 
     const append = {
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       sessionId,
       idempotencyKey: crypto.randomUUID(),
@@ -2347,7 +2415,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(receipt?.status).toBe("accepted");
   });
 
-  test("the workspace descriptor rides every claim, with and without a restore pointer, and for legacy rows", async () => {
+  test("the workspace descriptor rides every claim, with and without a restore pointer; a pre-catalog row is not claimed", async () => {
     const partition = partitionFor("descriptor");
     const { session, launch: l, claimed } = await claimAndDeliver(partition);
     expect(claimed.restore).toBeNull();
@@ -2374,12 +2442,8 @@ integration("worker gateway on PostgreSQL", () => {
       reason: "idle_timeout",
     });
     await gateway.confirmExecutionGone(l.executionId);
-    // A pre-catalog row: no key, but the URL and branch it was created with.
-    await db
-      .update(sessions)
-      .set({ repositoryId: null })
-      .where(eq(sessions.id, session.session_id));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: {
         ownerId:
           (
@@ -2398,17 +2462,144 @@ integration("worker gateway on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, session.session_id));
+    // A pre-catalog row has no repository id, so no catalog pair can vouch
+    // for it (94S-258): it waits instead of running under a profile's trust
+    // that nothing granted it.
+    await db
+      .update(sessions)
+      .set({ repositoryId: null })
+      .where(eq(sessions.id, session.session_id));
+    await expect(
+      claim(await launch(partition, session.session_id)),
+    ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
+    await db
+      .update(sessions)
+      .set({ repositoryId: "sample-app" })
+      .where(eq(sessions.id, session.session_id));
     const again = await claim(await launch(partition, session.session_id));
     expect(again.session_id).toBe(session.session_id);
     expect(again.restore).toEqual(checkpoint);
     expect(again.workspace).toEqual({
       repository: {
-        id: null,
+        id: "sample-app",
         url: "https://example.invalid/app.git",
         branch: "main",
       },
     });
     expect(again.runtime_config.model).toBe("claude-sonnet-5");
+  });
+
+  test("claim binds only a pair the catalog allows, at the URL and branch it registers now (94S-258)", async () => {
+    const profile = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "litellm" as const,
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+      project_settings: { claude_md: true },
+    };
+    const registered = {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      profiles: ["claude-coding-v1"],
+    };
+    const gatewayFor = (
+      repositories: Record<string, typeof registered>,
+    ): WorkerGateway =>
+      createWorkerGateway({
+        work: createPostgresWorkerUnitOfWork(db),
+        catalog: {
+          profiles: { "claude-coding-v1": profile, other: profile },
+          repositories,
+        },
+        checkpoints: {
+          async verify() {
+            return { status: "verified" };
+          },
+        },
+        options: {
+          sessionCostLimitUsd: 1_000,
+          leaseTtlMs: LEASE_TTL_MS,
+          now,
+          sleep: async () => {},
+        },
+      });
+    const claimOn = (
+      target: WorkerGateway,
+      l: Awaited<ReturnType<typeof launch>>,
+    ) =>
+      target.bootstrapClaim(bootstrap, {
+        execution_id: l.executionId,
+        execution_generation: l.generation,
+        credential: { kind: "launch_nonce", nonce: l.nonce },
+      });
+    const refused: Array<[string, Record<string, typeof registered>]> = [
+      [
+        "the repository lists another profile",
+        { "sample-app": { ...registered, profiles: ["other"] } },
+      ],
+      [
+        "the id now points at another URL",
+        {
+          "sample-app": {
+            ...registered,
+            url: "https://example.invalid/other.git",
+          },
+        },
+      ],
+      [
+        "the id now points at another branch",
+        { "sample-app": { ...registered, branch: "release" } },
+      ],
+      ["the repository left the catalog", { other: registered }],
+    ];
+    for (const [label, repositories] of refused) {
+      const partition = partitionFor("pair");
+      const session = await queuedSession(partition);
+      const l = await launch(partition, session.session_id);
+      await expect(
+        claimOn(gatewayFor(repositories), l),
+        label,
+      ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
+      const [row] = await db
+        .select({ podId: sessions.podId })
+        .from(sessions)
+        .where(eq(sessions.id, session.session_id));
+      expect(row?.podId, label).toBeNull();
+      // The same launch claims once the pair is allowed again.
+      const claimed = await claimOn(
+        gatewayFor({ "sample-app": registered }),
+        l,
+      );
+      expect(claimed.session_id, label).toBe(session.session_id);
+    }
+
+    // A replay (the claim response was lost) on a host whose catalog no
+    // longer allows the pair is refused before the token rotates.
+    const partition = partitionFor("pair-replay");
+    const session = await queuedSession(partition);
+    const l = await launch(partition, session.session_id);
+    const first = await claimOn(gatewayFor({ "sample-app": registered }), l);
+    await expect(
+      claimOn(
+        gatewayFor({ "sample-app": { ...registered, profiles: ["other"] } }),
+        l,
+      ),
+    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    const [row] = await db
+      .select({ authRevision: sessions.authRevision })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(row?.authRevision).toBe(first.auth_revision);
   });
 
   test("a failed terminal marks the receipt failed and the session failed", async () => {
@@ -2461,6 +2652,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
     // A second input arrives while the worker is still bound.
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: {
         ownerId:
           (
@@ -2648,6 +2840,7 @@ integration("worker gateway on PostgreSQL", () => {
       )[0]?.ownerId ?? "";
     const append = (message: string) =>
       createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
         principal: { ownerId },
         sessionId: session.session_id,
         idempotencyKey: crypto.randomUUID(),
@@ -2836,6 +3029,7 @@ integration("worker gateway on PostgreSQL", () => {
       )[0]?.ownerId ?? "";
     const append = (message: string) =>
       createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
         principal: { ownerId },
         sessionId: session.session_id,
         idempotencyKey: crypto.randomUUID(),

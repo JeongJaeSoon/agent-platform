@@ -22,7 +22,7 @@ A의 현재 배치:
 | `apps/api/src/keys.ts` | 86 | `ApiKeyStore.findOwner()`는 owner 문자열만 반환. scope/actor/workspace 정보 없음 |
 | `apps/api/src/routes/sessions.ts` | 129 | 실제 route는 session create/list/detail. create에는 `Idempotency-Key` 필수. 다른 contract가 있다고 해당 route 구현이 존재하는 것은 아님 |
 | `packages/platform/src/authorization/policy.ts` | 17 | `Principal={ownerId}`; read/write 모두 owner 일치 검사. scope는 주석에서도 94S-132의 후속 작업 |
-| `packages/platform/src/sessions/catalog.ts` | 28 | 현재 config profile/repository allowlist. `SESSION_CATALOG_JSON` 사용; 향후 profile 파일 계약과 구별 |
+| `packages/platform/src/sessions/catalog.ts` | 28 | config profile/repository 카탈로그. 94S-132부터 `config/profiles.yaml`·`repositories.yaml`(참조만, 값 없음), profile fingerprint·catalog revision 제공 |
 | `packages/platform/src/sessions/session-service.ts` | 148 | policy 주입, profile/repository 확인, 기존 입력 접수 port 호출 |
 | `packages/db/src/postgres-unit-of-work.ts` | 324 | session·첫 turn·queue·receipt·idempotency를 단일 transaction에 저장. Slack도 이 원자성에 합류해야 함 |
 | `packages/db/src/schema.ts` | 302 | UUID session, text owner/profile, turns/events/queue/receipts/idempotency/pending/checkpoints/executions/api_keys. Slack 테이블 없음 |

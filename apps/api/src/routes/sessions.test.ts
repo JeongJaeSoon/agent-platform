@@ -15,23 +15,39 @@ import {
 import { createApiApp } from "../app.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
-const catalog: SessionCatalog = {
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: { kind: "api_key", value: "catalog-provider-key" },
-      },
+const codingProfile: SessionCatalog["profiles"][string] = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  tools: ["Read", "Edit", "Bash"],
+  permission_mode: "default",
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
+};
+const catalog: SessionCatalog = {
+  profiles: {
+    "claude-coding-v1": codingProfile,
+    "claude-review-v1": codingProfile,
+  },
   repositories: {
-    "sample-app": { url: "https://example.invalid/app.git", branch: "main" },
+    "sample-app": {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      profiles: ["claude-coding-v1"],
+    },
+    // Registered, but only claude-review-v1 may run against it.
+    "other-app": {
+      url: "https://example.invalid/other.git",
+      branch: "main",
+      profiles: ["claude-review-v1"],
+    },
   },
 };
 
@@ -39,6 +55,11 @@ function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
 ) {
   const service = createSessionService({
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    },
     authorization: ownerScopedPolicy,
     catalog,
     inputs: {
@@ -133,6 +154,10 @@ describe("POST /v1/sessions validation", () => {
     expect((await request({ ...valid, profile_id: "toString" })).status).toBe(
       422,
     );
+    // Both ids registered, but the repository does not allow the profile.
+    const disallowed = await request({ ...valid, repository_id: "other-app" });
+    expect(disallowed.status).toBe(422);
+    expect(await errorCode(disallowed)).toBe("UNSUPPORTED_CAPABILITY");
   });
 
   test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
@@ -642,6 +667,11 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
 
   test("a principal without sessions:recover is 403 FORBIDDEN, not 404", async () => {
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: {
         authorize: (actor, action, resource) =>
           actor.ownerId === resource.ownerId && action !== "sessions:recover",

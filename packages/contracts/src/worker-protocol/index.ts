@@ -160,10 +160,19 @@ export const runtimeConfigSchema = z
   })
   .strict();
 
+// The catalog's name for the settings in `runtime_config` (94S-132): a hash
+// of the profile without its credential. The settings still ride in full —
+// the engine needs them — and this is what a log line or a later
+// comparison (94S-253) can hold instead.
+export const profileFingerprintSchema = z
+  .string()
+  .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
   runtime: sessionRuntimeSchema,
+  profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
   principal: claimPrincipalSchema,
@@ -183,6 +192,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     auth_revision: response.auth_revision,
     lease_expires_at: response.lease_expires_at,
     runtime: response.runtime,
+    profile_fingerprint: response.profile_fingerprint,
     model: response.runtime_config.model,
     permission_mode: response.runtime_config.permission_mode,
     provider_kind: response.runtime_config.provider.kind,
@@ -197,6 +207,13 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
 export const nextInputRequestSchema = workerScopeSchema
   .extend({ wait_ms: z.number().int().nonnegative().optional() })
   .strict();
+/**
+ * The most one finalize may report a turn cost. Far above any real turn, so a
+ * runaway report cannot overflow the session's stored sum; the worker clamps
+ * to it rather than send a terminal the gateway would refuse.
+ */
+export const MAX_TURN_COST_USD = 1_000_000;
+
 export const nextInputResponseSchema = z.object({
   input: z
     .object({
@@ -207,6 +224,11 @@ export const nextInputResponseSchema = z.object({
     })
     .nullable(),
   lease_expires_at: timestampSchema,
+  // Nothing more is coming to this attempt: release and exit rather than
+  // hold the execution slot. `reason` says why when it is not the attempt's
+  // own drain. Optional so a worker older than 94S-131 still parses it.
+  draining: z.boolean().optional(),
+  reason: z.enum(["BUDGET_EXCEEDED"]).optional(),
 });
 
 // Why a run refuses to be checkpointed right now (runtime-core
@@ -504,6 +526,14 @@ export const finalizeRequestSchema = workerScopeSchema
       reason: z.string().min(1).nullable(),
       result: z.unknown().nullable(),
       usage: z.unknown().nullable(),
+      // What the engine says this turn cost, in USD; an estimate, not a bill.
+      // Absent or null when it said nothing, which counts as zero spent.
+      cost_usd: z
+        .number()
+        .nonnegative()
+        .max(MAX_TURN_COST_USD)
+        .nullable()
+        .optional(),
     }),
     checkpoint: checkpointRefSchema.nullable(),
   })

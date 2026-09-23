@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   createSessionResponseSchema,
+  SESSION_SCOPE_VALUES,
   SSE_SCHEMA_VERSION,
   sseEventSchema,
 } from "@agent-platform/contracts";
@@ -113,6 +114,11 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       });
     }
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
@@ -128,7 +134,11 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
@@ -136,6 +146,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
+            profiles: ["claude-coding-v1"],
           },
         },
       },
@@ -422,7 +433,10 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   test("a revoked API key ends the stream within one keepalive", async () => {
     const sessionId = await createdSession();
     const store = new DatabaseApiKeyStore(db);
-    const plaintext = await issueApiKey(store, owner);
+    const plaintext = await issueApiKey(store, {
+      ownerId: owner,
+      scopes: [...SESSION_SCOPE_VALUES],
+    });
     const response = await stream(
       sessionId,
       { Authorization: `Bearer ${plaintext}` },

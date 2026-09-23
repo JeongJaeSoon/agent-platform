@@ -1,0 +1,32 @@
+# Agent Profiles the API may run (94S-132). Read once at API startup from
+# PLATFORM_CONFIG_DIR (default: this directory); an invalid profile, or a
+# credential reference that does not resolve, stops the API.
+#
+# A profile never holds a credential value. `provider.auth` names where the
+# API reads it at startup — exactly one of:
+#   value_env: an environment variable of the API process
+#   secret_id: a Secrets Manager secret (AWS_ENDPOINT_URL_SECRETS_MANAGER
+#              points at the local `secrets` LocalStack under compose)
+# Each profile's fingerprint (sha256 over these settings and the reference,
+# never the value) rides every worker claim; rotating the value behind the
+# same reference keeps it.
+#
+# The example below is the local mode: the compose `fake-messages` service
+# answers the Messages API, and the key is a placeholder seeded into the
+# local Secrets Manager (infra/localstack/secrets-init). No external account
+# is involved.
+profiles:
+  claude-coding-local:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: http://fake-messages:4010
+      auth:
+        kind: api_key
+        secret_id: agent-platform/local/fake-messages
+    project_settings:
+      claude_md: true

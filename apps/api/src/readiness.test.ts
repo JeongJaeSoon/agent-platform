@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { expectedMigrationHead } from "@agent-platform/db";
+import { installationLimitProblems } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -26,7 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0107_huge_sleeper");
+    expect(expectedMigrationHead().tag).toBe("0109_foamy_taskmaster");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -89,7 +90,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0107_huge_sleeper",
+      "0109_foamy_taskmaster",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
@@ -121,6 +122,33 @@ describe("readiness probe", () => {
       await createReadinessProbe({ db: middle, requiredEnv, environment })(),
     ).toMatchObject({ ready: false, check: "schema" });
   }, 30_000);
+
+  test("fails the config check on invalid installation limits (94S-131)", async () => {
+    const db = await database(true);
+    const limits = {
+      EXECUTION_SLOT_LIMIT: "10",
+      MAX_TURN_SECONDS: "3600",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
+    };
+    const probe = (extra: Record<string, string | undefined>) =>
+      createReadinessProbe({
+        db,
+        requiredEnv,
+        configProblems: installationLimitProblems,
+        environment: { ...environment, ...limits, ...extra },
+      })();
+    expect(await probe({})).toEqual({ ready: true });
+    expect(
+      await probe({ SESSION_COST_LIMIT_USD: undefined, MAX_TURN_SECONDS: "0" }),
+    ).toEqual({
+      ready: false,
+      check: "config",
+      reason:
+        "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, SESSION_COST_LIMIT_USD is required",
+    });
+  });
 
   test("fails the config check when a required variable is missing or blank", async () => {
     const db = await database(true);

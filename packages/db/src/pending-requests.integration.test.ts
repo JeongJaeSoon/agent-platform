@@ -21,9 +21,10 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { reconcileExpiredLeases } from "./lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import { createPostgresPendingRequests } from "./pending-requests.ts";
 import {
@@ -60,11 +61,21 @@ const catalog: SessionCatalog = {
       provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
-        auth: { kind: "api_key", value: "catalog-provider-key" },
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
       },
     },
   },
-  repositories: {},
+  repositories: {
+    "sample-app": {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      profiles: ["claude-coding-v1"],
+    },
+  },
 };
 
 const QUESTION: RegisterPendingRequest["request"] = {
@@ -105,6 +116,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       },
       pending: createPostgresWorkerPendingStore(db),
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         sleep: async () => {},
         ...(pendingTtlMs === undefined ? {} : { pendingTtlMs }),
@@ -188,6 +200,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -608,6 +621,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       .set({ admissionState: "active", status: "idle" })
       .where(eq(sessions.id, sessionId));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       sessionId,
       idempotencyKey: crypto.randomUUID(),
@@ -703,5 +717,185 @@ integration("pending requests and answers on PostgreSQL", () => {
         decision: "allow",
       }),
     );
+  });
+
+  // What each reader says, next to what the columns hold.
+  async function statuses(owner: { ownerId: string }, sessionId: string) {
+    const reader = createPostgresSessionReader(db);
+    const detail = await reader.getSession(owner.ownerId, sessionId);
+    const turn = await reader.getTurn(owner.ownerId, sessionId, "1");
+    const turnList = await reader.listTurns(owner.ownerId, sessionId, {
+      limit: 10,
+    });
+    const listed = await reader.listSessions(owner.ownerId, { limit: 10 });
+    const filtered = async (status: "needs_input" | "running") =>
+      (await reader.listSessions(owner.ownerId, { limit: 10, status })).items
+        .length;
+    const [stored] = await db
+      .select({ session: sessions.status, turn: turns.status })
+      .from(sessions)
+      .innerJoin(turns, eq(turns.sessionId, sessions.id))
+      .where(and(eq(sessions.id, sessionId), eq(turns.sequence, 1)));
+    return {
+      session: detail?.status,
+      count: detail?.pending_request_count,
+      turn: turn?.status,
+      turnListed: turnList?.items[0]?.status,
+      listed: listed.items[0]?.status,
+      filteredNeedsInput: await filtered("needs_input"),
+      filteredRunning: await filtered("running"),
+      stored,
+    };
+  }
+
+  const WAITING = {
+    session: "needs_input",
+    turn: "needs_input",
+    turnListed: "needs_input",
+    listed: "needs_input",
+    filteredNeedsInput: 1,
+    filteredRunning: 0,
+    // Never written: the columns keep saying what the execution is doing.
+    stored: { session: "running", turn: "running" },
+  } as const;
+  const RUNNING = {
+    session: "running",
+    count: 0,
+    turn: "running",
+    turnListed: "running",
+    listed: "running",
+    filteredNeedsInput: 0,
+    filteredRunning: 1,
+    stored: { session: "running", turn: "running" },
+  } as const;
+
+  test("needs_input holds while any request waits and lifts once the last is answered or settled", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+
+    const asked = await register(worker, permission("ls"));
+    expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 1 });
+    const other = await register(worker, QUESTION, HASH_B);
+    expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 2 });
+
+    // One answered, one left: still waiting on a person.
+    await answer(owner, sessionId, {
+      request_id: asked.requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 1 });
+
+    // The worker gives up on the other one (its callback went away).
+    await poll(worker, 0, [
+      { request_id: other.requestId, outcome: "cancelled" },
+    ]);
+    expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+  });
+
+  test("needs_input lifts when the last request expires, with nothing written", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 1 });
+    // Time passing, without waiting for it: only the deadline moves.
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+    const [row] = await db
+      .select()
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    expect(row?.resolvedAt).toBeNull();
+  });
+
+  test("expiry is judged at each statement, not at the start of a longer transaction", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    await db.transaction(async (tx) => {
+      await tx
+        .update(pendingRequests)
+        .set({ expiresAt: sql`clock_timestamp() + interval '1 second'` })
+        .where(eq(pendingRequests.requestId, requestId));
+      const reader = createPostgresSessionReader(tx);
+      const before = await reader.getSession(owner.ownerId, sessionId);
+      expect(before?.status).toBe("needs_input");
+      await tx.execute(sql`SELECT pg_sleep(1.2)`);
+      const after = await reader.getSession(owner.ownerId, sessionId);
+      expect(after?.status).toBe("running");
+      expect(after?.pending_request_count).toBe(0);
+    });
+  });
+
+  test("a stored needs_input reads from the pending requests like running does", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await db
+      .update(sessions)
+      .set({ status: "needs_input" })
+      .where(eq(sessions.id, sessionId));
+    const legacy = {
+      stored: { session: "needs_input", turn: "running" },
+    } as const;
+    expect(await statuses(owner, sessionId)).toEqual({ ...RUNNING, ...legacy });
+    await register(worker, permission());
+    expect(await statuses(owner, sessionId)).toEqual({
+      ...WAITING,
+      ...legacy,
+      count: 1,
+    });
+  });
+
+  test("an epoch, generation or auth rotation drops the old attempt's requests while its lease still runs", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker, permission());
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("session row missing");
+    for (const moved of [
+      { leaseEpoch: session.leaseEpoch + 1 },
+      { executionGeneration: session.executionGeneration + 1 },
+      { authRevision: session.authRevision + 1 },
+    ]) {
+      expect(await statuses(owner, sessionId)).toEqual({
+        ...WAITING,
+        count: 1,
+      });
+      await db.update(sessions).set(moved).where(eq(sessions.id, sessionId));
+      expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+      await db
+        .update(sessions)
+        .set({
+          leaseEpoch: session.leaseEpoch,
+          executionGeneration: session.executionGeneration,
+          authRevision: session.authRevision,
+        })
+        .where(eq(sessions.id, sessionId));
+    }
+  });
+
+  test("a lapsed or fenced attempt's requests stop holding the session in needs_input", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker, permission());
+    expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 1 });
+
+    // The lease running out is enough, before any reconciler pass.
+    await db
+      .update(attempts)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(attempts.id, worker.scope.attempt_id));
+    expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+
+    // The reconciler fences it (epoch bump, kill requested) without touching
+    // the turn; nothing brings needs_input back.
+    await reconcileExpiredLeases(db, {});
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, worker.scope.attempt_id));
+    expect(attempt?.state).toBe("lost");
+    expect(await statuses(owner, sessionId)).toEqual(RUNNING);
   });
 });

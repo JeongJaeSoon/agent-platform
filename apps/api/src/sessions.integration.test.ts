@@ -27,6 +27,7 @@ import { createLogger } from "@agent-platform/observability";
 import {
   createSessionService,
   ownerScopedPolicy,
+  type SessionCatalog,
 } from "@agent-platform/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -38,6 +39,34 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
+const catalog: SessionCatalog = {
+  profiles: {
+    "claude-coding-v1": {
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    },
+  },
+  repositories: {
+    "sample-app": {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      profiles: ["claude-coding-v1"],
+    },
+  },
+};
+
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
@@ -46,6 +75,7 @@ integration("sessions API on PostgreSQL", () => {
   let probePool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
+  let tight: ReturnType<typeof createApiApp>;
   const owner = `owner-${crypto.randomUUID()}`;
   const stranger = `owner-${crypto.randomUUID()}`;
   const body = {
@@ -65,33 +95,34 @@ integration("sessions API on PostgreSQL", () => {
         migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
       });
     }
-    const service = createSessionService({
-      authorization: ownerScopedPolicy,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog: {
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
-            },
-          },
-        },
-        repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-          },
-        },
-      },
+    const serviceWith = (limits: {
+      queuedInputLimitPerSession: number;
+      storageLimitBytes: number;
+      sessionCostLimitUsd: number;
+    }) =>
+      createSessionService({
+        limits,
+        authorization: ownerScopedPolicy,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+      });
+    const service = serviceWith({
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    });
+    // One queued input per session, room for no message at all, and a one
+    // dollar budget.
+    const tightService = serviceWith({
+      queuedInputLimitPerSession: 1,
+      storageLimitBytes: 1,
+      sessionCostLimitUsd: 1,
+    });
+    tight = createApiApp({
+      authMode: "none",
+      registerRoutes: (router) => registerSessionRoutes(router, tightService),
     });
     probePool = createProbePool(databaseUrl ?? "", createLogger(), 500);
     app = createApiApp({
@@ -979,5 +1010,72 @@ integration("sessions API on PostgreSQL", () => {
       );
       expect(response.status, turnId).toBe(404);
     }
+  }, 60_000);
+
+  test("answers 429 with Retry-After once the session holds its limit of queued input (94S-131)", async () => {
+    const sessionId = await createdSession("limit-queue-1");
+    const response = await tight.request(`/v1/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": owner,
+        "Idempotency-Key": "limit-queue-2",
+      },
+      body: JSON.stringify({ message: "one more" }),
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("5");
+    expect((await response.json()).error).toMatchObject({
+      code: "RATE_LIMITED",
+      retryable: true,
+    });
+    expect((await rowsFor(sessionId)).turns).toBe(1);
+  }, 60_000);
+
+  test("answers 413 STORAGE_LIMIT_EXCEEDED past the installation's storage, and writes nothing (94S-131)", async () => {
+    const response = await tight.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": owner,
+        "Idempotency-Key": "limit-storage-1",
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(413);
+    expect(response.headers.get("Retry-After")).toBeNull();
+    expect((await response.json()).error).toMatchObject({
+      code: "STORAGE_LIMIT_EXCEEDED",
+      retryable: false,
+    });
+    const [keys] = await db
+      .select({ n: count() })
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.key, "limit-storage-1"));
+    expect(keys?.n).toBe(0);
+  }, 60_000);
+
+  test("detail raises BUDGET_EXCEEDED once the session's cost reaches the limit (94S-131)", async () => {
+    const sessionId = await createdSession("limit-budget-1");
+    const detail = async () => {
+      const response = await tight.request(`/v1/sessions/${sessionId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(response.status).toBe(200);
+      return getSessionResponseSchema.parse(await response.json());
+    };
+    await db
+      .update(sessions)
+      .set({ costUsd: 0.99 })
+      .where(eq(sessions.id, sessionId));
+    expect((await detail()).attention).toBeNull();
+
+    await db
+      .update(sessions)
+      .set({ costUsd: 1 })
+      .where(eq(sessions.id, sessionId));
+    const spent = await detail();
+    expect(spent.attention).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(JSON.stringify(spent)).not.toContain("cost_usd");
   }, 60_000);
 });

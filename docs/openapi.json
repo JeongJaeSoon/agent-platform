@@ -56,6 +56,7 @@
             "maximum": 100
           },
           "status": {
+            "description": "Filters on the status each item reports, needs_input included as derived when read.",
             "type": "string",
             "enum": [
               "queued",
@@ -421,6 +422,7 @@
                   "REQUEST_TIMEOUT",
                   "UNSUPPORTED_CAPABILITY",
                   "RATE_LIMITED",
+                  "STORAGE_LIMIT_EXCEEDED",
                   "INTERNAL_ERROR",
                   "REVISION_CONFLICT",
                   "IDEMPOTENCY_CONFLICT",
@@ -652,7 +654,8 @@
               "idle",
               "failed",
               "stopped"
-            ]
+            ],
+            "description": "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at and no status event."
           },
           "runtime": {
             "type": "object",
@@ -781,7 +784,8 @@
               "idle",
               "failed",
               "stopped"
-            ]
+            ],
+            "description": "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at and no status event."
           },
           "runtime": {
             "type": "object",
@@ -923,34 +927,55 @@
           "pending_request_count": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status: status reads needs_input exactly when this is above zero and the session would otherwise read running."
           },
           "attention": {
             "anyOf": [
               {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "type": "string",
-                    "enum": [
-                      "PAUSE_BLOCKED"
-                    ]
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "PAUSE_BLOCKED"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "long_turn",
+                          "pending_request",
+                          "mirror_error",
+                          "checkpoint_unavailable"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
+                    ],
+                    "additionalProperties": false
                   },
-                  "reason": {
-                    "type": "string",
-                    "enum": [
-                      "long_turn",
-                      "pending_request",
-                      "mirror_error",
-                      "checkpoint_unavailable"
-                    ]
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "BUDGET_EXCEEDED"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
+                    ],
+                    "additionalProperties": false
                   }
-                },
-                "required": [
-                  "code",
-                  "reason"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -1156,7 +1181,8 @@
               "interrupted",
               "cancelled",
               "outcome_unknown"
-            ]
+            ],
+            "description": "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer."
           },
           "message": {
             "type": "string"
@@ -1250,7 +1276,8 @@
               "interrupted",
               "cancelled",
               "outcome_unknown"
-            ]
+            ],
+            "description": "needs_input is derived when read, as for the session: a running turn with a pending request a client can still answer."
           },
           "message": {
             "type": "string"
@@ -2552,6 +2579,7 @@
                       "REQUEST_TIMEOUT",
                       "UNSUPPORTED_CAPABILITY",
                       "RATE_LIMITED",
+                      "STORAGE_LIMIT_EXCEEDED",
                       "INTERNAL_ERROR",
                       "REVISION_CONFLICT",
                       "IDEMPOTENCY_CONFLICT",
@@ -3142,6 +3170,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -3463,6 +3501,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Error",
             "content": {
@@ -3664,6 +3712,7 @@
             "in": "query",
             "required": false,
             "schema": {
+              "description": "Filters on the status each item reports, needs_input included as derived when read.",
               "type": "string",
               "enum": [
                 "queued",
@@ -3698,6 +3747,16 @@
             }
           },
           "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3757,6 +3816,16 @@
             }
           },
           "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -4026,6 +4095,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -4095,6 +4174,16 @@
             }
           },
           "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -4192,6 +4281,16 @@
               }
             }
           },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -4272,6 +4371,16 @@
             }
           },
           "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -5297,6 +5406,16 @@
             }
           },
           "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {

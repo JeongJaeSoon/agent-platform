@@ -62,32 +62,36 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun test ./apps/api/src/server.integration.ts
 ```
 
-reconciler는 스케줄러를 내장하지 않고 한 batch만 처리한 뒤 종료한다. 워커와 같은 `HEARTBEAT_TTL_SEC`를 사용해야 하며, 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
+reconciler는 스케줄러를 내장하지 않고 한 batch만 처리한 뒤 종료한다. lease 기한은 스스로 해석하지 않는다 — API가 heartbeat를 받을 때 `workers.lease_expires_at`에 마감 시각을 적고 reconciler는 그 시각과 DB 시계를 비교한다. `HEARTBEAT_TTL_SEC`는 API만 읽으며(기본 30, 양수가 아니면 기동 거부), reconciler는 이 값이 설정돼 있으면 기동하지 않는다(94S-132). 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=true \
+RECONCILER_DRY_RUN=true \
   bun run --cwd apps/reconciler start
 
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
+RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
-scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임(94S-216) ③ `EXECUTION_SLOT_LIMIT`(기본 10) 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(없으면 AWS 자체. http·https 모두 되며 https는 아래 egress 절의 전용 transport를 탄다)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 값들이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler도 one-shot이다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임(94S-216) ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기), 그리고 object store 접근(94S-244) — 제어 호스트와 같은 이름의 `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_ENDPOINT_URL`(없으면 AWS 자체. http·https 모두 되며 https는 아래 egress 절의 전용 transport를 탄다)과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 이 값들이 없으면 기동하지 않는다. 자격 증명은 bucket 전체에 미치고 워커는 `scopedCheckpointObjectStore`(`packages/storage`)로 스스로 prefix 밖 key를 거절한다. 이것은 클라이언트 쪽 가드이지 자격 증명 경계가 아니다 — 세션·generation 범위 STS 자격 증명은 identity provider가 있는 배치(EKS/MVM)로 미룬다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce와 secret key를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지는 형제 티켓이므로 이름만 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 WORKER_IMAGE=agent-platform-worker:dev \
 WORKER_GATEWAY_URL=http://host.docker.internal:3000 \
 EXECUTION_SLOT_LIMIT=10 \
+QUEUED_INPUT_LIMIT_PER_SESSION=20 \
+STORAGE_LIMIT_BYTES=1073741824 \
+MAX_TURN_SECONDS=3600 \
+SESSION_COST_LIMIT_USD=25 \
 EXECUTION_INSTALLATION_ID=local \
 EXECUTION_EGRESS_PROXY_URL=http://egress-proxy:3128 \
 EXECUTION_WORKSPACE_QUOTA=off \
   bun run --cwd apps/scheduler start
 ```
 
-worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다(94S-216). 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않으므로 worker는 host·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
+worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다(94S-216). 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
 
 차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway, gitea, 그리고 워커의 object store인 localstack)다. compose의 localstack은 이 때문에 S3만 켠다 — 허용된 port 위의 서비스는 전부 워커가 부를 수 있는 서비스다. 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
@@ -102,11 +106,12 @@ CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Establishe
 **worker끼리는 서로 닿지 않는다(94S-216).** 다른 worker와 같은 네트워크에 있지 않으므로 그 주소로 가는 경로가 없고, 컨테이너 이름도 풀리지 않는다. proxy를 거쳐 가려 해도 사설 주소는 `EGRESS_PRIVATE_ALLOWLIST`에 없으면 거부된다. 다른 설치의 worker와 proxy에도 닿지 않는다 — 네트워크와 proxy 선택이 모두 설치별이다. 통합 테스트(`egress.integration.test.ts`의 "workers do not reach one another")가 이를 확인한다. 같은 네트워크의 형제 컨테이너라면 열린 포트에 닿는다는 양성 대조와 함께 확인한다. 남은 한계:
 
 * proxy는 모든 worker 네트워크에 붙는 신뢰 구성요소다. proxy가 침해되면 그 설치의 모든 worker에 닿는다. `EGRESS_PRIVATE_ALLOWLIST`에는 worker로 해석될 수 있는 이름을 넣지 않는다.
-* internal bridge도 host 쪽 bridge 인터페이스에 주소를 가진다. 그래서 daemon host가 그 주소나 wildcard로 listen하는 **host 프로세스**에는 worker가 proxy를 거치지 않고 닿을 수 있다. Docker가 publish한 포트가 아니라 host에서 직접 띄운 프로세스가 대상이다. 94S-199 때부터 있던 구멍이고 94S-274에서 다룬다.
+* ~~internal bridge도 host 쪽 bridge 인터페이스에 주소를 가진다~~ — 94S-274에서 닫았다. 기본 gateway mode(`nat`)의 internal bridge는 host에 subnet의 첫 주소를 준다. 그래서 daemon host가 그 주소나 wildcard로 listen하는 **host 프로세스**(publish된 포트가 아니라 host에서 직접 띄운 프로세스)에 worker가 proxy 없이 닿았다. 이제 worker 네트워크는 `gateway_mode_ipv4=isolated`로 만들어져 host가 그 네트워크에 주소를 갖지 않는다. 이 모드는 **Docker 28(API 1.48) 이상**에만 있다. scheduler는 기동 preflight(`verifyNetworkIsolation`)에서 daemon의 API 버전이 1.48 미만이면 경고로 넘기지 않고 거부한다(`GatewayModeUnsupportedError`). 끄는 설정은 없다. 통합 테스트(`egress.integration.test.ts`의 "a host process on a wildcard address")는 두 가지를 함께 확인한다. 모드가 없는 internal 네트워크에서는 host listener에 닿는다(양성 대조). worker 네트워크에서는 닿지 않는다. native Linux(CI)에서는 테스트 프로세스 자신이 `0.0.0.0` listener다. Docker Desktop은 daemon이 VM 안에 있으므로 VM의 network namespace를 쓰는 `--network host` 컨테이너가 listener를 대신한다. IPv6는 worker 네트워크에서 꺼져 있어 해당하지 않는다.
 
 scheduler는 pass 전에 그 설치의 proxy가 정확히 하나 떠 있는지 확인한다(`verifyNetworkIsolation`). 없거나 둘 이상이면 pass lock을 잡고 worker 네트워크 reconcile만 돌린다(orphan 회수, 둘 이상이면 proxy 분리). 그다음 아무것도 띄우지 않은 채 non-zero로 종료한다. worker 네트워크는 launch 때마다 검사한다. 이미 같은 이름의 네트워크가 있으면 새로 만들지 않고 다음을 확인한다. 하나라도 어긋나면 `NetworkIsolationError`로 launch를 거부한다(fail closed).
 
 * bridge·internal·IPv6 꺼짐·소유 label(설치·execution·generation)이 맞는가
+* host가 네트워크에 주소를 갖지 않는가 — `Options`의 `gateway_mode_ipv4`가 `isolated`이고 IPAM에 gateway가 없어야 한다. 모르는 옵션을 기록만 하고 gateway를 주는 옛 daemon이 있어서 두 조건을 모두 본다
 * worker와 proxy 외의 구성원이 없는가
 
 proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고하는 attach·alias로 판정한다. 이미 붙어 있으면 403이 오고, alias 없이 붙어 있으면 DNS가 풀리지 않기 때문이다. 이미 있는 컨테이너를 adopt할 때는 그 컨테이너가 자기 네트워크(같은 id) **하나에만** 붙어 있어야 한다. 컨테이너는 네트워크 이름이 아니라 id로 만든다. 그래서 같은 이름으로 다시 만들어진 네트워크가 검사받은 네트워크를 대신할 수 없다.
@@ -114,6 +119,14 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 예전 설정 `EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`는 더 이상 읽지 않는다. 값이 남아 있으면 조용히 무시하지 않고 기동을 거부한다. 환경 파일에서 지우고 proxy 컨테이너에 label을 단다.
 
 컨테이너에는 만들어질 때의 격리 계약이 `agent-platform.isolation` label로 `<버전>:<지문>` 형태로 찍힌다. 지문은 proxy URL·user·workspace/HOME 경로·tmpfs 크기, 그리고 object store의 bucket·endpoint·region·access key id의 해시라서, 코드를 바꾸지 않고 `EXECUTION_EGRESS_PROXY_URL`이나 `S3_BUCKET`만 바꿔도 값이 달라진다. secret access key는 지문에 넣지 않는다 — 같은 key id로 secret만 바꾼 경우 실행 중인 컨테이너는 그대로이고, 교체는 운영자가 직접 한다. 실행 중인 컨테이너의 격리는 제어 호스트를 올려도 바뀌지 않으므로, scheduler는 label이 현재 값과 다른 컨테이너를 `stale`로 보고 정지·제거한 뒤 저장된 intent로 다시 만든다(`ensureExecution`도 그런 컨테이너는 adopt하지 않는다). 버전이 **더 높은** 컨테이너는 롤백 중인 새 제어 호스트가 만든 것이다. 그 경계가 지금 요구하는 것과 같은지 알 수 없으므로 adopt도 교체도 하지 않고 `IsolationContractError`로 거절한다 — row는 살아 있고 pass는 non-zero로 끝나므로 운영자가 롤포워드하거나 직접 제거해야 한다. 격리의 모양 자체가 바뀌면 `ISOLATION_CONTRACT`를 올린다. 94S-216이 계약을 5로 올렸다(execution별 네트워크). 그래서 업그레이드하면 공유 네트워크 위의 기존 컨테이너가 전부 stale로 교체된다. 교체 전 확인(`assertReplaceable`: 이미지·workspace·proxy·새 네트워크)이 실패하면, 보통은 옛 컨테이너를 그대로 두고 다음 pass에서 다시 시도한다. 하지만 계약 5 미만 컨테이너는 공유 네트워크에서 이웃 worker에 닿을 수 있다. 그래서 아직 claim되지 않은 그 컨테이너는 **모든 네트워크에서 떼어 낸** 채로 둔다. claim 전이라 진행 중인 turn은 없다. 확인이 통과하는 pass에서 정상 교체된다. 결과는 교체 실패 로그의 오류 메시지 끝에 붙는다. claim된 계약 5 미만 worker는 이 확인 없이 teardown되므로 여기서 건드리지 않는다. 확인과 disconnect를 한 번에 묶는 fence는 없다. 그래서 disconnect 뒤에 claim 여부를 한 번 더 확인하고, 그사이 claim됐으면 네트워크를 다시 붙여 scheduler의 teardown(SIGTERM으로 drain)에 맡긴다. disconnect가 이어지는 그 짧은 동안 claim 요청이 오가던 worker는 요청이 끊길 수 있다.
+
+94S-274가 계약을 6으로 올렸다(host 주소 없는 네트워크). 계약 5 컨테이너의 네트워크는 이름이 같지만 gateway mode는 제자리에서 바꿀 수 없으므로 교체는 다음 순서를 탄다.
+
+* **교체 전 확인(`assertReplaceable`):** 같은 launch의 계약 5 worker가 그 네트워크에 실제로 붙어 있고 결함이 host 주소 하나뿐이면 옛 네트워크를 통과시킨다. 이어지는 teardown이 컨테이너와 함께 네트워크를 지운다. 그다음 `ensureExecution`이 `isolated`로 새로 만든다.
+* **일반 launch 경로:** worker 없이 남은 옛 네트워크(teardown의 네트워크 제거가 실패한 경우)는 proxy만 붙어 있으면 지우고 다시 만든다. 다른 구성원이 있으면 거부한다. 옛 worker가 아직 붙어 있는 옛 네트워크에 새 컨테이너를 올리는 일은 없다.
+* **`reconcileNetworks`:** 계약 5 worker가 붙은 옛 네트워크에서는 proxy를 떼지 않는다. claim된 worker는 확인 없이 drain·teardown되므로 그 전에 egress를 끊지 않기 위해서다. 계약 6 worker가 host 주소 있는 네트워크에 있으면 결함으로 보고 proxy를 뗀다.
+
+이 교체도 claim된 worker는 drain 후 닫는 기존 규칙(94S-250에서 다룰 drain·교체 동작 포함)을 따른다. **배포 순서:** daemon을 먼저 Docker 28 이상으로 올린다. 옛 daemon에서는 preflight가 pass 전체를 막는다. 그러면 계약 5 worker도 교체되지 않고 그대로 돈다(새 admission만 fail-closed).
 
 업그레이드 뒤 옛 공유 네트워크(`agent-platform-worker`, `EXECUTION_DOCKER_NETWORK`로 이름을 바꿨다면 그 이름)는 compose가 더 이상 선언하지 않는다. 그래도 저절로 지워지지는 않고, 주소 풀의 subnet 하나를 계속 차지한다. 계약 4 컨테이너가 모두 교체된 뒤 `docker network rm agent-platform-worker`로 지운다. 실행 중인 컨테이너가 붙어 있으면 Docker가 삭제를 거부한다(403). 그래서 쓰는 중인 네트워크를 실수로 지울 일은 없다. **이미 claim된 worker는 교체되지 않고 teardown된다.** 진행 중이던 turn은 `outcome_unknown`으로 닫힌다. 업그레이드는 진행 중인 turn이 없을 때 한다. 계약이 바뀔 때 claim된 worker를 drain하는 경로는 94S-250이다.
 
@@ -207,8 +220,25 @@ docker compose -f infra/docker-compose.yml run --rm migrate
 
 API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
 
+### 운영자 카탈로그 (Agent Profile · repository)
+
+API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `profiles.yaml`과 `repositories.yaml`을 한 번 읽는다(94S-132). 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다.
+
+- profile의 `provider.auth`에는 값 대신 참조를 하나만 적는다: API 프로세스 환경 변수 `value_env`, 또는 Secrets Manager `secret_id`(`AWS_ENDPOINT_URL_SECRETS_MANAGER`로 endpoint 지정, `AWS_ENDPOINT_URL`은 따르지 않는다). 값은 기동 시 한 번 해석되고 worker에는 nonce로 인증된 claim 응답으로만 전달된다 — worker 컨테이너 env에는 없다.
+- `repositories.<id>.profiles`가 그 저장소에서 돌 수 있는 profile allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 목록에 없는 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`, 이미 queued된 세션의 쌍이 빠졌거나 id가 다른 URL·branch를 가리키게 되면 claim되지 않는다.
+- endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
+- profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
+
+저장소의 `config/`는 외부 계정 없이 도는 로컬 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음)에 심어 둔 placeholder 키를 `secret_id`로, compose Gitea의 `sample-app`을 저장소로 쓴다. Gitea에 sample 저장소를 만드는 초기화는 아직 없다(94S-52).
+
 ```bash
-AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled bun run --cwd apps/api start
+docker compose -f infra/docker-compose.yml up -d secrets
+AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1 \
+AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
+EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
+MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 \
+  bun run --cwd apps/api start
 curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 ```
 
@@ -216,14 +246,16 @@ API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`
 
 checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 잠긴다**(`CHECKPOINT_OBJECT_PROTECTION=locked`, 94S-229). manifest의 모든 ref와 finalize의 `manifest_version`은 워커의 `putImmutable`이 돌려준 S3 VersionId를 싣는다. finalize는 그 version을 읽어 검증한 뒤 manifest·transcript part·bundle·untracked 파일의 각 version에 legal hold를 걸고 나서야 pointer를 올린다. pointer(`checkpoints.manifest_version`)와 restore plan도 같은 version을 들고 간다. 그래서 커밋 뒤 같은 key를 덮어쓰거나 지우거나 delete marker 뒤에 다시 올려도 복원 대상은 바뀌지 않고, hold가 걸린 version은 hold를 푸는 권한 없이는 지울 수 없다. hold 해제는 아직 없는 GC의 몫이다. 그때까지 checkpoint 객체는 영구 보존되며, GC는 진행 중인 finalize가 hold를 건 version을 풀어서는 안 된다. hold를 걸 수 있는 권한은 풀 수도 있으므로 워커에게 주면 안 된다 — 지금 compose의 워커는 bucket 전체 자격 증명을 공유하며, 이것을 좁히는 일은 94S-251이다. API는 기동 시 bucket의 versioning이 `Enabled`이고 Object Lock 설정이 있는지 확인하고, 아니면 기동하지 않는다. **versioning이 꺼진 bucket에서는 `CHECKPOINT_OBJECT_PROTECTION=unversioned`를 명시해야 한다. 이 저하된 모드는 key로만 읽고(manifest의 version은 무시하고 restore plan에서도 뺀다) hold를 걸지 않으므로, 커밋 뒤의 삭제·덮어쓰기를 막지 못하고 복원 때 digest 불일치로 발견할 뿐이다.** 기동 로그에 경고가 남는다. `unversioned`에서 `locked`로 바꾸면, `unversioned`로 커밋된 checkpoint는 첫 restore 때 version 단위로 다시 해시하고 hold를 건 뒤에 내준다. pointer에 version이 없는 checkpoint는 `CHECKPOINT_UNAVAILABLE`이 된다. compose의 localstack init은 `claude-sessions`를 Object Lock으로 만들고, 예전 volume에 남은 bucket에는 versioning과 Object Lock 설정을 켠다(그 전에 올라간 객체는 version이 없어 locked API가 거부한다).
 
-API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest만 저장한다.
+API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest와 scope만 저장한다. `--scopes`는 필수이며 `sessions:read`·`sessions:write`·`sessions:approve`·`sessions:control`·`sessions:recover` 중에서 고른다. `/v1` 요청은 route마다 OpenAPI 표(`API_ROUTE_SCOPES`)에 적힌 scope를 요구하고, 없으면 body나 세션을 읽기 전에 `403 FORBIDDEN`이다. `sessions:recover`(recovery-decisions)는 별도 scope라 `sessions:write`나 `sessions:control`에 포함되지 않는다. cookie 사용자는 role로 scope를 받는다(owner 전부, member는 recover 제외). scope 도입 전에 발급된 키(scope NULL)는 아무 scope도 없으므로 다시 발급한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-  bun run --cwd apps/api keys create local-owner
+  bun run --cwd apps/api keys create local-owner --scopes sessions:read,sessions:write
 AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
+EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
+MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 \
   bun run --cwd apps/api start
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
@@ -239,6 +271,22 @@ curl -s -c jar -X POST http://127.0.0.1:3000/v1/auth/login -H 'Content-Type: app
 curl -s -b jar http://127.0.0.1:3000/v1/auth/me
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: agent-platform-web' -i
 ```
+
+### 설치 상한 (94S-131)
+
+API와 scheduler는 아래 다섯 값이 없거나 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. 두 프로세스는 같은 parser(`packages/platform/src/limits/installation-limits.ts`)를 쓴다. 코드에는 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
+
+| 변수 | 의미 | 넘었을 때 |
+|---|---|---|
+| `EXECUTION_SLOT_LIMIT` | 동시에 슬롯을 잡는 worker 수. 0이면 접수만 받고 아무것도 띄우지 않는다 | 입력은 거부하지 않고 `queued`로 둔다 |
+| `QUEUED_INPUT_LIMIT_PER_SESSION` | 세션 하나가 쌓아 둘 수 있는 `queued` turn 수 | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
+| `STORAGE_LIMIT_BYTES` | 설치 전체가 보존하는 입력 message의 UTF-8 bytes. event·checkpoint object·worker 디스크는 세지 않는다(디스크는 workspace quota가 맡는다) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
+| `MAX_TURN_SECONDS` | turn 하나의 벽시계 상한. 승인 대기도 포함한다. worker env `WORKER_MAX_TURN_SEC`로 전달된다 | turn `failed(turn_timeout)`. 엔진이 응답하지 않으면 `outcome_unknown(turn_timeout)` |
+| `SESSION_COST_LIMIT_USD` | 세션 누적 비용(SDK `total_cost_usd`에서 구한 turn별 증분의 합, 추정치) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
+| `PROVIDER_MAX_RETRIES` (선택, 기본 2) | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
+
+- 비용 상한은 turn이 끝난 뒤에 판정한다. 그래서 진행 중인 turn은 상한을 넘을 수 있다.
+- 비용이 보고되지 않은 turn(`outcome_unknown` 등)은 0으로 더해진다.
 
 ### 이미지와 Compose `apps` profile
 
@@ -257,7 +305,7 @@ docker compose -f infra/docker-compose.yml --profile apps up -d --build      # m
 curl -s http://127.0.0.1:3000/readyz
 ```
 
-`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `docker compose -f infra/docker-compose.yml exec api bun run apps/api/src/keys.ts create <owner>`로 발급한다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로(94S-215) 로컬 스택은 무제한 workspace를 감수하고 기동 로그에 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)·`gitea:3000`·`localstack:4566`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
+`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `docker compose -f infra/docker-compose.yml exec api bun run apps/api/src/keys.ts create <owner> --scopes sessions:read,sessions:write`로 발급한다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로(94S-215) 로컬 스택은 무제한 workspace를 감수하고 기동 로그에 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. 카탈로그는 저장소 `config/`를 `/app/config`로 mount해 읽는다 — 이미지에는 카탈로그가 없어 mount 없이 띄운 API는 기동하지 않는다. `secrets`(API 전용 Secrets Manager, 호스트 `127.0.0.1:4567`)와 `fake-messages`가 함께 뜬다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)·`gitea:3000`·`localstack:4566`·`fake-messages:4010`에 닿고(`secrets`에는 닿지 않는다), 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 

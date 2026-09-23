@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as schema from "@agent-platform/db";
 import { apiKeys } from "@agent-platform/db";
 import { eq } from "drizzle-orm";
@@ -62,12 +65,108 @@ async function waitForServer(
   }
 }
 
+// The provider key the catalog below references by environment variable.
+// The server must start with it and never write it anywhere.
+const PROVIDER_KEY = `provider-${crypto.randomUUID()}`;
+const PROFILES = `profiles:
+  coding:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: INTEGRATION_PROVIDER_KEY
+`;
+const REPOSITORIES = `repositories:
+  app:
+    url: https://git.example.invalid/team/app.git
+    branch: main
+    profiles: [coding]
+`;
+
+async function configDir(
+  root: string,
+  name: string,
+  profiles = PROFILES,
+): Promise<string> {
+  const dir = join(root, name);
+  await Bun.write(join(dir, "profiles.yaml"), profiles);
+  await writeFile(join(dir, "repositories.yaml"), REPOSITORIES);
+  return dir;
+}
+
+async function issueKey(ownerId: string, scopes: string): Promise<string> {
+  const keyProcess = Bun.spawn(
+    ["bun", "run", "src/keys.ts", "create", ownerId, "--scopes", scopes],
+    {
+      cwd: `${import.meta.dir}/..`,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [keyOutput, keyError, keyExit] = await Promise.all([
+    new Response(keyProcess.stdout).text(),
+    new Response(keyProcess.stderr).text(),
+    keyProcess.exited,
+  ]);
+  expect(keyExit, keyError).toBe(0);
+  expect(keyOutput.trim().split("\n")).toHaveLength(1);
+  const plaintext = keyOutput.trim();
+  expect(plaintext).toStartWith("csp_");
+  return plaintext;
+}
+
+// Runs the server to exit and hands back what it said; for configurations
+// that must stop it before it ever listens.
+async function refusedStart(
+  env: Record<string, string>,
+): Promise<{ exitCode: number; stderr: string }> {
+  const server = Bun.spawn(["bun", "run", "src/server.ts"], {
+    cwd: `${import.meta.dir}/..`,
+    env: {
+      ...process.env,
+      AUTH_MODE: "api-key",
+      CHECKPOINT_OBJECT_STORE: "disabled",
+      DATABASE_URL: databaseUrl,
+      EXECUTION_SLOT_LIMIT: "10",
+      MAX_TURN_SECONDS: "3600",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
+      PORT: String(40_000 + ((process.pid + 7) % 20_000)),
+      INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const timer = setTimeout(
+    () => server.kill("SIGKILL"),
+    SERVER_START_DEADLINE_MS,
+  );
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(server.stdout).text(),
+    new Response(server.stderr).text(),
+    server.exited,
+  ]);
+  clearTimeout(timer);
+  return { exitCode, stderr: `${stdout}${stderr}` };
+}
+
 integration("API server on PostgreSQL", () => {
   let db: NodePgDatabase<typeof schema>;
   let pool: Pool;
+  let root: string;
   const ownerId = `integration-owner-${crypto.randomUUID()}`;
 
   beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), "server-integration-"));
     pool = new Pool({ connectionString: databaseUrl, max: 2 });
     db = drizzle(pool, { schema });
     const state = await pool.query<{ sessions: string | null }>(
@@ -83,38 +182,33 @@ integration("API server on PostgreSQL", () => {
   afterAll(async () => {
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
+    await rm(root, { recursive: true, force: true });
   }, 60_000);
 
   test(
-    "issues one plaintext value, stores its digest, and authenticates HTTP",
+    "issues scoped keys that store a digest, and serves the catalog and scopes over HTTP",
     async () => {
-      const keyProcess = Bun.spawn(
-        ["bun", "run", "src/keys.ts", "create", ownerId],
-        {
-          cwd: `${import.meta.dir}/..`,
-          env: { ...process.env, DATABASE_URL: databaseUrl },
-          stdout: "pipe",
-          stderr: "pipe",
-        },
+      const plaintext = await issueKey(ownerId, "sessions:read,sessions:write");
+      const readOnly = await issueKey(ownerId, "sessions:read");
+      const owner = await issueKey(
+        ownerId,
+        "sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover",
       );
-      const [keyOutput, keyError, keyExit] = await Promise.all([
-        new Response(keyProcess.stdout).text(),
-        new Response(keyProcess.stderr).text(),
-        keyProcess.exited,
-      ]);
-      expect(keyExit, keyError).toBe(0);
-      expect(keyOutput.trim().split("\n")).toHaveLength(1);
-      const plaintext = keyOutput.trim();
-      expect(plaintext).toStartWith("csp_");
 
-      const [stored] = await db
-        .select({ keyHash: apiKeys.keyHash })
+      const stored = await db
+        .select({ keyHash: apiKeys.keyHash, scopes: apiKeys.scopes })
         .from(apiKeys)
         .where(eq(apiKeys.ownerId, ownerId));
-      expect(stored?.keyHash).toHaveLength(32);
-      expect(new TextDecoder().decode(stored?.keyHash)).not.toContain(
-        plaintext,
-      );
+      expect(stored.map((row) => row.scopes)).toContainEqual([
+        "sessions:read",
+        "sessions:write",
+      ]);
+      for (const row of stored) {
+        expect(row.keyHash).toHaveLength(32);
+        for (const key of [plaintext, readOnly, owner]) {
+          expect(new TextDecoder().decode(row.keyHash)).not.toContain(key);
+        }
+      }
 
       const port = 40_000 + (process.pid % 20_000);
       const server = Bun.spawn(["bun", "run", "src/server.ts"], {
@@ -127,7 +221,14 @@ integration("API server on PostgreSQL", () => {
           CHECKPOINT_OBJECT_STORE:
             process.env.CHECKPOINT_OBJECT_STORE ?? "disabled",
           DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
           PORT: String(port),
+          PLATFORM_CONFIG_DIR: await configDir(root, "valid"),
+          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -157,6 +258,83 @@ integration("API server on PostgreSQL", () => {
           headers: { "X-Owner-Id": "forged-owner" },
         });
         expect(forged.status).toBe(401);
+
+        const call = (
+          key: string,
+          method: string,
+          path: string,
+          body?: unknown,
+        ) =>
+          fetch(`http://127.0.0.1:${port}/v1${path}`, {
+            method,
+            headers: {
+              Authorization: `Bearer ${key}`,
+              "Content-Type": "application/json",
+              "Idempotency-Key": crypto.randomUUID(),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          });
+
+        // The catalog is what the file says: an id it does not register is
+        // 422, and a registered pair is accepted.
+        for (const body of [
+          { profile_id: "missing", repository_id: "app", message: "hi" },
+          { profile_id: "coding", repository_id: "missing", message: "hi" },
+        ]) {
+          const unknown = await call(plaintext, "POST", "/sessions", body);
+          expect(unknown.status, JSON.stringify(body)).toBe(422);
+        }
+        const created = await call(plaintext, "POST", "/sessions", {
+          profile_id: "coding",
+          repository_id: "app",
+          message: "hi",
+        });
+        expect(created.status).toBe(201);
+        const { session_id: sessionId } = (await created.json()) as {
+          session_id: string;
+        };
+
+        // A key without the scope is refused before anything is read or
+        // changed (94S-140): sessions:recover is its own scope, which
+        // sessions:write does not include.
+        const before = await (
+          await call(readOnly, "GET", `/sessions/${sessionId}`)
+        ).json();
+        const decision = {
+          decision: "close",
+          reason: "integration",
+        };
+        for (const key of [readOnly, plaintext]) {
+          const refused = await call(
+            key,
+            "POST",
+            `/sessions/${sessionId}/recovery-decisions`,
+            decision,
+          );
+          expect(refused.status).toBe(403);
+          expect(await refused.json()).toMatchObject({
+            error: { code: "FORBIDDEN" },
+          });
+        }
+        const writeWithoutScope = await call(readOnly, "POST", "/sessions", {
+          profile_id: "coding",
+          repository_id: "app",
+          message: "hi",
+        });
+        expect(writeWithoutScope.status).toBe(403);
+        expect(
+          await (await call(readOnly, "GET", `/sessions/${sessionId}`)).json(),
+        ).toEqual(before);
+        // The same request with the scope gets past the policy to the
+        // service, which judges the session itself.
+        const admitted = await call(
+          owner,
+          "POST",
+          `/sessions/${sessionId}/recovery-decisions`,
+          decision,
+        );
+        expect(admitted.status).not.toBe(403);
+        expect(admitted.status).toBeLessThan(500);
       } finally {
         server.kill("SIGTERM");
         await server.exited;
@@ -165,6 +343,83 @@ integration("API server on PostgreSQL", () => {
       const logs = `${await serverStdout}${await serverStderr}`;
       expect(logs).not.toContain(plaintext);
       expect(logs).not.toContain("Authorization");
+      expect(logs).not.toContain(PROVIDER_KEY);
+      expect(logs).toContain("Session catalog loaded");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "an invalid profile, an unresolved credential or a bad HEARTBEAT_TTL_SEC stops the server",
+    async () => {
+      const invalid = await refusedStart({
+        PLATFORM_CONFIG_DIR: await configDir(
+          root,
+          "invalid",
+          PROFILES.replace("permission_mode: default", "permission_mode: yolo"),
+        ),
+      });
+      expect(invalid.exitCode).not.toBe(0);
+      expect(invalid.stderr).toContain("profiles.coding.permission_mode");
+
+      const unresolved = await refusedStart({
+        PLATFORM_CONFIG_DIR: await configDir(root, "unresolved"),
+        INTEGRATION_PROVIDER_KEY: "",
+      });
+      expect(unresolved.exitCode).not.toBe(0);
+      expect(unresolved.stderr).toContain(
+        "profiles.coding.provider.auth.value_env: INTEGRATION_PROVIDER_KEY is not set",
+      );
+
+      const ttl = await refusedStart({
+        PLATFORM_CONFIG_DIR: await configDir(root, "ttl"),
+        HEARTBEAT_TTL_SEC: "30s",
+      });
+      expect(ttl.exitCode).not.toBe(0);
+      expect(ttl.stderr).toContain("HEARTBEAT_TTL_SEC must be a positive");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses to start on missing or malformed installation limits, naming each (94S-131)",
+    async () => {
+      const server = Bun.spawn(["bun", "run", "src/server.ts"], {
+        cwd: `${import.meta.dir}/..`,
+        env: {
+          ...process.env,
+          AUTH_MODE: "api-key",
+          DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          // Blank counts as missing, and overrides whatever the runner has.
+          SESSION_COST_LIMIT_USD: "",
+          STORAGE_LIMIT_BYTES: "-1",
+          PORT: String(40_000 + ((process.pid + 1) % 20_000)),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = Promise.all([
+        new Response(server.stdout).text(),
+        new Response(server.stderr).text(),
+      ]).then((parts) => parts.join(""));
+      const exitCode = await Promise.race([
+        server.exited,
+        Bun.sleep(SERVER_START_DEADLINE_MS).then(() => {
+          server.kill("SIGKILL");
+          return "timeout" as const;
+        }),
+      ]);
+      const logs = await output;
+      expect(exitCode, logs).not.toBe(0);
+      expect(exitCode, logs).not.toBe("timeout");
+      expect(logs).toContain(
+        "Refusing to start: installation limits are invalid",
+      );
+      expect(logs).toContain("SESSION_COST_LIMIT_USD is required");
+      expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,
   );

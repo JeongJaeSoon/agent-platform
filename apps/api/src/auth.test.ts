@@ -17,6 +17,7 @@ import type {
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { BODY_IDLE_TIMEOUT_SECONDS, createApiApp } from "./app.ts";
 import {
+  apiKeyPrincipal,
   bootstrapGateFromEnv,
   createBootstrapGate,
   csrfViolation,
@@ -24,7 +25,7 @@ import {
   hashWebSessionToken,
   type IdentityStore,
   LoginLockout,
-  legacyApiKeyPrincipal,
+  unauthenticatedPrincipal,
   WEB_SESSION_TTL_MS,
   WEB_SESSIONS_PER_USER,
   WorkGate,
@@ -199,6 +200,12 @@ const BOOTSTRAP_TOKEN = "t".repeat(40);
 const PASSWORD = "correct horse battery staple";
 const WRONG = "not the password at all";
 const API_KEY = "csp_test-key";
+const API_KEY_RECORD = {
+  id: "key-id",
+  ownerId: "key-owner",
+  workspaceId: null,
+  scopes: ["sessions:read" as const],
+};
 
 function harness(
   options: {
@@ -223,9 +230,9 @@ function harness(
     logger,
     identity,
     keyStore: {
-      async findOwner(hash) {
+      async find(hash) {
         return Buffer.from(hash).equals(Buffer.from(hashApiKey(API_KEY)))
-          ? "key-owner"
+          ? API_KEY_RECORD
           : null;
       },
     },
@@ -528,7 +535,7 @@ describe("login, logout, me", () => {
     });
     expect(me.status).toBe(200);
     const body = authMeResponseSchema.parse(await me.json());
-    expect(body.principal).toEqual(legacyApiKeyPrincipal("key-owner"));
+    expect(body.principal).toEqual(apiKeyPrincipal(API_KEY_RECORD));
     expect(body.user).toBeNull();
     expect(body.workspace).toBeNull();
 
@@ -755,7 +762,7 @@ describe("principal middleware", () => {
     });
     expect(await bearerOnly.json()).toMatchObject({
       owner_id: "key-owner",
-      principal: { kind: "api_key", id: "key-owner", workspace_id: null },
+      principal: { kind: "api_key", id: "key-id", owner_id: "key-owner" },
     });
 
     const both = await h.app.request("/v1/whoami", {
@@ -900,6 +907,41 @@ describe("principal middleware", () => {
       session.revokedAt = new Date();
     };
     expect(await reauth()).toBe(false);
+  });
+
+  test("a cookie user's scopes follow the role: a member may not recover, an owner may", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const membership = h.identity.memberships[0];
+    if (!membership) throw new Error("bootstrap left no membership");
+    const request = (path: string) =>
+      h.app.request(path, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+          "X-Requested-With": "agent-platform-web",
+          "Idempotency-Key": "k",
+        },
+        body: "{}",
+      });
+    const recover = `/v1/sessions/${crypto.randomUUID()}/recovery-decisions`;
+    const terminate = `/v1/sessions/${crypto.randomUUID()}/terminate`;
+
+    membership.role = "member";
+    const refused = await request(recover);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      error: { code: "FORBIDDEN" },
+    });
+    // Control is still a member's; only the harness has no such route.
+    expect((await request(terminate)).status).toBe(404);
+
+    membership.role = "owner";
+    // Past the policy: this harness registers no session routes, so the
+    // owner reaches the router and finds none.
+    expect((await request(recover)).status).toBe(404);
   });
 
   test("reauthenticate follows the API key", async () => {
@@ -1061,7 +1103,7 @@ describe("CSRF", () => {
   });
 
   test("csrfViolation is a no-op for non-user principals", () => {
-    const principal = legacyApiKeyPrincipal("o");
+    const principal = unauthenticatedPrincipal("o");
     const context = {
       req: { method: "POST", header: () => undefined },
     } as never;

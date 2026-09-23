@@ -34,6 +34,12 @@ const unusedControls: SessionControl = {
 
 const SESSION = "019a0000-0000-7000-8000-000000000001";
 const OWNER = "owner-a";
+const KEY = {
+  id: "key-a",
+  ownerId: OWNER,
+  workspaceId: null,
+  scopes: ["sessions:read" as const],
+};
 
 function event(id: number, phase = "running"): SseEvent {
   return {
@@ -140,6 +146,11 @@ function harness(
   const store = new FakeStore();
   const wakeup = new FakeWakeup();
   const service = createSessionService({
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    },
     authorization: ownerScopedPolicy,
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
@@ -373,6 +384,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     for (let i = 1; i <= 5_000; i += 1) store.append(event(i));
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -399,8 +415,8 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
-          return valid ? OWNER : null;
+        async find() {
+          return valid ? KEY : null;
         },
       },
       registerRoutes: (router) => {
@@ -469,6 +485,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     const { store, wakeup } = harness();
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -492,8 +513,8 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
-          return valid ? OWNER : null;
+        async find() {
+          return valid ? KEY : null;
         },
       },
       registerRoutes: (router) => {
@@ -513,12 +534,70 @@ describe("GET /v1/sessions/{id}/events", () => {
     expect(await frames.ended()).toBe(true);
   });
 
+  test("ends the stream once the key no longer holds sessions:read", async () => {
+    const { store, wakeup } = harness();
+    let scopes: Array<"sessions:read" | "sessions:write"> = ["sessions:read"];
+    const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
+      authorization: ownerScopedPolicy,
+      controls: unusedControls,
+      catalog: { profiles: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: store.reader(),
+      },
+    });
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async find() {
+          return { ...KEY, scopes };
+        },
+      },
+      registerRoutes: (router) => {
+        registerEventRoutes(router, service, {
+          wakeup,
+          keepaliveMs: 30,
+          logger: { info() {}, warn() {} },
+        });
+      },
+    });
+    const response = await open(app, { Authorization: "Bearer csp_test" });
+    expect(response.status).toBe(200);
+    const frames = new FrameReader(response);
+    expect((await frames.next())?.comment).toBe("keepalive");
+    scopes = ["sessions:write"];
+    // Still the same live key, but no longer one that may read.
+    expect(await frames.ended()).toBe(true);
+  });
+
   test("a revoked credential ends a stream whose writes are blocked", async () => {
     const store = new FakeStore();
     const wakeup = new FakeWakeup();
     for (let i = 1; i <= 300; i += 1) store.append(event(i));
     let valid = true;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -543,8 +622,8 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
-          return valid ? OWNER : null;
+        async find() {
+          return valid ? KEY : null;
         },
       },
       registerRoutes: (router) => {
@@ -576,6 +655,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -607,8 +691,8 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
-          return valid ? OWNER : null;
+        async find() {
+          return valid ? KEY : null;
         },
       },
       registerRoutes: (router) => {
@@ -639,6 +723,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -671,8 +760,8 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
-          return valid ? OWNER : null;
+        async find() {
+          return valid ? KEY : null;
         },
       },
       registerRoutes: (router) => {
@@ -711,6 +800,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     // one keepalive of the last check that answered.
     let lookups = 0;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -734,9 +828,9 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        findOwner() {
+        find() {
           lookups += 1;
-          return lookups === 1 ? Promise.resolve(OWNER) : new Promise(() => {});
+          return lookups === 1 ? Promise.resolve(KEY) : new Promise(() => {});
         },
       },
       registerRoutes: (router) => {
@@ -797,6 +891,11 @@ describe("GET /v1/sessions/{id}/events", () => {
     const wakeup = new FakeWakeup();
     let lookups = 0;
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: ownerScopedPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
@@ -825,10 +924,10 @@ describe("GET /v1/sessions/{id}/events", () => {
     const app = createApiApp({
       authMode: "api-key",
       keyStore: {
-        async findOwner() {
+        async find() {
           lookups += 1;
           if (lookups > 1) await Bun.sleep(40);
-          return OWNER;
+          return KEY;
         },
       },
       registerRoutes: (router) => {

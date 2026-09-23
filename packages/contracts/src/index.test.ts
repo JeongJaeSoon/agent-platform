@@ -536,6 +536,7 @@ describe("worker protocol", () => {
         version: "0.3.270",
         profile_id: "claude-coding-v1",
       },
+      profile_fingerprint: `sha256:${"b".repeat(64)}`,
       runtime_config: {
         model: "claude-sonnet-5",
         tools: ["Read", "Edit"],
@@ -568,6 +569,17 @@ describe("worker protocol", () => {
     expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
       false,
     );
+    // The fingerprint names the exact profile the claim resolved (94S-132).
+    const { profile_fingerprint: _f, ...withoutFingerprint } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutFingerprint).success,
+    ).toBe(false);
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        profile_fingerprint: "b".repeat(64),
+      }).success,
+    ).toBe(false);
     // A claim from a gateway that predates the field lets nothing in; a
     // hooks switch does not exist to be sent.
     const { project_settings: _s, ...withoutProjectSettings } =
@@ -620,6 +632,7 @@ describe("worker protocol", () => {
         version: "0.3.270",
         profile_id: "claude-coding-v1",
       },
+      profile_fingerprint: `sha256:${"b".repeat(64)}`,
       runtime_config: {
         model: "claude-sonnet-5",
         tools: ["Read"],
@@ -653,6 +666,7 @@ describe("worker protocol", () => {
       auth_revision: scope.auth_revision,
       lease_expires_at: AT,
       runtime: claim.runtime,
+      profile_fingerprint: `sha256:${"b".repeat(64)}`,
       model: "claude-sonnet-5",
       permission_mode: "acceptEdits",
       provider_kind: "litellm",

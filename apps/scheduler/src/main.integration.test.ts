@@ -61,6 +61,10 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     EXECUTION_INSTALLATION_ID: runLabel,
     EXECUTION_DOCKER_COMMAND: "sleep 600",
     EXECUTION_SLOT_LIMIT: "10",
+    MAX_TURN_SECONDS: "3600",
+    QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+    SESSION_COST_LIMIT_USD: "25",
+    STORAGE_LIMIT_BYTES: "1073741824",
     // The runner's data root is on ext4, so the daemon cannot carry a
     // volume quota; the quota itself is covered by workspace.integration.test.ts.
     EXECUTION_WORKSPACE_QUOTA: "off",

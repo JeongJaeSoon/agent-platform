@@ -1,5 +1,18 @@
 name: agent-platform
 
+# Installation limits (94S-131). The API and the scheduler both refuse to
+# start without them, and read them with one parser, so both services take
+# this one block. These are local defaults, not recommendations: size them
+# per installation.
+x-installation-limits: &installation-limits
+  EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+  QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
+  # Retained input messages across the installation; 1 GiB.
+  STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-1073741824}
+  MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
+  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
+  PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
+
 services:
   postgres:
     image: postgres:16
@@ -60,6 +73,46 @@ services:
       retries: 12
       start_period: 5s
 
+  # The API's Secrets Manager (94S-132), apart from `localstack` on purpose:
+  # workers reach that one through the egress proxy, and nothing on the
+  # allowlist may answer for the provider keys the catalog references. Only
+  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER).
+  secrets:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: secretsmanager
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    ports:
+      # For an API started on the host (README); loopback only.
+      - "127.0.0.1:4567:4566"
+    volumes:
+      - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id agent-platform/local/fake-messages >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # The Messages API the example profile (config/profiles.yaml) points at, so
+  # the local stack runs sessions without an Anthropic account. Workers reach
+  # it through the proxy (EGRESS_PRIVATE_ALLOWLIST).
+  fake-messages:
+    image: oven/bun:1.3.10
+    command: ["bun", "run", "/app/packages/testkit/src/fake-messages-main.ts"]
+    environment:
+      FAKE_MESSAGES_PORT: "4010"
+    volumes:
+      - ..:/app:ro
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4010/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   gitea:
     image: gitea/gitea:1.22
     environment:
@@ -90,8 +143,10 @@ services:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
       # stays for an API started on the host with `bun run --cwd apps/api start`.
-      # localstack:4566 is the worker's object store (94S-244).
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,localstack:4566}
+      # localstack:4566 is the worker's object store (94S-244);
+      # fake-messages:4010 is the example profile's Messages API (94S-132).
+      # `secrets` is deliberately absent.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,localstack:4566,fake-messages:4010}
       EGRESS_PROXY_PORT: "3128"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -157,12 +212,20 @@ services:
       # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
       # any X-Owner-Id as the caller's identity, so a compromised worker could
       # act as any owner. Issue a key with
-      # `docker compose exec api bun run apps/api/src/keys.ts create <owner>`.
+      # `docker compose exec api bun run apps/api/src/keys.ts create <owner>
+      # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
+      <<: *installation-limits
+      # Read by the API alone: every lease it grants carries its deadline
+      # into the database, and the reconciler refuses to start with its own.
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # The operator catalog (94S-132): config/ mounted below. The image
+      # carries none, so an API without a mounted catalog does not start.
+      PLATFORM_CONFIG_DIR: /app/config
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: ${AWS_ENDPOINT_URL_SECRETS_MANAGER:-http://secrets:4566}
       # Checkpoint object store (94S-201): the same LocalStack bucket the
       # scheduler hands each worker. The API reads manifests, transcripts
       # and workspace bundles back from it to verify a checkpoint before the
@@ -179,9 +242,8 @@ services:
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
-      # SESSION_CATALOG_JSON is deliberately not defaulted: the API parses an
-      # empty string as JSON and refuses to start. Put it in ../.env when
-      # sessions should be creatable; unset, POST /v1/sessions answers 422.
+    volumes:
+      - ../config:/app/config:ro
     healthcheck:
       test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/readyz'); if (!r.ok) process.exit(1)"]
       interval: 5s
@@ -194,6 +256,10 @@ services:
       postgres:
         condition: service_healthy
       localstack:
+        condition: service_healthy
+      secrets:
+        condition: service_healthy
+      fake-messages:
         condition: service_healthy
       gitea:
         condition: service_healthy
@@ -281,7 +347,7 @@ services:
       WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
-      EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      <<: *installation-limits
       # Docker Desktop cannot carry a project quota, so the local stack opts out
       # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}

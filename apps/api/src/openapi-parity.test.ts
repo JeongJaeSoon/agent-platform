@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { buildOpenApiDocument } from "@agent-platform/contracts";
+import {
+  API_ROUTE_SCOPES,
+  buildOpenApiDocument,
+} from "@agent-platform/contracts";
 import type {
   InterruptService,
   PendingRequestService,
@@ -33,6 +36,11 @@ import {
   registerSessionRoutes,
   sessionRouteErrors,
 } from "./routes/sessions.ts";
+import { scopedRouteErrors } from "./scope-policy.ts";
+
+const SCOPED_ROUTES = new Set(
+  API_ROUTE_SCOPES.map((route) => `${route.method} ${route.path}`),
+);
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
@@ -94,10 +102,7 @@ function openApiRoutes(): Set<string> {
 }
 
 // Declared but not yet produced by any handler.
-const DECLARED_ONLY_ERRORS: Record<string, number[]> = {
-  "POST /v1/sessions": [429],
-  "POST /v1/sessions/{id}/messages": [429],
-};
+const DECLARED_ONLY_ERRORS: Record<string, number[]> = {};
 
 test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();
@@ -123,12 +128,15 @@ test("each handler's error statuses match its OpenAPI operation", () => {
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     // Errors the /v1 middleware adds before the handler runs.
-    const middleware = route.startsWith("POST /v1")
-      ? [
-          ...bodyRouteErrors,
-          ...(publicRoutes.has(route) ? [] : mutationRouteErrors),
-        ]
-      : [];
+    const middleware = [
+      ...(route.startsWith("POST /v1")
+        ? [
+            ...bodyRouteErrors,
+            ...(publicRoutes.has(route) ? [] : mutationRouteErrors),
+          ]
+        : []),
+      ...(SCOPED_ROUTES.has(route) ? scopedRouteErrors : []),
+    ];
     const expected = [
       ...new Set([
         ...(implemented ?? []),

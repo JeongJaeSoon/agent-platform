@@ -100,6 +100,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
     await db.insert(workers).values({
       podId,
       lastSeen: new Date(now.getTime() - 60_000),
+      leaseExpiresAt: new Date(now.getTime() - 60_000 + 1_000),
     });
     const [turn] = await db
       .insert(turns)
@@ -131,8 +132,8 @@ integration("orphan reconciliation on PostgreSQL", () => {
     const now = new Date("2026-09-14T00:00:00Z");
     const seeded = await seedOrphan(now);
     const results = await Promise.all([
-      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
-      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
+      reconcileOrphanedSessions(db, { now }),
+      reconcileOrphanedSessions(db, { now }),
     ]);
 
     expect(results.flat()).toEqual([
@@ -157,9 +158,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
       .set({ status: "running" })
       .where(eq(turns.id, seeded.turnId));
 
-    expect(
-      await reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
-    ).toEqual([
+    expect(await reconcileOrphanedSessions(db, { now })).toEqual([
       expect.objectContaining({
         action: "blocked",
         blockedMessageIds: [seeded.messageId],
@@ -195,11 +194,10 @@ integration("orphan reconciliation on PostgreSQL", () => {
     try {
       await client.query("BEGIN");
       await client.query(
-        "UPDATE workers SET last_seen = $1 WHERE pod_id = $2",
-        [now, seeded.podId],
+        "UPDATE workers SET last_seen = $1, lease_expires_at = $2 WHERE pod_id = $3",
+        [now, new Date(now.getTime() + 1_000), seeded.podId],
       );
       const reconciliation = reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       });
       await Bun.sleep(20);
@@ -227,7 +225,6 @@ integration("orphan reconciliation on PostgreSQL", () => {
     const seeded = await seedOrphan(now);
     const newPodId = `new-${crypto.randomUUID()}`;
     const reconciliation = reconcileOrphanedSessions(db, {
-      leaseTtlMs: 1_000,
       now,
     });
     const claimed = (async () => {
@@ -291,11 +288,21 @@ integration("expired lease reconciliation on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: {
         async verify() {
@@ -303,6 +310,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -320,6 +328,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
