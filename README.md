@@ -104,7 +104,7 @@ CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Establishe
 * proxy는 모든 worker 네트워크에 붙는 신뢰 구성요소다. proxy가 침해되면 그 설치의 모든 worker에 닿는다. `EGRESS_PRIVATE_ALLOWLIST`에는 worker로 해석될 수 있는 이름을 넣지 않는다.
 * internal bridge도 host 쪽 bridge 인터페이스에 주소를 가진다. 그래서 daemon host가 그 주소나 wildcard로 listen하는 **host 프로세스**에는 worker가 proxy를 거치지 않고 닿을 수 있다. Docker가 publish한 포트가 아니라 host에서 직접 띄운 프로세스가 대상이다. 94S-199 때부터 있던 구멍이고 94S-274에서 다룬다.
 
-scheduler는 pass 전에 그 설치의 proxy가 정확히 하나 떠 있는지 확인한다(`verifyNetworkIsolation`). 없거나 둘 이상이면 worker 네트워크 reconcile만 돌리고(orphan 회수, 둘 이상이면 proxy 분리) 아무것도 띄우지 않은 채 non-zero로 종료한다. worker 네트워크는 launch 때마다 검사한다. 이미 같은 이름의 네트워크가 있으면 새로 만들지 않고 다음을 확인한다. 하나라도 어긋나면 `NetworkIsolationError`로 launch를 거부한다(fail closed).
+scheduler는 pass 전에 그 설치의 proxy가 정확히 하나 떠 있는지 확인한다(`verifyNetworkIsolation`). 없거나 둘 이상이면 pass lock을 잡고 worker 네트워크 reconcile만 돌린다(orphan 회수, 둘 이상이면 proxy 분리). 그다음 아무것도 띄우지 않은 채 non-zero로 종료한다. worker 네트워크는 launch 때마다 검사한다. 이미 같은 이름의 네트워크가 있으면 새로 만들지 않고 다음을 확인한다. 하나라도 어긋나면 `NetworkIsolationError`로 launch를 거부한다(fail closed).
 
 * bridge·internal·IPv6 꺼짐·소유 label(설치·execution·generation)이 맞는가
 * worker와 proxy 외의 구성원이 없는가

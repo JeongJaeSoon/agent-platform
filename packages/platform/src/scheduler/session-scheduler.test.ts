@@ -25,6 +25,7 @@ import {
   launchNonceFingerprint,
 } from "../workers/worker-gateway.ts";
 import {
+  reclaimNetworks,
   reclaimWorkspaces,
   runScheduler,
   type SchedulerLogger,
@@ -546,7 +547,7 @@ function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
       store,
     });
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
-  return { backend, reclaim, records, run, store };
+  return { backend, logger, reclaim, records, run, store };
 }
 
 describe("runScheduler", () => {
@@ -2131,6 +2132,40 @@ describe("runScheduler worker network reconcile", () => {
 
     expect(summary.networkScanFailed).toBe(true);
     expect(summary.launched).toHaveLength(1);
+  });
+});
+
+describe("reclaimNetworks", () => {
+  test("reconciles worker networks and nothing else", async () => {
+    const { backend, logger, store } = harness();
+    store.addUnassigned(1);
+    backend.reconcileNetworks = async () => ({
+      failed: [{ error: "2 running proxies", id: "ap-net-live" }],
+      removed: ["ap-net-gone"],
+      repaired: [],
+    });
+
+    const summary = await reclaimNetworks({ backend, logger, store });
+
+    expect(summary.networksReclaimed).toEqual(["ap-net-gone"]);
+    expect(summary.networksFailed).toEqual(["ap-net-live"]);
+    expect(backend.ensureCalls).toEqual([]);
+    expect(summary.launched).toEqual([]);
+  });
+
+  test("a held lock skips it, so it never races a pass", async () => {
+    const { backend, logger, store } = harness();
+    let asked = false;
+    backend.reconcileNetworks = async () => {
+      asked = true;
+      return { failed: [], removed: [], repaired: [] };
+    };
+    await store.acquirePassLock();
+
+    const summary = await reclaimNetworks({ backend, logger, store });
+
+    expect(summary.skipped).toBe(true);
+    expect(asked).toBe(false);
   });
 });
 

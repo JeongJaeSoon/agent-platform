@@ -192,6 +192,35 @@ export async function reclaimWorkspaces(
 }
 
 /**
+ * The network half of step 2 on its own, under the same lock: for the caller
+ * whose egress proxy preflight refused the pass. Two running proxies are
+ * exactly when the live worker networks have to lose them, and a pass that
+ * never starts would leave them attached.
+ */
+export async function reclaimNetworks(
+  options: ReclaimOptions,
+): Promise<SchedulerRunSummary> {
+  const release = await options.store.acquirePassLock();
+  if (release === null) {
+    options.logger.warn("Another scheduling pass holds the lock; skipping");
+    return { ...emptySummary(0), skipped: true };
+  }
+  const summary = emptySummary(0);
+  try {
+    await reconcileNetworks(options, summary);
+    options.logger.info("Worker network reconcile completed", {
+      network_failed_count: summary.networksFailed.length,
+      network_reclaimed_count: summary.networksReclaimed.length,
+      network_repaired_count: summary.networksRepaired.length,
+      network_scan_failed: summary.networkScanFailed,
+    });
+    return summary;
+  } finally {
+    await release();
+  }
+}
+
+/**
  * Reclaim the workspace volumes of sessions nothing will come back to. Runs
  * as the last step of a pass, and on its own from `reclaimWorkspaces`.
  */
