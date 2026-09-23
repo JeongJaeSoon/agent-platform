@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import type { ClaimPrincipal, RuntimeConfig } from "@agent-platform/contracts";
+import type {
+  ClaimPrincipal,
+  FinalizeRequest,
+  FinalizeResponse,
+  RuntimeConfig,
+} from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
   type FakeStep,
 } from "@agent-platform/runtime-claude";
-import type { AgentRun, NativeSdkMessage } from "@agent-platform/runtime-core";
+import type {
+  AgentRun,
+  CheckpointPreparation,
+  NativeSdkMessage,
+} from "@agent-platform/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
@@ -1059,6 +1068,161 @@ describe("WorkerHost outcomes a drain must not hide", () => {
 
     expect(summary.outcome).toBe("failed");
     expect(gateway.finalized).toEqual([]);
+  });
+
+  describe("checkpoint lease (94S-208)", () => {
+    const committed: WorkerCheckpointPort = {
+      restorePlan: async () => ({ mode: "new" }),
+      capture: async (preparation) =>
+        preparation.status === "ready"
+          ? {
+              revision: 0,
+              manifest_ref: "checkpoints/0.json",
+              manifest_sha256: "a".repeat(64),
+            }
+          : null,
+    };
+    const oneTurn = [
+      { type: "await-input" as const },
+      { type: "emit" as const, message: resultMessage(uuidForTurn(1)) },
+      { type: "await-input" as const },
+    ];
+
+    test("is held from the verdict until the finalize carrying the checkpoint answers", async () => {
+      let run: AgentRun | undefined;
+      const during: CheckpointPreparation[] = [];
+      class Observing extends FakeWorkerGateway {
+        override async finalize(
+          request: FinalizeRequest,
+        ): Promise<FinalizeResponse> {
+          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          return super.finalize(request);
+        }
+      }
+      const gateway = new Observing();
+      const { host } = harness(oneTurn, {
+        checkpoints: committed,
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      gateway.enqueue("a turn that checkpoints");
+
+      const summary = await host.runLoop();
+
+      expect(summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+      ]);
+      expect(gateway.finalized[0]?.checkpoint?.revision).toBe(0);
+      expect(during).toEqual([
+        {
+          status: "rejected",
+          reason: "checkpoint_lease_held",
+          detail: "Another checkpoint holds the lease",
+        },
+      ]);
+      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
+
+    test("outlives a finalize the host stopped waiting for, until it answers", async () => {
+      let run: AgentRun | undefined;
+      let host: WorkerHost | undefined;
+      const answer = Promise.withResolvers<void>();
+      class Late extends FakeWorkerGateway {
+        override async finalize(
+          request: FinalizeRequest,
+        ): Promise<FinalizeResponse> {
+          // The drain budget runs out while this request is still out.
+          host?.drain("received SIGTERM");
+          await answer.promise;
+          return super.finalize(request);
+        }
+      }
+      const gateway = new Late();
+      const built = harness(oneTurn, {
+        checkpoints: committed,
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      host = built.host;
+      gateway.enqueue("a turn whose finalize outlasts the drain");
+
+      await built.host.runLoop();
+
+      // Given up on, not answered: a CAS could still land, so no writer may
+      // start before it does.
+      expect(await run?.prepareCheckpoint()).toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+      answer.resolve();
+      await waitFor(() => gateway.finalized.length === 1, "the late finalize");
+      await Bun.sleep(1);
+      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
+
+    test("is given back at once when there is nothing to commit", async () => {
+      let run: AgentRun | undefined;
+      const during: CheckpointPreparation[] = [];
+      class Observing extends FakeWorkerGateway {
+        override async finalize(
+          request: FinalizeRequest,
+        ): Promise<FinalizeResponse> {
+          if (run !== undefined) during.push(await run.prepareCheckpoint());
+          return super.finalize(request);
+        }
+      }
+      const gateway = new Observing();
+      const { host } = harness(oneTurn, {
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      gateway.enqueue("a turn the unwired port captures nothing for");
+
+      await host.runLoop();
+
+      expect(gateway.finalized[0]?.checkpoint).toBeNull();
+      expect(during[0]?.status).toBe("ready");
+    });
+
+    test("a run that is not quiescent finalizes without a checkpoint", async () => {
+      const { gateway, host } = harness(
+        [
+          { type: "await-input" },
+          {
+            type: "emit",
+            message: {
+              type: "system",
+              subtype: "background_tasks_changed",
+              tasks: [{ task_id: "bash_1", task_type: "local_bash" }],
+            },
+          },
+          { type: "emit", message: resultMessage(uuidForTurn(1)) },
+          { type: "await-input" },
+        ],
+        { checkpoints: committed },
+      );
+      gateway.enqueue("start a dev server in the background");
+
+      const summary = await host.runLoop();
+
+      expect(summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+      ]);
+      // The previous generation stays the one to resume from.
+      expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    });
   });
 
   test("a lease lost while the checkpoint is captured is never finalized", async () => {
