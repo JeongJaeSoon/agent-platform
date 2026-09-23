@@ -127,6 +127,15 @@ case "${1:-}" in
   logs) dc logs --no-color --timestamps >"${2:-$state/compose.log}" 2>&1 ;;
   compose)
     shift
+    # Only this stack: no flag that would select another project or files.
+    for arg in "$@"; do
+      case "$arg" in
+        -p | -p* | --project-name* | -f | -f* | --file* | --project-directory* | --env-file* | -c | --context*)
+          echo "refusing: '$arg' would leave the soak135 stack" >&2
+          exit 2
+          ;;
+      esac
+    done
     dc "$@"
     ;;
   *)

@@ -535,11 +535,53 @@ type ReconcilerSample = {
   code: number;
   status: {
     consecutiveFailures?: number;
+    lastFailureAt?: string | null;
     lastFailureReason?: string | null;
     lastSuccessAt?: string | null;
+    loopStartedAt?: string;
     passes?: number;
   } | null;
 };
+
+/**
+ * /readyz on fixed slots from the loop's start. Every slot yields a sample:
+ * a probe that could not run, and a slot the runner was too stalled to
+ * reach, are failed intervals, never missing ones.
+ */
+async function readyzLoop(soak: Soak, clock: Clock): Promise<void> {
+  const { config, env, out } = soak;
+  const interval = config.readyz.intervalMs;
+  const record = (sample: ReadyzSample) => {
+    soak.readyz.push(sample);
+    out.jsonl("readyz").write(sample);
+  };
+  const failed = (t: number, error: string): ReadyzSample => ({
+    t: new Date(t).toISOString(),
+    error,
+    ms: 0,
+    ok: false,
+    status: 0,
+    wallMs: 0,
+  });
+  let slot = Date.now();
+  while (!clock.stopping) {
+    const t = new Date().toISOString();
+    record(
+      await readyzProbe(env.apiUrl, config.readyz.timeoutMs).then(
+        (probe) => ({ t, ...probe }),
+        (error) => failed(Date.now(), `probe did not run: ${String(error)}`),
+      ),
+    );
+    slot += interval;
+    while (Date.now() >= slot + interval) {
+      record(failed(slot, "slot missed: the runner did not get to it"));
+      slot += interval;
+    }
+    while (!clock.stopping && Date.now() < slot) {
+      await Bun.sleep(Math.min(1000, slot - Date.now()));
+    }
+  }
+}
 
 async function readyzProbe(
   apiUrl: string,
@@ -580,26 +622,7 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
   let modelCursor = 0;
   let chaosCursor = 0;
   const tasks = [
-    every(clock, config.readyz.intervalMs, async () => {
-      const t = new Date().toISOString();
-      // A probe that could not run is a failed interval, not a missing one.
-      const sample: ReadyzSample = await readyzProbe(
-        env.apiUrl,
-        config.readyz.timeoutMs,
-      ).then(
-        (probe) => ({ t, ...probe }),
-        (error) => ({
-          t,
-          error: `probe did not run: ${String(error)}`,
-          ms: 0,
-          ok: false,
-          status: 0,
-          wallMs: 0,
-        }),
-      );
-      soak.readyz.push(sample);
-      out.jsonl("readyz").write(sample);
-    }),
+    readyzLoop(soak, clock),
     every(clock, config.sampleIntervalSec * 1000, async () => {
       out.jsonl("clock").write(await clockOffset(env.messagesUrl));
       const requests = await soak.model.requests({ since: modelCursor });
@@ -722,20 +745,24 @@ export function judge(
   const unreadable = reconcilerSamples.filter(
     (sample) => sample.code !== 0 || sample.status === null,
   );
+  // The status keeps only the latest failure, so a failed pass followed by
+  // a success between two readings still shows through lastFailureAt.
   const failing = reconcilerSamples.filter(
-    (sample) => (sample.status?.consecutiveFailures ?? 0) > 0,
+    (sample) =>
+      (sample.status?.consecutiveFailures ?? 0) > 0 ||
+      (sample.status?.lastFailureAt != null &&
+        Date.parse(sample.status.lastFailureAt) >= steadyFrom),
   );
   const staleness = reconcilerSamples.map((sample) =>
     sample.status?.lastSuccessAt
       ? Date.parse(sample.t) - Date.parse(sample.status.lastSuccessAt)
       : Number.POSITIVE_INFINITY,
   );
-  const restarts = reconcilerSamples.filter(
-    (sample, i) =>
-      i > 0 &&
-      (sample.status?.passes ?? 0) <
-        (reconcilerSamples[i - 1]?.status?.passes ?? 0),
-  ).length;
+  // A restarted loop writes a new loopStartedAt, whatever its pass count.
+  const restarts =
+    new Set(
+      reconcilerSamples.map((sample) => sample.status?.loopStartedAt ?? ""),
+    ).size - 1;
   const targets = config.targets;
   const accepted = (endpoint: TurnRecord["endpoint"]) =>
     distribution(
@@ -1294,13 +1321,17 @@ function rejudge(dir: string): number {
   );
   const meta = JSON.parse(readFileSync(at("meta.json"), "utf8"));
   const controls = readJsonl<ControlSample>(at("controls.jsonl")).map(
-    (sample) =>
-      sample.extra?.valid !== undefined
+    (sample) => {
+      const extra = sample.extra ?? {};
+      const proven =
+        sample.op !== "interrupt" ||
+        (typeof extra.acceptedBy === "string" &&
+          typeof extra.slowPendingUntil === "string" &&
+          Date.parse(extra.acceptedBy) < Date.parse(extra.slowPendingUntil));
+      return extra.valid === true && proven
         ? sample
-        : {
-            ...sample,
-            extra: { ...sample.extra, valid: false, legacy: true },
-          },
+        : { ...sample, extra: { ...extra, valid: false, unproven: !proven } };
+    },
   );
   return report(
     dir,

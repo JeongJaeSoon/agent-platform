@@ -1018,8 +1018,22 @@ const claimTerminate: Campaign = {
           )
         : null;
       const posted = await ctx.api.control(started.sessionId, "terminate");
-      const acceptedAt = new Date().toISOString();
-      await ctx.chaos.release(held);
+      // Released only once the terminate is durable; any other answer leaves
+      // the round without its premise, and the pass condition says so.
+      if (posted.status === 202) await ctx.chaos.release(held);
+      const terminateReceipt =
+        ((posted.body ?? {}) as { receipt_id?: string }).receipt_id ?? null;
+      // The terminate's commit on the database's clock, which the injector
+      // shares: the replay must have gone on after it.
+      const { rows: receiptRows } = terminateReceipt
+        ? await ctx.db.query("SELECT created_at FROM receipts WHERE id = $1", [
+            terminateReceipt,
+          ])
+        : { rows: [] };
+      const acceptedAt =
+        (
+          receiptRows[0] as { created_at: Date } | undefined
+        )?.created_at.toISOString() ?? null;
       const replayAnswered = replayHeld
         ? await waitChaos(
             ctx,
@@ -1077,6 +1091,8 @@ const claimTerminate: Campaign = {
           const x = r as {
             firstClaimUpstream: number | null;
             heldReplayUpstream: number | null;
+            replayForwardedAt: string | null;
+            terminateAcceptedAt: string | null;
             terminateAccepted: number;
             terminate: { receipt: string | null; effectMs: number | null };
             replays: Array<number | null>;
@@ -1087,6 +1103,10 @@ const claimTerminate: Campaign = {
             x.firstClaimUpstream !== null &&
             x.firstClaimUpstream < 300 &&
             x.terminateAccepted === 202 &&
+            x.terminateAcceptedAt !== null &&
+            x.replayForwardedAt !== null &&
+            Date.parse(x.replayForwardedAt) >
+              Date.parse(x.terminateAcceptedAt) &&
             x.heldReplayUpstream !== null &&
             x.heldReplayUpstream >= 400 &&
             x.terminate.effectMs !== null &&

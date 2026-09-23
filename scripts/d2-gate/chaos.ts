@@ -242,14 +242,19 @@ Bun.serve({
     }
     const release = /^\/rules\/([^/]+)\/release$/.exec(url.pathname);
     if (release && request.method === "POST") {
-      const open = gates.get(release[1] ?? "");
+      const id = release[1] ?? "";
+      const open = gates.get(id);
       open?.();
+      gates.delete(id);
+      released.delete(id);
       return new Response(null, { status: open ? 204 : 404 });
     }
     if (url.pathname.startsWith("/rules/") && request.method === "DELETE") {
       const id = url.pathname.slice("/rules/".length);
       // Nothing stays held by a rule that is gone.
       gates.get(id)?.();
+      gates.delete(id);
+      released.delete(id);
       const at = rules.findIndex((rule) => rule.id === id);
       const [removed] = at < 0 ? [] : rules.splice(at, 1);
       return Response.json(removed ?? null, { status: removed ? 200 : 404 });
