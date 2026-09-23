@@ -452,7 +452,7 @@ export async function advanceCheckpointPointer(
         // Whatever an earlier fallback restored, this commit now stands for
         // the session's state.
         checkpointFallbackRevision: null,
-        checkpointFallbackAttemptId: null,
+        checkpointRestoreAttemptId: null,
         updatedAt: input.now,
         ...(resolvesPending
           ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
@@ -1380,10 +1380,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
      * before the worker is given the plan, under the same fence and against
      * the same pointer the plan was judged on.
      *
-     * One attempt is announced once per pointer. Asking again for the same
-     * earlier revision is a retry; being handed a different one is refused,
-     * because a worker restoring two different bases for one pointer leaves
-     * the row describing only one of them.
+     * Every served plan pins its attempt to the base it names, the pointer
+     * included, so asking again for the same base is a retry and being
+     * handed a different one is refused: the object store can change
+     * between two requests, and a worker holding two plans for one pointer
+     * may restore either while the row describes only one.
      */
     recordRestoreBaseAtomic(
       input: RestoreBaseInput,
@@ -1399,29 +1400,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             currentRevision: session.checkpointRevision,
           };
         }
-        const recorded = session.checkpointFallbackRevision;
-        if (input.fallback === null) {
-          if (recorded !== null) {
-            expectFenced(
-              await tx
-                .update(sessions)
-                .set({
-                  checkpointFallbackRevision: null,
-                  checkpointFallbackAttemptId: null,
-                  updatedAt: input.now,
-                })
-                .where(fencedSession(fence))
-                .returning({ id: sessions.id }),
-              "session fallback",
-            );
-          }
-          return { outcome: "ok" };
-        }
-        if (
-          recorded !== null &&
-          session.checkpointFallbackAttemptId === fence.attemptId
-        ) {
-          return recorded === input.fallback.revision
+        const base = input.fallback?.revision ?? input.pointerRevision;
+        // A pointer advance clears the attempt column, so a match here
+        // means this attempt was served a plan on this very pointer.
+        if (session.checkpointRestoreAttemptId === fence.attemptId) {
+          const recorded =
+            session.checkpointFallbackRevision ?? input.pointerRevision;
+          return recorded === base
             ? { outcome: "ok" }
             : { outcome: "base_changed", recordedRevision: recorded };
         }
@@ -1429,14 +1414,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           await tx
             .update(sessions)
             .set({
-              checkpointFallbackRevision: input.fallback.revision,
-              checkpointFallbackAttemptId: fence.attemptId,
+              checkpointFallbackRevision: input.fallback?.revision ?? null,
+              checkpointRestoreAttemptId: fence.attemptId,
               updatedAt: input.now,
             })
             .where(fencedSession(fence))
             .returning({ id: sessions.id }),
-          "session fallback",
+          "session restore base",
         );
+        if (input.fallback === null) return { outcome: "ok" };
         // The attempt goes in the payload, not the event's attempt column:
         // that column numbers the worker's own sourced stream, and this row
         // is the server's.
@@ -1448,7 +1434,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             subtype: CHECKPOINT_RESTORE_FALLBACK,
             attempt_id: fence.attemptId,
             pointer_revision: input.pointerRevision,
-            restored_revision: input.fallback.revision,
+            restored_revision: base,
             skipped: input.fallback.skipped.map((skip) => ({
               revision: skip.revision,
               reason: skip.reason,

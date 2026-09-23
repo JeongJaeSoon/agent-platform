@@ -471,6 +471,32 @@ describe("locked fallback to an earlier revision (94S-204)", () => {
     });
   });
 
+  test("a released hold stops the search instead of reaching further back", async () => {
+    const { first, older, second } = await twoRevisions();
+    const third = await upload(`${prefix}mirror/part-2.jsonl`, encode("c\n"));
+    const newest = await publish(2, [first, second, third]);
+    expect(await finalize(newest.checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    destroy(third);
+    // Revision 1 has been released; revision 0 below it is intact and held,
+    // and restoring it would drop a turn for a reason that is not damage.
+    objects.releaseHold(second.key, second.version as string);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining("earlier revision 1 is refused"),
+    });
+    expect(
+      await objects.head(
+        older.checkpoint.manifest_ref,
+        older.checkpoint.manifest_version,
+      ),
+    ).toMatchObject({ held: true });
+  });
+
   test("an earlier revision committed without a manifest version is not a restore point", async () => {
     const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
     const older = await publish(0, [part]);

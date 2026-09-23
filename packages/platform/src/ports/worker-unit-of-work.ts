@@ -216,8 +216,8 @@ export type RestoreBaseResult =
   | { outcome: "ok" }
   // The pointer is no longer the one the plan was judged against.
   | { outcome: "pointer_moved"; currentRevision: number | null }
-  // This attempt was already handed a different earlier revision for the
-  // same pointer; it must not restore two.
+  // This attempt was already handed a different revision, the pointer's or
+  // an earlier one, for the same pointer; it must not restore two.
   | { outcome: "base_changed"; recordedRevision: number }
   | FenceRejection;
 

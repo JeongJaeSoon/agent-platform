@@ -954,7 +954,7 @@ export function createWorkerGateway(deps: {
           throw new WorkerGatewayError(
             409,
             "CHECKPOINT_UNAVAILABLE",
-            `This attempt was already handed revision ${recorded.recordedRevision} to restore in place of the damaged pointer; a new attempt must start over`,
+            `This attempt was already handed revision ${recorded.recordedRevision} to restore; a new attempt must start over`,
           );
         default:
           return rejected(recorded);

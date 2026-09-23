@@ -752,7 +752,9 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       code: "CHECKPOINT_UNAVAILABLE",
     });
     if (refused.status !== "unavailable") return;
-    expect(refused.reason).toContain("none of the 1 earlier revisions");
+    expect(refused.reason).toContain(
+      "earlier revision 0 is refused, and a refusal is not damage",
+    );
   }, 60_000);
 
   test("a locked deployment refuses to start on a bucket that cannot pin or hold versions; an unversioned one says so and starts (94S-229)", async () => {

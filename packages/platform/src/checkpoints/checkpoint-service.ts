@@ -736,7 +736,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * collection has released that generation and may be deleting it, and
    * holding it again here would race that deletion rather than stop it. And
    * only damage moves the search further back (`judgeManifest`); a refusal
-   * for any other reason ends it.
+   * for any other reason ends it. Both hold conditions are refusals: they
+   * say the protection policy no longer stands behind this revision, and an
+   * older one below it would only lose more state for the same reason.
    */
   async function judgeEarlier(
     candidate: CheckpointPointer,
@@ -747,7 +749,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   > {
     if (protection === "locked" && candidate.versionsHeld !== true) {
       return {
-        verdict: "damaged",
+        verdict: "refused",
         reason: `revision ${candidate.revision} was not committed with its versions held`,
       };
     }
@@ -767,7 +769,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const released = pinned.unheld()[0];
       if (released !== undefined) {
         return {
-          verdict: "damaged",
+          verdict: "refused",
           reason: `version ${released.version} of ${released.key} is no longer held`,
         };
       }

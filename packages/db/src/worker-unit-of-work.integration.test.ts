@@ -3233,7 +3233,7 @@ integration("worker gateway on PostgreSQL", () => {
       const [found] = await db
         .select({
           revision: sessions.checkpointFallbackRevision,
-          attempt: sessions.checkpointFallbackAttemptId,
+          attempt: sessions.checkpointRestoreAttemptId,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId));
@@ -3305,12 +3305,40 @@ integration("worker gateway on PostgreSQL", () => {
     // it: a pause may no longer lean on the damaged pointer.
     expect(await blocker()).toBe("checkpoint_unavailable");
 
-    // A plan on the pointer itself puts the session back on it.
-    expect(await record(1, null)).toEqual({ outcome: "ok" });
-    expect(await row()).toEqual({ revision: null, attempt: null });
-    expect(await blocker()).toBeNull();
+    // The same attempt handed the pointer after all is refused too: the
+    // object may have come back between two requests, and the worker could
+    // restore either plan.
+    expect(await record(1, null)).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 0,
+    });
 
-    // So does the next committed checkpoint.
+    // Another attempt restoring the pointer puts the session back on it.
+    // The row, not a second claim, stands in for that attempt having been
+    // the one served before.
+    const handedTo = async (attempt: string) => {
+      await db
+        .update(sessions)
+        .set({ checkpointRestoreAttemptId: attempt })
+        .where(eq(sessions.id, sessionId));
+    };
+    await handedTo("att_earlier");
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await row()).toEqual({
+      revision: null,
+      attempt: claimed.attempt_id,
+    });
+    expect(await blocker()).toBeNull();
+    // Having been served the pointer, this attempt cannot be handed an
+    // earlier revision for it either.
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 1,
+    });
+
+    // The next committed checkpoint clears a fallback as well.
+    await handedTo("att_earlier");
     expect(await record(1, { revision: 0, skipped })).toEqual({
       outcome: "ok",
     });

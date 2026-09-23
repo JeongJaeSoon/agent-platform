@@ -94,7 +94,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "last_transcript_persisted_at",
     // 94S-204
     "checkpoint_fallback_revision",
-    "checkpoint_fallback_attempt_id",
+    "checkpoint_restore_attempt_id",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
