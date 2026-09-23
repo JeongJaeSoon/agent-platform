@@ -319,11 +319,11 @@ describe("pass loop configuration", () => {
   test("refuses a stale window that every healthy loop would fall outside", () => {
     expect(() =>
       passLoopConfigFromEnv({
-        RECONCILER_INTERVAL_SEC: "60",
-        RECONCILER_HEALTH_STALE_SEC: "60",
+        RECONCILER_INTERVAL_SEC: "30",
+        RECONCILER_HEALTH_STALE_SEC: "90",
       }),
     ).toThrow(
-      "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC",
+      "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC",
     );
   });
 });

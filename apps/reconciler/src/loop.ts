@@ -59,11 +59,11 @@ export function passLoopConfigFromEnv(
     "RECONCILER_MAX_CONSECUTIVE_FAILURES",
   );
   const healthStaleSec = healthStaleSecFromEnv(environment);
-  // At or under the interval, a loop whose every pass succeeds still reads
-  // as stale between two of them.
-  if (healthStaleSec <= intervalSec) {
+  // Two successes can be a full pass apart plus the interval; a window no
+  // longer than that reads a healthy loop as stale between them.
+  if (healthStaleSec <= intervalSec + passTimeoutSec) {
     throw new Error(
-      "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC",
+      "RECONCILER_HEALTH_STALE_SEC must be greater than RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC",
     );
   }
   return {

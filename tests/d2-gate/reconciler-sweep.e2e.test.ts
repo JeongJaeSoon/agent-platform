@@ -64,6 +64,28 @@ async function reconcilerLines(sessionId: string): Promise<string[]> {
   return stdout.split("\n").filter((line) => line.includes(sessionId));
 }
 
+/**
+ * The sweeps that fenced this session. A pass logs one line per sweep with
+ * every session it fenced, so the count is read from `session_ids`.
+ */
+function fencedBy(lines: string[], message: string, sessionId: string) {
+  return lines.filter((line) => {
+    try {
+      const record = JSON.parse(line) as {
+        message?: string;
+        fields?: { fenced_count?: number; session_ids?: string[] };
+      };
+      return (
+        record.message === message &&
+        (record.fields?.fenced_count ?? 0) > 0 &&
+        (record.fields?.session_ids ?? []).includes(sessionId)
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
   beforeAll(async () => {
     if (!env) return;
@@ -168,11 +190,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
       // confirmed removal; a second fence would make it three.
       expect(session.lease_epoch).toBe(before.lease_epoch + 2);
       expect(
-        lines.filter(
-          (line) =>
-            line.includes("Expired lease reconciliation completed") &&
-            line.includes('"fenced_count":1'),
-        ),
+        fencedBy(lines, "Expired lease reconciliation completed", sessionId),
       ).toHaveLength(1);
     } finally {
       await run(["docker", "unpause", worker.name], { allowFail: true });
@@ -235,6 +253,19 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
         240_000,
       );
       evidence.r2_receipt_after_ms = Date.now() - issuedAt;
+      // The receipt can also go unknown at its own deadline before the
+      // scheduler confirms the removal; the epoch below needs that too.
+      const turn = await waitFor(
+        "the interrupted turn to settle",
+        async () => {
+          const found = await one<{ status: string }>(
+            "SELECT status FROM turns WHERE session_id = $1 AND sequence = 1",
+            [sessionId],
+          );
+          return found.status === "running" ? null : found;
+        },
+        120_000,
+      );
       const execution = await one<{ desired_state: string }>(
         `SELECT e.desired_state FROM executions e
            JOIN attempts a ON a.execution_id = e.id
@@ -251,6 +282,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
       );
       Object.assign(evidence, {
         r2_receipt: receipt,
+        r2_turn: turn,
         r2_execution: execution,
         r2_lease_epoch: {
           before: before.lease_epoch,
@@ -266,10 +298,10 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
       // The worker did try to end the turn; only the kill path ended it.
       expect(finalizes.length).toBeGreaterThan(0);
       expect(
-        lines.filter(
-          (line) =>
-            line.includes("Overdue interrupt executions sent to terminate") &&
-            line.includes('"fenced_count":1'),
+        fencedBy(
+          lines,
+          "Overdue interrupt executions sent to terminate",
+          sessionId,
         ),
       ).toHaveLength(1);
     } finally {
