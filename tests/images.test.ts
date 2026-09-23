@@ -125,11 +125,50 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(example).toContain("CHECKPOINT_GIT_MEMORY_MB=1536");
   });
 
+  const reconcilerBlock = compose.slice(
+    compose.indexOf("\n  reconciler:"),
+    compose.indexOf("\nnetworks:"),
+  );
+
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
-    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
+    const schedulerBlock = compose.slice(
+      compose.indexOf("\n  scheduler:"),
+      compose.indexOf("\n  reconciler:"),
+    );
     expect(schedulerBlock).toContain("/var/run/docker.sock:");
+    // The reconciler records intent in the database; the scheduler acts on
+    // it (94S-320). Neither a mount nor a DOCKER_HOST gives it the daemon.
+    expect(reconcilerBlock).not.toContain("docker.sock");
+    expect(reconcilerBlock).not.toContain("DOCKER_HOST");
+    expect(reconcilerBlock).not.toMatch(/^ {4}volumes:/m);
+  });
+
+  test("the reconciler runs by default as a supervised loop in the apps profile", () => {
+    expect(reconcilerBlock.length).toBeGreaterThan(0);
+    expect(reconcilerBlock).toContain('profiles: ["apps"]');
+    expect(reconcilerBlock).toContain("dockerfile: apps/api/Dockerfile");
+    expect(reconcilerBlock).toContain(
+      'command: ["bun", "run", "apps/reconciler/src/loop.ts"]',
+    );
+    expect(reconcilerBlock).toContain("restart: unless-stopped");
+    expect(reconcilerBlock).toContain(
+      'test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]',
+    );
+    for (const name of [
+      "RECONCILER_INTERVAL_SEC",
+      "RECONCILER_PASS_TIMEOUT_SEC",
+      "RECONCILER_MAX_CONSECUTIVE_FAILURES",
+      "RECONCILER_HEALTH_STALE_SEC",
+    ]) {
+      expect(reconcilerBlock).toContain(`${name}: $` + `{${name}:-`);
+    }
+    // It refuses to start with HEARTBEAT_TTL_SEC set, which an env file
+    // shared with the API would hand it; nor does it listen on anything.
+    expect(reconcilerBlock).not.toContain("env_file");
+    expect(reconcilerBlock).not.toContain("HEARTBEAT_TTL_SEC:");
+    expect(reconcilerBlock).not.toMatch(/^ {4}ports:/m);
   });
 
   test("images.yml builds every app and pushes only on tags", () => {
