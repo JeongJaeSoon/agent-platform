@@ -117,7 +117,7 @@ QUERY="SELECT s.id, s.checkpoint_revision, coalesce(c.manifest_ref, ''), coalesc
        SELECT c.session_id, c.revision, c.manifest_ref, c.manifest_sha256,
               coalesce(c.manifest_version, ''), c.versions_held, 0
        FROM checkpoints c JOIN sessions s ON s.id = c.session_id
-       WHERE s.checkpoint_revision IS DISTINCT FROM c.revision
+       WHERE s.checkpoint_revision IS DISTINCT FROM c.revision AND c.collected_at IS NULL
        ORDER BY 1, 2"
 # Read the rows up front: a query that fails inside a process substitution
 # would look like an empty database and let the run exit 0.

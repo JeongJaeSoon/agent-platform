@@ -688,8 +688,9 @@ describe("unversioned, then locked", () => {
     await finalize(first);
 
     // The next candidate names the committed manifest as one of its own
-    // untracked files. Locked verification hashes and holds it, and the
-    // candidate never commits.
+    // untracked files, to have locked verification hold it. Finalize no
+    // longer accepts a name in another publish's directory (94S-281), but
+    // the hold can come from elsewhere, and it must not count either.
     const manifestBytes = (await objects.get(
       first.manifest_ref,
       first.manifest_version,
@@ -713,10 +714,11 @@ describe("unversioned, then locked", () => {
     }));
     expect(
       await locked.verifyAttemptManifest({ checkpoint: second, fence }),
-    ).toMatchObject({ status: "verified", versionsHeld: true });
-    expect(
-      await objects.head(first.manifest_ref, first.manifest_version),
-    ).toMatchObject({ held: true });
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringContaining("not under this publish's"),
+    });
+    await objects.hold?.(first.manifest_ref, first.manifest_version as string);
     expect(checkpoints.pointer()?.revision).toBe(0);
 
     expect(await locked.getRestorePlan({ runtime, sessionId })).toEqual({

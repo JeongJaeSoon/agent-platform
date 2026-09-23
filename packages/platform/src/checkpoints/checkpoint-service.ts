@@ -16,16 +16,22 @@ import type {
 } from "@agent-platform/runtime-core";
 import { workspacePathsProblem } from "@agent-platform/runtime-core";
 
-import {
-  CHECKPOINT_ROOT_PARENT,
-  type CheckpointFence,
-  type CheckpointPointer,
-  type CheckpointStore,
+import type {
+  CheckpointFence,
+  CheckpointPointer,
+  CheckpointStore,
 } from "../ports/checkpoint-store.ts";
 import {
   rejectUnverifiedWorkspaceBundles,
   type WorkspaceBundleVerifier,
 } from "../ports/workspace-bundle-verifier.ts";
+import {
+  engineOf,
+  inBatches,
+  own,
+  parentOf,
+  sha256,
+} from "./checkpoint-support.ts";
 
 export type CheckpointRequest = {
   /** Where this attempt must upload its manifest. */
@@ -369,6 +375,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function judgeManifest(input: {
     checkpoint: CheckpointRef;
     /**
+     * Finalize only: the manifest may name objects in no checkpoint
+     * directory but its own publish's (`badArtifact`). A restore does not
+     * ask, so a checkpoint committed before the rule still restores.
+     */
+    confined?: boolean;
+    /**
      * Collects every version this validation read, with whether a legal
      * hold already covers it. Finalize holds the rest; restore passes none.
      */
@@ -440,6 +452,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       checkpoint.manifest_ref,
       input.verified,
       input.pinned,
+      input.confined === true,
     );
     if (bad !== undefined) {
       return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
@@ -487,6 +500,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     manifestRef: string,
     verified: ReadonlySet<string> = new Set(),
     pinned?: PinnedVersions,
+    confined = false,
   ): Promise<Problem | undefined> {
     const refs = [
       ...manifest.transcripts.root.parts,
@@ -508,6 +522,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           `manifest references an object outside ${prefix}: ${ref.key}`,
         );
       }
+    }
+    // Checkpoint directories belong to the publish that wrote them: a
+    // manifest being committed may name objects in its own and in no other.
+    // Garbage collection relies on it — a directory it may reclaim is never
+    // one a manifest that can still commit points into
+    // (checkpoint-collector.ts). The bundle is held to the same directory
+    // below, on every read.
+    const publish = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
+    const directories = `${prefix}checkpoints/`;
+    const stray = confined
+      ? refs.find(
+          (ref) =>
+            ref.key.startsWith(directories) && !ref.key.startsWith(publish),
+        )
+      : undefined;
+    if (stray !== undefined) {
+      return refused(
+        `manifest references ${stray.key}, which is not under this publish's ${publish}`,
+      );
     }
     // The key says where the object is stored; `path` says where restoring
     // writes it. A safe key with a climbing path lands outside the workspace,
@@ -789,6 +822,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const pinned = pinnedVersions();
     const verdict = await validateManifest({
       checkpoint: input.checkpoint,
+      confined: true,
       pinned,
       sessionId,
       verified: await verifiedRefs(sessionId),
@@ -807,8 +841,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * finalize may answer "verified": a failure throws, the caller reports the
    * store as unavailable, and the pointer stays where it was. Holds that did
    * land are left in place — a retry needs them, and another checkpoint may
-   * already share them. Releasing any hold is garbage collection's job, and
-   * GC must not release a version a finalize in flight may still commit.
+   * already share them. Releasing any hold is garbage collection's job
+   * (checkpoint-collector.ts), which never reaches into a directory a
+   * finalize in flight may still commit.
    */
   async function holdAll(
     versions: readonly { key: string; version: string }[],
@@ -1140,17 +1175,6 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   };
 }
 
-/**
- * The revision a checkpoint's state was built on. Rows from before the
- * parent was recorded (94S-204) come from a history with no fallback in it,
- * where that is always the revision before.
- */
-function parentOf(checkpoint: CheckpointPointer): number | null {
-  if (checkpoint.parentRevision === CHECKPOINT_ROOT_PARENT) return null;
-  if (checkpoint.parentRevision != null) return checkpoint.parentRevision;
-  return checkpoint.revision > 0 ? checkpoint.revision - 1 : null;
-}
-
 function noop() {
   return undefined;
 }
@@ -1247,22 +1271,6 @@ function planOf(
 }
 
 /**
- * Reads only the engine discriminator, to pick the codec that validates the
- * rest. The platform never interprets a manifest body itself.
- */
-function engineOf(bytes: Uint8Array): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const engine = (parsed as { engine?: unknown }).engine;
-    return typeof engine === "string" ? engine : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Maps `items` in fixed-size waves, keeping the results in input order. */
-/**
  * Reads one object through once, hashing it as it arrives and handing each
  * chunk to `sink` before asking for the next; nothing is kept. Undefined for
  * an absent object. Stops at the first chunk that takes the total past
@@ -1304,20 +1312,6 @@ async function writeFully(
     const { bytesWritten } = await file.write(chunk, offset);
     offset += bytesWritten;
   }
-}
-
-async function inBatches<T, R>(
-  items: readonly T[],
-  size: number,
-  map: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let start = 0; start < items.length; start += size) {
-    results.push(
-      ...(await Promise.all(items.slice(start, start + size).map(map))),
-    );
-  }
-  return results;
 }
 
 // Only a versioned ref has one. Key and digest alone are not enough: an
@@ -1391,11 +1385,6 @@ function pinnedVersions() {
   };
 }
 
-// Codec registries are plain objects; inherited keys are not codecs.
-function own<T>(record: Readonly<Record<string, T>>, key: string) {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
-
 /**
  * Runs at most `limit` tasks at once, handing a finishing task's slot
  * straight to the next in line so a burst cannot briefly exceed the limit.
@@ -1421,8 +1410,4 @@ function createGate(limit: number) {
       else next();
     }
   };
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
 }

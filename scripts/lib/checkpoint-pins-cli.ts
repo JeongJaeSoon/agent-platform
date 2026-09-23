@@ -70,6 +70,8 @@ const objects = createCheckpointObjectStore({ bucket, client });
 const pool = new Pool({ connectionString: env("DATABASE_URL"), max: 2 });
 const codecs = API_CHECKPOINT_CODECS;
 
+// A row garbage collection marked is no longer restorable and its objects
+// are gone or going (94S-281): neither backed up nor re-pinned.
 async function readRows(): Promise<CheckpointRow[]> {
   const { rows } = await pool.query<{
     manifest_ref: string;
@@ -79,7 +81,7 @@ async function readRows(): Promise<CheckpointRow[]> {
     session_id: string;
   }>(
     `SELECT session_id, revision, manifest_ref, manifest_sha256, manifest_version
-     FROM checkpoints ORDER BY session_id, revision`,
+     FROM checkpoints WHERE collected_at IS NULL ORDER BY session_id, revision`,
   );
   return rows.map((row) => ({
     manifestRef: row.manifest_ref,
