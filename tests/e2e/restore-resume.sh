@@ -138,8 +138,8 @@ checkpoint_rows() {
 
 # `session_row <project> <session>`: the columns a resume depends on.
 session_row() {
-  psql_in "$1" -Atc "select claude_session_id, admission_state, status,
-    checkpoint_revision, revision from sessions where id = '$2'" </dev/null
+  psql_in "$1" -Atc "select admission_state, status, checkpoint_revision,
+    revision from sessions where id = '$2'" </dev/null
 }
 
 # `manifest <project> <session> <revision>`: that checkpoint's manifest,
@@ -191,7 +191,7 @@ api_env src
 step turns >"$out/turns.json"
 session="$(jq -r .session_id "$out/turns.json")"
 note "session: ${session}"
-note "source turns: $(jq -c '[.turns[] | {id, status}]' "$out/turns.json")"
+note "source turns: $(jq -c '[.turns[] | {turn_id, status}]' "$out/turns.json")"
 source_worker_image="$(session_image "$session")" || fail "no worker container for ${session} on the source"
 step pause "$session" >"$out/pause-source.json"
 revision="$(jq -r .paused.checkpoint_revision "$out/pause-source.json")"
@@ -237,7 +237,7 @@ dst up -d >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2;
 # --- 4. resume on a new worker ------------------------------------------------
 api_env dst
 step resume "$session" >"$out/resume.json"
-note "resumed turn: $(jq -c '.turn | {id, status}' "$out/resume.json"), cat: $(jq -r .cat_output "$out/resume.json")"
+note "resumed turn: $(jq -c '.turn | {turn_id, status, checkpoint_revision}' "$out/resume.json"), cat: $(jq -r .cat_output "$out/resume.json")"
 note "restored model calls: $(jq -c '[.model_calls[] | {spec_id, step, history}]' "$out/resume.json")"
 restored_worker_image="$(session_image "$session")" || fail "no worker container for ${session} on the restored project"
 step pause "$session" >"$out/pause-restored.json"
@@ -259,10 +259,13 @@ same() { # <label> <a> <b>
 }
 
 [ "$next" -gt "$revision" ] || fail "no new checkpoint after the resumed turn (r${next})"
-claude_src="$(cut -d'|' -f1 "$out/session-source.txt")"
-same "engine session id (db source = db resumed)" "$claude_src" "$(cut -d'|' -f1 "$out/session-resumed.txt")"
-same "manifest resume handle (source = db)" "$(jq -r .resume "$m_src")" "$claude_src"
-same "manifest resume handle (source = resumed)" "$(field .resume "$m_src")" "$(field .resume "$m_new")"
+# The engine's own session id lives in the manifest (`resume`), not in a
+# column: the worker hands it back to the SDK as `resume`.
+engine_session="$(jq -r .resume "$m_src")"
+same "engine session id (source = restored)" "$engine_session" "$(jq -r .resume "$m_rst")"
+same "engine session id (source = resumed)" "$engine_session" "$(jq -r .resume "$m_new")"
+same "every resumed transcript part is under that engine session" "true" \
+  "$(jq --arg id "$engine_session" '[.transcripts.root.parts[] | .["key"] | contains("/" + $id + "/")] | all' "$m_new")"
 same "transcript parts sha256 (source = restored)" \
   "$(field '[.transcripts.root.parts[].sha256]' "$m_src")" "$(field '[.transcripts.root.parts[].sha256]' "$m_rst")"
 same "transcript part-list digest (source = restored)" \
