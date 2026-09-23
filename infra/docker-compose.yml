@@ -214,6 +214,11 @@ services:
       dockerfile: apps/api/Dockerfile
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
+    # Docker's default 10s would SIGKILL a shutdown that may run to
+    # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
+    # apps/api/src/shutdown.ts); one open SSE stream is enough to use the
+    # whole drain. Keep this above the sum.
+    stop_grace_period: 45s
     # No `init: true`: the image's own ENTRYPOINT is tini (apps/api/Dockerfile),
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
@@ -430,6 +435,57 @@ services:
         condition: service_completed_successfully
       gitea-init:
         condition: service_completed_successfully
+
+  # Lease expiry, overdue interrupts and terminations, and orphan sessions are
+  # recovered by nothing else, so this runs by default with the other apps
+  # (94S-320). apps/reconciler/src/loop.ts runs one pass per child process
+  # every RECONCILER_INTERVAL_SEC, kills a pass that outlives
+  # RECONCILER_PASS_TIMEOUT_SEC, and exits after
+  # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
+  # policy engages. The healthcheck reads the status file the loop writes and
+  # is unhealthy when the last pass failed, when a pass runs past its
+  # deadline, or once no pass has succeeded for RECONCILER_HEALTH_STALE_SEC;
+  # `docker compose exec reconciler cat /tmp/reconciler-status.json` shows the
+  # last success and failure. Passes are serial here, and every write a pass
+  # makes is re-judged under row locks, so an overlapping or restarted pass
+  # does nothing twice.
+  #
+  # No Docker socket: the reconciler only records intent in the database
+  # (a fenced epoch, `desired_state = terminated`); the scheduler does the
+  # removal and confirms it. No env_file either: HEARTBEAT_TTL_SEC belongs to
+  # the API, and the reconciler refuses to start if it is set.
+  #
+  # No build either: it runs the image the api service builds, and a second
+  # service building the same tag races it on export. Starting it on its own
+  # needs that image first (`docker compose build api`).
+  reconciler:
+    image: ${API_IMAGE:-agent-platform-api:dev}
+    profiles: ["apps"]
+    command: ["bun", "run", "apps/reconciler/src/loop.ts"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      RECONCILER_INTERVAL_SEC: ${RECONCILER_INTERVAL_SEC:-10}
+      RECONCILER_PASS_TIMEOUT_SEC: ${RECONCILER_PASS_TIMEOUT_SEC:-60}
+      RECONCILER_MAX_CONSECUTIVE_FAILURES: ${RECONCILER_MAX_CONSECUTIVE_FAILURES:-3}
+      RECONCILER_HEALTH_STALE_SEC: ${RECONCILER_HEALTH_STALE_SEC:-90}
+      RECONCILER_BATCH_SIZE: ${RECONCILER_BATCH_SIZE:-100}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
 
 networks:
   # Worker networks are not declared here: the scheduler creates one per

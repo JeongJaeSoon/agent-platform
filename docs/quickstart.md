@@ -58,6 +58,7 @@ KEY=$(bun run keys create quickstart \
 
 - postgres(+ 한 번 도는 `migrate`), localstack(S3), secrets(API 전용 Secrets Manager), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages, egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
+- `reconciler`(10초마다 한 pass로 lease 만료·기한 넘긴 interrupt/terminate·orphan 세션의 복구 의도를 기록한다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다. 브라우저로 로그인하거나 push하려면 `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>`로 직접 정한다.

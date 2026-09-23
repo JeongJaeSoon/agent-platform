@@ -240,6 +240,7 @@ integration("API server on PostgreSQL", () => {
       // leak assertion below.
       const serverStdout = new Response(server.stdout).text();
       const serverStderr = new Response(server.stderr).text();
+      let exitCode: number | undefined;
 
       try {
         const accepted = await waitForServer(server, serverStderr, {
@@ -339,10 +340,23 @@ integration("API server on PostgreSQL", () => {
         expect(admitted.status).toBeLessThan(500);
       } finally {
         server.kill("SIGTERM");
-        await server.exited;
+        exitCode = await server.exited;
       }
 
       const logs = `${await serverStdout}${await serverStderr}`;
+      // SIGTERM is a clean stop: readiness first, pools last (shutdown.ts).
+      expect(exitCode, logs).toBe(0);
+      const order = [
+        "Shutdown started; readiness withdrawn",
+        "Stopped accepting connections",
+        "In-flight requests drained",
+        "Connections closed; exiting",
+      ].map((message) => logs.indexOf(message));
+      expect(
+        order.every((at) => at >= 0),
+        logs,
+      ).toBe(true);
+      expect(order).toEqual([...order].sort((a, b) => a - b));
       expect(logs).not.toContain(plaintext);
       expect(logs).not.toContain("Authorization");
       expect(logs).not.toContain(PROVIDER_KEY);

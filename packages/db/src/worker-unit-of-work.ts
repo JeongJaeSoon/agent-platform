@@ -202,6 +202,14 @@ export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
+// The worker may only ever be told less than it has. `at` came through a
+// Date, which drops the database's sub-millisecond part, so it may stand up
+// to 1ms before the instant actually read: counted from the next whole
+// millisecond instead.
+function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
+  return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
+}
+
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
@@ -719,10 +727,13 @@ async function giveUpOnCatalogMismatch(
   return "catalog_mismatch";
 }
 
+// `at` is a database instant read after the worker sent its request, which
+// is what lets the worker count the remainder from its own send time.
 async function bindingOf(
   tx: Database,
   session: SessionRow,
   attempt: AttemptRow,
+  at: Date,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -731,6 +742,7 @@ async function bindingOf(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
+    leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
     ownerScope: session.ownerId,
     repository: {
@@ -888,7 +900,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, session, attempt),
+            binding: await bindingOf(tx, session, attempt, at),
           };
         }
         // Server-side selection: the worker never names a session. It is
@@ -1031,7 +1043,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt),
+          binding: await bindingOf(tx, session, attempt, at),
         };
       });
     },
@@ -1268,6 +1280,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           leaseExpiresAt: beat.leaseExpiresAt,
+          leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
           authRevision: fenced.session.authRevision,
         };
       });

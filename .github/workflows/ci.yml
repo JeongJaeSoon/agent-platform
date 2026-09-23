@@ -166,6 +166,7 @@ jobs:
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/interrupt-flow.
+              - tests/lease-clock.
           # Object storage: checkpoint objects, the S3 transport and its bounds.
           - domain: storage
             postgres: false
@@ -248,6 +249,14 @@ jobs:
                 test: "C: a transcript mirror error blocks the checkpoint and new input"
               - file: tests/d2-gate.e2e.test.ts
                 test: "D: a worker that loses its lease mid-turn promotes nothing"
+              # 94S-320's sweep on the same stack; run against a stack kept by
+              # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "(unnamed)"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
     # An empty image skips the service, so each job starts only its own.
     services:
       postgres:

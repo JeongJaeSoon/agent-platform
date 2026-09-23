@@ -286,6 +286,7 @@ async function collectMeta(): Promise<void> {
     gitea_image: await containerImage("gitea"),
     // Built by run.sh from this checkout, like the three app images.
     egress_proxy_image: await containerImage("egress-proxy"),
+    reconciler_image: await containerImage("reconciler"),
     claude_agent_sdk: await inWorker(
       'sed -n \'s/^  "version": "\\(.*\\)",$/\\1/p\' /app/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
     ),
@@ -954,6 +955,9 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const worker = await workers.running(sessionId, 10_000);
     // With the scheduler stopped nothing replaces or reaps the worker, so
     // what follows is the worker's own reaction to finding its lease gone.
+    // The reconciler service keeps running and is expected to fence the
+    // attempt during the pause (94S-320); the pass run by hand below then
+    // finds it done, and the checks do not ask which pass it was.
     await scheduler("stop");
     try {
       const exited = exitOf(worker);
@@ -978,7 +982,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         title:
           "a worker that was paused past its lease is refused and stops as lost",
         input:
-          "docker pause for 40s (lease TTL 30s), one reconciler pass, docker unpause",
+          "docker pause for 40s (lease TTL 30s) under the periodic reconciler, one more pass by hand, docker unpause",
         expected:
           "attempt lost; the worker's later gateway calls answered 401/409; worker.stopping lost; exit 1 without release",
         actual: {
@@ -993,6 +997,14 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
           reconciler: reconciled
             .split("\n")
             .filter((line) => line.includes("lease"))
+            .slice(0, 3),
+          periodic_reconciler: (
+            await run(["docker", "logs", `${env?.project}-reconciler-1`], {
+              allowFail: true,
+            })
+          ).stdout
+            .split("\n")
+            .filter((line) => line.includes(sessionId))
             .slice(0, 3),
         },
         pass:

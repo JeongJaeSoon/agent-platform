@@ -51,6 +51,7 @@ import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
+import { createShutdown } from "./shutdown.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -183,6 +184,8 @@ const auth = {
   ),
   logger,
 };
+const probePool = createProbePool(databaseUrl, logger);
+const shutdown = createShutdown({ logger });
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -206,20 +209,22 @@ const app = createApiApp({
     });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
-  readiness: createReadinessProbe({
-    db: createProbePool(databaseUrl, logger),
-    // AUTH_MODE unset still fails closed (every /v1 call is 401), which is a
-    // misconfiguration, not a serving instance.
-    // app.ts treats anything but "none" as api-key mode, so a typo would
-    // silently run authenticated; only the two spellings we document count.
-    requiredEnv: [
-      "DATABASE_URL",
-      { name: "AUTH_MODE", allowed: ["none", "api-key"] },
-    ],
-    // The same parser the process started with: an env that changed under a
-    // running instance shows up here rather than at the next restart.
-    configProblems: installationLimitProblems,
-  }),
+  readiness: shutdown.readiness(
+    createReadinessProbe({
+      db: probePool,
+      // AUTH_MODE unset still fails closed (every /v1 call is 401), which is
+      // a misconfiguration, not a serving instance.
+      // app.ts treats anything but "none" as api-key mode, so a typo would
+      // silently run authenticated; only the two spellings we document count.
+      requiredEnv: [
+        "DATABASE_URL",
+        { name: "AUTH_MODE", allowed: ["none", "api-key"] },
+      ],
+      // The same parser the process started with: an env that changed under
+      // a running instance shows up here rather than at the next restart.
+      configProblems: installationLimitProblems,
+    }),
+  ),
 });
 
 // Bun resets a connection that has been idle for 10 seconds (default), and a
@@ -230,7 +235,7 @@ const app = createApiApp({
 // above REQUEST_DEADLINE_MS around database work (deadline.ts answers 503
 // first), on while it ingests a body (under BODY_DEADLINE_MS), and back to
 // the default once the response is decided.
-export default {
+const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
   // Bun's own cap (default 128 MiB) applies before any handler runs and
   // answers without the API's error envelope, so it sits above the contract
@@ -245,4 +250,19 @@ export default {
       setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
     });
   },
-};
+});
+
+// Pools close last: requests still draining hold their clients until then.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    void shutdown.run(
+      signal,
+      [server],
+      [
+        { name: "event-listener", close: () => notifier.close() },
+        { name: "pool", close: () => pool.end() },
+        { name: "probe-pool", close: () => probePool.end() },
+      ],
+    );
+  });
+}

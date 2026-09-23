@@ -1985,6 +1985,62 @@ integration("worker gateway on PostgreSQL", () => {
     expect(attempt?.leaseExpiresAt.getTime()).toBe(extended);
   });
 
+  test("claim and heartbeat hand the lease out as time left on the database clock, never more than the worker has (94S-322)", async () => {
+    // Long enough that a loaded runner does not see it lapse mid-test.
+    const TTL = 5_000;
+    const partition = partitionFor("remaining");
+    await queuedSession(partition);
+    const real = skewedGateway(0, TTL);
+    const behind = skewedGateway(-60_000, TTL);
+    const ahead = skewedGateway(60_000, TTL);
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const registered = await real.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      backend: "local_docker",
+    });
+    if (registered.nonce === null) throw new Error("launch already registered");
+    const claim = () =>
+      behind.bootstrapClaim(bootstrap, {
+        execution_id: executionId,
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: registered.nonce ?? "" },
+      });
+    // A worker counts the remainder from its own send: whatever instant that
+    // stands for on the database clock, the sum may not pass the deadline
+    // the database will judge, and the replica's clock must not enter it.
+    const within = async (
+      sentAt: number,
+      answer: { lease_expires_at: string; lease_remaining_ms: number },
+    ) => {
+      const answeredAt = await dbNowMs();
+      // A whole TTL, give or take the transaction it was granted in.
+      expect(answer.lease_remaining_ms).toBeGreaterThanOrEqual(TTL - 1);
+      expect(answer.lease_remaining_ms).toBeLessThanOrEqual(
+        TTL + (answeredAt - sentAt),
+      );
+      expect(sentAt + answer.lease_remaining_ms).toBeLessThanOrEqual(
+        new Date(answer.lease_expires_at).getTime(),
+      );
+    };
+    let sentAt = await dbNowMs();
+    const claimed = await claim();
+    await within(sentAt, claimed);
+    // The replay path answers from the same clock read.
+    sentAt = await dbNowMs();
+    const replayed = await claim();
+    await within(sentAt, replayed);
+    for (const replica of [ahead, behind]) {
+      sentAt = await dbNowMs();
+      const beat = await replica.heartbeat(principalOf(replayed), {
+        ...scopeOf(replayed),
+        attempt_state: "running",
+      });
+      await within(sentAt, beat);
+    }
+  });
+
   test("the database clock judges the launch nonce, not the clock of the replica that registered or claims it", async () => {
     const partition = partitionFor("nonce-skew");
     await queuedSession(partition);
