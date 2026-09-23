@@ -14,16 +14,26 @@
 #        assert-no-docker-hub-images.sh env DOCKER_HOST=unix:///tmp/apq/docker.sock docker
 set -euo pipefail
 
-# An assignment, so a daemon that cannot answer fails here rather than
+# Judged by where each image was pulled from, i.e. its RepoDigests. An image
+# built on the daemon has none and is skipped. What it was built FROM is not
+# reliably listed (BuildKit need not register the base as an image), so a
+# build step must name its base by a mirror reference itself.
+#
+# Assignments, so a daemon that cannot answer fails here rather than
 # reading as an empty, clean list.
-listing=$("$@" images --format '{{.Repository}}')
-echo "images on this daemon:"
+ids=$("$@" images --quiet --no-trunc | sort -u)
+listing=""
+if [ -n "$ids" ]; then
+  # shellcheck disable=SC2086 # one argument per id
+  listing=$("$@" image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' $ids)
+fi
+echo "pulled images on this daemon:"
 echo "${listing:-(none)}" | sed 's/^/  /'
 
 failed=0
-while IFS= read -r repository; do
-  # Dangling: no name left to judge by.
-  [ -z "$repository" ] || [ "$repository" = "<none>" ] && continue
+while IFS= read -r pulled; do
+  [ -n "$pulled" ] || continue
+  repository=${pulled%@*}
   first=${repository%%/*}
   # Docker's own rule: a first component is a registry host only when it has
   # a dot or a port, or is localhost; otherwise the name is on Docker Hub.

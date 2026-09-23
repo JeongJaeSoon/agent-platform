@@ -84,35 +84,46 @@ describe("the mirror list", () => {
 
 describe("assert-no-docker-hub-images.sh", () => {
   const script = join(root, ".github/scripts/assert-no-docker-hub-images.sh");
-  /** Runs the check against a fake `docker images` that prints `listing`. */
-  const check = (listing: string, fake = 'printf "%s" "$LISTING"') => {
+  /**
+   * Runs the check against a fake daemon: `images` lists one id, and
+   * `image inspect` prints `listing` as the RepoDigests of what it holds.
+   */
+  const daemon =
+    'case "$1" in images) echo sha256:1 ;; image) printf "%s" "$LISTING" ;; esac';
+  const check = (listing: string, fake = daemon) => {
     const result = Bun.spawnSync(["bash", script, "bash", "-c", fake, "_"], {
       env: { ...process.env, LISTING: listing },
     });
     return { code: result.exitCode, out: result.stdout.toString() };
   };
-  test("passes the mirror and the runner's own images, or none", () => {
-    const listing = [
+  const at = `@sha256:${"a".repeat(64)}`;
+  const digests = (...names: string[]) =>
+    names.map((name) => `${name}${at}`).join("\n");
+
+  test("passes the mirror and the runner's own images", () => {
+    const listing = digests(
       `${MIRROR}busybox`,
       `${MIRROR}postgres`,
       "ghcr.io/github/gh-aw-firewall/squid",
       "localhost:5000/scratch",
-      "<none>",
-    ].join("\n");
+    );
     expect(check(listing).code).toBe(0);
+  });
+
+  test("skips an image built on the daemon, which has no RepoDigests", () => {
     expect(check("").code).toBe(0);
   });
 
   test("fails on every Docker Hub name, naming it", () => {
     const { code, out } = check(
-      [
+      digests(
         `${MIRROR}busybox`,
         "alpine",
         "localstack/localstack",
         "docker.io/library/postgres",
         // Looks like the mirror, but without a dot it is a Docker Hub user.
         "ghcr-io/jeongjaesoon/agent-platform-ci/busybox",
-      ].join("\n"),
+      ),
     );
     expect(code).toBe(1);
     for (const name of [
@@ -144,8 +155,12 @@ describe("ci.yml", () => {
   test("names no image outside the mirror", () => {
     for (const image of serviceImages)
       expect(image.startsWith(MIRROR)).toBe(true);
-    for (const [, image] of imageVariables)
-      expect(String(image).startsWith(MIRROR)).toBe(true);
+    for (const [variable, value] of imageVariables) {
+      const image = String(value);
+      // Or an image a step builds on the daemon, which nothing pulls.
+      const ok = image.startsWith(MIRROR) || ciText.includes(`-t ${image}`);
+      expect({ variable, image, ok }).toEqual({ variable, image, ok: true });
+    }
     // `docker run` arguments are not parsed; no Docker Hub tag may appear at all.
     for (const { source, tag } of mirrored) {
       expect(ciText).not.toContain(`${shortName(source)}:${tag}`);
