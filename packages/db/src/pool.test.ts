@@ -6,6 +6,8 @@ import {
   enforcedConfig,
   JOB_POOL_TIMEOUTS,
   RequestDeadline,
+  RequestDeadlineExceededError,
+  runWithDeadline,
 } from "./pool.ts";
 
 const url =
@@ -75,5 +77,26 @@ describe("pool configuration", () => {
     client.release();
     client.release();
     expect(released).toEqual(["a", "b"]);
+  });
+});
+
+describe("request deadline", () => {
+  test("an expiry that fires before the deadline's instant leaves no budget", async () => {
+    // As if the expiry timer fired early against performance.now().
+    const deadline = new RequestDeadline(performance.now() + 60_000);
+    expect(deadline.remainingMs()).toBeGreaterThan(0);
+    deadline.expire();
+    expect(deadline.remainingMs()).toBeLessThanOrEqual(0);
+
+    const client = new EvictOnReadTimeoutClient();
+    let evicted = 0;
+    (client as unknown as { evict: () => void }).evict = () => {
+      evicted += 1;
+    };
+    // The abandoned handler's next statement fails instead of running.
+    await expect(
+      runWithDeadline(deadline, () => client.query("SELECT 1")),
+    ).rejects.toBeInstanceOf(RequestDeadlineExceededError);
+    expect(evicted).toBe(1);
   });
 });
