@@ -35,6 +35,7 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -157,6 +158,7 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerAuthRoutes(router, auth);
     registerSessionRoutes(router, sessions);
+    registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);

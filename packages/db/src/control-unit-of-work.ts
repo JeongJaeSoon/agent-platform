@@ -4,6 +4,7 @@ import type {
   TerminateReceiptResult,
 } from "@agent-platform/contracts";
 import type {
+  PauseSessionInput,
   RecoveryDecisionInput,
   ResumeSessionInput,
   SessionControl,
@@ -22,6 +23,7 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
+import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import {
@@ -247,6 +249,19 @@ export function createPostgresSessionControl(db: Database): SessionControl {
             `Session ${sessionId} points at execution ${session.executionId} which has no row`,
           );
         }
+        // A pause still draining is overtaken: the kill ends the execution
+        // before any checkpoint the pause was waiting for.
+        await tx
+          .update(receipts)
+          .set({
+            status: "failed",
+            error: {
+              code: "CONTROL_SUPERSEDED",
+              message: "superseded by terminate before the pause completed",
+            },
+            updatedAt: now,
+          })
+          .where(openPauseReceipt(sessionId));
         // The epoch moves on in the same transaction: from here every
         // request the old worker makes is 409 STALE_EPOCH, whether or not
         // its container is still up. A session already waiting on an
@@ -304,6 +319,10 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         });
         return { outcome: "accepted", response };
       }
+    },
+
+    pauseAtomic(input: PauseSessionInput) {
+      return pauseAtomic(db, input);
     },
 
     decideRecoveryAtomic(input: RecoveryDecisionInput) {

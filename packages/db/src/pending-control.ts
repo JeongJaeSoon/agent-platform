@@ -9,8 +9,9 @@ import type {
 } from "@agent-platform/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { dbNow } from "./db-clock.ts";
+import { openPauseReceipt } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
-import { pendingRequests, receipts, turns } from "./schema.ts";
+import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 import {
   acquireFence,
@@ -183,6 +184,16 @@ export function createPostgresWorkerPendingStore(
           sessionId: fence.sessionId,
           attemptId: fence.attemptId,
         });
+        // The session row was locked with the fence, so this is the pause
+        // as the attempt's lease sees it.
+        const [pause] =
+          fenced.session.admissionState === "pausing"
+            ? await tx
+                .select({ id: receipts.id, createdAt: receipts.createdAt })
+                .from(receipts)
+                .where(openPauseReceipt(fence.sessionId))
+                .limit(1)
+            : [];
         // Judged after every read that can wait on a lock and before the
         // first write: returning lease_expired does not roll back, and an
         // answer handed over after the lease ended would let the engine act
@@ -229,14 +240,21 @@ export function createPostgresWorkerPendingStore(
         return {
           outcome: "ok",
           control:
-            control === null
-              ? null
-              : {
+            control !== null
+              ? {
                   controlId: control.controlId,
                   kind: "interrupt",
                   turnId: String(control.turnSequence),
                   issuedAt: control.issuedAt,
-                },
+                }
+              : pause === undefined
+                ? null
+                : {
+                    controlId: pause.id,
+                    kind: "pause",
+                    turnId: null,
+                    issuedAt: pause.createdAt,
+                  },
           answers: rows.map((row) => ({
             sequence: row.sequence as number,
             answer: postSessionAnswerRequestSchema.parse(row.answer),
@@ -253,12 +271,25 @@ export function createPostgresWorkerPendingStore(
         .where(undelivered(fence))
         .limit(1);
       if (row !== undefined) return true;
-      return (
+      if (
         (await openInterruptFor(db, {
           sessionId: fence.sessionId,
           attemptId: fence.attemptId,
         })) !== null
-      );
+      ) {
+        return true;
+      }
+      const [pausing] = await db
+        .select({ one: sql<number>`1` })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.id, fence.sessionId),
+            eq(sessions.admissionState, "pausing"),
+          ),
+        )
+        .limit(1);
+      return pausing !== undefined;
     },
   };
 }

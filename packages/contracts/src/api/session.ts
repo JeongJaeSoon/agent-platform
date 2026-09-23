@@ -99,9 +99,21 @@ export const executionObservationSchema = z.object({
   state: executionStateSchema,
   observed_at: timestampSchema.nullable(),
 });
+// Why a pause has not reached its safe boundary once the drain deadline has
+// passed (api.md § 일시 중지와 저장 상태): a turn still running, a turn
+// waiting on a question or approval, a transcript mirror that lost entries,
+// or a drain that ended with no committed checkpoint covering the last turn
+// that ran. Showing it kills nothing; terminate is the caller's to choose.
+export const PAUSE_BLOCKED_REASON_VALUES = [
+  "long_turn",
+  "pending_request",
+  "mirror_error",
+  "checkpoint_unavailable",
+] as const;
+export const pauseBlockedReasonSchema = z.enum(PAUSE_BLOCKED_REASON_VALUES);
 export const sessionAttentionSchema = z.object({
   code: z.enum(["PAUSE_BLOCKED"]),
-  reason: z.string().min(1),
+  reason: pauseBlockedReasonSchema,
 });
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
@@ -182,6 +194,7 @@ export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type SessionRuntime = z.infer<typeof sessionRuntimeSchema>;
 export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
+export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;

@@ -49,12 +49,18 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import { OPEN_TURN_STATUSES } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { encodeEventCursor } from "./event-cursor.ts";
+import {
+  openPauseReceipt,
+  pauseBlocker,
+  pauseReceiptResult,
+} from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -84,7 +90,7 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   running: 1,
   draining: 2,
 };
-export const OPEN_TURN_STATUSES = ["running", "needs_input"];
+export { OPEN_TURN_STATUSES };
 const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 const TURN_ID = /^[1-9]\d{0,9}$/;
 // turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
@@ -830,6 +836,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
         if (draining && !redelivery) return none;
+        // Pausing (or any state but active) admits nothing new; the turn
+        // this attempt already holds is still its to finish.
+        if (fenced.session.admissionState !== "active" && !redelivery) {
+          return none;
+        }
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
@@ -1275,6 +1286,21 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .returning({ id: sessions.id }),
           "session",
         );
+        if (unknownOutcome) {
+          // recovery_required takes the session out of pausing, so the pause
+          // it was draining for can no longer complete.
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code: "RECOVERY_REQUIRED",
+                message: `turn ${input.turnId} ended with an unknown outcome while the pause was draining`,
+              },
+              updatedAt: now,
+            })
+            .where(openPauseReceipt(fence.sessionId));
+        }
         return {
           outcome: "finalized",
           result: {
@@ -1333,6 +1359,36 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // A superseded epoch cannot; that binding is not its to release.
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome === "stale_epoch") return { released: false };
+        const pause = input.pauseControlId;
+        if (pause !== undefined) {
+          // Committing a pause is a decision taken under the lease, not the
+          // giving up of one; an attempt refused here keeps both.
+          if (fenced.outcome !== "ok") {
+            return { released: false, refused: "lease_expired" };
+          }
+          const [open] =
+            fenced.session.admissionState === "pausing"
+              ? await tx
+                  .select({ id: receipts.id })
+                  .from(receipts)
+                  .where(openPauseReceipt(fence.sessionId))
+                  .limit(1)
+              : [];
+          if (open?.id !== pause) {
+            return { released: false, refused: "pause_stale" };
+          }
+          const blocker = await pauseBlocker(tx, fenced.session);
+          if (blocker !== null) {
+            return {
+              released: false,
+              refused: "pause_blocked",
+              reason: blocker,
+            };
+          }
+          if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+            return { released: false, refused: "lease_expired" };
+          }
+        }
         const [attempt] = await tx
           .update(attempts)
           .set({ state: "exited", endedAt: now, endReason: input.reason })
@@ -1355,6 +1411,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           "session",
         );
         await tx.delete(workers).where(eq(workers.podId, attempt.executionId));
+        if (pause !== undefined) {
+          // The pause's stop intent, after the epoch discard above: the
+          // scheduler removes the execution, and confirmExecutionGone settles
+          // the session paused once it is seen gone.
+          await tx
+            .update(executions)
+            .set({ desiredState: "terminated" })
+            .where(eq(executions.id, attempt.executionId));
+        }
         return { released: true };
       });
     },
@@ -1441,14 +1506,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(sessions.executionId, executionId))
           .limit(1)
           .for("update");
-        await tx
+        const [observed] = await tx
           .update(executions)
           .set({
             observedState: "terminated",
             desiredState: "terminated",
             observedAt: sql`GREATEST(${executions.observedAt}, ${now})`,
           })
-          .where(eq(executions.id, executionId));
+          .where(eq(executions.id, executionId))
+          .returning({ observedAt: executions.observedAt });
         await tx.delete(workers).where(eq(workers.podId, executionId));
 
         if (!session) {
@@ -1538,6 +1604,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // unknown turn is recorded above, but nothing reopens the session.
         const stopping = session.admissionState === "stopping";
         const closed = session.admissionState === "closed";
+        // A pause completes only here, on the observed absence, and only onto
+        // a checkpoint that covers every turn that ran. One that cannot stays
+        // pausing and says why (PAUSE_BLOCKED); the caller may terminate.
+        const paused =
+          session.admissionState === "pausing" &&
+          unresolved.length === 0 &&
+          (await pauseBlocker(tx, session)) === null;
         await tx
           .update(sessions)
           .set({
@@ -1557,9 +1630,40 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                       status: "stopped" as const,
                       admissionState: "stopped" as const,
                     }
-                  : {}),
+                  : paused
+                    ? { admissionState: "paused" as const }
+                    : {}),
           })
           .where(eq(sessions.id, session.id));
+        // Stamped no earlier than the observation it rests on.
+        const observedAt =
+          observed?.observedAt && observed.observedAt > now
+            ? observed.observedAt
+            : now;
+        if (paused) {
+          await tx
+            .update(receipts)
+            .set({
+              status: "succeeded",
+              error: null,
+              result: await pauseReceiptResult(tx, session),
+              updatedAt: observedAt,
+            })
+            .where(openPauseReceipt(session.id));
+        } else if (unresolved.length > 0) {
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code: "RECOVERY_REQUIRED",
+                message:
+                  "execution ended before the turn the pause was draining was finalized",
+              },
+              updatedAt: observedAt,
+            })
+            .where(openPauseReceipt(session.id));
+        }
         // The terminate receipt succeeds only here, on the observed absence;
         // one that already went `unknown` past its deadline is upgraded. The
         // turn it names is the earliest still unknown, whether it became so

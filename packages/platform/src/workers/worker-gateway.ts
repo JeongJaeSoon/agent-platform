@@ -902,7 +902,28 @@ export function createWorkerGateway(deps: {
         fence,
         now: now(),
         reason: request.reason,
+        ...(request.pause_control_id === undefined
+          ? {}
+          : { pauseControlId: request.pause_control_id }),
       });
+      if ("refused" in result) {
+        switch (result.refused) {
+          case "pause_stale":
+            throw new WorkerGatewayError(
+              409,
+              "REQUEST_STALE",
+              "The pause this release answers is no longer the session's open one",
+            );
+          case "pause_blocked":
+            throw new WorkerGatewayError(
+              409,
+              "CHECKPOINT_UNAVAILABLE",
+              `The pause cannot commit yet (${result.reason}); keep the lease`,
+            );
+          default:
+            return rejected({ outcome: "lease_expired" });
+        }
+      }
       return { released: result.released };
     },
 

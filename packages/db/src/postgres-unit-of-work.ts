@@ -42,6 +42,7 @@ import {
   encodeEventCursor,
   InvalidCursorError,
 } from "./event-cursor.ts";
+import { pauseAttention } from "./pause-control.ts";
 import { countActionablePending } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -622,7 +623,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
           : null,
         checkpoint_revision: row.checkpointRevision,
         pending_request_count: pending?.count ?? 0,
-        attention: null,
+        attention: await pauseAttention(db, row),
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
           checkpointRevision: row.checkpointRevision,
