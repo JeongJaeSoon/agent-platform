@@ -1,7 +1,12 @@
+import { isIP } from "node:net";
 import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
+  type EgressRoute,
+  type EgressRouteEnvironment,
+  egressRouteFromEnv,
+  S3_REQUEST_BOUNDS,
   scopedCheckpointObjectStore,
 } from "@agent-platform/storage";
 
@@ -17,9 +22,9 @@ import {
 /**
  * What the execution backend puts in the container (`backend.ts`
  * `workerEnvironmentFor`): the bucket and endpoint the control host itself
- * uses, and the prefix this worker's session owns.
+ * uses, the prefix this worker's session owns, and the egress proxy.
  */
-export type WorkerObjectStoreEnvironment = {
+export type WorkerObjectStoreEnvironment = EgressRouteEnvironment & {
   AWS_ACCESS_KEY_ID?: string | undefined;
   AWS_ENDPOINT_URL?: string | undefined;
   AWS_REGION?: string | undefined;
@@ -32,7 +37,13 @@ export type WorkerObjectStoreEnvironment = {
 export type WorkerObjectStoreConfig = {
   accessKeyId: string;
   bucket: string;
-  endpoint: string;
+  /**
+   * How https requests leave the worker network. Absent means dial the
+   * endpoint directly; the env parser always sets it.
+   */
+  egress?: EgressRoute;
+  /** Absent means AWS itself, over https. */
+  endpoint?: string;
   region: string;
   /** Every key this worker may read or write starts with this. */
   scope: string;
@@ -42,7 +53,7 @@ export type WorkerObjectStoreConfig = {
 export function objectStoreConfigFromEnv(
   environment: WorkerObjectStoreEnvironment,
 ): WorkerObjectStoreConfig {
-  const endpoint = environment.AWS_ENDPOINT_URL?.trim();
+  const endpoint = environment.AWS_ENDPOINT_URL?.trim() || undefined;
   const scope = required(
     environment.WORKER_OBJECT_PREFIX,
     "WORKER_OBJECT_PREFIX",
@@ -58,37 +69,39 @@ export function objectStoreConfigFromEnv(
       `WORKER_OBJECT_PREFIX ${scope} must be a key prefix ending in "/"`,
     );
   }
-  // The worker leaves its network only through the egress proxy, and the
-  // proxy refuses the GREASE ECH that Bun's node:https puts in every
-  // ClientHello (94S-219). Over https this client would therefore fail on
-  // every request; refusing at startup says so once instead. Deliberately
-  // minimal: lift it when the store has a transport measured to send no
-  // ECH and a worker-network PUT/GET test proves it (94S-254).
-  if (!endpoint) {
-    throw new Error(
-      "AWS_ENDPOINT_URL is required: the worker cannot reach an https object store through the egress proxy yet (94S-254)",
-    );
-  }
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    throw new Error("AWS_ENDPOINT_URL is not a URL");
-  }
-  // Messages quote the URL, so a credential in it is refused first and the
-  // URL is never quoted with one.
-  if (url.username !== "" || url.password !== "") {
-    throw new Error("AWS_ENDPOINT_URL must not carry credentials");
-  }
-  if (url.protocol !== "http:") {
-    throw new Error(
-      `AWS_ENDPOINT_URL ${endpoint} must be http: the worker cannot reach an https object store through the egress proxy yet (94S-254)`,
-    );
+  if (endpoint !== undefined) {
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch {
+      throw new Error("AWS_ENDPOINT_URL is not a URL");
+    }
+    // Messages quote the URL, so a credential in it is refused first and the
+    // URL is never quoted with one.
+    if (url.username !== "" || url.password !== "") {
+      throw new Error("AWS_ENDPOINT_URL must not carry credentials");
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${endpoint} must be an http:// or https:// URL`,
+      );
+    }
+    // The https transport refuses an address on every request (see
+    // `TlsTunnelHttpHandler`); saying so once at startup is kinder.
+    if (
+      url.protocol === "https:" &&
+      isIP(url.hostname.replace(/^\[|\]$/g, ""))
+    ) {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${endpoint} must name its host: an https object store is not reached by address`,
+      );
+    }
   }
   return {
     accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket: required(environment.S3_BUCKET, "S3_BUCKET"),
-    endpoint,
+    egress: egressRouteFromEnv(environment),
+    ...(endpoint === undefined ? {} : { endpoint }),
     region: required(environment.AWS_REGION, "AWS_REGION"),
     scope,
     secretAccessKey: required(
@@ -102,25 +115,33 @@ export function objectStoreConfigFromEnv(
  * The store the worker's checkpoint code gets: S3 under the storage package's
  * request bounds, confined to the session prefix.
  *
- * How it leaves the internal worker network: the storage client is a Node
- * HTTP handler, and under Bun `node:http` honours `HTTP_PROXY`/`HTTPS_PROXY`
- * itself — measured, not assumed: the egress integration test runs this
- * exact factory inside the worker network and reaches LocalStack only with
- * the proxy variables set. Under Node the same handler would ignore them
- * and need a proxy agent; the worker runs on Bun (delivery plan), so none
- * is wired. Trigger to revisit: a worker image on another runtime.
+ * How it leaves the internal worker network, measured rather than assumed —
+ * the egress integration test runs this exact factory inside the worker
+ * network against both kinds of endpoint:
+ *
+ * - https (or no endpoint: AWS): `TlsTunnelHttpHandler` opens the CONNECT
+ *   tunnel to `HTTPS_PROXY` and the TLS session itself, because Bun's own
+ *   https client sends a GREASE ECH the egress proxy refuses (94S-254).
+ * - http: the storage client's node handler, whose `node:http` under Bun
+ *   sends absolute-form requests to `HTTP_PROXY` by itself. Under Node it
+ *   would ignore the variable; the worker runs on Bun (delivery plan).
+ *   Trigger to revisit: a worker image on another runtime.
  */
 export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
 ): CheckpointObjectStore {
-  const client = createStorageS3Client({
-    s3: {
-      accessKeyId: config.accessKeyId,
-      endpoint: config.endpoint,
-      region: config.region,
-      secretAccessKey: config.secretAccessKey,
+  const client = createStorageS3Client(
+    {
+      s3: {
+        accessKeyId: config.accessKeyId,
+        ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+        region: config.region,
+        secretAccessKey: config.secretAccessKey,
+      },
     },
-  });
+    S3_REQUEST_BOUNDS,
+    config.egress ?? { noProxy: [] },
+  );
   return scopedCheckpointObjectStore(
     createCheckpointObjectStore({ bucket: config.bucket, client }),
     config.scope,

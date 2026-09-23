@@ -125,9 +125,26 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_EGRESS_PROXY_URL: "https://egress-proxy:3128",
       }),
     ).toThrow("http://");
+    // What the worker's object store would refuse at startup is refused
+    // here, before a launch; the credential is never quoted.
+    const secret = "proxy-secret-value";
+    for (const [url, message] of [
+      [`http://user:${secret}@egress-proxy:3128`, "credentials"],
+      ["http://egress-proxy:3128/path", "host and port"],
+      ["http://egress-proxy:3128/?q=1", "host and port"],
+    ] as const) {
+      let error: unknown;
+      try {
+        localDockerConfigFromEnv({ ...base, EXECUTION_EGRESS_PROXY_URL: url });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(String(error)).toContain(message);
+      expect(String(error)).not.toContain(secret);
+    }
   });
 
-  test("object store access is required and the endpoint an http URL", () => {
+  test("object store access is required and the endpoint an http(s) URL", () => {
     for (const name of [
       "AWS_ACCESS_KEY_ID",
       "AWS_REGION",
@@ -141,21 +158,26 @@ describe("localDockerConfigFromEnv", () => {
         name,
       );
     }
-    // Real AWS (no endpoint) and https endpoints are refused here, before a
-    // launch intent exists, for the same reason the worker refuses them: the
-    // egress proxy rejects the GREASE ECH in Bun's node:https (94S-254).
-    expect(() =>
-      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "" }),
-    ).toThrow("94S-254");
-    expect(() =>
-      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: undefined }),
-    ).toThrow("94S-254");
-    expect(() =>
+    // Real AWS (no endpoint) and https endpoints are accepted: the worker
+    // reaches them through the egress proxy with its own TLS (94S-254).
+    for (const value of ["", undefined]) {
+      expect(
+        localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: value })
+          .objectStore.endpoint,
+      ).toBeUndefined();
+    }
+    expect(
       localDockerConfigFromEnv({
         ...base,
         AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
+      }).objectStore.endpoint,
+    ).toBe("https://s3.ap-northeast-1.amazonaws.com");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        AWS_ENDPOINT_URL: "https://10.0.0.5:9000",
       }),
-    ).toThrow("must be an http://");
+    ).toThrow("must name its host");
     expect(() =>
       localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
     ).toThrow("AWS_ENDPOINT_URL");
@@ -166,7 +188,7 @@ describe("localDockerConfigFromEnv", () => {
       }),
     ).toThrow("http://");
     // Whatever else is wrong with the URL, a credential in it never reaches
-    // a message — the https refusal quotes the URL, so it must come after.
+    // a message — the protocol refusal quotes the URL, so it must come after.
     for (const url of [
       "http://user:hunter2@localstack:4566",
       "https://user:hunter2@s3.example",
