@@ -92,6 +92,19 @@ describe("OpenAPI document", () => {
     ).toContain("text/event-stream");
   });
 
+  test("every operation declares the shared 500 response", () => {
+    const document = buildOpenApiDocument();
+    expect(document.components.responses.InternalError).toBeDefined();
+    for (const [path, operations] of Object.entries(document.paths)) {
+      for (const [method, raw] of Object.entries(operations)) {
+        const { responses } = raw as { responses: Record<string, unknown> };
+        expect(responses["500"], `${method} ${path}`).toEqual({
+          $ref: "#/components/responses/InternalError",
+        });
+      }
+    }
+  });
+
   test("widening the receipt target keeps every alpha response valid", () => {
     const receipt = buildOpenApiDocument().components.schemas.Receipt as {
       required: string[];

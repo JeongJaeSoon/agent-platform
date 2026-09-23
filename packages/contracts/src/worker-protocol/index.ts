@@ -19,6 +19,7 @@ import {
   requiredUnknownSchema,
   revisionSchema,
   sessionIdSchema,
+  sha256HexSchema,
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
@@ -331,8 +332,6 @@ export const appendEventsResponseSchema = z.object({
   cursor: opaqueCursorSchema,
 });
 
-const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
-
 // A permission or question the attempt is holding a live callback for. The
 // worker registers it before anyone is told about it, so every request a
 // client can see is one an answer can reach. `input_hash` is taken over the
@@ -404,7 +403,7 @@ export const pendingControlRequestSchema = workerScopeSchema
   .strict();
 export const controlIntentSchema = z.object({
   control_id: z.string().min(1),
-  kind: z.enum(["interrupt", "pause", "terminate"]),
+  kind: z.enum(["interrupt", "pause"]),
   target_turn_id: turnIdSchema.nullable(),
   issued_at: timestampSchema,
 });

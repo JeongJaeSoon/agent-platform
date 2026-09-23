@@ -51,6 +51,13 @@ import {
   sql,
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
+import {
+  findIdempotent,
+  type IdempotencyScope,
+  lockIdempotencyScope,
+  parseTurnSequence,
+  SEQUENCE_MAX,
+} from "./control-shared.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import {
   decodeEventCursor,
@@ -81,42 +88,6 @@ import {
 const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
 const SESSIONS_RESOURCE = "sessions";
-
-type IdempotencyScope = {
-  principal: string;
-  operation: string;
-  resource: string;
-  key: string;
-};
-
-// An advisory lock serializes same-key races; SELECT FOR UPDATE cannot lock a
-// row that does not exist yet. Always taken before any row lock so every
-// transaction acquires locks in the same order.
-async function lockIdempotencyScope(tx: Database, scope: IdempotencyScope) {
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, scope.operation, scope.resource, scope.key])}))`,
-  );
-}
-
-async function findIdempotent(tx: Database, scope: IdempotencyScope) {
-  const [existing] = await tx
-    .select({
-      payloadHash: idempotencyKeys.payloadHash,
-      result: receipts.result,
-    })
-    .from(idempotencyKeys)
-    .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
-    .where(
-      and(
-        eq(idempotencyKeys.principal, scope.principal),
-        eq(idempotencyKeys.operation, scope.operation),
-        eq(idempotencyKeys.resource, scope.resource),
-        eq(idempotencyKeys.key, scope.key),
-      ),
-    )
-    .limit(1);
-  return existing;
-}
 
 async function recordAcceptance(
   tx: Database,
@@ -376,10 +347,6 @@ function decodeCursor(value: string): Cursor {
 
 // Turns page in FIFO order; the cursor is the last sequence on the page.
 type TurnCursor = { sequence: number };
-const TURN_ID = /^[1-9]\d{0,9}$/;
-// turns.sequence is a PostgreSQL integer; anything above cannot exist and
-// must not reach the query, where it would fail with 22003 (codex P2).
-const SEQUENCE_MAX = 2_147_483_647;
 
 function encodeTurnCursor(cursor: TurnCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
@@ -397,13 +364,6 @@ function decodeTurnCursor(value: string): TurnCursor {
     }
   } catch {}
   throw new InvalidCursorError();
-}
-
-// Public turn_id is the 1-based sequence; anything else is not found.
-function parseTurnId(turnId: string): number | null {
-  if (!TURN_ID.test(turnId)) return null;
-  const sequence = Number(turnId);
-  return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
 type SessionRow = typeof sessions.$inferSelect;
@@ -757,7 +717,7 @@ export function createPostgresSessionReader(
       sessionId: string,
       turnId: string,
     ): Promise<TurnDetail | null> {
-      const sequence = parseTurnId(turnId);
+      const sequence = parseTurnSequence(turnId);
       if (sequence === null) return null;
       const session = await ownedSession(ownerId, sessionId);
       if (!session) return null;

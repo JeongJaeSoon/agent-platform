@@ -6,8 +6,9 @@ import {
   restoreExecutionAtomic,
   revokeExecutionAtomic,
 } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import { createLogger } from "@agent-platform/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 
 // The operator's execution Grant command (94S-321). Alpha has no Grant
 // management API or UI (architecture.md 실행 권한 회수와 API key 회수), so
@@ -105,7 +106,12 @@ async function main(): Promise<void> {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = createEnforcedPool(
+    databaseUrl,
+    createLogger(),
+    "grants",
+    JOB_POOL_TIMEOUTS,
+  );
   try {
     const db = drizzle(pool, { schema });
     const input = {

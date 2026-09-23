@@ -75,20 +75,6 @@ export interface WorkerGatewayClient {
   release(request: ReleaseRequest): Promise<ReleaseResponse>;
 }
 
-// The decisions the gateway itself makes, which a worker loop switches on.
-export const WORKER_GATEWAY_DECISIONS = [
-  "UNAUTHORIZED",
-  "FORBIDDEN",
-  "LEASE_EXPIRED",
-  "STALE_EPOCH",
-  "NOT_FOUND",
-  "IDEMPOTENCY_CONFLICT",
-  "CHECKPOINT_UNAVAILABLE",
-  "BACKEND_UNAVAILABLE",
-] as const satisfies readonly ApiErrorCode[];
-
-export type WorkerGatewayDecision = (typeof WORKER_GATEWAY_DECISIONS)[number];
-
 // What a response may carry, which is more: a rejected body, an oversized
 // one or a failing dependency is answered by the shared request pipeline, so
 // a client that decodes exhaustively has to accept every shared code.

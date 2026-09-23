@@ -4,9 +4,9 @@
  * Writes one session with one committed checkpoint into an installation the
  * way a worker and the control plane would (94S-124 contracts): transcript
  * parts through the mirror, a real `git bundle`, the manifest sealed by the
- * Claude codec and uploaded create-only, then the DB pointer. Nothing in the
- * product writes checkpoints yet (94S-201/246), so this is how a backup gets
- * something for the verifier to compare.
+ * Claude codec and uploaded create-only, then the DB pointer. The product
+ * writes one only at the end of a real worker turn (94S-246); this gives a
+ * backup something for the verifier to compare without running one.
  *
  * Only for a local compose installation. Every write goes to a fresh random
  * session id, so running it twice adds a second session.
@@ -18,6 +18,8 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import { createLogger } from "@agent-platform/observability";
 import { manifestRefFor } from "@agent-platform/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -36,7 +38,6 @@ import {
   storageConfigFromEnv,
 } from "@agent-platform/storage";
 import { createGitBundle } from "@agent-platform/testkit/git-bundle";
-import { Pool } from "pg";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -165,24 +166,31 @@ for (const ref of [
   await hold(ref.key, ref.version);
 }
 
-const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+const pool = createEnforcedPool(
+  databaseUrl,
+  createLogger(),
+  "seed",
+  JOB_POOL_TIMEOUTS,
+);
+const db = await pool.connect();
 try {
-  await pool.query("BEGIN");
-  await pool.query(
+  await db.query("BEGIN");
+  await db.query(
     `INSERT INTO sessions (id, owner_id, repo_url, branch, status, admission_state, checkpoint_revision, checkpoint_committed_at)
      VALUES ($1, 'seed', 'http://gitea:3000/seed/workspace.git', 'main', 'idle', 'paused', $2, now())`,
     [sessionId, revision],
   );
-  await pool.query(
+  await db.query(
     `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256, manifest_version, versions_held)
      VALUES ($1, $2, $3, $4, $5, true)`,
     [sessionId, revision, manifestRef, sealed.sha256, manifestPut.version],
   );
-  await pool.query("COMMIT");
+  await db.query("COMMIT");
 } catch (error) {
-  await pool.query("ROLLBACK");
+  await db.query("ROLLBACK");
   throw error;
 } finally {
+  db.release();
   await pool.end();
 }
 
