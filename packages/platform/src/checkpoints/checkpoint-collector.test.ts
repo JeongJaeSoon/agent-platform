@@ -350,6 +350,30 @@ describe("superseded revisions", () => {
       expect(await present(entry)).toBe(true);
   });
 
+  test("so does the chain below that base, which the next commit built on it restores from", async () => {
+    const part = await transcriptPart(0);
+    const published = [];
+    for (let revision = 0; revision < 6; revision += 1) {
+      published.push(await commit(revision, "attempt-a", [part]));
+    }
+    // Revision 5 was damaged; attempt-b restored revision 2 instead.
+    session.state.fallback = { attemptId: "attempt-b", revision: 2 };
+
+    await collector({ maxRestoreFallbacks: 2 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    await commit(6, "attempt-b", [part]);
+
+    // Revision 6 is built on 2, so its window is 6, 2 and 1.
+    expect(session.pointer()?.parentRevision).toBe(2);
+    for (const revision of [1, 2]) {
+      for (const entry of published[revision]?.versions ?? []) {
+        expect(await present(entry)).toBe(true);
+      }
+    }
+    expect([...session.collected]).toEqual([]);
+  });
+
   test("a dry run deletes and marks nothing", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);

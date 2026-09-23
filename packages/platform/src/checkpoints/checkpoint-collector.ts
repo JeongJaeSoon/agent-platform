@@ -55,7 +55,8 @@ export type SessionCollection =
  *
  * - *No restore needs it.* It is not named by the pointer's checkpoint, the
  *   `maxRestoreFallbacks` revisions below it along the parent chain, or the
- *   fallback base the session was last restored from. Only the attempt that
+ *   fallback base the session was last restored from and as many below that
+ *   (the window of the commit built on it). Only the attempt that
  *   holds the fence restores anything that matters, and the pointer does not
  *   move until that attempt commits, so its plan is always among these.
  * - *No finalize can commit it.* Its directory is at or below the pointer's
@@ -94,23 +95,31 @@ export function createCheckpointCollector(
     fallbackRevision: number | null,
   ): Promise<CheckpointPointer[] | string> {
     const rows = new Map<number, CheckpointPointer>();
-    let next: CheckpointPointer | null = pointer;
-    for (let depth = 0; next !== null; depth += 1) {
-      rows.set(next.revision, next);
-      const parent = depth < window ? parentOf(next) : null;
-      if (parent === null) break;
-      const found = await row(sessionId, parent);
-      if (found === undefined) {
-        return `no checkpoint row for revision ${parent}, which revision ${next.revision} was built on`;
+    const walk = async (start: CheckpointPointer) => {
+      let next = start;
+      for (let depth = 0; ; depth += 1) {
+        rows.set(next.revision, next);
+        const parent = depth < window ? parentOf(next) : null;
+        if (parent === null) return undefined;
+        const found = await row(sessionId, parent);
+        if (found === undefined) {
+          return `no checkpoint row for revision ${parent}, which revision ${next.revision} was built on`;
+        }
+        next = found;
       }
-      next = found;
-    }
-    if (fallbackRevision !== null && !rows.has(fallbackRevision)) {
-      const found = await row(sessionId, fallbackRevision);
-      if (found === undefined) {
+    };
+    const broken = pointer === null ? undefined : await walk(pointer);
+    if (broken !== undefined) return broken;
+    // The session runs on the fallback base, and its next commit is built on
+    // it: that commit's own window then reaches below the base, so the base's
+    // chain stays as the pointer's does.
+    if (fallbackRevision !== null) {
+      const base = await row(sessionId, fallbackRevision);
+      if (base === undefined) {
         return `no checkpoint row for fallback revision ${fallbackRevision}`;
       }
-      rows.set(fallbackRevision, found);
+      const brokenBase = await walk(base);
+      if (brokenBase !== undefined) return brokenBase;
     }
     return [...rows.values()];
   }
