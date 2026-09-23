@@ -87,7 +87,7 @@ describe("claudeRuntimeRegistry", () => {
         {
           committedClaudeMd: () => {
             throw new Error(
-              "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit to read it from",
+              "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
             );
           },
           correlationId: "s:a",

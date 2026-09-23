@@ -446,6 +446,36 @@ describe("GitWorkspace.committedClaudeMd", () => {
     );
   });
 
+  test("sizes a committed link before reading it", async () => {
+    await publish({ "CLAUDE.md": "first\n" });
+    const workspace = await prepared();
+    // A link no checkout could create; a reuse reads the mirror, which has no
+    // filesystem to refuse it first.
+    const seed = join(scratch, "seed");
+    const blob = Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
+      cwd: seed,
+      stdin: new TextEncoder().encode("a".repeat(1 << 20)),
+      stdout: "pipe",
+    });
+    const object = blob.stdout.toString().trim();
+    git(["rm", "--quiet", "CLAUDE.md"], seed);
+    git(
+      ["update-index", "--add", "--cacheinfo", `120000,${object},CLAUDE.md`],
+      seed,
+    );
+    git(["commit", "--quiet", "-m", "long link"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    await workspace.prepare({
+      descriptor: descriptor(),
+      restore: null,
+      signal: new AbortController().signal,
+    });
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "it links to an overlong path",
+    );
+  });
+
   test("a file exactly at the cap is whole", async () => {
     const whole = "b".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES);
     await publish({ "CLAUDE.md": whole });

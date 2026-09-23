@@ -137,7 +137,7 @@ export class GitWorkspace implements WorkspacePreparer {
         this.claudeMd = {
           kind: "refused",
           reason:
-            "a restored workspace has no freshly fetched commit to read it from",
+            "a restored workspace has no freshly fetched commit behind it",
         };
         return plan.action;
       case "refuse":
@@ -311,6 +311,8 @@ export class GitWorkspace implements WorkspacePreparer {
 
 /** Enough for a CLAUDE.md -> AGENTS.md -> docs/... chain; more is a loop. */
 const MAX_LINK_HOPS = 8;
+/** Linux's PATH_MAX: no checkout could create a link to anything longer. */
+const MAX_LINK_TARGET_BYTES = 4096;
 
 /**
  * The root CLAUDE.md at `rev`, read from git's object store in `cwd` — never
@@ -354,6 +356,19 @@ async function readCommittedClaudeMd(
       string,
     ];
     if (mode === "120000") {
+      // Sized before it is read, like the file itself: on a reuse this runs
+      // against a mirror before any checkout, where no filesystem limit on
+      // link targets stands between a huge blob and this process's memory.
+      const size = await git(["cat-file", "-s", object], { cwd });
+      if (size.code !== 0) {
+        return {
+          kind: "refused",
+          reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
+        };
+      }
+      if (Number(size.stdout.trim()) > MAX_LINK_TARGET_BYTES) {
+        return { kind: "refused", reason: "it links to an overlong path" };
+      }
       const target = await git(["cat-file", "blob", object], { cwd });
       if (target.code !== 0) {
         return {
