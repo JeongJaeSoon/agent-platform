@@ -394,6 +394,7 @@ describe("WorkerGateway", () => {
         endpoint: "https://api.anthropic.invalid",
         auth: { kind: "api_key" as const, value: "provider-key" },
       },
+      project_settings: { claude_md: true },
     };
     const instance = createWorkerGateway({
       work: work({
@@ -427,6 +428,7 @@ describe("WorkerGateway", () => {
       tools: ["Read"],
       permission_mode: "plan",
       provider: profile.provider,
+      project_settings: { claude_md: true },
     });
     // A profile the catalog lost between the row's binding and this replay
     // is refused rather than answered with a guess.

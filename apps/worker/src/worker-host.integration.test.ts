@@ -146,6 +146,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
         endpoint: server.url,
         auth: { kind: "api_key", value: "placeholder-local" },
       },
+      project_settings: { claude_md: false },
     };
 
     // First process: claim, two turns, release.

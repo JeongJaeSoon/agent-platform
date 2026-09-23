@@ -116,6 +116,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           endpoint: "http://127.0.0.1:4000",
           auth: { kind: "api_key", value: "placeholder" },
         },
+        project_settings: { claude_md: false },
       },
       sessionId: options.sessionId ?? "11111111-1111-4111-8111-111111111111",
     };

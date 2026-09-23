@@ -851,6 +851,7 @@ describe("WorkerHost before the engine starts", () => {
           endpoint: "http://litellm.internal:4000",
           auth: { kind: "bearer", value: "claimed" },
         },
+        project_settings: { claude_md: false },
       },
     });
     const { host, launched, principals } = harness(
@@ -877,6 +878,7 @@ describe("WorkerHost before the engine starts", () => {
           endpoint: "http://litellm.internal:4000",
           auth: { kind: "bearer", value: "claimed" },
         },
+        project_settings: { claude_md: false },
       },
     ]);
   });

@@ -79,6 +79,18 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
   plugins?: RuntimePlugin[];
   profile: RuntimeProfile;
   /**
+   * Let the checked-out repository's root CLAUDE.md into the system prompt,
+   * read by the adapter rather than the engine. The engine only reads it
+   * together with the rest of the project source — settings.json with its
+   * hooks, env and permission rules — so this requires `settingSources: []`.
+   * The checkpoint fingerprint takes the switch, not the text: a restored
+   * workspace can carry a CLAUDE.md the agent itself edited, and that must
+   * not make its own checkpoint unresumable. The edit does not reach the
+   * resumed conversation either — the engine replays the system prompt it
+   * recorded (`snapshot`) until the conversation is compacted.
+   */
+  repositoryClaudeMd?: boolean;
+  /**
    * Where the engine mirrors root and subagent transcripts. Without it the
    * transcript lives only on the container's disk, which no checkpoint can
    * outlive.

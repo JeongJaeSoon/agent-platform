@@ -20,6 +20,7 @@ import {
   runtimeEnvironment,
   validateRuntimeConfig,
 } from "./profile.ts";
+import { systemPromptAppend } from "./repository-instructions.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import { TurnLedger } from "./turn-ledger.ts";
@@ -94,6 +95,7 @@ export function buildSdkOptions(
     if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
     return {};
   };
+  const append = systemPromptAppend(config);
   return {
     abortController,
     canUseTool: async (tool, toolInput, options) => {
@@ -182,9 +184,7 @@ export function buildSdkOptions(
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      ...(config.appendSystemPrompt === undefined
-        ? {}
-        : { append: config.appendSystemPrompt }),
+      ...(append === undefined ? {} : { append }),
       snapshot: true,
     },
     tools: config.tools,

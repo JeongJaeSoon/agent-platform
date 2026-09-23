@@ -542,6 +542,7 @@ describe("worker protocol", () => {
           endpoint: "https://litellm.invalid",
           auth: { kind: "bearer", value: "provider-token" },
         },
+        project_settings: { claude_md: true },
       },
       workspace: {
         repository: {
@@ -564,6 +565,25 @@ describe("worker protocol", () => {
     expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
       false,
     );
+    // Which repository settings the run may take in is the server's call,
+    // stated on every claim; a hooks switch does not exist to be sent.
+    const { project_settings: _s, ...withoutProjectSettings } =
+      claim.runtime_config;
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        runtime_config: withoutProjectSettings,
+      }).success,
+    ).toBe(false);
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        runtime_config: {
+          ...claim.runtime_config,
+          project_settings: { claude_md: true, hooks: true },
+        },
+      }).success,
+    ).toBe(false);
     // Legacy rows carry no catalog key but still name a repository.
     expect(
       bootstrapClaimResponseSchema.safeParse({
@@ -606,6 +626,7 @@ describe("worker protocol", () => {
           endpoint: "https://litellm.invalid",
           auth: { kind: "api_key", value: "provider-key" },
         },
+        project_settings: { claude_md: false },
       },
       workspace: {
         repository: {
@@ -632,6 +653,7 @@ describe("worker protocol", () => {
       model: "claude-sonnet-5",
       permission_mode: "acceptEdits",
       provider_kind: "litellm",
+      claude_md: false,
       repository_id: "sample-app",
       branch: "main",
       owner_scope: "owner_1",

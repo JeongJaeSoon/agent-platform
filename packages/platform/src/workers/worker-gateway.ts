@@ -358,6 +358,7 @@ export function createWorkerGateway(deps: {
         tools: profile.tools,
         permission_mode: profile.permission_mode,
         provider: profile.provider,
+        project_settings: profile.project_settings,
       },
     };
   }

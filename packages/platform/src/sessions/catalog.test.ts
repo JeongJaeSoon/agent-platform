@@ -42,8 +42,32 @@ describe("parseSessionCatalogEnv", () => {
         endpoint: "https://api.anthropic.invalid",
         auth: { kind: "api_key", value: "resolved-key" },
       },
+      project_settings: { claude_md: false },
     };
     expect(catalog.profiles.p).toEqual(expected);
+  });
+
+  test("the repository's CLAUDE.md is let in only when the profile says so, and hooks never are", () => {
+    const withClaudeMd = parseSessionCatalogEnv(
+      "SESSION_CATALOG_JSON",
+      catalogJson({ ...configured, project_settings: { claude_md: true } }),
+      env,
+    );
+    expect(withClaudeMd.profiles.p?.project_settings).toEqual({
+      claude_md: true,
+    });
+    expect(() =>
+      parseSessionCatalogEnv(
+        "SESSION_CATALOG_JSON",
+        catalogJson({
+          ...configured,
+          project_settings: { claude_md: true, hooks: true },
+        }),
+        env,
+      ),
+    ).toThrow(
+      /^SESSION_CATALOG_JSON is invalid: profiles\.p\.project_settings: /,
+    );
   });
 
   test("a missing credential names the profile and the variable, never a value", () => {

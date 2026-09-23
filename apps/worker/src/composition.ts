@@ -105,9 +105,10 @@ export function claudeRuntimeRegistry(
           },
           // None of the repository's own Claude settings: its hooks would run
           // commands no permission callback sees, with the provider key in
-          // reach, and the claim's profile is the only policy reviewed. That
-          // also drops the repository's CLAUDE.md; 94S-258 decides which
-          // project settings a profile may let back in.
+          // reach, and the claim's profile is the only policy reviewed. Its
+          // CLAUDE.md comes back only when that profile says so, read by the
+          // adapter apart from the rest (`projectSettingsSchema`).
+          repositoryClaudeMd: runtimeConfig.project_settings.claude_md,
           settingSources: [],
           tools: runtimeConfig.tools,
           ...plan,
