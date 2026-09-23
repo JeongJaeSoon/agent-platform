@@ -10,7 +10,7 @@ import {
   type SchedulerLogger,
 } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
@@ -260,6 +260,12 @@ describe("claim lifecycle", () => {
     expect(first.failedLaunches).toHaveLength(1);
     const [ref] = first.failedLaunches;
     if (!ref) throw new Error("nothing attempted");
+    // The failure holds the next attempt back (94S-207); spent here on the
+    // database clock rather than waited out.
+    await db
+      .update(workerLaunches)
+      .set({ launchRetryAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(workerLaunches.executionId, ref.executionId));
 
     const second = await pass(backend);
     expect(second.reensured).toEqual([ref]);

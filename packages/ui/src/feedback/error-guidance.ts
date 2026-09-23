@@ -37,6 +37,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "아직 시작하지 않은 턴은 중단할 수 없습니다 — 실행이 시작된 뒤 다시 시도하세요.",
   BACKEND_UNAVAILABLE:
     "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+  LAUNCH_FAILED:
+    "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",

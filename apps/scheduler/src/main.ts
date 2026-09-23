@@ -132,6 +132,10 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
     summary.killFailed.length > 0 ||
+    // A launch waiting out its backoff is one that is failing; one given up
+    // on failed its session's input. Neither is a pass with nothing to say.
+    summary.launchesBackingOff.length > 0 ||
+    summary.launchesQuarantined.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.
     summary.networkScanFailed ||
