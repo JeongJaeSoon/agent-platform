@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { discover, testFilters } from "./test-shard.ts";
+import { discover, testFilters } from "./test-files.ts";
 
 export const PARTS = ["packages", "rest"] as const;
 export type Part = (typeof PARTS)[number];

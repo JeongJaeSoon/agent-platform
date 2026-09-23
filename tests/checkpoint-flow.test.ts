@@ -126,27 +126,34 @@ afterAll(async () => {
   for (const bucket of buckets) await bucket.destroy();
 });
 
-const backends: Array<[string, () => Promise<CheckpointObjectStore>]> = [
-  ["in-memory objects", async () => createMemoryCheckpointObjectStore()],
-];
-if (localstackEnabled()) {
-  backends.push([
-    "LocalStack objects",
-    async () => {
-      const bucket = await createLocalstackBucket({
-        prefix: "checkpoint-flow-it",
-      });
-      buckets.push(bucket);
-      return createCheckpointObjectStore({
-        bucket: bucket.bucket,
-        client: bucket.s3,
-      });
-    },
-  ]);
-}
+// The LocalStack variant is skipped rather than left out when LocalStack is
+// off: CI fails an integration job on a skip it did not declare (94S-307),
+// and a suite that is never declared would slip past that check.
+const backends: Array<[string, boolean, () => Promise<CheckpointObjectStore>]> =
+  [
+    [
+      "in-memory objects",
+      true,
+      async () => createMemoryCheckpointObjectStore(),
+    ],
+    [
+      "LocalStack objects",
+      localstackEnabled(),
+      async () => {
+        const bucket = await createLocalstackBucket({
+          prefix: "checkpoint-flow-it",
+        });
+        buckets.push(bucket);
+        return createCheckpointObjectStore({
+          bucket: bucket.bucket,
+          client: bucket.s3,
+        });
+      },
+    ],
+  ];
 
-for (const [name, createObjects] of backends) {
-  describe(`checkpoint flow (${name})`, () => {
+for (const [name, enabled, createObjects] of backends) {
+  (enabled ? describe : describe.skip)(`checkpoint flow (${name})`, () => {
     test("publishes a checkpoint, refuses a stale rewrite, and restores exactly what it pinned", async () => {
       const objects = await createObjects();
       const store = memoryCheckpointStore();
