@@ -150,6 +150,8 @@ export class WorkerHost {
   private readonly abandoned: Promise<void>;
   private announceAbandon: () => void = () => {};
   private abandonedNow = false;
+  /** When the drain under way gives the turn up, on the monotonic clock its timer runs on. */
+  private abandonsAt: number | undefined;
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
   private stoppedAt: number | undefined;
@@ -351,6 +353,7 @@ export class WorkerHost {
     }
     // A drain lets the turn in flight finish and be finalized; only once that
     // budget is spent is it given up for the recovery path to retry.
+    this.abandonsAt = performance.now() + this.options.timeouts.drainTimeoutMs;
     const timer = setTimeout(
       () => this.announceAbandon(),
       this.options.timeouts.drainTimeoutMs,
@@ -591,22 +594,19 @@ export class WorkerHost {
           reason: describe(error),
         });
       });
-      // Never more than half the drain budget the stop above just started:
-      // were the drain to give the turn up first, it would end with no
-      // terminal at all.
-      const grace = Math.min(
-        INTERRUPT_GRACE_MS,
-        this.options.timeouts.drainTimeoutMs / 2,
-      );
+      // Never more than half of what is left of the drain, which may have
+      // begun well before the deadline: were the drain to give the turn up
+      // first, it would end with no terminal at all.
+      const left =
+        (this.abandonsAt ?? Number.POSITIVE_INFINITY) - performance.now();
+      const grace = Math.min(INTERRUPT_GRACE_MS, left / 2);
+      const unanswered = `${reason}, and the engine did not answer the interrupt`;
+      if (grace <= 0) {
+        this.closeUnanswered(turn, unanswered);
+        return;
+      }
       turn.timers.push(
-        setTimeout(
-          () =>
-            this.closeUnanswered(
-              turn,
-              `${reason}, and the engine did not answer the interrupt`,
-            ),
-          grace,
-        ),
+        setTimeout(() => this.closeUnanswered(turn, unanswered), grace),
       );
     };
     turn.timers.push(setTimeout(expire, budget));
@@ -759,6 +759,12 @@ export class WorkerHost {
     // A result that names other inputs belongs to a batch this turn is not
     // part of; one that names nothing settles nothing on its own.
     if (attributed.length > 0 && !attributed.includes(turn.uuid)) return;
+    if (turn.timedOut && attributed.length === 0) {
+      // As unproven as no answer at all, and the engine as untrusted.
+      this.fail(
+        `Turn ${turn.turnId} ran out of time, and the engine answered for no input`,
+      );
+    }
     this.settleTurn(
       attributed.includes(turn.uuid)
         ? turn.timedOut
