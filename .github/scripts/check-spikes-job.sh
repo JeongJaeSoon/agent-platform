@@ -16,14 +16,14 @@
 #
 # Prints one line:
 #   ok <conclusion>                 success or skipped
-#   ok absent                       a successful run with no `spikes` job: the
-#                                   workflow at that commit had none
+#   ok absent                       other jobs ran but none is `spikes`: the
+#                                   workflow at that commit had no such job
 #   pending <status>                the job has not finished; judge it later
 #   reported <conclusion>           failed, and an issue already names the run
 #   unreported <conclusion> <run-url> <head-sha>
-# The conclusion is `missing` when a run that did not succeed has no `spikes`
-# job (a workflow that failed to start, say), which is no spike signal either.
-# A renamed job would read as `absent` on every run; the tests pin the name.
+# The conclusion is `missing` when a finished run has no jobs at all (a
+# workflow that failed to start), which is no spike signal either. A renamed
+# job would read as `absent` on every run; the tests pin the name.
 # Exits 2, printing nothing, when GitHub could not be asked.
 #
 # usage: check-spikes-job.sh <run-id>
@@ -52,21 +52,24 @@ api_failed() {
 }
 
 run=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" \
-  --jq '"\(.status) \(.conclusion) \(.created_at) \(.html_url) \(.head_sha)"') ||
+  --jq '"\(.status) \(.created_at) \(.html_url) \(.head_sha)"') ||
   api_failed "runs/${run_id}"
-read -r run_status run_conclusion created_at run_url head_sha <<<"$run"
+read -r run_status created_at run_url head_sha <<<"$run"
 
 # The jobs of the latest attempt, so a rerun that passed clears the failure.
-job=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" --paginate \
-  --jq '.jobs[] | select(.name == "spikes") | "\(.status) \(.conclusion)"') ||
+# One `jobs <n>` line per page, then the spikes job's line if there is one.
+jobs=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" --paginate \
+  --jq '"jobs \(.jobs | length)", (.jobs[] | select(.name == "spikes") | "spikes \(.status) \(.conclusion)")') ||
   api_failed "runs/${run_id}/jobs"
+job=$(sed -n 's/^spikes //p' <<<"$jobs")
+job_count=$(awk '$1 == "jobs" { n += $2 } END { print n + 0 }' <<<"$jobs")
 
 if [ -z "$job" ]; then
   if [ "$run_status" != completed ]; then
     echo "pending ${run_status}"
     exit 0
   fi
-  if [ "$run_conclusion" = success ]; then
+  if [ "$job_count" -gt 0 ]; then
     echo "ok absent"
     exit 0
   fi

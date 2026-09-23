@@ -491,7 +491,7 @@ describe("check-spikes-job.sh", () => {
   const jobsQuery = "api repos/octo/repo/actions/runs/555/jobs?per_page=100";
   const issuesQuery = `api repos/octo/repo/issues?labels=ci-spikes-failure&state=all&since=${created}&per_page=100`;
   const commentsQuery = `api repos/octo/repo/issues/comments?since=${created}&per_page=100`;
-  const completedRun = `completed failure ${created} ${runUrl} abc1234def`;
+  const completedRun = `completed ${created} ${runUrl} abc1234def`;
   const issue = (number: number, body: string) =>
     JSON.stringify({
       body,
@@ -506,7 +506,7 @@ describe("check-spikes-job.sh", () => {
 
   const failed = (conclusion: string, issues: string, comments: string) => ({
     [runQuery]: completedRun,
-    [jobsQuery]: `completed ${conclusion}`,
+    [jobsQuery]: `jobs 4\\nspikes completed ${conclusion}`,
     [issuesQuery]: issues,
     [commentsQuery]: comments,
   });
@@ -598,7 +598,7 @@ describe("check-spikes-job.sh", () => {
     test(`a ${conclusion} job is ok without looking at issues`, async () => {
       const outcome = await run("check-spikes-job.sh", ["555"], {
         [runQuery]: completedRun,
-        [jobsQuery]: `completed ${conclusion}`,
+        [jobsQuery]: `jobs 4\\nspikes completed ${conclusion}`,
       });
 
       expect(outcome.exitCode).toBe(0);
@@ -608,37 +608,47 @@ describe("check-spikes-job.sh", () => {
 
   test("a job still running is pending", async () => {
     const outcome = await run("check-spikes-job.sh", ["555"], {
-      [runQuery]: `in_progress null ${created} ${runUrl} abc1234def`,
-      [jobsQuery]: "in_progress null",
+      [runQuery]: `in_progress ${created} ${runUrl} abc1234def`,
+      [jobsQuery]: "jobs 4\\nspikes in_progress null",
     });
 
     expect(outcome.exitCode).toBe(0);
     expect(outcome.stdout).toBe("pending in_progress\n");
   });
 
-  test("a successful run without a spikes job predates the job", async () => {
+  test("a run whose other jobs ran but no spikes job predates the job", async () => {
+    // Failed or not: a commit whose ci.yml had no spikes job gave no spike
+    // signal to lose. Pages add up.
     const outcome = await run("check-spikes-job.sh", ["555"], {
-      [runQuery]: `completed success ${created} ${runUrl} abc1234def`,
-      [jobsQuery]: "",
+      [runQuery]: completedRun,
+      [jobsQuery]: "jobs 0\\njobs 1",
     });
 
     expect(outcome.exitCode).toBe(0);
     expect(outcome.stdout).toBe("ok absent\n");
   });
 
-  test("the job the script reads is still called spikes in ci.yml", async () => {
-    // A rename would turn every run into `ok absent` without a word.
+  test("ci.yml still names the job spikes and links the run in its issue", async () => {
+    // A rename would turn every run into `ok absent` without a word, and an
+    // in-run issue without the run URL would be reported a second time.
     const workflow = await readFile(
       join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
       "utf8",
     );
     expect(workflow).toMatch(/^ {2}spikes:$/m);
+    const spikes = workflow.slice(workflow.search(/^ {2}spikes:$/m));
+    expect(spikes).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
+      "RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+    );
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
+    expect(spikes).toContain("[run ${GITHUB_RUN_ID}](${RUN_URL})");
   });
 
-  test("a failed run without a spikes job is a missing conclusion", async () => {
+  test("a finished run with no jobs at all is a missing conclusion", async () => {
     const outcome = await run("check-spikes-job.sh", ["555"], {
       [runQuery]: completedRun,
-      [jobsQuery]: "",
+      [jobsQuery]: "jobs 0",
       [issuesQuery]: "[]",
       [commentsQuery]: "[]",
     });
@@ -649,8 +659,8 @@ describe("check-spikes-job.sh", () => {
 
   test("an unfinished run without a spikes job yet is pending", async () => {
     const outcome = await run("check-spikes-job.sh", ["555"], {
-      [runQuery]: `queued null ${created} ${runUrl} abc1234def`,
-      [jobsQuery]: "",
+      [runQuery]: `queued ${created} ${runUrl} abc1234def`,
+      [jobsQuery]: "jobs 0",
     });
 
     expect(outcome.stdout).toBe("pending queued\n");
@@ -660,7 +670,7 @@ describe("check-spikes-job.sh", () => {
     // No reply for the comments query: the fake fails it like an API error.
     const outcome = await run("check-spikes-job.sh", ["555"], {
       [runQuery]: completedRun,
-      [jobsQuery]: "completed failure",
+      [jobsQuery]: "jobs 4\\nspikes completed failure",
       [issuesQuery]: "[]",
     });
 

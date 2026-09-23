@@ -79,6 +79,9 @@ jobs:
               "CI: main commit ${short} has no push run" body.md
           done <<<"$verdicts"
       - name: Spikes job of each push run
+        # Also after the commit check failed: the verdicts it did reach still
+        # name push runs to judge.
+        if: '!cancelled()'
         env:
           ONLY_RUN: ${{ github.event.inputs.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -88,7 +91,7 @@ jobs:
           if [ -n "$ONLY_RUN" ]; then
             run_ids=$ONLY_RUN
           else
-            run_ids=$(awk '$1 == "present" { print $3 }' verdicts.txt)
+            run_ids=$(awk '$1 == "present" { print $3 }' verdicts.txt 2>/dev/null || true)
           fi
           failed=0
           for run_id in $run_ids; do
