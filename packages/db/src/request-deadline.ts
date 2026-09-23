@@ -6,6 +6,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // pg has to thread a signal through.
 export class RequestDeadline {
   private live = true;
+  private expired = false;
   private readonly held = new Set<() => void>();
 
   // `at` is a performance.now() instant.
@@ -16,7 +17,10 @@ export class RequestDeadline {
   }
 
   remainingMs(): number {
-    return this.at - performance.now();
+    const remaining = this.at - performance.now();
+    // The expiry timer runs on the event loop's clock, not performance.now(),
+    // and can fire a millisecond before `at`; once it has, nothing is left.
+    return this.expired ? Math.min(0, remaining) : remaining;
   }
 
   // Registers a checked-out client's eviction; the returned function
@@ -31,6 +35,7 @@ export class RequestDeadline {
   // transaction whose next statement may never come. The deadline stays in
   // force, so the abandoned handler's next statement fails at once.
   expire(): void {
+    this.expired = true;
     for (const evict of [...this.held]) {
       evict();
     }
