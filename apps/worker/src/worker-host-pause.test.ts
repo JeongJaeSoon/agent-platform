@@ -28,9 +28,11 @@ const timeouts: WorkerTimeouts = {
   heartbeatIntervalMs: 5,
   idleTimeoutMs: 60,
   maxTurnMs: 60_000,
+  nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 15,
   questionTimeoutMs: 2_000,
   requestTimeoutMs: 1_000,
+  startupTimeoutMs: 60_000,
 };
 
 // Every turn's capture commits, so finalize always carries a checkpoint.
