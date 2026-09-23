@@ -452,7 +452,13 @@ export const restoreArtifactSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("workspace_untracked"),
     label: z.string(),
-    objects: z.array(restoreObjectSchema.extend({ path: z.string().min(1) })),
+    objects: z.array(
+      restoreObjectSchema.extend({
+        path: z.string().min(1),
+        // Absent for a file restored without execute bits.
+        executable: z.literal(true).exactOptional(),
+      }),
+    ),
   }),
 ]);
 // Every revision tried and refused before the one restored, newest first,

@@ -9,9 +9,11 @@ import type {
   RuntimeConfig,
   SessionRuntime,
   TerminalTurnStatus,
+  TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
 import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
+import { endedByAbort } from "@agent-platform/runtime-claude";
 import type {
   AgentRun,
   CheckpointLease,
@@ -137,6 +139,14 @@ type Turn = {
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
   /**
+   * How the engine answered the interrupt sent for this turn, if one was.
+   * The SDK ends every abort alike, so only an acknowledged interrupt makes
+   * an aborted terminal an interrupted turn.
+   */
+  interruptReceipt?: "pending" | "acknowledged" | "refused";
+  /** Settles once interruptReceipt is no longer pending. */
+  interruptAnswered?: Promise<void>;
+  /**
    * When the interrupt's grace runs out (performance.now()): it bounds the
    * whole way to a terminal, checkpoint capture included, not each step.
    */
@@ -144,7 +154,7 @@ type Turn = {
   /** The input went to the engine: an interrupt can only reach it from here. */
   sent: boolean;
   settled: Promise<Settlement>;
-  settle: (settlement: Settlement) => void;
+  settle: (settlement: Settlement | Promise<Settlement>) => void;
   /** The deadline fired: whatever terminal comes now is the timeout's. */
   timedOut: boolean;
   timers: ReturnType<typeof setTimeout>[];
@@ -186,6 +196,7 @@ export class WorkerHost {
   private interruptAnswered: Promise<void> | undefined;
   private attemptState: AttemptState = "starting";
   private heartbeat: Heartbeat | undefined;
+  private mirrorError: string | undefined;
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
@@ -284,6 +295,7 @@ export class WorkerHost {
       leaseExpiresAt: new Date(claim.lease_expires_at),
       onLost: (reason) => this.lose(reason),
       onControlPending: () => this.pending?.poll(true),
+      transcript: () => this.transcriptReport(),
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
@@ -382,7 +394,7 @@ export class WorkerHost {
       repository_id: claim.workspace.repository.id,
       branch: claim.workspace.repository.branch,
     });
-    return this.untilStopped(this.checkpoints.restorePlan(claim.restore));
+    return this.untilStopped(this.checkpoints.restorePlan(claim));
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -525,6 +537,13 @@ export class WorkerHost {
       // Before asking for input, not after: a delivered input the engine is
       // never given would be left for recovery as if it might have run.
       if (!(await this.interruptSettled())) return;
+      if (this.mirrorError !== undefined) {
+        // The next turn would run on a transcript that can no longer be
+        // checkpointed; the gateway blocks new turns once the heartbeat
+        // records it, and this stops the one that could slip in before.
+        this.stop({ kind: "drain", reason: this.mirrorError });
+        return;
+      }
       // Between turns, the one safe boundary a pause waits for.
       if (this.pauseControl !== undefined) {
         await this.commitPause(this.pauseControl);
@@ -592,6 +611,13 @@ export class WorkerHost {
     );
     if (!flushed || this.ownerLost) return;
     await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
+    // A mirror error latched while flushing is already draining; the
+    // shutdown releases only once the gateway has recorded it, which a pause
+    // release would skip. One that lands during the release request itself
+    // may go unrecorded, and costs nothing: the turn's checkpoint pinned only
+    // writes that had already settled, so the failed batch came after it,
+    // and a resume starts from that checkpoint rather than this engine.
+    if (this.mirrorError !== undefined) return;
     try {
       const response = await this.withRetry(() =>
         this.options.gateway.release({
@@ -681,8 +707,16 @@ export class WorkerHost {
   ): Promise<void> {
     // Delivered while the engine was already gone, or to an attempt whose
     // lease is gone: either way nothing may run it here, so it is left open
-    // for the reconciler. A drain still runs it: that attempt owns it.
-    if (this.stopKind === "failed" || this.stopKind === "lost") return;
+    // for the reconciler. A drain still runs it: that attempt owns it —
+    // unless the mirror lost a batch, as when the gateway answered the poll
+    // before the draining beat: no checkpoint could cover what it did.
+    if (
+      this.stopKind === "failed" ||
+      this.stopKind === "lost" ||
+      this.mirrorError !== undefined
+    ) {
+      return;
+    }
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what
     // lets the engine deduplicate a turn it already saw after a crash.
@@ -773,7 +807,7 @@ export class WorkerHost {
     run.send({ message, uuid: turn.uuid });
     turn.sent = true;
     // An interrupt taken while the check ran reaches the engine now.
-    if (turn.interrupting) this.sendInterrupt(run);
+    if (turn.interrupting) this.sendInterrupt(run, turn);
   }
 
   /**
@@ -947,24 +981,33 @@ export class WorkerHost {
           terminal === settlement ? checkpoint : null,
         );
       } catch (error) {
-        // The gateway refused the checkpoint for good, so nothing committed:
-        // the interrupted turn is finalized once more, as unknown.
+        // The gateway refused the manifest itself (only verification answers
+        // CHECKPOINT_UNAVAILABLE to a finalize that carries one), so that
+        // request committed nothing and the same key may carry another body.
         if (
           terminal !== settlement ||
-          !interrupted ||
+          checkpoint === null ||
           !(error instanceof WorkerGatewayRequestError) ||
           error.code !== "CHECKPOINT_UNAVAILABLE"
         ) {
           throw error;
         }
-        this.logger.warn("worker.checkpoint.refused", {
-          turn_id: turnId,
+        // Any other turn is recorded without the checkpoint, as it would have
+        // been had the publish failed here — but only when no earlier attempt
+        // is still out that might commit it under the first body.
+        if (undecided) throw error;
+        this.logger.warn("worker.checkpoint.failed", {
+          stage: "finalize",
           reason: describe(error),
+          revision: checkpoint.revision,
+          manifest_ref: checkpoint.manifest_ref,
+          turn_id: turnId,
         });
-        // Nothing can commit the capture any more unless an earlier attempt
-        // is still undecided; the fallback carries no checkpoint to wait on.
-        if (!undecided) captured?.lease?.release();
-        terminal = unconfirm();
+        // Nothing can commit the capture any more; the fallback carries no
+        // checkpoint to wait on.
+        captured?.lease?.release();
+        // An interrupted turn is `interrupted` only with its checkpoint.
+        terminal = interrupted ? unconfirm() : settlement;
         finalized = await finalize(terminal, null);
       }
       if (finalized === undefined) return;
@@ -998,7 +1041,8 @@ export class WorkerHost {
     }
   }
   private beginTurn(turnId: string, uuid: string): Turn {
-    let settle: (settlement: Settlement) => void = () => {};
+    let settle: (settlement: Settlement | Promise<Settlement>) => void =
+      () => {};
     const settled = new Promise<Settlement>((resolve) => {
       settle = resolve;
     });
@@ -1017,7 +1061,8 @@ export class WorkerHost {
     return turn;
   }
 
-  private settleTurn(settlement: Settlement): void {
+  /** A pending settlement still cuts the stream now, at the terminal frame. */
+  private settleTurn(settlement: Settlement | Promise<Settlement>): void {
     const turn = this.turn;
     if (turn === undefined) return;
     // The stream is cut here, at the terminal frame, and not wherever it has
@@ -1095,18 +1140,55 @@ export class WorkerHost {
         });
       }, graceMs),
     );
-    if (turn.sent) this.sendInterrupt(run);
+    if (turn.sent) this.sendInterrupt(run, turn);
   }
 
-  private sendInterrupt(run: AgentRun): void {
-    this.interruptAnswered = run.interrupt().then(
-      () => {},
+  private sendInterrupt(run: AgentRun, turn: Turn): void {
+    turn.interruptReceipt = "pending";
+    const answered = run.interrupt().then(
+      () => {
+        turn.interruptReceipt = "acknowledged";
+      },
       (error) => {
+        turn.interruptReceipt = "refused";
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
         });
       },
     );
+    turn.interruptAnswered = answered;
+    this.interruptAnswered = answered;
+  }
+
+  /**
+   * An aborted terminal that overtook its interrupt's receipt. The SDK writes
+   * a clean interrupt's receipt first; a turn that crashed while handling it
+   * may report first, so the receipt, awaited within what is left of the
+   * grace, decides. None by then is an interrupt the engine never answered.
+   */
+  private onceAnswered(
+    turn: Turn,
+    decide: (acknowledged: boolean) => Settlement,
+  ): Promise<Settlement> {
+    const leftMs = Math.max(
+      0,
+      (turn.interruptDeadline ?? performance.now()) - performance.now(),
+    );
+    return settledWithin(
+      turn.interruptAnswered ?? Promise.resolve(),
+      leftMs,
+    ).then((answered) => {
+      if (answered) return decide(turn.interruptReceipt === "acknowledged");
+      this.fail(
+        `Turn ${turn.turnId} ended before its interrupt was answered, and no answer came`,
+      );
+      return {
+        ...decide(false),
+        status: "outcome_unknown",
+        reason: "interrupt_unanswered",
+        synthetic: true,
+      };
+    });
   }
 
   /**
@@ -1211,8 +1293,37 @@ export class WorkerHost {
     })();
   }
 
+  /** Absent while the port binds no mirror, so such a worker beats unchanged. */
+  private transcriptReport(): TranscriptReport | undefined {
+    const mirror = this.checkpoints.mirror?.();
+    if (mirror === undefined) return undefined;
+    return {
+      persisted_at: mirror.persistedAt?.toISOString() ?? null,
+      mirror_error: this.mirrorError ?? null,
+    };
+  }
+
   private observe(native: NativeSdkMessage): void {
     this.accounting.observe(native);
+    if (native.type === "system" && native.subtype === "mirror_error") {
+      // Latched for the run like the ledger's own: the SDK has given up on a
+      // batch, and no later write brings it back.
+      if (this.mirrorError === undefined) {
+        this.mirrorError = `Transcript mirror dropped a batch: ${
+          typeof native.error === "string" && native.error.length > 0
+            ? native.error
+            : "unspecified error"
+        }`;
+        // Recorded now rather than at the next interval: until the gateway
+        // holds it, a checkpoint-less completion is still accepted.
+        this.heartbeat?.beatNow();
+        // Draining from here, not from the next loop boundary: the beat
+        // carries it, so a poll already waiting is answered empty rather than
+        // handed a turn that could not be checkpointed. A turn in flight still
+        // finishes and is finalized.
+        this.stop({ kind: "drain", reason: this.mirrorError });
+      }
+    }
     if (native.type !== "result") return;
     const turn = this.turn;
     if (turn === undefined) return;
@@ -1231,16 +1342,36 @@ export class WorkerHost {
     const { costUsd, providerFailure } = turn.closed
       ? { costUsd: undefined, providerFailure: undefined }
       : this.accounting.settle();
+    const cost = costUsd === undefined ? {} : { costUsd };
+    if (
+      attributed.includes(turn.uuid) &&
+      !turn.closed &&
+      !turn.timedOut &&
+      turn.interruptReceipt === "pending" &&
+      endedByAbort(native)
+    ) {
+      this.settleTurn(
+        this.onceAnswered(turn, (acknowledged) => ({
+          ...terminalOf(native, providerFailure, acknowledged),
+          ...cost,
+        })),
+      );
+      return;
+    }
     this.settleTurn({
       ...(attributed.includes(turn.uuid)
         ? turn.timedOut
           ? // Whatever the engine says it ended with, the budget ended it.
             {
-              ...terminalOf(native, providerFailure),
+              ...terminalOf(native, providerFailure, false),
               status: "failed",
               reason: "turn_timeout",
             }
-          : terminalOf(native, providerFailure)
+          : terminalOf(
+              native,
+              providerFailure,
+              turn.interruptReceipt === "acknowledged",
+            )
         : {
             status: "outcome_unknown",
             reason: turn.timedOut
@@ -1249,7 +1380,7 @@ export class WorkerHost {
             result: resultPayload(native, providerFailure),
             usage: native.usage ?? null,
           }),
-      ...(costUsd === undefined ? {} : { costUsd }),
+      ...cost,
     });
   }
 
@@ -1285,7 +1416,10 @@ export class WorkerHost {
     }
     let ref: CheckpointRef | null;
     try {
-      ref = await this.checkpoints.capture(preparation);
+      ref = await this.checkpoints.capture(preparation, {
+        scope: { ...this.scope },
+        recheck: () => run.prepareCheckpoint(),
+      });
     } catch (error) {
       lease?.release();
       throw error;
@@ -1347,6 +1481,7 @@ export class WorkerHost {
     // No durable write survives owner loss: not the event tail, not the
     // in-flight turn, not the release.
     if (this.reportedOwnerLost()) return;
+    if (!(await this.mirrorErrorRecorded())) return;
     const flushed = await this.untilAbandoned(
       (this.publisher?.idle() ?? Promise.resolve()).then(
         () => true,
@@ -1399,6 +1534,29 @@ export class WorkerHost {
         reason: "The stop grace ran out before the gateway answered",
       });
     }
+  }
+
+  /**
+   * A latched `mirror_error` is recorded before the session is handed back:
+   * released without it, the next attempt resumes a checkpoint the gateway
+   * still trusts, missing the batch that was lost. One more beat is tried;
+   * failing that the lease is left to lapse rather than released as if this
+   * attempt had left the session in order.
+   */
+  private async mirrorErrorRecorded(): Promise<boolean> {
+    const heartbeat = this.heartbeat;
+    if (this.mirrorError === undefined || heartbeat === undefined) return true;
+    if (!heartbeat.mirrorErrorRecorded) {
+      await settledWithin(
+        heartbeat.beatOnce(),
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      );
+    }
+    if (heartbeat.mirrorErrorRecorded) return true;
+    this.logger.error("worker.mirror_error.unrecorded", {
+      reason: this.mirrorError,
+    });
+    return false;
   }
 
   private reportedOwnerLost(): boolean {
@@ -1574,13 +1732,20 @@ function attributedUuids(native: NativeSdkMessage): string[] {
   return [...new Set([...listed, ...last])];
 }
 
+/**
+ * `interruptAcknowledged` is the worker's own fact that the engine took its
+ * interrupt for this turn. An aborted terminal without it is some other
+ * abort, and a turn that finished before the interrupt landed keeps the
+ * outcome it reached.
+ */
 function terminalOf(
   native: NativeSdkMessage,
   providerFailure: ProviderFailure | undefined,
+  interruptAcknowledged: boolean,
 ): Settlement {
   const subtype =
     typeof native.subtype === "string" ? native.subtype : "unknown";
-  const interrupted = native.terminal_reason === "interrupted";
+  const interrupted = interruptAcknowledged && endedByAbort(native);
   const failed = native.is_error === true || subtype !== "success";
   const status: WorkerTerminalStatus = interrupted
     ? "interrupted"

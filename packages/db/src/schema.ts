@@ -402,6 +402,20 @@ export const sessions = pgTable(
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
       withTimezone: true,
     }),
+    // A stopped session's workspace being reclaimed (94S-225): set under the
+    // session lock before the volume is removed, cleared by the claim id that
+    // set it once the removal settles. Resume refuses while it is set, so a
+    // resumed session never has its workspace removed underneath it.
+    workspaceReclaimId: text("workspace_reclaim_id"),
+    workspaceReclaimWorkspaceId: text("workspace_reclaim_workspace_id"),
+    workspaceReclaimClaimedAt: timestamp("workspace_reclaim_claimed_at", {
+      withTimezone: true,
+    }),
+    // The stopped session's workspace is gone; a resume comes back on a new
+    // one restored from the checkpoint. Cleared by that resume.
+    workspaceReclaimedAt: timestamp("workspace_reclaimed_at", {
+      withTimezone: true,
+    }),
     podId: text("pod_id"),
     pinned: boolean().notNull().default(false),
     lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
@@ -838,6 +852,19 @@ export const workerLaunches = pgTable(
     // reserved before they were stored, which runs on current settings.
     image: text(),
     resources: jsonb(),
+    // Launch attempts that failed before any worker bound: a create or start
+    // the provider refused, or a resource that exited unclaimed. Never reset,
+    // so a launch that keeps failing reaches the scheduler's limit and gives
+    // its slot back instead of holding it forever (94S-207).
+    launchFailureCount: integer("launch_failure_count").notNull().default(0),
+    // Attempts whose outcome was recorded, success or failure. A failure is
+    // fenced on it, so one reported by a pass that lost its lock mid-ensure
+    // cannot revoke what a later pass has since launched.
+    launchAttempts: integer("launch_attempts").notNull().default(0),
+    // No attempt before this, on the database clock; null when none failed
+    // or the launch was given up on.
+    launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
+    lastLaunchError: text("last_launch_error"),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -867,6 +894,14 @@ export const workerLaunches = pgTable(
     check(
       "worker_launches_launch_spec_check",
       sql`(${table.image} IS NULL) = (${table.resources} IS NULL)`,
+    ),
+    check(
+      "worker_launches_launch_failure_count_check",
+      sql`${table.launchFailureCount} >= 0`,
+    ),
+    check(
+      "worker_launches_launch_attempts_check",
+      sql`${table.launchAttempts} >= 0`,
     ),
   ],
 );

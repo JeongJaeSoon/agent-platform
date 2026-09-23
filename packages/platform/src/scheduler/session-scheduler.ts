@@ -1,4 +1,5 @@
 import type {
+  EnsureExecutionResult,
   ExecutionBackend,
   ExecutionObservation,
   ExecutionRef,
@@ -8,16 +9,21 @@ import type {
   NetworkReconcileResult,
   TerminateExecutionResult,
   TerminateOptions,
+  WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import {
+  LaunchSpecMismatchError,
   launchSpecFingerprint,
   parseExecutionResources,
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  LaunchFailureOutcome,
+  PendingWorkspaceReclaim,
   ReplaceReason,
   SchedulerStore,
   StoredLaunchIntent,
+  WorkspaceReclaimClaim,
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 
@@ -33,6 +39,35 @@ export const TERMINATE_DEADLINE_MS = 30_000;
  */
 export const DEFAULT_REPLACEMENT_LIMIT = 3;
 
+/**
+ * How long a `stopped` session keeps its workspace before GC may take it.
+ * Long enough that a session stopped for the night comes back to its volume;
+ * past it, a resume restores from the checkpoint instead, and a session that
+ * has none had nothing a resume could have used.
+ */
+export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * Failed attempts before a launch is given up on (94S-207). With the backoff
+ * below, four retries wait 30s, 1m, 2m and 4m: a daemon restart or a slow
+ * image pull gets through, while an image that does not exist hands its slot
+ * back in under ten minutes instead of holding it for good.
+ */
+export const DEFAULT_LAUNCH_FAILURE_LIMIT = 5;
+export const DEFAULT_LAUNCH_RETRY_BASE_MS = 30_000;
+export const DEFAULT_LAUNCH_RETRY_CAP_MS = 10 * 60_000;
+
+/** The wait after the `failures`-th failure: doubling from `baseMs`, capped. */
+export function launchRetryDelayMs(
+  failures: number,
+  baseMs: number = DEFAULT_LAUNCH_RETRY_BASE_MS,
+  capMs: number = DEFAULT_LAUNCH_RETRY_CAP_MS,
+): number {
+  const exponent = Math.max(0, failures - 1);
+  // 2^31 already dwarfs any cap; bounding the exponent keeps it finite.
+  return Math.min(capMs, baseMs * 2 ** Math.min(exponent, 31));
+}
+
 export type SchedulerLogger = {
   error(message: string, fields?: Readonly<Record<string, unknown>>): void;
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -43,18 +78,25 @@ export type SchedulerOptions = {
   backend: ExecutionBackend;
   /** The configured reference; each new launch is pinned to what it names. */
   image: string;
+  /** Failed attempts per launch before it is given up on; see the default. */
+  launchFailureLimit?: number;
+  /** First backoff after a failed attempt; doubles per failure up to the cap. */
+  launchRetryBaseMs?: number;
+  launchRetryCapMs?: number;
   logger: SchedulerLogger;
   now?: () => Date;
   /** Replacements per launch before it is closed instead; see the default. */
   replacementLimit?: number;
   resources: ExecutionResources;
   slotLimit: number;
+  /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
+  stoppedWorkspaceTtlMs?: number;
   store: SchedulerStore;
 };
 
 export type ReclaimOptions = Pick<
   SchedulerOptions,
-  "backend" | "logger" | "store"
+  "backend" | "logger" | "stoppedWorkspaceTtlMs" | "store"
 >;
 
 export type SchedulerRunSummary = {
@@ -70,6 +112,18 @@ export type SchedulerRunSummary = {
    */
   imageUnresolved: boolean;
   launched: ExecutionRef[];
+  /**
+   * Launches left alone this pass because their last failed attempt still
+   * holds the next one back. Each keeps its slot while it waits; the exit
+   * code carries them, since a launch that is failing is work undone.
+   */
+  launchesBackingOff: ExecutionRef[];
+  /**
+   * Launches given up on this pass after failing as many times as the limit
+   * allows: their queued input failed with `LAUNCH_FAILED` and their kill
+   * was written. The slot comes back once the kill is confirmed.
+   */
+  launchesQuarantined: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];
@@ -161,6 +215,19 @@ export async function runScheduler(
   // Checked once here rather than at each create: these limits are stored
   // with every launch reserved from now on.
   parseExecutionResources(options.resources);
+  const launchFailureLimit =
+    options.launchFailureLimit ?? DEFAULT_LAUNCH_FAILURE_LIMIT;
+  if (!Number.isInteger(launchFailureLimit) || launchFailureLimit < 1) {
+    throw new Error("launchFailureLimit must be a positive integer");
+  }
+  for (const [name, value] of [
+    ["launchRetryBaseMs", options.launchRetryBaseMs],
+    ["launchRetryCapMs", options.launchRetryCapMs],
+  ] as const) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      throw new Error(`${name} must be a non-negative number`);
+    }
+  }
   const lock = await options.store.acquirePassLock();
   if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
@@ -244,8 +311,9 @@ export async function reclaimNetworks(
 }
 
 /**
- * Reclaim the workspace volumes of sessions nothing will come back to. Runs
- * as the last step of a pass, and on its own from `reclaimWorkspaces`.
+ * Reclaim the workspace volumes of sessions nothing will come back to, and
+ * of sessions stopped for longer than their TTL. Runs as the last step of a
+ * pass, and on its own from `reclaimWorkspaces`.
  */
 async function collectWorkspaces(
   options: ReclaimOptions,
@@ -257,6 +325,30 @@ async function collectWorkspaces(
   // A backend whose workspaces it does not own leaves both out; there is
   // then nothing here to reclaim.
   if (!listWorkspaces || !removeWorkspace) return;
+  const stoppedTtlMs =
+    options.stoppedWorkspaceTtlMs ?? DEFAULT_STOPPED_WORKSPACE_TTL_MS;
+  const removal: WorkspaceRemoval = {
+    logger,
+    remove: (id, sessionId) => removeWorkspace.call(backend, id, { sessionId }),
+    store,
+    summary,
+  };
+  let pending: PendingWorkspaceReclaim[];
+  try {
+    // A claim an earlier pass could not settle keeps its session from
+    // resuming, and its volume may already be gone from any listing.
+    pending = await store.listPendingWorkspaceReclaims();
+  } catch (error) {
+    summary.workspaceScanFailed = true;
+    logger.error("Listing pending workspace reclaims failed; none reclaimed", {
+      error: messageOf(error),
+    });
+    return;
+  }
+  for (const claim of pending) {
+    lock.throwIfAborted();
+    await removeClaimed(removal, claim);
+  }
   let workspaces: ManagedWorkspace[];
   let retained: Set<string>;
   try {
@@ -272,7 +364,9 @@ async function collectWorkspaces(
     retained =
       labelled.length === 0
         ? new Set<string>()
-        : new Set(await store.filterRetainedSessions(labelled));
+        : new Set(
+            await store.filterRetainedSessions(labelled, { stoppedTtlMs }),
+          );
   } catch (error) {
     // Nothing was removed, so nothing is inconsistent; the next pass
     // reclaims whatever this one could not even look at. It is still a
@@ -297,9 +391,36 @@ async function collectWorkspaces(
     }
     if (retained.has(sessionId)) continue;
     lock.throwIfAborted();
-    let outcome: string;
+    // The listing's verdict was read without a lock; this one is taken
+    // under the session's, which is what a resume waits on.
+    let claim: WorkspaceReclaimClaim;
     try {
-      outcome = (await removeWorkspace.call(backend, id)).outcome;
+      claim = await store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs,
+        workspaceId: id,
+      });
+    } catch (error) {
+      summary.workspacesFailed.push(id);
+      logger.error("Claiming workspace for reclaim failed", {
+        error: messageOf(error),
+        session_id: sessionId,
+        workspace_id: id,
+      });
+      continue;
+    }
+    if (claim.kind === "retained") continue;
+    if (claim.kind === "claimed") {
+      await removeClaimed(removal, {
+        sessionId,
+        claimId: claim.claimId,
+        workspaceId: id,
+      });
+      continue;
+    }
+    let outcome: WorkspaceRemovalResult["outcome"];
+    try {
+      outcome = (await removal.remove(id, sessionId)).outcome;
     } catch (error) {
       summary.workspacesFailed.push(id);
       logger.error("Reclaiming workspace failed", {
@@ -309,22 +430,81 @@ async function collectWorkspaces(
       });
       continue;
     }
-    if (outcome === "removed" || outcome === "absent") {
-      summary.workspacesReclaimed.push(id);
-      logger.info("Workspace reclaimed", {
-        outcome,
-        session_id: sessionId,
-        workspace_id: id,
-      });
-      continue;
-    }
-    summary.workspacesUnresolved.push(id);
-    logger.warn("Workspace was not reclaimed", {
+    recordRemoval(removal, sessionId, id, outcome);
+  }
+}
+
+type WorkspaceRemoval = {
+  logger: SchedulerLogger;
+  remove: (id: string, sessionId: string) => Promise<WorkspaceRemovalResult>;
+  store: SchedulerStore;
+  summary: SchedulerRunSummary;
+};
+
+/**
+ * Removes a claimed workspace and settles the claim. A removal that threw
+ * keeps the claim, and with it the session's resume on hold: whether the
+ * volume is still there is unknown, and the next pass finds out.
+ */
+async function removeClaimed(
+  removal: WorkspaceRemoval,
+  claim: PendingWorkspaceReclaim,
+): Promise<void> {
+  const { logger, store, summary } = removal;
+  const { claimId, sessionId, workspaceId } = claim;
+  let outcome: WorkspaceRemovalResult["outcome"];
+  try {
+    outcome = (await removal.remove(workspaceId, sessionId)).outcome;
+  } catch (error) {
+    summary.workspacesFailed.push(workspaceId);
+    logger.error("Reclaiming claimed workspace failed; claim kept for retry", {
+      error: messageOf(error),
+      session_id: sessionId,
+      workspace_id: workspaceId,
+    });
+    return;
+  }
+  try {
+    await store.finishWorkspaceReclaim({
+      outcome:
+        outcome === "removed" || outcome === "absent" ? "removed" : "released",
+      claimId,
+      sessionId,
+    });
+  } catch (error) {
+    summary.workspacesFailed.push(workspaceId);
+    logger.error("Settling workspace reclaim failed; claim kept for retry", {
+      error: messageOf(error),
+      outcome,
+      session_id: sessionId,
+      workspace_id: workspaceId,
+    });
+    return;
+  }
+  recordRemoval(removal, sessionId, workspaceId, outcome);
+}
+
+function recordRemoval(
+  { logger, summary }: WorkspaceRemoval,
+  sessionId: string,
+  id: string,
+  outcome: WorkspaceRemovalResult["outcome"],
+): void {
+  if (outcome === "removed" || outcome === "absent") {
+    summary.workspacesReclaimed.push(id);
+    logger.info("Workspace reclaimed", {
       outcome,
       session_id: sessionId,
       workspace_id: id,
     });
+    return;
   }
+  summary.workspacesUnresolved.push(id);
+  logger.warn("Workspace was not reclaimed", {
+    outcome,
+    session_id: sessionId,
+    workspace_id: id,
+  });
 }
 
 /**
@@ -375,6 +555,8 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     failedLaunches: [],
     imageUnresolved: false,
     launched: [],
+    launchesBackingOff: [],
+    launchesQuarantined: [],
     orphansTerminated: [],
     orphansUnresolved: [],
     reclaimFailed: [],
@@ -406,8 +588,16 @@ async function pass(
   const now = options.now ?? (() => new Date());
   const replacementLimit =
     options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
+  const launchFailureLimit =
+    options.launchFailureLimit ?? DEFAULT_LAUNCH_FAILURE_LIMIT;
   const { backend, logger, store } = options;
-  const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
+  // `attempt` is the one `openAttempt` opened for this ensure: the credential
+  // is issued only while no later attempt has been opened, so a pass that
+  // lost its lock cannot rotate out the one a newer attempt just launched.
+  const intentOf = (
+    stored: StoredLaunchIntent,
+    attempt: number,
+  ): LaunchIntent => ({
     bootstrapCredentialState: () =>
       store.bootstrapCredentialState(refOf(stored)),
     executionId: stored.executionId,
@@ -417,7 +607,8 @@ async function pass(
     image: stored.image ?? options.image,
     // Only the create path calls this, so the credential a running worker
     // holds is never rotated out from under it.
-    issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored)),
+    issueBootstrapNonce: () =>
+      store.issueBootstrapNonce(refOf(stored), attempt),
     launchSpec: storedSpecOf(stored),
     operationId: stored.operationId,
     resources: stored.resources ?? options.resources,
@@ -470,6 +661,27 @@ async function pass(
       // must not wait for the next pass: the receipt's deadline is running
       // and the resource is still doing work.
       await kill(execution);
+      return;
+    }
+    if (
+      observed.found &&
+      !execution.claimed &&
+      execution.launchFailureCount > 0 &&
+      storedIntentOf(execution) !== null &&
+      observed.credentialFingerprint != null &&
+      observed.credentialFingerprint !== execution.nonceFingerprint
+    ) {
+      // Left behind by an attempt that failed: recording the failure revoked
+      // the credential it was built with, so it can never bind. It is
+      // cleared away, not replaced — a replacement would spend the
+      // replacement budget on what is one launch failing, and read a stale
+      // or expired resource as the reason — and the launch is built again
+      // once its backoff allows. Judged before any replacement reason for
+      // that same cause.
+      if (!(await teardown(execution, "failed_attempt", observed))) return;
+      lock.throwIfAborted();
+      await store.recordObservation(ref, unknownObservation(now()));
+      await reensure(execution, execution.pendingReplacement ?? "missing");
       return;
     }
     if (up && observed.stale) {
@@ -577,6 +789,59 @@ async function pass(
       await replace(execution, "spec_mismatch", observed);
       return;
     }
+    const builtWith =
+      observed.credentialFingerprint ?? execution.nonceFingerprint;
+    if (
+      observed.found &&
+      observed.state === "terminated" &&
+      !execution.claimed &&
+      storedIntentOf(execution) !== null &&
+      builtWith !== null &&
+      builtWith === execution.nonceFingerprint
+    ) {
+      // No worker ever bound to it, so nothing ran: this is a launch that
+      // failed, not a session that finished. Reading it as an exit would
+      // hand the session a new launch with a fresh count, and a worker that
+      // crashes on boot would cycle through generations forever. Only a
+      // resource built with the credential the launch accepts now is judged
+      // here — a replacement that died, too, which would otherwise spend the
+      // replacement budget below. The old resource a replacement is tearing
+      // down had its credential revoked when the replacement was recorded.
+      // The failure is fenced on that credential and revokes it, so the same
+      // dead resource is never counted twice.
+      const outcome = await launchFailed(
+        execution,
+        `resource exited before a worker claimed it (exit code ${observed.exitCode ?? "unknown"})`,
+        builtWith,
+      );
+      if (outcome === "quarantined") return;
+      if (outcome === "backing_off") {
+        // A pending replacement stays recorded: the next pass finds the
+        // resource gone and rebuilds once the backoff allows.
+        if (await teardown(execution, "failed_attempt", observed)) {
+          lock.throwIfAborted();
+          await store.recordObservation(ref, unknownObservation(now()));
+        }
+        return;
+      }
+      // Refused: since the rows were read a worker bound, the launch was
+      // asked to go, or another pass opened an attempt of its own. Asked to
+      // go — say a claim refused it for recovery — it is carried out now,
+      // never rebuilt. Otherwise the newer attempt may have adopted this very
+      // resource on the same credential, so an ordinary exit here would
+      // release that attempt's slot and start the session over with a fresh
+      // count. The next pass reads the launch as it is now and judges the
+      // exit from there.
+      if (await killRequested(execution)) {
+        await kill(execution);
+        return;
+      }
+      logger.info("Unclaimed exit left for the next pass; launch moved on", {
+        ...fieldsOf(ref),
+        session_id: execution.sessionId,
+      });
+      return;
+    }
     const running = up && observed.state !== "pending";
     // A replacement an earlier pass committed to and did not get to finish:
     // its teardown half happened, or the host died between the two halves.
@@ -586,9 +851,12 @@ async function pass(
       // Whatever is up here is neither stale nor past its credential, or it
       // would have been taken above: it is the replacement itself, built by
       // a pass that died before it could say so.
-      if (observed.state === "pending") {
-        // Created and never started. Ensure adopts and starts it, and
-        // settles on success; it is not a rebuild, so it is not counted.
+      if (observed.state === "pending" || !observed.found) {
+        // Created and never started: ensure adopts and starts it. Or gone:
+        // the teardown half is done and only the create is left. Either way
+        // it is not a rebuild, so it is not counted — asking again would
+        // spend the replacement budget on a create that failed, which is a
+        // launch failure and is counted as one.
         await reensure(execution, pending);
         return;
       }
@@ -609,8 +877,8 @@ async function pass(
         });
         return;
       }
-      // Stopped, going, unknown, or already gone: whatever is there is the
-      // old resource or nothing, and the intent still has to be rebuilt.
+      // Stopped, going, or unknown: whatever is there is the old resource,
+      // and the intent still has to be rebuilt.
       // Reading an exited one as an ordinary exit here is exactly what would
       // lose the replacement and hand the session a new launch.
       await replace(execution, pending, observed);
@@ -829,6 +1097,12 @@ async function pass(
       });
       return;
     }
+    if (!execution.launchRetryDue) {
+      // A rebuild is a launch like any other: one whose last attempt failed
+      // waits out its backoff before the resource it has is torn down.
+      backingOff(execution);
+      return;
+    }
     if (execution.replacementCount >= replacementLimit) {
       // Whatever gets built keeps being rejected, so building it once more
       // is not the answer. Nothing is touched: the resource stays, the slot
@@ -857,9 +1131,12 @@ async function pass(
     // refusal leaves the resource with its credential intact.
     if (backend.assertReplaceable) {
       try {
-        await backend.assertReplaceable(intentOf(stored));
+        await backend.assertReplaceable(
+          intentOf(stored, execution.launchAttempts),
+        );
       } catch (error) {
-        summary.reconcileFailed.push(ref);
+        lock.throwIfAborted();
+        summary.failedLaunches.push(ref);
         logger.error("Replacement would not launch; resource left as is", {
           ...fieldsOf(ref),
           error: messageOf(error),
@@ -867,6 +1144,13 @@ async function pass(
           replacement_count: execution.replacementCount,
           session_id: execution.sessionId,
         });
+        // The launch cannot be built, which is a failed attempt like a create
+        // the provider refused: counted, backed off, and given up on at the
+        // limit instead of refused on every pass for good.
+        await launchFailed(
+          execution,
+          `replacement would not launch: ${messageOf(error)}`,
+        );
         return;
       }
     }
@@ -906,7 +1190,7 @@ async function pass(
    */
   async function teardown(
     execution: ActiveExecution,
-    reason: ReplaceReason,
+    reason: ReplaceReason | "failed_attempt",
     observed: ExecutionObservation,
   ): Promise<boolean> {
     const ref = refOf(execution);
@@ -974,55 +1258,183 @@ async function pass(
       );
       return;
     }
+    if (!execution.launchRetryDue) {
+      backingOff(execution);
+      return;
+    }
     lock.throwIfAborted();
+    const attempt = await openAttempt(execution);
+    if (attempt === null) return;
+    lock.throwIfAborted();
+    let ensured: EnsureExecutionResult;
     try {
-      const ensured = await backend.ensureExecution(intentOf(stored));
-      await store.recordObservation(ref, {
-        found: true,
-        observedAt: now(),
-        providerRef: ensured.providerRef,
-        state: ensured.state,
-      });
-      if (!isLaunched(ensured.state)) {
-        summary.failedLaunches.push(ref);
-        logger.error("Re-created execution resource did not stay up", {
-          ...fieldsOf(ref),
-          provider_ref: ensured.providerRef,
-          session_id: execution.sessionId,
-          state: ensured.state,
-        });
-        return;
-      }
-      // `pending` is launched but not yet proven: a start the daemon took
-      // and could not show. The intent stays until a pass sees it running,
-      // or a container that dies right here would read as an ordinary exit.
-      if (reason !== "missing" && ensured.state !== "pending") {
-        lock.throwIfAborted();
-        await store.settleReplacement(ref, replacementCount);
-      }
-      summary.reensured.push(ref);
-      logger.warn("Execution resource re-created from intent", {
-        ...fieldsOf(ref),
-        previous_state: execution.observedState,
-        provider_ref: ensured.providerRef,
-        reason,
-        session_id: execution.sessionId,
-      });
-      if (await killRequested(execution)) {
-        // Asked to go while it was being built: it is taken down in the
-        // same pass rather than left running until the next one.
-        await kill(execution);
-      }
+      ensured = await backend.ensureExecution(
+        intentOf(stored, attempt.launchAttempts),
+      );
     } catch (error) {
       lock.throwIfAborted();
-      summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
+      if (await killRequested(execution)) {
+        // Asked to go while it was being built, which is also why the build
+        // was refused its credential: carried out, not counted.
+        await kill(execution);
+        return;
+      }
+      summary.failedLaunches.push(ref);
       logger.error("Re-creating execution resource failed", {
         ...fieldsOf(ref),
         error: messageOf(error),
         session_id: execution.sessionId,
       });
+      // A resource built from another spec was found, not a launch that
+      // failed: the next pass replaces it as a spec mismatch.
+      if (!(error instanceof LaunchSpecMismatchError)) {
+        await launchFailed(attempt, messageOf(error));
+      }
+      return;
     }
+    await store.recordObservation(ref, {
+      found: true,
+      observedAt: now(),
+      providerRef: ensured.providerRef,
+      state: ensured.state,
+    });
+    if (!isLaunched(ensured.state)) {
+      summary.failedLaunches.push(ref);
+      logger.error("Re-created execution resource did not stay up", {
+        ...fieldsOf(ref),
+        provider_ref: ensured.providerRef,
+        session_id: execution.sessionId,
+        state: ensured.state,
+      });
+      await launchFailed(
+        attempt,
+        `resource was ${ensured.state} right after launch`,
+      );
+      return;
+    }
+    // `pending` is launched but not yet proven: a start the daemon took
+    // and could not show. The intent stays until a pass sees it running,
+    // or a container that dies right here would read as an ordinary exit.
+    if (reason !== "missing" && ensured.state !== "pending") {
+      lock.throwIfAborted();
+      await store.settleReplacement(ref, replacementCount);
+    }
+    summary.reensured.push(ref);
+    logger.warn("Execution resource re-created from intent", {
+      ...fieldsOf(ref),
+      previous_state: execution.observedState,
+      provider_ref: ensured.providerRef,
+      reason,
+      session_id: execution.sessionId,
+    });
+    if (await killRequested(execution)) {
+      // Asked to go while it was being built: it is taken down in the
+      // same pass rather than left running until the next one.
+      await kill(execution);
+    }
+  }
+
+  /**
+   * Opens the attempt an ensure is about to make and returns the launch as
+   * that attempt's outcome must be recorded against it, or null when the
+   * launch moved on since it was read.
+   */
+  async function openAttempt<
+    T extends ExecutionRef & { launchAttempts: number; sessionId: string },
+  >(execution: T): Promise<T | null> {
+    const attempts = await store.beginLaunchAttempt(
+      refOf(execution),
+      execution.launchAttempts,
+    );
+    if (attempts === null) {
+      logger.info(
+        "Launch attempt not opened; launch moved on since it was read",
+        {
+          ...fieldsOf(execution),
+          session_id: execution.sessionId,
+        },
+      );
+      return null;
+    }
+    return { ...execution, launchAttempts: attempts };
+  }
+
+  function backingOff(execution: ActiveExecution): void {
+    summary.launchesBackingOff.push(refOf(execution));
+    logger.warn("Launch is waiting out the backoff after a failed attempt", {
+      ...fieldsOf(execution),
+      launch_failure_count: execution.launchFailureCount,
+      retry_at: execution.launchRetryAt?.toISOString() ?? null,
+      session_id: execution.sessionId,
+    });
+  }
+
+  /**
+   * Counts one failed attempt at the launch. The launch then waits out a
+   * backoff with its slot held, or — at the limit — is given up on: the
+   * store fails its queued input and writes its kill, and the kill is
+   * carried out right here so the slot comes back in this same pass.
+   */
+  async function launchFailed(
+    execution: ExecutionRef & {
+      launchAttempts: number;
+      launchFailureCount: number;
+      sessionId: string;
+    },
+    error: string,
+    expectedNonceFingerprint?: string | null,
+  ): Promise<LaunchFailureOutcome> {
+    const ref = refOf(execution);
+    const count = execution.launchFailureCount + 1;
+    const quarantine = count >= launchFailureLimit;
+    const retryDelayMs = quarantine
+      ? 0
+      : launchRetryDelayMs(
+          count,
+          options.launchRetryBaseMs,
+          options.launchRetryCapMs,
+        );
+    lock.throwIfAborted();
+    const outcome = await store.recordLaunchFailure(ref, {
+      error,
+      expectedAttempts: execution.launchAttempts,
+      expectedCount: execution.launchFailureCount,
+      ...(expectedNonceFingerprint === undefined
+        ? {}
+        : { expectedNonceFingerprint }),
+      quarantine,
+      retryDelayMs,
+    });
+    const fields = {
+      ...fieldsOf(ref),
+      error,
+      launch_failure_count: count,
+      limit: launchFailureLimit,
+      session_id: execution.sessionId,
+    };
+    if (outcome === "stale") {
+      logger.info(
+        "Launch failure not recorded; launch moved on since it was read",
+        fields,
+      );
+      return outcome;
+    }
+    if (outcome === "backing_off") {
+      logger.warn("Launch attempt failed; retrying after a backoff", {
+        ...fields,
+        retry_in_ms: retryDelayMs,
+      });
+      return outcome;
+    }
+    summary.launchesQuarantined.push(ref);
+    logger.error(
+      "Launch failed as many times as the limit allows; given up, its " +
+        "queued input failed with LAUNCH_FAILED. New input launches it again",
+      fields,
+    );
+    await kill(execution);
+    return outcome;
   }
 
   // Every kill intent had its chance this pass; what is still unconfirmed
@@ -1117,50 +1529,73 @@ async function pass(
     free -= 1;
     const ref = refOf(stored);
     lock.throwIfAborted();
+    const launch = await openAttempt({
+      ...stored,
+      launchAttempts: 0,
+      launchFailureCount: 0,
+    });
+    if (launch === null) continue;
+    lock.throwIfAborted();
+    let ensured: EnsureExecutionResult;
     try {
-      const ensured = await backend.ensureExecution(intentOf(stored));
-      await store.recordObservation(ref, {
-        found: true,
-        observedAt: now(),
-        providerRef: ensured.providerRef,
-        state: ensured.state,
-      });
-      if (!isLaunched(ensured.state)) {
-        // Created, but already dead (bad image, crashing entrypoint). The row
-        // is recorded as observed; next pass reclaims the resource. Not a
-        // success, so the process exits non-zero.
-        summary.failedLaunches.push(ref);
-        logger.error("Execution resource exited right after launch", {
-          ...fieldsOf(ref),
-          provider_ref: ensured.providerRef,
-          session_id: sessionId,
-          state: ensured.state,
-        });
-        continue;
-      }
-      summary.launched.push(ref);
-      logger.info("Execution launched", {
-        ...fieldsOf(ref),
-        created: ensured.created,
-        provider_ref: ensured.providerRef,
-        session_id: sessionId,
-      });
-      if ((await store.desiredStateOf(ref)) === "terminated") {
-        // A terminate that committed between the reservation and the
-        // resource coming up: this row was not in the pass's snapshot, so
-        // nothing else would kill it before the receipt's deadline.
-        await kill({ ...ref, sessionId });
-      }
+      ensured = await backend.ensureExecution(
+        intentOf(stored, launch.launchAttempts),
+      );
     } catch (error) {
       lock.throwIfAborted();
-      // The intent stays committed; step 1 of the next pass retries it.
-      summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
+      if ((await store.desiredStateOf(ref)) === "terminated") {
+        await kill({ ...ref, sessionId });
+        continue;
+      }
+      // The intent stays committed; step 1 of a later pass retries it once
+      // the backoff this failure starts allows.
+      summary.failedLaunches.push(ref);
       logger.error("Launching execution failed; intent kept for retry", {
         ...fieldsOf(ref),
         error: messageOf(error),
         session_id: sessionId,
       });
+      if (!(error instanceof LaunchSpecMismatchError)) {
+        await launchFailed(launch, messageOf(error));
+      }
+      continue;
+    }
+    await store.recordObservation(ref, {
+      found: true,
+      observedAt: now(),
+      providerRef: ensured.providerRef,
+      state: ensured.state,
+    });
+    if (!isLaunched(ensured.state)) {
+      // Created, but already dead (bad image, crashing entrypoint). Not a
+      // success, so the process exits non-zero, and a failed attempt: the
+      // next pass clears the dead resource and retries after the backoff.
+      summary.failedLaunches.push(ref);
+      logger.error("Execution resource exited right after launch", {
+        ...fieldsOf(ref),
+        provider_ref: ensured.providerRef,
+        session_id: sessionId,
+        state: ensured.state,
+      });
+      await launchFailed(
+        launch,
+        `resource was ${ensured.state} right after launch`,
+      );
+      continue;
+    }
+    summary.launched.push(ref);
+    logger.info("Execution launched", {
+      ...fieldsOf(ref),
+      created: ensured.created,
+      provider_ref: ensured.providerRef,
+      session_id: sessionId,
+    });
+    if ((await store.desiredStateOf(ref)) === "terminated") {
+      // A terminate that committed between the reservation and the
+      // resource coming up: this row was not in the pass's snapshot, so
+      // nothing else would kill it before the receipt's deadline.
+      await kill({ ...ref, sessionId });
     }
   }
   // 4. Workspaces nothing will come back to.
@@ -1176,6 +1611,8 @@ async function pass(
     image_unresolved: summary.imageUnresolved,
     kill_failed_count: summary.killFailed.length,
     killed_count: summary.killed.length,
+    launch_backoff_count: summary.launchesBackingOff.length,
+    launch_quarantined_count: summary.launchesQuarantined.length,
     launched_count: summary.launched.length,
     network_failed_count: summary.networksFailed.length,
     network_reclaimed_count: summary.networksReclaimed.length,

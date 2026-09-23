@@ -9,8 +9,12 @@ import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  events,
   executions,
+  queueMessages,
+  receipts,
   sessions,
+  turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
@@ -25,6 +29,8 @@ const SPEC = {
   image: "sha256:worker",
   resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
 };
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const DAY = { stoppedTtlMs: DAY_MS };
 
 async function insertUnassigned(
   overrides: Partial<typeof sessions.$inferInsert> = {},
@@ -291,6 +297,10 @@ describe("PostgresSchedulerStore", () => {
         generation: 1,
         // Handed back exactly as the reservation stored it.
         image: SPEC.image,
+        launchAttempts: 0,
+        launchFailureCount: 0,
+        launchRetryAt: null,
+        launchRetryDue: true,
         nonceExpired: false,
         nonceExpiresAt: null,
         nonceFingerprint: null,
@@ -309,6 +319,10 @@ describe("PostgresSchedulerStore", () => {
         executionId: "exec-legacy",
         generation: 1,
         image: null,
+        launchAttempts: 0,
+        launchFailureCount: 0,
+        launchRetryAt: null,
+        launchRetryDue: true,
         nonceExpired: false,
         nonceExpiresAt: null,
         nonceFingerprint: null,
@@ -999,6 +1013,295 @@ describe("PostgresSchedulerStore", () => {
     expect(await store.listActiveExecutions("local_docker")).toEqual([]);
   });
 
+  /** A queued turn as an append leaves it: turn, queue row, input receipt. */
+  async function queueInput(sessionId: string, sequence: number) {
+    const [turn] = await db
+      .insert(turns)
+      .values({
+        sessionId,
+        sequence,
+        message: `m${sequence}`,
+        status: "queued",
+      })
+      .returning({ id: turns.id });
+    if (!turn) throw new Error("no turn");
+    await db.insert(queueMessages).values({
+      sessionId,
+      turnId: turn.id,
+      kind: "user_message",
+      payload: { text: `m${sequence}` },
+    });
+    const receiptId = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: "owner-a",
+      operation: sequence === 1 ? "create_session" : "append_message",
+      targetRef: { session_id: sessionId, turn_id: String(sequence) },
+      result: { turn_id: String(sequence), receipt_status: "accepted" },
+    });
+    return { receiptId, turnId: turn.id };
+  }
+
+  const FAILURE = {
+    error: "Image worker:gone is not on this daemon",
+    expectedAttempts: 0,
+    quarantine: false,
+    retryDelayMs: 60_000,
+  };
+
+  test("recordLaunchFailure counts, revokes the credential, and holds the next attempt back", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const nonce = await store.issueBootstrapNonce(intent);
+
+    const floor = Date.now();
+    expect(
+      await store.recordLaunchFailure(intent, {
+        ...FAILURE,
+        error: "x".repeat(5_000),
+        expectedCount: 0,
+      }),
+    ).toBe("backing_off");
+    const [row] = await db
+      .select()
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(row?.launchFailureCount).toBe(1);
+    expect(row?.nonceHash).toBeNull();
+    expect(row?.lastLaunchError).toHaveLength(1_000);
+    expect(row?.launchRetryAt?.getTime()).toBeGreaterThanOrEqual(
+      floor + 60_000,
+    );
+    expect(row?.slotReleasedAt).toBeNull();
+    const [active] = await store.listActiveExecutions("local_docker");
+    expect(active).toMatchObject({
+      launchFailureCount: 1,
+      launchRetryDue: false,
+    });
+    // While it waits, no credential: a pass that lost its lock cannot
+    // reopen the launch.
+    await expect(store.issueBootstrapNonce(intent)).rejects.toThrow(
+      "no bootstrap credential was issued",
+    );
+
+    // The same failure judged again from the old snapshot is not counted.
+    expect(
+      await store.recordLaunchFailure(intent, { ...FAILURE, expectedCount: 0 }),
+    ).toBe("stale");
+    // A dead resource built with the revoked credential is not counted
+    // either, whatever count the caller read.
+    expect(
+      await store.recordLaunchFailure(intent, {
+        ...FAILURE,
+        expectedAttempts: 1,
+        expectedCount: 1,
+        expectedNonceFingerprint: launchNonceFingerprint(sha256(nonce)),
+      }),
+    ).toBe("stale");
+
+    await db
+      .update(workerLaunches)
+      .set({ launchRetryAt: new Date(Date.now() - 1_000) })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect((await store.listActiveExecutions("local_docker"))[0]).toMatchObject(
+      { launchRetryDue: true },
+    );
+    await expect(store.issueBootstrapNonce(intent)).resolves.toMatch(/^wln_/);
+  });
+
+  test("beginLaunchAttempt opens one attempt per snapshot, and a failure for an older one is refused", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    expect(await store.beginLaunchAttempt(intent, 0)).toBe(1);
+    // A second pass that read the same snapshot does not open another.
+    expect(await store.beginLaunchAttempt(intent, 0)).toBeNull();
+    // Only the attempt just opened is issued a credential.
+    await expect(store.issueBootstrapNonce(intent, 0)).rejects.toThrow(
+      "past this attempt",
+    );
+    await store.issueBootstrapNonce(intent, 1);
+    // The failure of the attempt before this one is refused, and the
+    // credential this attempt's resource holds survives it.
+    expect(
+      await store.recordLaunchFailure(intent, { ...FAILURE, expectedCount: 0 }),
+    ).toBe("stale");
+    const [row] = await db
+      .select({ nonceHash: workerLaunches.nonceHash })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(row?.nonceHash).not.toBeNull();
+    // Its own failure is counted, and moves the attempts on with it.
+    expect(
+      await store.recordLaunchFailure(intent, {
+        ...FAILURE,
+        expectedAttempts: 1,
+        expectedCount: 0,
+      }),
+    ).toBe("backing_off");
+    expect((await store.listActiveExecutions("local_docker"))[0]).toMatchObject(
+      { launchAttempts: 2, launchFailureCount: 1 },
+    );
+    // A released launch opens nothing.
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    expect(await store.beginLaunchAttempt(intent, 2)).toBeNull();
+  });
+
+  test("recordLaunchFailure leaves a claimed, killed or released launch alone", async () => {
+    for (const moveOn of ["claim", "kill", "release"] as const) {
+      const sessionId = await insertUnassigned();
+      const intent = await store.reserveLaunch({
+        ...SPEC,
+        backend: "local_docker",
+        now: NOW,
+        sessionId,
+        slotLimit: 10,
+      });
+      if (!intent) throw new Error("no intent");
+      if (moveOn === "claim") {
+        await db.insert(attempts).values({
+          id: `att-${intent.executionId}`,
+          sessionId,
+          executionId: intent.executionId,
+          leaseEpoch: 1,
+          executionGeneration: 1,
+          authRevision: 0,
+          state: "running",
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        });
+        await db
+          .update(workerLaunches)
+          .set({ claimedAttemptId: `att-${intent.executionId}` })
+          .where(eq(workerLaunches.executionId, intent.executionId));
+      } else if (moveOn === "kill") {
+        await db
+          .update(executions)
+          .set({ desiredState: "terminated" })
+          .where(eq(executions.id, intent.executionId));
+      } else {
+        await store.confirmExecutionGone(intent.executionId, NOW, null);
+      }
+      expect(
+        await store.recordLaunchFailure(intent, {
+          ...FAILURE,
+          expectedCount: 0,
+          quarantine: true,
+        }),
+      ).toBe("stale");
+      const [row] = await db
+        .select({ count: workerLaunches.launchFailureCount })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      expect(row?.count).toBe(0);
+    }
+  });
+
+  test("a quarantine fails the queued input, drops the signal, and writes the kill", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const first = await queueInput(sessionId, 1);
+    const second = await queueInput(sessionId, 2);
+    await db
+      .update(workerLaunches)
+      .set({ launchFailureCount: 4, replacementReason: "stale_isolation" })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+
+    expect(
+      await store.recordLaunchFailure(intent, {
+        ...FAILURE,
+        expectedCount: 4,
+        quarantine: true,
+      }),
+    ).toBe("quarantined");
+
+    const [launch] = await db
+      .select()
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(launch?.launchFailureCount).toBe(5);
+    expect(launch?.launchRetryAt).toBeNull();
+    expect(launch?.replacementReason).toBeNull();
+    // The slot is still held: it comes back when the kill is confirmed.
+    expect(launch?.slotReleasedAt).toBeNull();
+    expect(await store.desiredStateOf(intent)).toBe("terminated");
+
+    const failed = await db
+      .select({ status: turns.status, reason: turns.terminalReason })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    expect(failed).toEqual([
+      { status: "failed", reason: "launch_failed" },
+      { status: "failed", reason: "launch_failed" },
+    ]);
+    expect(
+      await db
+        .select()
+        .from(queueMessages)
+        .where(eq(queueMessages.sessionId, sessionId)),
+    ).toEqual([]);
+    for (const { receiptId } of [first, second]) {
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, receiptId));
+      expect(receipt?.status).toBe("failed");
+      expect(receipt?.error).toMatchObject({ code: "LAUNCH_FAILED" });
+      expect(receipt?.result).toEqual({
+        turn_id: receipt?.operation === "create_session" ? "1" : "2",
+        receipt_status: "accepted",
+      });
+    }
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toEqual([]);
+    const [session] = await db
+      .select({ admission: sessions.admissionState, status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session).toEqual({ admission: "active", status: "failed" });
+    const [event] = await db
+      .select({ payload: events.payload, type: events.type })
+      .from(events)
+      .where(eq(events.sessionId, sessionId));
+    expect(event).toMatchObject({
+      type: "status",
+      payload: { phase: "failed", code: "LAUNCH_FAILED", failed_turn_count: 2 },
+    });
+
+    // The kill is confirmed like any other: the slot comes back and nothing
+    // is signalled, since nothing is queued.
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    expect(
+      (await store.inspectDemand({ limit: 10 })).activeExecutionCount,
+    ).toBe(0);
+    expect(
+      (await store.inspectDemand({ limit: 10 })).eligibleSessionIds,
+    ).toEqual([]);
+  });
+
   test("settling a replacement leaves one asked for since alone", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
@@ -1220,14 +1523,10 @@ describe("PostgresSchedulerStore", () => {
     const closed = await insertUnassigned({ admissionState: "closed" });
     const gone = crypto.randomUUID();
 
-    const retained = await store.filterRetainedSessions([
-      active,
-      paused,
-      recovery,
-      stopped,
-      closed,
-      gone,
-    ]);
+    const retained = await store.filterRetainedSessions(
+      [active, paused, recovery, stopped, closed, gone],
+      DAY,
+    );
 
     // Everything but `closed` is resumed into the same working tree, so the
     // workspace has to outlive the container. `stopped` is the one that looks
@@ -1255,7 +1554,7 @@ describe("PostgresSchedulerStore", () => {
       .set({ admissionState: "closed" })
       .where(eq(sessions.id, sessionId));
 
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
 
@@ -1267,15 +1566,15 @@ describe("PostgresSchedulerStore", () => {
     });
     // Seeing it terminated is not the release: the launch keeps its slot, and
     // the session with it, until the pass confirms the resource is gone.
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
 
     await store.confirmExecutionGone(intent.executionId, NOW, null);
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([]);
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([]);
   });
 
-  test("a stopped session keeps its workspace once its container is gone", async () => {
+  test("a stopped session keeps its workspace for its TTL once its container is gone", async () => {
     // The regression this guards: `stopped` reads as terminal but is the
     // state an explicit resume comes back from, into this very volume.
     const sessionId = await insertUnassigned();
@@ -1297,9 +1596,9 @@ describe("PostgresSchedulerStore", () => {
       providerRef: null,
       state: "terminated",
     });
-    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    await store.confirmExecutionGone(intent.executionId, new Date(), null);
 
-    expect(await store.filterRetainedSessions([sessionId])).toEqual([
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
       sessionId,
     ]);
   });
@@ -1307,10 +1606,184 @@ describe("PostgresSchedulerStore", () => {
   test("an id that is not a session id is retained rather than judged", async () => {
     // A volume labelled with something else is not ours to reason about, and
     // binding it to a uuid column would throw and take the whole GC step down.
-    expect(await store.filterRetainedSessions(["not-a-uuid"])).toEqual([
+    expect(await store.filterRetainedSessions(["not-a-uuid"], DAY)).toEqual([
       "not-a-uuid",
     ]);
-    expect(await store.filterRetainedSessions([])).toEqual([]);
+    expect(await store.filterRetainedSessions([], DAY)).toEqual([]);
+  });
+  test("a stopped session is kept for its TTL and is a candidate after it", async () => {
+    const recent = await insertUnassigned({ admissionState: "stopped" });
+    const old = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+    });
+    const oldPaused = await insertUnassigned({
+      admissionState: "paused",
+      updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+    });
+
+    // Only `stopped` expires: a paused session resumes through its own path.
+    expect(
+      new Set(
+        await store.filterRetainedSessions([recent, old, oldPaused], DAY),
+      ),
+    ).toEqual(new Set([recent, oldPaused]));
+    // A zero TTL makes every stopped session a candidate at once.
+    expect(
+      await store.filterRetainedSessions([recent], { stoppedTtlMs: 0 }),
+    ).toEqual([]);
+  });
+
+  test("a claim is needed only where a resume could still come back", async () => {
+    const closed = await insertUnassigned({ admissionState: "closed" });
+    const input = { stoppedTtlMs: DAY_MS, workspaceId: "ap-ws-x" };
+
+    expect(
+      await store.claimWorkspaceReclaim({ ...input, sessionId: closed }),
+    ).toEqual({ kind: "unclaimed" });
+    expect(
+      await store.claimWorkspaceReclaim({
+        ...input,
+        sessionId: crypto.randomUUID(),
+      }),
+    ).toEqual({ kind: "unclaimed" });
+    expect(
+      await store.claimWorkspaceReclaim({ ...input, sessionId: "not-a-uuid" }),
+    ).toEqual({ kind: "retained" });
+  });
+
+  test("an expired stopped session is claimed once, and nothing else is", async () => {
+    const stoppedAt = new Date(Date.now() - DAY_MS - 60_000);
+    const active = await insertUnassigned({ updatedAt: stoppedAt });
+    const recent = await insertUnassigned({ admissionState: "stopped" });
+    const old = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const claim = (sessionId: string) =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: `ap-ws-${sessionId}`,
+      });
+
+    expect(await claim(active)).toEqual({ kind: "retained" });
+    expect(await claim(recent)).toEqual({ kind: "retained" });
+    const claimed = await claim(old);
+    if (claimed.kind !== "claimed") throw new Error("not claimed");
+    // One at a time: the pending claim is settled by the sweep, not doubled.
+    expect(await claim(old)).toEqual({ kind: "retained" });
+
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, old));
+    expect(row?.workspaceReclaimId).toBe(claimed.claimId);
+    expect(row?.workspaceReclaimWorkspaceId).toBe(`ap-ws-${old}`);
+    expect(row?.workspaceReclaimClaimedAt).not.toBeNull();
+    // The stop's clock is what the TTL reads; claiming must not move it.
+    expect(row?.updatedAt).toEqual(stoppedAt);
+    expect(await store.listPendingWorkspaceReclaims()).toEqual([
+      {
+        claimId: claimed.claimId,
+        sessionId: old,
+        workspaceId: `ap-ws-${old}`,
+      },
+    ]);
+  });
+
+  test("a stopped session whose launch still holds its slot is not claimed", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "stopped",
+        updatedAt: new Date(Date.now() - DAY_MS - 60_000),
+      })
+      .where(eq(sessions.id, sessionId));
+    const claim = () =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: "ap-ws-held",
+      });
+
+    expect(await store.filterRetainedSessions([sessionId], DAY)).toEqual([
+      sessionId,
+    ]);
+    expect(await claim()).toEqual({ kind: "retained" });
+
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    await db
+      .update(sessions)
+      .set({ updatedAt: new Date(Date.now() - DAY_MS - 60_000) })
+      .where(eq(sessions.id, sessionId));
+
+    expect((await claim()).kind).toBe("claimed");
+  });
+
+  test("a claim is settled only by its own id", async () => {
+    const stoppedAt = new Date(Date.now() - DAY_MS - 60_000);
+    const removed = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const released = await insertUnassigned({
+      admissionState: "stopped",
+      updatedAt: stoppedAt,
+    });
+    const claimOf = async (sessionId: string) => {
+      const result = await store.claimWorkspaceReclaim({
+        sessionId,
+        stoppedTtlMs: DAY_MS,
+        workspaceId: "ap-ws-y",
+      });
+      if (result.kind !== "claimed") throw new Error("not claimed");
+      return result.claimId;
+    };
+    const removedClaim = await claimOf(removed);
+    const releasedClaim = await claimOf(released);
+    const rowOf = async (sessionId: string) =>
+      (await db.select().from(sessions).where(eq(sessions.id, sessionId)))[0];
+
+    await store.finishWorkspaceReclaim({
+      claimId: crypto.randomUUID(),
+      outcome: "removed",
+      sessionId: removed,
+    });
+    expect((await rowOf(removed))?.workspaceReclaimId).toBe(removedClaim);
+
+    await store.finishWorkspaceReclaim({
+      claimId: removedClaim,
+      outcome: "removed",
+      sessionId: removed,
+    });
+    await store.finishWorkspaceReclaim({
+      claimId: releasedClaim,
+      outcome: "released",
+      sessionId: released,
+    });
+
+    const afterRemoved = await rowOf(removed);
+    expect(afterRemoved?.workspaceReclaimId).toBeNull();
+    expect(afterRemoved?.workspaceReclaimWorkspaceId).toBeNull();
+    expect(afterRemoved?.workspaceReclaimedAt).not.toBeNull();
+    expect(afterRemoved?.updatedAt).toEqual(stoppedAt);
+    const afterReleased = await rowOf(released);
+    expect(afterReleased?.workspaceReclaimId).toBeNull();
+    expect(afterReleased?.workspaceReclaimedAt).toBeNull();
+    expect(await store.listPendingWorkspaceReclaims()).toEqual([]);
   });
 });
 

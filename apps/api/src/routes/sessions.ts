@@ -53,6 +53,7 @@ const STATUS_BY_CODE: Partial<
   RECOVERY_REQUIRED: 409,
   RATE_LIMITED: 429,
   STORAGE_LIMIT_EXCEEDED: 413,
+  BACKEND_UNAVAILABLE: 503,
 };
 
 // pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket

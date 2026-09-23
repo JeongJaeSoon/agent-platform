@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   HeartbeatRequest,
   HeartbeatResponse,
+  TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
 
@@ -19,7 +20,11 @@ const scope: WorkerScope = {
 
 function heartbeat(
   beat: (request: HeartbeatRequest) => Promise<HeartbeatResponse>,
-  options: { leaseExpiresAt?: Date; now?: () => Date } = {},
+  options: {
+    leaseExpiresAt?: Date;
+    now?: () => Date;
+    transcript?: () => TranscriptReport | undefined;
+  } = {},
 ) {
   const lost: string[] = [];
   const beats: HeartbeatRequest[] = [];
@@ -36,6 +41,9 @@ function heartbeat(
     leaseExpiresAt: options.leaseExpiresAt ?? new Date(Date.now() + 30_000),
     onLost: (reason) => lost.push(reason),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.transcript === undefined
+      ? {}
+      : { transcript: options.transcript }),
   });
   return { beats, heartbeat: instance, lost };
 }
@@ -60,6 +68,32 @@ describe("Heartbeat", () => {
     expect(beats[0]?.attempt_state).toBe("running");
     expect(beats[0]?.lease_epoch).toBe(3);
     expect(beat.leaseExpiresAt.toISOString()).toBe(lease);
+  });
+
+  test("carries the transcript report as of each beat, and none while there is no mirror", async () => {
+    const reports: Array<TranscriptReport | undefined> = [
+      undefined,
+      { persisted_at: "2026-09-23T00:00:00.000Z", mirror_error: null },
+    ];
+    let next = 0;
+    const { beats, heartbeat: beat } = heartbeat(
+      async () => ({
+        lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+        auth_revision: scope.auth_revision,
+        control_pending: false,
+      }),
+      { transcript: () => reports[Math.min(next++, 1)] },
+    );
+    beat.start();
+    await settle();
+    await beat.stop();
+
+    expect(beats.length).toBeGreaterThan(1);
+    expect("transcript" in (beats[0] ?? {})).toBe(false);
+    expect(beats[1]?.transcript).toEqual({
+      persisted_at: "2026-09-23T00:00:00.000Z",
+      mirror_error: null,
+    });
   });
 
   test("declares ownership lost on a fenced-out answer", async () => {
@@ -205,6 +239,51 @@ describe("Heartbeat", () => {
       "running",
       "draining",
     ]);
+  });
+
+  test("a stop does not drop a beat owed for a mirror error, and says once one landed", async () => {
+    let mirrorError: string | null = null;
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beats: HeartbeatRequest[] = [];
+    const beat = new Heartbeat({
+      gateway: {
+        heartbeat: async (request) => {
+          beats.push(request);
+          if (beats.length === 1) await held;
+          return {
+            lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+            auth_revision: scope.auth_revision,
+            control_pending: false,
+          };
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 60_000,
+      leaseExpiresAt: new Date(Date.now() + 30_000),
+      onLost: () => {},
+      transcript: () => ({ persisted_at: null, mirror_error: mirrorError }),
+    });
+    beat.beatNow();
+    beat.start();
+    for (let waited = 0; beats.length === 0 && waited < 1_000; waited += 1) {
+      await Bun.sleep(1);
+    }
+    // The beat in flight carries no error; the drain starts before it lands.
+    mirrorError = "Transcript mirror dropped a batch";
+    beat.beatNow();
+    const stopping = beat.stop();
+    release();
+    await stopping;
+
+    expect(beats.map((request) => request.transcript?.mirror_error)).toEqual([
+      null,
+      "Transcript mirror dropped a batch",
+    ]);
+    expect(beat.mirrorErrorRecorded).toBe(true);
   });
 
   test("stops beating once it has lost ownership", async () => {

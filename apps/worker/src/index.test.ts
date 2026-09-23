@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-
+import { FakeWorkerGateway } from "./fake-gateway.ts";
 import {
   ClaudeSdkRuntime,
   createWorkerHost,
@@ -59,13 +59,23 @@ describe("worker composition surface", () => {
   });
 
   test("the checkpoint port refuses a restore it cannot honour yet", async () => {
-    expect(await unwiredCheckpoints.restorePlan(null)).toEqual({ mode: "new" });
+    const claim = await new FakeWorkerGateway().bootstrapClaim({
+      execution_id: "execution-1",
+      execution_generation: 1,
+      credential: { kind: "launch_nonce", nonce: "nonce" },
+    });
+    expect(await unwiredCheckpoints.restorePlan(claim)).toEqual({
+      mode: "new",
+    });
     await expect(
       unwiredCheckpoints.restorePlan({
-        revision: 2,
-        manifest_ref: "checkpoints/2.json",
-        manifest_sha256: "b".repeat(64),
+        ...claim,
+        restore: {
+          revision: 2,
+          manifest_ref: "checkpoints/2.json",
+          manifest_sha256: "b".repeat(64),
+        },
       }),
-    ).rejects.toThrow("94S-201");
+    ).rejects.toThrow("94S-246");
   });
 });

@@ -53,8 +53,8 @@ type CommittedClaudeMd =
   | { kind: "absent" }
   | { kind: "refused"; reason: string };
 
-type GitResult = { code: number; stdout: string; stderr: string };
-type Git = (
+export type GitResult = { code: number; stdout: string; stderr: string };
+export type Git = (
   args: string[],
   options?: { cwd?: string; network?: boolean },
 ) => Promise<GitResult>;
@@ -532,7 +532,9 @@ const SCOPED_HELPER = [
  * filter whose command is empty, and `required=false` keeps it from failing
  * the command instead.
  */
-async function filterOverrides(git: Git): Promise<Array<[string, string]>> {
+export async function filterOverrides(
+  git: Git,
+): Promise<Array<[string, string]>> {
   const listed = await git([
     "config",
     "--includes",
@@ -564,6 +566,16 @@ async function filterOverrides(git: Git): Promise<Array<[string, string]>> {
   );
 }
 
+/**
+ * What a caller adds to the hardened environment: more configuration (it
+ * still outranks the repository's own) and variables such as `GIT_DIR` or
+ * `GIT_INDEX_FILE` that point a command at something other than the root.
+ */
+export type GitExtras = {
+  config?: Array<[string, string]>;
+  env?: Record<string, string>;
+};
+
 /** Long enough for a large clone; a local command gets far less. */
 const NETWORK_DEADLINE_MS = 30 * 60_000;
 const LOCAL_DEADLINE_MS = 2 * 60_000;
@@ -572,6 +584,7 @@ const LOCAL_DEADLINE_MS = 2 * 60_000;
 function gitEnvironment(
   network: Remote | null,
   overrides: Array<[string, string]>,
+  extra: GitExtras = {},
 ): Record<string, string> {
   const env: Record<string, string> = {
     // A credential prompt would hang the claim; fail instead.
@@ -593,6 +606,7 @@ function gitEnvironment(
     ["gc.auto", "0"],
     ["maintenance.auto", "false"],
     ...overrides,
+    ...(extra.config ?? []),
   ];
   const secret = network?.secret ?? null;
   if (network !== null && secret !== null) {
@@ -608,6 +622,7 @@ function gitEnvironment(
       WORKER_GIT_USERNAME: secret.username,
     });
   }
+  Object.assign(env, extra.env);
   env.GIT_CONFIG_COUNT = String(config.length);
   config.forEach(([key, value], index) => {
     env[`GIT_CONFIG_KEY_${index}`] = key;
@@ -616,21 +631,65 @@ function gitEnvironment(
   return env;
 }
 
-async function runGit(
+export type GitRunOptions = {
+  cwd: string;
+  extra?: GitExtras;
+  network: Remote | null;
+  overrides: Array<[string, string]>;
+  redact: (text: string) => string;
+  signal: AbortSignal;
+};
+
+/** Git wrote more to stdout than the caller would hold; the child was killed. */
+export class GitOutputLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`git wrote more than ${limit} bytes`);
+    this.name = "GitOutputLimitError";
+  }
+}
+
+/**
+ * What git says on stderr is kept only up to this: enough for the last lines
+ * a failure is reported with, and not a buffer a hostile repository fills.
+ */
+const STDERR_LIMIT_BYTES = 64 * 1024;
+
+/**
+ * How long the pipes are read once git itself has exited. A helper it forked
+ * (`pack-objects`, `index-pack`) shares them, and one that outlives a killed
+ * git would otherwise hold the read open for as long as it runs. Only the
+ * leader is killed, so such a helper runs on until its next write fails;
+ * killing the whole process group is 94S-289.
+ */
+const PIPE_GRACE_MS = 2_000;
+
+export async function runGit(
   args: string[],
-  options: {
-    cwd: string;
-    network: Remote | null;
-    overrides: Array<[string, string]>;
-    redact: (text: string) => string;
-    signal: AbortSignal;
-  },
+  options: GitRunOptions,
 ): Promise<GitResult> {
+  const result = await runGitBytes(args, options);
+  return {
+    code: result.code,
+    stdout: new TextDecoder().decode(result.stdout),
+    stderr: result.stderr,
+  };
+}
+
+/**
+ * `runGit` with stdout as the bytes git wrote, for output that is not text
+ * (a bundle) or whose names must not be decoded lossily. Past `maxStdoutBytes`
+ * the child is killed and `GitOutputLimitError` thrown, so a limit is enforced
+ * while git runs rather than after it has filled memory.
+ */
+export async function runGitBytes(
+  args: string[],
+  options: GitRunOptions & { maxStdoutBytes?: number },
+): Promise<{ code: number; stderr: string; stdout: Uint8Array }> {
   const { network, redact, signal } = options;
   signal.throwIfAborted();
   const child = Bun.spawn(["git", ...args], {
     cwd: options.cwd,
-    env: gitEnvironment(network, options.overrides),
+    env: gitEnvironment(network, options.overrides, options.extra),
     killSignal: "SIGKILL",
     signal,
     timeout: network === null ? LOCAL_DEADLINE_MS : NETWORK_DEADLINE_MS,
@@ -638,16 +697,78 @@ async function runGit(
     stdin: "ignore",
     stdout: "pipe",
   });
+  const limit = options.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
+  const abandon = child.exited.then(() => Bun.sleep(PIPE_GRACE_MS));
   const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    collect(child.stdout, limit, abandon, () => child.kill("SIGKILL")),
+    collect(child.stderr, STDERR_LIMIT_BYTES, abandon),
     child.exited,
   ]);
   signal.throwIfAborted();
-  return { code, stdout, stderr: redact(stderr) };
+  if (stdout.overflowed) throw new GitOutputLimitError(limit);
+  return {
+    code,
+    stdout: stdout.bytes,
+    stderr: redact(new TextDecoder().decode(stderr.bytes)),
+  };
 }
 
-async function check(result: Promise<GitResult>, step: string): Promise<void> {
+/**
+ * Reads a pipe up to `limit` bytes. Without `onOverflow` the rest is drained
+ * and dropped, so the writer never blocks on a full pipe; with it, reading
+ * stops and the writer is expected to be killed. Reading also stops once
+ * `abandon` settles, whoever still holds the pipe.
+ */
+const ABANDONED = Symbol("abandoned");
+
+async function collect(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+  abandon: Promise<void>,
+  onOverflow?: () => void,
+): Promise<{ bytes: Uint8Array; overflowed: boolean }> {
+  const chunks: Uint8Array[] = [];
+  let held = 0;
+  let overflowed = false;
+  const reader = stream.getReader();
+  const abandoned = abandon.then(() => ABANDONED);
+  for (;;) {
+    const next = await Promise.race([reader.read(), abandoned]);
+    if (typeof next === "symbol") {
+      await reader.cancel().catch(() => undefined);
+      break;
+    }
+    const { done, value } = next;
+    if (done) break;
+    if (overflowed) continue;
+    if (held + value.byteLength > limit) {
+      overflowed = true;
+      const room = limit - held;
+      if (room > 0) chunks.push(value.subarray(0, room));
+      held = limit;
+      if (onOverflow !== undefined) {
+        onOverflow();
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+      continue;
+    }
+    chunks.push(value);
+    held += value.byteLength;
+  }
+  const bytes = new Uint8Array(held);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, overflowed };
+}
+
+export async function check(
+  result: Promise<GitResult>,
+  step: string,
+): Promise<void> {
   const { code, stderr } = await result;
   if (code !== 0) {
     throw new Error(`git ${step} failed (exit ${code}): ${stderr.trim()}`);

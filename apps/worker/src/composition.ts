@@ -1,10 +1,19 @@
-import type { SessionRuntime } from "@agent-platform/contracts";
+import type {
+  BootstrapClaimResponse,
+  SessionRuntime,
+} from "@agent-platform/contracts";
 import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
+  CLAUDE_RUNTIME_FINGERPRINT,
+  type ClaudeRuntimeConfig,
   ClaudeSdkRuntime,
+  claudeProfileFingerprint,
 } from "@agent-platform/runtime-claude";
-import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
+import type {
+  CheckpointObjectStore,
+  RuntimeFingerprint,
+} from "@agent-platform/runtime-core";
 
 import { checkpointsOn, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
@@ -12,6 +21,7 @@ import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { createWorkerObjectStore } from "./object-store.ts";
 import {
+  type RuntimeLaunch,
   type RuntimeLauncher,
   type RuntimeRegistry,
   type WorkerGatewaySession,
@@ -80,7 +90,8 @@ export function claudeRuntimeRegistry(
       const {
         committedClaudeMd,
         correlationId,
-        principal,
+        // Read by claudeRunConfig; kept out of the resume plan spread below.
+        principal: _principal,
         runtimeConfig,
         ...plan
       } = launch;
@@ -97,30 +108,11 @@ export function claudeRuntimeRegistry(
       );
       return runtime.start(
         {
-          claudeConfigDir: config.runtime.claudeConfigDir,
+          ...claudeRunConfig(config, launch, committedClaudeMd),
           correlationId,
-          cwd: config.runtime.cwd,
-          home: config.runtime.home,
-          model: runtimeConfig.model,
-          permissionMode: runtimeConfig.permission_mode,
-          // The catalog provider is shared across partitions; the claim's
-          // principal is what makes this session's checkpoints its own.
-          profile: {
-            ...runtimeConfig.provider,
-            principal: { ownerScope: principal.owner_scope },
-          },
+          // Not part of the fingerprint: how often a provider call is retried
+          // changes nothing a checkpoint resumes.
           providerMaxRetries: config.runtime.providerMaxRetries,
-          // None of the repository's own Claude settings: its hooks would run
-          // commands no permission callback sees, with the provider key in
-          // reach, and the claim's profile is the only policy reviewed. Its
-          // CLAUDE.md comes back only when that profile says so, as committed
-          // on the branch rather than as the checkout now reads
-          // (`projectSettingsSchema`).
-          ...(runtimeConfig.project_settings?.claude_md === true
-            ? { repositoryClaudeMd: { contents: committedClaudeMd() } }
-            : {}),
-          settingSources: [],
-          tools: runtimeConfig.tools,
           ...plan,
         },
         hooks,
@@ -145,4 +137,73 @@ export function claudeRuntimeRegistry(
       return launcher;
     },
   };
+}
+
+type ClaudeRunConfig = Pick<
+  Extract<ClaudeRuntimeConfig, { mode: "new" }>,
+  | "claudeConfigDir"
+  | "cwd"
+  | "home"
+  | "model"
+  | "permissionMode"
+  | "profile"
+  | "repositoryClaudeMd"
+  | "settingSources"
+  | "tools"
+>;
+
+/**
+ * What a claim runs, short of how it resumes: shared by the launcher and by
+ * the fingerprint a checkpoint is stamped with, so the two cannot describe
+ * different runs.
+ */
+function claudeRunConfig(
+  config: WorkerConfig,
+  launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig">,
+  committedClaudeMd: () => string | null,
+): ClaudeRunConfig {
+  const { principal, runtimeConfig } = launch;
+  return {
+    claudeConfigDir: config.runtime.claudeConfigDir,
+    cwd: config.runtime.cwd,
+    home: config.runtime.home,
+    model: runtimeConfig.model,
+    permissionMode: runtimeConfig.permission_mode,
+    // The catalog provider is shared across partitions; the claim's
+    // principal is what makes this session's checkpoints its own.
+    profile: {
+      ...runtimeConfig.provider,
+      principal: { ownerScope: principal.owner_scope },
+    },
+    // None of the repository's own Claude settings: its hooks would run
+    // commands no permission callback sees, with the provider key in reach,
+    // and the claim's profile is the only policy reviewed. Its CLAUDE.md
+    // comes back only when that profile says so, as committed on the branch
+    // rather than as the checkout now reads (`projectSettingsSchema`).
+    ...(runtimeConfig.project_settings?.claude_md === true
+      ? { repositoryClaudeMd: { contents: committedClaudeMd() } }
+      : {}),
+    settingSources: [],
+    tools: runtimeConfig.tools,
+  };
+}
+
+/**
+ * The fingerprint a checkpoint of this claim's run is stamped with, and the
+ * one a restore plan is asked for (94S-261). The committed CLAUDE.md is not
+ * read: the digest records only that the profile lets it in.
+ */
+export function claudeClaimFingerprint(
+  config: WorkerConfig,
+): (claim: BootstrapClaimResponse) => RuntimeFingerprint {
+  return (claim) => ({
+    ...CLAUDE_RUNTIME_FINGERPRINT,
+    profileSha256: claudeProfileFingerprint(
+      claudeRunConfig(
+        config,
+        { principal: claim.principal, runtimeConfig: claim.runtime_config },
+        () => null,
+      ),
+    ),
+  });
 }

@@ -8,6 +8,8 @@ import type {
   ExecutionObservation,
   ExecutionRef,
   LaunchCredentialState,
+  LaunchFailureInput,
+  LaunchFailureOutcome,
   PassLock,
   ReplaceReason,
   ReserveLaunchInput,
@@ -29,6 +31,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -38,12 +41,17 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { INPUT_RECEIPT_OPERATIONS } from "./control-shared.ts";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
-import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
+  events,
   executions,
+  queueMessages,
+  receipts,
   sessions,
+  turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
@@ -81,17 +89,23 @@ const PASS_LOCK_KEY = "scheduler:pass";
 const DESIRED_RUNNING = "running";
 
 /**
- * The one admission state a session never comes back from. Everything else,
- * `stopped` included, is resumed into the *same* workspace — the API's resume
- * takes only an expected revision, so the session id, and with it the volume
- * name, is unchanged. Reclaiming a stopped session's workspace would hand the
- * resume an empty working tree. A stopped session therefore keeps its disk
- * until it is closed; expiring those deliberately needs a claim serialized
- * with resume, which is 94S-225.
+ * The one admission state a session never comes back from. Everything else
+ * is resumed into the same session, and its workspace is kept — `stopped`
+ * only until its TTL runs out, and then only through
+ * `claimWorkspaceReclaim`, which resume waits for. A stopped session resumes
+ * from its checkpoint, which the worker restores over whatever the volume
+ * held, so its volume is a cache past that point, not the session's work.
  */
 const FINAL_ADMISSION_STATES: Array<
   (typeof sessions.admissionState.enumValues)[number]
 > = ["closed"];
+
+/**
+ * What `last_launch_error` and the failed input's receipt keep of the
+ * provider's message. Enough to name the image or the daemon's refusal;
+ * the scheduler's log has the rest.
+ */
+const LAUNCH_ERROR_MAX_CHARS = 1_000;
 
 /** `sessions.id` is a uuid column; anything else cannot be asked about. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -308,7 +322,10 @@ export function createPostgresSchedulerStore(
       });
     },
 
-    async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
+    async issueBootstrapNonce(
+      ref: ExecutionRef,
+      attempt?: number,
+    ): Promise<string> {
       const nonce = generateLaunchNonce();
       const rotated = await db
         .update(workerLaunches)
@@ -326,12 +343,34 @@ export function createPostgresSchedulerStore(
             // the slot has gone back.
             isNull(workerLaunches.claimedAttemptId),
             holdsSlot(),
+            attempt === undefined
+              ? undefined
+              : eq(workerLaunches.launchAttempts, attempt),
+            // And while a failed attempt's backoff runs, or once the launch
+            // was asked to go: a pass that lost its lock mid-ensure must not
+            // hand a fresh credential to a launch another pass has failed or
+            // given up on.
+            or(
+              isNull(workerLaunches.launchRetryAt),
+              lte(workerLaunches.launchRetryAt, DB_NOW),
+            ),
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(executions)
+                .where(
+                  and(
+                    eq(executions.id, workerLaunches.executionId),
+                    eq(executions.desiredState, DESIRED_RUNNING),
+                  ),
+                ),
+            ),
           ),
         )
         .returning({ executionId: workerLaunches.executionId });
       if (rotated.length !== 1) {
         throw new Error(
-          `Launch ${ref.executionId} generation ${ref.generation} is claimed, released or unknown; no bootstrap credential was issued`,
+          `Launch ${ref.executionId} generation ${ref.generation} is claimed, released, backing off, asked to go, past this attempt or unknown; no bootstrap credential was issued`,
         );
       }
       return nonce;
@@ -433,6 +472,98 @@ export function createPostgresSchedulerStore(
       });
     },
 
+    async recordLaunchFailure(
+      ref: ExecutionRef,
+      input: LaunchFailureInput,
+    ): Promise<LaunchFailureOutcome> {
+      const error = input.error.slice(0, LAUNCH_ERROR_MAX_CHARS);
+      const credentialFence =
+        input.expectedNonceFingerprint === undefined
+          ? undefined
+          : input.expectedNonceFingerprint === null
+            ? isNull(workerLaunches.nonceHash)
+            : sql`encode(sha256(${workerLaunches.nonceHash}), 'hex') = ${input.expectedNonceFingerprint}`;
+      return db.transaction(async (tx) => {
+        // Launch, session, then execution: the order every other path takes
+        // its locks in, so this never deadlocks against a claim or an exit.
+        const [launch] = await tx
+          .select({ executionId: workerLaunches.executionId })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return "stale";
+        // After the row lock and in a statement of its own, as in
+        // `requestReplacement`: a terminate that got there first is seen.
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return "stale";
+        const [row] = await tx
+          .update(workerLaunches)
+          .set({
+            launchFailureCount: sql`${workerLaunches.launchFailureCount} + 1`,
+            launchAttempts: sql`${workerLaunches.launchAttempts} + 1`,
+            lastLaunchError: error,
+            launchRetryAt: input.quarantine
+              ? null
+              : fromDbNow(input.retryDelayMs),
+            nonceHash: null,
+            // Given up on, there is nothing left to rebuild; waiting, the
+            // pending replacement is what keeps the gone resource from
+            // reading as an exit.
+            ...(input.quarantine ? { replacementReason: null } : {}),
+          })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.claimedAttemptId),
+              holdsSlot(),
+              eq(workerLaunches.launchFailureCount, input.expectedCount),
+              eq(workerLaunches.launchAttempts, input.expectedAttempts),
+              credentialFence,
+            ),
+          )
+          .returning({ sessionId: workerLaunches.sessionId });
+        if (!row) return "stale";
+        if (!input.quarantine) return "backing_off";
+        await quarantine(tx, ref, row.sessionId, error);
+        return "quarantined";
+      });
+    },
+
+    async beginLaunchAttempt(
+      ref: ExecutionRef,
+      expectedAttempts: number,
+    ): Promise<number | null> {
+      const [row] = await db
+        .update(workerLaunches)
+        .set({ launchAttempts: sql`${workerLaunches.launchAttempts} + 1` })
+        .where(
+          and(
+            eq(workerLaunches.executionId, ref.executionId),
+            eq(workerLaunches.generation, ref.generation),
+            eq(workerLaunches.launchAttempts, expectedAttempts),
+            holdsSlot(),
+          ),
+        )
+        .returning({ attempts: workerLaunches.launchAttempts });
+      return row?.attempts ?? null;
+    },
+
     async settleReplacement(
       ref: ExecutionRef,
       expectedCount: number,
@@ -490,6 +621,10 @@ export function createPostgresSchedulerStore(
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
           image: workerLaunches.image,
+          launchAttempts: workerLaunches.launchAttempts,
+          launchFailureCount: workerLaunches.launchFailureCount,
+          launchRetryAt: workerLaunches.launchRetryAt,
+          launchRetryDue: sql<boolean>`${workerLaunches.launchRetryAt} IS NULL OR ${workerLaunches.launchRetryAt} <= ${DB_NOW}`,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
           nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
           nonceHash: workerLaunches.nonceHash,
@@ -517,6 +652,10 @@ export function createPostgresSchedulerStore(
         executionId: row.executionId,
         generation: row.generation,
         image: row.image,
+        launchAttempts: row.launchAttempts,
+        launchFailureCount: row.launchFailureCount,
+        launchRetryAt: row.launchRetryAt,
+        launchRetryDue: row.launchRetryDue === true,
         nonceExpiresAt: row.nonceExpiresAt,
         // Null while no credential was issued; the comparison yields null too.
         nonceExpired: row.nonceExpired === true,
@@ -567,7 +706,10 @@ export function createPostgresSchedulerStore(
       );
     },
 
-    async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+    async filterRetainedSessions(
+      sessionIds: string[],
+      options: { stoppedTtlMs: number },
+    ): Promise<string[]> {
       if (sessionIds.length === 0) return [];
       // Binding a non-uuid to a uuid column is an error, not a miss, and a
       // thrown query would take the whole GC step down. They are also
@@ -582,7 +724,13 @@ export function createPostgresSchedulerStore(
           and(
             inArray(sessions.id, judgeable),
             or(
-              notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+              and(
+                notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+                or(
+                  sql`${sessions.admissionState} <> 'stopped'`,
+                  sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
+                ),
+              ),
               // A launch holds its session until `confirmExecutionGone`, so
               // that is also how long the workspace may still be mounted.
               exists(
@@ -597,6 +745,109 @@ export function createPostgresSchedulerStore(
           ),
         );
       return [...unjudgeable, ...rows.map((row) => row.id)];
+    },
+
+    async claimWorkspaceReclaim({ sessionId, workspaceId, stoppedTtlMs }) {
+      if (!UUID.test(sessionId)) return { kind: "retained" };
+      return db.transaction(async (tx) => {
+        // Resume's order (`lockSessionForControl`): the bound launch first,
+        // then the session. Taking them the other way round would deadlock
+        // against a resume waiting on the session with the launch in hand.
+        const [peek] = await tx
+          .select({ executionId: sessions.executionId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1);
+        if (!peek) return { kind: "unclaimed" };
+        if (peek.executionId !== null) {
+          await tx
+            .select({ executionId: workerLaunches.executionId })
+            .from(workerLaunches)
+            .where(eq(workerLaunches.executionId, peek.executionId))
+            .limit(1)
+            .for("update");
+        }
+        const [session] = await tx
+          .select({
+            admissionState: sessions.admissionState,
+            executionId: sessions.executionId,
+            pendingClaim: sessions.workspaceReclaimId,
+            updatedAt: sessions.updatedAt,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1)
+          .for("update");
+        // Rebound between the peek and the lock: judged again next pass.
+        if (!session || session.executionId !== peek.executionId) {
+          return { kind: "retained" };
+        }
+        const [slot] = await tx
+          .select({ one: sql`1` })
+          .from(workerLaunches)
+          .where(and(eq(workerLaunches.sessionId, sessionId), holdsSlot()))
+          .limit(1);
+        if (slot) return { kind: "retained" };
+        if (session.admissionState === "closed") return { kind: "unclaimed" };
+        if (session.admissionState !== "stopped") return { kind: "retained" };
+        // One claim at a time; a pending one is finished by the sweep.
+        if (session.pendingClaim !== null) return { kind: "retained" };
+        const now = await dbNow(tx);
+        if (session.updatedAt.getTime() > now.getTime() - stoppedTtlMs) {
+          return { kind: "retained" };
+        }
+        const claim = randomUUID();
+        await tx
+          .update(sessions)
+          .set({
+            workspaceReclaimClaimedAt: now,
+            workspaceReclaimId: claim,
+            workspaceReclaimWorkspaceId: workspaceId,
+          })
+          .where(eq(sessions.id, sessionId));
+        return { kind: "claimed", claimId: claim };
+      });
+    },
+
+    async finishWorkspaceReclaim({ sessionId, claimId: claim, outcome }) {
+      // `updated_at` is left alone: it is the stop's clock, and a released
+      // claim must not restart the TTL it was judged by.
+      await db
+        .update(sessions)
+        .set({
+          workspaceReclaimClaimedAt: null,
+          workspaceReclaimId: null,
+          workspaceReclaimWorkspaceId: null,
+          ...(outcome === "removed" ? { workspaceReclaimedAt: DB_NOW } : {}),
+        })
+        .where(
+          and(
+            eq(sessions.id, sessionId),
+            eq(sessions.workspaceReclaimId, claim),
+          ),
+        );
+    },
+
+    async listPendingWorkspaceReclaims() {
+      const rows = await db
+        .select({
+          claim: sessions.workspaceReclaimId,
+          sessionId: sessions.id,
+          workspaceId: sessions.workspaceReclaimWorkspaceId,
+        })
+        .from(sessions)
+        .where(
+          and(
+            isNotNull(sessions.workspaceReclaimId),
+            isNotNull(sessions.workspaceReclaimWorkspaceId),
+          ),
+        )
+        .orderBy(asc(sessions.workspaceReclaimClaimedAt));
+      return rows.flatMap(({ claim, sessionId, workspaceId }) =>
+        claim === null || workspaceId === null
+          ? []
+          : [{ claimId: claim, sessionId, workspaceId }],
+      );
     },
 
     async recordObservation(
@@ -652,6 +903,107 @@ export function createPostgresSchedulerStore(
       return expireOverdueTerminations(db, input);
     },
   };
+}
+
+/**
+ * The give-up half of `recordLaunchFailure`, inside its transaction and after
+ * the launch row lock. Writes the kill intent — the pass carries it out and
+ * `confirmExecutionGone` gives the slot back — and fails what was queued for
+ * the session so far, the way a terminate cancels it: the turns, their queue
+ * rows (a terminal head would block delivery), and their input receipts.
+ * The session is left `failed` and unsignalled, still admitting input: the
+ * next message signals it again and gets a fresh launch.
+ */
+async function quarantine(
+  tx: Database,
+  ref: ExecutionRef,
+  sessionId: string | null,
+  error: string,
+): Promise<void> {
+  const [session] =
+    sessionId === null
+      ? []
+      : await tx
+          .select({
+            admissionState: sessions.admissionState,
+            id: sessions.id,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1)
+          .for("update");
+  // Read after the locks, so the failure's timestamps are no earlier than
+  // anything the input they fail was accepted at.
+  const now = await dbNow(tx);
+  if (session) {
+    const failed = await tx
+      .update(turns)
+      .set({ status: "failed", endedAt: now, terminalReason: "launch_failed" })
+      .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")))
+      .returning({ id: turns.id, sequence: turns.sequence });
+    if (failed.length > 0) {
+      await tx.delete(queueMessages).where(
+        inArray(
+          queueMessages.turnId,
+          failed.map((turn) => turn.id),
+        ),
+      );
+      await tx
+        .update(receipts)
+        .set({
+          status: "failed",
+          error: {
+            code: "LAUNCH_FAILED",
+            message: `no worker could be launched for this input: ${error}`,
+          },
+          // `result` stays the acceptance response (receiptSchema.result).
+          updatedAt: now,
+        })
+        .where(
+          and(
+            inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+            eq(receipts.status, "accepted"),
+            sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+            inArray(
+              sql`${receipts.targetRef}->>'turn_id'`,
+              failed.map((turn) => String(turn.sequence)),
+            ),
+          ),
+        );
+    }
+    await tx
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.id));
+    if (session.admissionState !== "closed") {
+      await tx
+        .update(sessions)
+        .set({ status: "failed", updatedAt: now })
+        .where(eq(sessions.id, session.id));
+      await tx.insert(events).values({
+        sessionId: session.id,
+        type: "status",
+        payload: {
+          phase: "failed",
+          admission_state: session.admissionState,
+          code: "LAUNCH_FAILED",
+          message: error,
+          failed_turn_count: failed.length,
+        },
+        turnId: null,
+        occurredAt: now,
+      });
+      await tx.execute(sql`SELECT pg_notify('session_events', ${session.id})`);
+    }
+  }
+  await tx
+    .update(executions)
+    .set({ desiredState: "terminated" })
+    .where(
+      and(
+        eq(executions.id, ref.executionId),
+        eq(executions.generation, ref.generation),
+      ),
+    );
 }
 
 const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([

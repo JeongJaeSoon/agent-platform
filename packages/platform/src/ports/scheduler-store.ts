@@ -116,7 +116,58 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * the scheduler's limit instead of being rebuilt forever.
    */
   replacementCount: number;
+  /**
+   * Launch attempts that failed before any worker bound (see
+   * `recordLaunchFailure`). Never reset: brief signs of life are not proof
+   * of a launch, only a claim is, and a claimed launch is never re-ensured.
+   */
+  launchFailureCount: number;
+  /**
+   * Launch attempts whose outcome was recorded, success or failure. What a
+   * failure record is fenced on (see `beginLaunchAttempt`).
+   */
+  launchAttempts: number;
+  /** When the next attempt may be made, or null when nothing holds it back. */
+  launchRetryAt: Date | null;
+  /**
+   * `launchRetryAt` judged on the storage clock as the rows were listed, like
+   * `nonceExpired`: true when no failure holds the next attempt back.
+   */
+  launchRetryDue: boolean;
 };
+
+export type LaunchFailureInput = {
+  /** What the provider said, as the operator will read it. */
+  error: string;
+  /** `launchFailureCount` as the caller judged the launch. */
+  expectedCount: number;
+  /**
+   * `launchAttempts` as the caller judged the launch. An attempt another
+   * pass has since recorded — a success above all — makes this one stale.
+   */
+  expectedAttempts: number;
+  /**
+   * When given, the launch must still accept exactly this credential, as in
+   * `requestReplacement`. An exited resource is judged by the credential it
+   * was built with: the record revokes it, so the same resource seen again
+   * no longer matches and is never counted twice.
+   */
+  expectedNonceFingerprint?: string | null;
+  /**
+   * This failure is the last one: the launch is given up on in the same
+   * write instead of being scheduled for another attempt.
+   */
+  quarantine: boolean;
+  /** How long from now, on the storage clock, before the next attempt. */
+  retryDelayMs: number;
+};
+
+/**
+ * `stale`: the launch moved on since it was judged — a worker bound, it gave
+ * its slot back, it was asked to go, or another failure was recorded — and
+ * nothing was written.
+ */
+export type LaunchFailureOutcome = "backing_off" | "quarantined" | "stale";
 
 /** The scheduling pass lock, while this pass holds it. */
 export type PassLock = {
@@ -133,6 +184,17 @@ export type PassLock = {
   readonly signal: AbortSignal;
   /** Gives the lock back; on a lost lock, only the connection. */
   release(): Promise<void>;
+};
+
+export type WorkspaceReclaimClaim =
+  | { kind: "retained" }
+  | { kind: "unclaimed" }
+  | { kind: "claimed"; claimId: string };
+
+export type PendingWorkspaceReclaim = {
+  claimId: string;
+  sessionId: string;
+  workspaceId: string;
 };
 
 /**
@@ -156,9 +218,14 @@ export interface SchedulerStore {
   /**
    * Mints this launch's bootstrap nonce, stores only its hash, and returns
    * the plaintext. Refuses a launch that already bound a worker or gave its
-   * slot back, so a credential is never issued for a binding that exists.
+   * slot back, so a credential is never issued for a binding that exists;
+   * one asked to go; and one whose last failure still holds the next attempt
+   * back, so a pass that lost its lock cannot reopen a launch another pass
+   * has just failed or given up on. Given `attempt`, it also refuses once a
+   * later attempt has been opened (see `beginLaunchAttempt`): a stale pass
+   * must not rotate out the credential a newer attempt's resource holds.
    */
-  issueBootstrapNonce(ref: ExecutionRef): Promise<string>;
+  issueBootstrapNonce(ref: ExecutionRef, attempt?: number): Promise<string>;
   /**
    * Shuts this launch's bootstrap door for good and says whether it was still
    * open: true only when the launch was unclaimed, still held its slot, and
@@ -204,6 +271,37 @@ export interface SchedulerStore {
    * well would turn its stopped resource back into an ordinary exit.
    */
   settleReplacement(ref: ExecutionRef, expectedCount: number): Promise<void>;
+  /**
+   * Counts one failed launch attempt, fenced on `expectedCount` (and on the
+   * credential when given), and revokes the launch's bootstrap credential in
+   * the same write: whatever that attempt left behind can then never bind,
+   * and the next create mints its own. A pending replacement stays recorded,
+   * so a launch waiting out its backoff is never read as an exit.
+   *
+   * With `quarantine`, the launch is given up on in the same transaction: its
+   * kill intent is written (the pass carries it out, and confirming the
+   * resource gone is what gives the slot back), the input queued for its
+   * session so far fails with `LAUNCH_FAILED`, and the session is left
+   * `failed` without an admission signal. Input appended afterwards signals
+   * it again and gets a fresh launch.
+   */
+  recordLaunchFailure(
+    ref: ExecutionRef,
+    input: LaunchFailureInput,
+  ): Promise<LaunchFailureOutcome>;
+  /**
+   * Opens a launch attempt before the provider is asked, and returns the
+   * `launchAttempts` its failure must be recorded against; null when the
+   * launch moved on since `expectedAttempts` was read. A pass that lost its
+   * lock while its ensure was out at the provider then reports a failure
+   * for an attempt a later pass has already superseded, and is refused
+   * instead of revoking the credential the later attempt's resource holds —
+   * whether that attempt has finished yet or not.
+   */
+  beginLaunchAttempt(
+    ref: ExecutionRef,
+    expectedAttempts: number,
+  ): Promise<number | null>;
   /**
    * Which credential this launch accepts right now, read without changing
    * anything: the fingerprint of the stored hash while the launch is open,
@@ -276,6 +374,45 @@ export interface SchedulerStore {
    *
    * Ids the store cannot judge come back retained, so a workspace labelled
    * with something that is not a session id is left alone rather than reaped.
+   *
+   * A `stopped` session is retained until it has been stopped for
+   * `stoppedTtlMs`; past that it is a candidate, and only a
+   * `claimWorkspaceReclaim` decides whether its workspace goes.
    */
-  filterRetainedSessions(sessionIds: string[]): Promise<string[]>;
+  filterRetainedSessions(
+    sessionIds: string[],
+    options: { stoppedTtlMs: number },
+  ): Promise<string[]>;
+
+  /**
+   * Decides, under the session's lock, whether this workspace may be removed.
+   * `unclaimed`: nothing can come back to the session (closed, or no row), so
+   * the removal needs no claim. `claimed`: a stopped session past its TTL;
+   * resume refuses until `finishWorkspaceReclaim` settles the token. Anything
+   * else — resumed since, stopped too recently, a launch holding its slot, a
+   * claim already pending — is `retained`.
+   */
+  claimWorkspaceReclaim(input: {
+    sessionId: string;
+    workspaceId: string;
+    stoppedTtlMs: number;
+  }): Promise<WorkspaceReclaimClaim>;
+
+  /**
+   * Settles a claim by its id: `removed` records the workspace gone,
+   * `released` gives the session its workspace back. A token that no longer
+   * matches changes nothing.
+   */
+  finishWorkspaceReclaim(input: {
+    claimId: string;
+    sessionId: string;
+    outcome: "removed" | "released";
+  }): Promise<void>;
+
+  /**
+   * Claims a removal never settled — the pass died, or the daemon did not
+   * answer. Asked apart from the workspace listing, because a removal that
+   * went through leaves nothing to list.
+   */
+  listPendingWorkspaceReclaims(): Promise<PendingWorkspaceReclaim[]>;
 }

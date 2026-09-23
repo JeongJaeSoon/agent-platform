@@ -32,7 +32,9 @@ import {
 
 const sessionId = "44444444-4444-4444-8444-444444444444";
 const attemptId = "attempt-1";
-const manifestRef = manifestRefFor(sessionId, 0, attemptId);
+// What `requestCheckpoint` would have minted for the publish these tests upload.
+const PUBLISH_ID = "0123456789abcdef0123456789abcdef";
+const manifestRef = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
 const bundleKey = `${manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1)}workspace.bundle`;
 
 const codecs: ApiCheckpointServiceDependencies["codecs"] = {

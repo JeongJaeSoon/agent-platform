@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { RuntimeConfig } from "@agent-platform/contracts";
+import type { CheckpointRef, RuntimeConfig } from "@agent-platform/contracts";
 import { ClaudeSdkRuntime } from "@agent-platform/runtime-claude";
 import type { CheckpointPreparation } from "@agent-platform/runtime-core";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
+  toolReply,
 } from "@agent-platform/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
@@ -72,6 +73,43 @@ class RecordingCheckpoints implements WorkerCheckpointPort {
   }
 }
 
+/** The actual SDK runtime, launched the way composition launches it. */
+function sdkRuntimes(
+  endpoint: string,
+  home: string,
+  workspace: string,
+  processes: ConstructorParameters<typeof ClaudeSdkRuntime>[1],
+): RuntimeRegistry {
+  const runtime = new ClaudeSdkRuntime(
+    { endpoints: [endpoint], models: [MODEL] },
+    processes,
+  );
+  return {
+    launcherFor: () => ({
+      // What to run comes from the claim, as in composition.
+      start: ({ runtimeConfig, principal, ...launch }, hooks) =>
+        runtime.start(
+          {
+            claudeConfigDir: home,
+            cwd: workspace,
+            home,
+            maxTurns: 4,
+            model: runtimeConfig.model,
+            permissionMode: runtimeConfig.permission_mode,
+            profile: {
+              ...runtimeConfig.provider,
+              principal: { ownerScope: principal.owner_scope },
+            },
+            settingSources: ["project"],
+            tools: runtimeConfig.tools,
+            ...launch,
+          },
+          hooks,
+        ),
+    }),
+  };
+}
+
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
 
@@ -99,45 +137,17 @@ describe("WorkerHost against the actual Claude SDK", () => {
     };
     // What composition wires: the host confirms the PID is gone from this.
     const engines = new EngineProcesses();
-    const registry = (): RuntimeRegistry => {
-      const runtime = new ClaudeSdkRuntime(
-        { endpoints: [server?.url ?? ""], models: [MODEL] },
-        {
-          onSpawn: (pid) => {
-            spawned.push(pid);
-            engines.onSpawn(pid);
-          },
-          onExit: (pid) => {
-            exited.push(pid);
-            engines.onExit(pid);
-          },
+    const registry = (): RuntimeRegistry =>
+      sdkRuntimes(server?.url ?? "", home, workspace, {
+        onSpawn: (pid) => {
+          spawned.push(pid);
+          engines.onSpawn(pid);
         },
-      );
-      return {
-        launcherFor: () => ({
-          // What to run comes from the claim, as in composition.
-          start: ({ runtimeConfig, principal, ...launch }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: home,
-                cwd: workspace,
-                home,
-                maxTurns: 4,
-                model: runtimeConfig.model,
-                permissionMode: runtimeConfig.permission_mode,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
-                },
-                settingSources: ["project"],
-                tools: runtimeConfig.tools,
-                ...launch,
-              },
-              hooks,
-            ),
-        }),
-      };
-    };
+        onExit: (pid) => {
+          exited.push(pid);
+          engines.onExit(pid);
+        },
+      });
 
     const runtimeConfig: RuntimeConfig = {
       model: MODEL,
@@ -297,4 +307,161 @@ describe("WorkerHost against the actual Claude SDK", () => {
     expect(thirdSummary.outcome).toBe("drained");
     expect(exited).toHaveLength(3);
   }, 90_000);
+});
+
+/** Resolves once the SDK gives up the request, or after `ms` regardless. */
+function abandonedBy(signal: AbortSignal, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+async function waitFor(condition: () => boolean, label: string): Promise<void> {
+  for (let waited = 0; waited < 30_000; waited += 20) {
+    if (condition()) return;
+    await Bun.sleep(20);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+/** Commits a checkpoint whenever the run says one is ready. */
+function committing(): WorkerCheckpointPort & { refs: CheckpointRef[] } {
+  const refs: CheckpointRef[] = [];
+  return {
+    refs,
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation) => {
+      if (preparation.status !== "ready") return null;
+      const ref: CheckpointRef = {
+        revision: refs.length,
+        manifest_ref: `manifests/${refs.length + 1}.json`,
+        manifest_sha256: "c".repeat(64),
+      };
+      refs.push(ref);
+      return ref;
+    },
+  };
+}
+
+// The SDK has no `interrupted` terminal reason: an interrupt ends the turn as
+// an abort, and only the host knows it asked for one (94S-287).
+describe("WorkerHost interrupt against the actual Claude SDK", () => {
+  const cases: Array<{
+    moment: "streaming" | "tool";
+    terminalReason: string;
+    withCheckpoint: boolean;
+  }> = [
+    {
+      moment: "streaming",
+      terminalReason: "aborted_streaming",
+      withCheckpoint: true,
+    },
+    {
+      moment: "streaming",
+      terminalReason: "aborted_streaming",
+      withCheckpoint: false,
+    },
+    { moment: "tool", terminalReason: "aborted_tools", withCheckpoint: true },
+    { moment: "tool", terminalReason: "aborted_tools", withCheckpoint: false },
+  ];
+
+  test.each(cases)(
+    "an interrupt while $moment ($terminalReason) ends the turn the way 94S-128 says, checkpoint captured: $withCheckpoint",
+    async ({ moment, terminalReason, withCheckpoint }) => {
+      isolated = await createIsolatedWorkspace({ prefix: "94s-287-" });
+      const { home, workspace } = isolated;
+      server = startFakeAnthropicServer(async (request, index) => {
+        if (moment === "tool" && index === 0) {
+          return toolReply("Bash", {
+            command: "touch interrupted.txt",
+            description: "Create a file",
+          });
+        }
+        // Held open: only the interrupt ends this response.
+        await abandonedBy(request.signal, 30_000);
+        return textReply("too late");
+      });
+      const engines = new EngineProcesses();
+      const gateway = new FakeWorkerGateway({
+        runtimeConfig: {
+          model: MODEL,
+          tools: moment === "tool" ? ["Bash"] : [],
+          permission_mode: "default",
+          provider: {
+            kind: "anthropic",
+            endpoint: server.url,
+            auth: { kind: "api_key", value: "placeholder-local" },
+          },
+        },
+        sessionId: SESSION_ID,
+      });
+      const checkpoints = withCheckpoint
+        ? committing()
+        : new RecordingCheckpoints({ mode: "new" });
+      gateway.enqueue("run until interrupted");
+      const host = new WorkerHost({
+        checkpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        engines,
+        gateway,
+        logger: silent,
+        runtimes: sdkRuntimes(server.url, home, workspace, engines),
+        timeouts,
+        workspace: noWorkspace,
+      });
+
+      const loop = host.runLoop();
+      if (moment === "tool") {
+        await waitFor(
+          () => gateway.registrations.length === 1,
+          "the permission request",
+        );
+      } else {
+        await waitFor(() => server?.requests.length === 1, "the model call");
+      }
+      gateway.interrupt("1");
+      const summary = await loop;
+
+      const finalized = gateway.finalized[0];
+      expect(finalized?.terminal.result).toMatchObject({
+        terminal_reason: terminalReason,
+      });
+      if (withCheckpoint) {
+        expect(summary.turns).toEqual([
+          {
+            turnId: "1",
+            status: "interrupted",
+            reason: "error_during_execution",
+          },
+        ]);
+        expect(finalized?.checkpoint).toEqual(
+          (checkpoints as ReturnType<typeof committing>).refs[0] ?? null,
+        );
+        expect(finalized?.checkpoint).not.toBeNull();
+      } else {
+        expect(summary.turns).toEqual([
+          {
+            turnId: "1",
+            status: "outcome_unknown",
+            reason: "interrupt_checkpoint_unavailable",
+          },
+        ]);
+        expect(finalized?.checkpoint).toBeNull();
+        expect(summary.outcome).toBe("drained");
+      }
+      // The tool never ran: its permission was voided by the interrupt.
+      expect(await Bun.file(`${workspace}/interrupted.txt`).exists()).toBe(
+        false,
+      );
+    },
+    90_000,
+  );
 });

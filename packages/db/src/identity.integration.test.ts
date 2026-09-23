@@ -94,6 +94,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "last_transcript_persisted_at",
     // 0107 (94S-131); arrives as 0, not null
     "cost_usd",
+    // 0110 (94S-225)
+    "workspace_reclaim_id",
+    "workspace_reclaim_workspace_id",
+    "workspace_reclaim_claimed_at",
+    "workspace_reclaimed_at",
     // 94S-204
     "checkpoint_fallback_revision",
     "checkpoint_restore_attempt_id",
@@ -165,8 +170,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 11, total: 20 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 20 });
+      expect(first).toEqual({ adopted: 0, applied: 13, total: 22 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 22 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

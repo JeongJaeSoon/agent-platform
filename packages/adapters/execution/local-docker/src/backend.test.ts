@@ -121,6 +121,10 @@ class FakeDocker {
   createReturnsLabels: Record<string, string> | null = null;
   /** The next create fails with 400 and quotes the request body back. */
   echoNextCreate = false;
+  /** Every start is refused with 500, the way an OCI runtime error is. */
+  refuseStarts = false;
+  /** Every start waits this long before it answers, and then takes. */
+  stallStartsMs = 0;
 
   constructor() {
     this.addOther("egress-proxy-a", { [LABELS.egressProxy]: "test-a" });
@@ -599,6 +603,16 @@ class FakeDocker {
     const container = this.byIdOrName(key);
     if (!container) return json({ message: `No such container: ${key}` }, 404);
     if (request.method === "POST" && action === "start") {
+      if (this.refuseStarts) {
+        return json(
+          {
+            message:
+              "failed to create task for container: OCI runtime create failed",
+          },
+          500,
+        );
+      }
+      if (this.stallStartsMs > 0) await Bun.sleep(this.stallStartsMs);
       if (container.status === "running")
         return new Response(null, { status: 304 });
       container.status = "running";
@@ -1241,6 +1255,48 @@ describe("LocalDockerBackend.ensureExecution", () => {
     docker.add(containerNameFor(intent, "test-a"), body, "created");
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
+  });
+
+  test("a start the daemon refuses takes the created container away, so the retry creates afresh", async () => {
+    const intent = intentFor();
+    docker.refuseStarts = true;
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      /OCI runtime create failed.*; the created container was removed$/,
+    );
+    expect(docker.containers.size).toBe(0);
+
+    docker.refuseStarts = false;
+    const retried = await backend.ensureExecution(intent);
+    expect(retried).toMatchObject({ created: true, state: "running" });
+    expect(nonceIssues).toBe(2);
+  });
+
+  test("a refused start of a created-but-never-started container takes it away too", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    seedMountedWorkspace(docker, body, intent.sessionId);
+    docker.add(containerNameFor(intent, "test-a"), body, "created");
+    docker.refuseStarts = true;
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "the created container was removed",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a start that never answered leaves the container for the next pass to inspect", async () => {
+    const client = new DockerClient(docker.host, "v1.44", { timeoutMs: 200 });
+    const impatient = new LocalDockerBackend(configFor(docker.host), client);
+    const intent = intentFor();
+    docker.stallStartsMs = 1_000;
+    await expect(impatient.ensureExecution(intent)).rejects.toBeInstanceOf(
+      DockerTimeoutError,
+    );
+    // The start may have taken, so nothing is removed on a guess.
+    await Bun.sleep(1_000);
+    expect(docker.containers.size).toBe(1);
+    docker.stallStartsMs = 0;
+    const state = await impatient.inspect(intent);
+    expect(state).toMatchObject({ found: true, state: "running" });
   });
 
   test("a created container is not started on a workspace that lost its ceiling", async () => {
@@ -3197,5 +3253,20 @@ describe("LocalDockerBackend workspace GC", () => {
       outcome: "not_ours",
     });
     expect(docker.volumes.has("ap-ws-test-b-session-3")).toBe(true);
+  });
+
+  test("a removal asked for one session leaves another session's volume", async () => {
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    expect(
+      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+        sessionId: "session-2",
+      }),
+    ).toEqual({ outcome: "not_ours" });
+    expect(docker.volumes.has("ap-ws-test-a-session-1")).toBe(true);
+    expect(
+      await backend.removeWorkspace("ap-ws-test-a-session-1", {
+        sessionId: "session-1",
+      }),
+    ).toEqual({ outcome: "removed" });
   });
 });

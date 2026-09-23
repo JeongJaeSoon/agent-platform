@@ -285,6 +285,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
                 sha256: object.sha256,
                 ...versionOnWire(object),
                 path: object.path,
+                ...(object.executable === true ? { executable: true } : {}),
               })),
             }
           : {

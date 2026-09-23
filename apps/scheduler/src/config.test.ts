@@ -112,4 +112,22 @@ describe("schedulerConfigFromEnv", () => {
       schedulerConfigFromEnv({ ...base, EXECUTION_SLOT_LIMIT: "0" }).slotLimit,
     ).toBe(0);
   });
+
+  test("a stopped session keeps its workspace for a day unless told otherwise", () => {
+    expect(schedulerConfigFromEnv(base).stoppedWorkspaceTtlMs).toBe(
+      24 * 60 * 60 * 1_000,
+    );
+    expect(
+      schedulerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0",
+      }).stoppedWorkspaceTtlMs,
+    ).toBe(0);
+    expect(() =>
+      schedulerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "1.5",
+      }),
+    ).toThrow("EXECUTION_WORKSPACE_STOPPED_TTL_SEC");
+  });
 });

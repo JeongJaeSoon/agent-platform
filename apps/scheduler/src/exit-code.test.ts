@@ -10,6 +10,8 @@ const clean: SchedulerRunSummary = {
   killFailed: [],
   killed: [],
   launched: [],
+  launchesBackingOff: [],
+  launchesQuarantined: [],
   networkScanFailed: false,
   networksFailed: [],
   networksReclaimed: [],
@@ -46,6 +48,11 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, replacementsExhausted: [ref] })).toBe(1);
+  });
+
+  test("a launch backing off or given up on exits 1", () => {
+    expect(exitCodeFor({ ...clean, launchesBackingOff: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...clean, launchesQuarantined: [ref] })).toBe(1);
   });
 
   test("a worker network left leaking or cut off exits 1; one reclaimed or repaired does not", () => {

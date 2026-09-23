@@ -1,6 +1,6 @@
 {
-  "id": "41fff34e-d94b-483b-91c2-9b5e2d452641",
-  "prevId": "3f4acdb3-d6fa-468c-b574-7037cc693325",
+  "id": "02969552-b0a3-43da-b8cb-f19c0386cab4",
+  "prevId": "41fff34e-d94b-483b-91c2-9b5e2d452641",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2585,6 +2585,32 @@
           "primaryKey": false,
           "notNull": false
         },
+        "launch_failure_count": {
+          "name": "launch_failure_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "launch_attempts": {
+          "name": "launch_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "launch_retry_at": {
+          "name": "launch_retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_launch_error": {
+          "name": "last_launch_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "slot_reserved_at": {
           "name": "slot_reserved_at",
           "type": "timestamp with time zone",
@@ -2681,6 +2707,14 @@
         "worker_launches_launch_spec_check": {
           "name": "worker_launches_launch_spec_check",
           "value": "(\"worker_launches\".\"image\" IS NULL) = (\"worker_launches\".\"resources\" IS NULL)"
+        },
+        "worker_launches_launch_failure_count_check": {
+          "name": "worker_launches_launch_failure_count_check",
+          "value": "\"worker_launches\".\"launch_failure_count\" >= 0"
+        },
+        "worker_launches_launch_attempts_check": {
+          "name": "worker_launches_launch_attempts_check",
+          "value": "\"worker_launches\".\"launch_attempts\" >= 0"
         }
       },
       "isRLSEnabled": false

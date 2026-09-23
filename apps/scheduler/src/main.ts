@@ -91,13 +91,16 @@ export async function main(
         "Workspace quota preflight failed; reclaiming workspaces before giving up",
         { error: messageOf(error) },
       );
-      await reclaimWorkspaces({ backend, logger, store }).catch(
-        (reclaimError: unknown) => {
-          logger.error("Workspace reclaim failed", {
-            error: messageOf(reclaimError),
-          });
-        },
-      );
+      await reclaimWorkspaces({
+        backend,
+        logger,
+        stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
+        store,
+      }).catch((reclaimError: unknown) => {
+        logger.error("Workspace reclaim failed", {
+          error: messageOf(reclaimError),
+        });
+      });
       throw error;
     }
     const summary = await runScheduler({
@@ -106,6 +109,7 @@ export async function main(
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
+      stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
     });
     // The pass records a lost connection against each execution it was
@@ -128,6 +132,10 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
     summary.killFailed.length > 0 ||
+    // A launch waiting out its backoff is one that is failing; one given up
+    // on failed its session's input. Neither is a pass with nothing to say.
+    summary.launchesBackingOff.length > 0 ||
+    summary.launchesQuarantined.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.
     summary.networkScanFailed ||
