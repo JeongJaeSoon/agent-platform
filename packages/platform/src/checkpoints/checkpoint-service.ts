@@ -118,6 +118,16 @@ export type CheckpointServiceDependencies = {
    */
   maxConcurrentBundleVerifications?: number;
   /**
+   * Largest manifest the control plane will read, in bytes, and the most
+   * objects one may name. The worker writes the manifest, so both are
+   * untrusted: without them a claimed worker makes a finalize hold an
+   * arbitrarily large object in memory, or fan out one HEAD and GET per
+   * reference it cares to list. The size is checked with a HEAD before the
+   * body is fetched and again on the bytes that arrived.
+   */
+  maxManifestBytes?: number;
+  maxManifestObjects?: number;
+  /**
    * Largest workspace bundle the control plane will read, in bytes.
    *
    * Verifying one means holding it whole to hash it, and the S3 adapter
@@ -145,6 +155,11 @@ export type CheckpointServiceDependencies = {
 };
 
 export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
+// A reference is about 200 bytes of canonical JSON, so the object limit
+// is what binds first; both sit far above what a mirror of a long session
+// produces today (one part per flushed batch).
+export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 
 /**
@@ -183,6 +198,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const maxBundleBytes =
     deps.maxWorkspaceBundleBytes ?? DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES;
   const bundles = deps.workspaceBundles ?? rejectUnverifiedWorkspaceBundles;
+  const maxManifestBytes = deps.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES;
+  const maxManifestObjects =
+    deps.maxManifestObjects ?? DEFAULT_MAX_MANIFEST_OBJECTS;
   const bundleGate = createGate(
     deps.maxConcurrentBundleVerifications ??
       DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
@@ -199,13 +217,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verified?: ReadonlySet<string>;
   }): Promise<ManifestVerdict> {
     const { checkpoint, sessionId } = input;
+    const missing: ManifestVerdict = {
+      status: "rejected",
+      reason: `manifest object is missing: ${checkpoint.manifest_ref}`,
+    };
+    const tooLarge = (bytes: number): ManifestVerdict => ({
+      status: "rejected",
+      reason: `manifest is ${bytes} bytes, over the ${maxManifestBytes}-byte limit`,
+    });
+    const size = await objects.head(checkpoint.manifest_ref);
+    if (size === undefined) return missing;
+    if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
     const bytes = await objects.get(checkpoint.manifest_ref);
-    if (bytes === undefined) {
-      return {
-        status: "rejected",
-        reason: `manifest object is missing: ${checkpoint.manifest_ref}`,
-      };
-    }
+    if (bytes === undefined) return missing;
+    // Replaced between the two reads: judge what actually arrived.
+    if (bytes.byteLength > maxManifestBytes) return tooLarge(bytes.byteLength);
     const digest = sha256(bytes);
     if (digest !== checkpoint.manifest_sha256) {
       return {
@@ -286,6 +312,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
       ...manifest.workspace.untracked,
     ];
+    // Counted before any request goes out: the bundle is the one more.
+    if (refs.length + 1 > maxManifestObjects) {
+      return `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`;
+    }
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {

@@ -624,6 +624,64 @@ describe("validateManifest", () => {
     });
   });
 
+  test("refuses a manifest over the byte limit without fetching its body", async () => {
+    // The worker wrote it: its size is untrusted, so a HEAD decides first.
+    const fetched: string[] = [];
+    const watched = {
+      ...objects,
+      head: objects.head.bind(objects),
+      async get(key: string) {
+        fetched.push(key);
+        return objects.get(key);
+      },
+    };
+    const capped = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxManifestBytes: 64,
+      objects: watched,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await capped.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/over the 64-byte limit/),
+    });
+    expect(fetched).toEqual([]);
+  });
+
+  test("refuses a manifest naming more objects than the limit before any request", async () => {
+    const heads: string[] = [];
+    const watched = {
+      ...objects,
+      get: objects.get.bind(objects),
+      async head(key: string) {
+        heads.push(key);
+        return objects.head(key);
+      },
+    };
+    const capped = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxManifestObjects: 1,
+      objects: watched,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await capped.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/over the 1-object limit/),
+    });
+    // Only the manifest itself was looked at.
+    expect(heads).toEqual([checkpoint.manifest_ref]);
+  });
+
   test("defers the commit question to the injected bundle verifier", async () => {
     // A deployment that wants git-grade assurance swaps this port out; the
     // service must ask it rather than settle the question itself.
