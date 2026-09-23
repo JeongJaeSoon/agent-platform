@@ -2503,6 +2503,40 @@ describe("reclaimNetworks", () => {
     expect(summary.skipped).toBe(true);
     expect(asked).toBe(false);
   });
+
+  test("a lock lost before the reconcile touches no network", async () => {
+    const { backend, logger, store } = harness();
+    let asked = false;
+    backend.reconcileNetworks = async () => {
+      asked = true;
+      return { failed: [], removed: [], repaired: [] };
+    };
+    const acquire = store.acquirePassLock.bind(store);
+    store.acquirePassLock = async () => {
+      const lock = await acquire();
+      store.loseLock();
+      return lock;
+    };
+
+    await expect(reclaimNetworks({ backend, logger, store })).rejects.toThrow(
+      "pass lock connection ended",
+    );
+    expect(asked).toBe(false);
+    expect(store.locked).toBe(false);
+  });
+
+  test("a lock lost during the reconcile still fails it", async () => {
+    const { backend, logger, store } = harness();
+    backend.reconcileNetworks = async () => {
+      store.loseLock();
+      return { failed: [], removed: ["ap-net-gone"], repaired: [] };
+    };
+
+    await expect(reclaimNetworks({ backend, logger, store })).rejects.toThrow(
+      "pass lock connection ended",
+    );
+    expect(store.locked).toBe(false);
+  });
 });
 
 describe("runScheduler workspace GC", () => {
