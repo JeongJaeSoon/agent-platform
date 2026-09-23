@@ -280,6 +280,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     chaos = new Chaos(env.chaosUrl);
     messages = new Messages(env.messagesUrl);
     workers = new Workers(env.installation, env.out);
+    workers.watch();
     await collectMeta();
   });
 
@@ -296,6 +297,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "out of this gate by decision (94S-247 comment, decided with Codex): LocalStack and the scripted Messages API stand in; the real-service smoke is its own ticket before an external release",
     });
     await report.write(env.out);
+    workers?.stop();
     await db?.end();
   });
 
@@ -322,8 +324,8 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const created = await api.createSession(prompt("Turn one.", spec1));
     const sessionId = created.session_id;
     report.meta.session_a = sessionId;
+    const first = await workers.running(sessionId);
     const turn1 = await api.settle(sessionId, created.turn_id, TURN_MS);
-    const first = await workers.running(sessionId, 10_000);
     const engine1 = await workers.engine(first.name);
     report.check({
       id: "A-01",
@@ -336,11 +338,9 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         status: turn1.status,
         terminal_reason: turn1.terminal_reason,
         container: first.name,
-        image: (await workers.inspect(first.name)).Config.Image,
+        image: first.image,
       },
-      pass:
-        turn1.status === "completed" &&
-        (await workers.inspect(first.name)).Config.Image === env?.workerImage,
+      pass: turn1.status === "completed" && first.image === env?.workerImage,
     });
 
     // Turn 2 reads and rewrites the file on the same engine, and loses the

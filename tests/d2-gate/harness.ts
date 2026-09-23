@@ -514,14 +514,19 @@ export type WorkerContainer = {
   executionId: string;
   generation: number;
   id: string;
+  image: string;
   name: string;
   state: string;
 };
 
-export type WorkerEvent = { [field: string]: any; at: string; event: string };
+export type WorkerEvent = { [field: string]: any; event: string };
 
 export class Workers {
-  private readonly following = new Map<string, string>();
+  private readonly following = new Map<
+    string,
+    { file: string; process: { kill(): void } }
+  >();
+  private watching: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly installation: string,
@@ -541,7 +546,7 @@ export class Workers {
       "--filter",
       "name=ap-worker-",
       "--format",
-      '{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "agent-platform.generation"}}\t{{.Label "agent-platform.session-execution-id"}}',
+      '{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "agent-platform.generation"}}\t{{.Label "agent-platform.session-execution-id"}}\t{{.Image}}',
     ]);
     return stdout
       .split("\n")
@@ -553,8 +558,16 @@ export class Workers {
           state = "",
           generation = "0",
           executionId = "",
+          image = "",
         ] = line.split("\t");
-        return { executionId, generation: Number(generation), id, name, state };
+        return {
+          executionId,
+          generation: Number(generation),
+          id,
+          image,
+          name,
+          state,
+        };
       })
       .sort((a, b) => b.generation - a.generation);
   }
@@ -584,19 +597,49 @@ export class Workers {
    */
   follow(name: string): string {
     const existing = this.following.get(name);
-    if (existing) return existing;
+    if (existing) return existing.file;
     const file = join(this.out, `${name}.log`);
-    Bun.spawn(["docker", "logs", "-f", name], {
+    const process = Bun.spawn(["docker", "logs", "-f", name], {
       stderr: Bun.file(`${file}.stderr`),
       stdout: Bun.file(file),
     });
-    this.following.set(name, file);
+    this.following.set(name, { file, process });
     return file;
   }
 
   /**
-   * The worker's structured log (packages/observability): each line's
-   * message as `event`, its fields spread beside it.
+   * Follows every worker of the installation from the moment it shows up,
+   * so a worker that dies before a test looks for it still leaves its log.
+   */
+  watch(): void {
+    if (this.watching) return;
+    this.watching = setInterval(async () => {
+      const { stdout } = await run(
+        [
+          "docker",
+          "ps",
+          "-a",
+          "--filter",
+          `label=agent-platform.installation=${this.installation}`,
+          "--filter",
+          "name=ap-worker-",
+          "--format",
+          "{{.Names}}",
+        ],
+        { allowFail: true },
+      );
+      for (const name of stdout.split("\n").filter(Boolean)) this.follow(name);
+    }, 500);
+  }
+
+  stop(): void {
+    if (this.watching) clearInterval(this.watching);
+    for (const { process } of this.following.values()) process.kill();
+  }
+
+  /**
+   * The worker's structured log: one `{level, event, ...fields}` object per
+   * line (apps/worker/src/worker-host.ts `log`).
    */
   async events(name: string): Promise<WorkerEvent[]> {
     const file = this.follow(name);
@@ -607,17 +650,8 @@ export class Workers {
     for (const line of text.split("\n")) {
       if (!line.startsWith("{")) continue;
       try {
-        const record = JSON.parse(line) as {
-          fields?: Record<string, unknown>;
-          message?: string;
-          timestamp?: string;
-        };
-        if (typeof record.message !== "string") continue;
-        lines.push({
-          ...record.fields,
-          at: record.timestamp ?? "",
-          event: record.message,
-        });
+        const record = JSON.parse(line) as Record<string, unknown>;
+        if (typeof record.event === "string") lines.push(record as WorkerEvent);
       } catch {}
     }
     return lines;
