@@ -3,6 +3,7 @@ import type {
   AttemptState,
   BootstrapClaimResponse,
   CheckpointRef,
+  ClaimPrincipal,
   NextInputResponse,
   RuntimeConfig,
   SessionRuntime,
@@ -37,9 +38,16 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
   useCredential(credential: string): void;
 }
 
-/** `runtimeConfig` is the claim's: the server resolved it from the session's profile. */
+/**
+ * `runtimeConfig` is the claim's: the server resolved it from the session's
+ * profile. `principal` is the claim's too — the session's owner partition,
+ * which the runtime hashes into every checkpoint fingerprint (94S-209). It
+ * is never defaulted here: a worker that made one up would let two
+ * partitions on one provider resume each other's checkpoints.
+ */
 export type RuntimeLaunch = RuntimeResumePlan & {
   correlationId: string;
+  principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
 };
 
@@ -267,6 +275,7 @@ export class WorkerHost {
           {
             ...plan,
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
+            principal: claim.principal,
             runtimeConfig: claim.runtime_config,
           },
           { onPermission: (request) => this.onPermission(request) },

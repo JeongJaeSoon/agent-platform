@@ -114,7 +114,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
       return {
         launcherFor: () => ({
           // What to run comes from the claim, as in composition.
-          start: ({ runtimeConfig, ...launch }, hooks) =>
+          start: ({ runtimeConfig, principal, ...launch }, hooks) =>
             runtime.start(
               {
                 claudeConfigDir: home,
@@ -123,7 +123,10 @@ describe("WorkerHost against the actual Claude SDK", () => {
                 maxTurns: 4,
                 model: runtimeConfig.model,
                 permissionMode: runtimeConfig.permission_mode,
-                profile: runtimeConfig.provider,
+                profile: {
+                  ...runtimeConfig.provider,
+                  principal: { ownerScope: principal.owner_scope },
+                },
                 settingSources: ["project"],
                 tools: runtimeConfig.tools,
                 ...launch,
