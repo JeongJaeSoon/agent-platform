@@ -170,7 +170,7 @@ engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session
 | 모델 호출 | `rr1`, `rr2` | 없음(새 스택) | `rr3`만, history `[rr1, rr2, rr3]` | PASS |
 | worker image | backup `images.worker` = 원본 worker | — | 복원본 worker와 같음 | PASS |
 
-verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 원본은 backup 뒤 container·volume·network가 하나도 남지 않았다.
+verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 원본은 backup 뒤 installation 라벨의 container·volume과 compose project 자원이 하나도 남지 않았다(이 실행 뒤 스크립트는 installation 라벨 network까지 확인한다).
 
 ## 로컬에서 끝까지 돌려 보기
 
