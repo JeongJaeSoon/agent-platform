@@ -284,15 +284,8 @@ async function collectMeta(): Promise<void> {
     postgres_image: await containerImage("postgres"),
     localstack_image: await containerImage("localstack"),
     gitea_image: await containerImage("gitea"),
+    // Built by run.sh from this checkout, like the three app images.
     egress_proxy_image: await containerImage("egress-proxy"),
-    // The proxy runs its source from a bind mount, not from an image.
-    egress_proxy_source: await text([
-      "docker",
-      "inspect",
-      "--format",
-      "{{range .Mounts}}{{.Source}}{{end}}",
-      `${env.project}-egress-proxy-1`,
-    ]),
     claude_agent_sdk: await inWorker(
       'sed -n \'s/^  "version": "\\(.*\\)",$/\\1/p\' /app/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
     ),
