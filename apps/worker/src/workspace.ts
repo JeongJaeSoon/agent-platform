@@ -6,6 +6,9 @@ import type {
   WorkspaceDescriptor,
 } from "@agent-platform/contracts";
 import {
+  type GitResourceLimits,
+  gitCommand,
+  killProcessGroup,
   planWorkspacePreparation,
   type WorkspaceObservation,
   type WorkspacePlan,
@@ -645,7 +648,7 @@ export type GitExtras = {
 
 /** Long enough for a large clone; a local command gets far less. */
 const NETWORK_DEADLINE_MS = 30 * 60_000;
-const LOCAL_DEADLINE_MS = 2 * 60_000;
+export const LOCAL_DEADLINE_MS = 2 * 60_000;
 
 /** `network` is null for calls that must not leave this machine. */
 function gitEnvironment(
@@ -700,7 +703,15 @@ function gitEnvironment(
 
 export type GitRunOptions = {
   cwd: string;
+  /** For tests; otherwise set by whether git may reach the network. */
+  deadlineMs?: number;
   extra?: GitExtras;
+  /**
+   * Caps git and every helper it forks (Linux only, see `gitCommand`); one
+   * that runs out is reported as `GitResourceLimitError`. Unset, git shares
+   * the worker's memory, disk and CPU.
+   */
+  limits?: GitResourceLimits;
   network: Remote | null;
   overrides: Array<[string, string]>;
   redact: (text: string) => string;
@@ -716,6 +727,18 @@ export class GitOutputLimitError extends Error {
 }
 
 /**
+ * A git run under `GitRunOptions.limits` ran out of memory, file size or
+ * CPU. Thrown rather than returned as an exit code, so that callers which
+ * read a failed probe as an answer do not read this one as one.
+ */
+export class GitResourceLimitError extends Error {
+  constructor(detail: string) {
+    super(`git ran out of its resource limits: ${detail}`);
+    this.name = "GitResourceLimitError";
+  }
+}
+
+/**
  * What git says on stderr is kept only up to this: enough for the last lines
  * a failure is reported with, and not a buffer a hostile repository fills.
  */
@@ -723,12 +746,22 @@ const STDERR_LIMIT_BYTES = 64 * 1024;
 
 /**
  * How long the pipes are read once git itself has exited. A helper it forked
- * (`pack-objects`, `index-pack`) shares them, and one that outlives a killed
- * git would otherwise hold the read open for as long as it runs. Only the
- * leader is killed, so such a helper runs on until its next write fails;
- * killing the whole process group is 94S-289.
+ * (`pack-objects`, `index-pack`) shares them, and one that outlives a git
+ * that exited on its own would otherwise hold the read open for as long as it
+ * runs. Such a helper is not killed (see `runGitBytes`): it runs on until its
+ * next write fails, and under `limits` no longer than its own CPU allowance.
  */
 const PIPE_GRACE_MS = 2_000;
+
+/**
+ * How git reports, in its last lines, a helper or an allocation that a limit
+ * stopped. Read only from the end of stderr, where git's own verdict is, and
+ * only for a run with limits; a path that happens to say the same can at
+ * worst turn a failure into a limit failure, which fails the same way.
+ */
+const LIMIT_MESSAGES =
+  /out of memory|cannot allocate memory|file too large|died of signal (9|24|25)\b/i;
+const LIMIT_SIGNALS = new Set(["SIGKILL", "SIGXCPU", "SIGXFSZ"]);
 
 export async function runGit(
   args: string[],
@@ -747,6 +780,12 @@ export async function runGit(
  * (a bundle) or whose names must not be decoded lossily. Past `maxStdoutBytes`
  * the child is killed and `GitOutputLimitError` thrown, so a limit is enforced
  * while git runs rather than after it has filled memory.
+ *
+ * git leads a process group of its own, and a stop — the signal, the
+ * deadline, the stdout limit — kills the whole group: the helpers git forks
+ * (`pack-objects`, `index-pack`) inherit its pipes and would otherwise run
+ * on after it. Only while git itself has not been reaped, though; after that
+ * its number may be someone else's group (see `killProcessGroup`).
  */
 export async function runGitBytes(
   args: string[],
@@ -754,30 +793,55 @@ export async function runGitBytes(
 ): Promise<{ code: number; stderr: string; stdout: Uint8Array }> {
   const { network, redact, signal } = options;
   signal.throwIfAborted();
-  const child = Bun.spawn(["git", ...args], {
+  const child = Bun.spawn(gitCommand(args, options.limits), {
     cwd: options.cwd,
+    detached: true,
     env: gitEnvironment(network, options.overrides, options.extra),
-    killSignal: "SIGKILL",
-    signal,
-    timeout: network === null ? LOCAL_DEADLINE_MS : NETWORK_DEADLINE_MS,
     stderr: "pipe",
     stdin: "ignore",
     stdout: "pipe",
   });
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+    if (child.exitCode === null && child.signalCode === null) {
+      killProcessGroup(child.pid);
+    }
+  };
+  const deadlineMs =
+    options.deadlineMs ??
+    (network === null ? LOCAL_DEADLINE_MS : NETWORK_DEADLINE_MS);
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    stop();
+  }, deadlineMs);
+  signal.addEventListener("abort", stop);
   const limit = options.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
   const abandon = child.exited.then(() => Bun.sleep(PIPE_GRACE_MS));
-  const [stdout, stderr, code] = await Promise.all([
-    collect(child.stdout, limit, abandon, () => child.kill("SIGKILL")),
-    collect(child.stderr, STDERR_LIMIT_BYTES, abandon),
-    child.exited,
-  ]);
+  let collected: [Collected, Collected, number];
+  try {
+    collected = await Promise.all([
+      collect(child.stdout, limit, abandon, stop),
+      collect(child.stderr, STDERR_LIMIT_BYTES, abandon),
+      child.exited,
+    ]);
+  } finally {
+    clearTimeout(deadline);
+    signal.removeEventListener("abort", stop);
+  }
+  const [stdout, stderr, code] = collected;
   signal.throwIfAborted();
   if (stdout.overflowed) throw new GitOutputLimitError(limit);
-  return {
-    code,
-    stdout: stdout.bytes,
-    stderr: redact(new TextDecoder().decode(stderr.bytes)),
-  };
+  let said = redact(new TextDecoder().decode(stderr.bytes));
+  if (options.limits !== undefined && !stopped && code !== 0) {
+    const last = said.trim().split("\n").slice(-2).join("\n");
+    const killedBy = child.signalCode ?? "";
+    if (LIMIT_SIGNALS.has(killedBy)) throw new GitResourceLimitError(killedBy);
+    if (LIMIT_MESSAGES.test(last)) throw new GitResourceLimitError(last);
+  }
+  if (timedOut) said += `\ngit ran past its ${deadlineMs}ms deadline`;
+  return { code, stdout: stdout.bytes, stderr: said };
 }
 
 /**
@@ -788,12 +852,14 @@ export async function runGitBytes(
  */
 const ABANDONED = Symbol("abandoned");
 
+type Collected = { bytes: Uint8Array; overflowed: boolean };
+
 async function collect(
   stream: ReadableStream<Uint8Array>,
   limit: number,
   abandon: Promise<void>,
   onOverflow?: () => void,
-): Promise<{ bytes: Uint8Array; overflowed: boolean }> {
+): Promise<Collected> {
   const chunks: Uint8Array[] = [];
   let held = 0;
   let overflowed = false;
