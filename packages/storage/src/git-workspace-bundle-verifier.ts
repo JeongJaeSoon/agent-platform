@@ -329,10 +329,19 @@ const HOST_FAULTS = [
   "cannot allocate memory",
   "out of memory",
   "read-only file system",
-  // A helper killed outright — by a file-size or CPU limit, or by anyone
-  // else — never got to say what it thought of the pack.
-  "died of signal",
 ];
+
+/**
+ * How fetch reports a helper killed outright — by a file-size or CPU limit,
+ * or by anyone else — which never got to say what it thought of the pack.
+ * Matched only among the last two lines, which are always git's own: fsck
+ * echoes bundle content (a `.gitmodules` URL, say) earlier in stderr. The
+ * words in `HOST_FAULTS` can still be echoed that way, because narrowing
+ * them risks the opposite mistake of retiring a checkpoint over a host
+ * fault; a bundle that talks itself into a retry costs one capped attempt,
+ * and 94S-271 stops it repeating.
+ */
+const HELPER_KILLED = /^error: [\w-]+ died of signal \d+$/;
 
 function refused(
   command: string,
@@ -349,6 +358,14 @@ function refused(
   // git out of memory would otherwise be judged by its complaints alone.
   if (result.truncated) {
     throw new Error(`${message} (output cut short, so not classified)`);
+  }
+  if (
+    detail
+      .split("\n")
+      .slice(-2)
+      .some((line) => HELPER_KILLED.test(line))
+  ) {
+    throw new Error(message);
   }
   const lowered = detail.toLowerCase();
   if (HOST_FAULTS.some((fault) => lowered.includes(fault))) {

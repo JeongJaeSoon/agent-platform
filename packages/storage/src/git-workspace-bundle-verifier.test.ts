@@ -606,6 +606,27 @@ describe("git workspace bundle verifier", () => {
       ).rejects.toThrow(stderr.trim().split("\n")[0] as string);
       expect(await readdir(tempRoot)).toEqual([]);
     }
+    // A helper killed after it had already complained is still a kill: the
+    // complaint is not the reason git stopped.
+    const complainedThenKilled = createGitWorkspaceBundleVerifier({
+      gitRunner: async (args) =>
+        args[0] === "init"
+          ? { exitCode: 0, stderr: "", stdout: "" }
+          : {
+              exitCode: 1,
+              stderr:
+                "error: object 1234: badDate: invalid author/committer line - bad date\nerror: index-pack died of signal 25\nerror: index-pack died\n",
+              stdout: "",
+            },
+      tempRoot,
+    });
+    await expect(
+      complainedThenKilled.verify({
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
+    ).rejects.toThrow("died of signal 25");
     // The limit hitting git itself rather than a helper.
     for (const signal of ["SIGXFSZ", "SIGXCPU", "SIGKILL"]) {
       const verifier = createGitWorkspaceBundleVerifier({
@@ -622,6 +643,33 @@ describe("git workspace bundle verifier", () => {
           key: "k",
         }),
       ).rejects.toThrow(`git fetch was killed by ${signal}`);
+    }
+  });
+
+  test("a bundle cannot pass its refusal off as a killed helper by echoing the words", async () => {
+    // fsck quotes a rejected `.gitmodules` URL, and a config value can carry
+    // an escaped newline, so the words can even start a line of their own.
+    for (const echoed of [
+      "error: object 1234: gitmodulesUrl: disallowed submodule url: -died of signal\n",
+      "error: object 1234: gitmodulesUrl: disallowed submodule url: -x\nerror: index-pack died of signal 9\n",
+    ]) {
+      const verifier = createGitWorkspaceBundleVerifier({
+        gitRunner: async (args) =>
+          args[0] === "init"
+            ? { exitCode: 0, stderr: "", stdout: "" }
+            : {
+                exitCode: 1,
+                stderr: `${echoed}fatal: fsck error in packed object\nerror: index-pack died\n`,
+                stdout: "",
+              },
+        tempRoot,
+      });
+      const verdict = await verifier.verify({
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      });
+      expect(verdict.status).toBe("unusable");
     }
   });
 
