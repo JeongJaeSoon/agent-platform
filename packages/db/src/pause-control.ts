@@ -154,7 +154,10 @@ export async function pauseBlocker(
 
 export async function pauseReceiptResult(
   tx: Database,
-  session: Pick<SessionRow, "id" | "checkpointRevision">,
+  session: Pick<
+    SessionRow,
+    "id" | "checkpointRevision" | "checkpointFallbackRevision"
+  >,
 ): Promise<PauseReceiptResult> {
   const [queued] = await tx
     .select({ count: count() })
@@ -162,7 +165,8 @@ export async function pauseReceiptResult(
     .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")));
   return {
     resulting_admission_state: "paused",
-    checkpoint_revision: session.checkpointRevision,
+    // What the pause was judged safe on, and what a resume restores.
+    checkpoint_revision: restoreBaseRevision(session),
     queued_turn_count: queued?.count ?? 0,
   };
 }
