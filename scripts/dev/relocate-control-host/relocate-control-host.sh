@@ -42,9 +42,13 @@ git mv apps/scheduler/src apps/control-host/src/scheduler
 git mv apps/reconciler/src apps/control-host/src/reconciler
 git rm -q apps/scheduler/Dockerfile apps/scheduler/package.json apps/scheduler/tsconfig.json \
   apps/reconciler/package.json apps/reconciler/tsconfig.json
-# git mv leaves ignored node_modules behind; nothing tracked may remain.
+# git mv leaves ignored node_modules behind. Anything else left there is an
+# ignored file someone keeps (a local env file), so stop rather than delete it.
 for old in apps/api apps/scheduler apps/reconciler; do
   test -z "$(git ls-files -- "$old")" || { echo "$old still has tracked files" >&2; exit 1; }
+  test -e "$old" || continue
+  kept="$(find "$old" -name node_modules -prune -o -type f ! -name .DS_Store -print)"
+  test -z "$kept" || { printf '%s holds ignored files; move them first:\n%s\n' "$old" "$kept" >&2; exit 1; }
   /bin/rm -rf "$old"
 done
 

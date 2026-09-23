@@ -163,18 +163,19 @@ replace(SRC / "reconciler/main.integration.test.ts",
         '[process.execPath, "run", `${import.meta.dir}/../main.ts`, "reconciler"]')
 
 # One level deeper than before: paths that climb to the repository root.
+# An expression may be wrapped across lines, so match from `import.meta.dir`
+# to the climb within one statement, and then prove every climb lands.
+CLIMB = re.compile(r"(import\.meta\.dir[^;]{0,80}?)((?:\.\./){2,})(packages/|config\b)", re.S)
 climbed = 0
 for path in (p for d in ("api", "scheduler", "reconciler") for p in (SRC / d).rglob("*.ts")):
     text = read(path)
-    new_lines = []
-    for line in text.split("\n"):
-        if "import.meta.dir" in line:
-            line, n = re.subn(r"((?:\.\./){2,})(packages/|config\b)", r"\1../\2", line)
-            climbed += n
-        new_lines.append(line)
-    new = "\n".join(new_lines)
-    if new != text:
+    new, n = CLIMB.subn(r"\1\2../\3", text)
+    climbed += n
+    if n:
         write(path, new)
+    for match in CLIMB.finditer(new):
+        target = (path.parent / match.group(2) / match.group(3).rstrip("/")).resolve()
+        assert target.is_dir(), f"{path}: {match.group(2)}{match.group(3)} does not land on {target}"
 assert climbed >= 6, climbed
 
 # Bun serves a default export only from the entry module, and server.ts is
@@ -182,6 +183,8 @@ assert climbed >= 6, climbed
 server = SRC / "api/server.ts"
 if "\nexport default {\n" in read(server):
     sub(server, r"\nexport default \{\n(.*)\n\};\n$", r"\nBun.serve({\n\1\n});\n", flags=re.S)
+if "export default" in read(server) or "Bun.serve(" not in read(server):
+    raise SystemExit(f"{server}: the api role must listen through Bun.serve, not a default export")
 
 server_it = SRC / "api/server.integration.ts"
 sub(server_it, r"cwd: `\$\{import\.meta\.dir\}/\.\.`", "cwd: `${import.meta.dir}/../..`", count=4)
@@ -282,6 +285,9 @@ images_yml = ".github/workflows/images.yml"
 sub(images_yml, r"(app: \[)([^\]]*)\]", without_scheduler, count=2)
 sub(images_yml, r'(test "\$\(ls staged/\*\.json \| wc -l\)" -eq )(\d+)',
     lambda m: f"{m.group(1)}{int(m.group(2)) - 1}")
+FEWER = {"three": "two", "four": "three", "five": "four"}
+sub(images_yml, r"# Builds the (three|four|five) app images", lambda m: f"# Builds the {FEWER[m.group(1)]} app images")
+sub(images_yml, r"once all (three|four|five) staged digests", lambda m: f"once all {FEWER[m.group(1)]} staged digests")
 smoke = ".github/scripts/image-smoke.sh"
 sub(smoke, r"`image-smoke\.sh <api\|([^>]*)>", lambda m: "`image-smoke.sh <control-host|" +
     "|".join(a for a in m.group(1).split("|") if a != "scheduler") + ">")
@@ -307,7 +313,22 @@ for name in ("installingApps",):
                 ['"control-host"'] + [i.strip() for i in m.group(2).split(",")[1:] if i.strip() != '"scheduler"']) + "]")
 sub(images_test, r'for \(const app of \["api", "scheduler"(, [^\]]*)?\] as const\)',
     lambda m: 'for (const app of ["control-host"' + (m.group(1) or "") + '] as const)')
-sub(images_test, r"basePins\.api\.source", 'basePins["control-host"].source', count=2)
+pins = len(re.findall(r"basePins\.api\.", read(images_test)))
+assert pins >= 2, pins
+sub(images_test, r"basePins\.api\.", 'basePins["control-host"].', count=pins)
+if re.search(r'staged/\*\.json \| wc -l\)" -eq \d', read(images_test)):
+    sub(images_test, r'(staged/\*\.json \| wc -l\)" -eq )(\d+)', lambda m: f"{m.group(1)}{int(m.group(2)) - 1}")
+# 94S-323: an image that is not built here must be pinned by digest. The
+# scheduler runs the one `api` builds, which is released by digest with it.
+if "test(\"every image is built here or pinned by index digest\"" in read(images_test):
+    replace(images_test,
+            "        continue;\n      }\n      expect({ name, image: service.image }).toEqual({\n",
+            "        continue;\n      }\n"
+            "      if (name === \"scheduler\") {\n"
+            "        expect(service.image).toBe(services.api?.image);\n"
+            "        continue;\n"
+            "      }\n"
+            "      expect({ name, image: service.image }).toEqual({\n")
 sub(images_test, r'("app: \[)([^\]]*)\]"', lambda m: without_scheduler(m) + '"')
 replace(images_test,
         '  test("the scheduler loop surfaces persistent failure", () => {\n',
@@ -331,10 +352,11 @@ replace(run_sh, 'export API_IMAGE="agent-platform-api:${project}"\nexport SCHEDU
         'export API_IMAGE="agent-platform-control-host:${project}"\n')
 replace(run_sh, '"$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE"', '"$API_IMAGE" "$WORKER_IMAGE"')
 replace(run_sh, "dc build api scheduler worker ", "dc build api worker ")
-replace(run_sh, "# Builds the api, scheduler and worker images from this checkout",
-        "# Builds the control-host and worker images from this checkout")
-replace(run_sh, "installation id, and the three images are removed on exit.",
-        "installation id, and the two images are removed on exit.")
+# 94S-323 added egress-proxy to the gate's images; either wording goes.
+sub(run_sh, r"# Builds the api, scheduler(,| and) worker",
+    lambda m: "# Builds the control-host" + (", worker" if m.group(1) == "," else " and worker"))
+sub(run_sh, r"the (three|four) images are removed on exit\.",
+    lambda m: f"the {'two' if m.group(1) == 'three' else 'three'} images are removed on exit.")
 sub("tests/d2-gate/harness.ts", r"\n  schedulerImage: string;", "")
 sub("tests/d2-gate/harness.ts", r'\n    schedulerImage: need\("SCHEDULER_IMAGE"\),', "")
 sub("tests/d2-gate.e2e.test.ts", r"\n    scheduler_image: `[^\n]*`,", "")
@@ -402,3 +424,8 @@ sub(readme, r"^\| `agent-platform-api` \|.*\n",
     "| `agent-platform-control-host` | `apps/control-host` 실행물 하나로 api·scheduler·reconciler role을 모두 돌린다. `--filter`로 그 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). 기본 uid 1000, scheduler role만 compose `user: \"0:0\"`로 root가 되어 Docker socket을 쥔다 | `bun run apps/control-host/src/main.ts <role>` (CMD 기본은 `api`) |\n",
     flags=re.M)
 sub(readme, r"^\| `agent-platform-scheduler` \| `apps/[^`]*` one-shot\. ", "| (scheduler role) | ", flags=re.M)
+# 94S-323's image paragraph, when it is there.
+if "`SCHEDULER_IMAGE`" in read(readme):
+    replace(readme, "(`egress-proxy`·`api`·`scheduler`·`worker`)",
+            "(`egress-proxy`·`api`·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다)")
+    replace(readme, "`API_IMAGE`·`SCHEDULER_IMAGE`·`WORKER_IMAGE`도", "`API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도")
