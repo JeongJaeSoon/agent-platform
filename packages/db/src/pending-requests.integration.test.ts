@@ -818,19 +818,21 @@ integration("pending requests and answers on PostgreSQL", () => {
     });
   });
 
-  test("a session whose stored status is needs_input is listed and filtered as needs_input", async () => {
-    const { owner, sessionId } = await runningSession();
+  test("a stored needs_input reads from the pending requests like running does", async () => {
+    const { owner, sessionId, worker } = await runningSession();
     await db
       .update(sessions)
       .set({ status: "needs_input" })
       .where(eq(sessions.id, sessionId));
-    expect(await statuses(owner, sessionId)).toEqual({
-      ...RUNNING,
-      session: "needs_input",
-      listed: "needs_input",
-      filteredNeedsInput: 1,
-      filteredRunning: 0,
+    const legacy = {
       stored: { session: "needs_input", turn: "running" },
+    } as const;
+    expect(await statuses(owner, sessionId)).toEqual({ ...RUNNING, ...legacy });
+    await register(worker, permission());
+    expect(await statuses(owner, sessionId)).toEqual({
+      ...WAITING,
+      ...legacy,
+      count: 1,
     });
   });
 

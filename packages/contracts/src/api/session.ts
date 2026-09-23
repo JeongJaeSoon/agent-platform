@@ -157,7 +157,7 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
   checkpoint_revision: revisionSchema.nullable(),
   pending_request_count: z.number().int().nonnegative().meta({
     description:
-      "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status: status is needs_input exactly when this is above zero and the session is otherwise running.",
+      "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status: status reads needs_input exactly when this is above zero and the session would otherwise read running.",
   }),
   attention: sessionAttentionSchema.nullable(),
   durability: sessionDurabilitySchema,

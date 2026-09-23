@@ -46,7 +46,6 @@ import {
   inArray,
   max,
   notExists,
-  or,
   sql,
 } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
@@ -60,6 +59,8 @@ import { pauseAttention } from "./pause-control.ts";
 import {
   actionableOfSession,
   actionableOfTurn,
+  IN_FLIGHT_STATUSES,
+  isInFlight,
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -521,17 +522,14 @@ export function createPostgresSessionReader(db: Database): SessionReader {
 
   // `?status=` filters on what the list shows, not on the stored column.
   function publicStatusIs(status: SessionStatus) {
+    if (!isInFlight(status)) {
+      return eq(sessions.status, status);
+    }
     const waiting = actionableOfSession(db);
-    if (status === "needs_input") {
-      return or(
-        eq(sessions.status, "needs_input"),
-        and(eq(sessions.status, "running"), exists(waiting)),
-      );
-    }
-    if (status === "running") {
-      return and(eq(sessions.status, "running"), notExists(waiting));
-    }
-    return eq(sessions.status, status);
+    return and(
+      inArray(sessions.status, IN_FLIGHT_STATUSES),
+      status === "needs_input" ? exists(waiting) : notExists(waiting),
+    );
   }
 
   async function summarize(
