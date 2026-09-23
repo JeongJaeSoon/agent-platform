@@ -6,8 +6,12 @@
 # bound on loopback from --port-base (postgres, localstack, gitea http, gitea
 # ssh = base, base+1, base+2, base+3).
 #
+# Checkpoint objects get new VersionIds in the new bucket; every checkpoint
+# is re-pinned to them and held, so the restored API runs `locked`.
+#
 # Refusals, by exit code: 2 usage, 3 schema mismatch (the backup's applied
 # migrations are not exactly this checkout's), 4 target project not empty.
+# A failed re-pin exits 1 and leaves a target to tear down, not to retry.
 #
 # Usage: scripts/restore.sh <backup-dir> --into <project> [--port-base 25432] [--check-only]
 
@@ -20,7 +24,7 @@ PORT_BASE=25432
 CHECK_ONLY=0
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -46,7 +50,7 @@ case "$PORT_BASE" in
   ''|*[!0-9]*) die "--port-base must be a number" ;;
 esac
 
-require_tools docker jq
+require_tools docker jq bun
 
 # --- preflight: never touch an existing installation -------------------------
 log "restore: checking $BACKUP"
@@ -104,25 +108,54 @@ RESTORED_APPLIED="$(psql_in "$INTO" -Atc "SELECT hash || ' ' || created_at FROM 
 log "restore: db.sql applied ($(psql_in "$INTO" -Atc "SELECT count(*) FROM sessions") sessions, $(psql_in "$INTO" -Atc "SELECT count(*) FROM checkpoints") checkpoints)"
 
 # --- objects -----------------------------------------------------------------
+# Every object gets a new VersionId here, and the checkpoints name the old
+# ones. The manifests those rows name are left out of the sync and written
+# once, re-pinned to the new versions, by `checkpoint_pins repin` below
+# (docs/backup-restore.md, "checkpoint 객체의 version").
+MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpoints ORDER BY 1")"
+while IFS= read -r key; do
+  [ -n "$key" ] || continue
+  # Removed from the stage by path below; a key that could climb out of it
+  # is no checkpoint manifest (manifestRefFor).
+  case "/$key/" in
+    *//*|*/../*|*/./*) die "checkpoint manifest key '$key' is not a plain path" ;;
+  esac
+done < <(printf '%s\n' "$MANIFEST_KEYS")
 STAGE="/tmp/ap-restore-$$"
 LOCALSTACK_CID="$(compose_restore "$INTO" ps -q localstack)"
 docker cp "$BACKUP/objects/." "${LOCALSTACK_CID}:${STAGE}/"
-compose_restore "$INTO" exec -T localstack sh -c "
+printf '%s\n' "$MANIFEST_KEYS" | compose_restore "$INTO" exec -T localstack sh -c "
   set -eu
+  keys=\"\$(cat)\"
   awslocal s3api head-bucket --bucket '$BUCKET' >/dev/null 2>&1 \
-    || awslocal s3api create-bucket --bucket '$BUCKET' --create-bucket-configuration LocationConstraint=\"\$AWS_DEFAULT_REGION\" >/dev/null
-  # Only ever into an empty bucket: sync would replace an object whose bytes
-  # differ, and nothing on the restore side may rewrite a checkpoint object.
-  [ \"\$(awslocal s3api list-objects-v2 --bucket '$BUCKET' --max-keys 1 --query 'KeyCount' --output text)\" = 0 ] \
+    || awslocal s3api create-bucket --bucket '$BUCKET' --create-bucket-configuration LocationConstraint=\"\$AWS_DEFAULT_REGION\" --object-lock-enabled-for-bucket >/dev/null
+  # Versions and holds are what the restored checkpoints are pinned by; a
+  # bucket without them cannot take the re-pin, and the API refuses it
+  # under CHECKPOINT_OBJECT_PROTECTION=locked.
+  [ \"\$(awslocal s3api get-bucket-versioning --bucket '$BUCKET' --query Status --output text)\" = Enabled ] \
+    && [ \"\$(awslocal s3api get-object-lock-configuration --bucket '$BUCKET' --query ObjectLockConfiguration.ObjectLockEnabled --output text 2>/dev/null)\" = Enabled ] \
+    || { echo 'bucket $BUCKET lacks versioning or Object Lock' >&2; exit 1; }
+  # Only ever into an empty bucket, delete markers and old versions
+  # included: sync would replace an object whose bytes differ, and nothing
+  # on the restore side may rewrite a checkpoint object.
+  [ \"\$(awslocal s3api list-object-versions --bucket '$BUCKET' --max-items 1 --query 'length([Versions, DeleteMarkers][])' --output text)\" = 0 ] \
     || { echo 'bucket $BUCKET is not empty' >&2; exit 1; }
+  printf '%s\\n' \"\$keys\" | while IFS= read -r key; do
+    [ -n \"\$key\" ] || continue
+    rm -f -- '$STAGE/'\"\$key\"
+  done
   awslocal s3 sync '$STAGE' 's3://$BUCKET' --quiet
   rm -rf '$STAGE'
 "
+# Nothing above can be undone once the re-pin starts writing: a refusal
+# leaves a target that must be torn down, never promoted or retried.
+checkpoint_pins "$INTO" "$BUCKET" repin "$BACKUP/objects" >/dev/null \
+  || die "checkpoint re-pin failed; project '$INTO' is unusable — tear it down and restore into a fresh project"
 EXPECTED_OBJECTS="$(jq -r '.objects.count' "$MANIFEST")"
 RESTORED_OBJECTS="$(compose_restore "$INTO" exec -T localstack awslocal s3 ls "s3://$BUCKET" --recursive | grep -c . || true)"
 [ "$RESTORED_OBJECTS" = "$EXPECTED_OBJECTS" ] \
-  || die "object count after sync is $RESTORED_OBJECTS, manifest says $EXPECTED_OBJECTS"
-log "restore: $RESTORED_OBJECTS objects in s3://$BUCKET"
+  || die "object count after sync and re-pin is $RESTORED_OBJECTS, manifest says $EXPECTED_OBJECTS"
+log "restore: $RESTORED_OBJECTS objects in s3://$BUCKET, $(printf '%s\n' "$MANIFEST_KEYS" | grep -c . || true) checkpoint manifests re-pinned and held"
 
 # --- gitea -------------------------------------------------------------------
 # Gitea wrote a fresh app.ini and gitea.db on first start; both are replaced
