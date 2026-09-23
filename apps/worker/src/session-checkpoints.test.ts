@@ -411,11 +411,19 @@ describe("SessionCheckpoints", () => {
     await expect(
       h.port.capture(await context.recheck(), context),
     ).rejects.toThrow("did not record it");
-    // An advisory refusal that does not land is only logged.
+    // An advisory refusal is no way around it: the mirror error the run
+    // reports since is still recorded before the turn can close.
+    await expect(
+      h.port.capture(
+        { status: "rejected", reason: "tool_in_flight", detail: "x" },
+        context,
+      ),
+    ).rejects.toThrow("did not record it");
+    // One that does not land, with the mirror whole, is only logged.
     expect(
       await h.port.capture(
         { status: "rejected", reason: "tool_in_flight", detail: "x" },
-        context,
+        { ...context, recheck: async () => ready },
       ),
     ).toBeNull();
   });

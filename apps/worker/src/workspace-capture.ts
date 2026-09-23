@@ -68,8 +68,10 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 // for byte. fileMode on, so a chmod the engine made is staged even in a
 // checkout that was told to ignore modes. ignoreCase off, so an untracked `A`
 // beside a tracked `a` is listed; symlinks on, so a file that replaced a
-// tracked link is staged as the file it is.
+// tracked link is staged as the file it is. No attributes file outside the
+// tree: the default one lives under the engine's HOME.
 const CAPTURE_CONFIG: Array<[string, string]> = [
+  ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
   ["core.eol", "lf"],
   ["core.fileMode", "true"],
@@ -210,16 +212,17 @@ export async function captureWorkspace(input: {
       `${join(gitDirectory, "objects")}\n`,
     );
     // Stages into the copy and writes objects into the scratch repository;
-    // the workspace's own index and object store are only read.
+    // the workspace's own index and object store are only read. The scratch
+    // repository is the GIT_DIR too, so nothing only the workspace's
+    // repository holds — `info/attributes`, its config — shapes what is
+    // staged: a restore has neither.
     // `--renormalize` re-reads every tracked file rather than trusting the
     // index's stat data, which an edit that kept size and mtime slips past.
     // Deliberately simple: every capture hashes the whole tree; revisit with
     // 94S-227 if that shows in turn latency.
     const staging: GitExtras["env"] = {
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDirectory, "objects"),
-      GIT_DIR: gitDirectory,
+      GIT_DIR: repository,
       GIT_INDEX_FILE: index,
-      GIT_OBJECT_DIRECTORY: join(repository, "objects"),
       GIT_WORK_TREE: root,
     };
     const stage = (args: string[], env: Record<string, string> = {}) =>
@@ -264,9 +267,11 @@ export async function captureWorkspace(input: {
     // into `a\ufffd`, which may be another file entirely — an ignored one.
     let listed: Uint8Array;
     try {
+      // Against the workspace's repository: a file its own excludes leave
+      // out is left out like an ignored one.
       const others = await runBytes(
         ["ls-files", "-z", "--others", "--exclude-standard"],
-        staging,
+        { GIT_DIR: gitDirectory, GIT_INDEX_FILE: index, GIT_WORK_TREE: root },
         (limits.maxUntrackedFiles + 1) * PATH_BYTES,
       );
       if (others.code !== 0) {
@@ -445,7 +450,9 @@ async function stagedBytes(
 
 /**
  * Copies the workspace index without following a symlink planted in its
- * place; the copy is what gets staged into. A missing index is an empty one.
+ * place; the copy is what gets staged into. A missing index is refused, not
+ * read as empty: staging into an empty one would drop every tracked file an
+ * ignore rule matches, and list the rest as untracked.
  */
 async function copyIndex(
   gitDirectory: string,
@@ -460,7 +467,7 @@ async function copyIndex(
     );
   } catch (error) {
     const code = (error as { code?: unknown }).code;
-    if (code === "ENOENT") return undefined;
+    if (code === "ENOENT") return "the workspace has no index";
     if (code === "ELOOP") return "the workspace index is a symlink";
     throw error;
   }

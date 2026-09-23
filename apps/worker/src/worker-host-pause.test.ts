@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ControlIntent } from "@agent-platform/contracts";
+import type {
+  AppendEventsRequest,
+  ControlIntent,
+} from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
   type FakeStep,
@@ -72,9 +75,13 @@ function resultMessage(turn: number): NativeSdkMessage {
 
 function harness(
   steps: FakeStep[],
-  overrides: { timeouts?: Partial<WorkerTimeouts> } = {},
+  overrides: {
+    checkpoints?: (gateway: FakeWorkerGateway) => WorkerCheckpointPort;
+    gateway?: FakeWorkerGateway;
+    timeouts?: Partial<WorkerTimeouts>;
+  } = {},
 ) {
-  const gateway = new FakeWorkerGateway();
+  const gateway = overrides.gateway ?? new FakeWorkerGateway();
   const runtime = new FakeAgentRuntime(steps);
   const log: string[] = [];
   const logger: WorkerLogger = {
@@ -103,7 +110,7 @@ function harness(
     }),
   };
   const host = new WorkerHost({
-    checkpoints: committedOn(gateway),
+    checkpoints: (overrides.checkpoints ?? committedOn)(gateway),
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
     logger,
@@ -184,6 +191,70 @@ describe("WorkerHost pause (94S-137)", () => {
     );
     expect(gateway.calls.lastIndexOf("nextInput")).toBeLessThan(
       gateway.calls.indexOf("finalize"),
+    );
+  });
+
+  test("a mirror error that arrives while the pause flushes is recorded instead of releasing for the pause", async () => {
+    // Events after turn 1's finalize land only once the gateway holds the
+    // mirror error, so the error arrives while the pause is flushing them.
+    const gateway = new (class extends FakeWorkerGateway {
+      override async appendEvents(request: AppendEventsRequest) {
+        if (this.finalized.length > 0) {
+          for (let waited = 0; waited < 2_000; waited += 2) {
+            if (this.heartbeats.some((beat) => beat.transcript?.mirror_error))
+              break;
+            await Bun.sleep(2);
+          }
+        }
+        return super.appendEvents(request);
+      }
+    })();
+    const { host, log } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(1) },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "status",
+            session_id: "fake-session",
+          },
+        },
+        { type: "delay", delayMs: 30 },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "mirror_error",
+            session_id: "fake-session",
+            error: "bucket unreachable",
+          },
+        },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: (on) => ({
+          ...committedOn(on),
+          mirror: () => ({ persistedAt: null }),
+        }),
+        gateway,
+        timeouts: { heartbeatIntervalMs: 60_000 },
+      },
+    );
+    gateway.enqueue("first message");
+    gateway.control = PAUSE;
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(log).not.toContain("worker.pause.committed");
+    expect(
+      gateway.heartbeats.some((beat) => beat.transcript?.mirror_error),
+    ).toBe(true);
+    // Released as a drain, after the error was recorded, never as a pause.
+    expect(gateway.releases.map((release) => release.pause_control_id)).toEqual(
+      [undefined],
     );
   });
 

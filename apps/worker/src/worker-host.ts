@@ -611,6 +611,11 @@ export class WorkerHost {
     );
     if (!flushed || this.ownerLost) return;
     await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
+    // A mirror error latched while flushing is already draining; the
+    // shutdown releases only once the gateway has recorded it, which a pause
+    // release would skip. One latched during the release request itself is
+    // not caught: between turns the engine writes nothing to mirror.
+    if (this.mirrorError !== undefined) return;
     try {
       const response = await this.withRetry(() =>
         this.options.gateway.release({
@@ -980,7 +985,7 @@ export class WorkerHost {
         // Any other turn is recorded without the checkpoint, as it would have
         // been had the publish failed here — but only when no earlier attempt
         // is still out that might commit it under the first body.
-        if (!interrupted && undecided) throw error;
+        if (undecided) throw error;
         this.logger.warn("worker.checkpoint.failed", {
           stage: "finalize",
           reason: describe(error),
@@ -988,9 +993,9 @@ export class WorkerHost {
           manifest_ref: checkpoint.manifest_ref,
           turn_id: turnId,
         });
-        // Nothing can commit the capture any more unless an earlier attempt
-        // is still undecided; the fallback carries no checkpoint to wait on.
-        if (!undecided) captured?.lease?.release();
+        // Nothing can commit the capture any more; the fallback carries no
+        // checkpoint to wait on.
+        captured?.lease?.release();
         // An interrupted turn is `interrupted` only with its checkpoint.
         terminal = interrupted ? unconfirm() : settlement;
         finalized = await finalize(terminal, null);
@@ -1302,6 +1307,11 @@ export class WorkerHost {
         // Recorded now rather than at the next interval: until the gateway
         // holds it, a checkpoint-less completion is still accepted.
         this.heartbeat?.beatNow();
+        // Draining from here, not from the next loop boundary: the beat
+        // carries it, so a poll already waiting is answered empty rather than
+        // handed a turn that could not be checkpointed. A turn in flight still
+        // finishes and is finalized.
+        this.stop({ kind: "drain", reason: this.mirrorError });
       }
     }
     if (native.type !== "result") return;

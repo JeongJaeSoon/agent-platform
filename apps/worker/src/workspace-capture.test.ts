@@ -215,6 +215,33 @@ describe("captureWorkspace", () => {
     expect((await captured()).untracked.map(({ path }) => path)).toEqual(["A"]);
   });
 
+  test("takes the bytes on disk, not what the repository's own attributes would make of them", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    await mkdir(join(root, ".git", "info"), { recursive: true });
+    await writeFile(
+      join(root, ".git", "info", "attributes"),
+      "*.txt text eol=crlf\n",
+    );
+    await git(
+      root,
+      "config",
+      "core.attributesFile",
+      join(scratch, "attributes"),
+    );
+    await writeFile(join(scratch, "attributes"), "*.md text eol=crlf\n");
+    await rm(join(root, "a.txt"));
+    await git(root, "checkout", "--", "a.txt");
+    await writeFile(join(root, "b.md"), "b\r\n");
+    await git(root, "add", "b.md");
+    expect(await readFile(join(root, "a.txt"), "utf8")).toBe("a\r\n");
+
+    const restored = await unbundle((await captured()).bundle);
+
+    // A restore has neither file, so the bytes travel as they are.
+    expect(await readFile(join(restored, "a.txt"), "utf8")).toBe("a\r\n");
+    expect(await readFile(join(restored, "b.md"), "utf8")).toBe("b\r\n");
+  });
+
   test("bundles no branch for a detached HEAD", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "checkout", "--quiet", "--detach");
@@ -455,6 +482,20 @@ describe("captureWorkspace", () => {
         reason: expect.stringMatching(
           /(LF would be replaced by CRLF in|has lf line endings on disk).*a\.txt|a\.txt has lf/,
         ),
+      });
+    });
+
+    test("a missing index, rather than staging into an empty one", async () => {
+      await commitFiles({ ".gitignore": "build/\n" });
+      await mkdir(join(root, "build"));
+      await writeFile(join(root, "build", "tracked.txt"), "tracked\n");
+      await git(root, "add", "--force", "build/tracked.txt");
+      await git(root, "commit", "--quiet", "-m", "ignored but tracked");
+      await rm(join(root, ".git", "index"));
+
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason: "the workspace has no index",
       });
     });
 

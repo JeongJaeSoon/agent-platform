@@ -168,6 +168,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (bound === undefined) return null;
     if (preparation.status === "rejected") {
       await this.#report(preparation, context.scope);
+      if (preparation.reason !== "mirror_error") {
+        await this.#reportLostMirror(bound, context, undefined);
+      }
       return null;
     }
     let stage = "request";
@@ -204,12 +207,25 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       });
       if (error instanceof MirrorLost) lost = error.message;
     }
-    // Whatever stopped the publish, a mirror that lost a batch is recorded
-    // before the turn can be finalized without a checkpoint.
-    lost ??= bound.store.unsettled ? UNSETTLED : undefined;
+    await this.#reportLostMirror(bound, context, lost);
+    return null;
+  }
+
+  /**
+   * Whatever left the turn without a checkpoint — a refusal, a blocked
+   * request, a failed publish — a mirror that lost a batch is recorded
+   * before the turn can be finalized without one.
+   */
+  async #reportLostMirror(
+    bound: Bound,
+    context: CheckpointCaptureContext,
+    known: string | undefined,
+  ): Promise<void> {
+    let lost = known ?? (bound.store.unsettled ? UNSETTLED : undefined);
     if (lost === undefined) {
       // The run's verdict as of now: a batch the SDK gave up on after the
-      // ready one, which a later append may have left the store settled on.
+      // one this capture started from, which a later append may have left
+      // the store settled on.
       const now = await context.recheck();
       if (now.status === "rejected" && now.reason === "mirror_error") {
         lost = now.detail;
@@ -221,7 +237,6 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         context.scope,
       );
     }
-    return null;
   }
 
   /**
