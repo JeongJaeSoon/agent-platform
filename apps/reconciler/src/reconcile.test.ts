@@ -53,6 +53,21 @@ describe("reconciler run", () => {
         });
         return [];
       },
+      reconcileInterrupts: async (options) => {
+        expect(options).toEqual({
+          dryRun: false,
+          limit: 12,
+          now: new Date("2026-09-14T00:00:00Z"),
+        });
+        return [
+          {
+            attemptId: "attempt-c",
+            dryRun: false,
+            executionId: "exec-c",
+            sessionId: "session-c",
+          },
+        ];
+      },
       expireTerminations: async (options) => {
         expect(options).toEqual({
           dryRun: false,
@@ -65,6 +80,7 @@ describe("reconciler run", () => {
     expect(calls).toBe(1);
     expect(result.orphans).toBe(reconciled);
     expect(result.leases).toEqual([]);
+    expect(result.interrupts).toHaveLength(1);
     expect(result.terminationsOverdue).toBe(2);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -93,16 +109,70 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Overdue interrupt executions sent to terminate",
+        fields: {
+          dry_run: false,
+          fenced_count: 1,
+          session_ids: ["session-c"],
+        },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Overdue terminate receipts marked unknown",
         fields: { dry_run: false, overdue_count: 2 },
       }),
     ]);
   });
 
+  test("a dry run asks every pass not to write and logs what it would do", async () => {
+    const sink = new MemoryLogSink();
+    const seen: boolean[] = [];
+    await runReconciler({
+      environment: { RECONCILER_DRY_RUN: "1" },
+      logger: new StructuredLogger({ sinks: [sink] }),
+      reconcile: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
+      reconcileLeases: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
+      reconcileInterrupts: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [
+          {
+            attemptId: "attempt-d",
+            dryRun,
+            executionId: "exec-d",
+            sessionId: "session-d",
+          },
+        ];
+      },
+      expireTerminations: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 0;
+      },
+    });
+
+    expect(seen).toEqual([true, true, true, true]);
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        message: "Overdue interrupt executions sent to terminate",
+        fields: {
+          dry_run: true,
+          fenced_count: 1,
+          session_ids: ["session-d"],
+        },
+      }),
+    );
+  });
+
   test("rejects invalid shared TTL, batch, and dry-run settings", async () => {
     const logger = new StructuredLogger({ sinks: [] });
     const reconcile = async () => [];
     const reconcileLeases = async () => [];
+    const reconcileInterrupts = async () => [];
     const expireTerminations = async () => 0;
     await expect(
       runReconciler({
@@ -110,6 +180,7 @@ describe("reconciler run", () => {
         logger,
         reconcile,
         reconcileLeases,
+        reconcileInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("HEARTBEAT_TTL_SEC");
@@ -119,6 +190,7 @@ describe("reconciler run", () => {
         logger,
         reconcile,
         reconcileLeases,
+        reconcileInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
@@ -128,6 +200,7 @@ describe("reconciler run", () => {
         logger,
         reconcile,
         reconcileLeases,
+        reconcileInterrupts,
         expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");

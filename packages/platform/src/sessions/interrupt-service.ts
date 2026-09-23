@@ -9,6 +9,14 @@ import type {
 import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
 import { payloadHash, SessionServiceError } from "./session-service.ts";
 
+/**
+ * How long an accepted interrupt may stay unsettled before the reconciler
+ * kills its execution (94S-273). A worker takes it on its next control poll
+ * (1s by default), gives the engine a 5s grace, then finalizes; this leaves
+ * room for that finalize to retry through two heartbeat TTLs of trouble.
+ */
+export const INTERRUPT_SETTLE_DEADLINE_MS = 60_000;
+
 export function createInterruptService(deps: {
   authorization: AuthorizationPolicy;
   store: TurnInterrupts;

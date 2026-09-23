@@ -3,10 +3,14 @@ import {
   expireOverdueTerminations,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
+  reconcileOverdueInterrupts,
 } from "@agent-platform/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
-import { TERMINATE_DEADLINE_MS } from "@agent-platform/platform";
+import {
+  INTERRUPT_SETTLE_DEADLINE_MS,
+  TERMINATE_DEADLINE_MS,
+} from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { runReconciler } from "./reconcile.ts";
 
@@ -44,6 +48,11 @@ export async function main(
       logger,
       reconcile: (options) => reconcileOrphanedSessions(db, options),
       reconcileLeases: (options) => reconcileExpiredLeases(db, options),
+      reconcileInterrupts: (options) =>
+        reconcileOverdueInterrupts(db, {
+          ...options,
+          deadlineMs: INTERRUPT_SETTLE_DEADLINE_MS,
+        }),
       expireTerminations: ({ dryRun, now }) =>
         expireOverdueTerminations(db, {
           deadlineMs: TERMINATE_DEADLINE_MS,

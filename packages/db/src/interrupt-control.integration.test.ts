@@ -20,16 +20,18 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
+import { reconcileOverdueInterrupts } from "./lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import { createPostgresPendingRequests } from "./pending-requests.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   controlIntents,
+  executions,
   receipts,
   sessions,
   turns,
@@ -453,5 +455,117 @@ integration("turn interrupts on PostgreSQL", () => {
         rows.sort((a, b) => a.sequence - b.sequence).map((row) => row.status),
       ).toEqual(["completed", "running"]);
     }
+  });
+
+  describe("an interrupt left unsettled past its deadline", () => {
+    const DEADLINE_MS = 60_000;
+
+    function sweep(sessionId: string, dryRun = false) {
+      return reconcileOverdueInterrupts(db, {
+        deadlineMs: DEADLINE_MS,
+        dryRun,
+      }).then((rows) => rows.filter((row) => row.sessionId === sessionId));
+    }
+
+    // issued_at is the database clock's stamp; moving it back stands in for
+    // a worker that kept heartbeating past the deadline.
+    async function overdue(receiptId: string) {
+      await db
+        .update(controlIntents)
+        .set({
+          issuedAt: sql`clock_timestamp() - ${DEADLINE_MS * 2}::double precision * interval '1 millisecond'`,
+        })
+        .where(eq(controlIntents.receiptId, receiptId));
+    }
+
+    async function desiredState(executionId: string) {
+      const [row] = await db
+        .select({ desiredState: executions.desiredState })
+        .from(executions)
+        .where(eq(executions.id, executionId));
+      return row?.desiredState;
+    }
+
+    function heartbeat(worker: Worker) {
+      return gateway.heartbeat(worker.principal, {
+        ...worker.scope,
+        attempt_state: "running",
+      });
+    }
+
+    test("sends a heartbeating attempt down the terminate path, and the confirmed exit settles the receipt unknown", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const accepted = await interrupt(owner, sessionId, "1");
+      const running = await desiredState(worker.executionId);
+
+      // Inside the deadline nothing happens, however often the pass runs.
+      expect(await sweep(sessionId)).toEqual([]);
+
+      await overdue(accepted.receipt_id);
+      await heartbeat(worker);
+
+      // A dry run reports the attempt and writes nothing.
+      expect(await sweep(sessionId, true)).toEqual([
+        {
+          attemptId: worker.scope.attempt_id,
+          dryRun: true,
+          executionId: worker.executionId,
+          sessionId,
+        },
+      ]);
+      expect(await desiredState(worker.executionId)).toBe(running);
+      await heartbeat(worker);
+
+      expect(await sweep(sessionId)).toEqual([
+        {
+          attemptId: worker.scope.attempt_id,
+          dryRun: false,
+          executionId: worker.executionId,
+          sessionId,
+        },
+      ]);
+      expect(await desiredState(worker.executionId)).toBe("terminated");
+      const [fenced] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(fenced?.leaseEpoch).toBe(worker.scope.lease_epoch + 1);
+      expect(fenced?.executionId).toBe(worker.executionId);
+      // The worker that kept the lease is fenced out, finalize included.
+      await expect(heartbeat(worker)).rejects.toMatchObject({
+        status: 409,
+        code: "STALE_EPOCH",
+      });
+      expect(await failure(finalize(worker, "1", "completed"))).toBe(
+        "STALE_EPOCH",
+      );
+      expect((await receiptOf(accepted.receipt_id))?.status).toBe("accepted");
+      // The kill is asked for once; later passes wait on the scheduler.
+      expect(await sweep(sessionId)).toEqual([]);
+
+      await gateway.confirmExecutionGone(worker.executionId);
+      expect(await receiptOf(accepted.receipt_id)).toMatchObject({
+        status: "unknown",
+        result: { turn_id: "1", terminal: "outcome_unknown", no_op: false },
+        error: { code: "RECOVERY_REQUIRED" },
+      });
+      const [turn] = await db
+        .select({ status: turns.status })
+        .from(turns)
+        .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+      expect(turn?.status).toBe("outcome_unknown");
+      expect(await sweep(sessionId)).toEqual([]);
+    });
+
+    test("an interrupt its terminal already settled is left alone", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const accepted = await interrupt(owner, sessionId, "1");
+      await overdue(accepted.receipt_id);
+      await finalize(worker, "1", "interrupted", checkpoint(0));
+
+      expect(await sweep(sessionId)).toEqual([]);
+      expect(await desiredState(worker.executionId)).not.toBe("terminated");
+      await heartbeat(worker);
+    });
   });
 });
