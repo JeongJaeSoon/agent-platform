@@ -62,6 +62,7 @@ export type ContainerCreateBody = {
   Cmd?: string[];
   Env: string[];
   HostConfig: {
+    CapAdd?: string[];
     CapDrop: string[];
     Memory: number;
     Mounts: Array<{
@@ -69,6 +70,11 @@ export type ContainerCreateBody = {
       Source: string;
       Target: string;
       Type: "volume" | "tmpfs";
+      /**
+       * Off by default in Docker: an empty volume mounted over a path the
+       * image has files at gets those files copied in first.
+       */
+      VolumeOptions?: { NoCopy?: boolean };
     }>;
     NanoCpus: number;
     NetworkMode: string;
@@ -397,8 +403,17 @@ export class DockerClient {
     return response.json();
   }
 
-  async listVolumes(labels: string[]): Promise<VolumeInspect[]> {
-    const filters = encodeURIComponent(JSON.stringify({ label: labels }));
+  /**
+   * `name` narrows by substring, the way Docker's filter does; callers that
+   * need an exact name compare it themselves.
+   */
+  async listVolumes(labels: string[], name?: string): Promise<VolumeInspect[]> {
+    const filters = encodeURIComponent(
+      JSON.stringify({
+        ...(labels.length === 0 ? {} : { label: labels }),
+        ...(name === undefined ? {} : { name: [name] }),
+      }),
+    );
     const response = await this.request("GET", `/volumes?filters=${filters}`);
     const body: { Volumes: VolumeInspect[] | null } = await response.json();
     return body.Volumes ?? [];
@@ -420,6 +435,16 @@ export class DockerClient {
 
   async listContainers(labels: string[]): Promise<ContainerSummary[]> {
     const filters = encodeURIComponent(JSON.stringify({ label: labels }));
+    const response = await this.request(
+      "GET",
+      `/containers/json?all=true&filters=${filters}`,
+    );
+    return response.json();
+  }
+
+  /** Every container, running or not, that mounts the volume. */
+  async listContainersUsingVolume(volume: string): Promise<ContainerSummary[]> {
+    const filters = encodeURIComponent(JSON.stringify({ volume: [volume] }));
     const response = await this.request(
       "GET",
       `/containers/json?all=true&filters=${filters}`,

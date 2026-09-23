@@ -150,11 +150,11 @@ quota preflight가 실패하면 **아무것도 띄우지 않되 회수는 한 �
 
 상한은 **byte에만** 걸린다. Docker `local` 드라이버가 노출하는 것이 `size`뿐이고 daemon의 quota 구조체에 inode 필드가 없어서, Engine API로는 inode 상한을 표현할 방법이 없다. 작은 파일 수백만 개로 inode를 소진하는 경로는 아직 열려 있다(94S-224).
 
-volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성된 label 없는 volume이거나, 다른 상한으로 만들어진 volume이면 — 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `ap-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다(마이그레이션은 94S-225). volume의 quota는 나중에 바꿀 수 없고, 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 운영자가 해당 volume을 직접 정리하거나 이전 설정으로 되돌려야 한다. 같은 이유로 quota 설정은 `agent-platform.isolation` 지문에도 들어간다 — 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
+volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성된 label 없는 volume이거나, 다른 상한으로 만들어진 volume이면 — 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `ap-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다. volume의 quota는 나중에 바꿀 수 없고, 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 작업 트리를 살린 채 새 계약으로 옮기려면 아래 [legacy workspace 마이그레이션](#legacy-workspace-마이그레이션) 절차를 쓴다. 이전 설정으로 되돌리는 것도 방법이다. 같은 이유로 quota 설정은 `agent-platform.isolation` 지문에도 들어간다 — 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
 
-이 거절은 **이미 돌고 있는 worker를 죽이기 전에** 일어나야 한다. 지문이 바뀌면 stale 판정 → `terminate` → 재생성 순서인데, 재생성이 volume에서 거절당하면 그 세션은 worker도 없고 되돌아갈 길도 없는 상태로 남는다. 그래서 `inspect`는 stale을 보고하기 전에 그 세션의 volume을 읽기 전용으로 확인하고, 쓸 수 없는 volume이면 stale 대신 예외를 던진다 — 컨테이너는 예전 상한 그대로 계속 돌고, pass는 `reconcileFailed`로 non-zero를 내며, 운영자가 volume을 정리할 때까지 그 상태가 유지된다. 작업 트리를 살린 채 옮기는 마이그레이션 경로는 94S-225에서 따로 다룬다.
+이 거절은 **이미 돌고 있는 worker를 죽이기 전에** 일어나야 한다. 지문이 바뀌면 stale 판정 → `terminate` → 재생성 순서인데, 재생성이 volume에서 거절당하면 그 세션은 worker도 없고 되돌아갈 길도 없는 상태로 남는다. 그래서 `inspect`는 stale을 보고하기 전에 그 세션의 volume을 읽기 전용으로 확인하고, 쓸 수 없는 volume이면 stale 대신 예외를 던진다 — 컨테이너는 예전 상한 그대로 계속 돌고, pass는 `reconcileFailed`로 non-zero를 내며, 운영자가 volume을 옮길 때까지 그 상태가 유지된다. 옮기는 방법은 아래 [legacy workspace 마이그레이션](#legacy-workspace-마이그레이션)에 있다.
 
-④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다** — 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. `stopped`는 예외로, 아래의 만료 규칙을 따른다. session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다 — volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
+④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다** — 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. `stopped`는 예외로, 아래의 만료 규칙을 따른다. session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** 예외는 이름을 유도하던 시절의 label 없는 `ap-ws-<installationId>-<sessionId>` volume이다. 이름에서 읽은 session id는 후보일 뿐이고, **그 id의 row가 있고 `closed`이며 slot을 쥔 launch가 없을 때만** 회수한다(`filterClosedLegacySessions`). row가 없는 경우는 남긴다. label이 있는 volume과 달리, 이름이 맞다는 것만으로는 우리 세션의 것이라는 증거가 되지 않기 때문이다. legacy volume에는 `stopped` TTL도 적용하지 않는다. 먼저 마이그레이션해야 만료 규칙을 탄다. `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다 — volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
 
 **`stopped` 세션의 workspace는 만료된다(94S-225).** stop한 뒤 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(기본 86400, 하루)이 지나면 회수 후보가 된다. 기준 시각은 `sessions.updated_at`이다. stop 전이가 이 값을 찍고, 회수 claim과 완료 기록은 이 값을 건드리지 않는다. 이미 `stopped`인 세션에 새 terminate가 받아들여지면 이 값이 바뀌어 TTL을 그때부터 다시 센다. 다만 terminate는 workspace를 붙잡는 수단이 아니다. 회수 claim이 이미 잡힌 뒤라면 그 회수는 그대로 진행된다. workspace가 필요하면 resume한다. resume만이 claim과 직렬화된다. slot을 쥔 launch가 남아 있으면 후보가 아니다. 하루면 밤사이 stop해 둔 세션은 그대로 돌아오고, 10-session soak처럼 stop이 쌓이는 경우에도 디스크가 끝없이 늘지 않는다. `0`은 다음 pass에서 바로 회수한다는 뜻이다.
 
@@ -167,6 +167,36 @@ resume은 committed checkpoint가 있어야만 받아들여지고, 워커는 cla
 * 삭제 호출이 던지면(timeout 포함) claim을 그대로 둔다. volume이 지워졌는지 알 수 없기 때문이다. 다음 pass는 volume 목록과 별개로 끝나지 않은 claim부터 다시 처리한다. 지워진 volume은 목록에 다시 나오지 않기 때문이다.
 
 claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 `packages/db/src/workspace-reclaim.integration.test.ts`가 실제 PostgreSQL 위에서 고정한다.
+
+#### legacy workspace 마이그레이션
+
+label이 없는 옛 volume(`ap-ws-<installationId>-<sessionId>`)이나 다른 quota로 만들어진 volume을 가진 세션은 기동이 거절된다. 컨테이너를 잃으면 다시 뜨지도 못한다. 작업 트리를 살린 채 지금 설정의 quota로 옮기는 절차는 다음과 같다. pass가 자동으로 하지 않는 **명시적 운영 작업**이다.
+
+```sh
+# scheduler와 같은 환경 변수(DATABASE_URL, EXECUTION_*, DOCKER_HOST)로 실행한다
+bun run --cwd apps/scheduler migrate-workspace <session-id> [<session-id>...]
+# compose(apps profile)라면
+docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
+  bun run apps/scheduler/src/migrate-workspace.ts <session-id>
+```
+
+전제 조건:
+
+* **그 volume을 물고 있는 컨테이너가 없어야 한다.** 정지된 컨테이너도 포함한다(다시 시작되면 복사 중인 원본에 쓰기 때문이다). 있으면 이름을 알려 주고 거절한다. 돌고 있는 세션이면 먼저 terminate로 멈추고(컨테이너가 지워진다) 옮긴 뒤 resume한다. 컨테이너를 `docker rm`으로 직접 지우면 진행 중이던 turn이 끊기고, 그 세션은 컨테이너를 잃은 세션으로 처리된다.
+* **scheduler pass lock을 잡는다.** pass가 도는 중이면 `A scheduler pass holds the lock`으로 끝난다. 끝나면 다시 실행한다. 복사하는 동안 pass는 돌지 않으므로 GC도 launch도 두 volume을 건드리지 않는다.
+* 그 세션에 끝나지 않은 회수 claim이 없어야 한다. 있으면 다음 pass가 처리한 뒤 다시 실행한다.
+* 세션 row가 있고 `closed`가 아니어야 한다. closed 세션의 legacy volume은 GC가 회수한다. row가 없는 세션의 legacy volume은 GC도 이 명령도 건드리지 않는다. 우리 것이라는 증거가 이름뿐이기 때문이다. 운영자가 확인하고 직접 지운다.
+* helper 이미지는 **digest로 고정**돼 있어야 하고 daemon에 이미 있어야 한다. 기본값은 busybox 1.36(`DEFAULT_MIGRATION_HELPER_IMAGE`)이다. `docker pull busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662`을 먼저 실행한다. 바꾸려면 `--helper-image` 또는 `EXECUTION_WORKSPACE_MIGRATION_IMAGE`를 쓴다.
+* quota preflight(`verifyWorkspaceQuota`)를 먼저 통과해야 한다. 새 volume은 지금 설정의 상한으로 만들어진다.
+
+하는 일:
+
+1. 새 volume을 지금 계약대로 만든다. label과 `size`를 붙이고, 원본 이름을 `agent-platform.migrated-from` label로 남긴다. 이름은 다른 workspace와 같은 1회용이다. workspace는 label로 찾으므로 이름을 바꿀 필요가 없다.
+2. 시작하지 않는 pin 컨테이너(`ap-ws-migrate-pin-` 접두어)가 원본을 읽기 전용으로 붙잡는다. Docker는 컨테이너가 참조하는 volume을 지우지 않는다. 그래서 pass lock을 잃은 사이에 GC가 끼어들어도 이 실행이 끝날 때까지 원본은 남는다. pin 이름은 실행마다 다르고, 각 실행은 자기 pin만 지운다. 이어서 helper 컨테이너가 원본을 읽기 전용으로, 새 volume을 쓰기로 붙여 `cp -a`로 복사한다. helper는 root이지만 네트워크가 없고, 파일 복사에 필요한 capability(`CHOWN`·`DAC_OVERRIDE`·`FOWNER`·`FSETID`)만 가진다.
+3. 같은 helper가 양쪽의 manifest를 비교한다. 비교 대상은 경로 집합, 종류, mode, uid/gid, symlink 대상, 일반 파일의 크기·mtime·SHA-256이다. 디렉터리의 크기와 시각, xattr와 ACL은 비교하지 않는다. busybox `cp -a`는 hard link를 보존하지 않으므로 hard link는 내용이 같은 별개 파일이 된다. 그만큼 디스크를 더 쓰므로 quota에 걸리면 복사가 실패한다. mtime은 초 단위까지만 비교한다.
+4. 일치할 때만 helper와 pin을 지우고 **원본을 지운다.** 그 순간부터 새 volume이 그 세션의 workspace다.
+
+중간에 실패하면 원본은 그대로다. 복사 실패(quota 초과, helper가 만들 수 없는 device 파일 등), 불일치, 시간 초과(`--deadline-sec`, 기본 3600), lock 유실이 모두 그렇다. 실패한 helper는 `docker logs`로 볼 수 있게 남겨 둔다. pin도 남아 원본을 계속 붙잡는다. 다시 실행하면 먼저 새 pin으로 원본을 붙잡는다. 그다음 남은 helper, 이전 pin, 미완성 복사본(`migrated-from`이 같은 원본을 가리키는 것)을 지우고 처음부터 복사한다. 원본과 복사본이 함께 있는 동안에는 backend가 그 세션의 기동을 거절하고, GC는 둘 다 후보에서 뺀다. 그래서 반쯤 복사된 트리 위에서 worker가 뜨는 일도, 원본만 먼저 회수되는 일도 없다. 끝내지 않은 채 두면 두 volume이 그대로 남으므로, 다시 실행하거나 직접 정리한다. 원본이 지워지고 나면 다음 pass가 평소처럼 새 volume 위에서 worker를 다시 띄운다.
 
 ### worker 네트워크: 주소 풀, slot limit, 회수
 

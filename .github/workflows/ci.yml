@@ -217,7 +217,10 @@ jobs:
         env:
           DOCKER_BACKEND_TEST: "1"
           DOCKER_HOST: unix:///tmp/apq/docker.sock
-        run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+        run: >-
+          bun test
+          packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+          packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts
       # The daemon's own log is where a create that the suite could not
       # explain shows up. `|| true` because this step also runs when an
       # earlier one failed before the container existed.
