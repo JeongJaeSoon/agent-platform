@@ -794,11 +794,7 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
         "SESSION_CLOSED",
       ],
       [{ outcome: "rejected", admissionState: "active" }, 409, "REQUEST_STALE"],
-      [
-        { outcome: "rejected", admissionState: "paused" },
-        422,
-        "UNSUPPORTED_CAPABILITY",
-      ],
+      [{ outcome: "pause_committing" }, 409, "PAUSE_COMMITTING"],
       [
         { outcome: "rejected", admissionState: "resuming" },
         409,

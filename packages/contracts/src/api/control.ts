@@ -70,9 +70,6 @@ export const recoveryDecisionResultSchema = z.object({
   checkpoint_revision: revisionSchema.nullable(),
   resumable: z.boolean(),
 });
-// What a resume from `stopped` commits: the session is admitting input
-// again and the next worker restores this revision. Restore success itself
-// is reported by the worker path (94S-246), not by this receipt.
 // What a pause settles with once its execution is observed gone: the
 // checkpoint the session will be restored from, and the input still waiting
 // for it. Queued input is never cancelled by a pause.
@@ -81,9 +78,13 @@ export const pauseReceiptResultSchema = z.object({
   checkpoint_revision: revisionSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
 });
+// What a resume commits. From `stopped` it is written at acceptance and the
+// next worker restores this revision. From `paused` it is written once the
+// new worker reports that it restored it. A resume that cancels a pause
+// still draining writes the pointer as it stands, which may be none yet.
 export const resumeReceiptResultSchema = z.object({
   resulting_admission_state: admissionStateSchema,
-  checkpoint_revision: revisionSchema,
+  checkpoint_revision: revisionSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
 });
 

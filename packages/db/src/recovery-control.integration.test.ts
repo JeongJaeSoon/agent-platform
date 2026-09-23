@@ -1167,9 +1167,10 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       .update(sessions)
       .set({ admissionState: "paused" })
       .where(eq(sessions.id, active.session_id));
+    // A paused session resumes through 94S-138, which still needs a
+    // restore point this one never had.
     expect(await resume(active, activeRow.revision)).toEqual({
-      outcome: "rejected",
-      admissionState: "paused",
+      outcome: "checkpoint_unavailable",
     });
     expect(await resume(active, activeRow.revision + 1)).toEqual({
       outcome: "revision_conflict",

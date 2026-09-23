@@ -41,10 +41,14 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { INPUT_RECEIPT_OPERATIONS } from "./control-shared.ts";
+import {
+  INPUT_RECEIPT_OPERATIONS,
+  LAUNCHABLE_ADMISSION_STATES,
+} from "./control-shared.ts";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import { failResume } from "./resume-control.ts";
 import {
   events,
   executions,
@@ -207,7 +211,7 @@ export function createPostgresSchedulerStore(
         .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
         .where(
           and(
-            eq(sessions.admissionState, "active"),
+            inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run.
             lt(sessions.costUsd, options.sessionCostLimitUsd),
@@ -256,7 +260,12 @@ export function createPostgresSchedulerStore(
           .where(eq(sessions.id, input.sessionId))
           .limit(1)
           .for("update");
-        if (!session || session.admissionState !== "active") return null;
+        if (
+          !session ||
+          !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState)
+        ) {
+          return null;
+        }
         if (budgetExceeded(session.costUsd, options.sessionCostLimitUsd)) {
           return null;
         }
@@ -912,7 +921,8 @@ export function createPostgresSchedulerStore(
  * the session so far, the way a terminate cancels it: the turns, their queue
  * rows (a terminal head would block delivery), and their input receipts.
  * The session is left `failed` and unsignalled, still admitting input: the
- * next message signals it again and gets a fresh launch.
+ * next message signals it again and gets a fresh launch. A resuming session
+ * goes to an operator instead, its resume failed.
  */
 async function quarantine(
   tx: Database,
@@ -935,7 +945,22 @@ async function quarantine(
   // Read after the locks, so the failure's timestamps are no earlier than
   // anything the input they fail was accepted at.
   const now = await dbNow(tx);
-  if (session) {
+  // A resume that cannot get a worker at all fails as a resume (94S-138):
+  // its receipt closes and an operator decides, with the queued input kept
+  // for whatever that decision resumes.
+  if (session?.admissionState === "resuming") {
+    await tx
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.id));
+    await failResume(tx, {
+      sessionId: session.id,
+      error: {
+        code: "LAUNCH_FAILED",
+        message: `no worker could be launched to restore the checkpoint: ${error}`,
+      },
+      now,
+    });
+  } else if (session) {
     const failed = await tx
       .update(turns)
       .set({ status: "failed", endedAt: now, terminalReason: "launch_failed" })

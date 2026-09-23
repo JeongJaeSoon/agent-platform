@@ -27,6 +27,8 @@ import type {
   RuntimeConfig,
   SessionRuntime,
   WorkerEvent,
+  WorkerReadyRequest,
+  WorkerReadyResponse,
   WorkspaceDescriptor,
 } from "@agent-platform/contracts";
 
@@ -83,6 +85,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly events: WorkerEvent[] = [];
   readonly finalized: FinalizeRequest[] = [];
   readonly heartbeats: HeartbeatRequest[] = [];
+  readonly readies: WorkerReadyRequest[] = [];
   readonly releases: ReleaseRequest[] = [];
   /** Every registration that landed, in order, keyed by nothing: replays repeat. */
   readonly registrations: RegisterPendingRequest[] = [];
@@ -118,6 +121,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   /** The in-memory pointer, when no protocol is bound: null until a commit. */
   checkpointRevision: number | null = null;
   private readonly checkpointProtocol: FakeCheckpointProtocol | undefined;
+  /** Thrown by the ready report while set, as a failed resume would be. */
+  readyFailure: WorkerGatewayRequestError | undefined;
 
   private readonly controls: ControlIntent[] = [];
   private readonly answers: Array<{
@@ -473,6 +478,13 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           code: "CHECKPOINT_UNAVAILABLE",
           reason: "The fake gateway holds no checkpoint objects",
         };
+  }
+
+  async ready(request: WorkerReadyRequest): Promise<WorkerReadyResponse> {
+    this.calls.push("ready");
+    this.readies.push(request);
+    if (this.readyFailure) throw this.readyFailure;
+    return { activated: false };
   }
 
   async release(request: ReleaseRequest): Promise<ReleaseResponse> {

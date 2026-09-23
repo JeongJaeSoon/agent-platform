@@ -26,6 +26,7 @@ import { fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
+import { openResumeReceipt } from "./resume-control.ts";
 import {
   executions,
   idempotencyKeys,
@@ -263,6 +264,20 @@ export function createPostgresSessionControl(db: Database): SessionControl {
               updatedAt: now,
             })
             .where(openPauseReceipt(sessionId));
+        }
+        // Likewise a resume still waiting on its worker's restore.
+        if (session.admissionState === "resuming") {
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code: "CONTROL_SUPERSEDED",
+                message: "superseded by terminate before the resume completed",
+              },
+              updatedAt: now,
+            })
+            .where(openResumeReceipt(sessionId));
         }
         // The epoch moves on in the same transaction: from here every
         // request the old worker makes is 409 STALE_EPOCH, whether or not

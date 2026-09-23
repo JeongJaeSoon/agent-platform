@@ -23,19 +23,17 @@ import {
 import {
   controlClock,
   findIdempotent,
+  hasRestorePoint,
   type IdempotencyScope,
   lockIdempotencyScope,
   lockSessionForControl,
   OPEN_TURN_STATUSES,
+  recordAudit,
+  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import {
-  hasRestorePoint,
-  recordAudit,
-  restoreBaseRevision,
-} from "./recovery-control.ts";
 import {
   attempts,
   checkpoints,

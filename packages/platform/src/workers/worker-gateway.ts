@@ -25,6 +25,8 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  WorkerReadyRequest,
+  WorkerReadyResponse,
   WorkerScope,
 } from "@agent-platform/contracts";
 import { executionBackendSchema } from "@agent-platform/contracts";
@@ -966,10 +968,61 @@ export function createWorkerGateway(deps: {
           pointer: state.pointer,
         }),
       );
+      // A refusal is the end of a resume from `paused` that stands on this
+      // pointer; the session is handed to an operator in its own fenced
+      // transaction, rechecked there. Any other session is left alone.
+      const refusal =
+        result.status === "ready"
+          ? null
+          : result.status === "none"
+            ? "no committed checkpoint to restore"
+            : result.status === "unavailable"
+              ? result.reason
+              : `the checkpoint is incompatible with this worker: ${result.mismatches
+                  .map((m) => `${m.field} ${m.expected} != ${m.found}`)
+                  .join(", ")}`;
+      if (refusal !== null) {
+        const failed = await work.failResumeAtomic({
+          fence,
+          now: now(),
+          pointerRevision: state.pointer?.revision ?? null,
+          error: {
+            code: "CHECKPOINT_UNAVAILABLE",
+            message: `the resume could not restore its checkpoint: ${refusal}`,
+          },
+        });
+        if (failed.outcome !== "ok") rejected(failed);
+        return restorePlanOnWire(result);
+      }
       if (result.status !== "ready") return restorePlanOnWire(result);
       // A ready plan exists only with a pointer: "none" answered above.
-      const pointerRevision = state.pointer?.revision ?? result.plan.revision;
+      const pointerRevision =
+        state.pointer?.revision ??
+        result.plan.fallback?.pointerRevision ??
+        result.plan.revision;
       const fallback = result.plan.fallback;
+      if (fallback !== undefined) {
+        // A resume from `paused` promised the pointer's state; an older one
+        // is not that resume, so the owner decides (94S-138 with 94S-204).
+        // A session that is not resuming takes the fallback as before.
+        const failed = await work.failResumeAtomic({
+          fence,
+          now: now(),
+          pointerRevision,
+          error: {
+            code: "CHECKPOINT_UNAVAILABLE",
+            message: `the resume could not restore its checkpoint: revision ${pointerRevision} is damaged and only revision ${result.plan.revision} verifies`,
+          },
+        });
+        if (failed.outcome !== "ok") rejected(failed);
+        else if (failed.failed) {
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `Revision ${pointerRevision} is damaged; the resume it was to restore is handed to an operator rather than resumed from revision ${result.plan.revision}`,
+          );
+        }
+      }
       const recorded = await work.recordRestoreBaseAtomic({
         fence,
         now: now(),
@@ -1031,6 +1084,27 @@ export function createWorkerGateway(deps: {
         }
       }
       return { released: result.released };
+    },
+
+    async ready(
+      principal: WorkerPrincipal,
+      request: WorkerReadyRequest,
+    ): Promise<WorkerReadyResponse> {
+      const fence = requireScope(principal, request);
+      const result = await work.readyAtomic({
+        fence,
+        now: now(),
+        restoredRevision: request.restored_revision,
+      });
+      if (result.outcome === "restore_mismatch") {
+        throw new WorkerGatewayError(
+          409,
+          "CHECKPOINT_UNAVAILABLE",
+          "The session was not resumed onto the checkpoint this worker restored; the resume failed",
+        );
+      }
+      if (result.outcome !== "ok") rejected(result);
+      return { activated: result.activated };
     },
 
     // Server side, for the backend/reconciler that observed the exit.

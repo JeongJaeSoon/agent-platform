@@ -64,6 +64,47 @@ describe("Claude SDK run", () => {
   });
 });
 
+describe("Claude SDK run readiness (94S-138)", () => {
+  test("ready waits for the resumed transcript and the engine's initialization, and rejects when the transcript is unreadable", async () => {
+    let initialized: () => void = () => {};
+    const initialization = new Promise<void>((resolve) => {
+      initialized = resolve;
+    });
+    const history = ResumedHistory.fromLocalDisk(
+      "/nonexistent/config",
+      "/nonexistent/workspace",
+      "missing-session",
+    );
+    const broken = new ClaudeSdkRun(
+      "unreadable",
+      new InputStream(),
+      { initializationResult: () => initialization } as never,
+      new AbortController(),
+      history,
+      new TurnLedger("missing-session"),
+    );
+    await expect(broken.ready()).rejects.toThrow("could not be read");
+
+    const fresh = new ClaudeSdkRun(
+      "fresh",
+      new InputStream(),
+      { initializationResult: () => initialization } as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+      new TurnLedger(),
+    );
+    let ready = false;
+    const waiting = fresh.ready().then(() => {
+      ready = true;
+    });
+    await Bun.sleep(5);
+    expect(ready).toBe(false);
+    initialized();
+    await waiting;
+    expect(ready).toBe(true);
+  });
+});
+
 describe("Claude SDK adapter options", () => {
   test("uses explicit Claude Code defaults without auto-allowing tools", () => {
     const options = buildSdkOptions(config, {

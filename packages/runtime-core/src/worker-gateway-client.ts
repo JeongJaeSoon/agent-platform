@@ -20,6 +20,8 @@ import type {
   ReleaseResponse,
   RestorePlanRequest,
   RestorePlanResponse,
+  WorkerReadyRequest,
+  WorkerReadyResponse,
 } from "@agent-platform/contracts";
 
 // The worker's only door to the control plane. The port stays transport-free
@@ -48,6 +50,12 @@ export interface WorkerGatewayClient {
   pendingControl(
     request: PendingControlRequest,
   ): Promise<PendingControlResponse>;
+  /**
+   * Once the claim's restore is done and the engine has loaded it, before
+   * the first input poll: a session resumed out of `paused` only admits input
+   * again on this report.
+   */
+  ready(request: WorkerReadyRequest): Promise<WorkerReadyResponse>;
   /**
    * Where the next checkpoint goes: the server's revision and manifest key
    * for this publish. Asked before every upload, never derived from the

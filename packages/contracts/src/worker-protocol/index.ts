@@ -565,6 +565,16 @@ export const releaseRequestSchema = workerScopeSchema
   .strict();
 export const releaseResponseSchema = z.object({ released: z.boolean() });
 
+// Sent once the attempt restored what its claim named and the engine has
+// loaded that session, before the first input poll. A session resumed from
+// `paused` waits on it: this report is what makes it active again and
+// settles the resume receipt, so no queued input is handed out before the
+// restore is proven. For any other session it changes nothing.
+export const workerReadyRequestSchema = workerScopeSchema
+  .extend({ restored_revision: revisionSchema.nullable() })
+  .strict();
+export const workerReadyResponseSchema = z.object({ activated: z.boolean() });
+
 export type WorkerScope = z.infer<typeof workerScopeSchema>;
 export type CheckpointRef = z.infer<typeof checkpointRefSchema>;
 export type BootstrapClaimRequest = z.infer<typeof bootstrapClaimRequestSchema>;
@@ -590,6 +600,8 @@ export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
 export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
 export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
+export type WorkerReadyRequest = z.infer<typeof workerReadyRequestSchema>;
+export type WorkerReadyResponse = z.infer<typeof workerReadyResponseSchema>;
 export type WorkerEvent = z.infer<typeof workerEventSchema>;
 export type AppendEventsRequest = z.infer<typeof appendEventsRequestSchema>;
 export type AppendEventsResponse = z.infer<typeof appendEventsResponseSchema>;

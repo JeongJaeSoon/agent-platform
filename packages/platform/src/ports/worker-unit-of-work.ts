@@ -1,4 +1,5 @@
 import type {
+  ApiErrorCode,
   AttemptState,
   CheckpointBlockReason,
   CheckpointRef,
@@ -264,6 +265,31 @@ export type ReleaseResult =
   | { released: false; refused: "pause_blocked"; reason: PauseBlockedReason }
   | { released: false; refused: "lease_expired" };
 
+export type ReadyInput = {
+  fence: WorkerFence;
+  now: Date;
+  /** The checkpoint revision the worker restored (its claim's); null when it started fresh. */
+  restoredRevision: number | null;
+};
+export type ReadyResult =
+  // `activated` when this report completed a resume from `paused`.
+  | { outcome: "ok"; activated: boolean }
+  // A resuming session whose trusted pointer is not what the worker
+  // restored: the resume is failed and the session left to an operator.
+  | { outcome: "restore_mismatch" }
+  | FenceRejection;
+
+export type FailResumeInput = {
+  fence: WorkerFence;
+  now: Date;
+  /** The pointer revision the restore verdict was reached on. */
+  pointerRevision: number | null;
+  error: { code: ApiErrorCode; message: string };
+};
+export type FailResumeResult =
+  // `failed` when the session was still resuming from that pointer.
+  { outcome: "ok"; failed: boolean } | FenceRejection;
+
 /**
  * Which resource a caller saw go, told apart from any other built for the
  * same launch: the fingerprint of the bootstrap credential it was created
@@ -332,6 +358,13 @@ export interface WorkerUnitOfWork {
   // its event stream, and a plan on the pointer clears an earlier fallback.
   recordRestoreBaseAtomic(input: RestoreBaseInput): Promise<RestoreBaseResult>;
   releaseAtomic(input: ReleaseInput): Promise<ReleaseResult>;
+  // The attempt restored what its claim named and its engine loaded it.
+  // For a `resuming` session that completes the resume: active, and the
+  // resume receipt succeeds. Any other session is left as it is.
+  readyAtomic(input: ReadyInput): Promise<ReadyResult>;
+  // A restore verdict that refuses the checkpoint a resuming session was
+  // resumed onto: recovery_required, and the resume receipt fails with it.
+  failResumeAtomic(input: FailResumeInput): Promise<FailResumeResult>;
   // Called once the backend has observed the execution is gone; only then
   // does the session become claimable again and the launch slot return.
   confirmExecutionGoneAtomic(
