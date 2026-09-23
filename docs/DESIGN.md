@@ -507,7 +507,7 @@ API는 라우팅 시 heartbeat를 확인하지 않는다(§7.1). v0.1에서는 A
 | 새 세션 첫 메시지 | 없음 → 워커 획득 | 미배정 → running |
 | 매핑된 세션에 메시지 | 유지 | idle → running |
 | 턴 종료 | 유지 | running → idle |
-| 질문 대기 | 유지 | running → needs_input |
+| 질문 대기 | 유지 | running → needs_input (저장하지 않고 조회 시 파생, §6.4) |
 | 유휴 타이머 만료 | 삭제 | 종료 |
 | heartbeat 소실 | 삭제(reconciler) | 이미 없음 |
 | 클레임 실패가 타임아웃까지 반복 | 없음 | `exit 0` |

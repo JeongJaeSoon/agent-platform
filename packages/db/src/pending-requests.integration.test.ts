@@ -785,22 +785,83 @@ integration("pending requests and answers on PostgreSQL", () => {
 
   test("needs_input lifts when the last request expires, with nothing written", async () => {
     const { owner, sessionId, worker } = await runningSession();
-    const brief = gatewayWith(1_500);
-    const { requestId } = await register(
-      worker,
-      permission(),
-      HASH_A,
-      undefined,
-      brief,
-    );
+    const { requestId } = await register(worker, permission());
     expect(await statuses(owner, sessionId)).toEqual({ ...WAITING, count: 1 });
-    await Bun.sleep(1_600);
+    // Time passing, without waiting for it: only the deadline moves.
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
     expect(await statuses(owner, sessionId)).toEqual(RUNNING);
     const [row] = await db
       .select()
       .from(pendingRequests)
       .where(eq(pendingRequests.requestId, requestId));
     expect(row?.resolvedAt).toBeNull();
+  });
+
+  test("expiry is judged at each statement, not at the start of a longer transaction", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    await db.transaction(async (tx) => {
+      await tx
+        .update(pendingRequests)
+        .set({ expiresAt: sql`clock_timestamp() + interval '1 second'` })
+        .where(eq(pendingRequests.requestId, requestId));
+      const reader = createPostgresSessionReader(tx);
+      const before = await reader.getSession(owner.ownerId, sessionId);
+      expect(before?.status).toBe("needs_input");
+      await tx.execute(sql`SELECT pg_sleep(1.2)`);
+      const after = await reader.getSession(owner.ownerId, sessionId);
+      expect(after?.status).toBe("running");
+      expect(after?.pending_request_count).toBe(0);
+    });
+  });
+
+  test("a session whose stored status is needs_input is listed and filtered as needs_input", async () => {
+    const { owner, sessionId } = await runningSession();
+    await db
+      .update(sessions)
+      .set({ status: "needs_input" })
+      .where(eq(sessions.id, sessionId));
+    expect(await statuses(owner, sessionId)).toEqual({
+      ...RUNNING,
+      session: "needs_input",
+      listed: "needs_input",
+      filteredNeedsInput: 1,
+      filteredRunning: 0,
+      stored: { session: "needs_input", turn: "running" },
+    });
+  });
+
+  test("an epoch, generation or auth rotation drops the old attempt's requests while its lease still runs", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await register(worker, permission());
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("session row missing");
+    for (const moved of [
+      { leaseEpoch: session.leaseEpoch + 1 },
+      { executionGeneration: session.executionGeneration + 1 },
+      { authRevision: session.authRevision + 1 },
+    ]) {
+      expect(await statuses(owner, sessionId)).toEqual({
+        ...WAITING,
+        count: 1,
+      });
+      await db.update(sessions).set(moved).where(eq(sessions.id, sessionId));
+      expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+      await db
+        .update(sessions)
+        .set({
+          leaseEpoch: session.leaseEpoch,
+          executionGeneration: session.executionGeneration,
+          authRevision: session.authRevision,
+        })
+        .where(eq(sessions.id, sessionId));
+    }
   });
 
   test("a lapsed or fenced attempt's requests stop holding the session in needs_input", async () => {

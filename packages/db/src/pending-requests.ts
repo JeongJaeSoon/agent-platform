@@ -107,7 +107,13 @@ export function actionableOfTurn(db: Database) {
     .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
     .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
     .where(
-      and(eq(pendingRequests.turnId, turns.id), actionable(STATEMENT_NOW)),
+      and(
+        // Redundant with turn_id, but it is what the unresolved-by-session
+        // index is keyed on.
+        eq(pendingRequests.sessionId, turns.sessionId),
+        eq(pendingRequests.turnId, turns.id),
+        actionable(STATEMENT_NOW),
+      ),
     );
 }
 
