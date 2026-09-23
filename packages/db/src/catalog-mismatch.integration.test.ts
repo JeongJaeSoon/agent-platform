@@ -399,6 +399,66 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
     expect(execution?.desired).toBe("terminated");
   });
 
+  test("a session with a context gap goes to an operator instead, its input kept (94S-288)", async () => {
+    const session = await queuedSession(MOVED_TO);
+    // Turn 1 ran and no checkpoint covers it; turn 2 waits.
+    await db
+      .update(turns)
+      .set({ status: "completed", deliveryStartedAt: new Date() })
+      .where(eq(turns.sessionId, session.session_id));
+    const appended = await append(session);
+    if (appended.outcome !== "accepted") throw new Error(appended.outcome);
+    const intent = await store().reserveLaunch({
+      backend: "local_docker",
+      image: "worker:test",
+      now: new Date(),
+      resources: RESOURCES,
+      sessionId: session.session_id,
+      slotLimit: 1_000,
+    });
+    if (!intent) throw new Error("no reservation");
+    const nonce = await store().issueBootstrapNonce(intent);
+
+    const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
+      runnable: [pairAt(REGISTERED)],
+      costLimitUsd: 1_000,
+      nonceHash: hashWorkerToken(nonce),
+      executionId: intent.executionId,
+      executionGeneration: intent.generation,
+      attemptId: `att_${randomUUID()}`,
+      credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
+      credentialTtlMs: 60_000,
+      leaseTtlMs: 60_000,
+      now: new Date(),
+    });
+    expect(result.outcome).toBe("context_gap");
+    expect(await sessionRow(session.session_id)).toEqual({
+      admission: "recovery_required",
+      podId: null,
+      status: "failed",
+    });
+    const queued = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(
+        and(
+          eq(turns.sessionId, session.session_id),
+          eq(turns.status, "queued"),
+        ),
+      );
+    expect(queued).toHaveLength(1);
+    const [launch] = await db
+      .select({ failures: workerLaunches.launchFailureCount })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(launch?.failures).toBe(0);
+    const [execution] = await db
+      .select({ desired: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, intent.executionId));
+    expect(execution?.desired).toBe("terminated");
+  });
+
   describe("leaves everything alone when the pair is not what stops the claim", () => {
     async function reserved(sessionId: string) {
       const intent = await store().reserveLaunch({

@@ -616,7 +616,8 @@ async function giveUpOnCatalogMismatch(
   sessionId: string,
   runnable: readonly RunnablePair[],
   costLimitUsd: number,
-): Promise<boolean> {
+  now: Date,
+): Promise<"catalog_mismatch" | "context_gap" | null> {
   const [session] = await tx
     .select()
     .from(sessions)
@@ -632,7 +633,7 @@ async function giveUpOnCatalogMismatch(
     budgetExceeded(session.costUsd, costLimitUsd) ||
     isRunnable(session, runnable)
   ) {
-    return false;
+    return null;
   }
   // Skipped when locked, as the candidate query does: another claim holding
   // it is binding the session and waits on the row lock taken above, so
@@ -649,7 +650,7 @@ async function giveUpOnCatalogMismatch(
     )
     .limit(1)
     .for("update", { skipLocked: true });
-  if (!signal) return false;
+  if (!signal) return null;
   const ref = {
     executionId: launch.executionId,
     generation: launch.generation,
@@ -665,7 +666,19 @@ async function giveUpOnCatalogMismatch(
       ),
     )
     .limit(1);
-  if (execution?.desiredState !== "running") return false;
+  if (execution?.desiredState !== "running") return null;
+  // A context gap is the operator's call before the catalog's (94S-288): it
+  // holds the queued input for start_fresh, where a catalog give-up would
+  // fail it and leave the gap to be found only at the next claim.
+  const coverage = await contextCoverage(tx, session);
+  if (contextGap(session, coverage)) {
+    await raiseContextGap(tx, { session, coverage, detectedAt: "claim", now });
+    await tx
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, launch.executionId));
+    return "context_gap";
+  }
   // Names ids only: the stored URL may embed a credential (94S-147).
   const detail = `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
   // As `recordLaunchFailure` gives a launch up: counted, the credential
@@ -682,7 +695,7 @@ async function giveUpOnCatalogMismatch(
     })
     .where(eq(workerLaunches.executionId, launch.executionId));
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
-  return true;
+  return "catalog_mismatch";
 }
 
 async function bindingOf(
@@ -870,19 +883,18 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .limit(1)
           .for("update", { of: unassignedSessions, skipLocked: true });
         if (!candidate) {
-          if (
-            launch.sessionId !== null &&
-            (await giveUpOnCatalogMismatch(
-              tx,
-              launch,
-              launch.sessionId,
-              input.runnable,
-              input.costLimitUsd,
-            ))
-          ) {
-            return { outcome: "catalog_mismatch" };
-          }
-          return { outcome: "no_session" };
+          const givenUp =
+            launch.sessionId === null
+              ? null
+              : await giveUpOnCatalogMismatch(
+                  tx,
+                  launch,
+                  launch.sessionId,
+                  input.runnable,
+                  input.costLimitUsd,
+                  input.now,
+                );
+          return { outcome: givenUp ?? "no_session" };
         }
 
         // The candidate query locked only the signal; the context verdict
