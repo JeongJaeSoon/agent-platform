@@ -251,6 +251,74 @@ describe("WorkerHost interrupt", () => {
     ]);
   });
 
+  // A clean interrupt's receipt precedes its terminal, but a turn that crashes
+  // while handling one may report first (sdk.d.ts, SDKControlInterruptResponse).
+  test.each([
+    {
+      name: "an acknowledgement makes it interrupted",
+      answer: async () => ({ stillQueued: [] }),
+      turn: {
+        turnId: "1",
+        status: "interrupted",
+        reason: "error_during_execution",
+      },
+      outcome: "idle",
+    },
+    {
+      name: "a refusal makes it a failure",
+      answer: async (): Promise<{ stillQueued: string[] }> => {
+        throw new Error("control channel refused the interrupt");
+      },
+      turn: {
+        turnId: "1",
+        status: "failed",
+        reason: "error_during_execution",
+      },
+      outcome: "idle",
+    },
+    {
+      name: "no answer within the grace leaves it unknown and fails the worker",
+      answer: () => new Promise<{ stillQueued: string[] }>(() => {}),
+      turn: {
+        turnId: "1",
+        status: "outcome_unknown",
+        reason: "interrupt_unanswered",
+      },
+      outcome: "failed",
+    },
+  ])(
+    "an aborted terminal that overtakes the interrupt's receipt: $name",
+    async ({ answer, turn, outcome }) => {
+      let receipt: (() => void) | undefined;
+      const { gateway, host, runtime } = harness(TWO_TURNS, {
+        timeouts: { interruptGraceMs: 300 },
+        wrap: withInterrupt(async (original) => {
+          await original();
+          // The terminal frame goes out while the receipt is still held.
+          await new Promise<void>((resolve) => {
+            receipt = resolve;
+          });
+          return answer();
+        }),
+      });
+      gateway.enqueue("crashes while interrupted");
+      const loop = host.runLoop();
+      await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+      gateway.interrupt("1");
+      await waitFor(
+        () => gateway.events.some((event) => event.event === "result"),
+        "the aborted terminal",
+      );
+      expect(gateway.finalized).toHaveLength(0);
+      receipt?.();
+
+      const summary = await loop;
+
+      expect(summary.turns[0]).toEqual(turn);
+      expect(summary.outcome).toBe(outcome);
+    },
+  );
+
   // The delays below only need to outlast the interrupt's way to the engine;
   // they are generous because a loaded runner stretches that way.
   test("an abort that follows a refused interrupt is a failure, not an interrupt", async () => {

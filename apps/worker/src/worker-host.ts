@@ -138,10 +138,13 @@ type Turn = {
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
   /**
-   * That intent's interrupt went to the engine. Only this makes an aborted
-   * terminal an interrupted turn: the SDK ends every abort the same way.
+   * How the engine answered the interrupt sent for this turn, if one was.
+   * The SDK ends every abort alike, so only an acknowledged interrupt makes
+   * an aborted terminal an interrupted turn.
    */
-  interruptSent: boolean;
+  interruptReceipt?: "pending" | "acknowledged" | "refused";
+  /** Settles once interruptReceipt is no longer pending. */
+  interruptAnswered?: Promise<void>;
   /**
    * When the interrupt's grace runs out (performance.now()): it bounds the
    * whole way to a terminal, checkpoint capture included, not each step.
@@ -150,7 +153,7 @@ type Turn = {
   /** The input went to the engine: an interrupt can only reach it from here. */
   sent: boolean;
   settled: Promise<Settlement>;
-  settle: (settlement: Settlement) => void;
+  settle: (settlement: Settlement | Promise<Settlement>) => void;
   /** The deadline fired: whatever terminal comes now is the timeout's. */
   timedOut: boolean;
   timers: ReturnType<typeof setTimeout>[];
@@ -1004,14 +1007,14 @@ export class WorkerHost {
     }
   }
   private beginTurn(turnId: string, uuid: string): Turn {
-    let settle: (settlement: Settlement) => void = () => {};
+    let settle: (settlement: Settlement | Promise<Settlement>) => void =
+      () => {};
     const settled = new Promise<Settlement>((resolve) => {
       settle = resolve;
     });
     const turn: Turn = {
       closed: false,
       interrupting: false,
-      interruptSent: false,
       sent: false,
       settled,
       settle,
@@ -1024,7 +1027,8 @@ export class WorkerHost {
     return turn;
   }
 
-  private settleTurn(settlement: Settlement): void {
+  /** A pending settlement still cuts the stream now, at the terminal frame. */
+  private settleTurn(settlement: Settlement | Promise<Settlement>): void {
     const turn = this.turn;
     if (turn === undefined) return;
     // The stream is cut here, at the terminal frame, and not wherever it has
@@ -1106,17 +1110,51 @@ export class WorkerHost {
   }
 
   private sendInterrupt(run: AgentRun, turn: Turn): void {
-    turn.interruptSent = true;
-    this.interruptAnswered = run.interrupt().then(
-      () => {},
+    turn.interruptReceipt = "pending";
+    const answered = run.interrupt().then(
+      () => {
+        turn.interruptReceipt = "acknowledged";
+      },
       (error) => {
-        // Refused: an abort the engine reports from here on is not this one.
-        turn.interruptSent = false;
+        turn.interruptReceipt = "refused";
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
         });
       },
     );
+    turn.interruptAnswered = answered;
+    this.interruptAnswered = answered;
+  }
+
+  /**
+   * An aborted terminal that overtook its interrupt's receipt. The SDK writes
+   * a clean interrupt's receipt first; a turn that crashed while handling it
+   * may report first, so the receipt, awaited within what is left of the
+   * grace, decides. None by then is an interrupt the engine never answered.
+   */
+  private onceAnswered(
+    turn: Turn,
+    decide: (acknowledged: boolean) => Settlement,
+  ): Promise<Settlement> {
+    const leftMs = Math.max(
+      0,
+      (turn.interruptDeadline ?? performance.now()) - performance.now(),
+    );
+    return settledWithin(
+      turn.interruptAnswered ?? Promise.resolve(),
+      leftMs,
+    ).then((answered) => {
+      if (answered) return decide(turn.interruptReceipt === "acknowledged");
+      this.fail(
+        `Turn ${turn.turnId} ended before its interrupt was answered, and no answer came`,
+      );
+      return {
+        ...decide(false),
+        status: "outcome_unknown",
+        reason: "interrupt_unanswered",
+        synthetic: true,
+      };
+    });
   }
 
   /**
@@ -1241,6 +1279,22 @@ export class WorkerHost {
     const { costUsd, providerFailure } = turn.closed
       ? { costUsd: undefined, providerFailure: undefined }
       : this.accounting.settle();
+    const cost = costUsd === undefined ? {} : { costUsd };
+    if (
+      attributed.includes(turn.uuid) &&
+      !turn.closed &&
+      !turn.timedOut &&
+      turn.interruptReceipt === "pending" &&
+      endedByAbort(native)
+    ) {
+      this.settleTurn(
+        this.onceAnswered(turn, (acknowledged) => ({
+          ...terminalOf(native, providerFailure, acknowledged),
+          ...cost,
+        })),
+      );
+      return;
+    }
     this.settleTurn({
       ...(attributed.includes(turn.uuid)
         ? turn.timedOut
@@ -1250,7 +1304,11 @@ export class WorkerHost {
               status: "failed",
               reason: "turn_timeout",
             }
-          : terminalOf(native, providerFailure, turn.interruptSent)
+          : terminalOf(
+              native,
+              providerFailure,
+              turn.interruptReceipt === "acknowledged",
+            )
         : {
             status: "outcome_unknown",
             reason: turn.timedOut
@@ -1259,7 +1317,7 @@ export class WorkerHost {
             result: resultPayload(native, providerFailure),
             usage: native.usage ?? null,
           }),
-      ...(costUsd === undefined ? {} : { costUsd }),
+      ...cost,
     });
   }
 
@@ -1585,18 +1643,19 @@ function attributedUuids(native: NativeSdkMessage): string[] {
 }
 
 /**
- * `interruptSent` is the worker's own fact that it interrupted this turn. An
- * aborted terminal without it is some other abort, and a turn that finished
- * before the interrupt landed keeps the outcome it reached.
+ * `interruptAcknowledged` is the worker's own fact that the engine took its
+ * interrupt for this turn. An aborted terminal without it is some other
+ * abort, and a turn that finished before the interrupt landed keeps the
+ * outcome it reached.
  */
 function terminalOf(
   native: NativeSdkMessage,
   providerFailure: ProviderFailure | undefined,
-  interruptSent: boolean,
+  interruptAcknowledged: boolean,
 ): Settlement {
   const subtype =
     typeof native.subtype === "string" ? native.subtype : "unknown";
-  const interrupted = interruptSent && endedByAbort(native);
+  const interrupted = interruptAcknowledged && endedByAbort(native);
   const failed = native.is_error === true || subtype !== "success";
   const status: WorkerTerminalStatus = interrupted
     ? "interrupted"
