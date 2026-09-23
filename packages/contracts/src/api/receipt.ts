@@ -73,7 +73,14 @@ export const receiptSchema = z.object({
   // written before it have no actor to report (Codex B19).
   actor: receiptActorSchema.optional(),
   status: receiptStatusSchema,
-  result: z.unknown().nullable(),
+  // Input receipts keep the acceptance response for good, because a retry
+  // with the same Idempotency-Key replays exactly that body (api.md, common
+  // rules). Every writer that settles one — finalize, execution gone,
+  // terminate, recovery decisions — changes `status` and `error` only.
+  result: z.unknown().nullable().meta({
+    description:
+      "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref.",
+  }),
   error: receiptErrorSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,

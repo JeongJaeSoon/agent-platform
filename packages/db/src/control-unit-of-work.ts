@@ -279,9 +279,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                 code: "SESSION_STOPPED",
                 message: "input cancelled by terminate before it ran",
               },
-              // `result` keeps the acceptance response on purpose: a retry
-              // of the original request with its idempotency key replays
-              // from it (findIdempotent); the receipt read reports the failure.
+              // `result` stays the acceptance response (receiptSchema.result).
               updatedAt: now,
             })
             .where(

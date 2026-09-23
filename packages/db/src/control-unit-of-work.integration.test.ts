@@ -479,6 +479,13 @@ integration("session terminate on PostgreSQL", () => {
         and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
       );
     expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
+    // The input receipt goes unknown but keeps its acceptance response.
+    const { ownerId: _ownerId, ...accepted } = session;
+    expect(await receiptRow(session.receipt_id)).toMatchObject({
+      status: "unknown",
+      error: { code: "RECOVERY_REQUIRED" },
+      result: accepted,
+    });
     const receipt = await receiptRow(result.response.receipt_id);
     expect(receipt.status).toBe("succeeded");
     expect(receipt.result).toMatchObject({

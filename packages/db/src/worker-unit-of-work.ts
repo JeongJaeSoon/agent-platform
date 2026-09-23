@@ -1187,13 +1187,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
 
         const receiptStatus = RECEIPT_STATUS_BY_TERMINAL[input.terminal.status];
         const succeeded = receiptStatus === "succeeded";
+        // `result` stays the acceptance response (receiptSchema.result); the
+        // turn's own result is read through target_ref.turn_id.
         await tx
           .update(receipts)
           .set({
             status: receiptStatus,
-            result: succeeded
-              ? { turn_id: input.turnId, status: input.terminal.status }
-              : null,
             error: succeeded
               ? null
               : {
@@ -1426,6 +1425,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           );
         await abandonUndeliveredAnswers(tx, session.id, now);
         for (const turn of unresolved) {
+          // `result` stays the acceptance response (receiptSchema.result).
           await tx
             .update(receipts)
             .set({
