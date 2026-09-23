@@ -74,7 +74,3 @@ export async function main(
     await pool.end();
   }
 }
-
-if (import.meta.main) {
-  await main();
-}

@@ -10,7 +10,7 @@ import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
 // images is images.yml's job.
 
 const root = join(import.meta.dir, "..");
-const apps = ["api", "scheduler", "worker"] as const;
+const apps = ["control-host", "worker"] as const;
 const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -44,7 +44,7 @@ describe("app Dockerfiles", () => {
 
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
-    for (const app of ["api", "scheduler"] as const) {
+    for (const app of ["control-host"] as const) {
       expect(basePins[app].source).toContain(
         "test ! -e node_modules/@anthropic-ai",
       );
@@ -90,10 +90,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the API image itself runs under an init that reaps the git helpers it orphans", () => {
     // In the image, not compose, so `docker run` and other orchestrators get
     // it too; image-smoke.sh checks the running container.
-    expect(basePins.api.source).toMatch(
+    expect(basePins["control-host"].source).toMatch(
       /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
     );
-    expect(basePins.api.source).toMatch(/apt-get install .*\btini\b/);
+    expect(basePins["control-host"].source).toMatch(
+      /apt-get install .*\btini\b/,
+    );
   });
 
   test("the API's memory limit and git cap are set side by side", () => {
@@ -118,7 +120,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test("images.yml builds every app and pushes only on tags", () => {
     const workflow = read(".github/workflows/images.yml");
-    expect(workflow).toContain("app: [api, worker, scheduler]");
+    expect(workflow).toContain("app: [control-host, worker]");
     expect(workflow).toContain('tags: ["v*"]');
     // The PR-facing job never pushes and never holds package write; only
     // the tag-gated job does.

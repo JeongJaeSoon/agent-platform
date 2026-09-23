@@ -34,8 +34,7 @@ out="${D2_GATE_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/d2-gate.XXXXXX")}"
 mkdir -p "$out"
 
 export EXECUTION_INSTALLATION_ID="d2g${run_id}"
-export API_IMAGE="agent-platform-api:${project}"
-export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
+export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
@@ -55,7 +54,7 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
   fi
   echo "report: $out" >&2
   exit "$status"
@@ -81,7 +80,7 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
   -H 'Content-Type: application/json' \
   -d '{"name":"gate-app","auto_init":true,"default_branch":"main","private":false}' \
   >>"$out/fixture.log"
-api_key="$(dc exec -T api bun run apps/api/src/keys.ts create gate-owner \
+api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
 dc up -d --wait scheduler >>"$out/up.log" 2>&1

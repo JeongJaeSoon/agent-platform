@@ -22,10 +22,10 @@ async function part(args: string[]) {
 describe("unit-part.ts", () => {
   test("packages/ is one part and everything else, whatever its top directory, is the other", () => {
     expect(partOf("packages/db/src/queries.test.ts")).toBe("packages");
-    expect(partOf("apps/api/src/auth.test.ts")).toBe("rest");
+    expect(partOf("apps/control-host/src/api/auth.test.ts")).toBe("rest");
     expect(partOf("tests/architecture.test.ts")).toBe("rest");
     expect(partOf("xapps-e2e/a.test.ts")).toBe("rest");
-    expect(partOf("apps/api/packages/x.test.ts")).toBe("rest");
+    expect(partOf("apps/control-host/packages/x.test.ts")).toBe("rest");
   });
 
   test("refuses an empty part, which bun test would read as the whole suite", () => {

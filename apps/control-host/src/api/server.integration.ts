@@ -102,9 +102,9 @@ async function configDir(
 
 async function issueKey(ownerId: string, scopes: string): Promise<string> {
   const keyProcess = Bun.spawn(
-    ["bun", "run", "src/keys.ts", "create", ownerId, "--scopes", scopes],
+    ["bun", "run", "src/api/keys.ts", "create", ownerId, "--scopes", scopes],
     {
-      cwd: `${import.meta.dir}/..`,
+      cwd: `${import.meta.dir}/../..`,
       env: { ...process.env, DATABASE_URL: databaseUrl },
       stdout: "pipe",
       stderr: "pipe",
@@ -127,8 +127,8 @@ async function issueKey(ownerId: string, scopes: string): Promise<string> {
 async function refusedStart(
   env: Record<string, string>,
 ): Promise<{ exitCode: number; stderr: string }> {
-  const server = Bun.spawn(["bun", "run", "src/server.ts"], {
-    cwd: `${import.meta.dir}/..`,
+  const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+    cwd: `${import.meta.dir}/../..`,
     env: {
       ...process.env,
       AUTH_MODE: "api-key",
@@ -174,7 +174,7 @@ integration("API server on PostgreSQL", () => {
     );
     if (state.rows[0]?.sessions === null) {
       await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
+        migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
       });
     }
   }, 60_000);
@@ -211,8 +211,8 @@ integration("API server on PostgreSQL", () => {
       }
 
       const port = 40_000 + (process.pid % 20_000);
-      const server = Bun.spawn(["bun", "run", "src/server.ts"], {
-        cwd: `${import.meta.dir}/..`,
+      const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+        cwd: `${import.meta.dir}/../..`,
         env: {
           ...process.env,
           AUTH_MODE: "api-key",
@@ -384,8 +384,8 @@ integration("API server on PostgreSQL", () => {
   test(
     "refuses to start on missing or malformed installation limits, naming each (94S-131)",
     async () => {
-      const server = Bun.spawn(["bun", "run", "src/server.ts"], {
-        cwd: `${import.meta.dir}/..`,
+      const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+        cwd: `${import.meta.dir}/../..`,
         env: {
           ...process.env,
           AUTH_MODE: "api-key",

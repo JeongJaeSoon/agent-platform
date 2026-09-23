@@ -1,17 +1,21 @@
 {
-  "name": "@agent-platform/api",
+  "name": "@agent-platform/control-host",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "bun --watch src/server.ts",
-    "start": "bun run src/server.ts",
-    "keys": "bun run src/keys.ts"
+    "dev": "bun --watch src/main.ts api",
+    "start": "bun run src/main.ts api",
+    "scheduler": "bun run src/main.ts scheduler",
+    "reconciler": "bun run src/main.ts reconciler",
+    "keys": "bun run src/api/keys.ts",
+    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
   "dependencies": {
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/db": "workspace:*",
+    "@agent-platform/execution-local-docker": "workspace:*",
     "@agent-platform/observability": "workspace:*",
     "@agent-platform/platform": "workspace:*",
     "@agent-platform/runtime-claude-codec": "workspace:*",

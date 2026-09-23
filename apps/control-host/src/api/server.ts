@@ -230,7 +230,7 @@ const app = createApiApp({
 // above REQUEST_DEADLINE_MS around database work (deadline.ts answers 503
 // first), on while it ingests a body (under BODY_DEADLINE_MS), and back to
 // the default once the response is decided.
-export default {
+Bun.serve({
   port: Number(process.env.PORT ?? 3000),
   // Bun's own cap (default 128 MiB) applies before any handler runs and
   // answers without the API's error envelope, so it sits above the contract
@@ -245,4 +245,4 @@ export default {
       setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
     });
   },
-};
+});
