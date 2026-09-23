@@ -125,6 +125,28 @@ describe("maxBudgetUsd with the actual Claude SDK", () => {
     expect(result.total_cost_usd).toBeCloseTo(6, 3);
   }, 60_000);
 
+  test("a budget of nothing starts the engine and ends the first request's turn", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
+    server = startFakeAnthropicServer(loop);
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+
+    const seen = await oneTurn(
+      runtime.start(
+        {
+          ...config(server.url, isolated.workspace, isolated.home),
+          maxBudgetUsd: 0,
+        },
+        deny,
+      ),
+    );
+
+    expect(server.requests).toHaveLength(1);
+    expect(resultOf(seen).subtype).toBe("error_max_budget_usd");
+  }, 60_000);
+
   test("a resumed run counts from zero, so the budget it gets is all it may spend", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
     const { home, workspace } = isolated;

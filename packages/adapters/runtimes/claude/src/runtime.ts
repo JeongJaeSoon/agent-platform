@@ -25,6 +25,8 @@ import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
+const MIN_BUDGET_USD = 0.000001;
+
 export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
   readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
 
@@ -162,7 +164,12 @@ export function buildSdkOptions(
     },
     ...(config.maxBudgetUsd === undefined
       ? {}
-      : { maxBudgetUsd: config.maxBudgetUsd }),
+      : {
+          // The engine refuses 0 and exits before its first request. A
+          // micro-dollar, the smallest amount the platform counts, stops the
+          // turn at its first request instead, which is what nothing left means.
+          maxBudgetUsd: Math.max(config.maxBudgetUsd, MIN_BUDGET_USD),
+        }),
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
     ...(config.mcpServers === undefined
       ? {}
