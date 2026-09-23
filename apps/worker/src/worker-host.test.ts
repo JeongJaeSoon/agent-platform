@@ -43,9 +43,11 @@ const timeouts: WorkerTimeouts = {
   heartbeatIntervalMs: 10_000,
   idleTimeoutMs: 60,
   maxTurnMs: 60_000,
+  nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 15,
   questionTimeoutMs: 200,
   requestTimeoutMs: 1_000,
+  startupTimeoutMs: 60_000,
 };
 
 /** The uuid the host derives for the n-th message the fake gateway enqueues. */
@@ -82,6 +84,7 @@ function harness(
     logger?: WorkerLogger;
     /** Input uuids the engine session a resumed run opens already holds. */
     resumedTranscript?: string[];
+    sleep?: (ms: number) => Promise<void>;
     timeouts?: Partial<WorkerTimeouts>;
     workspace?: WorkspacePreparer;
     wrap?: (run: AgentRun) => AgentRun;
@@ -131,6 +134,7 @@ function harness(
     timeouts: { ...timeouts, ...overrides.timeouts },
     workspace: overrides.workspace ?? noWorkspace,
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
+    ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
   return { gateway, host, launched, principals, runtime };
 }
@@ -2001,5 +2005,281 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
       "completed",
     ]);
     expect(summary.outcome).toBe("idle");
+  });
+});
+
+/** A gateway 503: transient, so the worker keeps retrying it. */
+function unavailable(): WorkerGatewayRequestError {
+  return new WorkerGatewayRequestError(
+    503,
+    "BACKEND_UNAVAILABLE",
+    "The gateway is unavailable",
+    true,
+  );
+}
+
+function never<T>(): Promise<T> {
+  return new Promise<T>(() => {});
+}
+
+describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
+  test("a nextInput the gateway keeps failing ends the worker within its retry budget, heartbeats and all", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.enqueue("committed but never answered");
+    let polls = 0;
+    gateway.nextInput = async () => {
+      polls += 1;
+      throw unavailable();
+    };
+    const { host, runtime } = harness([{ type: "await-input" }], {
+      gateway,
+      sleep: () => Bun.sleep(5),
+      timeouts: { heartbeatIntervalMs: 5, nextInputRetryTimeoutMs: 80 },
+    });
+
+    const began = performance.now();
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("nextInput");
+    expect(performance.now() - began).toBeLessThan(1_000);
+    // The lease was still being extended the whole time: only the budget ended it.
+    expect(gateway.heartbeats.length).toBeGreaterThan(3);
+    expect(polls).toBeGreaterThan(1);
+    // The turn the server may have committed is not run and not finalized;
+    // the release leaves it to confirmExecutionGone as outcome_unknown.
+    expect(runtime.inputs).toEqual([]);
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("sends no further poll once the budget has run out mid-backoff", async () => {
+    const gateway = new FakeWorkerGateway();
+    let polls = 0;
+    gateway.nextInput = async () => {
+      polls += 1;
+      throw unavailable();
+    };
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      // The backoff outlasts the budget: the expiry lands while it sleeps.
+      sleep: () => Bun.sleep(60),
+      timeouts: { nextInputRetryTimeoutMs: 20 },
+    });
+
+    const summary = await host.runLoop();
+    await Bun.sleep(100);
+
+    expect(summary.outcome).toBe("failed");
+    expect(polls).toBe(1);
+  });
+
+  test("a poll that answers only after the budget is never run", async () => {
+    const gateway = new FakeWorkerGateway();
+    const real = gateway.nextInput.bind(gateway);
+    gateway.enqueue("late input");
+    let polls = 0;
+    gateway.nextInput = async (request) => {
+      polls += 1;
+      if (polls === 1) throw unavailable();
+      await Bun.sleep(150);
+      return real(request);
+    };
+    const { host, runtime } = harness([{ type: "await-input" }], {
+      gateway,
+      sleep: () => Bun.sleep(1),
+      timeouts: { nextInputRetryTimeoutMs: 40 },
+    });
+
+    const summary = await host.runLoop();
+    await Bun.sleep(200);
+
+    expect(summary.outcome).toBe("failed");
+    expect(runtime.inputs).toEqual([]);
+    expect(gateway.finalized).toEqual([]);
+  });
+
+  test("a poll that recovers within the budget runs the turn, and the budget starts over", async () => {
+    const gateway = new FakeWorkerGateway();
+    const real = gateway.nextInput.bind(gateway);
+    gateway.enqueue("first message");
+    let polls = 0;
+    gateway.nextInput = async (request) => {
+      polls += 1;
+      // Two failures before each success: together they would outlast the
+      // budget, each run alone does not.
+      if (polls % 3 !== 0) {
+        await Bun.sleep(20);
+        throw unavailable();
+      }
+      return real(request);
+    };
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        sleep: () => Bun.sleep(1),
+        timeouts: { nextInputRetryTimeoutMs: 70, idleTimeoutMs: 150 },
+      },
+    );
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    expect(runtime.inputs.map((input) => input.uuid)).toEqual([uuidForTurn(1)]);
+  });
+
+  test("a restorePlan that never returns fails the worker within the startup budget and releases", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      checkpoints: { restorePlan: never, capture: async () => null },
+      timeouts: { heartbeatIntervalMs: 5, startupTimeoutMs: 80 },
+    });
+
+    const began = performance.now();
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("budget");
+    expect(performance.now() - began).toBeLessThan(1_000);
+    expect(gateway.heartbeats.length).toBeGreaterThan(3);
+    expect(launched).toEqual([]);
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a preparation that ignores its abort is ended by the startup budget", async () => {
+    const gateway = new FakeWorkerGateway();
+    let aborted = false;
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      workspace: {
+        committedClaudeMd: () => null,
+        prepare: ({ signal }) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          return never();
+        },
+      },
+      timeouts: { startupTimeoutMs: 50 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(aborted).toBe(true);
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a restore plan that arrives after the budget starts no engine, and a late rejection is not unhandled", async () => {
+    let answer!: (plan: { mode: "new" }) => void;
+    let refuse!: (error: Error) => void;
+    const plans: WorkerCheckpointPort[] = [
+      {
+        restorePlan: () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        capture: async () => null,
+      },
+      {
+        restorePlan: () =>
+          new Promise((_, reject) => {
+            refuse = reject;
+          }),
+        capture: async () => null,
+      },
+    ];
+    for (const checkpoints of plans) {
+      const gateway = new FakeWorkerGateway();
+      const { host, launched } = harness([{ type: "await-input" }], {
+        gateway,
+        checkpoints,
+        timeouts: { startupTimeoutMs: 30 },
+      });
+
+      const summary = await host.runLoop();
+      if (checkpoints === plans[0]) answer({ mode: "new" });
+      else refuse(new Error("object store read failed late"));
+      await Bun.sleep(20);
+
+      expect(summary.outcome).toBe("failed");
+      expect(launched).toEqual([]);
+      expect(gateway.releases).toHaveLength(1);
+    }
+  });
+
+  test("a drain while restorePlan hangs releases without starting the engine", async () => {
+    const gateway = new FakeWorkerGateway();
+    let asked!: () => void;
+    const restoring = new Promise<void>((resolve) => {
+      asked = resolve;
+    });
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      checkpoints: {
+        restorePlan: () => {
+          asked();
+          return never();
+        },
+        capture: async () => null,
+      },
+    });
+    const loop = host.runLoop();
+    await restoring;
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    // The drain came first: the outcome is the drain's, not a timeout's.
+    expect(summary).toMatchObject({
+      outcome: "drained",
+      reason: "received SIGTERM",
+    });
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a lease lost while restorePlan hangs is reported lost and never released", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "LEASE_EXPIRED";
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      checkpoints: { restorePlan: never, capture: async () => null },
+      timeouts: { heartbeatIntervalMs: 5 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toEqual([]);
+  });
+
+  test("the startup budget stops counting once the engine is running", async () => {
+    const { host, gateway } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { timeouts: { startupTimeoutMs: 20, idleTimeoutMs: 120 } },
+    );
+    gateway.enqueue("first message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(summary.turns).toHaveLength(1);
   });
 });
