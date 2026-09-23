@@ -620,7 +620,7 @@ let pendingRequests: Map<string, PendingRequest>;
 
 **워커의 lease 시계 (94S-322, 2026-09-24).** lease 판정의 권위는 DB 시계(`clock_timestamp()`)다. 워커는 claim·heartbeat 응답의 절대 시각 `lease_expires_at`으로 판단하지 않는다. 대신 응답의 `lease_remaining_ms`를 쓴다. 이 값은 요청이 도착한 뒤 읽은 DB 시각에서 lease 끝까지 남은 시간이다. 워커는 그 요청을 보낸 순간의 monotonic 시각(`performance.now()`)에 이 값을 더해 deadline을 잡는다. 보낸 시각이 DB가 시각을 읽은 순간보다 앞서므로, 이 deadline은 DB의 deadline보다 늦을 수 없다. 응답이 늦게 도착해도 lease가 늘어나지 않는다. 벽시계가 앞뒤로 뛰어도 판정은 그대로다. 겹친 beat의 응답은 deadline을 앞당기지 못한다(`max`).
 
-워커는 deadline보다 `WORKER_LEASE_SAFETY_MARGIN_SEC`(기본 5초) 먼저 lease를 포기한다. 포기는 소유권 상실과 같은 경로를 탄다. 엔진을 유예 없이 kill하고, release나 다른 durable write는 하지 않는다. release가 아직 성공할 수 있는 시점이지만 회수는 margin만큼 기다리는 쪽을 택했다. 한번 포기한 lease는 늦게 온 갱신 응답으로 되살리지 않는다. margin이 lease보다 길면 첫 beat에서 바로 포기하고 그 이유를 남긴다. margin을 lease 길이에 맞춰 조용히 줄이지 않는다. margin은 event loop 정지나 DB 시계 점프까지 막아 주는 보장이 아니다. 여유분이다.
+워커는 deadline보다 `WORKER_LEASE_SAFETY_MARGIN_SEC`(기본 10초) 먼저 lease를 포기한다. 포기는 소유권 상실과 같은 경로를 탄다. 엔진을 유예 없이 kill하고, release나 다른 durable write는 하지 않는다. release가 아직 성공할 수 있는 시점이지만 회수는 margin만큼 기다리는 쪽을 택했다. 한번 포기한 lease는 늦게 온 갱신 응답으로 되살리지 않는다. margin이 lease보다 길면 첫 beat에서 바로 포기하고 그 이유를 남긴다. margin을 lease 길이에 맞춰 조용히 줄이지 않는다. margin은 event loop 정지나 DB 시계 점프까지 막아 주는 보장이 아니다. 여유분이다.
 
 ### 7.9 어긋남과 복구
 

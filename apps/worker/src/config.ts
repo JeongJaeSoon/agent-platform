@@ -256,11 +256,11 @@ function url(value: string, name: string): string {
 export const SHUTDOWN_RESERVE_MS = 12_000;
 
 /**
- * The engine kill that follows a loss is bounded by the shutdown's own 5s
- * exit grace. Against the compose default lease of 30s and 10s beats, it
- * still rides out two missed beats.
+ * Room for the shutdown to reach the engine kill and for that kill's own
+ * 5s exit grace. Against the compose default lease of 30s it leaves 20s
+ * of gateway outage ridden out; a longer lease leaves more.
  */
-export const LEASE_SAFETY_MARGIN_MS = 5_000;
+export const LEASE_SAFETY_MARGIN_MS = 10_000;
 
 function drainBudget(configured: number, stopGraceMs: number | undefined) {
   if (stopGraceMs === undefined) return configured;

@@ -43,7 +43,7 @@ describe("workerConfigFromEnv", () => {
       drainTimeoutMs: 100_000,
       heartbeatIntervalMs: 10_000,
       idleTimeoutMs: 1_800_000,
-      leaseSafetyMarginMs: 5_000,
+      leaseSafetyMarginMs: 10_000,
       maxTurnMs: 3_600_000,
       nextInputRetryTimeoutMs: 60_000,
       nextInputWaitMs: 20_000,

@@ -53,8 +53,8 @@ const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
 const PROFILE_ID = "claude-coding-v1";
-const LEASE_TTL_MS = 6_000;
-const MARGIN_MS = 2_000;
+const LEASE_TTL_MS = 10_000;
+const MARGIN_MS = 3_000;
 const HEARTBEAT_MS = 300;
 
 const catalog: SessionCatalog = {
@@ -142,14 +142,14 @@ integration("worker lease on the monotonic clock end to end", () => {
       registerInternalRoutes: (router) => registerWorkerRoutes(router, gateway),
     });
     server = Bun.serve({ port: 0, fetch: (request) => app.fetch(request) });
-  }, 60_000);
+  }, 90_000);
 
   afterAll(async () => {
     setSystemTime();
     server?.stop(true);
     await pool?.end();
     await database?.drop();
-  }, 60_000);
+  }, 90_000);
 
   async function dbNowMs(): Promise<number> {
     const [row] = await db
@@ -213,7 +213,6 @@ integration("worker lease on the monotonic clock end to end", () => {
       value?: {
         at: number;
         reason: string;
-        dbNow: Promise<number>;
         lease: Promise<number>;
       };
     } = {};
@@ -223,14 +222,10 @@ integration("worker lease on the monotonic clock end to end", () => {
           attemptId = String(fields?.attempt_id);
         }
         if (event === "worker.stopping" && fields?.kind === "lost") {
-          // Read at once: the question is whether the database still held
-          // the lease at the moment the worker gave it up.
-          const id = attemptId ?? "";
           lost.value = {
             at: performance.now(),
             reason: String(fields?.reason),
-            dbNow: dbNowMs(),
-            lease: leaseOf(id),
+            lease: leaseOf(attemptId ?? ""),
           };
         }
       },
@@ -295,7 +290,7 @@ integration("worker lease on the monotonic clock end to end", () => {
       workspace: noWorkspace,
     });
     const loop = host.runLoop();
-    await until(() => runtime.inputs.length === 1, "turn 1 running");
+    await until(() => runtime.inputs.length === 1, "turn 1 running", 30_000);
     const id = attemptId;
     if (id === undefined) throw new Error("the claim was not logged");
 
@@ -315,6 +310,20 @@ integration("worker lease on the monotonic clock end to end", () => {
       setSystemTime();
     }
 
+    // Where the database clock stands against this process's monotonic
+    // one, bracketed by the round trip of the read: a DB read made after the
+    // loss could land late on a loaded runner and see a lapse that had not
+    // happened yet. The tightest of a few samples.
+    let offset = { low: -Infinity, high: Infinity };
+    for (let sample = 0; sample < 5; sample += 1) {
+      const sent = performance.now();
+      const dbNow = await dbNowMs();
+      const answered = performance.now();
+      if (dbNow - sent - (dbNow - answered) < offset.high - offset.low) {
+        offset = { low: dbNow - answered, high: dbNow - sent };
+      }
+    }
+
     unreachable = true;
     const summary = await loop;
 
@@ -324,16 +333,16 @@ integration("worker lease on the monotonic clock end to end", () => {
     );
     const loss = lost.value;
     if (loss === undefined) throw new Error("the loss was not logged");
-    const [dbNowAtLoss, leaseAtLoss] = await Promise.all([
-      loss.dbNow,
-      loss.lease,
-    ]);
-    // Not late: the database had not ended the lease when the worker let go.
-    expect(dbNowAtLoss).toBeLessThan(leaseAtLoss);
+    const leaseAtLoss = await loss.lease;
+    // Not late: even the latest the database clock can have read at the
+    // loss is short of the lease's end.
+    expect(loss.at + offset.high).toBeLessThan(leaseAtLoss);
     // Not early: the worker rode out beats that failed, and let go with
     // about the margin left — plus the round trip of its last renewal,
     // which it counts from the send.
     expect(refusedBeats).toBeGreaterThan(1);
-    expect(leaseAtLoss - dbNowAtLoss).toBeLessThan(MARGIN_MS + 1_500);
-  }, 60_000);
+    expect(leaseAtLoss - (loss.at + offset.low)).toBeLessThan(
+      MARGIN_MS + 3_000,
+    );
+  }, 90_000);
 });
