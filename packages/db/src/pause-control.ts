@@ -111,7 +111,12 @@ export async function pauseBlocker(
       ),
     );
   // Every pause stands on a committed checkpoint, a session that never ran
-  // a turn included: a paused receipt promises a restore point.
+  // a turn included: a paused receipt promises a restore point. An advisory
+  // pending reason does not block by itself (94S-284): a refused drain
+  // checkpoint leaves the pointer short of the last turn and the coverage
+  // check below refuses it; a pointer that covers every turn is enough.
+  // checkpoint_pending_reason already tells the owner which one it was, so
+  // PAUSE_BLOCKED gets no reason of its own for it.
   if (!hasRestorePoint(session)) return "checkpoint_unavailable";
   const lastRan = ran?.sequence ?? null;
   if (lastRan === null) return null;

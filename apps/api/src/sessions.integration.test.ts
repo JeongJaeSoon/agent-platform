@@ -16,6 +16,7 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  events,
   idempotencyKeys,
   queueMessages,
   receipts,
@@ -150,6 +151,7 @@ integration("sessions API on PostgreSQL", () => {
           .delete(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, id));
         await db.delete(checkpoints).where(eq(checkpoints.sessionId, id));
+        await db.delete(events).where(eq(events.sessionId, id));
         await db.delete(turns).where(eq(turns.sessionId, id));
       }
       await db
@@ -596,6 +598,47 @@ integration("sessions API on PostgreSQL", () => {
       stranger,
     );
     expect(foreign.status).toBe(404);
+  }, 60_000);
+
+  test("a stopped session resumes with 202 over an advisory pending reason, and is refused over a mirror failure (94S-284)", async () => {
+    const resumeWith = async (key: string, pendingReason: string) => {
+      const sessionId = await createdSession(key);
+      await db.insert(checkpoints).values({
+        sessionId,
+        revision: 0,
+        manifestRef: `manifests/${sessionId}/0`,
+        manifestSha256: "0".repeat(64),
+      });
+      const [row] = await db
+        .update(sessions)
+        .set({
+          admissionState: "stopped",
+          status: "stopped",
+          checkpointRevision: 0,
+          checkpointCommittedAt: new Date(),
+          checkpointPendingReason: pendingReason,
+          checkpointPendingAttemptId: "attempt-x",
+        })
+        .where(eq(sessions.id, sessionId))
+        .returning({ revision: sessions.revision });
+      return app.request(`/v1/sessions/${sessionId}/resume`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": owner,
+          "Idempotency-Key": `${key}-resume`,
+        },
+        body: JSON.stringify({ expected_revision: row?.revision }),
+      });
+    };
+
+    // The run left a dev server going, so its last checkpoint was refused;
+    // the one before it is still the one to resume from.
+    const resumed = await resumeWith("advisory-resume", "background_writer");
+    expect(resumed.status).toBe(202);
+    const refused = await resumeWith("mirror-resume", "mirror_error");
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error.code).toBe("CHECKPOINT_UNAVAILABLE");
   }, 60_000);
 
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
