@@ -35,6 +35,8 @@ import {
  */
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
+// What `requestCheckpoint` would have minted for the publish these tests upload.
+const PUBLISH_ID = "0123456789abcdef0123456789abcdef";
 // The engine names its own session, and transcripts are filed under that name
 // — never the platform's. Keeping the two different is what proves nothing
 // here confuses them.
@@ -46,7 +48,7 @@ const workspaceBundle = await createGitBundle();
 const gitCommit = workspaceBundle.commit;
 
 function bundleKeyFor(revision: number, attempt: string): string {
-  const ref = manifestRefFor(sessionId, revision, attempt);
+  const ref = manifestRefFor(sessionId, revision, attempt, PUBLISH_ID);
   return `${ref.slice(0, ref.lastIndexOf("/") + 1)}workspace.bundle`;
 }
 
@@ -152,6 +154,7 @@ for (const [name, createObjects] of backends) {
         codecs: { claude: claudeCheckpointCodec },
         // The mirror does not record part versions yet (94S-246).
         objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,
@@ -185,7 +188,7 @@ for (const [name, createObjects] of backends) {
       if (request.status !== "ready") throw new Error("expected a request");
       expect(request.request.revision).toBe(0);
       expect(request.request.manifestRef).toBe(
-        manifestRefFor(sessionId, 0, attemptId),
+        manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
       );
 
       const first = await publish(
@@ -222,7 +225,7 @@ for (const [name, createObjects] of backends) {
         runtime,
         "attempt-stale",
       );
-      const staleRef = manifestRefFor(sessionId, 0, "attempt-stale");
+      const staleRef = manifestRefFor(sessionId, 0, "attempt-stale", PUBLISH_ID);
       expect(await objects.putImmutable(staleRef, stale.bytes)).toEqual({
         outcome: "created",
       });
@@ -296,6 +299,7 @@ for (const [name, createObjects] of backends) {
         codecs: { claude: claudeCheckpointCodec },
         // The mirror does not record part versions yet (94S-246).
         objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,
@@ -311,13 +315,13 @@ for (const [name, createObjects] of backends) {
       await first.append(subagent, [entry("s1", "review")]);
       const committed = await publish(first, 0, engineSession);
       await objects.putImmutable(
-        manifestRefFor(sessionId, 0, attemptId),
+        manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
         committed.bytes,
       );
       expect(
         await service.finalize({
           checkpoint: {
-            manifest_ref: manifestRefFor(sessionId, 0, attemptId),
+            manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
             manifest_sha256: committed.sha256,
             revision: 0,
           },
@@ -359,13 +363,13 @@ for (const [name, createObjects] of backends) {
         "attempt-2",
       );
       await objects.putImmutable(
-        manifestRefFor(sessionId, 1, "attempt-2"),
+        manifestRefFor(sessionId, 1, "attempt-2", PUBLISH_ID),
         next.bytes,
       );
       expect(
         await service.finalize({
           checkpoint: {
-            manifest_ref: manifestRefFor(sessionId, 1, "attempt-2"),
+            manifest_ref: manifestRefFor(sessionId, 1, "attempt-2", PUBLISH_ID),
             manifest_sha256: next.sha256,
             revision: 1,
           },
@@ -414,6 +418,7 @@ for (const [name, createObjects] of backends) {
         codecs: { claude: claudeCheckpointCodec },
         // The mirror does not record part versions yet (94S-246).
         objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,
@@ -432,7 +437,7 @@ for (const [name, createObjects] of backends) {
         ...runtime,
         sdkVersion: "0.3.100",
       });
-      const ref = manifestRefFor(sessionId, 0, attemptId);
+      const ref = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
       await objects.putImmutable(ref, published.bytes);
       await service.finalize({
         checkpoint: {

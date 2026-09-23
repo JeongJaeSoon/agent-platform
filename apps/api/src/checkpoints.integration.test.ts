@@ -59,6 +59,23 @@ const integration =
 
 const PROFILE_SHA = "c".repeat(64);
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The publish id is the server's to mint, so only the shape around it is known.
+function mintedRef(sessionId: string, revision: number, attemptId: string) {
+  const [directory, file] = manifestRefFor(
+    sessionId,
+    revision,
+    attemptId,
+    "<publish>",
+  ).split("<publish>") as [string, string];
+  return expect.stringMatching(
+    new RegExp(`^${escapeRegExp(directory)}[0-9a-f]{32}${escapeRegExp(file)}$`),
+  );
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -252,7 +269,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     ).toEqual({
       status: "ready",
       revision: 0,
-      manifest_ref: manifestRefFor(claimed.session_id, 0, claimed.attempt_id),
+      manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
     });
   }, 60_000);
 
@@ -268,7 +285,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     expect(asked).toEqual({
       status: "ready",
       revision: 0,
-      manifest_ref: manifestRefFor(sessionId, 0, claimed.attempt_id),
+      manifest_ref: mintedRef(sessionId, 0, claimed.attempt_id),
     });
     if (asked.status !== "ready") return;
 
@@ -355,7 +372,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     ).toEqual({
       status: "ready",
       revision: 1,
-      manifest_ref: manifestRefFor(sessionId, 1, claimed.attempt_id),
+      manifest_ref: mintedRef(sessionId, 1, claimed.attempt_id),
     });
 
     const runtime = {
