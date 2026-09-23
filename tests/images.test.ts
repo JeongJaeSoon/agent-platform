@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@agent-platform/platform";
+import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -80,12 +82,31 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
-  test("the API runs under an init that reaps the git helpers it orphans", () => {
-    const apiBlock = compose.slice(
-      compose.indexOf("\n  api:"),
-      compose.indexOf("\n  worker:"),
+  const apiBlock = compose.slice(
+    compose.indexOf("\n  api:"),
+    compose.indexOf("\n  worker:"),
+  );
+
+  test("the API image itself runs under an init that reaps the git helpers it orphans", () => {
+    // In the image, not compose, so `docker run` and other orchestrators get
+    // it too; image-smoke.sh checks the running container.
+    expect(basePins.api.source).toMatch(
+      /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
     );
-    expect(apiBlock).toMatch(/\n {4}init: true\n/);
+    expect(basePins.api.source).toMatch(/apt-get install .*\btini\b/);
+  });
+
+  test("the API's memory limit and git cap are set side by side", () => {
+    expect(apiBlock).toContain("mem_limit: $" + "{API_MEMORY_MB:-4096}m");
+    expect(apiBlock).toContain(
+      "CHECKPOINT_GIT_MEMORY_MB: $" + "{CHECKPOINT_GIT_MEMORY_MB:-1536}",
+    );
+    // The budget comment in compose is arithmetic over these two defaults.
+    expect(DEFAULT_MAX_GIT_MEMORY_BYTES).toBe(1536 * 1024 * 1024);
+    expect(DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).toBe(2);
+    const example = read(EXAMPLE_ENV_PATH);
+    expect(example).toContain("API_MEMORY_MB=4096");
+    expect(example).toContain("CHECKPOINT_GIT_MEMORY_MB=1536");
   });
 
   test("the scheduler alone mounts the Docker socket", () => {

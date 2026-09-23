@@ -21,6 +21,7 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
 import {
+  checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
 } from "./checkpoints.ts";
@@ -60,6 +61,7 @@ if (isCatalogEmpty(catalog)) {
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
 const checkpointStorage = checkpointStorageConfigFromEnv(process.env);
+const checkpointGitMemoryBytes = checkpointGitMemoryBytesFromEnv(process.env);
 if (checkpointStorage === "disabled") {
   logger.warn(
     "Checkpoint object store is disabled; every checkpoint will be refused and no session can be restored",
@@ -69,7 +71,11 @@ if (checkpointStorage === "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
-const checkpoints = createApiCheckpoints(db, checkpointStorage);
+const checkpoints = createApiCheckpoints(
+  db,
+  checkpointStorage,
+  checkpointGitMemoryBytes,
+);
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
   inputs: createPostgresSessionUnitOfWork(db),

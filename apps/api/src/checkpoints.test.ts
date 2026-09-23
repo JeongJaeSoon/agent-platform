@@ -5,17 +5,23 @@ import {
   manifestRefFor,
   type WorkspaceBundleVerifier,
 } from "@agent-platform/platform";
+import {
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
+  defaultGitRunner,
+  type GitCommandRunner,
+} from "@agent-platform/storage";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
 import {
   createGitBundle,
   type GitBundleFixture,
 } from "@agent-platform/testkit/git-bundle";
-
 import {
   type ApiCheckpointServiceDependencies,
+  checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
   createApiCheckpointService,
   createApiCheckpoints,
+  MIN_CHECKPOINT_GIT_MEMORY_MB,
 } from "./checkpoints.ts";
 
 /**
@@ -157,6 +163,60 @@ describe("API checkpoint composition", () => {
     if (verdict.status === "rejected") {
       expect(verdict.reason).toContain("git fetch failed");
     }
+  });
+
+  test("starts every verifying git under the configured memory cap", async () => {
+    const memory: Array<number | undefined> = [];
+    const gitRunner: GitCommandRunner = (args, options) => {
+      memory.push(options.limits?.memoryBytes);
+      return defaultGitRunner(args, options);
+    };
+    const { objects, checkpoint } = await checkpointWith(
+      bundle.bytes,
+      bundle.commit,
+    );
+    const maxGitMemoryBytes = checkpointGitMemoryBytesFromEnv({
+      CHECKPOINT_GIT_MEMORY_MB: "384",
+    });
+    const service = createApiCheckpointService({
+      codecs,
+      gitRunner,
+      maxGitMemoryBytes,
+      objects,
+      store,
+    });
+    const verdict = await service.validateManifest({ checkpoint, sessionId });
+    expect(verdict.status).toBe("verified");
+    expect(memory.length).toBeGreaterThan(0);
+    expect(new Set(memory)).toEqual(new Set([384 * 1024 * 1024]));
+  });
+
+  test("keeps the verifier's default cap when the environment names none", () => {
+    expect(checkpointGitMemoryBytesFromEnv({})).toBe(
+      DEFAULT_MAX_GIT_MEMORY_BYTES,
+    );
+    expect(
+      checkpointGitMemoryBytesFromEnv({ CHECKPOINT_GIT_MEMORY_MB: " " }),
+    ).toBe(DEFAULT_MAX_GIT_MEMORY_BYTES);
+    expect(
+      checkpointGitMemoryBytesFromEnv({ CHECKPOINT_GIT_MEMORY_MB: " 2048 " }),
+    ).toBe(2048 * 1024 * 1024);
+  });
+
+  test.each([
+    "0",
+    "-1536",
+    "1536.5",
+    "1e3",
+    "0x600",
+    "1.5g",
+    "abc",
+    String(MIN_CHECKPOINT_GIT_MEMORY_MB - 1),
+    "99999999999999",
+  ])("refuses CHECKPOINT_GIT_MEMORY_MB=%s at startup", (value) => {
+    expect(() =>
+      checkpointGitMemoryBytesFromEnv({ CHECKPOINT_GIT_MEMORY_MB: value }),
+    ).toThrow(/^CHECKPOINT_GIT_MEMORY_MB must be a whole number of MiB/);
   });
 
   test("reads the object store from the environment and refuses a silent absence", () => {
