@@ -183,6 +183,9 @@ describe("the worker's checkpoint publisher against the control plane's service"
     const pointers = memoryPointerStore();
     const service = createCheckpointService({
       codecs: { claude: claudeCheckpointCodec },
+      // The mirror does not record part versions yet; the restorer half of
+      // 94S-246 carries them.
+      objectProtection: "unversioned",
       objects: bucket,
       store: pointers,
       workspaceBundles: createGitWorkspaceBundleVerifier(),

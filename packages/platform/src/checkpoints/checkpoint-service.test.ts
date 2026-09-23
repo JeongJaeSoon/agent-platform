@@ -346,6 +346,7 @@ describe("requestCheckpoint", () => {
   test("hands one attempt a new key for every publish, so an upload that never committed cannot wedge it", async () => {
     const minting = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       objects,
       store: checkpoints.store,
       workspaceBundles: structuralBundleVerifier,
