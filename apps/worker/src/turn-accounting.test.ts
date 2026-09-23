@@ -46,6 +46,21 @@ describe("TurnAccounting", () => {
     expect(charges([0, 0.5])).toEqual([0, 0.5]);
   });
 
+  test("a new engine session that has spent nothing reports zero and resets the baseline", () => {
+    const accounting = new TurnAccounting();
+    accounting.observe(result(1, "old"));
+    expect(accounting.settle().costUsd).toBe(1);
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBe(0);
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBe(0);
+    accounting.observe(result(0.5, "new"));
+    expect(accounting.settle().costUsd).toBe(0.5);
+    // A zero after spending in the same session is still no report.
+    accounting.observe(result(0, "new"));
+    expect(accounting.settle().costUsd).toBeUndefined();
+  });
+
   test("a turn whose totals are missing or not a cost has no cost, not zero", () => {
     expect(charges([undefined, -1, Number.NaN, 0.5])).toEqual([
       undefined,

@@ -24,8 +24,9 @@ export type ProviderFailure = {
  * neither charges nor moves the baseline.
  *
  * A turn whose results carried no usable total settles with no cost at all,
- * not zero: the API tells "unknown" apart from "free" (94S-275). Zero is a
- * figure only while nothing has been spent, when it agrees with the baseline.
+ * not zero, so the API can tell an unknown cost from a zero one (94S-275).
+ * Zero is a figure only while nothing has been spent, when it agrees with
+ * the baseline.
  */
 export class TurnAccounting {
   private lastTotalUsd = 0;
@@ -40,13 +41,23 @@ export class TurnAccounting {
       if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
         return;
       }
+      const sessionId =
+        typeof native.session_id === "string" ? native.session_id : undefined;
       if (total === 0) {
+        // A new engine session that has spent nothing yet is a real zero,
+        // and it is the baseline from here on.
+        if (
+          sessionId !== undefined &&
+          this.lastSessionId !== undefined &&
+          sessionId !== this.lastSessionId
+        ) {
+          this.lastTotalUsd = 0;
+          this.lastSessionId = sessionId;
+        }
         if (this.lastTotalUsd === 0) this.reported = true;
         return;
       }
       this.reported = true;
-      const sessionId =
-        typeof native.session_id === "string" ? native.session_id : undefined;
       const restarted =
         total < this.lastTotalUsd ||
         (this.lastSessionId !== undefined && sessionId !== this.lastSessionId);
