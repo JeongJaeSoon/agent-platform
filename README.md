@@ -369,7 +369,12 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ✅ |
 | `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
-`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 샤드들이 변수를 전부 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남는다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 integration 샤드들의 skip 합을 같이 확인한다. 샤드로 나뉜 뒤에는 세 샤드의 `N pass`·`across N files`를 더한 값이 예전 단일 job의 숫자다.
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 샤드들이 변수를 전부 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남는다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 integration 샤드들의 skip 합을 같이 확인한다. 샤드로 나뉜 뒤에는 세 샤드의 `N pass`·`across N files`를 더한 값이 예전 단일 job의 숫자다. 합계는 이렇게 낸다(1번 샤드의 `server.integration.ts` 3 pass 포함):
+
+```bash
+gh run view <run-id> --log | grep -E '^integration \([0-9]+/[0-9]+\)' | grep -oE '\s[0-9]+ (pass|fail)$' \
+  | awk '{s[$2]+=$1} END {printf "pass=%d fail=%d\n", s["pass"], s["fail"]}'
+```
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
