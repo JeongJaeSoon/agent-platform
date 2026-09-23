@@ -125,7 +125,8 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-bun test ./tests/e2e/alpha-path.e2e.ts --timeout 900000 2>&1 | tee "$out/test.log"
+bun test ./tests/e2e/alpha-path.e2e.ts --timeout 900000 \
+  --reporter=junit --reporter-outfile="$out/junit.xml" 2>&1 | tee "$out/test.log"
 status="${PIPESTATUS[0]}"
 set -e
 # Bun exits 0 when every test skipped, which is what a missing variable
@@ -138,6 +139,11 @@ fail="$(count fail)"
   echo "tests: pass=${pass:-?} skip=${skip:-0} fail=${fail:-?}"
   echo "skipped:"
   grep -E '^\(skip\)' "$out/test.log" || echo "  (none)"
+  # Bun prints only failures when not on a terminal; the junit file names
+  # every test that ran, with its time in seconds.
+  echo "ran:"
+  sed -n 's/.*<testcase name="\([^"]*\)" classname="\([^"]*\)" time="\([^"]*\)".*/  \2 > \1 (\3s)/p' \
+    "$out/junit.xml" 2>/dev/null || true
 } | tee -a "$out/record.txt" >&2
 [ "$status" = 0 ] || exit "$status"
 [ "${skip:-0}" = 0 ] || { echo "e2e: ${skip} test(s) skipped" >&2; exit 1; }
