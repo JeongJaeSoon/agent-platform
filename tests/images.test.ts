@@ -62,6 +62,12 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(/^USER 1000:1000$/m);
   });
 
+  // The scheduler runs the worker image as the workspace inode helper
+  // (94S-224); image-smoke.sh runs the tools themselves.
+  test("the worker carries xfsprogs for the inode helper", () => {
+    expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
     for (const app of ["api", "scheduler"] as const) {

@@ -3,7 +3,29 @@
  * backend: nothing in `src/index.ts` re-exports this module.
  */
 import { LABELS } from "./backend.ts";
+import type { WorkspaceQuota } from "./config.ts";
 import { DockerClient, parseDockerHost } from "./docker-client.ts";
+
+/**
+ * The quota a suite holds a daemon to: enforced where the daemon can carry
+ * one, `off` where it cannot. Enforced needs an image with xfsprogs for the
+ * inode helper, named by `DOCKER_BACKEND_TEST_HELPER_IMAGE` (the
+ * `workspace-quota` CI job builds one). A capable daemon without it is an
+ * error, not a skip: the run would claim a ceiling it never set.
+ */
+export function quotaForTestDaemon(
+  capable: boolean,
+  limits: { sizeBytes: number; inodes: number },
+): WorkspaceQuota {
+  if (!capable) return { mode: "off" };
+  const helperImage = process.env.DOCKER_BACKEND_TEST_HELPER_IMAGE;
+  if (!helperImage) {
+    throw new Error(
+      "This daemon can carry a workspace quota, so DOCKER_BACKEND_TEST_HELPER_IMAGE must name an image with xfsprogs for the inode helper",
+    );
+  }
+  return { helperImage, mode: "enforced", ...limits };
+}
 
 /**
  * A container the backend will accept as an installation's egress proxy:

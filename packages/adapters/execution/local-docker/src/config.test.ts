@@ -9,6 +9,7 @@ const base = {
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+  WORKER_IMAGE: "agent-platform-worker:dev",
 };
 
 describe("localDockerConfigFromEnv", () => {
@@ -34,7 +35,12 @@ describe("localDockerConfigFromEnv", () => {
       user: "1000:1000",
       workspaceDir: "/workspace",
       workspaceGcMinAgeMs: 3_600_000,
-      workspaceQuota: { mode: "enforced", sizeBytes: 4096 * 1024 * 1024 },
+      workspaceQuota: {
+        helperImage: "agent-platform-worker:dev",
+        inodes: 1_000_000,
+        mode: "enforced",
+        sizeBytes: 4096 * 1024 * 1024,
+      },
     });
   });
 
@@ -50,7 +56,55 @@ describe("localDockerConfigFromEnv", () => {
         ...base,
         EXECUTION_WORKSPACE_QUOTA_MB: "512",
       }).workspaceQuota,
-    ).toEqual({ mode: "enforced", sizeBytes: 512 * 1024 * 1024 });
+    ).toEqual({
+      helperImage: "agent-platform-worker:dev",
+      inodes: 1_000_000,
+      mode: "enforced",
+      sizeBytes: 512 * 1024 * 1024,
+    });
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA_INODES: "20000",
+      }).workspaceQuota,
+    ).toMatchObject({ inodes: 20_000 });
+  });
+
+  test("a workspace path mountinfo would escape is refused", () => {
+    // The inode helper finds the volume by this path in /proc/self/mountinfo,
+    // where a space reads \040 and would never match.
+    for (const dir of ["/work space", "/work\tspace", "/work\\space"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_DOCKER_WORKSPACE_DIR: dir,
+        }),
+      ).toThrow("must not contain whitespace or backslashes");
+    }
+  });
+
+  test("an inode limit of zero, or none a number, is refused", () => {
+    for (const value of ["0", "-1", "1.5", "lots"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_WORKSPACE_QUOTA_INODES: value,
+        }),
+      ).toThrow("EXECUTION_WORKSPACE_QUOTA_INODES must be a positive integer");
+    }
+  });
+
+  test("the inode helper's image is the worker image, and needed only while enforced", () => {
+    const { WORKER_IMAGE: _, ...withoutImage } = base;
+    expect(() => localDockerConfigFromEnv(withoutImage)).toThrow(
+      "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on",
+    );
+    expect(
+      localDockerConfigFromEnv({
+        ...withoutImage,
+        EXECUTION_WORKSPACE_QUOTA: "off",
+      }).workspaceQuota,
+    ).toEqual({ mode: "off" });
   });
 
   test("a value that is neither on nor off is a typo, not an opt-out", () => {

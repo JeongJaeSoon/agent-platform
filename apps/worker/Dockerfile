@@ -27,8 +27,12 @@ FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
 # tini: see ENTRYPOINT.
+# xfsprogs: not for the worker. The scheduler runs this image once more per
+# launch, as a short-lived helper that puts the inode ceiling on the session
+# volume (xfs_io, xfs_quota; packages/adapters/execution/local-docker
+# workspace-inodes.ts), so the daemon needs no second image for it.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git tini \
+  && apt-get install -y --no-install-recommends ca-certificates git tini xfsprogs \
   && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 is what LocalDockerBackend runs the container as
 # (DEFAULT_WORKER_USER); the base image already owns it as user `bun`, so

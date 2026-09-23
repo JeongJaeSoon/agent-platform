@@ -403,9 +403,24 @@ jobs:
           # Prove the capability before any test claims to have used it.
           docker exec apq docker volume create --driver local --opt size=64m apq-probe
           docker exec apq docker volume rm apq-probe
+      # The scheduler runs the inode helper (94S-224) from the worker image.
+      # Building all of that here would spend minutes on the SDK closure for
+      # one apt package, so this is the worker's own pinned base with the
+      # same xfsprogs and the same declared VOLUME; image-smoke.sh checks the
+      # real worker image carries the tools.
+      - name: Inode helper image on that daemon
+        run: |
+          base="$(sed -n 's/^ARG BUN_IMAGE=//p' apps/worker/Dockerfile)"
+          test -n "$base"
+          printf '%s\n' \
+            "FROM ${base}" \
+            "RUN apt-get update && apt-get install -y --no-install-recommends xfsprogs && rm -rf /var/lib/apt/lists/*" \
+            'VOLUME ["/workspace"]' \
+            | docker exec -i apq docker build -q -t ap-inode-helper:ci -
       - name: Workspace suite against a quota-capable daemon
         env:
           DOCKER_BACKEND_TEST: "1"
+          DOCKER_BACKEND_TEST_HELPER_IMAGE: ap-inode-helper:ci
           DOCKER_HOST: unix:///tmp/apq/docker.sock
         run: >-
           bun test
