@@ -86,7 +86,8 @@ jobs:
       localstack:
         image: localstack/localstack:3
         env:
-          SERVICES: s3
+          # secretsmanager: the catalog's secret_id references (94S-132).
+          SERVICES: s3,secretsmanager
           AWS_DEFAULT_REGION: ap-northeast-1
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test

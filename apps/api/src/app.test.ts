@@ -196,10 +196,15 @@ describe("API authentication", () => {
     const expectedHash = hashApiKey(plaintext);
     let receivedHash: Uint8Array | undefined;
     const keyStore: ApiKeyStore = {
-      async findOwner(keyHash) {
+      async find(keyHash) {
         receivedHash = keyHash;
         return Buffer.from(keyHash).equals(Buffer.from(expectedHash))
-          ? "owner-a"
+          ? {
+              id: "key-a",
+              ownerId: "owner-a",
+              workspaceId: null,
+              scopes: ["sessions:read" as const],
+            }
           : null;
       },
     };
@@ -232,7 +237,7 @@ describe("API authentication", () => {
   test("answers 503 when the key lookup cannot reach storage", async () => {
     const { logger, sink } = loggerWithMemory();
     const keyStore: ApiKeyStore = {
-      async findOwner() {
+      async find() {
         // Shape of a DrizzleQueryError wrapping a pg connection failure.
         throw new Error("Failed query", {
           cause: Object.assign(new Error("connect ECONNREFUSED"), {
@@ -301,7 +306,7 @@ describe("API authentication", () => {
     ],
   ])("maps a %s during key lookup to 503", async (_name, failure) => {
     const keyStore: ApiKeyStore = {
-      async findOwner() {
+      async find() {
         throw new Error("Failed query", { cause: failure });
       },
     };
@@ -315,7 +320,7 @@ describe("API authentication", () => {
   test("keeps 500 for a key lookup failure that is not a storage outage", async () => {
     const { logger, sink } = loggerWithMemory();
     const keyStore: ApiKeyStore = {
-      async findOwner() {
+      async find() {
         throw new Error("Failed query", {
           cause: Object.assign(new Error("relation does not exist"), {
             code: "42P01",

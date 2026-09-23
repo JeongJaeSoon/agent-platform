@@ -36,8 +36,10 @@ export type SubscribeInput = {
 };
 
 export type LeaseCommand =
-  | { action: "heartbeat"; podId: string; now?: Date }
-  | { action: "expired"; ttlMs: number; now?: Date }
+  // The holder names its own lease length; the deadline is stored with the
+  // heartbeat so `expired` needs no TTL of its own.
+  | { action: "heartbeat"; podId: string; leaseTtlMs: number; now?: Date }
+  | { action: "expired"; now?: Date }
   | { action: "release"; podId: string };
 
 export type LeaseResult =

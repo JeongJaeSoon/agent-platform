@@ -879,6 +879,12 @@ export const workers = pgTable("workers", {
   lastSeen: timestamp("last_seen", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Stamped by whoever heartbeats, from its own TTL; the orphan reconciler
+  // compares against this and holds no TTL of its own, so a TTL set on one
+  // process cannot be judged by another's (94S-132).
+  leaseExpiresAt: timestamp("lease_expires_at", {
+    withTimezone: true,
+  }).notNull(),
 });
 
 export const apiKeys = pgTable(

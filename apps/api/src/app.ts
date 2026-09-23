@@ -30,6 +30,7 @@ import {
 } from "./deadline.ts";
 import type { ApiKeyStore } from "./keys.ts";
 import type { ReadinessProbe } from "./readiness.ts";
+import { missingScope } from "./scope-policy.ts";
 
 export interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
@@ -177,7 +178,7 @@ export const probeRouteErrors: Record<string, number[]> = {
 };
 
 const missingKeyStore: ApiKeyStore = {
-  async findOwner() {
+  async find() {
     return null;
   },
 };
@@ -407,6 +408,24 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         reason: violation,
       });
       return errorResponse(context, 403, "FORBIDDEN", `Refused: ${violation}`);
+    }
+    const missing = missingScope(
+      context.req.method,
+      context.req.path,
+      authenticated.principal,
+    );
+    if (missing) {
+      logger.warn("API request refused for a missing scope", {
+        method: context.req.method,
+        path: context.req.path,
+        scope: missing,
+      });
+      return errorResponse(
+        context,
+        403,
+        "FORBIDDEN",
+        `This credential does not hold ${missing}`,
+      );
     }
     context.set("principal", authenticated.principal);
     context.set("ownerId", ownerIdOf(authenticated.principal));

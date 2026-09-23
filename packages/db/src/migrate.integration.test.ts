@@ -53,8 +53,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 1, applied: 16, total: 17 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 17 });
+      expect(first).toEqual({ adopted: 1, applied: 17, total: 18 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 18 });
       expect(
         sink.records.map(({ level, message, fields }) => ({
           level,
@@ -65,12 +65,12 @@ integrationTest(
         {
           level: "info",
           message: "db.migrate.adopted",
-          fields: { adopted: 1, applied: 16, total: 17 },
+          fields: { adopted: 1, applied: 17, total: 18 },
         },
         {
           level: "info",
           message: "db.migrate.noop",
-          fields: { adopted: 0, applied: 0, total: 17 },
+          fields: { adopted: 0, applied: 0, total: 18 },
         },
       ]);
 
@@ -124,7 +124,7 @@ integrationTest(
           "pending_requests",
           "receipts",
         ]);
-        expect(journal.rows[0]?.count).toBe("17");
+        expect(journal.rows[0]?.count).toBe("18");
       } finally {
         await verified.end();
       }
@@ -166,8 +166,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 4, applied: 13, total: 17 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 17 });
+      expect(first).toEqual({ adopted: 4, applied: 14, total: 18 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 18 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.adopted",
         "db.migrate.noop",
@@ -181,7 +181,7 @@ integrationTest(
         const journal = await verified.query<{ count: string }>(
           'SELECT count(*)::text AS count FROM "drizzle"."__drizzle_migrations"',
         );
-        expect(journal.rows[0]?.count).toBe("17");
+        expect(journal.rows[0]?.count).toBe("18");
       } finally {
         await verified.end();
       }
@@ -205,8 +205,8 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 0, applied: 17, total: 17 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 17 });
+      expect(first).toEqual({ adopted: 0, applied: 18, total: 18 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 18 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

@@ -6,6 +6,7 @@ import {
   CSRF_HEADER_VALUE,
   createSessionResponseSchema,
   loginResponseSchema,
+  SESSION_SCOPE_VALUES,
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
@@ -58,7 +59,10 @@ integration("auth API on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
     const keys = new DatabaseApiKeyStore(db);
-    apiKey = await issueApiKey(keys, "key-owner");
+    apiKey = await issueApiKey(keys, {
+      ownerId: "key-owner",
+      scopes: [...SESSION_SCOPE_VALUES],
+    });
     const identity = new DatabaseIdentityStore(db);
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {
@@ -88,7 +92,11 @@ integration("auth API on PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
@@ -96,6 +104,7 @@ integration("auth API on PostgreSQL", () => {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
+            profiles: ["claude-coding-v1"],
           },
         },
       },
