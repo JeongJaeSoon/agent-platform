@@ -114,7 +114,7 @@ const sessions = createSessionService({
   authorization: ownerScopedPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
   controls: createPostgresSessionControl(db),
-  reader: createPostgresSessionReader(db),
+  reader: createPostgresSessionReader(db, { logger }),
   catalog,
   limits,
 });

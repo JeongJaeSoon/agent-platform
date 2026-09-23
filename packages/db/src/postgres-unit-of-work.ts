@@ -11,6 +11,7 @@ import {
   postSessionMessageResponseSchema,
   type Receipt,
   type ReceiptSessionTarget,
+  readStoredEvent,
   receiptSchema,
   type SessionStatus,
   SSE_SCHEMA_VERSION,
@@ -20,6 +21,7 @@ import {
   type TurnSummary,
   turnStatusSchema,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
@@ -482,7 +484,10 @@ type EventPageRow = {
   fetched: string;
 };
 
-export function createPostgresSessionReader(db: Database): SessionReader {
+export function createPostgresSessionReader(
+  db: Database,
+  options: { logger?: StructuredLogger } = {},
+): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
       .select({ id: sessions.id })
@@ -849,10 +854,18 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       const rows = result.rows;
       const fetched = Number(rows[0]?.fetched ?? 0);
       return {
-        items: rows.map((row) =>
-          sseEventSchema.parse({
+        items: rows.map((row) => {
+          const stored = readStoredEvent(row.type, row.payload);
+          if (!stored.readable) {
+            options.logger?.warn("Stored event does not match the contract", {
+              session_id: sessionId,
+              event_row_id: Number(row.id),
+              event_type: row.type,
+            });
+          }
+          return sseEventSchema.parse({
             id: encodeEventCursor(Number(row.id)),
-            event: row.type,
+            event: stored.payload.event,
             data: {
               schema_version: SSE_SCHEMA_VERSION,
               session_id: sessionId,
@@ -860,10 +873,10 @@ export function createPostgresSessionReader(db: Database): SessionReader {
                 row.turn_sequence === null ? null : String(row.turn_sequence),
               attempt_id: row.attempt_id,
               occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
-              data: row.payload,
+              data: stored.payload.data,
             },
-          }),
-        ),
+          });
+        }),
         // Cut by the row limit, or by the byte bound below the row limit.
         more: fetched === query.limit || rows.length < fetched,
       };

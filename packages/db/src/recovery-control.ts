@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type {
-  ControlAcceptedResponse,
-  RecoveryDecisionResult as RecoveryDecisionReceiptResult,
-  ResumeReceiptResult,
+import {
+  type ControlAcceptedResponse,
+  type RecoveryDecisionResult as RecoveryDecisionReceiptResult,
+  type ResumeReceiptResult,
+  sessionEventPayloadSchema,
 } from "@agent-platform/contracts";
 import type {
   RecoveryDecisionInput,
@@ -138,6 +139,9 @@ async function checkpointCovers(
 
 // Every control decision leaves its audit record on the session's event
 // stream, where the operator and the SSE reader (94S-126) both find it.
+// Like every other writer to `events`, it holds the payload to the public
+// event contract before storing it: the reader parses each row with the
+// same schema, and a row it cannot parse is lost to every client (94S-283).
 export async function recordAudit(
   tx: Database,
   input: {
@@ -148,10 +152,14 @@ export async function recordAudit(
     now: Date;
   },
 ) {
+  const checked = sessionEventPayloadSchema.parse({
+    event: input.type,
+    data: input.payload,
+  });
   await tx.insert(events).values({
     sessionId: input.sessionId,
-    type: input.type,
-    payload: input.payload,
+    type: checked.event,
+    payload: checked.data,
     turnId: input.turnRowId,
     occurredAt: input.now,
   });

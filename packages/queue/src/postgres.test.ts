@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { UNREADABLE_EVENT_CODE } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  events,
   queueMessages,
   sessions,
   unassignedSessions,
@@ -136,6 +138,36 @@ describe("PostgresQueue", () => {
     expect(replayed.map(({ data }) => data)).toEqual([
       { phase: "running" },
       { phase: "idle" },
+    ]);
+  });
+
+  test("a stored row the contract rejects replays as EVENT_UNREADABLE and the replay goes on", async () => {
+    await db.insert(events).values({
+      sessionId,
+      type: "status",
+      payload: { admission_state: "paused" },
+    });
+    await queue.publish({
+      sessionId,
+      event: "status",
+      data: { phase: "idle" },
+    });
+    const controller = new AbortController();
+    const replayed = [];
+    for await (const event of queue.subscribe({
+      sessionId,
+      signal: controller.signal,
+      pollIntervalMs: 1,
+    })) {
+      replayed.push(event);
+      if (replayed.length === 2) controller.abort();
+    }
+    expect(replayed.map(({ event, data }) => ({ event, data }))).toEqual([
+      {
+        event: "error",
+        data: expect.objectContaining({ code: UNREADABLE_EVENT_CODE }),
+      },
+      { event: "status", data: { phase: "idle" } },
     ]);
   });
 
