@@ -1,4 +1,17 @@
-import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { memberships, users, webSessions, workspaces } from "./schema.ts";
@@ -125,6 +138,13 @@ export async function findWorkspace(
   return row ?? null;
 }
 
+/**
+ * Inserts the session and keeps the user's rows bounded in the same
+ * transaction: expired and revoked rows are deleted, and only the newest
+ * `maxLive` live sessions survive, so the table holds at most users x
+ * maxLive rows however often anyone logs in. The user row is locked first
+ * so two concurrent logins cannot both leave maxLive + 1.
+ */
 export async function createWebSession(
   db: Database,
   input: {
@@ -133,23 +153,54 @@ export async function createWebSession(
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
+    maxLive: number;
   },
 ): Promise<{ expiresAt: Date }> {
-  const [row] = await db
-    .insert(webSessions)
-    .values({
-      id: input.id,
-      userId: input.userId,
-      tokenHash: input.tokenHash,
-      expiresAt: fromDbNow(input.ttlMs),
-      lastSeenAt: DB_NOW,
-      userAgent: input.userAgent,
-    })
-    .returning({ expiresAt: webSessions.expiresAt });
-  if (!row) {
-    throw new Error("web session insert returned no row");
-  }
-  return row;
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT 1 FROM ${users} WHERE ${users.id} = ${input.userId} FOR UPDATE`,
+    );
+    await tx
+      .delete(webSessions)
+      .where(
+        and(
+          eq(webSessions.userId, input.userId),
+          or(
+            lte(webSessions.expiresAt, DB_NOW),
+            isNotNull(webSessions.revokedAt),
+          ),
+        ),
+      );
+    const [row] = await tx
+      .insert(webSessions)
+      .values({
+        id: input.id,
+        userId: input.userId,
+        tokenHash: input.tokenHash,
+        expiresAt: fromDbNow(input.ttlMs),
+        lastSeenAt: DB_NOW,
+        userAgent: input.userAgent,
+      })
+      .returning({ expiresAt: webSessions.expiresAt });
+    if (!row) {
+      throw new Error("web session insert returned no row");
+    }
+    const keep = tx
+      .select({ id: webSessions.id })
+      .from(webSessions)
+      .where(eq(webSessions.userId, input.userId))
+      .orderBy(desc(webSessions.createdAt), desc(webSessions.id))
+      .limit(input.maxLive);
+    await tx
+      .delete(webSessions)
+      .where(
+        and(
+          eq(webSessions.userId, input.userId),
+          notInArray(webSessions.id, keep),
+        ),
+      );
+    return row;
+  });
 }
 
 export type ResolvedWebSession = {

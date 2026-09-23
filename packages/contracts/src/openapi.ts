@@ -100,6 +100,9 @@ type Route = {
   // sit outside the auth middleware (03 §3.2 allowlist). Default: scope
   // present → both credentials; absent → public probe.
   auth?: "public" | "session";
+  // A public route that sets the session cookie needs the CSRF header from
+  // every caller (login CSRF), not only from cookie principals.
+  csrf?: "always";
   query?: ComponentName;
   body?: ComponentName;
   success:
@@ -156,9 +159,10 @@ const routes: Route[] = [
     operationId: "login",
     summary: "Email/password login; sets the session cookie",
     auth: "public",
+    csrf: "always",
     body: "LoginRequest",
     success: { status: 200, schema: "LoginResponse" },
-    errors: [400, 401, 413, 429, 503],
+    errors: [400, 401, 403, 413, 429, 503],
     idempotent: false,
   },
   {
@@ -439,14 +443,16 @@ export function buildOpenApiDocument() {
         schema: { type: "string", minLength: 1 },
       });
     }
-    const csrf = takesCookieMutation(route);
+    const csrf = route.csrf === "always" || takesCookieMutation(route);
     if (csrf) {
       parameters.push({
         name: "X-Requested-With",
         in: "header",
-        required: false,
+        required: route.csrf === "always",
         description:
-          "Required with a cookie session: the literal `agent-platform-web`.",
+          route.csrf === "always"
+            ? "Always required: the literal `agent-platform-web`."
+            : "Required with a cookie session: the literal `agent-platform-web`.",
         schema: { type: "string", enum: ["agent-platform-web"] },
       });
     }

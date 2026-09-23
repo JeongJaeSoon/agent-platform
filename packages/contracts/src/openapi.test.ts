@@ -25,7 +25,11 @@ describe("OpenAPI document", () => {
         const header = operation.parameters.find(
           (p) => p.in === "header" && p.name === "X-Requested-With",
         );
-        if (method === "post" && cookie) {
+        if (path === "/v1/auth/login") {
+          // Login sets the cookie, so every caller sends the header.
+          expect(header?.required, path).toBe(true);
+          expect(operation.responses, path).toHaveProperty("403");
+        } else if (method === "post" && cookie) {
           checked.push(`${method} ${path}`);
           expect(header?.required, path).toBe(false);
           expect(operation.responses, path).toHaveProperty("403");

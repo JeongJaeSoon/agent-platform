@@ -32,6 +32,7 @@ import {
   DatabaseIdentityStore,
   hashWebSessionToken,
   LoginLockout,
+  WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -127,7 +128,11 @@ integration("auth API on PostgreSQL", () => {
     workspace_slug: "acme",
   };
   const login = (password = PASSWORD) =>
-    json("/v1/auth/login", { email: "owner@example.com", password });
+    json(
+      "/v1/auth/login",
+      { email: "owner@example.com", password },
+      { "X-Requested-With": "agent-platform-web" },
+    );
   const cookieOf = (response: Response) =>
     (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
   const sessionBody = {
@@ -198,10 +203,14 @@ integration("auth API on PostgreSQL", () => {
 
   test("wrong password is 401 with the same body as an unknown user", async () => {
     const wrong = await login(WRONG);
-    const unknown = await json("/v1/auth/login", {
-      email: "ghost@example.com",
-      password: PASSWORD,
-    });
+    const unknown = await json(
+      "/v1/auth/login",
+      {
+        email: "ghost@example.com",
+        password: PASSWORD,
+      },
+      { "X-Requested-With": "agent-platform-web" },
+    );
     expect(wrong.status).toBe(401);
     expect(unknown.status).toBe(401);
     expect((await wrong.json()).error.message).toBe(
@@ -342,5 +351,29 @@ integration("auth API on PostgreSQL", () => {
     expect(
       (await app.request("/v1/auth/me", { headers: { Cookie: fresh } })).status,
     ).toBe(401);
+  });
+
+  test("login prunes expired and revoked rows and keeps at most WEB_SESSIONS_PER_USER live", async () => {
+    // The previous test left one expired and one revoked row behind.
+    const before = await db.$count(webSessions);
+    expect(before).toBeGreaterThanOrEqual(2);
+    const cookies: string[] = [];
+    for (let i = 0; i < WEB_SESSIONS_PER_USER + 3; i += 1) {
+      cookies.push(cookieOf(await login()));
+    }
+    const rows = await db
+      .select({
+        revokedAt: webSessions.revokedAt,
+        live: sql<boolean>`${webSessions.expiresAt} > clock_timestamp()`,
+      })
+      .from(webSessions);
+    expect(rows).toHaveLength(WEB_SESSIONS_PER_USER);
+    expect(rows.every((row) => row.revokedAt === null && row.live)).toBe(true);
+    const status = async (value: string) =>
+      (await app.request("/v1/auth/me", { headers: { Cookie: value } })).status;
+    expect(await status(cookies[0] ?? "")).toBe(401);
+    expect(await status(cookies[2] ?? "")).toBe(401);
+    expect(await status(cookies[3] ?? "")).toBe(200);
+    expect(await status(cookies.at(-1) ?? "")).toBe(200);
   });
 });

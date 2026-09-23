@@ -41,6 +41,8 @@ export const WEB_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 // A session's expiry slides forward at most this often, so an active tab
 // does not turn every request into an UPDATE.
 export const WEB_SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
+// Live sessions one user may hold; the next login drops the oldest.
+export const WEB_SESSIONS_PER_USER = 10;
 export const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
 
 export interface IdentityStore {
@@ -58,6 +60,7 @@ export interface IdentityStore {
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
+    maxLive: number;
   }): Promise<{ expiresAt: Date }>;
   resolveWebSession(tokenHash: Uint8Array): Promise<ResolvedWebSession | null>;
   renewWebSession(
@@ -91,6 +94,7 @@ export class DatabaseIdentityStore implements IdentityStore {
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
+    maxLive: number;
   }) {
     return createWebSession(this.db, input);
   }
@@ -539,6 +543,16 @@ export function csrfViolation(
   if (principal.kind !== "user" || SAFE_METHODS.has(context.req.method)) {
     return null;
   }
+  return browserRequestViolation(context);
+}
+
+/**
+ * The CSRF checks on their own, for a route that must hold them whoever the
+ * caller is: login sets the session cookie, so a cross-site form posting
+ * the attacker's credentials would swap the victim into the attacker's
+ * account. A custom header cannot be sent cross-site without a preflight.
+ */
+export function browserRequestViolation(context: Context): string | null {
   if (context.req.header(CSRF_HEADER_NAME) !== CSRF_HEADER_VALUE) {
     return `${CSRF_HEADER_NAME} header is required`;
   }

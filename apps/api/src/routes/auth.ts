@@ -25,6 +25,7 @@ import {
 } from "../app.ts";
 import {
   type BootstrapGate,
+  browserRequestViolation,
   clearWebSessionCookie,
   generateWebSessionToken,
   hashPassword,
@@ -34,6 +35,7 @@ import {
   setWebSessionCookie,
   verifyPassword,
   WEB_SESSION_TTL_MS,
+  WEB_SESSIONS_PER_USER,
   WorkGate,
   webSessionCookie,
 } from "../auth.ts";
@@ -42,7 +44,7 @@ import {
 // route table to this.
 export const authRouteErrors: Record<string, number[]> = {
   "POST /v1/auth/bootstrap": [400, 401, 409, 413, 503],
-  "POST /v1/auth/login": [400, 401, 413, 429, 503],
+  "POST /v1/auth/login": [400, 401, 403, 413, 429, 503],
   "POST /v1/auth/logout": [401, 403, 503],
   "GET /v1/auth/me": [401, 503],
 };
@@ -170,6 +172,10 @@ export function registerPublicAuthRoutes(
   });
 
   router.post("/auth/login", ingestThenStopClock, async (context) => {
+    const violation = browserRequestViolation(context);
+    if (violation) {
+      throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+    }
     const body = await parseJsonBody(context, loginRequestSchema);
     const email = normalizeEmail(body.email);
     const lockedFor = lockout.retryAfterMs(email);
@@ -246,6 +252,7 @@ export function registerPublicAuthRoutes(
         tokenHash: hashWebSessionToken(token),
         ttlMs: WEB_SESSION_TTL_MS,
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+        maxLive: WEB_SESSIONS_PER_USER,
       }),
     );
     setWebSessionCookie(context, token, expiresAt);

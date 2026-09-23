@@ -26,6 +26,7 @@ import {
   LoginLockout,
   legacyApiKeyPrincipal,
   WEB_SESSION_TTL_MS,
+  WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
@@ -106,8 +107,25 @@ class MemoryIdentityStore implements IdentityStore {
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
+    maxLive: number;
   }) {
     const expiresAt = new Date(this.now() + input.ttlMs);
+    const mine = this.sessions.filter(
+      (s) =>
+        s.userId === input.userId &&
+        s.revokedAt === null &&
+        s.expiresAt.getTime() > this.now(),
+    );
+    const dropped = new Set(
+      mine.slice(0, Math.max(0, mine.length - input.maxLive + 1)),
+    );
+    this.sessions = this.sessions.filter(
+      (s) =>
+        s.userId !== input.userId ||
+        (!dropped.has(s) &&
+          s.revokedAt === null &&
+          s.expiresAt.getTime() > this.now()),
+    );
     this.sessions.push({
       id: input.id,
       userId: input.userId,
@@ -243,9 +261,11 @@ function harness(
       ...overrides,
     });
   const login = (email = "owner@example.com", password = PASSWORD) =>
-    json("/v1/auth/login", { email, password });
+    json("/v1/auth/login", { email, password }, BROWSER);
   return { app, identity, sink, json, bootstrap, login, hooks };
 }
+
+const BROWSER = { "X-Requested-With": "agent-platform-web" };
 
 function cookieOf(response: Response): string {
   const header = response.headers.get("Set-Cookie");
@@ -808,7 +828,7 @@ describe("principal middleware", () => {
       "/v1/auth/login",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...BROWSER },
         body: JSON.stringify({ email: "a@example.com", password: WRONG }),
       },
       env,
@@ -871,6 +891,62 @@ describe("principal middleware", () => {
       (await h.app.request("/v1/whoami", { headers: { Cookie: cookie } }))
         .status,
     ).toBe(401);
+  });
+});
+
+describe("login CSRF", () => {
+  test("login needs the custom header, so a cross-site form cannot swap the victim's session", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const body = JSON.stringify({
+      email: "owner@example.com",
+      password: "correct horse battery staple",
+    });
+    // What a cross-site top-level form can send: text/plain, no custom
+    // header, Sec-Fetch-Site cross-site. No cookie may come back.
+    const form = await h.app.request("/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "Sec-Fetch-Site": "cross-site",
+        Origin: "https://evil.example",
+      },
+      body,
+    });
+    expect(form.status).toBe(403);
+    expect(form.headers.get("Set-Cookie")).toBeNull();
+    const noHeader = await h.json("/v1/auth/login", JSON.parse(body));
+    expect(noHeader.status).toBe(403);
+    expect(noHeader.headers.get("Set-Cookie")).toBeNull();
+    const withHeaderCrossSite = await h.json(
+      "/v1/auth/login",
+      JSON.parse(body),
+      {
+        ...BROWSER,
+        "Sec-Fetch-Site": "cross-site",
+      },
+    );
+    expect(withHeaderCrossSite.status).toBe(403);
+    // Refused before the credentials are looked at: no session row.
+    expect(h.identity.sessions).toHaveLength(0);
+    expect((await h.login()).status).toBe(200);
+  });
+
+  test("a user keeps at most WEB_SESSIONS_PER_USER live sessions; the oldest goes first", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookies: string[] = [];
+    for (let i = 0; i < WEB_SESSIONS_PER_USER + 2; i += 1) {
+      cookies.push(cookieOf(await h.login()));
+    }
+    expect(h.identity.sessions).toHaveLength(WEB_SESSIONS_PER_USER);
+    const status = async (cookie: string) =>
+      (await h.app.request("/v1/whoami", { headers: { Cookie: cookie } }))
+        .status;
+    expect(await status(cookies[0] ?? "")).toBe(401);
+    expect(await status(cookies[1] ?? "")).toBe(401);
+    expect(await status(cookies[2] ?? "")).toBe(200);
+    expect(await status(cookies.at(-1) ?? "")).toBe(200);
   });
 });
 
