@@ -44,6 +44,7 @@ describe("worker composition surface", () => {
         drainTimeoutMs: 1_000,
         heartbeatIntervalMs: 1_000,
         idleTimeoutMs: 1_000,
+        maxTurnMs: 60_000,
         nextInputWaitMs: 1_000,
         questionTimeoutMs: 1_000,
         requestTimeoutMs: 1_000,

@@ -11,6 +11,10 @@ import {
   heartbeatResponseSchema,
   nextInputRequestSchema,
   nextInputResponseSchema,
+  pendingControlRequestSchema,
+  pendingControlResponseSchema,
+  registerPendingRequestSchema,
+  registerPendingResponseSchema,
   releaseRequestSchema,
   releaseResponseSchema,
   restorePlanRequestSchema,
@@ -124,6 +128,18 @@ export function registerWorkerRoutes(
     restorePlanRequestSchema,
     restorePlanResponseSchema,
     (principal, body) => gateway.restorePlan(principal, body),
+  );
+  call(
+    "/register-pending",
+    registerPendingRequestSchema,
+    registerPendingResponseSchema,
+    (principal, body) => gateway.registerPending(principal, body),
+  );
+  call(
+    "/pending-control",
+    pendingControlRequestSchema,
+    pendingControlResponseSchema,
+    (principal, body) => gateway.pendingControl(principal, body),
   );
   call(
     "/finalize",

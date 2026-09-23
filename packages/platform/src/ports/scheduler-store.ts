@@ -44,6 +44,13 @@ export type StoredLaunchIntent = Omit<
 export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
   backend: ExecutionBackendKind;
   operationId: string | null;
+  /**
+   * `terminated` is the kill outbox: a terminate command or the lease-expiry
+   * reconciler asked for this generation to go, and the pass tears it down
+   * before anything else. The row keeps its slot until the resource is
+   * confirmed gone.
+   */
+  desiredState: "running" | "terminated";
   observedState: ExecutionObservation["state"];
   providerRef: string | null;
   /**
@@ -162,6 +169,24 @@ export interface SchedulerStore {
    * exit.
    */
   confirmExecutionGone(executionId: string, now: Date): Promise<void>;
+  /**
+   * The row's kill intent as it stands now, not as the pass's snapshot had
+   * it. A terminate can commit while the pass is out at the provider, and
+   * the pass must not re-create a resource that was just asked to go.
+   */
+  desiredStateOf(
+    ref: ExecutionRef,
+  ): Promise<ActiveExecution["desiredState"] | null>;
+  /**
+   * Terminate receipts still `accepted` after `deadlineMs` become `unknown`:
+   * the caller is told the kill was not observed in time. The execution row
+   * keeps its kill intent, so reconciliation goes on and a later
+   * confirmation still settles the receipt. Returns the receipts flipped.
+   */
+  markOverdueTerminations(input: {
+    now: Date;
+    deadlineMs: number;
+  }): Promise<number>;
 
   /**
    * The subset of `sessionIds` whose workspace must be kept: a session row

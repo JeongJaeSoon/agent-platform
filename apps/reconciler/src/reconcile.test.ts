@@ -45,10 +45,27 @@ describe("reconciler run", () => {
         });
         return reconciled;
       },
+      reconcileLeases: async (options) => {
+        expect(options).toEqual({
+          dryRun: false,
+          limit: 12,
+          now: new Date("2026-09-14T00:00:00Z"),
+        });
+        return [];
+      },
+      expireTerminations: async (options) => {
+        expect(options).toEqual({
+          dryRun: false,
+          now: new Date("2026-09-14T00:00:00Z"),
+        });
+        return 2;
+      },
     });
 
     expect(calls).toBe(1);
-    expect(result).toBe(reconciled);
+    expect(result.orphans).toBe(reconciled);
+    expect(result.leases).toEqual([]);
+    expect(result.terminationsOverdue).toBe(2);
     expect(sink.records).toEqual([
       expect.objectContaining({
         level: "info",
@@ -63,17 +80,37 @@ describe("reconciler run", () => {
           session_ids: ["session-a", "session-b"],
         },
       }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired lease reconciliation completed",
+        fields: {
+          dry_run: false,
+          ended_count: 0,
+          fenced_count: 0,
+          reconciled_count: 0,
+          session_ids: [],
+        },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Overdue terminate receipts marked unknown",
+        fields: { dry_run: false, overdue_count: 2 },
+      }),
     ]);
   });
 
   test("rejects invalid shared TTL, batch, and dry-run settings", async () => {
     const logger = new StructuredLogger({ sinks: [] });
     const reconcile = async () => [];
+    const reconcileLeases = async () => [];
+    const expireTerminations = async () => 0;
     await expect(
       runReconciler({
         environment: { HEARTBEAT_TTL_SEC: "0" },
         logger,
         reconcile,
+        reconcileLeases,
+        expireTerminations,
       }),
     ).rejects.toThrow("HEARTBEAT_TTL_SEC");
     await expect(
@@ -81,6 +118,8 @@ describe("reconciler run", () => {
         environment: { RECONCILER_BATCH_SIZE: "1.5" },
         logger,
         reconcile,
+        reconcileLeases,
+        expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
     await expect(
@@ -88,6 +127,8 @@ describe("reconciler run", () => {
         environment: { RECONCILER_DRY_RUN: "yes" },
         logger,
         reconcile,
+        reconcileLeases,
+        expireTerminations,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");
   });

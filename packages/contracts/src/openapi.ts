@@ -26,6 +26,7 @@ import {
   sessionSummarySchema,
   sseEventSchema,
   terminateSessionRequestSchema,
+  terminateSessionResponseSchema,
   turnSummarySchema,
 } from "./api/index.ts";
 import {
@@ -67,6 +68,7 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
+  TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -181,7 +183,9 @@ const routes: Route[] = [
     scope: "read",
     lastEventId: true,
     success: { status: 200, schema: "SseEvent", sse: true },
-    errors: [401, 404, 410],
+    // 410 CURSOR_EXPIRED is declared for clients but never produced in alpha:
+    // events are not trimmed (api.md § 이벤트).
+    errors: [400, 401, 404, 410, 429, 503],
   },
   {
     method: "get",
@@ -190,7 +194,7 @@ const routes: Route[] = [
     summary: "Open permission and question requests",
     scope: "read",
     success: { status: 200, schema: "ListPendingRequestsResponse" },
-    errors: [401, 404],
+    errors: [401, 404, 503],
   },
   {
     method: "post",
@@ -200,7 +204,7 @@ const routes: Route[] = [
     scope: "approve",
     body: "PostSessionAnswerRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    errors: [...CONFLICTS, 413, 503],
   },
   {
     method: "post",
@@ -229,8 +233,10 @@ const routes: Route[] = [
     summary: "Block dispatch and force the execution down",
     scope: "control",
     body: "TerminateSessionRequest",
-    success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    success: { status: 202, schema: "TerminateSessionResponse" },
+    // Served: an oversized body, a legacy binding with no kill path, and a
+    // database outage are real answers.
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "post",

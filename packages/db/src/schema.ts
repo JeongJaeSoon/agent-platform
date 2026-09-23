@@ -552,6 +552,13 @@ export const receipts = pgTable(
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+    // The terminate deadline sweep runs every scheduler and reconciler pass
+    // and must not read the whole receipt history to find the few open ones.
+    index("receipts_open_terminate_idx")
+      .on(table.createdAt)
+      .where(
+        sql`${table.operation} = 'terminate' AND ${table.status} = 'accepted'`,
+      ),
   ],
 );
 
@@ -592,15 +599,37 @@ export const pendingRequests = pgTable(
     payload: jsonb().notNull(),
     inputHash: text("input_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // Closed to clients: answered, given up on by the worker, or invalidated
+    // with its attempt. The worker's own acknowledgement is `settled_at`.
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    answer: jsonb(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    // Per session, allocated under the session row lock, so commit order is
+    // sequence order and the worker's answers_after cursor never skips one.
+    answerSequence: integer("answer_sequence"),
+    answerReceiptId: uuid("answer_receipt_id").references(() => receipts.id),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    // answered | expired | cancelled from the worker; lost when the
+    // execution went away before it said.
+    settledOutcome: text("settled_outcome"),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
       .on(table.sessionId)
       .where(sql`${table.resolvedAt} IS NULL`),
+    uniqueIndex("pending_requests_session_answer_sequence_idx").on(
+      table.sessionId,
+      table.answerSequence,
+    ),
+    // What pendingControl hands out: answered, not yet acknowledged.
+    index("pending_requests_undelivered_attempt_idx")
+      .on(table.attemptId, table.answerSequence)
+      .where(
+        sql`${table.answeredAt} IS NOT NULL AND ${table.settledAt} IS NULL`,
+      ),
   ],
 );
 
@@ -677,6 +706,11 @@ export const attempts = pgTable(
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),
+    // The lease-expiry sweep only ever looks at attempts still open, in
+    // expiry order; ended ones accumulate and stay out of the index.
+    index("attempts_open_lease_idx")
+      .on(table.leaseExpiresAt, table.id)
+      .where(sql`${table.state} NOT IN ('exited', 'lost')`),
   ],
 );
 

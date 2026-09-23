@@ -15,6 +15,9 @@ import type {
 } from "../ports/scheduler-store.ts";
 
 export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
+/** api.md: a kill not observed within this is reported unknown. */
+export const TERMINATE_DEADLINE_MS = 30_000;
+
 /**
  * How many times one launch may be rebuilt before the scheduler gives up on
  * it. Three covers a teardown that needed a retry and a create that failed
@@ -75,6 +78,12 @@ export type SchedulerRunSummary = {
   replacementsExhausted: ExecutionRef[];
   slotLimit: number;
   terminatedObserved: ExecutionRef[];
+  /** Kill intents carried out this pass; each is also in terminatedObserved. */
+  killed: ExecutionRef[];
+  /** Kill intents the provider did not carry out; each row keeps its slot. */
+  killFailed: ExecutionRef[];
+  /** Terminate receipts flipped to unknown because the kill took too long. */
+  terminationsOverdue: number;
   /**
    * true when GC could not even draw up its candidate list — listing the
    * workspaces or asking the store which sessions are retained threw. Nothing
@@ -100,10 +109,13 @@ export type SchedulerRunSummary = {
  * between them leaves only intents the next pass can pick up again:
  *
  * 1. Every live execution row is inspected; a missing resource is re-ensured
- *    from the stored intent, an exited one is recorded and reclaimed.
+ *    from the stored intent, an exited one is recorded and reclaimed, and
+ *    one with a kill intent is torn down.
  * 2. Provider resources without a matching row are logged and terminated.
  * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
  *    the transaction.
+ * Terminate receipts whose kill was not confirmed within the deadline are
+ * reported unknown once the rows have been reconciled.
  * 4. Workspaces of sessions nothing will come back to are reclaimed. Last,
  *    so a slow daemon listing never delays a launch.
  */
@@ -254,12 +266,15 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     orphansUnresolved: [],
     reclaimFailed: [],
     reconcileFailed: [],
+    killFailed: [],
+    killed: [],
     reensured: [],
     replaced: [],
     replacementsExhausted: [],
     skipped: false,
     slotLimit,
     terminatedObserved: [],
+    terminationsOverdue: 0,
     workspaceScanFailed: false,
     workspacesFailed: [],
     workspacesReclaimed: [],
@@ -317,8 +332,19 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
       return;
     }
+    if (await killRequested(execution)) {
+      await kill(execution);
+      return;
+    }
     const observed = await backend.inspect(ref);
     const up = observed.found && observed.state !== "terminated";
+    if (up && (await killRequested(execution))) {
+      // A terminate that committed while the pass was out at the provider
+      // must not wait for the next pass: the receipt's deadline is running
+      // and the resource is still doing work.
+      await kill(execution);
+      return;
+    }
     if (up && observed.stale) {
       // The resource runs under an isolation contract this host no longer
       // promises, and an upgrade cannot reach inside a running resource. It
@@ -479,6 +505,54 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     await reensure(execution, "missing");
   }
 
+  // The snapshot is checked first, then the row: a terminate that committed
+  // after listActiveExecutions still gets its kill this pass.
+  async function killRequested(execution: ActiveExecution): Promise<boolean> {
+    if (execution.desiredState === "terminated") return true;
+    return (await store.desiredStateOf(refOf(execution))) === "terminated";
+  }
+
+  /**
+   * Carries out a kill intent. The resource is removed whatever it was
+   * doing; the store then decides what its session's turns become. A
+   * provider that will not remove it leaves the row as is, so the next pass
+   * tries again and the receipt's deadline keeps running.
+   */
+  async function kill(
+    execution: ExecutionRef & { sessionId: string },
+  ): Promise<void> {
+    const ref = refOf(execution);
+    let outcome: TerminateExecutionResult;
+    try {
+      outcome = await backend.terminate(ref);
+    } catch (error) {
+      summary.killFailed.push(ref);
+      logger.error("Killing execution failed; intent kept for retry", {
+        ...fieldsOf(ref),
+        error: messageOf(error),
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (outcome.outcome === "generation_mismatch") {
+      summary.killFailed.push(ref);
+      logger.error("Killing execution hit a generation mismatch", {
+        ...fieldsOf(ref),
+        found_generation: outcome.foundGeneration,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    await store.confirmExecutionGone(ref.executionId, now());
+    summary.killed.push(ref);
+    summary.terminatedObserved.push(ref);
+    logger.info("Execution killed on request; resource removed", {
+      ...fieldsOf(ref),
+      previously_present: outcome.outcome === "terminated",
+      session_id: execution.sessionId,
+    });
+  }
+
   /**
    * Tears the resource down and builds it again from the stored intent. The
    * new one gets a new bootstrap credential, which is why the launch must not
@@ -619,6 +693,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     reason: "missing" | ReplaceReason,
   ): Promise<void> {
     const ref = refOf(execution);
+    if (await killRequested(execution)) {
+      // Asked to go while this pass was out at the provider: building it
+      // again would hand the kill a fresh target. It is killed instead.
+      await kill(execution);
+      return;
+    }
     const stored = storedIntentOf(execution);
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
@@ -667,6 +747,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         reason,
         session_id: execution.sessionId,
       });
+      if (await killRequested(execution)) {
+        // Asked to go while it was being built: it is taken down in the
+        // same pass rather than left running until the next one.
+        await kill(execution);
+      }
     } catch (error) {
       summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
@@ -677,6 +762,13 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
     }
   }
+
+  // Every kill intent had its chance this pass; what is still unconfirmed
+  // past the deadline is reported to its caller as unknown, not as pending.
+  summary.terminationsOverdue = await store.markOverdueTerminations({
+    now: now(),
+    deadlineMs: TERMINATE_DEADLINE_MS,
+  });
 
   // 2. Resources nobody owns.
   const managed = await backend.listManaged();
@@ -765,6 +857,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         provider_ref: ensured.providerRef,
         session_id: sessionId,
       });
+      if ((await store.desiredStateOf(ref)) === "terminated") {
+        // A terminate that committed between the reservation and the
+        // resource coming up: this row was not in the pass's snapshot, so
+        // nothing else would kill it before the receipt's deadline.
+        await kill({ ...ref, sessionId });
+      }
     } catch (error) {
       // The intent stays committed; step 1 of the next pass retries it.
       summary.failedLaunches.push(ref);
@@ -786,6 +884,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     active_after: summary.activeAfter,
     active_before: summary.activeBefore,
     failed_count: summary.failedLaunches.length,
+    kill_failed_count: summary.killFailed.length,
+    killed_count: summary.killed.length,
     launched_count: summary.launched.length,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
@@ -796,6 +896,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     replacement_exhausted_count: summary.replacementsExhausted.length,
     slot_limit: summary.slotLimit,
     terminated_count: summary.terminatedObserved.length,
+    terminations_overdue_count: summary.terminationsOverdue,
     workspace_failed_count: summary.workspacesFailed.length,
     workspace_reclaimed_count: summary.workspacesReclaimed.length,
     workspace_scan_failed: summary.workspaceScanFailed,

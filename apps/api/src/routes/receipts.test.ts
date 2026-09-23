@@ -39,12 +39,18 @@ function app(getReceipt: SessionReader["getReceipt"]) {
         throw new Error("not reached");
       },
     },
+    controls: {
+      terminateAtomic: async () => {
+        throw new Error("not reached");
+      },
+    },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt,
+      readEvents: async () => null,
     },
   });
   return createApiApp({

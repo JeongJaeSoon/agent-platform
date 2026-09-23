@@ -12,6 +12,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import { frameFromNativeMessage } from "./mapper.ts";
+import type { ResumedHistory } from "./resumed-history.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 export class InputStream implements AsyncIterable<SDKUserMessage> {
@@ -62,6 +63,7 @@ export class ClaudeSdkRun implements AgentRun {
     private readonly input: InputStream,
     private readonly sdkQuery: Query,
     private readonly abortController: AbortController,
+    private readonly history: ResumedHistory,
     resume?: string,
   ) {
     this.ledger = new TurnLedger(resume);
@@ -79,6 +81,11 @@ export class ClaudeSdkRun implements AgentRun {
 
   finishInput(): void {
     this.input.finish();
+  }
+
+  async holdsInput(uuid: string): Promise<boolean> {
+    if (this.ledger.wasSent(uuid)) return true;
+    return (await this.history.uuids()).has(uuid);
   }
 
   async interrupt(): Promise<{ stillQueued: string[] }> {
@@ -119,6 +126,7 @@ export class ClaudeSdkRun implements AgentRun {
       }
     } finally {
       this.ledger.streamEnded();
+      this.history.abandon();
     }
   }
 }

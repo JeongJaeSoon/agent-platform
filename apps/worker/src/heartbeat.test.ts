@@ -120,6 +120,49 @@ describe("Heartbeat", () => {
     expect(lost[0]).toContain("lease expired");
   });
 
+  test("declares the lease gone when it lapses with a beat still unanswered", async () => {
+    const { heartbeat: beat, lost } = heartbeat(() => new Promise(() => {}), {
+      leaseExpiresAt: new Date(Date.now() + 50),
+    });
+    beat.start();
+    await Bun.sleep(20);
+    expect(lost).toEqual([]);
+
+    await Bun.sleep(80);
+
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("before the gateway answered");
+    await beat.stop();
+  });
+
+  test("beats before a lease shorter than the interval runs out", async () => {
+    const beats: HeartbeatRequest[] = [];
+    const lost: string[] = [];
+    const instance = new Heartbeat({
+      gateway: {
+        heartbeat: async (request) => {
+          beats.push(request);
+          return {
+            lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+            auth_revision: scope.auth_revision,
+            control_pending: false,
+          };
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 10_000,
+      leaseExpiresAt: new Date(Date.now() + 50),
+      onLost: (reason) => lost.push(reason),
+    });
+    instance.start();
+    await Bun.sleep(150);
+    await instance.stop();
+
+    expect(beats.length).toBeGreaterThan(0);
+    expect(lost).toEqual([]);
+  });
+
   test("owes a beat asked for while one is in flight", async () => {
     let state: "running" | "draining" = "running";
     let release: () => void = () => {};

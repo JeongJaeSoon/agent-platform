@@ -26,12 +26,26 @@ export type FakeStep =
   | { error: Error; type: "error" }
   | { requests: Omit<PermissionRequest, "signal">[]; type: "permissions" };
 
+export type FakeRuntimeOptions = {
+  /**
+   * Input uuids already in the transcript a resumed run continues. The fake
+   * treats a send of one the way the pinned SDK does (94S-242): it answers
+   * nothing — no frame, no result — and an interrupt afterwards has nothing
+   * to end, so it produces no terminal either.
+   */
+  resumedTranscript?: string[];
+};
+
 export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
   readonly capabilities: RuntimeCapabilities = CLAUDE_RUNTIME_CAPABILITIES;
+  /** Every input the host sent, including ones the engine deduplicated. */
   readonly inputs: AgentInput[] = [];
   readonly permissionDecisions: PermissionDecision[] = [];
 
-  constructor(private readonly steps: FakeStep[]) {}
+  constructor(
+    private readonly steps: FakeStep[],
+    private readonly options: FakeRuntimeOptions = {},
+  ) {}
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
     return new FakeRun(
@@ -40,6 +54,9 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
       this.steps,
       hooks.onPermission,
       config.resume,
+      config.mode === "resume"
+        ? new Set(this.options.resumedTranscript ?? [])
+        : new Set(),
     );
   }
 }
@@ -51,6 +68,10 @@ class FakeRun implements AgentRun {
   private readonly ledger: TurnLedger;
   private closed = false;
   private consumedInputs = 0;
+  /** Inputs the engine took; a deduplicated send is not one. */
+  private acceptedInputs = 0;
+  /** Sends the engine ignored because the session already held them. */
+  private readonly deduplicated = new Set<string>();
   // First accepted terminal action wins: an interrupt that already returned
   // its receipt still yields its terminal result even if abort() follows.
   private terminal: "aborted" | "interrupted" | undefined;
@@ -62,15 +83,23 @@ class FakeRun implements AgentRun {
     private readonly onPermission: (
       request: PermissionRequest,
     ) => Promise<PermissionDecision>,
-    resume?: string,
+    resume: string | undefined,
+    private readonly resumed: ReadonlySet<string>,
   ) {
     this.ledger = new TurnLedger(resume);
   }
 
   send(input: AgentInput): void {
     if (this.closed) throw new Error("Input stream is closed");
+    const duplicate =
+      this.resumed.has(input.uuid) || this.ledger.wasSent(input.uuid);
     this.ledger.queued(input.uuid);
     this.runtime.inputs.push(input);
+    if (duplicate) {
+      this.deduplicated.add(input.uuid);
+      return;
+    }
+    this.acceptedInputs += 1;
     this.wakeArrivals();
   }
 
@@ -79,7 +108,19 @@ class FakeRun implements AgentRun {
     this.wakeArrivals();
   }
 
+  async holdsInput(uuid: string): Promise<boolean> {
+    return this.resumed.has(uuid) || this.ledger.wasSent(uuid);
+  }
+
   async interrupt(): Promise<{ stillQueued: string[] }> {
+    const pending = this.ledger.pendingUuids();
+    if (
+      pending.length > 0 &&
+      pending.every((uuid) => this.deduplicated.has(uuid))
+    ) {
+      // Nothing is running: the only inputs outstanding were never taken.
+      return { stillQueued: [] };
+    }
     this.terminal ??= "interrupted";
     this.interruptController.abort();
     return { stillQueued: [] };
@@ -170,7 +211,7 @@ class FakeRun implements AgentRun {
 
   /** Resolves on the next unconsumed input, or once the stream is closed. */
   private async awaitInput(): Promise<void> {
-    while (this.runtime.inputs.length <= this.consumedInputs && !this.closed) {
+    while (this.acceptedInputs <= this.consumedInputs && !this.closed) {
       await new Promise<void>((resolve) => this.arrivals.push(resolve));
     }
     this.consumedInputs += 1;

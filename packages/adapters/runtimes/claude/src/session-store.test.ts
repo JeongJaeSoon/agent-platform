@@ -1,18 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import type { TranscriptEntry } from "@agent-platform/runtime-core";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
-
-import { ClaudeSessionStore } from "./session-store.ts";
+import {
+  createMemoryCheckpointObjectStore,
+  type MemoryCheckpointObjectStore,
+} from "@agent-platform/testkit/checkpoint-objects";
+import {
+  ClaudeSessionStore,
+  type TranscriptInheritance,
+} from "./session-store.ts";
 
 const projectKey = "-workspace";
 const sessionId = "session-1";
 const root = { projectKey, sessionId };
 
+const prefix = "sessions/s1/mirror";
+
 function store(objects = createMemoryCheckpointObjectStore()) {
   return {
     objects,
-    mirror: new ClaudeSessionStore({ objects, prefix: "sessions/s1/mirror" }),
+    mirror: new ClaudeSessionStore({ generation: 1, objects, prefix }),
   };
 }
 
@@ -169,32 +177,12 @@ describe("Claude session store", () => {
     ).rejects.toThrow(/Unsafe transcript subpath/);
   });
 
-  test("a replacement store appends after the stored tail", async () => {
-    const objects = createMemoryCheckpointObjectStore();
-    const first = new ClaudeSessionStore({
-      objects,
-      prefix: "sessions/s1/mirror",
-    });
-    await first.append(root, [entry("a", "before restart")]);
-
-    const resumed = new ClaudeSessionStore({
-      objects,
-      prefix: "sessions/s1/mirror",
-    });
-    await resumed.append(root, [entry("b", "after restart")]);
-
-    expect(await resumed.load(root)).toEqual([
-      entry("a", "before restart"),
-      entry("b", "after restart"),
-    ]);
-  });
-
   test("two stores writing the same transcript replay in commit order", async () => {
-    // The lease-handoff shape: two independent processes, no shared clock and
-    // no shared sequence, appending to one transcript.
+    // Two independent processes, no shared clock and no shared sequence,
+    // appending to one transcript within one generation.
     for (let run = 0; run < 20; run += 1) {
       const objects = createMemoryCheckpointObjectStore();
-      const options = { objects, prefix: "sessions/s1/mirror" };
+      const options = { generation: 1, objects, prefix };
       const stale = new ClaudeSessionStore(options);
       const live = new ClaudeSessionStore(options);
 
@@ -210,7 +198,7 @@ describe("Claude session store", () => {
 
   test("two stores appending identical uuid-less batches keep both", async () => {
     const objects = createMemoryCheckpointObjectStore();
-    const options = { objects, prefix: "sessions/s1/mirror" };
+    const options = { generation: 1, objects, prefix };
     const left = new ClaudeSessionStore(options);
     const right = new ClaudeSessionStore(options);
 
@@ -227,7 +215,7 @@ describe("Claude session store", () => {
 
   test("two stores racing for the same slot do not lose a batch", async () => {
     const objects = createMemoryCheckpointObjectStore();
-    const options = { objects, prefix: "sessions/s1/mirror" };
+    const options = { generation: 1, objects, prefix };
     const left = new ClaudeSessionStore(options);
     const right = new ClaudeSessionStore(options);
 
@@ -247,10 +235,7 @@ describe("Claude session store", () => {
 
   test("keeps root and subagent ordering independent", async () => {
     const objects = createMemoryCheckpointObjectStore();
-    const mirror = new ClaudeSessionStore({
-      objects,
-      prefix: "sessions/s1/mirror",
-    });
+    const mirror = new ClaudeSessionStore({ generation: 1, objects, prefix });
     const subagent = { ...root, subpath: "agents/reviewer" };
 
     await mirror.append(root, [entry("r1", "root one")]);
@@ -370,5 +355,416 @@ describe("Claude session store", () => {
     expect(
       objects.keys().every((key) => key.startsWith("sessions/s1/mirror/")),
     ).toBe(true);
+  });
+});
+
+describe("Claude session store across execution generations", () => {
+  const subagent = { ...root, subpath: "agents/reviewer" };
+
+  function launch(
+    objects: MemoryCheckpointObjectStore,
+    generation: number,
+    inherit?: TranscriptInheritance,
+  ) {
+    return new ClaudeSessionStore({
+      generation,
+      objects,
+      prefix,
+      ...(inherit === undefined ? {} : { inherit }),
+    });
+  }
+
+  /** What a committed checkpoint hands the next launch. */
+  async function checkpointOf(
+    mirror: ClaudeSessionStore,
+  ): Promise<TranscriptInheritance> {
+    const transcripts = await mirror.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    return { sessionId, transcripts };
+  }
+
+  test("writes only under its own generation", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 7);
+
+    await mirror.append(root, [entry("a", "root")]);
+    await mirror.append(subagent, [entry("b", "subagent")]);
+
+    expect(objects.keys().length).toBe(2);
+    expect(
+      objects
+        .keys()
+        .every((key) =>
+          key.startsWith("sessions/s1/mirror/generation-0000000007/"),
+        ),
+    ).toBe(true);
+  });
+
+  test("a resumed generation replays what the checkpoint pinned, then its own entries", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    await first.append(root, [entry("b", "second")]);
+    const inherited = await checkpointOf(first);
+
+    const second = launch(objects, 2, inherited);
+    expect(first.revisionScoped).toBe(false);
+    expect(second.revisionScoped).toBe(true);
+    expect(await second.load(root)).toEqual([
+      entry("a", "first"),
+      entry("b", "second"),
+    ]);
+
+    await second.append(root, [entry("c", "third")]);
+    expect(await second.load(root)).toEqual([
+      entry("a", "first"),
+      entry("b", "second"),
+      entry("c", "third"),
+    ]);
+    const captured = await second.captureRevision(root);
+    if (captured === null) throw new Error("expected a revision");
+    expect(captured.parts.slice(0, 2)).toEqual([
+      ...inherited.transcripts.root.parts,
+    ]);
+    expect(captured.parts[2]?.key).toContain("/generation-0000000002/");
+    expect(captured.entryCount).toBe(3);
+    expect(await second.loadRevision(captured)).toEqual([
+      entry("a", "first"),
+      entry("b", "second"),
+      entry("c", "third"),
+    ]);
+  });
+
+  test("never adopts what an older generation writes past the checkpoint", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const zombie = launch(objects, 1);
+    await zombie.append(root, [entry("a", "committed")]);
+    const inherited = await checkpointOf(zombie);
+    // Recorded after the checkpoint but before the successor started: not part
+    // of the conversation being resumed.
+    await zombie.append(root, [entry("x", "uncommitted")]);
+
+    const live = launch(objects, 2, inherited);
+    // The old worker lost its lease but is still running.
+    await zombie.append(root, [entry("z", "after the handoff")]);
+    await zombie.append({ ...root, subpath: "agents/late" }, [
+      entry("s", "a subagent the old worker started late"),
+    ]);
+    await live.append(root, [entry("c", "the new worker")]);
+
+    expect(await live.load(root)).toEqual([
+      entry("a", "committed"),
+      entry("c", "the new worker"),
+    ]);
+    expect(await live.listSubkeys(root)).toEqual([]);
+    const captured = await live.captureRevision(root);
+    if (captured === null) throw new Error("expected a revision");
+    expect(await live.loadRevision(captured)).toEqual([
+      entry("a", "committed"),
+      entry("c", "the new worker"),
+    ]);
+  });
+
+  test("carries the chain through more than one handoff", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "one")]);
+    const second = launch(objects, 2, await checkpointOf(first));
+    await second.append(root, [entry("b", "two")]);
+    const fromSecond = await checkpointOf(second);
+    await second.append(root, [entry("x", "never committed")]);
+
+    const third = launch(objects, 3, fromSecond);
+    await third.append(root, [entry("c", "three")]);
+    const captured = await third.captureRevision(root);
+    if (captured === null) throw new Error("expected a revision");
+
+    expect(
+      captured.parts.map((part) => part.key.match(/generation-(\d+)/)?.[1]),
+    ).toEqual(["0000000001", "0000000002", "0000000003"]);
+    // Restoring reads the pinned list alone — no prefix listing and no
+    // ancestor manifest — so a fresh launch restores it too.
+    expect(await launch(objects, 4).loadRevision(captured)).toEqual([
+      entry("a", "one"),
+      entry("b", "two"),
+      entry("c", "three"),
+    ]);
+  });
+
+  test("adopts subagent transcripts and keeps listing them", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("r", "root")]);
+    await first.append(subagent, [entry("s1", "review one")]);
+
+    const second = launch(objects, 2, await checkpointOf(first));
+    expect(await second.listSubkeys(root)).toEqual(["agents/reviewer"]);
+    expect(await second.load(subagent)).toEqual([entry("s1", "review one")]);
+
+    await second.append(subagent, [entry("s2", "review two")]);
+    const captured = await second.captureRevision(subagent);
+    if (captured === null) throw new Error("expected a revision");
+    expect(await second.loadRevision(captured)).toEqual([
+      entry("s1", "review one"),
+      entry("s2", "review two"),
+    ]);
+  });
+
+  test("adopts by engine session even when the project key moved", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+
+    const second = launch(objects, 2, await checkpointOf(first));
+
+    // The project key is derived from the cwd, which the restoring host
+    // chooses; the checkpoint belongs to the engine session.
+    expect(await second.load({ projectKey: "-elsewhere", sessionId })).toEqual([
+      entry("a", "first"),
+    ]);
+  });
+
+  test("refuses every other engine session once it adopted one", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    const second = launch(objects, 2, await checkpointOf(first));
+    const other = { projectKey, sessionId: "another-session" };
+
+    // `null` here would send the engine to the container's own disk.
+    await expect(second.load(other)).rejects.toThrow(/adopted engine session/);
+    await expect(second.append(other, [entry("b", "x")])).rejects.toThrow(
+      /adopted engine session/,
+    );
+    await expect(second.listSubkeys(other)).rejects.toThrow(
+      /adopted engine session/,
+    );
+  });
+
+  test("refuses to adopt a part whose bytes changed", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    const inherited = await checkpointOf(first);
+    const pinned = inherited.transcripts.root.parts[0];
+    if (pinned === undefined) throw new Error("expected a part");
+    await objects.put(pinned.key, new TextEncoder().encode('{"type":"x"}\n'));
+
+    const second = launch(objects, 2, inherited);
+
+    await expect(second.load(root)).rejects.toThrow(
+      /Inherited transcript part changed/,
+    );
+    await expect(second.captureRevision(root)).rejects.toThrow(
+      /Inherited transcript part changed/,
+    );
+  });
+
+  test("verifies an adopted part once, not on every capture", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    const second = launch(objects, 2, await checkpointOf(first));
+
+    objects.resetReads();
+    await second.captureRevision(root);
+    await second.captureRevision(root);
+
+    expect(objects.reads()).toHaveLength(1);
+  });
+
+  test("refuses an inherited part list that fails its digest", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    await first.append(root, [entry("b", "second")]);
+    const inherited = await checkpointOf(first);
+
+    expect(() =>
+      launch(objects, 2, {
+        ...inherited,
+        transcripts: {
+          ...inherited.transcripts,
+          root: {
+            ...inherited.transcripts.root,
+            parts: inherited.transcripts.root.parts.slice(0, 1),
+          },
+        },
+      }),
+    ).toThrow(/does not match its digest/);
+  });
+
+  test("refuses to adopt from its own generation or a later one", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 3);
+    await first.append(root, [entry("a", "first")]);
+    const inherited = await checkpointOf(first);
+
+    expect(() => launch(objects, 3, inherited)).toThrow(
+      /not from a generation before 3/,
+    );
+    expect(() => launch(objects, 2, inherited)).toThrow(
+      /not from a generation before 2/,
+    );
+  });
+
+  test("refuses to adopt a part outside the session's mirror", () => {
+    const parts = [
+      {
+        bytes: 1,
+        key: "sessions/other/mirror/generation-0000000001/x/y/main/part-0000000000.jsonl",
+        sha256: "0".repeat(64),
+      },
+    ];
+
+    expect(() =>
+      launch(createMemoryCheckpointObjectStore(), 2, {
+        sessionId,
+        transcripts: {
+          root: { entryCount: 1, parts, sha256: digestParts(parts) },
+          subagents: {},
+        },
+      }),
+    ).toThrow(/outside sessions\/s1\/mirror\//);
+  });
+
+  test("refuses to adopt another engine session's part as this one's", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    const other = { projectKey, sessionId: "session-2" };
+    await first.append(other, [entry("o", "another conversation")]);
+    const foreign = await first.captureRevision(other);
+    if (foreign === null) throw new Error("expected a revision");
+
+    expect(() =>
+      launch(objects, 2, {
+        sessionId,
+        transcripts: { root: foreign, subagents: {} },
+      }),
+    ).toThrow(/is not a part of session-1's root transcript/);
+  });
+
+  test("refuses a checkpoint that pins a subagent's parts as the root", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("r", "root")]);
+    await first.append(subagent, [entry("s", "subagent")]);
+    const { transcripts } = await checkpointOf(first);
+    const reviewer = transcripts.subagents["agents/reviewer"];
+    if (reviewer === undefined) throw new Error("expected the subagent");
+
+    expect(() =>
+      launch(objects, 2, {
+        sessionId,
+        transcripts: {
+          root: reviewer,
+          subagents: { "agents/reviewer": transcripts.root },
+        },
+      }),
+    ).toThrow(/is not a part of session-1's root transcript/);
+  });
+
+  test("captures a whole engine session without being told its project key", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await mirror.append(root, [entry("r", "root")]);
+    await mirror.append(subagent, [entry("s", "subagent")]);
+    await mirror.append({ projectKey, sessionId: "session-2" }, [
+      entry("o", "another session"),
+    ]);
+
+    const transcripts = await mirror.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+
+    expect(await mirror.loadRevision(transcripts.root)).toEqual([
+      entry("r", "root"),
+    ]);
+    expect(Object.keys(transcripts.subagents)).toEqual(["agents/reviewer"]);
+    expect(await mirror.captureTranscripts("session-3")).toBeNull();
+  });
+
+  test("captures what it adopted even before the engine writes anything", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("r", "root")]);
+    await first.append(subagent, [entry("s", "subagent")]);
+    const inherited = await checkpointOf(first);
+
+    const second = launch(objects, 2, inherited);
+
+    expect(await second.captureTranscripts(sessionId)).toEqual(
+      inherited.transcripts,
+    );
+  });
+
+  test("refuses to guess between two project keys for one engine session", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await mirror.append(root, [entry("a", "one")]);
+    await mirror.append({ projectKey: "-elsewhere", sessionId }, [
+      entry("b", "two"),
+    ]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow(
+      /more than one project key/,
+    );
+  });
+
+  test("refuses a generation that already holds transcript parts", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const earlier = launch(objects, 1);
+    await earlier.append(root, [entry("a", "from another launch")]);
+
+    const reused = launch(objects, 1);
+
+    await expect(reused.load(root)).rejects.toThrow(
+      /already holds transcript parts/,
+    );
+    await expect(reused.append(root, [entry("b", "x")])).rejects.toThrow(
+      /already holds transcript parts/,
+    );
+    const pinned = await earlier.captureRevision(root);
+    if (pinned === null) throw new Error("expected a revision");
+    await expect(reused.loadRevision(pinned)).rejects.toThrow(
+      /already holds transcript parts/,
+    );
+    expect(await earlier.load(root)).toEqual([
+      entry("a", "from another launch"),
+    ]);
+  });
+
+  test("refuses a generation that is not a non-negative integer", () => {
+    const objects = createMemoryCheckpointObjectStore();
+
+    expect(() => launch(objects, -1)).toThrow(/Invalid execution generation/);
+    expect(() => launch(objects, 1.5)).toThrow(/Invalid execution generation/);
+  });
+
+  test("two stores alternating appends in one generation replay in append order", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const left = launch(objects, 1);
+    const right = launch(objects, 1);
+    const expected: TranscriptEntry[] = [];
+
+    for (let index = 0; index < 6; index += 1) {
+      const next = entry(`e${index}`, index % 2 === 0 ? "left" : "right");
+      await (index % 2 === 0 ? left : right).append(root, [next]);
+      expected.push(next);
+    }
+
+    // The order is the object store's, won slot by slot, not either
+    // process's clock.
+    expect(await left.load(root)).toEqual(expected);
+    expect(await right.load(root)).toEqual(expected);
+  });
+
+  test("a capture includes appends already queued when it was asked", async () => {
+    const { mirror } = store();
+
+    const pending = mirror.append(root, [entry("a", "in flight")]);
+    const captured = await mirror.captureRevision(root);
+    await pending;
+
+    expect(captured?.entryCount).toBe(1);
   });
 });

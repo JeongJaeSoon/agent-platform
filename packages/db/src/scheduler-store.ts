@@ -32,6 +32,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -339,6 +340,7 @@ export function createPostgresSchedulerStore(
         .select({
           backend: workerLaunches.backend,
           claimedAttemptId: workerLaunches.claimedAttemptId,
+          desiredState: executions.desiredState,
           executionId: workerLaunches.executionId,
           generation: workerLaunches.generation,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
@@ -361,6 +363,8 @@ export function createPostgresSchedulerStore(
       return rows.map((row) => ({
         backend: backendKindOf(row.backend),
         claimed: row.claimedAttemptId !== null,
+        desiredState:
+          row.desiredState === "terminated" ? "terminated" : "running",
         executionId: row.executionId,
         generation: row.generation,
         nonceExpiresAt: row.nonceExpiresAt,
@@ -459,6 +463,25 @@ export function createPostgresSchedulerStore(
 
     async confirmExecutionGone(executionId: string, now: Date): Promise<void> {
       await work.confirmExecutionGoneAtomic({ executionId, now });
+    },
+
+    async desiredStateOf(ref) {
+      const [row] = await db
+        .select({ desiredState: executions.desiredState })
+        .from(executions)
+        .where(
+          and(
+            eq(executions.id, ref.executionId),
+            eq(executions.generation, ref.generation),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      return row.desiredState === "terminated" ? "terminated" : "running";
+    },
+
+    markOverdueTerminations(input): Promise<number> {
+      return expireOverdueTerminations(db, input);
     },
   };
 }

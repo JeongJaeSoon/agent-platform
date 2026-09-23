@@ -5,6 +5,7 @@ import {
   createSessionService,
   ownerScopedPolicy,
   type SessionCatalog,
+  type SessionControl,
   type SessionReader,
   type SessionUnitOfWork,
 } from "@agent-platform/platform";
@@ -31,7 +32,9 @@ const catalog: SessionCatalog = {
   },
 };
 
-function app(overrides: Partial<SessionUnitOfWork & SessionReader> = {}) {
+function app(
+  overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
+) {
   const service = createSessionService({
     authorization: ownerScopedPolicy,
     catalog,
@@ -44,12 +47,19 @@ function app(overrides: Partial<SessionUnitOfWork & SessionReader> = {}) {
       },
       ...overrides,
     },
+    controls: {
+      terminateAtomic: async () => {
+        throw new Error("not reached");
+      },
+      ...overrides,
+    },
     reader: {
       listSessions: async () => ({ items: [], next_cursor: null }),
       getSession: async () => null,
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt: async () => null,
+      readEvents: async () => null,
       ...overrides,
     },
   });
@@ -383,5 +393,110 @@ describe("GET /v1/sessions/{id}/turns validation", () => {
     expect(
       apiErrorResponseSchema.parse(await foreign.json()).error.details,
     ).toBeNull();
+  });
+});
+
+describe("POST /v1/sessions/{id}/terminate validation", () => {
+  const terminatePath = `/v1/sessions/${sessionId}/terminate`;
+  const terminate = (
+    body: unknown,
+    overrides: Partial<SessionControl> = {},
+    headers: Record<string, string> = {},
+    path = terminatePath,
+  ) =>
+    app(overrides).request(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+
+  test("answers 202 with the receipt and says external effects are not reverted", async () => {
+    const receiptId = crypto.randomUUID();
+    const response = await terminate(
+      { expected_revision: 3, reason: "stuck" },
+      {
+        terminateAtomic: async (input) => {
+          expect(input).toMatchObject({
+            principal: { ownerId: "owner-a" },
+            sessionId,
+            idempotencyKey: "key-1",
+            expectedRevision: 3,
+            reason: "stuck",
+          });
+          return {
+            outcome: "accepted",
+            response: { receipt_id: receiptId, receipt_status: "accepted" },
+          };
+        },
+      },
+    );
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      receipt_id: receiptId,
+      receipt_status: "accepted",
+      external_effects_reverted: false,
+    });
+  });
+
+  test("requires Idempotency-Key, expected_revision, and rejects extra fields", async () => {
+    expect(
+      (await terminate({ expected_revision: 1 }, {}, { "Idempotency-Key": "" }))
+        .status,
+    ).toBe(400);
+    expect((await terminate({ reason: "no revision" })).status).toBe(400);
+    expect(
+      (await terminate({ expected_revision: 1, force: true })).status,
+    ).toBe(400);
+  });
+
+  test("maps revision conflict, closed session and unknown session", async () => {
+    const conflict = await terminate(
+      { expected_revision: 1 },
+      {
+        terminateAtomic: async () => ({
+          outcome: "revision_conflict",
+          currentRevision: 4,
+        }),
+      },
+    );
+    expect(conflict.status).toBe(409);
+    expect(await errorCode(conflict)).toBe("REVISION_CONFLICT");
+    const closed = await terminate(
+      { expected_revision: 1 },
+      {
+        terminateAtomic: async () => ({
+          outcome: "rejected",
+          admissionState: "closed",
+        }),
+      },
+    );
+    expect(closed.status).toBe(409);
+    expect(await errorCode(closed)).toBe("SESSION_CLOSED");
+    const missing = await terminate(
+      { expected_revision: 1 },
+      { terminateAtomic: async () => ({ outcome: "not_found" }) },
+    );
+    expect(missing.status).toBe(404);
+    const legacy = await terminate(
+      { expected_revision: 1 },
+      { terminateAtomic: async () => ({ outcome: "unsupported" }) },
+    );
+    expect(legacy.status).toBe(422);
+    expect(await errorCode(legacy)).toBe("UNSUPPORTED_CAPABILITY");
+    expect(
+      (
+        await terminate(
+          { expected_revision: 1 },
+          {},
+          {},
+          "/v1/sessions/not-a-uuid/terminate",
+        )
+      ).status,
+    ).toBe(404);
   });
 });

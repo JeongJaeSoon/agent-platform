@@ -1,6 +1,11 @@
 import * as schema from "@agent-platform/db";
-import { reconcileOrphanedSessions } from "@agent-platform/db";
+import {
+  expireOverdueTerminations,
+  reconcileExpiredLeases,
+  reconcileOrphanedSessions,
+} from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
+import { TERMINATE_DEADLINE_MS } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { runReconciler } from "./reconcile.ts";
@@ -33,6 +38,13 @@ export async function main(
       },
       logger,
       reconcile: (options) => reconcileOrphanedSessions(db, options),
+      reconcileLeases: (options) => reconcileExpiredLeases(db, options),
+      expireTerminations: ({ dryRun, now }) =>
+        expireOverdueTerminations(db, {
+          deadlineMs: TERMINATE_DEADLINE_MS,
+          dryRun,
+          now,
+        }),
     });
   } finally {
     await pool.end();

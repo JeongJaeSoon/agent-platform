@@ -13,15 +13,21 @@ import type {
   Receipt,
   SessionDetail,
   SessionRuntime,
+  TerminateSessionRequest,
+  TerminateSessionResponse,
   TurnDetail,
 } from "@agent-platform/contracts";
 import type {
   AuthorizationPolicy,
   Principal,
+  SessionAction,
 } from "../authorization/policy.ts";
 import { checkpointAdmission } from "../checkpoints/durability.ts";
+import type { SessionControl } from "../ports/session-control.ts";
 import type {
+  EventPage,
   InputAcceptance,
+  ReadEventsQuery,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
 import type { SessionCatalog } from "./catalog.ts";
@@ -88,10 +94,13 @@ export function payloadHash(payload: unknown): string {
 export function createSessionService(deps: {
   authorization: AuthorizationPolicy;
   inputs: InputAcceptance;
+  controls: SessionControl;
   reader: SessionReader;
   catalog: SessionCatalog;
+  now?: () => Date;
 }) {
-  const { authorization, inputs, reader, catalog } = deps;
+  const { authorization, inputs, controls, reader, catalog } = deps;
+  const now = deps.now ?? (() => new Date());
 
   function runtimeFor(profileId: string | null): SessionRuntime {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
@@ -104,7 +113,7 @@ export function createSessionService(deps: {
 
   function requireAuthorized(
     actor: Principal,
-    action: "sessions:read" | "sessions:write",
+    action: SessionAction,
     ownerId: string,
   ) {
     if (!authorization.authorize(actor, action, { ownerId })) {
@@ -186,6 +195,48 @@ export function createSessionService(deps: {
       }
     },
 
+    async terminateSession(
+      actor: Principal,
+      sessionId: string,
+      input: { idempotencyKey: string; body: TerminateSessionRequest },
+    ): Promise<TerminateSessionResponse> {
+      requireAuthorized(actor, "sessions:control", actor.ownerId);
+      const result = await controls.terminateAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        reason: input.body.reason ?? null,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          throw new SessionServiceError(
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency-Key was already used with a different payload",
+          );
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            `expected_revision does not match the current revision ${result.currentRevision}`,
+          );
+        case "rejected": {
+          const rejection = ADMISSION_REJECTIONS[result.admissionState];
+          throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that cannot be force-terminated",
+          );
+        default:
+          return { ...result.response, external_effects_reverted: false };
+      }
+    },
+
     async listSessions(
       actor: Principal,
       query: ListSessionsQuery,
@@ -238,6 +289,19 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       return turn;
+    },
+
+    async readEvents(
+      actor: Principal,
+      sessionId: string,
+      query: ReadEventsQuery,
+    ): Promise<EventPage> {
+      requireAuthorized(actor, "sessions:read", actor.ownerId);
+      const page = await reader.readEvents(actor.ownerId, sessionId, query);
+      if (!page) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return page;
     },
 
     // Only the principal that issued the command may read its receipt;

@@ -1,12 +1,16 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createPostgresPendingRequests,
+  createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  createPendingRequestService,
   createSessionService,
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
@@ -20,9 +24,12 @@ import {
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
 } from "./checkpoints.ts";
+import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerEventRoutes } from "./routes/events.ts";
+import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -66,12 +73,19 @@ const checkpoints = createApiCheckpoints(db, checkpointStorage);
 const sessions = createSessionService({
   authorization: ownerScopedPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
+  controls: createPostgresSessionControl(db),
   reader: createPostgresSessionReader(db),
   catalog,
+});
+const pendingRequests = createPendingRequestService({
+  authorization: ownerScopedPolicy,
+  store: createPostgresPendingRequests(db),
 });
 // Seconds so an operator can shorten it in a test deployment; the worker
 // heartbeats at a fraction of this.
 const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
+// How long a permission or question takes answers; unset keeps 30 minutes.
+const pendingTtlSec = Number(process.env.PENDING_REQUEST_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
@@ -82,13 +96,33 @@ const workers = createWorkerGateway({
   ...(checkpoints.protocol === undefined
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
+  pending: createPostgresWorkerPendingStore(db),
   options: {
     leaseTtlMs:
       Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
         ? heartbeatTtlSec * 1000
         : DEFAULT_LEASE_TTL_MS,
+    ...(Number.isFinite(pendingTtlSec) && pendingTtlSec > 0
+      ? { pendingTtlMs: pendingTtlSec * 1000 }
+      : {}),
   },
 });
+// An unset or malformed value keeps the route's default rather than
+// disabling the cap.
+function positiveEnv<K extends string>(
+  name: string,
+  key: K,
+): Partial<Record<K, number>> {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0
+    ? ({ [key]: value } as Record<K, number>)
+    : {};
+}
+
+// Wakes SSE streams on NOTIFY; streams still re-read on their keepalive
+// clock, so a listener that is down only adds latency, never loses events.
+const notifier = new PostgresSessionNotifier(databaseUrl, logger);
+void notifier.start();
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -96,6 +130,14 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
+    registerPendingRoutes(router, pendingRequests);
+    registerEventRoutes(router, sessions, {
+      wakeup: notifier,
+      logger,
+      ...positiveEnv("SSE_MAX_STREAMS", "maxStreams"),
+      ...positiveEnv("SSE_MAX_STREAMS_PER_OWNER", "maxStreamsPerOwner"),
+      ...positiveEnv("SSE_REPLAY_MAX_BYTES", "batchMaxBytes"),
+    });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
   readiness: createReadinessProbe({

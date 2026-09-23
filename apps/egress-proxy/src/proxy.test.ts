@@ -697,11 +697,12 @@ describe("egress proxy", () => {
       // The dial itself is the seam: A connects for real but reports back
       // after the deadline, which is what a slow path looks like from here.
       connect: async (opts) => {
+        // Decided before the connect: a first dial slower than the deadline
+        // would otherwise leave the second one delayed too.
+        const delayed = first;
+        first = false;
         const socket = await Bun.connect(opts);
-        if (first) {
-          first = false;
-          await Bun.sleep(600);
-        }
+        if (delayed) await Bun.sleep(600);
         return socket;
       },
       logger: silent,
@@ -729,6 +730,98 @@ describe("egress proxy", () => {
       talk.close();
     } finally {
       late.stop();
+    }
+  }, 30_000);
+
+  test("bytes from an attempt we gave up on never reach the client", async () => {
+    // A server-first upstream speaks the moment it accepts. Attempt A is
+    // dialled first and reports back too late: its banner arrives while the
+    // attempt is still pending, and once B carries the tunnel that banner
+    // (and any pause or stall it caused) must stay with A.
+    let banners = 0;
+    // A's banner is far past any socket buffer, so with the client not
+    // reading it can only be queued, which is what used to arm the stall
+    // timer; B's fits in the kernel buffer and never queues at all.
+    const banner = (n: number): string =>
+      `server-first-banner-${n}`.repeat(n === 1 ? 64 * 1024 : 8);
+    const talker = Bun.listen<EchoState>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket, chunk) {
+          socket.data.pending = socket.data.pending
+            ? concatBytes(socket.data.pending, chunk)
+            : chunk;
+          echoDrain(socket);
+        },
+        drain(socket) {
+          echoDrain(socket);
+        },
+        open(socket) {
+          banners += 1;
+          // Queued like the echo, so a banner past the socket buffer is
+          // delivered whole instead of cut at the first partial write.
+          socket.data = {
+            pending: new TextEncoder().encode(banner(banners)),
+          };
+          echoDrain(socket);
+        },
+      },
+    });
+    let first = true;
+    const stallMs = 300;
+    const late = await startEgressProxy({
+      connectTimeoutMs: 200,
+      connect: async (opts) => {
+        // Decided before the connect: a first dial slower than the deadline
+        // would otherwise leave the second one delayed too.
+        const delayed = first;
+        first = false;
+        const socket = await Bun.connect(opts);
+        if (delayed) await Bun.sleep(600);
+        return socket;
+      },
+      logger: silent,
+      // Smaller than one banner, so the pending attempt crosses the cap the
+      // way a stall would; that must not arm the connection's timer.
+      maxBufferedBytes: 64,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "tunnel.test", port: talker.port }],
+      },
+      port: 0,
+      resolve: async () => ["127.0.0.1", "127.0.0.1"],
+      stallTimeoutMs: stallMs,
+    });
+    try {
+      const talk = await connect(late.port);
+      talk.send(request(`CONNECT tunnel.test:${talker.port} HTTP/1.1`));
+      // Not reading while A arrives, is abandoned, and the stall deadline
+      // passes: a timer A armed against this connection would fire here.
+      talk.stopReading();
+      await Bun.sleep(800 + stallMs);
+      talk.resumeReading();
+      expect(
+        await talk.waitFor("200 Connection Established", 10_000),
+      ).toStartWith("HTTP/1.1 200 Connection Established");
+      // The winner's banner is what the client gets, and only after the 200.
+      const seen = await talk.waitFor(banner(2), 10_000);
+      expect(seen.indexOf("200 Connection Established")).toBeLessThan(
+        seen.indexOf(banner(2)),
+      );
+      talk.sendBytes(clientHello({ serverNames: ["tunnel.test"] }));
+      talk.send("before");
+      expect(await talk.waitFor("before", 10_000)).toContain("before");
+      talk.send("after");
+      expect(await talk.waitFor("after", 10_000)).toContain("after");
+      // Not one fragment of A: the sentinel is short enough that a partial
+      // leak could not hide behind the client's transcript cap.
+      expect(talk.text()).not.toContain("server-first-banner-1");
+      expect(talk.isClosed()).toBe(false);
+      talk.close();
+    } finally {
+      late.stop();
+      talker.stop(true);
     }
   }, 30_000);
 

@@ -141,6 +141,9 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // in place. Making it stale forces the replacement through
     // `ensureWorkspaceVolume`, which is what reports the mismatch.
     quotaStampOf(config.workspaceQuota),
+    // The worker plans its drain from the grace it was started with; stopped
+    // with a shorter one, the SIGKILL lands mid-finalize.
+    config.stopTimeoutSeconds,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;

@@ -1,5 +1,5 @@
 {
-  "id": "57b579fe-7d56-40a7-9289-07ae885acb24",
+  "id": "4203b42a-902f-4900-9bb3-e0aa21684f13",
   "prevId": "9a07d1ab-9b65-47ae-a6f8-8a412d7838dc",
   "version": "7",
   "dialect": "postgresql",
@@ -194,6 +194,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "attempts_open_lease_idx": {
+          "name": "attempts_open_lease_idx",
+          "columns": [
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"attempts\".\"state\" NOT IN ('exited', 'lost')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1479,6 +1501,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "receipts_open_terminate_idx": {
+          "name": "receipts_open_terminate_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"receipts\".\"operation\" = 'terminate' AND \"receipts\".\"status\" = 'accepted'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1592,24 +1630,6 @@
         },
         "checkpoint_committed_at": {
           "name": "checkpoint_committed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "checkpoint_pending_reason": {
-          "name": "checkpoint_pending_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "checkpoint_pending_attempt_id": {
-          "name": "checkpoint_pending_attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_transcript_persisted_at": {
-          "name": "last_transcript_persisted_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

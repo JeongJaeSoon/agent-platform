@@ -75,8 +75,22 @@
     {
       "idx": 101,
       "version": "7",
-      "when": 1790115715875,
-      "tag": "0101_familiar_paibok",
+      "when": 1790115218982,
+      "tag": "0101_aspiring_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790127342028,
+      "tag": "0102_charming_exodus",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1790134505611,
+      "tag": "0103_slimy_betty_ross",
       "breakpoints": true
     }
   ]

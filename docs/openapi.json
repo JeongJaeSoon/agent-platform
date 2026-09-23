@@ -2223,6 +2223,35 @@
         ],
         "additionalProperties": false
       },
+      "TerminateSessionResponse": {
+        "type": "object",
+        "properties": {
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "receipt_status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "succeeded",
+              "failed",
+              "unknown"
+            ]
+          },
+          "external_effects_reverted": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "receipt_id",
+          "receipt_status",
+          "external_effects_reverted"
+        ],
+        "additionalProperties": false
+      },
       "Receipt": {
         "type": "object",
         "properties": {
@@ -3197,6 +3226,16 @@
               }
             }
           },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Error",
             "content": {
@@ -3218,6 +3257,26 @@
             }
           },
           "410": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3274,6 +3333,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3370,6 +3439,26 @@
             }
           },
           "409": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3622,7 +3711,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReceiptAcceptedResponse"
+                  "$ref": "#/components/schemas/TerminateSessionResponse"
                 }
               }
             }
@@ -3658,6 +3747,36 @@
             }
           },
           "409": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {

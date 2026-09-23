@@ -19,8 +19,11 @@ import {
   type PendingControlRequest,
   type PendingControlResponse,
   pendingControlResponseSchema,
+  type RegisterPendingRequest,
+  type RegisterPendingResponse,
   type ReleaseRequest,
   type ReleaseResponse,
+  registerPendingResponseSchema,
   releaseResponseSchema,
 } from "@agent-platform/contracts";
 
@@ -123,6 +126,16 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
 
   appendEvents(request: AppendEventsRequest): Promise<AppendEventsResponse> {
     return this.post("/append-events", request, appendEventsResponseSchema);
+  }
+
+  registerPending(
+    request: RegisterPendingRequest,
+  ): Promise<RegisterPendingResponse> {
+    return this.post(
+      "/register-pending",
+      request,
+      registerPendingResponseSchema,
+    );
   }
 
   pendingControl(

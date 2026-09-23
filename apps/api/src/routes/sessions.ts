@@ -11,6 +11,8 @@ import {
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
   sessionIdParamsSchema,
+  terminateSessionRequestSchema,
+  terminateSessionResponseSchema,
   turnIdParamsSchema,
 } from "@agent-platform/contracts";
 import { InvalidCursorError } from "@agent-platform/db";
@@ -35,6 +37,7 @@ const STATUS_BY_CODE: Partial<
   Record<SessionServiceError["code"], ContentfulStatusCode>
 > = {
   IDEMPOTENCY_CONFLICT: 409,
+  REVISION_CONFLICT: 409,
   UNSUPPORTED_CAPABILITY: 422,
   NOT_FOUND: 404,
   SESSION_PAUSED: 409,
@@ -77,9 +80,12 @@ export const sessionRouteErrors: Record<string, number[]> = {
   "POST /v1/sessions/{id}/messages": [400, 401, 404, 409, 413, 503],
   "GET /v1/sessions/{id}/turns": [400, 401, 404, 503],
   "GET /v1/sessions/{id}/turns/{turn_id}": [401, 404, 503],
+  "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],
 };
 
-function requireIdempotencyKey(context: Context<ApiEnvironment>): string {
+export function requireIdempotencyKey(
+  context: Context<ApiEnvironment>,
+): string {
   const key = idempotencyKeySchema.safeParse(
     context.req.header("Idempotency-Key"),
   );
@@ -161,6 +167,24 @@ export function registerSessionRoutes(
     return jsonWithSchema(
       context,
       postSessionMessageResponseSchema,
+      accepted,
+      202,
+    );
+  });
+
+  router.post("/sessions/:id/terminate", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(context, terminateSessionRequestSchema);
+    const accepted = await mapped(() =>
+      service.terminateSession({ ownerId: context.get("ownerId") }, params.id, {
+        idempotencyKey: key,
+        body,
+      }),
+    );
+    return jsonWithSchema(
+      context,
+      terminateSessionResponseSchema,
       accepted,
       202,
     );

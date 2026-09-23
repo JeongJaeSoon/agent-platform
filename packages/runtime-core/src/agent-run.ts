@@ -31,6 +31,13 @@ export interface AgentRun extends AsyncIterable<AgentFrame> {
   close(): void;
   events(): AsyncIterable<AgentFrame>;
   finishInput(): void;
+  /**
+   * True when the engine session already holds this input uuid: in the
+   * transcript the run resumed from, or sent earlier on this run. The engine
+   * deduplicates such a send and never answers it. Throws when the resumed
+   * transcript cannot be read — absence is only claimed when it was checked.
+   */
+  holdsInput(uuid: string): Promise<boolean>;
   interrupt(): Promise<{ stillQueued: string[] }>;
   prepareCheckpoint(): Promise<CheckpointPreparation>;
   send(input: AgentInput): void;

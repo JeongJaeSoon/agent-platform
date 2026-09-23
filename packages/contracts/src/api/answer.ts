@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requestIdSchema } from "../shared/index.ts";
+import type { PendingQuestion } from "./pending.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
 
 export const permissionAnswerSchema = z
@@ -54,6 +55,52 @@ export const questionsAnswerSchema = z
       ids.add(item.question_id);
     }
   });
+
+/**
+ * Why an answer cannot stand for the questions asked, or null when it can:
+ * exactly one answer per question, only options that question offered, one
+ * of them unless it is multi-select, and free text only where allowed. The
+ * server refuses on it and the worker checks it again before acting, since
+ * a partial or made-up answer would let the engine act on something nobody
+ * chose.
+ */
+export function questionAnswerMismatch(
+  questions: PendingQuestion[],
+  answers: QuestionAnswer[],
+): string | null {
+  const seen = new Set<string>();
+  for (const answer of answers) {
+    const question = questions.find(
+      (candidate) => candidate.question_id === answer.question_id,
+    );
+    if (question === undefined) {
+      return `No question ${answer.question_id} was asked`;
+    }
+    if (seen.has(answer.question_id)) {
+      return `Question ${answer.question_id} was answered twice`;
+    }
+    seen.add(answer.question_id);
+    const selected = new Set(answer.selected_option_ids);
+    if (selected.size !== answer.selected_option_ids.length) {
+      return `Question ${answer.question_id} selects an option twice`;
+    }
+    for (const id of selected) {
+      if (!question.options.some((option) => option.option_id === id)) {
+        return `Question ${answer.question_id} has no option ${id}`;
+      }
+    }
+    if (!question.multi_select && selected.size > 1) {
+      return `Question ${answer.question_id} takes one option`;
+    }
+    if (answer.free_text !== undefined && !question.allow_free_text) {
+      return `Question ${answer.question_id} takes no free text`;
+    }
+  }
+  const missing = questions.find((question) => !seen.has(question.question_id));
+  return missing === undefined
+    ? null
+    : `Question ${missing.question_id} was not answered`;
+}
 
 export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
   permissionAnswerSchema,

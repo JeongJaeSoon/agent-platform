@@ -27,6 +27,7 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_DRAIN_TIMEOUT_SEC?: string | undefined;
   WORKER_HEARTBEAT_INTERVAL_SEC?: string | undefined;
   WORKER_IDLE_TIMEOUT_SEC?: string | undefined;
+  WORKER_MAX_TURN_SEC?: string | undefined;
   WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
   WORKER_REQUEST_TIMEOUT_SEC?: string | undefined;
   QUESTION_TIMEOUT_SEC?: string | undefined;
@@ -45,6 +46,12 @@ export type WorkerTimeouts = {
   heartbeatIntervalMs: number;
   /** Release the session and exit after this long with no input. */
   idleTimeoutMs: number;
+  /**
+   * Wall-clock budget for one turn, approvals included. Nothing else bounds
+   * an engine that stops answering while the heartbeat keeps the lease alive
+   * (94S-242); 94S-131 sets it per installation as `MAX_TURN_SECONDS`.
+   */
+  maxTurnMs: number;
   nextInputWaitMs: number;
   /** A pending permission or question denied once nobody has answered it. */
   questionTimeoutMs: number;
@@ -136,6 +143,11 @@ export function workerConfigFromEnv(
         environment.WORKER_IDLE_TIMEOUT_SEC,
         1800,
         "WORKER_IDLE_TIMEOUT_SEC",
+      ),
+      maxTurnMs: seconds(
+        environment.WORKER_MAX_TURN_SEC,
+        3600,
+        "WORKER_MAX_TURN_SEC",
       ),
       nextInputWaitMs: seconds(
         environment.WORKER_NEXT_INPUT_WAIT_SEC,

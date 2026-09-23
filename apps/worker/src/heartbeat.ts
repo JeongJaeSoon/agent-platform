@@ -16,6 +16,8 @@ export type HeartbeatOptions = {
   leaseExpiresAt: Date;
   /** Called once, with why this attempt stopped owning the session. */
   onLost: (reason: string) => void;
+  /** An answer or control intent is waiting to be fetched. */
+  onControlPending?: () => void;
   now?: () => Date;
 };
 
@@ -66,21 +68,42 @@ export class Heartbeat {
 
   private async loop(): Promise<void> {
     while (!this.stopped && !this.lost) {
-      if (!this.owed) await this.pause(this.options.intervalMs);
+      // Never sleeps past the lease: a lease granted with less left than
+      // the interval (a slow answer, a long interval) must still be beaten
+      // in time, and one that runs out between beats noticed when it does.
+      if (!this.owed) {
+        await this.pause(Math.min(this.options.intervalMs, this.leaseLeftMs()));
+      }
       this.owed = false;
       if (this.stopped || this.lost) return;
       await this.beat();
     }
   }
 
+  private leaseLeftMs(): number {
+    const now = (this.options.now ?? (() => new Date()))();
+    return Math.max(0, this.lease.getTime() - now.getTime());
+  }
+
   private async beat(): Promise<void> {
     const scope = this.options.scope();
     try {
-      const response = await this.options.gateway.heartbeat({
-        ...scope,
-        attempt_state: this.options.attemptState(),
-      });
+      const response = await this.beforeLeaseRunsOut(
+        this.options.gateway.heartbeat({
+          ...scope,
+          attempt_state: this.options.attemptState(),
+        }),
+      );
+      if (response === undefined) {
+        // The request timeout can be longer than what is left of the lease;
+        // past the lease the engine must not keep acting as its owner.
+        this.declareLost(
+          `lease expired at ${this.lease.toISOString()} before the gateway answered`,
+        );
+        return;
+      }
       this.lease = new Date(response.lease_expires_at);
+      if (response.control_pending) this.options.onControlPending?.();
       if (response.auth_revision !== scope.auth_revision) {
         // The session's authorization moved on, so this token's binding is
         // already behind and every write it makes would be fenced out.
@@ -103,6 +126,21 @@ export class Heartbeat {
           `lease expired at ${this.lease.toISOString()} with the gateway unreachable`,
         );
       }
+    }
+  }
+
+  private async beforeLeaseRunsOut<T>(
+    request: Promise<T>,
+  ): Promise<T | undefined> {
+    request.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), this.leaseLeftMs());
+    });
+    try {
+      return await Promise.race([request, expired]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
