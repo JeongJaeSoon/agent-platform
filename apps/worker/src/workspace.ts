@@ -53,8 +53,8 @@ type CommittedClaudeMd =
   | { kind: "absent" }
   | { kind: "refused"; reason: string };
 
-type GitResult = { code: number; stdout: string; stderr: string };
-type Git = (
+export type GitResult = { code: number; stdout: string; stderr: string };
+export type Git = (
   args: string[],
   options?: { cwd?: string; network?: boolean },
 ) => Promise<GitResult>;
@@ -532,7 +532,9 @@ const SCOPED_HELPER = [
  * filter whose command is empty, and `required=false` keeps it from failing
  * the command instead.
  */
-async function filterOverrides(git: Git): Promise<Array<[string, string]>> {
+export async function filterOverrides(
+  git: Git,
+): Promise<Array<[string, string]>> {
   const listed = await git([
     "config",
     "--includes",
@@ -564,6 +566,16 @@ async function filterOverrides(git: Git): Promise<Array<[string, string]>> {
   );
 }
 
+/**
+ * What a caller adds to the hardened environment: more configuration (it
+ * still outranks the repository's own) and variables such as `GIT_DIR` or
+ * `GIT_INDEX_FILE` that point a command at something other than the root.
+ */
+export type GitExtras = {
+  config?: Array<[string, string]>;
+  env?: Record<string, string>;
+};
+
 /** Long enough for a large clone; a local command gets far less. */
 const NETWORK_DEADLINE_MS = 30 * 60_000;
 const LOCAL_DEADLINE_MS = 2 * 60_000;
@@ -572,6 +584,7 @@ const LOCAL_DEADLINE_MS = 2 * 60_000;
 function gitEnvironment(
   network: Remote | null,
   overrides: Array<[string, string]>,
+  extra: GitExtras = {},
 ): Record<string, string> {
   const env: Record<string, string> = {
     // A credential prompt would hang the claim; fail instead.
@@ -593,6 +606,7 @@ function gitEnvironment(
     ["gc.auto", "0"],
     ["maintenance.auto", "false"],
     ...overrides,
+    ...(extra.config ?? []),
   ];
   const secret = network?.secret ?? null;
   if (network !== null && secret !== null) {
@@ -608,6 +622,7 @@ function gitEnvironment(
       WORKER_GIT_USERNAME: secret.username,
     });
   }
+  Object.assign(env, extra.env);
   env.GIT_CONFIG_COUNT = String(config.length);
   config.forEach(([key, value], index) => {
     env[`GIT_CONFIG_KEY_${index}`] = key;
@@ -616,10 +631,11 @@ function gitEnvironment(
   return env;
 }
 
-async function runGit(
+export async function runGit(
   args: string[],
   options: {
     cwd: string;
+    extra?: GitExtras;
     network: Remote | null;
     overrides: Array<[string, string]>;
     redact: (text: string) => string;
@@ -630,7 +646,7 @@ async function runGit(
   signal.throwIfAborted();
   const child = Bun.spawn(["git", ...args], {
     cwd: options.cwd,
-    env: gitEnvironment(network, options.overrides),
+    env: gitEnvironment(network, options.overrides, options.extra),
     killSignal: "SIGKILL",
     signal,
     timeout: network === null ? LOCAL_DEADLINE_MS : NETWORK_DEADLINE_MS,
@@ -647,7 +663,10 @@ async function runGit(
   return { code, stdout, stderr: redact(stderr) };
 }
 
-async function check(result: Promise<GitResult>, step: string): Promise<void> {
+export async function check(
+  result: Promise<GitResult>,
+  step: string,
+): Promise<void> {
   const { code, stderr } = await result;
   if (code !== 0) {
     throw new Error(`git ${step} failed (exit ${code}): ${stderr.trim()}`);

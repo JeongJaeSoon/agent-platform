@@ -90,6 +90,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
    */
   readonly #writes = new Map<string, Promise<unknown>>();
   #appendFailures = 0;
+  /** Transcripts whose latest append failed and no later one has landed. */
+  readonly #unsettled = new Set<string>();
+  #persistedAt: Date | null = null;
 
   constructor(options: ClaudeSessionStoreOptions) {
     const { generation } = options;
@@ -122,12 +125,47 @@ export class ClaudeSessionStore implements TranscriptMirror {
     return this.#appendFailures;
   }
 
+  /**
+   * When an append last landed; null before the first. What the worker
+   * reports as `persisted_at`.
+   */
+  get persistedAt(): Date | null {
+    return this.#persistedAt;
+  }
+
+  /**
+   * True while some transcript's latest append failed and nothing has landed
+   * for it since. The SDK retries a failed batch and gives up only after its
+   * own backoff, so between the failure and either outcome a capture would pin
+   * a transcript that is missing a batch the engine still counts as written —
+   * and the `mirror_error` that would say so has not been emitted yet.
+   */
+  get unsettled(): boolean {
+    return this.#unsettled.size > 0;
+  }
+
+  /**
+   * Settles once this launch is known to own its generation, and rejects when
+   * another launch already wrote there. Awaited before the engine starts:
+   * finding out on the first append is finding out after the engine ran.
+   */
+  ready(): Promise<void> {
+    return this.#opened;
+  }
+
   async append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void> {
     if (entries.length === 0) return;
     const prefix = this.#keyPrefix(key);
     const write = async () => {
       await this.#opened;
-      await this.#write(prefix, entries);
+      try {
+        await this.#write(prefix, entries);
+      } catch (error) {
+        this.#unsettled.add(prefix);
+        throw error;
+      }
+      this.#unsettled.delete(prefix);
+      this.#persistedAt = new Date();
     };
     const queued = (this.#writes.get(prefix) ?? Promise.resolve()).then(
       write,
