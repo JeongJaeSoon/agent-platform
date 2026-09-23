@@ -85,6 +85,8 @@ export type EgressProxyOptions = {
   maxConnectionsPerClient?: number;
   policy: EgressPolicy;
   port?: number;
+  /** Reported on `/healthz` and at start; see `sourceDigest`. */
+  sourceDigest?: string;
   /** How long a queue may stay over `maxBufferedBytes` before the drop. */
   stallTimeoutMs?: number;
   /** Injected by tests; production dials with Bun. */
@@ -202,6 +204,10 @@ export async function startEgressProxy(
   const dispatchTimeoutMs =
     options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
   const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
+  const health =
+    options.sourceDigest === undefined
+      ? "ok"
+      : `ok source=${options.sourceDigest}`;
   const handshakeTimeoutMs =
     options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
@@ -371,7 +377,7 @@ export async function startEgressProxy(
     // the awaits below: the client can close while we resolve or connect.
     const closed = (): boolean => socket.data.phase === "closed";
     if (request.kind === "health") {
-      reply(socket, 200, "ok");
+      reply(socket, 200, health);
       return;
     }
     if (request.kind === "invalid") {
@@ -971,6 +977,7 @@ export async function startEgressProxy(
     allow: options.policy.allow.map(describe),
     allow_private: options.policy.allowPrivate.map(describe),
     port: listener.port,
+    source: options.sourceDigest,
   });
   return {
     port: listener.port,

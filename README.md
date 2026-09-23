@@ -236,8 +236,13 @@ docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
 
 같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 주고, egress proxy도 설치마다 따로 두어 각자의 id로 label을 단다. worker 네트워크 이름·label에 설치 id가 들어가므로 설치 A의 worker 네트워크에는 A의 proxy만 붙는다. 하나의 proxy를 두 설치가 쓰면 두 설치의 worker가 같은 allowlist를 쓰게 된다.
 
+compose의 proxy는 이미지가 아니라 `apps/egress-proxy`를 bind mount해서 돈다. 그래서 checkout을 다른 커밋으로 옮겨도 이미 떠 있는 프로세스는 기동할 때 읽은 코드를 계속 쓴다. 94S-319에서 qa-main이 이 상태로 #141 이전 proxy를 몇 시간 돌렸다. 디스크 파일의 md5가 같아도 실행 중인 코드가 같다는 증거는 되지 않는다.
+- proxy는 기동할 때 자기 소스(`src`의 테스트 아닌 `.ts`)의 sha256을 로그(`Egress proxy listening`의 `source`)와 `/healthz`(`ok source=<hex>`)로 알린다.
+- compose healthcheck(`src/healthcheck.ts`)는 이 값을 디스크의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다.
+- 다만 scheduler는 health를 보지 않고 실행 중인 proxy를 고른다. 그래서 checkout을 옮긴 뒤에는 `up -d --wait`로 확인하고, 실패하면 `up -d --force-recreate egress-proxy`로 다시 만든다.
+
 ```bash
-docker compose -f infra/docker-compose.yml up -d egress-proxy
+docker compose -f infra/docker-compose.yml up -d --wait egress-proxy
 docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```

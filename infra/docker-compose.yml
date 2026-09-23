@@ -156,8 +156,11 @@ services:
       agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
     volumes:
       - ../apps/egress-proxy:/app:ro
+    # Also unhealthy when the mounted source no longer matches what the
+    # process loaded: a checkout moved under a running proxy keeps serving the
+    # old code (94S-319). `up -d --wait` then fails; recreate the service.
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3128/healthz'); if (!r.ok) process.exit(1)"]
+      test: ["CMD", "bun", "run", "/app/src/healthcheck.ts"]
       interval: 5s
       timeout: 3s
       retries: 12
