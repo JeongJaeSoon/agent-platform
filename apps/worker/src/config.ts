@@ -256,10 +256,11 @@ function url(value: string, name: string): string {
 export const SHUTDOWN_RESERVE_MS = 12_000;
 
 /**
- * A tenth of the default lease TTL (120s), and a whole heartbeat interval:
- * the engine kill that follows takes well under it.
+ * The engine kill that follows a loss is bounded by the shutdown's own 5s
+ * exit grace. Against the compose default lease of 30s and 10s beats, it
+ * still rides out two missed beats.
  */
-export const LEASE_SAFETY_MARGIN_MS = 10_000;
+export const LEASE_SAFETY_MARGIN_MS = 5_000;
 
 function drainBudget(configured: number, stopGraceMs: number | undefined) {
   if (stopGraceMs === undefined) return configured;
