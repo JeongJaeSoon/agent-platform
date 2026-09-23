@@ -3,6 +3,7 @@ import * as schema from "@agent-platform/db";
 import {
   executions,
   sessions,
+  turns,
   unassignedSessions,
   workerLaunches,
 } from "@agent-platform/db";
@@ -25,7 +26,7 @@ import {
   launchSpecFingerprint,
 } from "@agent-platform/platform";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
-import { inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { main } from "./main.ts";
@@ -425,3 +426,159 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     expect(await client.inspectVolume(name)).toBeNull();
   }, 180_000);
 });
+
+integration(
+  "scheduler launch failures against Docker and PostgreSQL (94S-207)",
+  () => {
+    let database: TempDatabase;
+    let pool: Pool;
+    let db: NodePgDatabase<typeof schema>;
+    const client = new DockerClient(dockerHost);
+    const runLabel = `it-${crypto.randomUUID()}`;
+    const crashing = crypto.randomUUID();
+    const healthy = crypto.randomUUID();
+    let proxy: string | undefined;
+
+    const environment = (command: string) => ({
+      ...process.env,
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "test",
+      DATABASE_URL: database.url,
+      DOCKER_HOST: dockerHost,
+      EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+      EXECUTION_INSTALLATION_ID: runLabel,
+      EXECUTION_DOCKER_COMMAND: command,
+      EXECUTION_SLOT_LIMIT: "1",
+      EXECUTION_WORKSPACE_QUOTA: "off",
+      MAX_TURN_SECONDS: "3600",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
+      S3_BUCKET: "claude-sessions",
+      WORKER_CPUS: "0.25",
+      WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+      WORKER_IMAGE: IMAGE,
+      WORKER_MEMORY_MB: "64",
+      WORKER_PIDS_LIMIT: "32",
+    });
+
+    async function session(id: string) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: runLabel,
+        repoUrl: "https://example.invalid/repo.git",
+        branch: `session/${id}`,
+      });
+      await db.insert(turns).values({
+        sessionId: id,
+        sequence: 1,
+        message: "hi",
+        status: "queued",
+      });
+      await db.insert(unassignedSessions).values({ sessionId: id });
+    }
+
+    beforeAll(async () => {
+      await new DockerClient(dockerHost, "v1.44", {
+        timeoutMs: 110_000,
+      }).pullImage(IMAGE);
+      proxy = await startStandInProxy({
+        dockerHost,
+        image: IMAGE,
+        installationId: runLabel,
+      });
+      database = await createTempDatabase({ prefix: "scheduler_fail_it" });
+      pool = new Pool({ connectionString: database.url });
+      db = drizzle(pool, { schema });
+      await session(crashing);
+    }, 120_000);
+
+    afterAll(async () => {
+      for (const container of await client
+        .listContainers([`${LABELS.installation}=${runLabel}`])
+        .catch(() => [])) {
+        await client
+          .stopAndRemoveContainer(container.Id, 1)
+          .catch(() => undefined);
+      }
+      for (const sessionId of [crashing, healthy]) {
+        for (const volume of await client
+          .listVolumes([`${LABELS.sessionId}=${sessionId}`])
+          .catch(() => [])) {
+          await fetch(`http://docker/v1.44/volumes/${volume.Name}?force=true`, {
+            method: "DELETE",
+            unix: dockerHost.replace("unix://", ""),
+          } as RequestInit).catch(() => undefined);
+        }
+      }
+      if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
+      await removeWorkerNetworks(client, runLabel).catch((error: unknown) => {
+        console.warn("[scheduler.integration] worker networks left", error);
+      });
+      await pool.end();
+      await database.drop();
+    }, 120_000);
+
+    test("a worker that dies before it claims is retried in place, given up on at the limit, and its slot reused", async () => {
+      const launches = () =>
+        db
+          .select()
+          .from(workerLaunches)
+          .where(eq(workerLaunches.sessionId, crashing));
+      const summaries = [];
+      for (let pass = 0; pass < 16; pass += 1) {
+        const summary = await main(environment("false"));
+        summaries.push(summary);
+        if (summary.launchesQuarantined.length > 0) break;
+        // Long enough for `false` to have exited; then the backoff is spent
+        // on the database clock instead of waited out.
+        await Bun.sleep(500);
+        await db
+          .update(workerLaunches)
+          .set({ launchRetryAt: sql`clock_timestamp() - interval '1 second'` })
+          .where(eq(workerLaunches.sessionId, crashing));
+      }
+      const rows = await launches();
+      // One launch, one generation, however many times it was built.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.generation).toBe(1);
+      expect(rows[0]?.launchFailureCount).toBe(5);
+      expect(rows[0]?.lastLaunchError).toMatch(
+        /terminated right after launch|exited before a worker claimed/,
+      );
+      expect(rows[0]?.slotReleasedAt).not.toBeNull();
+      const last = summaries.at(-1);
+      expect(last?.launchesQuarantined).toHaveLength(1);
+      expect(last?.killed).toHaveLength(1);
+      expect(
+        await client.listContainers([
+          `${LABELS.installation}=${runLabel}`,
+          `${LABELS.sessionId}=${crashing}`,
+        ]),
+      ).toEqual([]);
+      const [given] = await db
+        .select({ status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, crashing));
+      expect(given?.status).toBe("failed");
+      const [turn] = await db
+        .select({ status: turns.status })
+        .from(turns)
+        .where(eq(turns.sessionId, crashing));
+      expect(turn?.status).toBe("failed");
+
+      // The one slot is free again: a session that can run gets it.
+      await session(healthy);
+      const next = await main(environment("sleep 600"));
+      expect(next.launched).toHaveLength(1);
+      expect(next.failedLaunches).toEqual([]);
+      const [running] = await client.listContainers([
+        `${LABELS.installation}=${runLabel}`,
+        `${LABELS.sessionId}=${healthy}`,
+      ]);
+      expect(running?.State).toBe("running");
+    }, 300_000);
+  },
+);

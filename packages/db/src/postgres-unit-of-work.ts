@@ -315,7 +315,13 @@ export function createPostgresSessionUnitOfWork(
         });
         await tx
           .update(sessions)
-          .set({ updatedAt: new Date() })
+          .set({
+            // A session the scheduler gave up launching (94S-207) is left
+            // `failed` with nothing queued; this input is what launches it
+            // again, so it reads as queued from here.
+            status: sql`CASE WHEN ${sessions.status} = 'failed' THEN 'queued'::session_status ELSE ${sessions.status} END`,
+            updatedAt: new Date(),
+          })
           .where(eq(sessions.id, sessionId));
 
         const receiptId = randomUUID();

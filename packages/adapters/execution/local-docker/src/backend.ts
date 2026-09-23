@@ -646,12 +646,13 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
       }
       const body = await this.createBody(intent, image, volume, network.Id);
+      let created: { Id: string };
       try {
         // The credential is minted here and nowhere else: it lives in this
         // one request body, reaches the container as an env var, and is only
         // ever stored as a hash. Adopting an existing container skips this,
         // so a worker that is already running keeps the nonce it was given.
-        await this.client.createContainer(name, body);
+        created = await this.client.createContainer(name, body);
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
@@ -664,7 +665,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       // mount. Nothing has run in the container yet, so this is the last
       // moment the container can still be thrown away instead of bounded.
       await this.assertWorkspaceStillBounded(name, intent.sessionId, volume);
-      await this.client.startContainer(name);
+      await this.startOrDiscard(created.Id);
       const started = await this.client.inspectContainer(name);
       return {
         created: true,
@@ -1607,11 +1608,37 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
         throw new WorkspaceQuotaError(problem.name, problem.reason);
       }
-      await this.client.startContainer(container.Id);
+      await this.startOrDiscard(container.Id);
       const started = await this.client.inspectContainer(container.Id);
       if (started) state = stateOf(started.State.Status);
     }
     return { created: false, providerRef: container.Id, state };
+  }
+
+  /**
+   * Starts a container nothing has run in yet. A start the daemon answered
+   * with a refusal — an OCI runtime error, a mount it cannot make — leaves a
+   * `created` container that every retry would adopt and be refused on the
+   * same way, so it is removed, by id, and the next attempt creates afresh
+   * (94S-207). A start whose answer never came, a timeout or a dropped
+   * connection, may have taken: that container is left for the next pass
+   * to inspect.
+   */
+  private async startOrDiscard(containerId: string): Promise<void> {
+    try {
+      await this.client.startContainer(containerId);
+    } catch (error) {
+      if (error instanceof DockerApiError) {
+        error.message += await this.client
+          .stopAndRemoveContainer(containerId, this.config.stopTimeoutSeconds)
+          .then(
+            () => "; the created container was removed",
+            (cause: unknown) =>
+              `; the created container could not be removed (${messageOf(cause)})`,
+          );
+      }
+      throw error;
+    }
   }
 
   private async createBody(

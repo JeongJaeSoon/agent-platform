@@ -841,6 +841,19 @@ export const workerLaunches = pgTable(
     // reserved before they were stored, which runs on current settings.
     image: text(),
     resources: jsonb(),
+    // Launch attempts that failed before any worker bound: a create or start
+    // the provider refused, or a resource that exited unclaimed. Never reset,
+    // so a launch that keeps failing reaches the scheduler's limit and gives
+    // its slot back instead of holding it forever (94S-207).
+    launchFailureCount: integer("launch_failure_count").notNull().default(0),
+    // Attempts whose outcome was recorded, success or failure. A failure is
+    // fenced on it, so one reported by a pass that lost its lock mid-ensure
+    // cannot revoke what a later pass has since launched.
+    launchAttempts: integer("launch_attempts").notNull().default(0),
+    // No attempt before this, on the database clock; null when none failed
+    // or the launch was given up on.
+    launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
+    lastLaunchError: text("last_launch_error"),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -870,6 +883,14 @@ export const workerLaunches = pgTable(
     check(
       "worker_launches_launch_spec_check",
       sql`(${table.image} IS NULL) = (${table.resources} IS NULL)`,
+    ),
+    check(
+      "worker_launches_launch_failure_count_check",
+      sql`${table.launchFailureCount} >= 0`,
+    ),
+    check(
+      "worker_launches_launch_attempts_check",
+      sql`${table.launchAttempts} >= 0`,
     ),
   ],
 );

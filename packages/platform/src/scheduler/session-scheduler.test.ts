@@ -13,9 +13,14 @@ import type {
   TerminateOptions,
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
-import { launchSpecFingerprint } from "../ports/execution-backend.ts";
+import {
+  LaunchSpecMismatchError,
+  launchSpecFingerprint,
+} from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  LaunchFailureInput,
+  LaunchFailureOutcome,
   PendingWorkspaceReclaim,
   ReplaceReason,
   ReserveLaunchInput,
@@ -29,11 +34,14 @@ import {
   launchNonceFingerprint,
 } from "../workers/worker-gateway.ts";
 import {
+  DEFAULT_LAUNCH_FAILURE_LIMIT,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+  launchRetryDelayMs,
   reclaimNetworks,
   reclaimWorkspaces,
   runScheduler,
   type SchedulerLogger,
+  type SchedulerRunSummary,
 } from "./session-scheduler.ts";
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
@@ -57,6 +65,21 @@ class MemoryStore implements SchedulerStore {
   /** Models the store itself failing, distinct from one row's provider. */
   failList = false;
   private sequence = 0;
+  /** The storage clock, as far ahead of this process's as a test moves it. */
+  clockOffsetMs = 0;
+  /** Sessions a quarantine gave up on, with the error their input failed on. */
+  readonly quarantined = new Map<string, string>();
+  readonly launchFailures: Array<{ executionId: string } & LaunchFailureInput> =
+    [];
+
+  private storageNow(): number {
+    return Date.now() + this.clockOffsetMs;
+  }
+
+  /** Moves the storage clock past every backoff recorded so far. */
+  elapse(ms: number): void {
+    this.clockOffsetMs += ms;
+  }
 
   async acquirePassLock() {
     if (this.locked) return null;
@@ -104,6 +127,10 @@ class MemoryStore implements SchedulerStore {
       providerRef: null,
       replacementCount: 0,
       resources: null,
+      launchAttempts: 0,
+      launchFailureCount: 0,
+      launchRetryAt: null,
+      launchRetryDue: true,
       sessionId,
       slotReleased: false,
       ...overrides,
@@ -179,6 +206,57 @@ class MemoryStore implements SchedulerStore {
     return row.replacementCount;
   }
 
+  async recordLaunchFailure(
+    ref: ExecutionRef,
+    input: LaunchFailureInput,
+  ): Promise<LaunchFailureOutcome> {
+    this.launchFailures.push({ executionId: ref.executionId, ...input });
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.desiredState !== "running" ||
+      row.launchFailureCount !== input.expectedCount ||
+      row.launchAttempts !== input.expectedAttempts ||
+      (input.expectedNonceFingerprint !== undefined &&
+        fingerprintOf(row.nonce) !== input.expectedNonceFingerprint)
+    ) {
+      return "stale";
+    }
+    row.launchFailureCount += 1;
+    row.launchAttempts += 1;
+    row.nonce = null;
+    if (!input.quarantine) {
+      row.launchRetryAt = new Date(this.storageNow() + input.retryDelayMs);
+      return "backing_off";
+    }
+    row.launchRetryAt = null;
+    row.pendingReplacement = null;
+    row.desiredState = "terminated";
+    this.unassigned.delete(row.sessionId);
+    this.quarantined.set(row.sessionId, input.error);
+    return "quarantined";
+  }
+
+  async beginLaunchAttempt(
+    ref: ExecutionRef,
+    expectedAttempts: number,
+  ): Promise<number | null> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.slotReleased ||
+      row.launchAttempts !== expectedAttempts
+    ) {
+      return null;
+    }
+    row.launchAttempts += 1;
+    return row.launchAttempts;
+  }
+
   async settleReplacement(
     ref: ExecutionRef,
     expectedCount: number,
@@ -189,13 +267,20 @@ class MemoryStore implements SchedulerStore {
     row.pendingReplacement = null;
   }
 
-  async issueBootstrapNonce(ref: ExecutionRef): Promise<string> {
+  async issueBootstrapNonce(
+    ref: ExecutionRef,
+    attempt?: number,
+  ): Promise<string> {
     const row = this.executions.get(ref.executionId);
     if (
       !row ||
       row.generation !== ref.generation ||
+      (attempt !== undefined && row.launchAttempts !== attempt) ||
       row.claimed ||
-      row.slotReleased
+      row.slotReleased ||
+      row.desiredState !== "running" ||
+      (row.launchRetryAt !== null &&
+        row.launchRetryAt.getTime() > this.storageNow())
     ) {
       throw new Error(`no credential for ${ref.executionId}`);
     }
@@ -305,6 +390,9 @@ class MemoryStore implements SchedulerStore {
       .filter((e) => e.backend === backend)
       .map((e) => ({
         ...e,
+        launchRetryDue:
+          e.launchRetryAt === null ||
+          e.launchRetryAt.getTime() <= this.storageNow(),
         nonceExpired:
           e.nonceExpiresAt !== null && e.nonceExpiresAt.getTime() <= Date.now(),
         nonceFingerprint: fingerprintOf(e.nonce),
@@ -426,6 +514,17 @@ type Container = {
   started?: boolean;
 };
 
+/**
+ * A worker traded the launch's nonce for a binding: from here on its exit is
+ * an ordinary one. An exit before this is a failed launch attempt.
+ */
+function claimLaunchOf(store: MemoryStore, name: string): Launch {
+  const row = store.executions.get(name.split("#")[0] ?? "");
+  if (!row) throw new Error(`no launch for ${name}`);
+  row.claimed = true;
+  return row;
+}
+
 function nameOf(ref: ExecutionRef): string {
   return `${ref.executionId}#${ref.generation}`;
 }
@@ -517,6 +616,8 @@ class FakeBackend implements ExecutionBackend {
   }
 
   duringEnsure?: (intent: LaunchIntent) => void;
+  /** Awaited on the create path just before the credential is asked for. */
+  beforeCreate?: (intent: LaunchIntent) => Promise<void>;
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     this.ensureCalls.push(intent);
@@ -535,7 +636,7 @@ class FakeBackend implements ExecutionBackend {
         existing.launchSpec !== undefined &&
         existing.launchSpec !== intent.launchSpec
       ) {
-        throw new Error("launch spec mismatch");
+        throw new LaunchSpecMismatchError(intent, existing.launchSpec);
       }
       existing.started = true;
       return {
@@ -546,6 +647,7 @@ class FakeBackend implements ExecutionBackend {
     }
     const exited = this.exitOnStartFor.has(intent.sessionId);
     const pending = this.createPendingFor.has(intent.sessionId);
+    await this.beforeCreate?.(intent);
     // A fresh container is built on the contract this backend speaks now.
     this.staleFor.delete(nameOf(intent));
     const container: Container = {
@@ -730,7 +832,11 @@ describe("runScheduler", () => {
     expect(second.launched).toHaveLength(0);
     expect(backend.containers.size).toBe(10);
 
-    for (const container of [...backend.containers.values()].slice(0, 3)) {
+    for (const [name, container] of [...backend.containers.entries()].slice(
+      0,
+      3,
+    )) {
+      claimLaunchOf(store, name);
       container.exited = true;
     }
     const third = await run();
@@ -874,20 +980,39 @@ describe("runScheduler", () => {
     backend.refuseReplacementFor.add(intent.sessionId);
     const summary = await run();
 
-    expect(summary.reconcileFailed).toEqual([ref]);
+    // A launch that cannot be built is a failed attempt: counted, and the
+    // credential the stale resource holds is revoked with the record.
+    expect(summary.failedLaunches).toEqual([ref]);
     expect(summary.replaced).toHaveLength(0);
     expect(backend.terminateCalls).toHaveLength(0);
     expect(backend.containers.size).toBe(1);
     expect(backend.ensureCalls).toHaveLength(1);
+    expect(store.executions.get(intent.executionId)?.launchFailureCount).toBe(
+      1,
+    );
     expect(
       records.some((r) => r.message.includes("Replacement would not launch")),
     ).toBe(true);
 
-    // The image comes back and the same pass replaces it.
+    // The image comes back. The stale resource can no longer bind, so it is
+    // cleared as what the failed attempt left behind — without spending the
+    // replacement budget on it — and the backoff holds the rebuild.
     backend.refuseReplacementFor.clear();
+    const waiting = await run();
+    expect(waiting.launchesBackingOff).toEqual([ref]);
+    expect(waiting.replaced).toEqual([]);
+    expect(backend.terminateCalls).toHaveLength(1);
+    expect(backend.containers.size).toBe(0);
+
+    // Once the backoff allows, the launch is built again.
+    store.elapse(60_000);
     const after = await run();
-    expect(after.replaced).toEqual([ref]);
     expect(after.reensured).toEqual([ref]);
+    expect(after.replaced).toEqual([]);
+    expect(store.executions.get(intent.executionId)?.replacementCount).toBe(0);
+    expect(backend.containers.get(`${intent.executionId}#1`)?.nonce).toBe(
+      store.executions.get(intent.executionId)?.nonce ?? "missing",
+    );
   });
 
   test("a stale resource the provider will not terminate keeps its slot", async () => {
@@ -1187,28 +1312,22 @@ describe("runScheduler", () => {
     const row = store.executions.get(intent.executionId);
     if (!row) throw new Error("no row");
 
-    // Every rebuild dies on start, so every pass finds an exited resource
-    // with a replacement still pending.
-    backend.staleFor.add(name);
-    backend.exitOnStartFor.add(sessionId);
-    const first = await run();
-    expect(first.replaced).toEqual([ref]);
-    expect(first.failedLaunches).toEqual([ref]);
-    expect(row.replacementCount).toBe(1);
-    expect(row.pendingReplacement).toBe("stale_isolation");
-
-    const second = await run();
-    expect(second.replaced).toEqual([ref]);
-    expect(row.replacementCount).toBe(2);
-    const third = await run();
-    expect(third.replaced).toEqual([ref]);
-    expect(row.replacementCount).toBe(3);
+    // Every rebuild comes up and is judged replaceable again, so every pass
+    // replaces it. (A rebuild that fails is a launch failure instead, and
+    // spends the launch's failure budget, not this one.)
+    for (const count of [1, 2, 3]) {
+      backend.staleFor.add(name);
+      const pass = await run();
+      expect(pass.replaced).toEqual([ref]);
+      expect(pass.reensured).toEqual([ref]);
+      expect(row.replacementCount).toBe(count);
+    }
     expect(store.confirmedGone).toEqual([]);
 
     // DEFAULT_REPLACEMENT_LIMIT rebuilds are spent. Nothing is torn down,
     // nothing is built, nothing is released: the launch keeps its slot and
     // the pass keeps failing until someone looks.
-    backend.exitOnStartFor.clear();
+    backend.staleFor.add(name);
     for (const _ of [1, 2]) {
       const exhausted = await run();
       expect(exhausted.replacementsExhausted).toEqual([ref]);
@@ -1220,7 +1339,7 @@ describe("runScheduler", () => {
     expect(store.confirmedGone).toEqual([]);
     expect(row.replacementCount).toBe(3);
     expect(row.slotReleased).toBe(false);
-    expect(backend.containers.get(name)?.exited).toBe(true);
+    expect(backend.containers.get(name)?.exited).toBe(false);
     expect(backend.terminateCalls).toHaveLength(3);
     expect(backend.ensureCalls).toHaveLength(4);
     expect(
@@ -1583,9 +1702,10 @@ describe("runScheduler", () => {
   test("an exited resource's reclaim does not take a replacement another pass built", async () => {
     // Between the inspect that saw the exit and the terminate, a pass that
     // still held the lock replaced the resource under the same name and its
-    // worker bound. The reclaim is pinned to the exited resource, so the
-    // replacement is refused, the row stays `terminating`, and neither the
-    // slot nor the binding is given back.
+    // worker bound. The exit was unclaimed, so it was counted as a failed
+    // attempt; clearing it is pinned to the exited resource, so the
+    // replacement is refused and neither the slot nor the binding is given
+    // back.
     const { backend, run, store } = harness();
     store.addUnassigned(1);
     await run();
@@ -1606,23 +1726,26 @@ describe("runScheduler", () => {
 
     const summary = await run();
 
-    expect(summary.reclaimFailed).toEqual([
+    expect(summary.reconcileFailed).toEqual([
       { executionId: row.executionId, generation: 1 },
     ]);
+    expect(row.launchFailureCount).toBe(1);
     expect(summary.terminatedObserved).toEqual([]);
     expect(store.confirmedGone).toEqual([]);
+    expect(row.slotReleased).toBe(false);
     expect(backend.containers.get(name)?.id).toBe(
       `${container.id}-replacement`,
     );
-    expect(row.observedState).toBe("terminating");
+    expect(row.observedState).not.toBe("terminating");
   });
 
   test("an exited resource's reclaim that races a replacement past the id check keeps the replacement's binding", async () => {
     // The pinned id matched; before the stop and remove by that id, a pass
     // that still held the lock removed the exited resource, built a
     // replacement under the same name and its worker bound. The stop and
-    // remove answer 404, which reads as done — only the incarnation tells
-    // this pass that the resource it saw is not the one the launch runs now.
+    // remove answer 404, which reads as done. The unclaimed exit was counted
+    // as a failed attempt, not confirmed as an exit, so there is no release
+    // for the replacement's binding to be lost to.
     const { backend, run, store } = harness();
     store.addUnassigned(1);
     await run();
@@ -1650,7 +1773,6 @@ describe("runScheduler", () => {
     expect(backend.terminateCalls).toHaveLength(1);
     expect(summary.terminatedObserved).toEqual([]);
     expect(store.confirmedGone).toEqual([]);
-    expect(store.supersededConfirms).toEqual([row.executionId]);
     expect(row.slotReleased).toBe(false);
     expect(row.claimed).toBe(true);
     expect(backend.containers.get(name)?.id).toBe(
@@ -1666,9 +1788,9 @@ describe("runScheduler", () => {
 
   test("an exited resource's reclaim that finds the name empty mid-replacement keeps the launch", async () => {
     // Between the other pass's delete and its create the name resolves to
-    // nothing, so the terminate says `absent`. The other pass has already
-    // issued the replacement's credential, so the launch names an
-    // incarnation this pass never saw.
+    // nothing, so the terminate says `absent`. The unclaimed exit was counted
+    // as a failed attempt rather than confirmed, so the launch the other pass
+    // is rebuilding keeps its slot.
     const { backend, run, store } = harness();
     store.addUnassigned(1);
     await run();
@@ -1688,7 +1810,6 @@ describe("runScheduler", () => {
 
     expect(summary.terminatedObserved).toEqual([]);
     expect(store.confirmedGone).toEqual([]);
-    expect(store.supersededConfirms).toEqual([row.executionId]);
     expect(row.slotReleased).toBe(false);
 
     // The other pass finishes its create and the worker binds; the launch
@@ -1839,6 +1960,7 @@ describe("runScheduler", () => {
     await run();
     const [name, container] = [...backend.containers.entries()][0] ?? [];
     if (!name || !container) throw new Error("no container");
+    claimLaunchOf(store, name);
     container.exited = true;
     backend.failTerminateFor.add(name);
 
@@ -1870,6 +1992,7 @@ describe("runScheduler", () => {
     await run();
     const [name, container] = [...backend.containers.entries()][0] ?? [];
     if (!name || !container) throw new Error("no container");
+    claimLaunchOf(store, name);
     container.exited = true;
     backend.mismatchTerminateFor.add(name);
 
@@ -1940,6 +2063,7 @@ describe("runScheduler", () => {
     row.observedState = "terminated";
     expect((await run()).launched).toEqual([]);
 
+    row.claimed = true;
     container.exited = true;
     const third = await run();
     expect(store.confirmedGone).toEqual([row.executionId]);
@@ -2061,13 +2185,26 @@ describe("runScheduler", () => {
         (r) => r.level === "error" && r.message.includes("right after launch"),
       ),
     ).toBe(true);
-    // The launch still holds its slot, so the next pass reclaims the dead
-    // resource as its own and only then hands the slot back.
+    const [row] = store.executions.values();
+    if (!row) throw new Error("no row");
+    expect(row.launchFailureCount).toBe(1);
+    // The launch still holds its slot. The next pass clears the dead
+    // resource as its own — no orphan, no exit, and not counted twice — and
+    // waits out the backoff before building it again.
     backend.exitOnStartFor.clear();
     const next = await run();
-    expect(next.terminatedObserved).toHaveLength(1);
+    expect(next.terminatedObserved).toEqual([]);
     expect(next.orphansTerminated).toEqual([]);
-    expect(store.confirmedGone).toHaveLength(1);
+    expect(next.launchesBackingOff).toHaveLength(1);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.containers.size).toBe(0);
+    expect(row.launchFailureCount).toBe(1);
+
+    store.elapse(60_000);
+    const retried = await run();
+    expect(retried.reensured).toHaveLength(1);
+    expect(row.generation).toBe(1);
+    expect(store.executions.size).toBe(1);
   });
 
   test("an orphan whose termination throws is unresolved and holds a slot", async () => {
@@ -2136,7 +2273,16 @@ describe("runScheduler", () => {
       records.some((r) => r.level === "error" && r.message.includes("kept")),
     ).toBe(true);
 
+    expect(row?.launchFailureCount).toBe(1);
+
+    // Too soon: the pass leaves it alone and says so.
     backend.failEnsureFor.clear();
+    const early = await run();
+    expect(early.launchesBackingOff).toHaveLength(1);
+    expect(early.reensured).toHaveLength(0);
+    expect(backend.ensureCalls).toHaveLength(1);
+
+    store.elapse(30_000);
     const second = await run();
     expect(second.reensured).toHaveLength(1);
     expect(second.launched).toHaveLength(0);
@@ -2338,11 +2484,15 @@ describe("runScheduler", () => {
     };
 
     const summary = await run();
-    expect(summary.launched).toHaveLength(1);
+    // Asked to go before the create got its credential: nothing is built,
+    // nothing counted, and the kill still lands this pass.
+    expect(summary.launched).toHaveLength(0);
+    expect(summary.failedLaunches).toHaveLength(0);
     expect(summary.killed).toHaveLength(1);
     expect(backend.containers.size).toBe(0);
     const [launch] = [...store.executions.values()];
     expect(launch?.slotReleased).toBe(true);
+    expect(launch?.launchFailureCount).toBe(0);
   });
 
   test("a kill that commits while the resource is being re-created takes it down again", async () => {
@@ -2358,9 +2508,11 @@ describe("runScheduler", () => {
     };
 
     const summary = await run();
-    expect(summary.reensured).toHaveLength(1);
+    expect(summary.reensured).toHaveLength(0);
+    expect(summary.failedLaunches).toHaveLength(0);
     expect(summary.killed).toHaveLength(1);
     expect(launch.slotReleased).toBe(true);
+    expect(launch.launchFailureCount).toBe(0);
     expect(backend.containers.size).toBe(0);
   });
 
@@ -2447,6 +2599,407 @@ describe("runScheduler", () => {
         }),
       ).rejects.toThrow("slotLimit");
     }
+  });
+});
+
+describe("runScheduler launch failures (94S-207)", () => {
+  /** Past any backoff the default schedule can hand out. */
+  const PAST_ANY_BACKOFF = 11 * 60_000;
+
+  function sessionOf(store: MemoryStore, ref: ExecutionRef): string {
+    const row = store.executions.get(ref.executionId);
+    if (!row) throw new Error(`no row for ${ref.executionId}`);
+    return row.sessionId;
+  }
+
+  test("two launches that always fail give their slots back to a healthy session (slotLimit=2)", async () => {
+    const { backend, records, run, store } = harness(2);
+    const [badA, badB, good] = store.addUnassigned(3);
+    if (!badA || !badB || !good) throw new Error("no sessions");
+    backend.failEnsureFor.add(badA);
+    backend.failEnsureFor.add(badB);
+
+    const first = await run();
+    expect(first.failedLaunches).toHaveLength(2);
+    expect(first.launched).toEqual([]);
+
+    // Inside the backoff the two hold their slots and the pass says why.
+    const waiting = await run();
+    expect(waiting.launchesBackingOff).toHaveLength(2);
+    expect(waiting.launched).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(2);
+    expect(
+      records.some(
+        (r) =>
+          r.message === "Scheduling pass completed" &&
+          (r.fields as { launch_backoff_count?: number })
+            .launch_backoff_count === 2,
+      ),
+    ).toBe(true);
+
+    let healthy: ExecutionRef | undefined;
+    for (let pass = 0; pass < DEFAULT_LAUNCH_FAILURE_LIMIT; pass += 1) {
+      store.elapse(PAST_ANY_BACKOFF);
+      const summary = await run();
+      healthy ??= summary.launched.find(
+        (ref) => sessionOf(store, ref) === good,
+      );
+    }
+    expect(healthy).toBeDefined();
+    // Each failing session was tried exactly as many times as the limit
+    // allows and no more, all within its first generation.
+    for (const session of [badA, badB]) {
+      expect(
+        backend.ensureCalls.filter((intent) => intent.sessionId === session),
+      ).toHaveLength(DEFAULT_LAUNCH_FAILURE_LIMIT);
+      expect(
+        backend.ensureCalls
+          .filter((intent) => intent.sessionId === session)
+          .every((intent) => intent.generation === 1),
+      ).toBe(true);
+      expect(store.quarantined.get(session)).toBe("docker unavailable");
+    }
+    const failing = [...store.executions.values()].filter(
+      (e) => e.sessionId !== good,
+    );
+    expect(failing.every((e) => e.slotReleased)).toBe(true);
+    expect(failing.every((e) => e.launchFailureCount === 5)).toBe(true);
+
+    // Given up on, they are not admitted again on their own.
+    store.elapse(PAST_ANY_BACKOFF);
+    const after = await run();
+    expect(after.launched).toEqual([]);
+    expect(after.failedLaunches).toEqual([]);
+  });
+
+  test("the pass that reaches the limit gives the slot back in that same pass", async () => {
+    const { backend, run, store } = harness(1);
+    const [bad, good] = store.addUnassigned(2);
+    if (!bad || !good) throw new Error("no sessions");
+    backend.failEnsureFor.add(bad);
+    const quarantinedIn: number[] = [];
+    for (let pass = 1; pass <= DEFAULT_LAUNCH_FAILURE_LIMIT; pass += 1) {
+      const summary = await run();
+      if (summary.launchesQuarantined.length > 0) {
+        quarantinedIn.push(pass);
+        expect(summary.killed).toEqual(summary.launchesQuarantined);
+        expect(summary.launched).toHaveLength(1);
+      } else {
+        expect(summary.launched).toEqual([]);
+      }
+      store.elapse(PAST_ANY_BACKOFF);
+    }
+    expect(quarantinedIn).toEqual([DEFAULT_LAUNCH_FAILURE_LIMIT]);
+  });
+
+  test("a worker that crashes before it claims is retried in place, never cycled into new generations", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.exitOnStartFor.add(sessionId);
+
+    for (let pass = 0; pass < 2 * DEFAULT_LAUNCH_FAILURE_LIMIT; pass += 1) {
+      await run();
+      store.elapse(PAST_ANY_BACKOFF);
+    }
+    expect(store.executions.size).toBe(1);
+    const [row] = store.executions.values();
+    expect(row?.launchFailureCount).toBe(DEFAULT_LAUNCH_FAILURE_LIMIT);
+    expect(row?.slotReleased).toBe(true);
+    expect(store.quarantined.has(sessionId)).toBe(true);
+    expect(backend.ensureCalls).toHaveLength(DEFAULT_LAUNCH_FAILURE_LIMIT);
+    expect(backend.containers.size).toBe(0);
+  });
+
+  test("an unclaimed exit whose launch a worker bound since is an ordinary exit", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    container.exited = true;
+    // Bound after the rows were read, before the failure was recorded.
+    backend.duringInspect = () => {
+      claimLaunchOf(store, name);
+    };
+
+    const refused = await run();
+    expect(refused.terminatedObserved).toEqual([]);
+    expect(refused.failedLaunches).toEqual([]);
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.slotReleased).toBe(false);
+    expect(store.launchFailures.map((f) => f.expectedNonceFingerprint)).toEqual(
+      [fingerprintOf(container.nonce)],
+    );
+
+    // Read afresh, the launch is claimed and its exit an ordinary one.
+    backend.duringInspect = null;
+    const summary = await run();
+    expect(summary.terminatedObserved).toHaveLength(1);
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.slotReleased).toBe(true);
+  });
+
+  test("an unclaimed exit of a launch asked to go is carried out as a kill, never rebuilt or counted", async () => {
+    // A claim that refuses the session for recovery marks the launch to go
+    // and the worker leaves without binding — before or while a pass looks.
+    for (const when of ["before", "during"] as const) {
+      const { backend, run, store } = harness();
+      store.addUnassigned(1);
+      await run();
+      const [name, container] = [...backend.containers.entries()][0] ?? [];
+      if (!name || !container) throw new Error("no container");
+      const row = store.executions.get(name.split("#")[0] ?? "");
+      if (!row) throw new Error("no row");
+      container.exited = true;
+      if (when === "before") row.desiredState = "terminated";
+      else {
+        backend.duringInspect = () => {
+          row.desiredState = "terminated";
+        };
+      }
+      backend.ensureCalls.length = 0;
+
+      const summary = await run();
+      expect(summary.killed).toHaveLength(1);
+      expect(summary.failedLaunches).toEqual([]);
+      // Whatever the session is launched for next, this launch is not rebuilt.
+      expect(
+        backend.ensureCalls.filter((i) => i.executionId === row.executionId),
+      ).toEqual([]);
+      expect(row.launchFailureCount).toBe(0);
+      expect(row.slotReleased).toBe(true);
+      expect(backend.containers.has(name)).toBe(false);
+    }
+  });
+
+  test("an unclaimed exit judged on a snapshot another pass has since opened an attempt past is left alone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    container.exited = true;
+    // After this pass read the rows, a newer pass opened the next attempt,
+    // adopting the resource on the credential it already holds.
+    backend.duringInspect = () => {
+      row.launchAttempts += 1;
+    };
+
+    const stale = await run();
+    expect(stale.terminatedObserved).toEqual([]);
+    expect(row.slotReleased).toBe(false);
+    expect(row.launchFailureCount).toBe(0);
+    expect(row.generation).toBe(1);
+
+    // The next pass counts the exit against the attempt that is current.
+    backend.duringInspect = null;
+    const next = await run();
+    expect(next.terminatedObserved).toEqual([]);
+    expect(row.launchFailureCount).toBe(1);
+    expect(row.slotReleased).toBe(false);
+    expect(row.generation).toBe(1);
+  });
+
+  test("a rebuild that keeps failing spends the launch's failure budget, not the replacement budget", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    await run();
+    const [row] = store.executions.values();
+    if (!row) throw new Error("no row");
+    backend.staleFor.add(`${row.executionId}#1`);
+    backend.failEnsureFor.add(sessionId);
+
+    const first = await run();
+    expect(first.replaced).toHaveLength(1);
+    expect(first.failedLaunches).toHaveLength(1);
+    expect(row.replacementCount).toBe(1);
+    expect(row.pendingReplacement).toBe("stale_isolation");
+
+    for (let pass = 0; pass < DEFAULT_LAUNCH_FAILURE_LIMIT; pass += 1) {
+      store.elapse(PAST_ANY_BACKOFF);
+      const summary = await run();
+      expect(summary.replacementsExhausted).toEqual([]);
+    }
+    expect(row.replacementCount).toBe(1);
+    expect(row.launchFailureCount).toBe(DEFAULT_LAUNCH_FAILURE_LIMIT);
+    expect(row.slotReleased).toBe(true);
+    expect(store.quarantined.has(sessionId)).toBe(true);
+  });
+
+  test("a launch in backoff is refused a credential, so a stale pass cannot reopen it", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.failEnsureFor.add(sessionId);
+    await run();
+    const [row] = store.executions.values();
+    if (!row) throw new Error("no row");
+    await expect(store.issueBootstrapNonce(row)).rejects.toThrow(
+      "no credential",
+    );
+    store.elapse(PAST_ANY_BACKOFF);
+    await expect(store.issueBootstrapNonce(row)).resolves.toStartWith("nonce-");
+  });
+
+  test("a replacement that dies before it claims is a launch failure, not another replacement", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    await run();
+    const [row] = store.executions.values();
+    if (!row) throw new Error("no row");
+    const name = `${row.executionId}#1`;
+    // The rebuild is taken but not yet shown running, so the replacement
+    // stays pending — and then its worker dies before claiming.
+    backend.staleFor.add(name);
+    backend.createPendingFor.add(sessionId);
+    const replaced = await run();
+    expect(replaced.replaced).toHaveLength(1);
+    expect(row.pendingReplacement).toBe("stale_isolation");
+    const rebuilt = backend.containers.get(name);
+    if (!rebuilt) throw new Error("no rebuild");
+    rebuilt.exited = true;
+
+    const next = await run();
+    expect(next.replaced).toEqual([]);
+    expect(next.failedLaunches).toEqual([]);
+    expect(next.terminatedObserved).toEqual([]);
+    expect(row.replacementCount).toBe(1);
+    expect(row.launchFailureCount).toBe(1);
+    // Still pending: the gone resource is a rebuild in progress, not an exit.
+    expect(row.pendingReplacement).toBe("stale_isolation");
+    expect(row.slotReleased).toBe(false);
+    expect(backend.containers.has(name)).toBe(false);
+  });
+
+  test("a failure reported for an attempt another pass has since opened is refused, even mid-ensure", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    // A pass that lost its lock read the launch before this pass opened its
+    // attempt, and reports its own ensure failed while this one is still
+    // out at the provider — before anything records this one's outcome.
+    const stale: Array<Promise<string>> = [];
+    backend.duringEnsure = (intent) => {
+      const row = store.executions.get(intent.executionId);
+      if (!row) throw new Error("no row");
+      stale.push(
+        store.recordLaunchFailure(row, {
+          error: "docker timed out",
+          expectedAttempts: row.launchAttempts - 1,
+          expectedCount: 0,
+          quarantine: false,
+          retryDelayMs: 30_000,
+        }),
+      );
+    };
+
+    const summary = await run();
+    expect(await Promise.all(stale)).toEqual(["stale"]);
+    expect(summary.launched).toHaveLength(1);
+    const [row] = store.executions.values();
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.launchRetryAt).toBeNull();
+    expect(backend.containers.get(`${row?.executionId}#1`)?.nonce).toBe(
+      row?.nonce ?? "missing",
+    );
+  });
+
+  test("a pass that lost its lock cannot rotate out the credential a newer attempt launched with", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    let newer: Promise<SchedulerRunSummary> | undefined;
+    let launchedWith: string | undefined;
+    backend.beforeCreate = async (intent) => {
+      if (newer) return;
+      // The stale pass stalls at the provider past its lock; another
+      // scheduler takes the lock and opens the next attempt, which launches.
+      store.loseLock();
+      store.locked = false;
+      newer = run();
+      await newer;
+      launchedWith = backend.containers.get(nameOf(intent))?.nonce;
+    };
+
+    await expect(run()).rejects.toThrow("pass lock connection ended");
+    const summary = await newer;
+    expect(summary?.reensured).toHaveLength(1);
+    const [row] = store.executions.values();
+    expect(row?.launchAttempts).toBe(2);
+    // Resuming, the stale pass was refused a credential: the registry still
+    // expects the one the newer attempt's resource was launched with.
+    expect(launchedWith).toStartWith("nonce-");
+    expect(row?.nonce).toBe(launchedWith ?? "missing");
+    expect(backend.containers.size).toBe(1);
+  });
+
+  test("a resource refused for another launch spec is not a failed launch", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    const other = launchSpecFingerprint("sha256:other", RESOURCES);
+    // Another hand built under this launch's name before the create got
+    // there: the backend refuses to adopt it and leaves it standing.
+    let planted = false;
+    backend.duringEnsure = (intent) => {
+      if (planted) return;
+      planted = true;
+      backend.containers.set(`${intent.executionId}#${intent.generation}`, {
+        exited: false,
+        generation: intent.generation,
+        launchSpec: other,
+        operationId: intent.operationId,
+        sessionId: intent.sessionId,
+      });
+    };
+
+    const summary = await run();
+    expect(summary.failedLaunches).toHaveLength(1);
+    const [row] = store.executions.values();
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.launchRetryAt).toBeNull();
+    expect(store.launchFailures).toEqual([]);
+
+    // The next pass replaces it as the spec mismatch it is.
+    const next = await run();
+    expect(next.replaced).toHaveLength(1);
+    expect(row?.launchFailureCount).toBe(0);
+  });
+
+  test("the backoff doubles from its base and stops at its cap", () => {
+    expect([1, 2, 3, 4, 5, 6].map((n) => launchRetryDelayMs(n))).toEqual([
+      30_000, 60_000, 120_000, 240_000, 480_000, 600_000,
+    ]);
+    expect(launchRetryDelayMs(1_000)).toBe(600_000);
+    expect(launchRetryDelayMs(3, 10, 1_000)).toBe(40);
+  });
+
+  test("rejects a launch failure limit or backoff that cannot be honoured", async () => {
+    const { backend, store } = harness();
+    const { logger } = recordingLogger();
+    const base = {
+      backend,
+      image: "worker:test",
+      logger,
+      resources: RESOURCES,
+      slotLimit: 1,
+      store,
+    };
+    for (const launchFailureLimit of [0, 1.5]) {
+      await expect(
+        runScheduler({ ...base, launchFailureLimit }),
+      ).rejects.toThrow("launchFailureLimit");
+    }
+    await expect(
+      runScheduler({ ...base, launchRetryBaseMs: -1 }),
+    ).rejects.toThrow("launchRetryBaseMs");
+    await expect(
+      runScheduler({ ...base, launchRetryCapMs: Number.NaN }),
+    ).rejects.toThrow("launchRetryCapMs");
   });
 });
 
