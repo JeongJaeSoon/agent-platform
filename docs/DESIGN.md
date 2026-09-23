@@ -1,10 +1,15 @@
 # Claude Code 세션 컨트롤 플레인 설계안
 
 > **보관본이다. 현재 설계 정본이 아니다.** rename 이전 프로젝트의 계획이며 티켓 번호도
-> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`
-> (`architecture.md`·`module-design.md`·`delivery-plan.md`)이고 티켓은 Linear P-94S-5
-> (94S-108~147)다. 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
+> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`의
+> 다섯 문서다. 목적·불변식·알파 완료 정의는 `final-design.md`, 모듈·포트·프로세스는
+> `module-design.md`, API 계약은 `api.md`, 배포·권한·이미지는 `deployment.md`, 게이트
+> 체인과 티켓 의존은 `delivery-plan.md`가 정한다(2026-09-24 정렬, 94S-325). `architecture.md`는
+> `final-design.md`로 대체된 보관본이다. 티켓은 Linear P-94S-5(94S-108 이후)다.
+> 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
 > 남겨 둔 이유는 SDK·저장소 gate의 조사 근거와 결정 이력이다.
+> 본문은 개정 당시 그대로 둔다. 예를 들어 1.3절의 "0.3.270은 비교 후보, 미채택"은 당시 기준이며,
+> 이후 94S-91이 SDK 0.3.270/CLI 2.1.270을 고정했다(아래 SDK 실측 절, 현재 `package.json`).
 
 > 상태: v0.5 방향성 반영 · G1 v0.4/M0 완료 이력 유지 · G2 SDK 재검증 대기
 > 작성일: 2026-09-12 · 개정: 2026-09-15 · 보관: 2026-09-22

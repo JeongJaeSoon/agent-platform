@@ -9,7 +9,7 @@
 ## 정본과 다음 단계
 
 - 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다
-- 구조·runtime 계약·검증 계획: Obsidian `Private/Project/agent-platform`의 `architecture.md`·`module-design.md`·`delivery-plan.md`. [docs/DESIGN.md](docs/DESIGN.md)는 보관본이다
+- 구조·runtime 계약·검증 계획: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`. `architecture.md`와 [docs/DESIGN.md](docs/DESIGN.md)는 보관본이다
 - 완료된 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92)
 - process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](spikes/94s-91/README.md), [`spikes/94s-92`](spikes/94s-92/README.md)에 둔다.
 - 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195), 조사 초안과 Codex 리뷰 원문은 [`docs/references`](docs/references/README.md)에 둔다. alpha D0~D4 실행 계층은 바꾸지 않고 그 위에 올린다.
