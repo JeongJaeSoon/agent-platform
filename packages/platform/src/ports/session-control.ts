@@ -64,7 +64,10 @@ export type RecoveryDecisionResult =
   | { outcome: "unknown_turn_left"; turnId: string }
   // start_fresh on a stopped session whose workspace GC has claimed and not
   // yet settled, as for resume.
-  | { outcome: "workspace_reclaiming" };
+  | { outcome: "workspace_reclaiming" }
+  // start_fresh on a session whose execution authority an operator revoked
+  // (94S-321); only the operator's restore lifts it.
+  | { outcome: "execution_revoked" };
 
 export type PauseSessionInput = TerminateSessionInput;
 
@@ -115,7 +118,9 @@ export type ResumeSessionResult =
   | { outcome: "unsupported" }
   // GC has claimed the stopped session's workspace and not yet settled the
   // removal; the same request succeeds once it has.
-  | { outcome: "workspace_reclaiming" };
+  | { outcome: "workspace_reclaiming" }
+  // An operator revoked the session's execution authority (94S-321).
+  | { outcome: "execution_revoked" };
 
 /**
  * api.md § 승인·중단·강제 종료: the terminate transaction blocks dispatch,

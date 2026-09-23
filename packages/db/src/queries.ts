@@ -84,6 +84,47 @@ export async function findApiKey(
     : null;
 }
 
+export type ApiKeyRevocation =
+  | { outcome: "revoked"; ownerId: string; revokedAt: Date }
+  | { outcome: "already_revoked"; ownerId: string; revokedAt: Date }
+  | { outcome: "not_found" };
+
+/**
+ * Revokes one key; a second revoke keeps the first timestamp. Only future
+ * authentication is affected: the principal's running work is not
+ * cancelled (architecture.md 실행 권한 회수와 API key 회수), and an open SSE
+ * stream ends at its next credential re-check.
+ */
+export async function revokeApiKey(
+  db: Database,
+  keyId: string,
+): Promise<ApiKeyRevocation> {
+  const [revoked] = await db
+    .update(apiKeys)
+    .set({ revokedAt: DB_NOW })
+    .where(and(eq(apiKeys.id, keyId), isNull(apiKeys.revokedAt)))
+    .returning({ ownerId: apiKeys.ownerId, revokedAt: apiKeys.revokedAt });
+  if (revoked?.revokedAt) {
+    return {
+      outcome: "revoked",
+      ownerId: revoked.ownerId,
+      revokedAt: revoked.revokedAt,
+    };
+  }
+  const [existing] = await db
+    .select({ ownerId: apiKeys.ownerId, revokedAt: apiKeys.revokedAt })
+    .from(apiKeys)
+    .where(eq(apiKeys.id, keyId))
+    .limit(1);
+  return existing?.revokedAt
+    ? {
+        outcome: "already_revoked",
+        ownerId: existing.ownerId,
+        revokedAt: existing.revokedAt,
+      }
+    : { outcome: "not_found" };
+}
+
 export async function claim(db: Database, sessionId: string, podId: string) {
   return db.transaction(async (tx) => {
     const [claimed] = await tx

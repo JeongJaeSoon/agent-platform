@@ -560,6 +560,26 @@ describe("WorkerHost ownership and shutdown", () => {
     );
   });
 
+  // 94S-321: an operator's execution revocation revokes the token, so the
+  // beat that follows is refused before it reaches any fence.
+  test("stops the running turn without finalizing once its token is revoked", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "UNAUTHORIZED";
+    const { host, runtime } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      { gateway, timeouts: { heartbeatIntervalMs: 5 } },
+    );
+    gateway.enqueue("a turn whose execution authority is revoked");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("UNAUTHORIZED");
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toEqual([]);
+    expect(runtime.inputs).toHaveLength(1);
+  });
+
   test("waits for the engine process to exit, and kills one that lingers", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.heartbeatFailure = "LEASE_EXPIRED";

@@ -20,6 +20,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   terminate: "종료 요청",
   resume: "재개 요청",
   recovery_decision: "복구 결정",
+  revoke_execution: "실행 권한 회수",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;
