@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import type {
-  TranscriptEntry,
-  TranscriptRevision,
-} from "@agent-platform/runtime-core";
+import type { TranscriptEntry } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
@@ -382,14 +379,9 @@ describe("Claude session store across execution generations", () => {
   async function checkpointOf(
     mirror: ClaudeSessionStore,
   ): Promise<TranscriptInheritance> {
-    const pinned = await mirror.captureRevision(root);
-    if (pinned === null) throw new Error("expected a root revision");
-    const subagents: Record<string, TranscriptRevision> = {};
-    for (const subpath of await mirror.listSubkeys(root)) {
-      const captured = await mirror.captureRevision({ ...root, subpath });
-      if (captured !== null) subagents[subpath] = captured;
-    }
-    return { sessionId, transcripts: { root: pinned, subagents } };
+    const transcripts = await mirror.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    return { sessionId, transcripts };
   }
 
   test("writes only under its own generation", async () => {
@@ -637,6 +629,88 @@ describe("Claude session store across execution generations", () => {
     ).toThrow(/outside sessions\/s1\/mirror\//);
   });
 
+  test("refuses to adopt another engine session's part as this one's", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    const other = { projectKey, sessionId: "session-2" };
+    await first.append(other, [entry("o", "another conversation")]);
+    const foreign = await first.captureRevision(other);
+    if (foreign === null) throw new Error("expected a revision");
+
+    expect(() =>
+      launch(objects, 2, {
+        sessionId,
+        transcripts: { root: foreign, subagents: {} },
+      }),
+    ).toThrow(/is not a part of session-1's root transcript/);
+  });
+
+  test("refuses a checkpoint that pins a subagent's parts as the root", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("r", "root")]);
+    await first.append(subagent, [entry("s", "subagent")]);
+    const { transcripts } = await checkpointOf(first);
+    const reviewer = transcripts.subagents["agents/reviewer"];
+    if (reviewer === undefined) throw new Error("expected the subagent");
+
+    expect(() =>
+      launch(objects, 2, {
+        sessionId,
+        transcripts: {
+          root: reviewer,
+          subagents: { "agents/reviewer": transcripts.root },
+        },
+      }),
+    ).toThrow(/is not a part of session-1's root transcript/);
+  });
+
+  test("captures a whole engine session without being told its project key", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await mirror.append(root, [entry("r", "root")]);
+    await mirror.append(subagent, [entry("s", "subagent")]);
+    await mirror.append({ projectKey, sessionId: "session-2" }, [
+      entry("o", "another session"),
+    ]);
+
+    const transcripts = await mirror.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+
+    expect(await mirror.loadRevision(transcripts.root)).toEqual([
+      entry("r", "root"),
+    ]);
+    expect(Object.keys(transcripts.subagents)).toEqual(["agents/reviewer"]);
+    expect(await mirror.captureTranscripts("session-3")).toBeNull();
+  });
+
+  test("captures what it adopted even before the engine writes anything", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("r", "root")]);
+    await first.append(subagent, [entry("s", "subagent")]);
+    const inherited = await checkpointOf(first);
+
+    const second = launch(objects, 2, inherited);
+
+    expect(await second.captureTranscripts(sessionId)).toEqual(
+      inherited.transcripts,
+    );
+  });
+
+  test("refuses to guess between two project keys for one engine session", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await mirror.append(root, [entry("a", "one")]);
+    await mirror.append({ projectKey: "-elsewhere", sessionId }, [
+      entry("b", "two"),
+    ]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow(
+      /more than one project key/,
+    );
+  });
+
   test("refuses a generation that already holds transcript parts", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const earlier = launch(objects, 1);
@@ -648,6 +722,11 @@ describe("Claude session store across execution generations", () => {
       /already holds transcript parts/,
     );
     await expect(reused.append(root, [entry("b", "x")])).rejects.toThrow(
+      /already holds transcript parts/,
+    );
+    const pinned = await earlier.captureRevision(root);
+    if (pinned === null) throw new Error("expected a revision");
+    await expect(reused.loadRevision(pinned)).rejects.toThrow(
       /already holds transcript parts/,
     );
     expect(await earlier.load(root)).toEqual([

@@ -17,7 +17,6 @@ import type {
   CheckpointManifest,
   CheckpointObjectStore,
   TranscriptEntry,
-  TranscriptRevision,
 } from "@agent-platform/runtime-core";
 import { createCheckpointObjectStore } from "@agent-platform/storage";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
@@ -453,17 +452,8 @@ async function publish(
   fingerprint = runtime,
   attempt = attemptId,
 ) {
-  const root = await mirror.captureRevision({ projectKey, sessionId });
-  if (root === null) throw new Error("expected a root transcript revision");
-  const subagents: Record<string, TranscriptRevision> = {};
-  for (const subpath of await mirror.listSubkeys({ projectKey, sessionId })) {
-    const captured = await mirror.captureRevision({
-      projectKey,
-      sessionId,
-      subpath,
-    });
-    if (captured !== null) subagents[subpath] = captured;
-  }
+  const transcripts = await mirror.captureTranscripts(sessionId);
+  if (transcripts === null) throw new Error("expected transcripts");
   const manifest: CheckpointManifest = {
     createdAt: "2026-09-22T00:00:00.000Z",
     cwd: "/workspace",
@@ -472,7 +462,7 @@ async function publish(
     revision,
     runtime: fingerprint,
     sessionId,
-    transcripts: { root, subagents },
+    transcripts,
     version: 2,
     workspace: {
       bundle: bundleRefFor(revision, attempt),

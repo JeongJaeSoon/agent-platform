@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  AgentFrame,
-  CheckpointObjectStore,
-  TranscriptKey,
-  TranscriptRevision,
-} from "@agent-platform/runtime-core";
+import type { AgentFrame, TranscriptKey } from "@agent-platform/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
@@ -487,6 +482,7 @@ describe("transcript mirror against the actual SDK", () => {
     };
 
     const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const mirrored: TranscriptKey[] = [];
     const firstFrames = await drive(
       runtime.start(
         {
@@ -494,21 +490,27 @@ describe("transcript mirror against the actual SDK", () => {
           claudeConfigDir: home,
           home,
           mode: "new",
-          sessionStore: first,
+          sessionStore: {
+            append: async (key, entries) => {
+              mirrored.push(key);
+              await first.append(key, entries);
+            },
+            listSubkeys: (key) => first.listSubkeys(key),
+            load: (key) => first.load(key),
+          },
         },
         hooks,
       ),
       "remember the first turn",
     );
     const sessionId = sessionIdOf(firstFrames);
-    const rootKey = await rootKeyOf(first, objects, sessionId);
-    const pinned = await first.captureRevision(rootKey);
-    if (pinned === null) throw new Error("expected a root revision");
-    const subagents: Record<string, TranscriptRevision> = {};
-    for (const subpath of await first.listSubkeys(rootKey)) {
-      const captured = await first.captureRevision({ ...rootKey, subpath });
-      if (captured !== null) subagents[subpath] = captured;
-    }
+    const rootKey = mirrored.find(
+      (key) => key.subpath === undefined && key.sessionId === sessionId,
+    );
+    if (rootKey === undefined) throw new Error("The SDK mirrored nothing");
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    const pinned = transcripts.root;
 
     // The first worker lost its lease and keeps writing: a well-formed entry
     // that continues its own conversation, so only the generation boundary
@@ -532,7 +534,7 @@ describe("transcript mirror against the actual SDK", () => {
     await mkdir(resumedHome);
     const second = new ClaudeSessionStore({
       generation: 2,
-      inherit: { sessionId, transcripts: { root: pinned, subagents } },
+      inherit: { sessionId, transcripts },
       objects,
       prefix,
     });
@@ -560,8 +562,8 @@ describe("transcript mirror against the actual SDK", () => {
 
     // The next checkpoint is the adopted parts followed by the second
     // generation's own, and restores to the conversation the engine had.
-    const next = await second.captureRevision(rootKey);
-    if (next === null) throw new Error("expected a revision");
+    const next = (await second.captureTranscripts(sessionId))?.root;
+    if (next === undefined) throw new Error("expected a revision");
     expect(next.parts.slice(0, pinned.parts.length)).toEqual([...pinned.parts]);
     expect(
       next.parts
@@ -611,22 +613,6 @@ function sessionIdOf(frames: readonly AgentFrame[]): string {
     throw new Error(`expected one SDK session id, saw ${[...ids].join(", ")}`);
   }
   return only;
-}
-
-/** The root key the engine mirrored under, read back from the stored layout. */
-async function rootKeyOf(
-  mirror: ClaudeSessionStore,
-  objects: CheckpointObjectStore,
-  sessionId: string,
-): Promise<TranscriptKey> {
-  for (const stored of await objects.list("")) {
-    const match = stored.match(/\/generation-\d+\/([^/]+)\/([^/]+)\/main\//);
-    if (match?.[1] !== undefined && match[2] === sessionId) {
-      const key = { projectKey: match[1], sessionId };
-      if ((await mirror.load(key)) !== null) return key;
-    }
-  }
-  throw new Error(`The SDK mirrored nothing for ${sessionId}`);
 }
 
 /**
