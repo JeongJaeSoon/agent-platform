@@ -42,6 +42,8 @@ export function restoreRefusal(reason: string): RestoreRefusal {
 
 const NAME_MAX_BYTES = 255;
 const utf8 = new TextEncoder();
+// In `u` mode a well-formed pair is one code point, so only a lone half matches.
+const LONE_SURROGATE = /\p{Cs}/u;
 
 /**
  * Why `path` cannot name a file under a workspace root, or undefined when it
@@ -58,6 +60,9 @@ export function workspacePathProblem(path: string): string | undefined {
   if (path.startsWith("/")) return "is absolute";
   if (path.includes("\\")) return "contains a backslash";
   if (path.includes("\0")) return "contains a NUL byte";
+  // A lone surrogate reaches the filesystem as U+FFFD, so two paths that
+  // differ here as strings would name one file there.
+  if (LONE_SURROGATE.test(path)) return "is not well-formed Unicode";
   for (const segment of path.split("/")) {
     if (segment === "") return "has an empty segment";
     if (segment === "." || segment === "..") {

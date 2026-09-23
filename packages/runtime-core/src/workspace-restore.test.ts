@@ -32,6 +32,7 @@ describe("workspacePathProblem", () => {
     ".env.local",
     "..hidden",
     "dir/.gitignore",
+    "emoji/😀.md",
     "a".repeat(255),
     // 85 three-byte syllables: 255 bytes, which is what NAME_MAX counts.
     "가".repeat(85),
@@ -44,6 +45,8 @@ describe("workspacePathProblem", () => {
     ["/etc/passwd", "is absolute"],
     ["a\\b", "contains a backslash"],
     ["a\0b", "contains a NUL byte"],
+    ["a/\uD800", "is not well-formed Unicode"],
+    ["\uDC00b", "is not well-formed Unicode"],
     ["a//b", "has an empty segment"],
     ["a/", "has an empty segment"],
     ["./a", 'has a "." segment'],
@@ -89,6 +92,12 @@ describe("workspacePathsProblem", () => {
 
     expect(workspacePathsProblem([deep, "d/other"])).toBeUndefined();
     expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  test("refuses lone surrogates that would name one file on disk", () => {
+    expect(workspacePathsProblem(["\uD800", "\uD801"])).toBe(
+      '"\\ud800" is not well-formed Unicode',
+    );
   });
 
   test("names the unsafe path", () => {
