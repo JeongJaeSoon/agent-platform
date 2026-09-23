@@ -102,13 +102,14 @@ cleanup() {
   echo "restore-resume record: $out" >&2
   exit "$status"
 }
-trap cleanup EXIT
-
+# Cleanup removes both projects and everything the installation label names,
+# so it is armed only once none of that exists yet.
 for name in "$project" "$restored"; do
   ! project_has_resources "$name" || fail "project ${name} already exists"
 done
-[ -z "$(docker ps -aq --filter "label=${label}")" ] \
-  || fail "installation ${EXECUTION_INSTALLATION_ID} already has containers"
+[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${label}")" ] \
+  || fail "installation ${EXECUTION_INSTALLATION_ID} already has containers, networks or volumes"
+trap cleanup EXIT
 
 # Worker containers are removed when they exit; follow each from its start.
 # The phase file says which stack started it.
