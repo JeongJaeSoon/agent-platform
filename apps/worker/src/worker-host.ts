@@ -577,6 +577,14 @@ export class WorkerHost {
           retriedUnauthorized = true;
           continue;
         }
+        // The session was waiting, but on an operator rather than a worker:
+        // its turns have no checkpoint this worker could restore (94S-288).
+        // Nothing went wrong here, so the worker leaves as one with nothing
+        // to claim does.
+        if (error.code === "RECOVERY_REQUIRED") {
+          this.logger.info("worker.claim.refused", { reason: error.message });
+          return null;
+        }
         if (!error.retryable) throw error;
         if (this.now().getTime() >= deadline) {
           // Nothing was waiting for this worker: KEDA-style launchers must see

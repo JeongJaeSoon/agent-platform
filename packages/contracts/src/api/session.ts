@@ -122,6 +122,16 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("BUDGET_EXCEEDED"),
     reason: z.string().min(1),
   }),
+  // A turn ran that no trusted checkpoint covers, so the next worker could
+  // only start a new engine session without it (94S-288). The session is
+  // held in recovery_required (or cannot be resumed from stopped) until an
+  // operator decides: start_fresh continues without that context, close
+  // ends the session.
+  z.object({
+    code: z.literal("CONTEXT_GAP"),
+    last_ran_turn_id: turnIdSchema,
+    checkpointed_turn_id: turnIdSchema.nullable(),
+  }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
@@ -135,6 +145,10 @@ export const sessionDurabilitySchema = z.object({
   // session holds that revision's state and has lost what the newer ones
   // recorded; the next committed checkpoint clears it.
   checkpoint_fallback_revision: revisionSchema.nullable(),
+  // The last turn whose context a start_fresh decision gave up: the engine
+  // session running now began after it and does not remember it or anything
+  // before. Null while the session has never been reset.
+  context_reset_turn_id: turnIdSchema.nullable(),
 });
 
 // DESIGN.md §6.4.

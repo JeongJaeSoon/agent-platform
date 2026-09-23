@@ -106,6 +106,7 @@ export type DurabilityFacts = {
   checkpointCommittedAt: Date | null;
   checkpointFallbackRevision: number | null;
   checkpointRevision: number | null;
+  contextResetTurnId: string | null;
   lastCheckpointedTurnId: string | null;
   lastCompletedTurnId: string | null;
   lastTranscriptPersistedAt: Date | null;
@@ -118,6 +119,7 @@ export function projectDurability(facts: DurabilityFacts): SessionDurability {
     checkpoint_fallback_revision: facts.checkpointFallbackRevision,
     checkpoint_pending_reason: facts.pendingReason,
     checkpoint_revision: facts.checkpointRevision,
+    context_reset_turn_id: facts.contextResetTurnId,
     last_checkpointed_turn_id: facts.lastCheckpointedTurnId,
     last_completed_turn_id: facts.lastCompletedTurnId,
     last_transcript_persisted_at:

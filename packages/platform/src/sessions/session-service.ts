@@ -421,12 +421,23 @@ export function createSessionService(deps: {
         case "not_in_recovery":
           throw new SessionServiceError(
             "REQUEST_STALE",
-            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed`,
+            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed, and start_fresh only to recovery_required or a stopped session that cannot be resumed`,
           );
         case "checkpoint_not_covering":
           throw new SessionServiceError(
             "CHECKPOINT_UNAVAILABLE",
             "No committed checkpoint reaches the target turn, so a resume would lose the confirmed work; abandon or close instead",
+          );
+        case "unknown_turn_left":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            `Turn ${result.turnId} has an unknown outcome; abandon or confirm it before starting fresh`,
+          );
+        case "workspace_reclaiming":
+          throw new SessionServiceError(
+            "BACKEND_UNAVAILABLE",
+            "The stopped session's workspace is being reclaimed; retry the same request shortly",
+            { afterSeconds: 10 },
           );
         default:
           return result.response;

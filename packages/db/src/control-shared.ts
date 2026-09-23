@@ -182,7 +182,9 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
  * it is not trusted until a later run commits past it. An advisory one (the
  * run was not quiescent) only says the newest turn went uncaptured; the
  * pointer it left is still the one to resume from (94S-284) — distrusting
- * it would wedge a stopped session, which no later commit ever reaches.
+ * it would wedge a stopped session, which no later commit ever reaches. A
+ * pointer at or below the revision a start_fresh decision retired (94S-288)
+ * belongs to an engine session the operator already gave up on.
  *
  * Deliberately coarse: a pointer committed by an earlier, healthy run would
  * be safe, but checkpoints do not record their attempt. If that case shows
@@ -193,11 +195,14 @@ export function hasRestorePoint<
   T extends {
     checkpointRevision: number | null;
     checkpointPendingReason: string | null;
+    contextResetCheckpointRevision: number | null;
   },
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason)
+    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    (session.contextResetCheckpointRevision === null ||
+      session.checkpointRevision > session.contextResetCheckpointRevision)
   );
 }
 

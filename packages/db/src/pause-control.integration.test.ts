@@ -669,9 +669,18 @@ integration("pause on PostgreSQL (94S-137)", () => {
     // The turn's own checkpoint was refused (a dev server still running):
     // nothing covers it, whatever the reason says.
     const uncovered = await idleOn("advisory-uncovered", true);
+    // The exit already hands that gap to an operator (94S-288); a row from
+    // before that check still meets the pause's own coverage rule.
+    expect((await sessionRow(uncovered.sessionId)).admissionState).toBe(
+      "recovery_required",
+    );
     await db
       .update(sessions)
-      .set({ checkpointPendingReason: "background_writer" })
+      .set({
+        admissionState: "active",
+        status: "idle",
+        checkpointPendingReason: "background_writer",
+      })
       .where(eq(sessions.id, uncovered.sessionId));
     const row = await sessionRow(uncovered.sessionId);
     expect(await pause(uncovered, row.revision)).toEqual({

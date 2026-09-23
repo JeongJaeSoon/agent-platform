@@ -8,6 +8,7 @@ export const RECOVERY_DECISION_VALUES = [
   "abandon",
   "confirm_completed",
   "close",
+  "start_fresh",
 ] as const;
 export const recoveryDecisionSchema = z.enum(RECOVERY_DECISION_VALUES);
 
@@ -45,6 +46,12 @@ export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
     })
     .strict(),
   z.object({ ...recoveryDecisionBase, decision: z.literal("close") }).strict(),
+  // Continue a session whose context cannot be restored (94S-288) on a new
+  // engine session that does not remember the turns before it. Nothing is
+  // restored, the checkpoints so far are retired, and queued input runs.
+  z
+    .object({ ...recoveryDecisionBase, decision: z.literal("start_fresh") })
+    .strict(),
 ]);
 export const controlAcceptedResponseSchema = receiptAcceptedResponseSchema;
 // The 202 itself says that a kill undoes nothing the execution already did

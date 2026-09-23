@@ -102,6 +102,9 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     // 94S-204
     "checkpoint_fallback_revision",
     "checkpoint_restore_attempt_id",
+    // 94S-288
+    "context_reset_turn_sequence",
+    "context_reset_checkpoint_revision",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],

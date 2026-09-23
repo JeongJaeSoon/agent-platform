@@ -619,6 +619,38 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
     expect((await decide(abandon, {}, { "Idempotency-Key": "" })).status).toBe(
       400,
     );
+    // start_fresh names no turn: the context it gives up is all of it.
+    expect(
+      (
+        await decide({
+          decision: "start_fresh",
+          expected_revision: 1,
+          reason: "r",
+          target_turn_id: "1",
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  test("start_fresh reaches the transaction as it was sent", async () => {
+    const body = {
+      decision: "start_fresh" as const,
+      expected_revision: 3,
+      reason: "the checkpoint is gone; continue without it",
+    };
+    const response = await decide(body, {
+      decideRecoveryAtomic: async (input) => {
+        expect(input.decision).toEqual(body);
+        return {
+          outcome: "accepted",
+          response: {
+            receipt_id: crypto.randomUUID(),
+            receipt_status: "succeeded",
+          },
+        };
+      },
+    });
+    expect(response.status).toBe(202);
   });
 
   test("maps every refusal to its status and code", async () => {
@@ -655,6 +687,8 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         409,
         "REQUEST_STALE",
       ],
+      [{ outcome: "unknown_turn_left", turnId: "2" }, 409, "RECOVERY_REQUIRED"],
+      [{ outcome: "workspace_reclaiming" }, 503, "BACKEND_UNAVAILABLE"],
     ];
     for (const [result, status, code] of cases) {
       const response = await decide(abandon, {

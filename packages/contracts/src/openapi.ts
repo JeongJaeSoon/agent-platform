@@ -339,7 +339,8 @@ const routes: Route[] = [
     method: "post",
     path: "/v1/sessions/{id}/recovery-decisions",
     operationId: "decideSessionRecovery",
-    summary: "Operator decision for an unknown outcome",
+    summary:
+      "Operator decision for an unknown outcome or a context no checkpoint covers",
     scope: "recover",
     body: "RecoveryDecisionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },

@@ -49,7 +49,6 @@ import {
   and,
   asc,
   count,
-  desc,
   eq,
   gt,
   inArray,
@@ -60,6 +59,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
   hasRestorePoint,
   LAUNCHABLE_ADMISSION_STATES,
@@ -388,26 +388,26 @@ export function parseTurnId(turnId: string): number | null {
   return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
-async function latestCheckpoint(
+/**
+ * What the claim tells the worker to restore: the trusted pointer, the same
+ * checkpoint the context verdict was judged against — not the newest row,
+ * which a blocker or a start_fresh decision may have left untrusted.
+ */
+async function restoreRef(
   tx: Database,
-  sessionId: string,
+  session: SessionRow,
 ): Promise<CheckpointRef | null> {
-  const [row] = await tx
-    .select()
-    .from(checkpoints)
-    .where(eq(checkpoints.sessionId, sessionId))
-    .orderBy(desc(checkpoints.revision))
-    .limit(1);
-  return row
-    ? {
-        revision: row.revision,
-        manifest_ref: row.manifestRef,
-        manifest_sha256: row.manifestSha256,
-        ...(row.manifestVersion === null
-          ? {}
-          : { manifest_version: row.manifestVersion }),
-      }
-    : null;
+  if (!hasRestorePoint(session)) return null;
+  const pointer = await readCheckpointPointer(tx, session);
+  if (pointer === null) return null;
+  return {
+    revision: pointer.revision,
+    manifest_ref: pointer.manifestRef,
+    manifest_sha256: pointer.manifestSha256,
+    ...(pointer.manifestVersion === null
+      ? {}
+      : { manifest_version: pointer.manifestVersion }),
+  };
 }
 
 /**
@@ -597,7 +597,7 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    restore: await latestCheckpoint(tx, session.id),
+    restore: await restoreRef(tx, session),
   };
 }
 
@@ -763,6 +763,42 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .limit(1)
           .for("update", { of: unassignedSessions, skipLocked: true });
         if (!candidate) return { outcome: "no_session" };
+
+        // The candidate query locked only the signal; the context verdict
+        // below must be read under the session's own lock, or a checkpoint
+        // committing alongside could make it stale before it is acted on.
+        const [locked] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, candidate.sessionId))
+          .limit(1)
+          .for("update");
+        // A terminate can commit between the candidate read and this lock.
+        if (
+          !locked ||
+          locked.podId !== null ||
+          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState)
+        ) {
+          return { outcome: "no_session" };
+        }
+        // A worker bound now would start an engine session without turns it
+        // has no checkpoint for, and the user would never be told (94S-288).
+        // The session goes to an operator instead, and the launch is asked to
+        // go so the scheduler reclaims it rather than rebuilding it.
+        const coverage = await contextCoverage(tx, locked);
+        if (contextGap(locked, coverage)) {
+          await raiseContextGap(tx, {
+            session: locked,
+            coverage,
+            detectedAt: "claim",
+            now: input.now,
+          });
+          await tx
+            .update(executions)
+            .set({ desiredState: "terminated" })
+            .where(eq(executions.id, launch.executionId));
+          return { outcome: "context_gap" };
+        }
 
         const [session] = await tx
           .update(sessions)
@@ -1462,6 +1498,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           pointer: await readCheckpointPointer(tx, fenced.session),
+          restorable: hasRestorePoint({
+            ...fenced.session,
+            checkpointPendingReason: pendingReason,
+          }),
           pendingReason,
         };
       });
@@ -1861,7 +1901,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // lost the only attempt that could still have committed it (94S-285):
         // the pause fails and the session is active again, as after any lost
         // worker, so a new one restores the last trusted checkpoint for the
-        // queued input. A blocking pending reason (a dropped mirror batch, or
+        // queued input — unless that checkpoint leaves a turn behind, which
+        // the context check below hands to an operator (94S-288). A blocking pending reason (a dropped mirror batch, or
         // one this build does not know) cannot be carried on from, so that
         // one goes to an operator instead, as a cancel would (94S-138).
         const pauseBlockedBy =
@@ -1886,6 +1927,20 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           launch?.claimedAttemptId !== null &&
           launch?.claimedAttemptId !== undefined &&
           (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
+        // A session left taking work would hand its next input to a worker
+        // that cannot restore the turns it ran (94S-288). Judged here, where
+        // the loss becomes certain, so it shows before anyone sends another
+        // message; the claim gate stays the one that cannot be bypassed. A
+        // failed pause lands here too: the pointer it could not advance is
+        // exactly the one that leaves the last turn uncovered.
+        const activeNow =
+          session.admissionState === "active" ||
+          (pauseFailed && pauseFailedInto === "active");
+        const coverage =
+          !closed && unresolved.length === 0 && activeNow
+            ? await contextCoverage(tx, session)
+            : null;
+        const contextLost = coverage !== null && contextGap(session, coverage);
         await tx
           .update(sessions)
           .set({
@@ -1974,6 +2029,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             now: observedAt,
           });
         }
+        // After the pause's own outcome, so the stream ends on where the
+        // session actually is.
+        if (contextLost) {
+          await raiseContextGap(tx, {
+            session,
+            coverage,
+            detectedAt: "execution_gone",
+            now: observedAt,
+          });
+        }
         if (session.admissionState === "pausing" && unresolved.length > 0) {
           await tx
             .update(receipts)
@@ -2020,12 +2085,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             and(eq(turns.sessionId, session.id), eq(turns.status, "queued")),
           );
         const queued = queuedRow?.queued ?? 0;
-        const activeNow =
-          session.admissionState === "active" ||
-          (pauseFailed && pauseFailedInto === "active");
         if (
           unresolved.length === 0 &&
-          ((queued > 0 && activeNow) ||
+          ((queued > 0 && activeNow && !contextLost) ||
             (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx

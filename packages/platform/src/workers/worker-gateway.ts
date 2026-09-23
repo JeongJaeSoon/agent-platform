@@ -616,6 +616,14 @@ export function createWorkerGateway(deps: {
             "The session's profile, or its pairing with the session's repository, is not in this host's catalog",
             true,
           );
+        // Not retryable: the session is no longer waiting for a worker, and
+        // the one that asked has nothing to do but leave.
+        case "context_gap":
+          throw new WorkerGatewayError(
+            409,
+            "RECOVERY_REQUIRED",
+            "The session has turns no checkpoint covers; an operator decides how it continues",
+          );
         default: {
           const binding = result.binding;
           return {
@@ -965,7 +973,9 @@ export function createWorkerGateway(deps: {
             sdkVersion: request.runtime.sdk_version,
           },
           sessionId: fence.sessionId,
-          pointer: state.pointer,
+          // A pointer the claim did not hand out is not one to restore: a
+          // retired one belongs to the engine session start_fresh gave up.
+          pointer: state.restorable ? state.pointer : null,
         }),
       );
       // A refusal is the end of a resume from `paused` that stands on this

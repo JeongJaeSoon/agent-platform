@@ -583,6 +583,7 @@ integration("sessions API on PostgreSQL", () => {
       checkpoint_fallback_revision: null,
       checkpoint_pending_reason: "mirror_error",
       checkpoint_revision: null,
+      context_reset_turn_id: null,
       last_checkpointed_turn_id: null,
       last_completed_turn_id: null,
       last_transcript_persisted_at: persistedAt.toISOString(),
