@@ -5,8 +5,9 @@
 # The stack is the product's own — same images, catalog, fake Messages API
 # and proxy allowlist a quickstart user gets. What changes: host ports are
 # ephemeral (still loopback), so a run never collides with a developer
-# stack or another run, and the scheduler loops faster, which only shortens
-# waits.
+# stack or another run; the fake Messages API's control port is published,
+# so the suite can see a scripted model call in flight; and the scheduler
+# loops faster, which only shortens waits.
 services:
   postgres:
     ports: !override
@@ -19,6 +20,9 @@ services:
   gitea:
     ports: !override
       - "127.0.0.1::3000"
+  fake-messages:
+    ports:
+      - "127.0.0.1::4011"
   api:
     ports: !override
       - "127.0.0.1::3000"

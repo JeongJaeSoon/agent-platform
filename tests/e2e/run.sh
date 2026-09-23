@@ -47,12 +47,11 @@ dc() {
 events_pid=""
 cleanup() {
   local status=$?
-  [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
   dc logs --no-color --timestamps >"$out/compose.log" 2>&1 || true
   if [ "${E2E_KEEP:-0}" = 1 ]; then
     echo "kept: compose project ${project}, installation ${EXECUTION_INSTALLATION_ID}" >&2
   else
-    dc down -v --remove-orphans >/dev/null 2>&1 || true
+    dc down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     local ids
     ids="$(docker ps -aq --filter "label=${label}")"
     [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
@@ -62,6 +61,10 @@ cleanup() {
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
     docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
   fi
+  # Stopping the event stream ends the loop; each `docker logs -f` ends with
+  # its container, which is gone by now unless the stack is kept.
+  [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
+  [ "${E2E_KEEP:-0}" = 1 ] || wait 2>/dev/null || true
   echo "e2e record: $out" >&2
   exit "$status"
 }
@@ -76,7 +79,7 @@ echo "== docker engine ${docker_version} (28+ required)" >&2
 # Through a fifo so that killing `docker events` alone ends the loop too.
 mkfifo "$out/.events"
 docker events --filter "label=${label}" --filter type=container --filter event=start \
-  --format '{{.ID}} {{index .Actor.Attributes "name"}}' >"$out/.events" &
+  --format '{{.Actor.ID}} {{index .Actor.Attributes "name"}}' >"$out/.events" &
 events_pid=$!
 while read -r id name; do
   docker logs -f --timestamps "$id" >"$out/workers/${name}.log" 2>&1 &
@@ -109,20 +112,31 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z]+_IMAGE)=' >"$out/vars.sh"
+export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
+  # Holds the API key, so only here and never in a CI artifact.
+  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z]+_IMAGE)=' >"$out/vars.sh"
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
 
 echo "== tests/e2e" >&2
-# Bun lists every test with its outcome when stdout is not a TTY; the skip
-# list is the `(skip)` lines of this log.
 set +e
 bun test tests/e2e --timeout 900000 2>&1 | tee "$out/test.log"
 status="${PIPESTATUS[0]}"
 set -e
-echo "== skipped" >&2
-grep -E '\(skip\)|» ' "$out/test.log" >&2 || echo "(none)" >&2
-exit "$status"
+# Bun exits 0 when every test skipped, which is what a missing variable
+# looks like; so the run passes on the counts, not on the exit code alone.
+count() { sed -n "s/^ *\([0-9][0-9]*\) $1\$/\1/p" "$out/test.log" | tail -1; }
+pass="$(count pass)"
+skip="$(count skip)"
+fail="$(count fail)"
+{
+  echo "tests: pass=${pass:-?} skip=${skip:-0} fail=${fail:-?}"
+  echo "skipped:"
+  grep -E '^\(skip\)' "$out/test.log" || echo "  (none)"
+} | tee -a "$out/record.txt" >&2
+[ "$status" = 0 ] || exit "$status"
+[ "${skip:-0}" = 0 ] || { echo "e2e: ${skip} test(s) skipped" >&2; exit 1; }
+[ "${pass:-0}" -gt 0 ] || { echo "e2e: nothing passed" >&2; exit 1; }

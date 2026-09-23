@@ -38,9 +38,16 @@ services:
       retries: 12
       start_period: 5s
 
+  # Built from the API's Dockerfile, which carries packages/db and its
+  # installed dependencies: a bare Bun image over a read-only checkout needs
+  # a host `bun install` first, which a fresh clone following
+  # docs/quickstart.md has not done. No `image:` of its own: two services
+  # naming one tag race to export it, so this one gets compose's default
+  # name and shares every layer with `api` through the build cache.
   migrate:
-    image: oven/bun:1.3.10
-    working_dir: /app
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
@@ -48,8 +55,6 @@ services:
       # env file must not get migrated by starting the local stack. An
       # external database is run against by the apps outside compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
-    volumes:
-      - ..:/app:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,7 +147,8 @@ services:
     user: git
     entrypoint: ["/bin/sh", "/init-sample-repo.sh"]
     environment:
-      GITEA_AGENT_PASSWORD: ${GITEA_AGENT_PASSWORD:-agent-local-dev}
+      # Empty: a random password nobody knows (infra/gitea/init-sample-repo.sh).
+      GITEA_AGENT_PASSWORD: ${GITEA_AGENT_PASSWORD:-}
     volumes:
       - gitea-data:/data
       - ./gitea/init-sample-repo.sh:/init-sample-repo.sh:ro

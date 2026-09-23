@@ -1,17 +1,20 @@
 /**
  * What tests/e2e drives the stack with: the public /v1 API over HTTP and
  * nothing else — no database, no bucket, no import from apps/. A step that
- * needs more than a curl user has is not a quickstart step.
+ * needs more than a curl user has is not a quickstart step. The one
+ * exception is test scaffolding, not product: the fake Messages API's
+ * control port, which says when a scripted model call is in flight.
  */
 
-export type E2eEnv = { apiKey: string; apiUrl: string };
+export type E2eEnv = { apiKey: string; apiUrl: string; messagesUrl: string };
 
 /** Null unless tests/e2e/run.sh started a stack; the suite never starts one. */
 export function e2eEnv(): E2eEnv | null {
   const apiUrl = process.env.E2E_API_URL;
   const apiKey = process.env.E2E_API_KEY;
-  if (!apiUrl || !apiKey) return null;
-  return { apiKey, apiUrl };
+  const messagesUrl = process.env.E2E_MESSAGES_URL;
+  if (!apiUrl || !apiKey || !messagesUrl) return null;
+  return { apiKey, apiUrl, messagesUrl };
 }
 
 export const PROFILE_ID = "claude-coding-local";
@@ -195,6 +198,21 @@ export class Api {
 
   receipt(id: string) {
     return this.expect<Receipt>(200, "GET", `/v1/receipts/${id}`);
+  }
+
+  /**
+   * Waits until the fake Messages API has received the call for `step` of
+   * the script `specId` (the final text is step `steps.length`), so a
+   * control sent next lands while that call is in flight.
+   */
+  async modelCallSeen(specId: string, step: number): Promise<void> {
+    await poll(`model call ${specId}#${step}`, 180_000, async () => {
+      const response = await fetch(
+        `${this.env.messagesUrl}/requests?spec=${encodeURIComponent(specId)}`,
+      );
+      const calls = (await response.json()) as Array<{ step: number }>;
+      return calls.some((call) => call.step === step) ? true : null;
+    });
   }
 
   /** Polls until the turn reaches a terminal status and returns it. */

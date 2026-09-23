@@ -60,6 +60,8 @@ KEY=$(bun run keys create quickstart \
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
 
+Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다. 브라우저로 로그인하거나 push하려면 `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>`로 직접 정한다.
+
 두 번째 명령은 API 컨테이너 안에서 key CLI(`apps/api/src/keys.ts`)를 돌려 key를 한 번만 출력한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 9단계의 recovery 호출이 403이다. Bun이 없으면 `docker compose --profile apps exec -T api bun run apps/api/src/keys.ts create ...`가 같은 일을 한다.
 
 코드를 새로 받은 뒤에는 같은 `up -d --build`를 다시 실행한다. `--build` 없이 올리면 예전에 빌드한 이미지가 그대로 쓰인다.
@@ -108,9 +110,12 @@ SID=$(echo "$created" | jq -r .session_id)
 
 ### ② 이벤트 관찰
 
+turn 1은 `echo alpha > hello.txt`를 실행하려다 권한을 묻고 멈춘다. worker가 뜨고 저장소를 clone하는 데 몇 초에서 수십 초가 걸리므로, 세션이 그 상태(`needs_input`)가 될 때까지 기다린 뒤 스트림을 처음부터 읽는다.
+
 ```bash
-# 20초 동안 읽고 끊는다(curl은 시간 초과로 끝나므로 `|| true`).
-curl -sSN --max-time 20 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+wait_for "/v1/sessions/$SID" .status needs_input
+# 5초 동안 읽고 끊는다(curl은 시간 초과로 끝나므로 `|| true`).
+curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
   >/tmp/quickstart-events.txt || true
 grep -A1 '^event: question' /tmp/quickstart-events.txt
 ```
@@ -121,10 +126,9 @@ turn이 끝났는지는 이벤트가 아니라 turn 조회(`GET /v1/sessions/{id
 
 ### ③ 대기 중인 요청
 
-turn 1은 `echo alpha > hello.txt`를 실행하려다 권한을 묻는다. 예시 profile은 `permission_mode: default`다. Claude Code는 읽기 전용 명령(`cat`, `ls` 등)은 묻지 않고 실행하므로, 권한 흐름은 파일을 바꾸는 명령으로 보여 준다.
+예시 profile은 `permission_mode: default`다. Claude Code는 읽기 전용 명령(`cat`, `ls` 등)은 묻지 않고 실행하므로, 권한 흐름은 파일을 바꾸는 명령으로 보여 준다.
 
 ```bash
-wait_for "/v1/sessions/$SID" .status needs_input
 get "/v1/sessions/$SID/pending-requests" | jq .
 REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ```
@@ -268,7 +272,7 @@ worker 컨테이너는 끝나면 scheduler가 바로 지우므로 `docker logs`�
 ```sh
 mkdir -p worker-logs
 docker events --filter label=agent-platform.installation=local --filter type=container \
-  --filter event=start --format '{{.ID}} {{index .Actor.Attributes "name"}}' |
+  --filter event=start --format '{{.Actor.ID}} {{index .Actor.Attributes "name"}}' |
   while read -r id name; do docker logs -f --timestamps "$id" >"worker-logs/$name.log" 2>&1 & done
 ```
 

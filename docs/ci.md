@@ -1,0 +1,93 @@
+# CI에서 실행되는 것
+
+`.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([운영 참고 § 이미지와 Compose `apps` profile](operations.md#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
+
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`의 네 부분과 도메인별 integration job 6개를 **동시에** 시작한다(94S-297, 94S-305, 94S-307). 예전에는 `check`가 성공해야 `integration`을 돌려 실패한 변경에서 서비스 컨테이너 분을 아꼈지만, 저장소가 public이 된 뒤로 그 분은 무료이고 대가였던 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남아 있었다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+
+integration 스위트는 숫자 샤드가 아니라 도메인별 job 6개(`integration (db)`·`(api)`·`(storage)`·`(docker)`·`(egress)`·`(worker)`)로 나뉘어 각자의 runner에서 돈다(94S-307). job마다 **자기 파일이 요구하는 서비스만** 띄운다 — PostgreSQL만 쓰는 `db`는 LocalStack을 기다리지 않고, 서비스가 필요 없는 `worker`는 컨테이너 없이 곧바로 테스트에 들어간다. job끼리는 DB·컨테이너·네트워크를 공유하지 않고, 한 job 안에서는 파일들이 예전 단일 job과 똑같이 한 `bun test` 프로세스에서 순서대로 돈다. 어느 파일이 어느 job인지는 ci.yml의 `integration-domain` matrix에 있는 `paths`(저장소 기준 상대 경로의 접두어)가 유일한 기록이다. `.github/scripts/integration-jobs.ts`가 그것을 읽어 `package.json`의 `test` 스크립트가 도는 파일 전부를 나누고(파일 찾기는 `.github/scripts/test-files.ts` — Bun과 같은 규칙이며 Bun은 `tests packages apps` 인자를 디렉터리가 아니라 부분 문자열로 맞춘다), **어느 job에도 속하지 않는 파일, 두 job에 걸리는 파일, 아무 파일도 잡지 않는 접두어, 빈 job**이 하나라도 있으면 모든 integration job이 테스트 전에 실패한다. 같은 검사가 `tests/integration-jobs.test.ts`로 `check`에서도 돈다. 새 테스트 파일을 기존 접두어 밖에 만들면 matrix에 한 줄 넣어야 한다. 가장 긴 도메인이 가장 긴 `check` 부분보다 길어지면 그 도메인을 의미 단위로 다시 나눈다 — `egress`(egress proxy와 worker 네트워크 격리, suite가 LocalStack 이미지를 직접 받아 혼자 70초 남짓)가 `docker`에서 떨어져 나온 이유다.
+
+서비스를 job마다 나누면 새 구멍이 하나 생긴다: 필요한 서비스가 없는 job에 들어간 파일은 opt-in 변수가 꺼져 있어 테스트가 실패하지 않고 **skip된다**. 그래서 각 job은 `bun test --reporter=junit`의 보고서를 같은 스크립트로 다시 읽어, 자기 파일이 전부 돌았는지, 다른 파일이 끼지 않았는지, matrix에 선언하지 않은 skip이 없는지 확인하고 하나라도 어긋나면 실패한다. 선언된 skip은 Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건뿐이고, 선언했는데 skip되지 않아도 실패한다. skip을 세지 못하는 유일한 형태 — opt-in이 꺼지면 테스트를 아예 선언하지 않는 것 — 는 쓰지 않는다(`tests/checkpoint-flow.test.ts`의 LocalStack 변형도 `describe.skip`으로 선언한다). `apps/api/src/server.integration.ts`는 테스트 파일 이름 규칙 밖이라 `integration (api)`만 따로 돌린다.
+
+`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다(94S-305): `check (typecheck)`, `check (lint)`, `check (unit: packages)`, `check (unit: apps, tests)`. 예전 단일 job은 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초였고, integration 샤드보다 길어 PR run 전체의 임계 경로였다. 테스트만으로도 가장 긴 integration 샤드와 비슷했으므로 테스트를 한 번 더 저장소 구조로 나눴다. `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 파일을 찾아 `packages/` 아래를 `packages`로, 나머지 전부(지금은 `apps/`·`tests/`)를 `rest`로 준다. `rest`는 `packages`의 여집합이라 두 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
+
+브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 네 부분을, `integration`은 여섯 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `spikes`는 예전처럼 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 한 job이 실패했을 때, `!cancelled()`면 한 job이 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 동시 job: PR run 하나는 시작 순간 10개 job(`check` 부분 4 + integration 도메인 6)을 쥔다. `check (lint)`는 30초 안팎, `check (typecheck)`와 서비스가 가벼운 도메인은 1분 30초 안팎에 끝나므로 대부분의 시간은 그보다 적다. PR 2개가 한꺼번에 시작하면 free plan의 동시 job 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
+
+`spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
+
+모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(분할 전 `check` 6분, 분할 전 integration 샤드 약 3분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 `check`의 각 부분 6분, integration 도메인 job 8분, 15/15분으로 좁혔고, 부분·도메인 job만 기다리는 집계 job `check`·`integration`은 2분이다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
+
+그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
+
+`concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소한다. `main` push는 기존처럼 run 단위로 분리해 연속 merge를 모두 검증한다. 수동 실행은 기본적으로 workflow·이벤트·ref·SHA가 같은 진행 중 run을 대체해 실수로 여러 번 실행한 작업의 중첩을 줄인다. 다른 브랜치·다른 SHA·PR·main push를 취소하지 않고, 이미 끝난 run의 재실행까지 막는 것은 아니다. 식이 `inputs.*`가 아니라 `github.event.inputs.*`를 읽는 이유는 API 경유 dispatch가 입력을 문자열로 보내기 때문이다 — 문자열 `"false"`는 truthy라 `!inputs.allow_parallel`이면 기본값이 조용히 "병렬 허용"으로 뒤집힌다.
+
+## 수동 실행 옵션
+
+```bash
+gh workflow run CI --ref <branch>                          # 모든 job (spikes 포함)
+gh workflow run CI --ref <branch> -f only=spikes           # spikes만
+gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 run을 취소하지 않음
+```
+
+`only`는 그 job 하나만 남기고 나머지를 건너뛴다. flaky 추적처럼 한 job의 결과만 필요한 수동 실행에서 나머지 job 값을 내지 않기 위한 것이다.
+
+`allow_parallel=true`는 수동 실행을 run별로 분리하므로 같은 SHA를 반복 실행해도 서로 취소되지 않는다. flaky 표본은 이것으로 모은다 — `only=spikes`와 함께 N번 dispatch한다. 기존 브랜치는 변경된 workflow를 가져와야 이 기본값들이 적용된다.
+
+예산 `$0`과 사용 중지를 유지한다. 포함 분이 소진되어 GitHub가 job을 시작하지 않으면 재시도해도 복구되지 않는다. 한도 초기화 또는 별도로 승인된 runner 대안이 필요하며, CI 최적화는 이미 사용한 분을 되돌리지 않는다.
+
+외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
+
+bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (typecheck)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 integration 도메인 job은 읽기만 한다), `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
+
+| job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
+|---|---|---|---|---|
+| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
+| `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
+| `check (unit: packages)`, `check (unit: apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / 그 나머지) | 집계로 |
+| `check` | 없음 | 없음 | 네 부분의 결과가 `success`인지 확인 | ✅ |
+| `integration (db)` | `postgres:16` | `QUEUE_DATABASE_URL` | `bun test <db 파일>` | 집계로 |
+| `integration (api)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <api 파일>` + `bun test ./apps/api/src/server.integration.ts` | 집계로 |
+| `integration (storage)` | `localstack/localstack:3` | `STORAGE_LOCALSTACK_TEST=1` | `bun test <storage 파일>` | 집계로 |
+| `integration (docker)` | `postgres:16` (+ runner의 Docker daemon) | `QUEUE_DATABASE_URL`, `DOCKER_BACKEND_TEST=1` | `bun test <docker 파일>` | 집계로 |
+| `integration (egress)` | 없음 (runner의 Docker daemon, suite가 LocalStack을 컨테이너로 직접 띄움) | `DOCKER_BACKEND_TEST=1` | `bun test <egress 파일>` | 집계로 |
+| `integration (worker)` | 없음 | 없음 | `bun test <worker 파일>` | 집계로 |
+| `integration` | 없음 | 없음 | 여섯 도메인 job의 결과가 `success`인지 확인 | ✅ |
+| `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ✅ |
+| `e2e` | 없음 — compose `apps` profile 전체를 job이 직접 띄운다(runner의 Docker daemon, 28 이상) | `E2E_API_URL`·`E2E_API_KEY`(run.sh가 설정) | `tests/e2e/run.sh` — 이미지 빌드 → 스택 → key → `bun test tests/e2e` | ❌ (main에서 green이 굳으면 required로) |
+| `quickstart` | 없음 — `docs/quickstart.md`가 띄우는 기본 project·포트 그대로 | 없음 | `tests/e2e/quickstart.sh` — 문서의 `bash` 블록을 순서대로 한 셸에서 실행 | ❌ (위와 같음) |
+| `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
+
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 도메인 job들이 각자 필요한 변수를 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남고, 그 외의 skip은 job을 실패시킨다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check` unit 부분들의 skip 합과 integration 도메인 job들의 skip 합을 같이 확인한다. 나뉜 뒤에는 두 unit 부분(또는 여섯 도메인 job)의 `N pass`·`N skip`·`across N files`를 더한 값이 예전 단일 job의 숫자다. 합계는 이렇게 낸다(integration은 `integration (api)`의 `server.integration.ts` 3 pass 포함. 정규식은 94S-307 이전의 숫자 샤드 run도 잡는다):
+
+```bash
+gh run view <run-id> --log | grep -E '^integration \([^)]+\)' | grep -oE '\s[0-9]+ (pass|fail)$' \
+  | awk '{s[$2]+=$1} END {printf "pass=%d fail=%d\n", s["pass"], s["fail"]}'
+gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pass|skip|fail)$' \
+  | awk '{s[$2]+=$1} END {printf "pass=%d skip=%d fail=%d\n", s["pass"], s["skip"], s["fail"]}'
+```
+
+`DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
+
+`workspace-quota` job은 runner의 daemon으로는 확인할 수 없는 절 하나만을 위해 있다. workspace volume의 byte 상한은 daemon 저장소가 project quota를 감당할 때만 서는데(xfs + `prjquota`) runner의 data root는 ext4다. 그래서 이 job은 loop 파일에 xfs를 만들어 `prjquota`로 mount하고 그것을 data root로 쓰는 dind daemon을 띄운 뒤 workspace suite를 그쪽에 붙인다 — 상한을 넘는 `dd`가 실제로 `No space left on device`로 끝나는지, 그리고 volume을 지운 뒤 만든 다음 workspace에도 상한이 서는지 확인하는 곳은 여기뿐이다. 같은 suite가 `integration (docker)`에서는 반대쪽 절을 확인한다: 상한을 걸 수 없는 daemon에서 scheduler가 기동을 거절하는지.
+
+`spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
+
+**이 설정이 무엇을 숨기는지 분명히 해둔다.** `spikes` check-run 자체는 실패로 남아 PR checks 목록에 빨갛게 보이지만(실측: 커밋 `2640693`에서 `spikes=failure`, run `conclusion=success`), run 결론만 읽는 소비자 — 알림, 대시보드, release automation — 에게는 spike 회귀가 보이지 않는다. 그래서 job 마지막에 두 suite의 outcome을 run summary에 적는다(취소되지 않은 run이면 언제나 — 취소·timeout으로 job이 끊기면 이 표도 남지 않는다). 여기에 더해 **어느 한 suite의 outcome이 `success`가 아니면 GitHub 이슈를 연다**(setup이 깨져 suite가 돌지 못한 경우 포함; job timeout·cancel과 이슈 호출 자체의 실패는 이 스텝이 못 잡고 아래 `main-push-run.yml`이 job 결론으로 잡는다)(이 job은 PR에서 돌지 않으므로 `main` push와 수동 실행이 대상이고, 이슈 본문에 ref·SHA·run이 적힌다)(94S-238, label `ci-spikes-failure`). 같은 label로 열린 이슈가 있으면 새로 만들지 않고 그 이슈에 코멘트를 붙이므로 반복 실패가 이슈로 쌓이지 않는다. 사람이 닫으면 다음 실패는 새 이슈가 된다. `.github/scripts/upsert-ci-issue.sh`가 이 upsert를 맡고, 이슈 조회는 search API가 아니라 list API로 한다 — search는 인덱싱이 늦어 몇 분 간격의 두 run이 각자 이슈를 만든다. 같은 순간에 두 run이 실패하면 둘 다 빈 목록을 보고 각자 만들 수 있으므로, 만든 뒤 다시 조회해 자기 것이 가장 오래된 열린 이슈가 아니면 중복으로 닫고 본문을 그쪽에 붙인다.
+
+**`spikes`를 required로 올리지 않는 이유**도 여기 적어 둔다(`ci.yml`의 job 주석과 같다). (1) PR에서 돌지 않는 context를 required로 걸면 모든 PR이 `Expected — Waiting for status`로 멈춘다. (2) PR에서 다시 돌리면 94S-232가 걷어낸 비용이 되살아난다 — 세 job 중 가장 비싼 job이다. (3) 모든 `main` push에서 이미 돌아 회귀가 한 커밋 안에 잡히므로 PR 게이팅이 더해 주는 것이 없다. 남는 위험은 "회귀가 들어간다"가 아니라 "들어간 걸 아무도 모른다"였고, 그것을 위 이슈가 메운다.
+
+**push run 자체가 누락되는 경우**는 `ci.yml`이 감지할 수 없다 — run이 없으니 아무것도 돌지 않는다(실측: `70139eb`에 `event=push` run 0건). `.github/workflows/main-push-run.yml`이 하루 두 번 최근 36시간의 `main` 커밋 각각에 `ci.yml`의 `event=push` run이 있는지 `.github/scripts/check-main-push-run.sh`로 확인하고(tip만 보면 누락 커밋 뒤에 정상 push가 오는 순간 영영 못 본다), 없으면 label `ci-missing-push-run`으로 **커밋마다** 이슈를 연다(같은 upsert의 `--by-title` 모드: label + 정확한 제목이 식별자이고 제목에 커밋 SHA가 있다). 커밋은 나중에 push run이 생기지 않으므로 사람이 닫은 이슈는 그 커밋의 확인으로 간주해 다시 열지 않고, 다른 커밋의 누락을 거기에 덧붙이지도 않는다. 조회 실패(API 오류)는 `missing`과 exit code가 달라(2 vs 1) 워크플로가 실패로 남는다 — 일부만 판정한 목록을 답으로 치지 않는다. 갓 push된 커밋은 run이 생기기까지 시간이 걸리므로 15분 미만은 판정하지 않는다. `gh workflow run 'main push run' -f sha=<commit>`으로 특정 커밋을 검사할 수 있다.
+
+같은 워크플로가 push run이 있는 커밋마다 그 run의 **`spikes` job 결론**을 `.github/scripts/check-spikes-job.sh`로 읽는다(94S-257). job 안의 이슈 스텝은 자기를 멈추게 한 실패 — job timeout·cancel, `continue-on-error`에 가려진 `gh` 호출 실패 — 를 보고할 수 없기 때문이다. 결론이 `success`·`skipped`가 아닌데(run이 `spikes` job 없이 끝난 경우 `missing`) `ci-spikes-failure` 이슈 중 어느 것도(닫힌 것 포함) 본문이나 코멘트에 그 run URL을 담고 있지 않으면, run URL을 담아 같은 upsert로 보고한다. 그래서 in-run 스텝이 이미 보고한 실패나 사람이 닫아 확인한 실패는 다시 보고하지 않는다. 조회는 search API 대신 list API로 run 생성 시각 이후 바뀐 이슈·코멘트만 읽는다. job이 아직 끝나지 않았으면 `pending`으로 넘기고 36시간 창 안의 다음 확인이 다시 본다. run은 오래된 것부터 판정한다 — 워크플로가 제한 시간에 잘려도 곧 창을 벗어날 run이 먼저 끝나고, 새 run은 다음 확인이 다시 본다. 한 run의 조회 실패는 나머지 판정을 막지 않지만 워크플로를 실패로 남긴다. `gh workflow run 'main push run' -f run_id=<ci.yml run id>`로 run 하나(push가 아니어도)만 판정할 수 있다.
+
+**재시도 wrapper는 94S-217에서 걷어냈다.** 이 job은 `continue-on-error`라 실패가 머지를 막지 않으므로 재시도가 사는 것은 안전이 아니라 flaky가 보일 확률의 감소뿐이었다 — 재현율 14%가 2%가 된다. 94s-92의 LocalStack timeout이 233 run 동안 숨어 있던 방식이 정확히 그것이다. 두 suite는 이제 자기가 어디서 멈췄는지 stderr로 말하므로(`STEP_STUCK`, 테스트 단위 deadline watchdog) 첫 발생에서 바로 이름이 찍혀야 의미가 있다. `.github/scripts/retry-flaky.sh`와 `tests/retry-flaky.test.ts`는 계약 그대로 남겨 두었다 — 호출하는 job만 없앴다.
+
+`e2e`와 `quickstart`는 alpha 경로를 제품 그대로 확인한다(94S-134). 둘 다 이 커밋에서 api·scheduler·worker 이미지를 빌드하고, worker 안에서는 실제 Claude Code가 compose의 fake Messages API(프롬프트의 `GATE-SPEC` 대본을 재생)와 이야기한다. 모델 계정은 쓰지 않는다. `e2e`는 별도 compose project·임시 루프백 포트에서 공개 HTTP만으로 생성→이벤트→권한 응답→후속 메시지→interrupt→pause→resume(복원)→terminate→복구 결정→resume과 동시성 회귀 4종을 돌고, 첫 줄에 command·tested SHA·docker engine·이미지 id 세 개·SDK와 Claude Code 버전을, 끝에 skip 목록을 남긴다. compose·worker 컨테이너·테스트 로그는 `e2e-record` artifact에 있다(worker 컨테이너는 끝나면 지워지므로 `docker events`로 시작마다 로그를 따라가 저장한다). `quickstart`는 새 clone에서 문서의 `bash` 블록을 블록마다 출력하며 실행한다 — 문서를 고쳐 명령이 깨지면 여기서 실패한다. 실행하지 말아야 할 블록은 문서에서 `sh`나 `text`로 적는다.
+
+`main` branch protection은 **`check`와 `integration`을 둘 다 required로** 켜 두었다. 재구성 전에는 `check` 하나가 PostgreSQL·LocalStack 검증까지 포함했으므로, 이름이 같다는 이유로 `check`만 required로 두면 `integration`이 실패한 PR도 머지된다. `spikes`는 required에서 제외한다. **`workspace-quota`는 아직 required가 아니다** — 켤 때 함께 넣는다. 이 job이 확인하는 것(상한이 실제로 무는지)은 다른 어떤 job도 확인하지 못하므로, required가 아닌 동안에는 빨간 `workspace-quota`를 사람이 직접 봐야 머지를 막을 수 있다.
+
+**건너뛴 job은 GitHub의 required-check 판정에서 성공으로 센다** — 성공 상태는 `success`·`skipped`·`neutral` 셋이다([Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)). 비용 절감을 위해 job을 건너뛰게 만든 이번 변경은 그래서 두 가지 주의를 남긴다.
+
+1. `needs`로 건너뛴 `integration`도 통과로 보이므로 `integration`만 required로 두면 안 된다. `check`도 함께 required여야 `check` 실패가 머지를 막는다.
+2. `only=`를 쓴 수동 실행은 건너뛴 job을 **그 커밋에 성공으로 기록한다.** branch protection을 켠 뒤에는 PR head SHA에 대고 `only=`를 쓰지 않는다. 필요하면 PR을 열기 전 브랜치에서 쓰거나, 검증은 PR 자동 실행에 맡긴다.
+
+반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.

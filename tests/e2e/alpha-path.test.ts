@@ -23,17 +23,22 @@ function client(): Api {
   return api;
 }
 
-/** Settles a turn, allowing every permission request it raises. */
-async function drive(sessionId: string, turnId: string): Promise<Turn> {
+/**
+ * Settles a turn that must not ask anything: a read-only command runs
+ * without a permission request, and docs/quickstart.md answers none there.
+ */
+async function settleUnasked(sessionId: string, turnId: string): Promise<Turn> {
   const api = client();
   return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
     const turn = await api.turn(sessionId, turnId);
-    if (!["queued", "running", "needs_input"].includes(turn.status))
+    if (!["queued", "running", "needs_input"].includes(turn.status)) {
       return turn;
-    for (const request of await api.pending(sessionId)) {
-      if (request.turn_id === turnId) {
-        await api.allow(sessionId, request.request_id);
-      }
+    }
+    const asked = (await api.pending(sessionId)).filter(
+      (request) => request.turn_id === turnId,
+    );
+    if (asked.length > 0) {
+      throw new Error(`turn ${turnId} asked: ${JSON.stringify(asked)}`);
     }
     return null;
   });
@@ -115,6 +120,7 @@ describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
         "runs turn 3",
         (s) => s.current_turn_id === slow.turn_id && s.status === "running",
       );
+      await api.modelCallSeen("q3", 0);
       const interrupt = await api.control(sessionId, "interrupt", {
         target_turn_id: slow.turn_id,
       });
@@ -162,7 +168,7 @@ describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
         sessionId,
         scripted("q4", [bash("cat hello.txt")], "restored"),
       );
-      expect((await drive(sessionId, afterResume.turn_id)).status).toBe(
+      expect((await settleUnasked(sessionId, afterResume.turn_id)).status).toBe(
         "completed",
       );
       const catResult = (
@@ -185,6 +191,7 @@ describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
         "runs the doomed turn",
         (s) => s.current_turn_id === doomed.turn_id && s.status === "running",
       );
+      await api.modelCallSeen("q5", 0);
       const terminate = await api.control(sessionId, "terminate", {
         expected_revision: await revision(sessionId),
         reason: "e2e",
@@ -230,7 +237,9 @@ describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
         sessionId,
         scripted("q6", [bash("cat hello.txt")], "still here"),
       );
-      expect((await drive(sessionId, last.turn_id)).status).toBe("completed");
+      expect((await settleUnasked(sessionId, last.turn_id)).status).toBe(
+        "completed",
+      );
     },
     TIMEOUT,
   );
@@ -338,6 +347,47 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
   );
 
   test(
+    "two requests of one turn are each answered by their own id",
+    async () => {
+      const api = client();
+      // Claude Code asks for one tool at a time, even for tool calls the
+      // model sent together, so one turn never holds two open requests; what
+      // can go wrong is an answer landing on the next one.
+      const created = await api.createSession(
+        scripted(
+          "t1",
+          [bash("echo one > one.txt"), bash("echo two > two.txt")],
+          "both written",
+        ),
+      );
+      const sessionId = created.body.session_id;
+      const [first] = await api.pendingUntil(sessionId, 1);
+      await api.allow(sessionId, must(first).request_id);
+      const second = await poll("the second request", 180_000, async () => {
+        const items = await api.pending(sessionId);
+        const next = items.find(
+          (item) => item.request_id !== must(first).request_id,
+        );
+        return next ?? null;
+      });
+      const again = await api.request<ErrorBody>(
+        "POST",
+        `/v1/sessions/${sessionId}/answers`,
+        {
+          request_id: must(first).request_id,
+          kind: "permission",
+          decision: "allow",
+        },
+      );
+      expect(again.status).toBe(409);
+      expect(again.body.error.code).toBe("REQUEST_EXPIRED");
+      await api.allow(sessionId, second.request_id);
+      expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+    },
+    TIMEOUT,
+  );
+
+  test(
     "an interrupt racing the next message stops only its target",
     async () => {
       const api = client();
@@ -350,6 +400,7 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
         "runs turn 1",
         (s) => s.current_turn_id === "1" && s.status === "running",
       );
+      await api.modelCallSeen("r1", 0);
       const [interrupt, next] = await Promise.all([
         api.control(sessionId, "interrupt", { target_turn_id: "1" }),
         api.send(sessionId, scripted("r2", [], "next one")),
