@@ -1,5 +1,6 @@
 /**
- * Writing a checkpoint's untracked files back without leaving the workspace.
+ * Writing a checkpoint's untracked files back without leaving the workspace,
+ * and reading them for a capture the same way.
  *
  * A manifest names each untracked file by a workspace-relative path, and
  * finalize checks that path as text. Text is not enough: the bundle checkout
@@ -237,6 +238,101 @@ export async function writeWorkspaceFile(input: {
     // Not swallowed: a close that fails can be the write failing late.
     await file.close();
     return undefined;
+  } finally {
+    if (parent !== undefined) await closeDirectory(parent);
+  }
+}
+
+export type WorkspaceFileRead =
+  | { bytes: Uint8Array; status: "read" }
+  | { reason: string; status: "refused" };
+
+// Non-blocking so a FIFO planted at the path opens at once and is refused by
+// the fstat below, rather than hanging the capture until a writer shows up.
+const EXISTING_FILE = O_RDONLY | O_NOFOLLOW | constants.O_NONBLOCK;
+
+/**
+ * Reads the regular file at `path` under `workspaceRoot` with the same
+ * descriptor walk the writer uses, so capturing an untracked file never
+ * follows a symlink. That matters more on this side: the capture runs in the
+ * worker process, and an untracked `x -> /proc/self/environ` read by path
+ * would upload the worker's own environment — its object store and model
+ * credentials — into a checkpoint that the next restore writes into the
+ * engine's workspace.
+ *
+ * Anything that is not a regular file, or is larger than `maxBytes`, is
+ * refused. Faults that are not about the file itself (EIO) throw.
+ */
+export async function readWorkspaceFile(input: {
+  maxBytes: number;
+  path: string;
+  workspaceRoot: string;
+  fdDirectory?: string;
+}): Promise<WorkspaceFileRead> {
+  const { maxBytes, path, workspaceRoot } = input;
+  const fdDirectory = input.fdDirectory ?? "/proc/self/fd";
+  assertWorkspaceRoot(workspaceRoot);
+  const refused = (reason: string): WorkspaceFileRead => ({
+    status: "refused",
+    reason: `untracked file ${JSON.stringify(path)} ${reason}`,
+  });
+  const problem = workspacePathProblem(path);
+  if (problem !== undefined) return refused(problem);
+  let parent: FileHandle | undefined;
+  try {
+    const root = await openDirectory(workspaceRoot);
+    if (root === "missing" || root === "refused") {
+      return refused(`has no workspace root: ${workspaceRoot}`);
+    }
+    parent = root;
+    if (!(await addressable(root, fdDirectory))) {
+      return refused(
+        `cannot be read safely: ${fdDirectory} does not address directories by descriptor here`,
+      );
+    }
+    const names = path.split("/");
+    const leaf = names.pop() as string;
+    for (const name of names) {
+      const child = await openDirectory(`${fdDirectory}/${parent.fd}/${name}`);
+      if (child === "missing" || child === "refused") {
+        return refused("is not under directories inside the workspace");
+      }
+      await closeDirectory(parent);
+      parent = child;
+    }
+    let file: FileHandle;
+    try {
+      file = await open(`${fdDirectory}/${parent.fd}/${leaf}`, EXISTING_FILE);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === "ENOENT") return refused("is gone");
+      if (!CONFINEMENT_ERRORS.has(code ?? "")) throw error;
+      return refused(`is not a regular file (${code})`);
+    }
+    try {
+      const info = await file.stat();
+      if (!info.isFile()) return refused("is not a regular file");
+      if (info.size > maxBytes) {
+        return refused(`is ${info.size} bytes, over the ${maxBytes} left`);
+      }
+      // One byte past what fstat said, so a file that grew between the two is
+      // noticed instead of silently cut at its old length.
+      const buffer = new Uint8Array(info.size + 1);
+      let filled = 0;
+      while (filled < buffer.byteLength) {
+        const { bytesRead } = await file.read(
+          buffer,
+          filled,
+          buffer.byteLength - filled,
+        );
+        if (bytesRead === 0) break;
+        filled += bytesRead;
+      }
+      if (filled !== info.size) return refused("changed while it was read");
+      return { status: "read", bytes: buffer.subarray(0, filled) };
+    } finally {
+      await file.close().catch(() => undefined);
+    }
   } finally {
     if (parent !== undefined) await closeDirectory(parent);
   }

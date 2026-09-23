@@ -225,7 +225,12 @@ for (const [name, createObjects] of backends) {
         runtime,
         "attempt-stale",
       );
-      const staleRef = manifestRefFor(sessionId, 0, "attempt-stale", PUBLISH_ID);
+      const staleRef = manifestRefFor(
+        sessionId,
+        0,
+        "attempt-stale",
+        PUBLISH_ID,
+      );
       expect(await objects.putImmutable(staleRef, stale.bytes)).toEqual({
         outcome: "created",
       });

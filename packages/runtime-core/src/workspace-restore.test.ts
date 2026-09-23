@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import {
   link,
@@ -16,6 +17,7 @@ import { join } from "node:path";
 import { restorePlanResponseSchema } from "@agent-platform/contracts";
 
 import {
+  readWorkspaceFile,
   restoreCwdRefusal,
   restoreRefusal,
   workspacePathProblem,
@@ -341,6 +343,110 @@ describe("writeWorkspaceFile", () => {
         }),
       ).toEqual(restoreRefusal(`workspace root ${aliased} is not a directory`));
       expect(existsSync(join(root, "file"))).toBe(false);
+    });
+  });
+});
+
+describe("readWorkspaceFile", () => {
+  let scratch: string;
+  let root: string;
+  let outside: string;
+
+  beforeEach(async () => {
+    scratch = await mkdtemp(join(tmpdir(), "94s-246-capture-"));
+    root = join(scratch, "workspace");
+    outside = join(scratch, "outside");
+    await mkdir(root);
+    await mkdir(outside);
+    await writeFile(join(outside, "secret"), "worker-only\n");
+  });
+
+  afterEach(async () => {
+    await rm(scratch, { force: true, recursive: true });
+  });
+
+  function read(path: string, maxBytes = 1024, fdDirectory?: string) {
+    return readWorkspaceFile({
+      maxBytes,
+      path,
+      workspaceRoot: root,
+      ...(fdDirectory === undefined ? {} : { fdDirectory }),
+    });
+  }
+
+  test("refuses without a descriptor directory instead of walking paths", async () => {
+    await writeFile(join(root, "notes.md"), "x");
+    expect(await read("notes.md", 1024, join(scratch, "no-procfs"))).toEqual({
+      status: "refused",
+      reason: `untracked file "notes.md" cannot be read safely: ${join(scratch, "no-procfs")} does not address directories by descriptor here`,
+    });
+  });
+
+  test("refuses an unsafe path before touching the disk", async () => {
+    expect(await read("../outside/secret")).toEqual({
+      status: "refused",
+      reason: 'untracked file "../outside/secret" has a ".." segment',
+    });
+  });
+
+  describe.skipIf(!existsSync("/proc/self/fd"))("with procfs", () => {
+    test("reads a nested regular file", async () => {
+      await mkdir(join(root, "src/deep"), { recursive: true });
+      await writeFile(join(root, "src/deep/notes.md"), "captured\n");
+
+      const result = await read("src/deep/notes.md");
+
+      expect(result.status).toBe("read");
+      if (result.status === "read") {
+        expect(new TextDecoder().decode(result.bytes)).toBe("captured\n");
+      }
+    });
+
+    test("never follows a leaf symlink, so the worker's own files stay out", async () => {
+      await symlink(join(outside, "secret"), join(root, "planted"));
+      // What the engine would plant to read the capturing process itself.
+      await symlink(join("/proc", "self", "status"), join(root, "self"));
+
+      expect(await read("planted")).toMatchObject({
+        status: "refused",
+        reason: expect.stringMatching(/is not a regular file \(ELOOP\)/),
+      });
+      expect(await read("self")).toMatchObject({ status: "refused" });
+    });
+
+    test("never follows a symlinked directory on the way", async () => {
+      await symlink(outside, join(root, "out"));
+
+      expect(await read("out/secret")).toEqual({
+        status: "refused",
+        reason:
+          'untracked file "out/secret" is not under directories inside the workspace',
+      });
+    });
+
+    test("refuses a FIFO at once instead of blocking on it", async () => {
+      execFileSync("mkfifo", [join(root, "pipe")]);
+
+      expect(await read("pipe")).toEqual({
+        status: "refused",
+        reason: 'untracked file "pipe" is not a regular file',
+      });
+    });
+
+    test("refuses a file larger than what is left of the budget", async () => {
+      await writeFile(join(root, "big.bin"), new Uint8Array(2048));
+
+      expect(await read("big.bin", 1024)).toEqual({
+        status: "refused",
+        reason: 'untracked file "big.bin" is 2048 bytes, over the 1024 left',
+      });
+    });
+
+    test("reports a file that vanished since it was listed", async () => {
+      expect(await read("gone.txt")).toEqual({
+        status: "refused",
+        reason: 'untracked file "gone.txt" is gone',
+      });
     });
   });
 });

@@ -259,7 +259,12 @@ function serviceOwnedBy(owner: CheckpointFence) {
 
 /** Uploads a manifest the way a worker would, and returns the ref for it. */
 async function upload(body: CheckpointManifest, attempt = attemptId) {
-  const manifestRef = manifestRefFor(body.sessionId, body.revision, attempt, PUBLISH_ID);
+  const manifestRef = manifestRefFor(
+    body.sessionId,
+    body.revision,
+    attempt,
+    PUBLISH_ID,
+  );
   const { bytes, sha256: digest } = codec.encode(body);
   const result = await objects.putImmutable(manifestRef, bytes);
   return {
@@ -367,7 +372,11 @@ describe("requestCheckpoint", () => {
       expect(await objects.putImmutable(manifestRef, bytes)).toEqual({
         outcome: "created",
       });
-      return { manifest_ref: manifestRef, manifest_sha256: digest, revision: 0 };
+      return {
+        manifest_ref: manifestRef,
+        manifest_sha256: digest,
+        revision: 0,
+      };
     };
 
     // Uploaded, and then its turn was finalized without it.
@@ -1151,7 +1160,11 @@ describe("finalize", () => {
       await objects.put(key, bytes);
       expect(
         await service.finalize({
-          checkpoint: { manifest_ref: key, manifest_sha256: digest, revision: 0 },
+          checkpoint: {
+            manifest_ref: key,
+            manifest_sha256: digest,
+            revision: 0,
+          },
           fence: fence(),
           now: new Date(),
           sessionId,
