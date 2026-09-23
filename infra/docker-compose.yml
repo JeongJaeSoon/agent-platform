@@ -416,10 +416,11 @@ services:
   # (a fenced epoch, `desired_state = terminated`); the scheduler does the
   # removal and confirms it. No env_file either: HEARTBEAT_TTL_SEC belongs to
   # the API, and the reconciler refuses to start if it is set.
+  #
+  # No build either: it runs the image the api service builds, and a second
+  # service building the same tag races it on export. Starting it on its own
+  # needs that image first (`docker compose build api`).
   reconciler:
-    build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
     command: ["bun", "run", "apps/reconciler/src/loop.ts"]

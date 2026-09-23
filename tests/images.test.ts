@@ -148,7 +148,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the reconciler runs by default as a supervised loop in the apps profile", () => {
     expect(reconcilerBlock.length).toBeGreaterThan(0);
     expect(reconcilerBlock).toContain('profiles: ["apps"]');
-    expect(reconcilerBlock).toContain("dockerfile: apps/api/Dockerfile");
+    // It runs the image the api service builds rather than building the
+    // same tag a second time, which races the api build on export.
+    const { api, reconciler } = composeServices("infra/docker-compose.yml");
+    expect(api?.build?.dockerfile).toBe("apps/api/Dockerfile");
+    expect(reconciler?.build).toBeUndefined();
+    expect(reconciler?.image).toBe(api?.image);
     expect(reconcilerBlock).toContain(
       'command: ["bun", "run", "apps/reconciler/src/loop.ts"]',
     );
@@ -277,6 +282,11 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
   });
 
   test("every image is built here or pinned by index digest", () => {
+    const builtImages = new Set(
+      Object.values(services)
+        .filter((service) => service.build)
+        .map((service) => service.image),
+    );
     for (const [name, service] of Object.entries(services)) {
       if (service.build) {
         // Built images are released by digest through images.yml.
@@ -290,6 +300,7 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
         expect(apps).toContain(app as (typeof apps)[number]);
         continue;
       }
+      if (builtImages.has(service.image)) continue;
       expect({ name, image: service.image }).toEqual({
         name,
         image: expect.stringMatching(/^[^@\s]+@sha256:[0-9a-f]{64}$/),
