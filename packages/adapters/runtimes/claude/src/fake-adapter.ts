@@ -11,16 +11,13 @@ import type {
   RuntimeCapabilities,
   RuntimeHooks,
 } from "@agent-platform/runtime-core";
-import type {
-  SDKResultError,
-  TerminalReason,
-} from "@anthropic-ai/claude-agent-sdk";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
+import type { InterruptedResult } from "./run.ts";
 import { type ToolAdmission, TurnLedger } from "./turn-ledger.ts";
 
 export type FakeStep =
@@ -332,16 +329,7 @@ class FakeRun implements AgentRun {
 
 // Typed against the SDK: a value no real run sends would let a host that
 // branches on it pass here and fail against the engine.
-type InterruptedResult = Pick<
-  SDKResultError,
-  | "is_error"
-  | "session_id"
-  | "subtype"
-  | "terminal_reason"
-  | "type"
-  | "user_message_uuid"
-  | "user_message_uuids"
->;
+type TerminalReason = NonNullable<InterruptedResult["terminal_reason"]>;
 
 // An interrupt drops every queued input, so the terminal frame attributes all
 // of them the way the SDK attributes a batch: last uuid plus the full list.
