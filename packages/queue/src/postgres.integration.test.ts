@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@agent-platform/db";
 import {
   queueMessages,
-  release,
   sessions,
   unassignedSessions,
 } from "@agent-platform/db";
@@ -11,12 +10,41 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { PostgresQueue } from "./postgres.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// A legacy pod giving its session up: pod_id cleared, then the session
+// re-signalled if input is already waiting. What enqueue has to race without
+// losing the signal.
+async function release(
+  db: NodePgDatabase<typeof schema>,
+  sessionId: string,
+  podId: string,
+) {
+  await db.transaction(async (tx) => {
+    const [released] = await tx
+      .update(sessions)
+      .set({ podId: null })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.podId, podId)))
+      .returning({ id: sessions.id });
+    if (!released) return;
+    const [pending] = await tx
+      .select({ id: queueMessages.id })
+      .from(queueMessages)
+      .where(eq(queueMessages.sessionId, sessionId))
+      .limit(1);
+    if (pending) {
+      await tx
+        .insert(unassignedSessions)
+        .values({ sessionId })
+        .onConflictDoNothing({ target: unassignedSessions.sessionId });
+    }
+  });
+}
 
 integration("PostgresQueue on PostgreSQL", () => {
   let database: TempDatabase;

@@ -13,6 +13,7 @@ import {
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
+  OPEN_TURN_STATUSES,
   parseTurnSequence,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
@@ -27,7 +28,6 @@ import {
 } from "./schema.ts";
 import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 import { interruptReceiptResult } from "./turn-interrupts.ts";
-import { OPEN_TURN_STATUSES } from "./worker-unit-of-work.ts";
 
 const INTERRUPT = "interrupt";
 

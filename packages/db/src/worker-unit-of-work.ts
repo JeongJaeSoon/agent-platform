@@ -65,9 +65,12 @@ import {
 } from "drizzle-orm";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
+  ENDED_ATTEMPT_STATES,
   hasRestorePoint,
+  INPUT_RECEIPT_OPERATIONS,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
+  parseTurnSequence,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
@@ -109,8 +112,6 @@ import {
 import { recordEvent, recordStatus } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
-export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
-
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a
 // late "starting" cannot walk a running attempt backwards for readers.
@@ -119,12 +120,6 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   running: 1,
   draining: 2,
 };
-export { OPEN_TURN_STATUSES };
-const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
-const TURN_ID = /^[1-9]\d{0,9}$/;
-// turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
-// not reach the query, where it would fail with 22003 instead of not-found.
-const SEQUENCE_MAX = 2_147_483_647;
 
 // finalize never reports `cancelled`: that terminal comes from an operator
 // recovery decision, not from the worker.
@@ -301,7 +296,7 @@ async function probeFinalize(
   | { state: "open"; turn: typeof turns.$inferSelect; terminalHash: string }
   | { state: "settled"; result: FinalizeResult }
 > {
-  const sequence = parseTurnId(input.turnId);
+  const sequence = parseTurnSequence(input.turnId);
   const query = sequence
     ? tx
         .select()
@@ -394,12 +389,6 @@ async function contiguousThrough(
       ),
     );
   return end?.through ?? 0;
-}
-
-export function parseTurnId(turnId: string): number | null {
-  if (!TURN_ID.test(turnId)) return null;
-  const sequence = Number(turnId);
-  return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
 /**
@@ -1394,7 +1383,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         let turnRowId: number | null = null;
         let turnStatus: string | null = null;
         if (input.turnId !== null) {
-          const sequence = parseTurnId(input.turnId);
+          const sequence = parseTurnSequence(input.turnId);
           // Only the turn this attempt is running: the fence alone would let
           // a live worker write history onto a queued or foreign turn.
           const [turn] = sequence

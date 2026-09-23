@@ -17,13 +17,13 @@ import {
   lte,
   notInArray,
 } from "drizzle-orm";
+import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { attempts, checkpoints, sessions, turns } from "./schema.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
-  ENDED_ATTEMPT_STATES,
   readCheckpointPointer,
 } from "./worker-unit-of-work.ts";
 

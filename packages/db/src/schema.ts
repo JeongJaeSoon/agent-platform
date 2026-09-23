@@ -744,6 +744,10 @@ export const controlIntents = pgTable(
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (table) => [
+    // Only interrupt rows are ever written. A pause travels as the session's
+    // `pausing` admission state and a terminate as executions.desired_state;
+    // the two stay allowed only because narrowing the CHECK would cost a
+    // migration for no row that exists.
     check(
       "control_intents_kind_check",
       sql`${table.kind} IN ('interrupt', 'pause', 'terminate')`,

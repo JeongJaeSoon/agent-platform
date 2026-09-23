@@ -22,6 +22,11 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
+import {
+  ENDED_ATTEMPT_STATES,
+  findIdempotent,
+  lockIdempotencyScope,
+} from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -35,7 +40,6 @@ import {
 import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 
 const ANSWER = "answer";
-const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 // Stored statuses of a session or turn in flight. No writer stores
 // needs_input any more; a row that holds it reads like running, so the
 // public status never contradicts pending_request_count.
@@ -226,17 +230,6 @@ export function publicPendingRequest(row: {
     : { ...base, kind: "question", questions: payload.questions };
 }
 
-// Same discipline as the other commands: the advisory lock goes first so a
-// same-key race is settled before any row lock is taken.
-async function lockIdempotencyScope(
-  tx: Database,
-  scope: { principal: string; resource: string; key: string },
-) {
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${JSON.stringify([scope.principal, ANSWER, scope.resource, scope.key])}))`,
-  );
-}
-
 function answerMismatch(
   payload: StoredPayload,
   answer: AnswerRequestInput["answer"],
@@ -287,28 +280,13 @@ export function createPostgresPendingRequests(
       const sessionId = input.sessionId.toLowerCase();
       const scope = {
         principal: input.principal.ownerId,
+        operation: ANSWER,
         resource: sessionId,
         key: input.idempotencyKey,
       };
       return db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
-        const [existing] = await tx
-          .select({
-            payloadHash: idempotencyKeys.payloadHash,
-            receiptId: receipts.id,
-            status: receipts.status,
-          })
-          .from(idempotencyKeys)
-          .innerJoin(receipts, eq(receipts.id, idempotencyKeys.receiptId))
-          .where(
-            and(
-              eq(idempotencyKeys.principal, scope.principal),
-              eq(idempotencyKeys.operation, ANSWER),
-              eq(idempotencyKeys.resource, scope.resource),
-              eq(idempotencyKeys.key, scope.key),
-            ),
-          )
-          .limit(1);
+        const existing = await findIdempotent(tx, scope);
         if (existing) {
           if (existing.payloadHash !== input.payloadHash) {
             return { outcome: "conflict" };

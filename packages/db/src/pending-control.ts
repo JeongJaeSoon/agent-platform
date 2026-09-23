@@ -8,6 +8,7 @@ import type {
   WorkerPendingStore,
 } from "@agent-platform/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { openPauseReceipt } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
@@ -20,12 +21,7 @@ import {
   recordStatus,
 } from "./session-events.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
-import {
-  acquireFence,
-  leaseHeld,
-  OPEN_TURN_STATUSES,
-  parseTurnId,
-} from "./worker-unit-of-work.ts";
+import { acquireFence, leaseHeld } from "./worker-unit-of-work.ts";
 
 // What the worker's word does to the answer's receipt. `answered` means the
 // callback got it, whatever it decided; the other two mean the answer was
@@ -93,7 +89,7 @@ export function createPostgresWorkerPendingStore(
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
-        const sequence = parseTurnId(input.turnId);
+        const sequence = parseTurnSequence(input.turnId);
         const [turn] = sequence
           ? await tx
               .select({ id: turns.id, status: turns.status })

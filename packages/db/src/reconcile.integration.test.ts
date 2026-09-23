@@ -17,12 +17,12 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { reconcileExpiredLeases } from "./lease-reconcile.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { claim, reconcileOrphanedSessions } from "./queries.ts";
+import { type Database, reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -38,6 +38,25 @@ import {
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// A legacy pod taking an unowned session: the claimant the orphan
+// reconciler hands the session back to.
+async function claim(db: Database, sessionId: string, podId: string) {
+  return db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(schema.sessions)
+      .set({ podId, status: "running" })
+      .where(
+        and(eq(schema.sessions.id, sessionId), isNull(schema.sessions.podId)),
+      )
+      .returning();
+    if (!claimed) return null;
+    await tx
+      .delete(schema.unassignedSessions)
+      .where(eq(schema.unassignedSessions.sessionId, sessionId));
+    return claimed;
+  });
+}
 // Leases end on the database clock (94S-211), so these tests wait for real
 // time to pass; short enough to keep the file quick, long enough that a
 // slow round trip does not cross a boundary on its own.

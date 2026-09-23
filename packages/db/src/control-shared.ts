@@ -10,8 +10,9 @@ import {
 } from "./schema.ts";
 
 const TURN_ID = /^[1-9]\d{0,9}$/;
-// turns.sequence is a PostgreSQL integer.
-const SEQUENCE_MAX = 2_147_483_647;
+// turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
+// not reach the query, where it would fail with 22003 instead of not-found.
+export const SEQUENCE_MAX = 2_147_483_647;
 
 /**
  * A public turn id as a sequence, by the same canonical rule as the turn
@@ -25,6 +26,7 @@ export function parseTurnSequence(turnId: string): number | null {
 }
 
 export const OPEN_TURN_STATUSES = ["running", "needs_input"];
+export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 
 // What a worker may be launched for and claim: an active session, and a
 // resuming one, whose new worker restores the pause's checkpoint first.
@@ -42,8 +44,9 @@ export type IdempotencyScope = {
   key: string;
 };
 
-// Same discipline as the input path: the advisory lock goes first so a
-// same-key race is settled before any row lock is taken.
+// An advisory lock serializes same-key races; SELECT FOR UPDATE cannot lock a
+// row that does not exist yet. Always taken before any row lock so every
+// transaction acquires locks in the same order.
 export async function lockIdempotencyScope(
   tx: Database,
   scope: IdempotencyScope,
@@ -58,6 +61,7 @@ export async function findIdempotent(tx: Database, scope: IdempotencyScope) {
     .select({
       payloadHash: idempotencyKeys.payloadHash,
       receiptId: receipts.id,
+      result: receipts.result,
       status: receipts.status,
     })
     .from(idempotencyKeys)
