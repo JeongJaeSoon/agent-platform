@@ -102,8 +102,10 @@ note "postgres after: ${new_address}"
 
 ready_after=""
 while [ $(($(date +%s) - restarted_at)) -le "$deadline_sec" ]; do
+  # Its own statement, so set -e ends the run when the log cannot be read.
+  connects="$(listener_connects)"
   if [ "$(readyz)" = 200 ] && [ "$(limits)" = 200 ] &&
-    [ "$(listener_connects)" -gt "$connects_before" ]; then
+    [ "$connects" -gt "$connects_before" ]; then
     ready_after=$(($(date +%s) - restarted_at))
     break
   fi
