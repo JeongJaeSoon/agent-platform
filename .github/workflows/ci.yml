@@ -60,15 +60,30 @@ jobs:
   # The same suite with every opt-in variable on, so `bun run test` reports
   # zero skips. Filtering by file name would miss opt-in tests that do not
   # follow the *.integration.test.ts convention.
-  integration:
-    # No service containers when the fast checks already failed. `skipped` is
-    # not `failure`: `only=integration` skips `check` and must still run this.
-    needs: check
-    if: >-
-      !cancelled() && needs.check.result != 'failure'
-      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
+  #
+  # Split by file across runners (94S-297): one bun process over every file
+  # took 6m30s. Each shard is its own VM with its own PostgreSQL, LocalStack
+  # and Docker daemon, so shards share nothing a test could race on; within a
+  # shard the files run exactly as they did in the single job.
+  #
+  # The shards start alongside `check` instead of after it. Waiting on `check`
+  # only saved runner minutes on a red run, and a public repository does not
+  # pay for those; it cost every green PR the whole of `check` (~5m) in wall
+  # time. Three shards, not more: each PR run then holds four jobs at once, so
+  # five PRs in flight fit the free plan's 20 concurrent jobs without queueing,
+  # and a fourth shard would only save ~30s behind a `check` that takes longer.
+  integration-shard:
+    name: integration (${{ matrix.shard }}/${{ strategy.job-total }})
+    if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    # Ceiling for a shard measured at about 3m.
+    timeout-minutes: 8
+    strategy:
+      # A failing shard must not cancel the rest: each one's failures are
+      # their own, and a cancelled shard would hide them until the next push.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: postgres:16
@@ -113,9 +128,42 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
-      - run: bun run test
+      - name: Tests of this shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
+        # An assignment, not process substitution, so a planner failure fails
+        # the step instead of handing `bun test` an empty list — which it
+        # would read as the whole suite.
+        run: |
+          files=$(bun .github/scripts/test-shard.ts "$SHARD" "$TOTAL")
+          mapfile -t files <<<"$files"
+          bun test "${files[@]}"
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
-      - run: bun test ./apps/api/src/server.integration.ts
+      - if: matrix.shard == 1
+        run: bun test ./apps/api/src/server.integration.ts
+
+  # The required check. Branch protection names `integration`, and a matrix
+  # reports one context per shard, so this job stands in for all of them:
+  # green only when every shard passed. A skipped required check counts as
+  # passing, so this must never skip once the shards were meant to run:
+  # `always()`, not the default (which skips after a failed shard) nor
+  # `!cancelled()` (which skips when the run is cancelled after a shard has
+  # already failed). Anything but `success` fails — a failed, cancelled,
+  # timed-out or skipped shard.
+  integration:
+    needs: integration-shard
+    if: >-
+      always()
+      && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.integration-shard.result }}
+        run: |
+          echo "integration shards: $RESULT"
+          [ "$RESULT" = success ]
 
   # The only place the workspace byte ceiling can actually be exercised. The
   # `local` volume driver honours `size` only when the storage under the

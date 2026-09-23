@@ -329,11 +329,15 @@ curl -s http://127.0.0.1:3000/readyz
 
 `.github/workflows/images.yml`은 ci.yml과 별도 workflow로 세 앱 이미지를 빌드·smoke하고 digest artifact를 남긴다([§ 이미지와 Compose `apps` profile](#이미지와-compose-apps-profile)). 아래는 ci.yml이다.
 
-`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 먼저 `check`를 실행하고, 성공하면 `integration`을 돌린다. 기본 검사 실패·취소 시에는 무거운 서비스 컨테이너를 시작하지 않는다. 성공한 변경의 테스트 범위는 그대로지만, 실패한 변경에서는 통합 진단 결과를 얻으려면 먼저 `check`를 고쳐야 한다. 성공 경로의 대기 시간은 `check` 실행 시간만큼 늘어날 수 있다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+`.github/workflows/ci.yml`은 `main` push와 모든 pull request에서 `check`와 integration 샤드 3개를 **동시에** 시작한다(94S-297). 예전에는 `check`가 성공해야 `integration`을 돌려 실패한 변경에서 서비스 컨테이너 분을 아꼈지만, 저장소가 public이 된 뒤로 그 분은 무료이고 대가였던 대기(`check` 약 5분 + `integration` 약 7분 30초 직렬)만 남아 있었다. 같은 커밋이 push와 pull_request로 두 번 돌지 않게 push는 `main`으로만 제한했다.
+
+integration 스위트는 파일 단위로 3개 샤드(`integration (1/3)`…`(3/3)`)에 나뉘어 각자의 runner에서 돈다. 샤드마다 자기 PostgreSQL·LocalStack 서비스와 Docker daemon을 가지므로 샤드끼리 DB·컨테이너·네트워크를 공유하지 않는다 — 한 샤드 안에서는 파일들이 예전 단일 job과 똑같이 한 `bun test` 프로세스에서 순서대로 돈다. Bun 1.3에는 `--shard`가 없어 `.github/scripts/test-shard.ts`가 나눈다. `package.json`의 `test` 스크립트가 넘기는 필터(`tests packages apps`)로 Bun과 같은 규칙에 따라 테스트 파일을 찾고(Bun은 이 인자를 디렉터리가 아니라 저장소 기준 상대 경로의 부분 문자열로 맞춘다 — `xapps-e2e/a.test.ts`도 `apps`에 걸린다), 파일 크기를 무게로 삼아 가장 무거운 파일부터 가장 가벼운 샤드에 넣는다(실측 시간으로 나눈 것과 1~3% 차이라 시간표를 따로 관리하지 않는다). 모든 샤드가 같은 분할을 계산하고, 파일이 빠지거나 두 샤드에 들어가거나 빈 샤드가 생기면 출력 전에 실패한다 — 인자 없는 `bun test`는 전체 스위트를 돌리기 때문이다. `apps/api/src/server.integration.ts`는 테스트 파일 이름 규칙 밖이라 1번 샤드만 따로 돌린다.
+
+브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 샤드마다 context를 따로 올리므로 `integration`은 세 샤드를 기다리는 집계 job이다. 샤드 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 샤드가 실패했을 때, `!cancelled()`면 한 샤드가 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. 샤드는 `fail-fast: false`라 한 샤드의 실패가 다른 샤드를 취소하지 않는다. 샤드 수 3은 동시 job 한도에서 나왔다: PR run 하나가 한때 4개 job(`check` + 샤드 3)을 쥐므로 PR 5개가 동시에 돌아도 free plan의 동시 job 20개 안에 들어간다. 샤드를 4개로 늘리면 약 30초 줄지만 어차피 더 긴 `check`가 임계 경로다.
 
 `spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
 
-네 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, `integration` 4분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 10/12/15/15분으로 좁혔다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
+모든 job의 OS는 `ubuntu-24.04`로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 관측된 최장 실행(`check` 6분, integration 샤드 약 3분, `workspace-quota` 4분, `spikes` 6분)에 맞춰 10/8/15/15분으로 좁혔고, 샤드만 기다리는 집계 job `integration`은 2분이다. 한 번 멈춘 job이 태우는 분의 상한이지 정상 실행에 거는 제약이 아니다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 
@@ -360,15 +364,21 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
 | `check` | 없음 | 없음 | `bun run check` (typecheck → Biome → `bun test tests packages apps`) | ✅ |
-| `integration` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1`, `DOCKER_BACKEND_TEST=1` | `bun run test` + `bun test ./apps/api/src/server.integration.ts` | ✅ |
+| `integration (n/3)` | 샤드마다 `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1`, `DOCKER_BACKEND_TEST=1` | `bun test <test-shard.ts가 고른 파일>` (+ 1번 샤드만 `bun test ./apps/api/src/server.integration.ts`) | 집계로 |
+| `integration` | 없음 | 없음 | 세 샤드의 결과가 `success`인지 확인 | ✅ |
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ✅ |
 | `spikes` | `localstack/localstack:3` | `SESSION_STORE_LOCALSTACK_TEST=1` | `spikes/94s-91 probe:version`·`check`, `spikes/94s-92 check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
-`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 `integration`이 변수를 전부 켠 채 다시 돌려 skip 0으로 만든다. 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 `integration`의 skip 0을 같이 확인한다.
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 샤드들이 변수를 전부 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건은 남는다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check`의 skip 수와 integration 샤드들의 skip 합을 같이 확인한다. 샤드로 나뉜 뒤에는 세 샤드의 `N pass`·`across N files`를 더한 값이 예전 단일 job의 숫자다. 합계는 이렇게 낸다(1번 샤드의 `server.integration.ts` 3 pass 포함):
+
+```bash
+gh run view <run-id> --log | grep -E '^integration \([0-9]+/[0-9]+\)' | grep -oE '\s[0-9]+ (pass|fail)$' \
+  | awk '{s[$2]+=$1} END {printf "pass=%d fail=%d\n", s["pass"], s["fail"]}'
+```
 
 `DOCKER_BACKEND_TEST=1`은 runner에 딸린 Docker daemon으로 `LocalDockerBackend` 테스트를 돌리게 한다(94S-123). `SESSION_STORE_LOCALSTACK_TEST`는 `spikes/94s-92`만 읽으므로 `spikes` job에만 있다.
 
-`workspace-quota` job은 runner의 daemon으로는 확인할 수 없는 절 하나만을 위해 있다. workspace volume의 byte 상한은 daemon 저장소가 project quota를 감당할 때만 서는데(xfs + `prjquota`) runner의 data root는 ext4다. 그래서 이 job은 loop 파일에 xfs를 만들어 `prjquota`로 mount하고 그것을 data root로 쓰는 dind daemon을 띄운 뒤 workspace suite를 그쪽에 붙인다 — 상한을 넘는 `dd`가 실제로 `No space left on device`로 끝나는지, 그리고 volume을 지운 뒤 만든 다음 workspace에도 상한이 서는지 확인하는 곳은 여기뿐이다. 같은 suite가 `integration` job에서는 반대쪽 절을 확인한다: 상한을 걸 수 없는 daemon에서 scheduler가 기동을 거절하는지.
+`workspace-quota` job은 runner의 daemon으로는 확인할 수 없는 절 하나만을 위해 있다. workspace volume의 byte 상한은 daemon 저장소가 project quota를 감당할 때만 서는데(xfs + `prjquota`) runner의 data root는 ext4다. 그래서 이 job은 loop 파일에 xfs를 만들어 `prjquota`로 mount하고 그것을 data root로 쓰는 dind daemon을 띄운 뒤 workspace suite를 그쪽에 붙인다 — 상한을 넘는 `dd`가 실제로 `No space left on device`로 끝나는지, 그리고 volume을 지운 뒤 만든 다음 workspace에도 상한이 서는지 확인하는 곳은 여기뿐이다. 같은 suite가 integration 샤드에서는 반대쪽 절을 확인한다: 상한을 걸 수 없는 daemon에서 scheduler가 기동을 거절하는지.
 
 `spikes/94s-91`·`spikes/94s-92`는 조사용 harness이고 지금까지 CI 실패가 전부 flaky였다(제품 회귀 0건, 94S-198 조사 코멘트 참조). 그래서 `spikes` job은 `continue-on-error: true`로 workflow run을 실패시키지 않는다. 한쪽이 실패해도 다른 쪽은 그대로 실행한다.
 
