@@ -97,6 +97,11 @@ export type ClaimResult =
   // (94S-288). Nothing was bound: the session went to recovery_required in
   // the same transaction and the launch was asked to go.
   | { outcome: "context_gap" }
+  // The launch was reserved for a session whose (profile, repository, url,
+  // branch) this host's catalog no longer allows. The launch was given up on
+  // in the same transaction: the session is `failed` with CATALOG_MISMATCH
+  // and the launch is asked to go (94S-280).
+  | { outcome: "catalog_mismatch" }
   | { outcome: "no_session" };
 
 // The fence as it stood when the token was issued. A request body may not

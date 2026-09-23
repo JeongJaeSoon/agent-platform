@@ -30,6 +30,9 @@ export const API_ERROR_CODE_VALUES = [
   "TURN_NOT_STARTED",
   "BACKEND_UNAVAILABLE",
   "LAUNCH_FAILED",
+  // The catalog no longer allows the session's (profile, repository) pair,
+  // so no worker may run it until an operator restores the pair (94S-280).
+  "CATALOG_MISMATCH",
   "NOT_READY",
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",

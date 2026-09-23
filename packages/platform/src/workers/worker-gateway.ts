@@ -624,6 +624,14 @@ export function createWorkerGateway(deps: {
             "RECOVERY_REQUIRED",
             "The session has turns no checkpoint covers; an operator decides how it continues",
           );
+        // Not retryable: the session this launch was for has been failed and
+        // the launch asked to go, so a retry could only find nothing.
+        case "catalog_mismatch":
+          throw new WorkerGatewayError(
+            409,
+            "CATALOG_MISMATCH",
+            "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
+          );
         default: {
           const binding = result.binding;
           return {

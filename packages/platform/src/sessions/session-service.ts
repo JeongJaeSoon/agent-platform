@@ -162,6 +162,23 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
+  function catalogAllows(
+    profileId: string | null,
+    repositoryId: string | null,
+    url: string,
+    branch: string,
+  ): boolean {
+    const pair =
+      profileId && repositoryId
+        ? allowedPair(catalog, profileId, repositoryId)
+        : null;
+    return (
+      pair !== null &&
+      pair.repository.url === url &&
+      pair.repository.branch === branch
+    );
+  }
+
   function runtimeFor(profileId: string | null): SessionRuntime {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
     return {
@@ -528,13 +545,22 @@ export function createSessionService(deps: {
       if (!record) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const { profile_id, cost_usd, ...detail } = record;
+      const { profile_id, cost_usd, repo_url, branch, ...detail } = record;
       return {
         ...detail,
-        // Dispatch stops at the same predicate (nextInputAtomic), so what
-        // this says and what the gateway does come from one comparison.
         attention:
           detail.attention ??
+          // The claim matches the same four values (isRunnable), so this
+          // says exactly when no worker of this host would take the session.
+          (catalogAllows(profile_id, detail.repository_id, repo_url, branch)
+            ? null
+            : {
+                code: "CATALOG_MISMATCH",
+                reason:
+                  "The catalog does not allow this session's profile and repository pair; messages will not run until an operator restores it",
+              }) ??
+          // Dispatch stops at the same predicate (nextInputAtomic), so what
+          // this says and what the gateway does come from one comparison.
           (budgetExceeded(cost_usd, deps.limits.sessionCostLimitUsd)
             ? {
                 code: "BUDGET_EXCEEDED",

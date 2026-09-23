@@ -72,6 +72,11 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // What the session has spent; the service turns it into `attention`
   // against the current limit, so a changed limit applies at once.
   cost_usd: number;
+  // What the claim matches against the catalog, so the service can say the
+  // catalog no longer allows it (94S-280). Never exposed: the URL may embed
+  // a credential (94S-147).
+  repo_url: string;
+  branch: string;
 };
 
 export interface SessionUnitOfWork {

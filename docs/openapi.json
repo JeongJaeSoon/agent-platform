@@ -464,6 +464,7 @@
                   "TURN_NOT_STARTED",
                   "BACKEND_UNAVAILABLE",
                   "LAUNCH_FAILED",
+                  "CATALOG_MISMATCH",
                   "NOT_READY",
                   "CURSOR_EXPIRED",
                   "LEASE_EXPIRED",
@@ -1027,6 +1028,24 @@
                       "code",
                       "last_ran_turn_id",
                       "checkpointed_turn_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "CATALOG_MISMATCH"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
                     ],
                     "additionalProperties": false
                   }
@@ -2664,6 +2683,7 @@
                       "TURN_NOT_STARTED",
                       "BACKEND_UNAVAILABLE",
                       "LAUNCH_FAILED",
+                      "CATALOG_MISMATCH",
                       "NOT_READY",
                       "CURSOR_EXPIRED",
                       "LEASE_EXPIRED",

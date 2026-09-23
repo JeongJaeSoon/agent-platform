@@ -292,7 +292,7 @@ export interface SchedulerStore {
   /**
    * Opens a launch attempt before the provider is asked, and returns the
    * `launchAttempts` its failure must be recorded against; null when the
-   * launch moved on since `expectedAttempts` was read. A pass that lost its
+   * launch moved on since `expectedAttempts` was read, or was asked to go. A pass that lost its
    * lock while its ensure was out at the provider then reports a failure
    * for an attempt a later pass has already superseded, and is refused
    * instead of revoking the credential the later attempt's resource holds —

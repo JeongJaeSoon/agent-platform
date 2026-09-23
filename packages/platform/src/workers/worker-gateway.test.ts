@@ -539,6 +539,26 @@ describe("WorkerGateway", () => {
     ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
   });
 
+  test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409 (94S-280)", async () => {
+    const { instance } = gateway({
+      claimAtomic: async () => ({ outcome: "catalog_mismatch" }),
+    });
+    await expect(
+      instance.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "exec-1",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "nonce" },
+        },
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+      retryable: false,
+    });
+  });
+
   test("bootstrapClaim refuses workload_identity and non-bootstrap principals", async () => {
     const { instance } = gateway({});
     await expect(

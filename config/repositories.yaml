@@ -3,9 +3,10 @@
 #
 # `profiles` is the allowlist of profiles that may run against this
 # repository: the (profile, repository) pair is the unit of trust. A create
-# naming a pair not listed answers 422, and a queued session whose pair has
-# since been removed, or whose id now points at another URL or branch, is
-# not claimed.
+# naming a pair not listed answers 422. A session whose pair has since been
+# removed, or whose id now points at another URL or branch, is failed with
+# CATALOG_MISMATCH at its next launch; restoring the pair lets the next
+# message run it again, and nothing reruns on its own (README, 94S-280).
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query
