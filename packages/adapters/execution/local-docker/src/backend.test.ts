@@ -9,6 +9,7 @@ import {
   containerNameFor,
   ENV,
   ExecutionConflictError,
+  GatewayModeUnsupportedError,
   IsolationContractError,
   isolationStampFor,
   LABELS,
@@ -27,6 +28,8 @@ import {
   DockerTimeoutError,
 } from "./docker-client.ts";
 
+const GATEWAY_MODE_OPTION = "com.docker.network.bridge.gateway_mode_ipv4";
+
 type FakeContainer = {
   body: ContainerCreateBody;
   id: string;
@@ -39,11 +42,14 @@ type FakeNetwork = {
   /** Endpoints made by `connect`, keyed by container id. */
   attached: Map<string, { aliases: string[] }>;
   driver: string;
+  /** The host's address on the network; empty in the isolated mode. */
+  gateway: string;
   id: string;
   ipv6: boolean;
   internal: boolean;
   labels: Record<string, string>;
   name: string;
+  options: Record<string, string>;
 };
 
 /** A container that is not a worker: the egress proxy, or a stranger. */
@@ -78,6 +84,13 @@ class FakeDocker {
   refuseDisconnects = false;
   /** The next network create answers 409 as if a racer had just made it. */
   networkCreateRace: FakeNetwork | null = null;
+  /** What `GET /version` reports; 1.48 is Docker 28. */
+  apiVersion = "1.48";
+  /**
+   * A daemon from before Docker 27.1: it records a driver option it does not
+   * know and gives the host a gateway anyway.
+   */
+  ignoresGatewayMode = false;
   readonly requests: Array<{ method: string; path: string; query: string }> =
     [];
   /** Image name → the `VOLUME` paths it declares. */
@@ -124,11 +137,13 @@ class FakeDocker {
     const network: FakeNetwork = {
       attached: new Map(),
       driver: "bridge",
+      gateway: "",
       id: `net-${name}`,
       internal: true,
       ipv6: false,
       labels: {},
       name,
+      options: { [GATEWAY_MODE_OPTION]: "isolated" },
       ...overrides,
     };
     this.networks.set(name, network);
@@ -408,14 +423,21 @@ class FakeDocker {
         Id: `sha256:${name.replace(/[^a-z0-9]/g, "")}`,
       });
     }
+    if (request.method === "GET" && path === "/version") {
+      return json({ ApiVersion: this.apiVersion, Version: "fake" });
+    }
     const asNetwork = (network: FakeNetwork, withMembers: boolean) => ({
       Containers: withMembers ? this.membersOf(network) : {},
       Driver: network.driver,
       EnableIPv6: network.ipv6,
+      IPAM: {
+        Config: [{ Gateway: network.gateway, Subnet: "10.9.0.0/24" }],
+      },
       Id: network.id,
       Internal: network.internal,
       Labels: network.labels,
       Name: network.name,
+      Options: network.options,
     });
     if (request.method === "POST" && path === "/networks/create") {
       const body = (await request.json()) as {
@@ -424,6 +446,7 @@ class FakeDocker {
         Internal: boolean;
         Labels?: Record<string, string>;
         Name: string;
+        Options?: Record<string, string>;
       };
       if (this.networkCreateRace !== null) {
         const racer = this.networkCreateRace;
@@ -436,12 +459,19 @@ class FakeDocker {
           409,
         );
       }
+      const options = body.Options ?? {};
       const created = this.addNetwork(body.Name, {
         driver: body.Driver ?? "bridge",
+        gateway:
+          options[GATEWAY_MODE_OPTION] === "isolated" &&
+          !this.ignoresGatewayMode
+            ? ""
+            : "10.9.0.1",
         internal: body.Internal,
         // A daemon with IPv6 on by default: only an explicit false turns it off.
         ipv6: body.EnableIPv6 ?? true,
         labels: body.Labels ?? {},
+        options,
       });
       return json({ Id: created.id, Warning: "" }, 201);
     }
@@ -1222,6 +1252,16 @@ describe("LocalDockerBackend.inspect", () => {
     });
   });
 
+  test("a contract-5 container, whose network gives the host an address, is stale", async () => {
+    // Its settings are today's; only the contract number moved (94S-274).
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    const [, digest] = isolationStampFor(configFor(docker.host)).split(":");
+    body.Labels[LABELS.isolation] = `5:${digest}`;
+    docker.add(containerNameFor(intent, "test-a"), body);
+    expect(await backend.inspect(intent)).toMatchObject({ stale: true });
+  });
+
   test("a stale container is reported without the workspace being read", async () => {
     // Whether the replacement can be built is `assertReplaceable`'s question,
     // asked by the scheduler before it tears anything down. Answering it here
@@ -1650,6 +1690,8 @@ describe("LocalDockerBackend worker networks", () => {
     const network = networkOf(intent);
     expect(network).toMatchObject({
       driver: "bridge",
+      // The host keeps no address on it (94S-274).
+      gateway: "",
       internal: true,
       ipv6: false,
       labels: {
@@ -1732,6 +1774,169 @@ describe("LocalDockerBackend worker networks", () => {
     expect(nonceIssues).toBe(0);
   });
 
+  /**
+   * A worker made under contract 5 on the network made with it: the host
+   * has an address there, which contract 6 no longer allows.
+   */
+  async function legacyWorker(
+    intent: LaunchIntent,
+    stamp = "5:0000000000000000",
+  ) {
+    const network = docker.addNetwork(networkNameFor(intent, "test-a"), {
+      gateway: "10.9.0.1",
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: String(intent.generation),
+        [LABELS.installation]: "test-a",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workerNetwork]: "true",
+      },
+      options: {},
+    });
+    network.attached.set(PROXY, { aliases: ["egress-proxy"] });
+    const body = await createBodyOf(intent);
+    body.HostConfig.NetworkMode = network.id;
+    body.Labels[LABELS.isolation] = stamp;
+    const worker = docker.add(containerNameFor(intent, "test-a"), body);
+    return { network, worker };
+  }
+
+  test("a network that gives the host an address is refused however it got that way", async () => {
+    const intent = intentFor();
+    const cases: Array<[Partial<FakeNetwork>, string]> = [
+      // Made before contract 6, or by hand.
+      [{ gateway: "10.9.0.1", options: {} }, "gives the host an address on it"],
+      // The mode asked for but not in effect: a daemon that records an
+      // option it does not know.
+      [
+        { gateway: "10.9.0.1", options: { [GATEWAY_MODE_OPTION]: "isolated" } },
+        "gateway 10.9.0.1",
+      ],
+      [
+        { options: { [GATEWAY_MODE_OPTION]: "nat" } },
+        `${GATEWAY_MODE_OPTION}=nat`,
+      ],
+    ];
+    for (const [overrides, message] of cases) {
+      docker.networks.clear();
+      docker.containers.clear();
+      const { network, worker } = await legacyWorker(intent);
+      Object.assign(network, overrides);
+      // A current worker: nothing earns this network any grace.
+      worker.body.Labels[LABELS.isolation] = isolationStampFor(
+        configFor(docker.host),
+      );
+      const attempt = backend.ensureExecution(intent);
+      await expect(attempt).rejects.toBeInstanceOf(NetworkIsolationError);
+      await expect(attempt).rejects.toThrow(message);
+      expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
+    }
+  });
+
+  test("a pre-contract-6 network whose worker is gone is made again with the host kept off it", async () => {
+    const intent = intentFor();
+    const { worker } = await legacyWorker(intent);
+    docker.containers.delete(worker.name);
+
+    await backend.ensureExecution(intent);
+
+    expect(networkOf(intent)).toMatchObject({
+      gateway: "",
+      options: { [GATEWAY_MODE_OPTION]: "isolated" },
+    });
+    expect(
+      docker.requests
+        .filter((r) => r.path.startsWith("/networks/"))
+        .map((r) => `${r.method} ${r.path}`),
+    ).toContain(`DELETE /networks/net-${networkNameFor(intent, "test-a")}`);
+    expect(docker.containers.size).toBe(1);
+  });
+
+  test("a pre-contract-6 network with a stranger on it is refused, not removed", async () => {
+    const intent = intentFor();
+    const { network, worker } = await legacyWorker(intent);
+    docker.containers.delete(worker.name);
+    const stranger = docker.addOther("snooper", {});
+    network.attached.set(stranger.id, { aliases: [] });
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "still has members other than the egress proxy (snooper)",
+    );
+    expect(networkOf(intent)?.gateway).toBe("10.9.0.1");
+    expect(network.attached.has(PROXY)).toBe(false);
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a contract-5 worker's replacement keeps its network until the teardown takes both", async () => {
+    const intent = intentFor();
+    const { worker } = await legacyWorker(intent);
+
+    // The scheduler's order: check, tear down, create.
+    await backend.assertReplaceable(intent);
+    expect(networkOf(intent)?.gateway).toBe("10.9.0.1");
+    expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
+    await backend.terminate(intent);
+    expect(networkOf(intent)).toBeUndefined();
+    await backend.ensureExecution(intent);
+
+    expect(networkOf(intent)).toMatchObject({
+      gateway: "",
+      options: { [GATEWAY_MODE_OPTION]: "isolated" },
+    });
+    const replaced = docker.containers.get(worker.name);
+    expect(replaced?.id).not.toBe(worker.id);
+    expect(replaced?.body.Labels[LABELS.isolation]).toBe(
+      isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a launch never lands on a pre-contract-6 network its old worker still holds", async () => {
+    const intent = intentFor();
+    const { worker } = await legacyWorker(intent);
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "gives the host an address on it",
+    );
+    expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
+  });
+
+  test("only a contract-5 worker on that very network earns it the grace", async () => {
+    for (const setUp of [
+      // Newer than 5 but on a network without the mode: not how this host
+      // made it.
+      async (intent: LaunchIntent) =>
+        legacyWorker(intent, "6:0000000000000000"),
+      // Older than 5 belongs on the shared network, handled apart.
+      async (intent: LaunchIntent) =>
+        legacyWorker(intent, "4:0000000000000000"),
+      // A contract-5 worker, but attached to another network than this one.
+      async (intent: LaunchIntent) => {
+        const made = await legacyWorker(intent);
+        made.worker.body.HostConfig.NetworkMode = "net-elsewhere";
+        return made;
+      },
+    ]) {
+      docker.networks.clear();
+      docker.containers.clear();
+      const intent = intentFor();
+      await setUp(intent);
+      await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+        "gives the host an address on it",
+      );
+    }
+  });
+
+  test("a daemon that ignores the gateway mode gets no worker on the network it made", async () => {
+    docker.ignoresGatewayMode = true;
+    const intent = intentFor();
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "gives the host an address on it",
+    );
+    expect(docker.containers.size).toBe(0);
+    expect(networkOf(intent)?.attached.has(PROXY)).toBe(false);
+  });
+
   test("a network that gained a stranger is not launched onto", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
@@ -1799,6 +2004,7 @@ describe("LocalDockerBackend worker networks", () => {
     docker.networkCreateRace = {
       attached: new Map(),
       driver: "bridge",
+      gateway: "",
       id: `net-${networkNameFor(intent, "test-a")}`,
       internal: false,
       ipv6: false,
@@ -1809,6 +2015,7 @@ describe("LocalDockerBackend worker networks", () => {
         [LABELS.workerNetwork]: "true",
       },
       name: networkNameFor(intent, "test-a"),
+      options: { [GATEWAY_MODE_OPTION]: "isolated" },
     };
 
     await expect(backend.ensureExecution(intent)).rejects.toThrow(
@@ -2202,6 +2409,52 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
     });
   });
 
+  test("a contract-5 worker's network keeps the proxy until the worker goes", async () => {
+    // A claimed worker is drained without a replacement check; the reconcile
+    // must not cut its egress first.
+    const intent = intentFor();
+    const network = docker.addNetwork(networkNameFor(intent, "test-a"), {
+      gateway: "10.9.0.1",
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.workerNetwork]: "true",
+      },
+      options: {},
+    });
+    network.attached.set(PROXY, { aliases: ["egress-proxy"] });
+    const body = await createBodyOf(intent);
+    body.HostConfig.NetworkMode = network.id;
+    body.Labels[LABELS.isolation] = "5:0000000000000000";
+    docker.add(containerNameFor(intent, "test-a"), body);
+
+    expect(await backend.reconcileNetworks()).toEqual({
+      failed: [],
+      removed: [],
+      repaired: [],
+    });
+    expect(network.attached.has(PROXY)).toBe(true);
+  });
+
+  test("a current worker's network that gives the host an address loses the proxy", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    if (!network) throw new Error("no network");
+    network.gateway = "10.9.0.1";
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("gives the host an address on it"),
+        id: network.name,
+      },
+    ]);
+    expect(network.attached.has(PROXY)).toBe(false);
+  });
+
   test("a stopped stranger keeps an orphan in place and the proxy off it", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
@@ -2436,10 +2689,26 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     );
   });
 
+  test("a daemon older than Docker 28 refuses the launch", async () => {
+    for (const version of ["1.47", "1.9", "0.99", "", "v1.48", "1.48.0"]) {
+      docker.apiVersion = version;
+      const attempt = backend.verifyNetworkIsolation();
+      await expect(attempt).rejects.toBeInstanceOf(GatewayModeUnsupportedError);
+      await expect(attempt).rejects.toThrow("Docker 28 (API 1.48) or later");
+    }
+  });
+
+  test("Docker 28 and later pass", async () => {
+    for (const version of ["1.48", "1.52", "2.0"]) {
+      docker.apiVersion = version;
+      await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
+    }
+  });
+
   test("the isolation stamp tracks where objects go and which key, never the secret", () => {
     const base = configFor("tcp://127.0.0.1:1");
     const stamp = isolationStampFor(base);
-    expect(stamp.startsWith("5:")).toBe(true);
+    expect(stamp.startsWith("6:")).toBe(true);
     expect(stamp).not.toContain(base.objectStore.secretAccessKey);
     // A secret rotated under the same key id is not a new boundary: the
     // container keeps running, and the operator replaces it deliberately.

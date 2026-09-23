@@ -56,7 +56,8 @@ export async function main(
     );
     const store = latch.store;
     // Before anything is launched: without exactly one running proxy there
-    // is nothing to give a worker network. The network reconcile still runs,
+    // is nothing to give a worker network, and a daemon older than Docker 28
+    // cannot keep the host off one. The network reconcile still runs,
     // under the pass lock like the pass itself, since two running proxies are
     // exactly when it has to take them off the live networks; the error is
     // rethrown either way.
@@ -64,7 +65,7 @@ export async function main(
       await backend.verifyNetworkIsolation();
     } catch (error) {
       logger.error(
-        "Egress proxy preflight failed; reconciling worker networks before giving up",
+        "Network isolation preflight failed; reconciling worker networks before giving up",
         { error: messageOf(error) },
       );
       await reclaimNetworks({ backend, logger, store }).catch(
