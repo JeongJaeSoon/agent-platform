@@ -19,6 +19,59 @@ const config: ClaudeRuntimeConfig = {
 };
 
 describe("fake agent runtime", () => {
+  test("ignores an input its resumed transcript already holds, the way the SDK does", async () => {
+    const runtime = new FakeAgentRuntime(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: {
+            type: "result",
+            subtype: "success",
+            session_id: "resumed",
+            user_message_uuid: "fresh",
+          },
+        },
+      ],
+      { resumedTranscript: ["consumed"] },
+    );
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    // Only a resumed run carries the transcript; a new session holds nothing.
+    expect(await runtime.start(config, allow).holdsInput("consumed")).toBe(
+      false,
+    );
+    const run = runtime.start(
+      { ...config, mode: "resume", resume: "resumed" },
+      allow,
+    );
+    expect(await run.holdsInput("consumed")).toBe(true);
+    expect(await run.holdsInput("fresh")).toBe(false);
+
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "again", uuid: "consumed" });
+    // No answer, and an interrupt has nothing running to end.
+    expect(await run.interrupt()).toEqual({ stillQueued: [] });
+    await Bun.sleep(20);
+    expect(frames).toEqual([]);
+
+    // A fresh input is still taken, and is held from then on.
+    run.send({ message: "new", uuid: "fresh" });
+    await consume;
+    expect(frames.map((frame) => frame.envelope.message.type)).toEqual([
+      "result",
+    ]);
+    expect(await run.holdsInput("fresh")).toBe(true);
+    expect(runtime.inputs.map((input) => input.uuid)).toEqual([
+      "consumed",
+      "fresh",
+    ]);
+  });
+
   test("prepares a checkpoint only once a session id is known and the turn has ended", async () => {
     const runtime = new FakeAgentRuntime([
       {

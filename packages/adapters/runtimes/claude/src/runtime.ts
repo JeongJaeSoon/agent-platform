@@ -16,6 +16,7 @@ import {
   runtimeEnvironment,
   validateRuntimeConfig,
 } from "./profile.ts";
+import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 
 export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
@@ -28,12 +29,13 @@ export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): AgentRun {
     validateRuntimeConfig(config, this.policy);
+    const { history, launched } = resumedHistory(config);
     const input = new InputStream();
     const abortController = new AbortController();
     const sdkQuery = query({
       prompt: input,
       options: buildSdkOptions(
-        config,
+        launched,
         hooks,
         abortController,
         this.processObserver,
@@ -44,9 +46,33 @@ export class ClaudeSdkRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
       input,
       sdkQuery,
       abortController,
+      history,
       config.resume,
     );
   }
+}
+
+/** Where the transcript a resumed run continues comes from, read the way the engine reads it. */
+function resumedHistory(config: ClaudeRuntimeConfig): {
+  history: ResumedHistory;
+  launched: ClaudeRuntimeConfig;
+} {
+  if (config.mode !== "resume") {
+    return { history: ResumedHistory.empty(), launched: config };
+  }
+  if (config.sessionStore !== undefined) {
+    const { history, store } = ResumedHistory.watching(config.sessionStore);
+    return { history, launched: { ...config, sessionStore: store } };
+  }
+  // validateRuntimeConfig let a store-less resume through only as a local one.
+  return {
+    history: ResumedHistory.fromLocalDisk(
+      config.claudeConfigDir,
+      config.cwd,
+      config.resume,
+    ),
+    launched: config,
+  };
 }
 
 export function buildSdkOptions(

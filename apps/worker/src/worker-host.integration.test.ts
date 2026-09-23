@@ -39,6 +39,7 @@ const timeouts: WorkerTimeouts = {
   drainTimeoutMs: 5_000,
   heartbeatIntervalMs: 60_000,
   idleTimeoutMs: 300,
+  maxTurnMs: 60_000,
   nextInputWaitMs: 100,
   questionTimeoutMs: 5_000,
   requestTimeoutMs: 5_000,
@@ -249,5 +250,46 @@ describe("WorkerHost against the actual Claude SDK", () => {
 
     // Both engine processes were reaped before their hosts returned.
     expect(exited).toHaveLength(2);
-  }, 60_000);
+
+    // Third process: handed turn 1 again, as a retry after a crash would be.
+    // The engine already holds its uuid and would swallow it without an
+    // answer (94S-242); the transcript says so before anything is sent.
+    const thirdGateway = new FakeWorkerGateway({
+      runtimeConfig,
+      sessionId: SESSION_ID,
+      attemptId: "att_fake_3",
+      firstTurn: 1,
+    });
+    thirdGateway.enqueue("first turn");
+    const third = new WorkerHost({
+      checkpoints: new RecordingCheckpoints({
+        mode: "resume",
+        resume,
+        localTranscriptResume: true,
+      }),
+      execution: { bootstrapNonce: "wln_test", generation: 3, id: "exec-1" },
+      engines,
+      gateway: thirdGateway,
+      logger: silent,
+      runtimes: registry(),
+      timeouts,
+      workspace: noWorkspace,
+    });
+    const began = Date.now();
+
+    const thirdSummary = await third.runLoop();
+
+    expect(thirdSummary.turns).toEqual([
+      {
+        turnId: "1",
+        status: "outcome_unknown",
+        reason: "input_already_consumed",
+      },
+    ]);
+    // Nothing reached the model again, and nothing waited on an answer.
+    expect(server.requests).toHaveLength(3);
+    expect(Date.now() - began).toBeLessThan(timeouts.maxTurnMs);
+    expect(thirdSummary.outcome).toBe("drained");
+    expect(exited).toHaveLength(3);
+  }, 90_000);
 });

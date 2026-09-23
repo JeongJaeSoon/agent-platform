@@ -30,6 +30,8 @@ export class TurnLedger {
   private consumed = false;
   private mirrorError: string | undefined;
   private readonly pending = new Set<string>();
+  /** Every uuid that reached the engine on this run, settled or not. */
+  private readonly sent = new Set<string>();
   private sessionId: string | undefined;
   private streaming = false;
 
@@ -42,6 +44,12 @@ export class TurnLedger {
       throw new Error(`Input uuid is already queued: ${uuid}`);
     }
     this.pending.add(uuid);
+    this.sent.add(uuid);
+  }
+
+  /** Sent on this run: the engine would deduplicate it rather than run it. */
+  wasSent(uuid: string): boolean {
+    return this.sent.has(uuid);
   }
 
   /** Inputs no result has settled yet, in send order. */
@@ -52,6 +60,7 @@ export class TurnLedger {
   /** Undo queued() when the input never reached the engine. */
   release(uuid: string): void {
     this.pending.delete(uuid);
+    this.sent.delete(uuid);
   }
 
   observe(message: NativeSdkMessage): void {

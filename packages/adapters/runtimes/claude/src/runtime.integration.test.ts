@@ -448,6 +448,102 @@ describe("transcript mirror against the actual SDK", () => {
   }, 40_000);
 });
 
+describe("resumed history against the actual SDK (94S-242)", () => {
+  test("a checkpoint resume holds exactly the inputs the engine loaded", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-242-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(`resumed-turn-${index + 1}`),
+    );
+    const mirror = new ClaudeSessionStore({
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/direct-local/resumed",
+    });
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const base = {
+      claudeConfigDir: home,
+      correlationId: "actual-resumed-history",
+      cwd: workspace,
+      home,
+      maxTurns: 2,
+      model: "claude-sonnet-4-5",
+      profile: {
+        kind: "anthropic" as const,
+        endpoint: server.url,
+        auth: { kind: "api_key" as const, value: "placeholder-local" },
+      },
+      settingSources: ["project"] as ["project"],
+      tools: [],
+    };
+    const hooks = {
+      onPermission: async () => ({
+        behavior: "deny" as const,
+        message: "No tools expected",
+      }),
+    };
+    const consumed = crypto.randomUUID();
+    const first = runtime.start(
+      {
+        ...base,
+        mode: "new",
+        sessionStore: {
+          append: (key, entries) => mirror.append(key, entries),
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      hooks,
+    );
+    let sessionId: string | undefined;
+    const firstDone = (async () => {
+      for await (const frame of first) {
+        const { session_id } = frame.envelope.message;
+        if (typeof session_id === "string") sessionId = session_id;
+      }
+    })();
+    first.send({ message: "remember this", uuid: consumed });
+    first.finishInput();
+    await withTimeout(firstDone, 20_000, "First run did not settle");
+    if (sessionId === undefined) throw new Error("No engine session");
+
+    // Stands in for the store a restore plan binds: it answers with what the
+    // mirror holds, and declares itself revision-scoped.
+    const resumed = runtime.start(
+      {
+        ...base,
+        mode: "resume",
+        resume: sessionId,
+        sessionStore: {
+          revisionScoped: true,
+          append: (key, entries) => mirror.append(key, entries),
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      hooks,
+    );
+    const resumedDone = (async () => {
+      for await (const _frame of resumed) void _frame;
+    })();
+
+    expect(
+      await withTimeout(resumed.holdsInput(consumed), 10_000, "No history"),
+    ).toBe(true);
+    expect(await resumed.holdsInput(crypto.randomUUID())).toBe(false);
+    // Nothing was sent to find that out.
+    expect(server.requests).toHaveLength(1);
+    resumed.close();
+    await withTimeout(
+      resumedDone.catch(() => {}),
+      10_000,
+      "Did not close",
+    );
+  }, 60_000);
+});
+
 /**
  * Where the CLI writes a session's JSONL: `<config dir>/projects/<sanitized
  * cwd>/<session id>.jsonl`. Spelled out here rather than imported, because the

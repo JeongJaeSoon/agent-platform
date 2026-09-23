@@ -43,6 +43,7 @@ describe("workerConfigFromEnv", () => {
       drainTimeoutMs: 100_000,
       heartbeatIntervalMs: 10_000,
       idleTimeoutMs: 1_800_000,
+      maxTurnMs: 3_600_000,
       nextInputWaitMs: 20_000,
       questionTimeoutMs: 1_800_000,
       requestTimeoutMs: 30_000,
