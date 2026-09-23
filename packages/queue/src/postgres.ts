@@ -218,6 +218,11 @@ export class PostgresQueue implements QueueBackend {
 
   async lease(command: LeaseCommand): Promise<LeaseResult> {
     if (command.action === "heartbeat") {
+      if (!Number.isFinite(command.leaseTtlMs) || command.leaseTtlMs <= 0) {
+        throw new Error("leaseTtlMs must be positive");
+      }
+      const now = command.now ?? new Date();
+      const leaseExpiresAt = new Date(now.getTime() + command.leaseTtlMs);
       await this.#db.transaction(async (tx) => {
         await tx
           .select({ id: sessions.id })
@@ -226,10 +231,10 @@ export class PostgresQueue implements QueueBackend {
           .for("update");
         await tx
           .insert(workers)
-          .values({ podId: command.podId, lastSeen: command.now ?? new Date() })
+          .values({ podId: command.podId, lastSeen: now, leaseExpiresAt })
           .onConflictDoUpdate({
             target: workers.podId,
-            set: { lastSeen: command.now ?? new Date() },
+            set: { lastSeen: now, leaseExpiresAt },
           });
       });
       return { action: "heartbeat", podId: command.podId };
@@ -241,13 +246,10 @@ export class PostgresQueue implements QueueBackend {
         .returning({ podId: workers.podId });
       return { action: "release", released: deleted.length === 1 };
     }
-    const cutoff = new Date(
-      (command.now ?? new Date()).getTime() - command.ttlMs,
-    );
     const expired = await this.#db
       .select({ podId: workers.podId })
       .from(workers)
-      .where(lt(workers.lastSeen, cutoff));
+      .where(lt(workers.leaseExpiresAt, command.now ?? new Date()));
     return {
       action: "expired",
       podIds: expired.map(({ podId }) => podId),

@@ -120,6 +120,13 @@
       "when": 1790157839835,
       "tag": "0107_installation_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790160348518,
+      "tag": "0108_workers_lease_deadline",
+      "breakpoints": true
     }
   ]
 }

@@ -109,11 +109,21 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
             provider: {
               kind: "litellm",
               endpoint: "https://litellm.invalid",
-              auth: { kind: "api_key", value: "catalog-provider-key" },
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
             },
           },
         },
-        repositories: {},
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
       },
       checkpoints: checkpoints.verifier,
       checkpointProtocol: checkpoints.protocol,

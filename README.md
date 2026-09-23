@@ -62,15 +62,15 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun test ./apps/api/src/server.integration.ts
 ```
 
-reconciler는 스케줄러를 내장하지 않고 한 batch만 처리한 뒤 종료한다. 워커와 같은 `HEARTBEAT_TTL_SEC`를 사용해야 하며, 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
+reconciler는 스케줄러를 내장하지 않고 한 batch만 처리한 뒤 종료한다. lease 기한은 스스로 해석하지 않는다 — API가 heartbeat를 받을 때 `workers.lease_expires_at`에 마감 시각을 적고 reconciler는 그 시각과 DB 시계를 비교한다. `HEARTBEAT_TTL_SEC`는 API만 읽으며(기본 30, 양수가 아니면 기동 거부), reconciler는 이 값이 설정돼 있으면 기동하지 않는다(94S-132). 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=true \
+RECONCILER_DRY_RUN=true \
   bun run --cwd apps/reconciler start
 
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-HEARTBEAT_TTL_SEC=30 RECONCILER_DRY_RUN=false \
+RECONCILER_DRY_RUN=false \
   bun run --cwd apps/reconciler start
 ```
 
@@ -220,7 +220,21 @@ docker compose -f infra/docker-compose.yml run --rm migrate
 
 API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
 
+### 운영자 카탈로그 (Agent Profile · repository)
+
+API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `profiles.yaml`과 `repositories.yaml`을 한 번 읽는다(94S-132). 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다.
+
+- profile의 `provider.auth`에는 값 대신 참조를 하나만 적는다: API 프로세스 환경 변수 `value_env`, 또는 Secrets Manager `secret_id`(`AWS_ENDPOINT_URL_SECRETS_MANAGER`로 endpoint 지정, `AWS_ENDPOINT_URL`은 따르지 않는다). 값은 기동 시 한 번 해석되고 worker에는 nonce로 인증된 claim 응답으로만 전달된다 — worker 컨테이너 env에는 없다.
+- `repositories.<id>.profiles`가 그 저장소에서 돌 수 있는 profile allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 목록에 없는 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`, 이미 queued된 세션의 쌍이 빠졌거나 id가 다른 URL·branch를 가리키게 되면 claim되지 않는다.
+- endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
+- profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
+
+저장소의 `config/`는 외부 계정 없이 도는 로컬 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음)에 심어 둔 placeholder 키를 `secret_id`로, compose Gitea의 `sample-app`을 저장소로 쓴다. Gitea에 sample 저장소를 만드는 초기화는 아직 없다(94S-52).
+
 ```bash
+docker compose -f infra/docker-compose.yml up -d secrets
+AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1 \
+AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
 EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
 MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 \
@@ -232,11 +246,11 @@ API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`
 
 checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 잠긴다**(`CHECKPOINT_OBJECT_PROTECTION=locked`, 94S-229). manifest의 모든 ref와 finalize의 `manifest_version`은 워커의 `putImmutable`이 돌려준 S3 VersionId를 싣는다. finalize는 그 version을 읽어 검증한 뒤 manifest·transcript part·bundle·untracked 파일의 각 version에 legal hold를 걸고 나서야 pointer를 올린다. pointer(`checkpoints.manifest_version`)와 restore plan도 같은 version을 들고 간다. 그래서 커밋 뒤 같은 key를 덮어쓰거나 지우거나 delete marker 뒤에 다시 올려도 복원 대상은 바뀌지 않고, hold가 걸린 version은 hold를 푸는 권한 없이는 지울 수 없다. hold 해제는 아직 없는 GC의 몫이다. 그때까지 checkpoint 객체는 영구 보존되며, GC는 진행 중인 finalize가 hold를 건 version을 풀어서는 안 된다. hold를 걸 수 있는 권한은 풀 수도 있으므로 워커에게 주면 안 된다 — 지금 compose의 워커는 bucket 전체 자격 증명을 공유하며, 이것을 좁히는 일은 94S-251이다. API는 기동 시 bucket의 versioning이 `Enabled`이고 Object Lock 설정이 있는지 확인하고, 아니면 기동하지 않는다. **versioning이 꺼진 bucket에서는 `CHECKPOINT_OBJECT_PROTECTION=unversioned`를 명시해야 한다. 이 저하된 모드는 key로만 읽고(manifest의 version은 무시하고 restore plan에서도 뺀다) hold를 걸지 않으므로, 커밋 뒤의 삭제·덮어쓰기를 막지 못하고 복원 때 digest 불일치로 발견할 뿐이다.** 기동 로그에 경고가 남는다. `unversioned`에서 `locked`로 바꾸면, `unversioned`로 커밋된 checkpoint는 첫 restore 때 version 단위로 다시 해시하고 hold를 건 뒤에 내준다. pointer에 version이 없는 checkpoint는 `CHECKPOINT_UNAVAILABLE`이 된다. compose의 localstack init은 `claude-sessions`를 Object Lock으로 만들고, 예전 volume에 남은 bucket에는 versioning과 Object Lock 설정을 켠다(그 전에 올라간 객체는 version이 없어 locked API가 거부한다).
 
-API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest만 저장한다.
+API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest와 scope만 저장한다. `--scopes`는 필수이며 `sessions:read`·`sessions:write`·`sessions:approve`·`sessions:control`·`sessions:recover` 중에서 고른다. `/v1` 요청은 route마다 OpenAPI 표(`API_ROUTE_SCOPES`)에 적힌 scope를 요구하고, 없으면 body나 세션을 읽기 전에 `403 FORBIDDEN`이다. `sessions:recover`(recovery-decisions)는 별도 scope라 `sessions:write`나 `sessions:control`에 포함되지 않는다. cookie 사용자는 role로 scope를 받는다(owner 전부, member는 recover 제외). scope 도입 전에 발급된 키(scope NULL)는 아무 scope도 없으므로 다시 발급한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-  bun run --cwd apps/api keys create local-owner
+  bun run --cwd apps/api keys create local-owner --scopes sessions:read,sessions:write
 AUTH_MODE=api-key DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
@@ -291,7 +305,7 @@ docker compose -f infra/docker-compose.yml --profile apps up -d --build      # m
 curl -s http://127.0.0.1:3000/readyz
 ```
 
-`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `docker compose -f infra/docker-compose.yml exec api bun run apps/api/src/keys.ts create <owner>`로 발급한다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로(94S-215) 로컬 스택은 무제한 workspace를 감수하고 기동 로그에 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `SESSION_CATALOG_JSON`만 기본값이 없다 — 빈 문자열은 JSON parse 실패로 API가 기동하지 않으므로 세션을 만들려면 `.env`에 넣는다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)·`gitea:3000`·`localstack:4566`에 닿고, 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
+`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `docker compose -f infra/docker-compose.yml exec api bun run apps/api/src/keys.ts create <owner> --scopes sessions:read,sessions:write`로 발급한다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로(94S-215) 로컬 스택은 무제한 workspace를 감수하고 기동 로그에 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. 카탈로그는 저장소 `config/`를 `/app/config`로 mount해 읽는다 — 이미지에는 카탈로그가 없어 mount 없이 띄운 API는 기동하지 않는다. `secrets`(API 전용 Secrets Manager, 호스트 `127.0.0.1:4567`)와 `fake-messages`가 함께 뜬다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. `worker` profile 항목은 그 이미지를 빌드·검사하기 위한 것이며 `network_mode: none`으로 서비스로 돌지 않는다. 워커는 proxy 경유로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값에 포함)·`gitea:3000`·`localstack:4566`·`fake-messages:4010`에 닿고(`secrets`에는 닿지 않는다), 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 

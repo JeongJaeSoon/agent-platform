@@ -54,10 +54,21 @@ export type WorkerBinding = {
   restore: CheckpointRef | null;
 };
 
+// A profile and repository this host may run together, with the URL and
+// branch the repository is registered under now. A session binds only when
+// its row matches one exactly: a host that does not know the profile cannot
+// pick the runtime, a pair the repository no longer allows must not carry
+// the profile's trust to it (94S-258), and a repository id re-pointed at
+// another URL must not carry the old grant to the new one.
+export type RunnablePair = {
+  profileId: string;
+  repositoryId: string;
+  url: string;
+  branch: string;
+};
+
 export type ClaimInput = {
-  // Only a session whose profile appears here may be bound: a host that does
-  // not know the profile cannot pick the runtime to start.
-  runnableProfiles: string[];
+  runnable: RunnablePair[];
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput (94S-131).
   costLimitUsd: number;

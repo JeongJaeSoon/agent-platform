@@ -11,21 +11,24 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  catalogRevision,
   createInterruptService,
   createPendingRequestService,
   createSessionService,
   createWorkerGateway,
-  DEFAULT_LEASE_TTL_MS,
   InstallationConfigError,
   installationLimitProblems,
   installationLimitsFromEnv,
-  isCatalogEmpty,
   ownerScopedPolicy,
-  parseSessionCatalogEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
+import {
+  DEFAULT_CONFIG_DIR,
+  loadSessionCatalog,
+  secretsManagerReader,
+} from "./catalog-config.ts";
 import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
@@ -34,6 +37,7 @@ import {
 } from "./checkpoints.ts";
 import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -69,18 +73,17 @@ const limits = (() => {
     throw error;
   }
 })();
-const catalog = parseSessionCatalogEnv(
-  "SESSION_CATALOG_JSON",
-  process.env.SESSION_CATALOG_JSON,
-);
-if (isCatalogEmpty(catalog)) {
-  // Every POST /v1/sessions answers 422 until the catalog lists at least one
-  // profile and one repository; say so once instead of failing silently.
-  logger.warn("Session catalog is empty; session creation will be rejected", {
-    profiles: Object.keys(catalog.profiles).length,
-    repositories: Object.keys(catalog.repositories).length,
-  });
-}
+const catalog = await loadSessionCatalog({
+  dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
+  env: process.env,
+  readSecret: secretsManagerReader(process.env),
+});
+logger.info("Session catalog loaded", {
+  revision: catalogRevision(catalog),
+  profiles: Object.keys(catalog.profiles).length,
+  repositories: Object.keys(catalog.repositories).length,
+});
+const leaseTtlMs = heartbeatTtlMsFromEnv(process.env.HEARTBEAT_TTL_SEC);
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
@@ -123,9 +126,6 @@ const interrupts = createInterruptService({
   authorization: ownerScopedPolicy,
   store: createPostgresTurnInterrupts(db),
 });
-// Seconds so an operator can shorten it in a test deployment; the worker
-// heartbeats at a fraction of this.
-const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
 // How long a permission or question takes answers; unset keeps 30 minutes.
 const pendingTtlSec = Number(process.env.PENDING_REQUEST_TTL_SEC);
 const workers = createWorkerGateway({
@@ -141,10 +141,7 @@ const workers = createWorkerGateway({
   pending: createPostgresWorkerPendingStore(db),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
-    leaseTtlMs:
-      Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
-        ? heartbeatTtlSec * 1000
-        : DEFAULT_LEASE_TTL_MS,
+    leaseTtlMs,
     ...(Number.isFinite(pendingTtlSec) && pendingTtlSec > 0
       ? { pendingTtlMs: pendingTtlSec * 1000 }
       : {}),

@@ -37,7 +37,7 @@ import type {
   ReadEventsQuery,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import { allowedPair, type SessionCatalog } from "./catalog.ts";
 
 export class SessionServiceError extends Error {
   constructor(
@@ -178,10 +178,9 @@ export function createSessionService(deps: {
   }
 
   // A resource of another owner does not exist as far as this principal
-  // can tell. A recovery decision the principal may not take on its own
-  // session is a 403, which is the only route that declares one; the other
-  // actions keep answering 404 until 94S-132 publishes 403 for them with
-  // the scoped keys that could produce it.
+  // can tell. A missing scope never reaches here: the API refuses it with
+  // 403 before the body is read (94S-132). A policy that does deny a
+  // recovery decision on the principal's own session answers 403 as well.
   function requireAuthorized(
     actor: Principal,
     action: SessionAction,
@@ -221,17 +220,25 @@ export function createSessionService(deps: {
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
       requireAuthorized(actor, "sessions:write", actor.ownerId);
-      const profile = own(catalog.profiles, input.body.profile_id);
-      const repository = own(catalog.repositories, input.body.repository_id);
+      // A pair the catalog does not allow is as unknown as a missing id: the
+      // repository did not grant this profile its trust (94S-258).
+      const pair = allowedPair(
+        catalog,
+        input.body.profile_id,
+        input.body.repository_id,
+      );
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
-        repository:
-          profile && repository
-            ? { id: input.body.repository_id, ...repository }
-            : null,
+        repository: pair
+          ? {
+              id: input.body.repository_id,
+              url: pair.repository.url,
+              branch: pair.repository.branch,
+            }
+          : null,
         message: input.body.message,
         limits: inputLimits,
       });
@@ -247,7 +254,7 @@ export function createSessionService(deps: {
         case "unsupported":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
-            "Unknown profile_id or repository_id",
+            "Unknown profile_id or repository_id, or a pair the catalog does not allow",
           );
         default:
           return result.response;

@@ -1,6 +1,11 @@
-import type { SessionStatus, TurnStatus } from "@agent-platform/contracts";
+import type {
+  SessionScope,
+  SessionStatus,
+  TurnStatus,
+} from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { DB_NOW, dbNow } from "./db-clock.ts";
 import type * as schema from "./schema.ts";
 import {
   apiKeys,
@@ -30,29 +35,53 @@ export async function createApiKey(
     id: string;
     ownerId: string;
     keyHash: Uint8Array;
+    // Null issues the pre-94S-132 all-scope key; only tests still do.
+    scopes: readonly SessionScope[] | null;
   },
 ) {
-  const [created] = await db.insert(apiKeys).values(input).returning({
-    id: apiKeys.id,
-    ownerId: apiKeys.ownerId,
-    createdAt: apiKeys.createdAt,
-  });
+  const [created] = await db
+    .insert(apiKeys)
+    .values({
+      ...input,
+      scopes: input.scopes === null ? null : [...input.scopes],
+    })
+    .returning({
+      id: apiKeys.id,
+      ownerId: apiKeys.ownerId,
+      createdAt: apiKeys.createdAt,
+    });
   if (!created) {
     throw new Error("Failed to create API key");
   }
   return created;
 }
 
-export async function findApiKeyOwner(
+export type ApiKeyRecord = {
+  id: string;
+  ownerId: string;
+  workspaceId: string | null;
+  // Null on keys issued before scopes existed.
+  scopes: SessionScope[] | null;
+};
+
+export async function findApiKey(
   db: Database,
   keyHash: Uint8Array,
-): Promise<string | null> {
+): Promise<ApiKeyRecord | null> {
   const [match] = await db
-    .select({ ownerId: apiKeys.ownerId })
+    .select({
+      id: apiKeys.id,
+      ownerId: apiKeys.ownerId,
+      workspaceId: apiKeys.workspaceId,
+      scopes: apiKeys.scopes,
+    })
     .from(apiKeys)
     .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
     .limit(1);
-  return match?.ownerId ?? null;
+  // The column's CHECK holds the vocabulary, so the cast only names it.
+  return match
+    ? { ...match, scopes: match.scopes as SessionScope[] | null }
+    : null;
 }
 
 export async function claim(db: Database, sessionId: string, podId: string) {
@@ -133,12 +162,10 @@ export async function getSessionForOwner(
 // The lease-expiry reconciler for those sessions is 94S-139.
 const podLifecycleSession = isNull(sessions.executionId);
 
-export async function findOrphanedSessions(
-  db: Database,
-  leaseTtlMs: number,
-  now = new Date(),
-) {
-  const cutoff = new Date(now.getTime() - leaseTtlMs);
+// Deadlines are compared on the database clock unless a caller pins `now`
+// (tests): the heartbeat writer stamped them from that clock, and a
+// reconciler host running ahead would reclaim live sessions.
+export async function findOrphanedSessions(db: Database, now?: Date) {
   return db
     .select({ session: sessions })
     .from(sessions)
@@ -147,7 +174,7 @@ export async function findOrphanedSessions(
       and(
         isNotNull(sessions.podId),
         podLifecycleSession,
-        or(isNull(workers.podId), lt(workers.lastSeen, cutoff)),
+        or(isNull(workers.podId), lt(workers.leaseExpiresAt, now ?? DB_NOW)),
       ),
     )
     .then((rows) => rows.map(({ session }) => session));
@@ -198,20 +225,18 @@ export async function reconcileOrphanedSessions(
   db: Database,
   options: {
     dryRun?: boolean;
-    leaseTtlMs: number;
     limit?: number;
     now?: Date;
   },
 ): Promise<ReconciledOrphan[]> {
-  if (!Number.isFinite(options.leaseTtlMs) || options.leaseTtlMs <= 0) {
-    throw new Error("leaseTtlMs must be positive");
-  }
   const limit = options.limit ?? 100;
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new Error("limit must be a positive integer");
   }
-  const now = options.now ?? new Date();
-  const cutoff = new Date(now.getTime() - options.leaseTtlMs);
+  // The heartbeat writer stored each deadline from its own TTL; nothing
+  // here knows one (94S-132). Judged on the database clock, like
+  // reconcileExpiredLeases, unless a caller pins `now`.
+  const pinned = options.now;
   const dryRun = options.dryRun ?? false;
 
   return db.transaction(async (tx) => {
@@ -226,7 +251,10 @@ export async function reconcileOrphanedSessions(
         and(
           isNotNull(sessions.podId),
           podLifecycleSession,
-          or(isNull(workers.podId), lt(workers.lastSeen, cutoff)),
+          or(
+            isNull(workers.podId),
+            lt(workers.leaseExpiresAt, pinned ?? DB_NOW),
+          ),
         ),
       )
       .orderBy(asc(sessions.id))
@@ -248,12 +276,15 @@ export async function reconcileOrphanedSessions(
       if (!current) continue;
 
       const [lease] = await tx
-        .select({ lastSeen: workers.lastSeen })
+        .select({ leaseExpiresAt: workers.leaseExpiresAt })
         .from(workers)
         .where(eq(workers.podId, stalePodId))
         .limit(1)
         .for("update");
-      if (lease !== undefined && lease.lastSeen >= cutoff) continue;
+      // Read after the worker row lock: a heartbeat that held it may have
+      // just moved the deadline.
+      const at = pinned ?? (await dbNow(tx));
+      if (lease !== undefined && lease.leaseExpiresAt >= at) continue;
 
       const messages = await tx
         .select({
@@ -328,7 +359,7 @@ export async function reconcileOrphanedSessions(
           .set({
             claimedBy: null,
             claimToken: null,
-            visibleAt: now,
+            visibleAt: at,
           })
           .where(inArray(queueMessages.id, releasedMessageIds));
       }
@@ -341,14 +372,14 @@ export async function reconcileOrphanedSessions(
             : current.status;
       await tx
         .update(sessions)
-        .set({ podId: null, status, updatedAt: now })
+        .set({ podId: null, status, updatedAt: at })
         .where(
           and(eq(sessions.id, candidate.id), eq(sessions.podId, stalePodId)),
         );
       if (action === "requeued") {
         await tx
           .insert(unassignedSessions)
-          .values({ sessionId: candidate.id, signaledAt: now })
+          .values({ sessionId: candidate.id, signaledAt: at })
           .onConflictDoNothing({ target: unassignedSessions.sessionId });
       } else {
         await tx

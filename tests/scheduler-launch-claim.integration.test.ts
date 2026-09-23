@@ -67,6 +67,8 @@ async function defaultDockerHost(): Promise<string> {
  * bootstrap claim and the first nextInput, driven only by the env the
  * backend put in the container.
  */
+const PROVIDER_KEY_VALUE = `provider-${crypto.randomUUID()}`;
+
 const WORKER_SCRIPT = `
 const gateway = process.env.WORKER_GATEWAY_URL;
 const proxy = process.env.HTTP_PROXY;
@@ -93,6 +95,15 @@ const claimed = await post("bootstrap-claim", nonce, {
   credential: { kind: "launch_nonce", nonce },
 });
 console.log("CLAIMED " + claimed.session_id + " " + claimed.attempt_id);
+// Only a digest: the provider key arrives here and nowhere else (94S-132).
+console.log(
+  "CREDENTIAL " +
+    new Bun.CryptoHasher("sha256")
+      .update(claimed.runtime_config.provider.auth.value)
+      .digest("hex") +
+    " " +
+    claimed.profile_fingerprint,
+);
 
 const next = await post("next-input", claimed.session_credential, {
   session_id: claimed.session_id,
@@ -183,11 +194,21 @@ integration(
               provider: {
                 kind: "litellm",
                 endpoint: "https://litellm.invalid",
-                auth: { kind: "api_key", value: "catalog-provider-key" },
+                auth: {
+                  kind: "api_key",
+                  value: PROVIDER_KEY_VALUE,
+                  ref: { value_env: "PROVIDER_KEY" },
+                },
               },
             },
           },
-          repositories: {},
+          repositories: {
+            "sample-app": {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["claude-coding-v1"],
+            },
+          },
         },
         checkpoints: acceptAllCheckpoints,
         options: { leaseTtlMs: 60_000, sessionCostLimitUsd: 25 },
@@ -259,6 +280,13 @@ integration(
       const log = await waitForLog(containerName, "INPUT ");
       expect(log).toContain(`CLAIMED ${sessionId} `);
       expect(log).toContain(`"message":"${MESSAGE}"`);
+      // The provider key reached the worker through the nonce-authenticated
+      // claim, with the profile's fingerprint beside it.
+      expect(log).toMatch(
+        new RegExp(
+          `CREDENTIAL ${new Bun.CryptoHasher("sha256").update(PROVIDER_KEY_VALUE).digest("hex")} sha256:[0-9a-f]{64}`,
+        ),
+      );
 
       // The binding landed on the session the scheduler reserved the launch
       // for, and the launch row is the thing that records it.
@@ -288,6 +316,10 @@ integration(
 
       // The one thing that must never be readable anywhere: the plaintext.
       const container = await inspect(containerName);
+      // Nor is the provider key in what `docker inspect` shows (94S-132).
+      expect((container.Config.Env ?? []).join("\n")).not.toContain(
+        PROVIDER_KEY_VALUE,
+      );
       const nonce = envOf(container, "WORKER_BOOTSTRAP_NONCE");
       expect(nonce).toMatch(/^wln_/);
       const dump = await pool.query(

@@ -29,7 +29,6 @@ describe("reconciler run", () => {
     let calls = 0;
     const result = await runReconciler({
       environment: {
-        HEARTBEAT_TTL_SEC: "45",
         RECONCILER_BATCH_SIZE: "12",
         RECONCILER_DRY_RUN: "false",
       },
@@ -39,7 +38,6 @@ describe("reconciler run", () => {
         calls += 1;
         expect(options).toEqual({
           dryRun: false,
-          leaseTtlMs: 45_000,
           limit: 12,
           now: new Date("2026-09-14T00:00:00Z"),
         });
@@ -97,7 +95,6 @@ describe("reconciler run", () => {
         fields: {
           blocked_count: 0,
           dry_run: false,
-          lease_ttl_sec: 45,
           reconciled_count: 2,
           released_count: 1,
           requeued_count: 1,
@@ -191,24 +188,34 @@ describe("reconciler run", () => {
     );
   });
 
-  test("rejects invalid shared TTL, batch, and dry-run settings", async () => {
+  test("refuses HEARTBEAT_TTL_SEC outright, and invalid batch or dry-run settings", async () => {
     const logger = new StructuredLogger({ sinks: [] });
     const reconcile = async () => [];
     const reconcileLeases = async () => [];
     const reconcileInterrupts = async () => [];
     const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
-    await expect(
-      runReconciler({
-        environment: { HEARTBEAT_TTL_SEC: "0" },
-        logger,
-        reconcile,
-        reconcileLeases,
-        reconcileInterrupts,
-        expireInterrupts,
-        expireTerminations,
-      }),
-    ).rejects.toThrow("HEARTBEAT_TTL_SEC");
+    // Valid or not: the reconciler has no TTL to be told, so a value here is
+    // an operator who believes it does. It must not start and quietly
+    // judge by the deadlines the API wrote with a different one.
+    for (const value of ["120", "30", "0"]) {
+      let reconciled = 0;
+      await expect(
+        runReconciler({
+          environment: { HEARTBEAT_TTL_SEC: value },
+          logger,
+          reconcile: async () => {
+            reconciled += 1;
+            return [];
+          },
+          reconcileLeases,
+          reconcileInterrupts,
+          expireInterrupts,
+          expireTerminations,
+        }),
+      ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
+      expect(reconciled).toBe(0);
+    }
     await expect(
       runReconciler({
         environment: { RECONCILER_BATCH_SIZE: "1.5" },

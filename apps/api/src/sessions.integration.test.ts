@@ -50,7 +50,11 @@ const catalog: SessionCatalog = {
       provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
-        auth: { kind: "api_key", value: "catalog-provider-key" },
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
       },
     },
   },
@@ -58,6 +62,7 @@ const catalog: SessionCatalog = {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
+      profiles: ["claude-coding-v1"],
     },
   },
 };

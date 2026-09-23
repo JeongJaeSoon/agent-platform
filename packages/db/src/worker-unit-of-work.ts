@@ -33,6 +33,7 @@ import {
   type ReleaseInput,
   type ReleaseResult,
   type ResolvedCredential,
+  type RunnablePair,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -49,6 +50,7 @@ import {
   lt,
   max,
   notInArray,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { OPEN_TURN_STATUSES } from "./control-shared.ts";
@@ -513,6 +515,34 @@ export async function readCheckpointPointer(
   };
 }
 
+function isRunnable(
+  session: Pick<
+    SessionRow,
+    "profileId" | "repositoryId" | "repoUrl" | "branch"
+  >,
+  runnable: readonly RunnablePair[],
+): boolean {
+  return runnable.some(
+    (pair) =>
+      pair.profileId === session.profileId &&
+      pair.repositoryId === session.repositoryId &&
+      pair.url === session.repoUrl &&
+      pair.branch === session.branch,
+  );
+}
+
+// A row with no repository id predates the catalog and matches nothing.
+function runnableCondition(runnable: readonly RunnablePair[]): SQL {
+  if (runnable.length === 0) return sql`false`;
+  return sql`(${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${sql.join(
+    runnable.map(
+      (pair) =>
+        sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch})`,
+    ),
+    sql`, `,
+  )})`;
+}
+
 async function bindingOf(
   tx: Database,
   session: SessionRow,
@@ -639,10 +669,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
           // holds a token for and a retry that mutates again.
-          if (
-            bound.session.profileId === null ||
-            !input.runnableProfiles.includes(bound.session.profileId)
-          ) {
+          if (!isRunnable(bound.session, input.runnable)) {
             return { outcome: "profile_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
@@ -690,7 +717,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               eq(unassignedSessions.partition, launch.partition),
               isNull(sessions.podId),
               eq(sessions.admissionState, "active"),
-              inArray(sessions.profileId, input.runnableProfiles),
+              runnableCondition(input.runnable),
               lt(sessions.costUsd, input.costLimitUsd),
               ...(launch.sessionId === null
                 ? []
@@ -981,13 +1008,21 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               isNull(workerCredentials.revokedAt),
             ),
           );
-        // The legacy orphan reconciler keys on workers.last_seen by pod_id.
+        // The legacy orphan reconciler keys on workers by pod_id and judges
+        // the deadline written here, never a TTL of its own.
         await tx
           .insert(workers)
-          .values({ podId: fenced.attempt.executionId, lastSeen: now })
+          .values({
+            podId: fenced.attempt.executionId,
+            lastSeen: now,
+            leaseExpiresAt: beat.leaseExpiresAt,
+          })
           .onConflictDoUpdate({
             target: workers.podId,
-            set: { lastSeen: sql`GREATEST(${workers.lastSeen}, ${now})` },
+            set: {
+              lastSeen: sql`GREATEST(${workers.lastSeen}, ${now})`,
+              leaseExpiresAt: sql`GREATEST(${workers.leaseExpiresAt}, ${beat.leaseExpiresAt})`,
+            },
           });
         return {
           outcome: "ok",

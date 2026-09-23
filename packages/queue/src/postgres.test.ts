@@ -148,10 +148,21 @@ describe("PostgresQueue", () => {
 
   test("manages heartbeat expiry and release", async () => {
     const now = new Date("2026-09-14T00:00:00Z");
-    await queue.lease({ action: "heartbeat", podId: "pod-a", now });
+    await queue.lease({
+      action: "heartbeat",
+      podId: "pod-a",
+      leaseTtlMs: 1_000,
+      now,
+    });
+    // The deadline the heartbeat stored decides, not a TTL at query time.
+    expect(
+      await queue.lease({
+        action: "expired",
+        now: new Date(now.getTime() + 999),
+      }),
+    ).toEqual({ action: "expired", podIds: [] });
     const expired = await queue.lease({
       action: "expired",
-      ttlMs: 1_000,
       now: new Date(now.getTime() + 1_001),
     });
     expect(expired).toEqual({ action: "expired", podIds: ["pod-a"] });

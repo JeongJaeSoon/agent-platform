@@ -35,6 +35,7 @@ import {
   bootstrapResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  type SessionScope,
   WEB_SESSION_COOKIE_NAME,
 } from "./domain/index.ts";
 import {
@@ -328,9 +329,8 @@ const routes: Route[] = [
     scope: "recover",
     body: "RecoveryDecisionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    // 403: the principal owns the session but lacks sessions:recover.
     // 422: a legacy pod binding, as for terminate.
-    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "get",
@@ -342,6 +342,27 @@ const routes: Route[] = [
     errors: [401, 404, 503],
   },
 ];
+
+/**
+ * The session scope each operation demands, as the API enforces it before
+ * reading a body or a resource (94S-132). Routes without a scope are the
+ * probes, the public auth routes and cookie-only logout.
+ */
+export const API_ROUTE_SCOPES: ReadonlyArray<{
+  method: "GET" | "POST";
+  path: string;
+  scope: SessionScope;
+}> = routes.flatMap((route) =>
+  route.scope
+    ? [
+        {
+          method: route.method === "get" ? "GET" : "POST",
+          path: route.path,
+          scope: `sessions:${route.scope}` as const,
+        },
+      ]
+    : [],
+);
 
 type JsonSchema = Record<string, unknown>;
 
@@ -473,7 +494,8 @@ export function buildOpenApiDocument() {
             },
     };
     const errors = new Set(route.errors);
-    if (csrf) errors.add(403);
+    // The CSRF refusal, and the scope refusal every scoped route can give.
+    if (csrf || route.scope) errors.add(403);
     // The API reads every non-GET body under a deadline before the handler.
     if (route.method !== "get") errors.add(408);
     for (const status of [...errors].sort((a, b) => a - b)) {

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   claim,
   createApiKey,
-  findApiKeyOwner,
+  findApiKey,
   findOrphanedSessions,
   getSessionForOwner,
   reconcileOrphanedSessions,
@@ -124,8 +124,16 @@ describe("session queries", () => {
   test("finds only sessions with expired or missing worker leases", async () => {
     const now = new Date("2026-09-14T00:00:00Z");
     await db.insert(workers).values([
-      { podId: "fresh", lastSeen: new Date(now.getTime() - 500) },
-      { podId: "stale", lastSeen: new Date(now.getTime() - 2_000) },
+      {
+        podId: "fresh",
+        lastSeen: new Date(now.getTime() - 500),
+        leaseExpiresAt: new Date(now.getTime() - 500 + 1_000),
+      },
+      {
+        podId: "stale",
+        lastSeen: new Date(now.getTime() - 2_000),
+        leaseExpiresAt: new Date(now.getTime() - 2_000 + 1_000),
+      },
     ]);
     const fresh = await insertSession({ podId: "fresh", status: "running" });
     const stale = await insertSession({ podId: "stale", status: "running" });
@@ -134,12 +142,42 @@ describe("session queries", () => {
       status: "running",
     });
     await insertSession({ status: "queued" });
-    const ids = (await findOrphanedSessions(db, 1_000, now)).map(
-      ({ id }) => id,
-    );
+    const ids = (await findOrphanedSessions(db, now)).map(({ id }) => id);
     expect(ids).toContain(stale);
     expect(ids).toContain(missing);
     expect(ids).not.toContain(fresh);
+  });
+
+  test("without a pinned now, deadlines are judged on the database clock", async () => {
+    // The process clock is irrelevant: these deadlines are relative to the
+    // database's own now, which is what the heartbeat writer used.
+    const [row] = await db
+      .select({ at: sql<string>`clock_timestamp()::text` })
+      .from(sql`(select 1) as one`);
+    const dbNow = new Date(row?.at ?? "");
+    await db.insert(workers).values([
+      {
+        podId: "db-live",
+        lastSeen: dbNow,
+        leaseExpiresAt: new Date(dbNow.getTime() + 600_000),
+      },
+      {
+        podId: "db-expired",
+        lastSeen: new Date(dbNow.getTime() - 600_000),
+        leaseExpiresAt: new Date(dbNow.getTime() - 60_000),
+      },
+    ]);
+    const live = await insertSession({ podId: "db-live", status: "running" });
+    const expired = await insertSession({
+      podId: "db-expired",
+      status: "running",
+    });
+    const found = (await findOrphanedSessions(db)).map(({ id }) => id);
+    expect(found).toContain(expired);
+    expect(found).not.toContain(live);
+    const reconciled = await reconcileOrphanedSessions(db, { dryRun: true });
+    expect(reconciled.map(({ sessionId }) => sessionId)).toContain(expired);
+    expect(reconciled.map(({ sessionId }) => sessionId)).not.toContain(live);
   });
 
   test("requeues an orphan atomically after clearing its mapping", async () => {
@@ -171,6 +209,7 @@ describe("session queries", () => {
     await db.insert(workers).values({
       podId: "stale-owner",
       lastSeen: new Date(now.getTime() - 2_000),
+      leaseExpiresAt: new Date(now.getTime() - 2_000 + 1_000),
     });
     const [turn] = await db
       .insert(turns)
@@ -191,7 +230,6 @@ describe("session queries", () => {
 
     expect(
       await reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       }),
     ).toEqual([
@@ -238,11 +276,11 @@ describe("session queries", () => {
     await db.insert(workers).values({
       podId: "fresh-owner",
       lastSeen: new Date(now.getTime() - 100),
+      leaseExpiresAt: new Date(now.getTime() - 100 + 1_000),
     });
 
     expect(
       await reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       }),
     ).toEqual([
@@ -291,7 +329,6 @@ describe("session queries", () => {
 
     expect(
       await reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       }),
     ).toEqual([
@@ -370,7 +407,6 @@ describe("session queries", () => {
 
     expect(
       await reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       }),
     ).toEqual([
@@ -426,7 +462,6 @@ describe("session queries", () => {
 
     expect(
       await reconcileOrphanedSessions(db, {
-        leaseTtlMs: 1_000,
         now,
       }),
     ).toEqual([
@@ -468,7 +503,6 @@ describe("session queries", () => {
     });
     const dryRun = await reconcileOrphanedSessions(db, {
       dryRun: true,
-      leaseTtlMs: 1_000,
       now,
     });
     expect(dryRun).toEqual([
@@ -480,8 +514,8 @@ describe("session queries", () => {
     });
 
     const results = await Promise.all([
-      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
-      reconcileOrphanedSessions(db, { leaseTtlMs: 1_000, now }),
+      reconcileOrphanedSessions(db, { now }),
+      reconcileOrphanedSessions(db, { now }),
     ]);
     expect(results.flat()).toHaveLength(1);
     expect(
@@ -494,7 +528,7 @@ describe("session queries", () => {
 });
 
 describe("API key queries", () => {
-  test("stores only the digest and resolves one active owner", async () => {
+  test("stores only the digest and resolves one active key with its scopes", async () => {
     const plaintext = "csp_plaintext_is_never_stored";
     const digest = new Uint8Array(
       await crypto.subtle.digest(
@@ -502,17 +536,47 @@ describe("API key queries", () => {
         new TextEncoder().encode(plaintext),
       ),
     );
+    const id = crypto.randomUUID();
     await createApiKey(db, {
-      id: crypto.randomUUID(),
+      id,
       ownerId: "owner-a",
       keyHash: digest,
+      scopes: ["sessions:read", "sessions:write"],
     });
 
     const [stored] = await db.select().from(apiKeys);
     expect(stored?.keyHash).toEqual(digest);
     expect(new TextDecoder().decode(stored?.keyHash)).not.toContain(plaintext);
-    expect(await findApiKeyOwner(db, digest)).toBe("owner-a");
-    expect(await findApiKeyOwner(db, new Uint8Array(32))).toBeNull();
+    expect(stored?.scopes).toEqual(["sessions:read", "sessions:write"]);
+    expect(await findApiKey(db, digest)).toEqual({
+      id,
+      ownerId: "owner-a",
+      workspaceId: null,
+      scopes: ["sessions:read", "sessions:write"],
+    });
+    expect(await findApiKey(db, new Uint8Array(32))).toBeNull();
+  });
+
+  test("a key issued before scopes resolves with null scopes", async () => {
+    const digest = new Uint8Array(32).fill(3);
+    await createApiKey(db, {
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      keyHash: digest,
+      scopes: null,
+    });
+    expect((await findApiKey(db, digest))?.scopes).toBeNull();
+  });
+
+  test("the scope CHECK refuses a word outside the vocabulary", async () => {
+    expect(
+      createApiKey(db, {
+        id: crypto.randomUUID(),
+        ownerId: "owner-a",
+        keyHash: new Uint8Array(32).fill(4),
+        scopes: ["sessions:admin" as "sessions:read"],
+      }),
+    ).rejects.toThrow();
   });
 
   test("does not resolve revoked keys", async () => {
@@ -523,6 +587,6 @@ describe("API key queries", () => {
       keyHash: digest,
       revokedAt: new Date(),
     });
-    expect(await findApiKeyOwner(db, digest)).toBeNull();
+    expect(await findApiKey(db, digest)).toBeNull();
   });
 });

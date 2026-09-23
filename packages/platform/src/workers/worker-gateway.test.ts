@@ -8,6 +8,7 @@ import type {
   NextInputInput,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import { profileFingerprint } from "../sessions/catalog.ts";
 import {
   type CheckpointProtocol,
   createWorkerGateway,
@@ -398,16 +399,37 @@ describe("WorkerGateway", () => {
       provider: {
         kind: "anthropic" as const,
         endpoint: "https://api.anthropic.invalid",
-        auth: { kind: "api_key" as const, value: "provider-key" },
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
       },
       project_settings: { claude_md: true },
     };
+    const runnable: unknown[] = [];
     const instance = createWorkerGateway({
       work: work({
-        claimAtomic: async () => ({ outcome: "claimed", binding }),
+        claimAtomic: async (input) => {
+          runnable.push(input.runnable);
+          return { outcome: "claimed", binding };
+        },
       }),
-      // No repositories at all: the descriptor never consults the catalog.
-      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      catalog: {
+        profiles: { "claude-coding-v1": profile, other: profile },
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1", "other"],
+          },
+          docs: {
+            url: "https://example.invalid/docs.git",
+            branch: "trunk",
+            profiles: ["other"],
+          },
+        },
+      },
       checkpoints: acceptAllCheckpoints,
       options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
     });
@@ -421,6 +443,30 @@ describe("WorkerGateway", () => {
       request,
     );
     expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The claim may bind only what the catalog pairs, at the URL and branch
+    // it registers now (94S-258): one entry per allowed pair, nothing else.
+    expect(runnable).toEqual([
+      [
+        {
+          profileId: "claude-coding-v1",
+          repositoryId: "sample-app",
+          url: "https://example.invalid/app.git",
+          branch: "main",
+        },
+        {
+          profileId: "other",
+          repositoryId: "sample-app",
+          url: "https://example.invalid/app.git",
+          branch: "main",
+        },
+        {
+          profileId: "other",
+          repositoryId: "docs",
+          url: "https://example.invalid/docs.git",
+          branch: "trunk",
+        },
+      ],
+    ]);
     // The row's owner partition, not anything from the shared catalog: it is
     // the checkpoint principal the worker hashes (94S-209 / 94S-261).
     expect(claimed.principal).toEqual({ owner_scope: "owner-a" });
@@ -429,13 +475,20 @@ describe("WorkerGateway", () => {
       version: "0.3.270",
       profile_id: "claude-coding-v1",
     });
+    // The credential rides; where the catalog found it does not.
     expect(claimed.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read"],
       permission_mode: "plan",
-      provider: profile.provider,
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: { kind: "api_key", value: "provider-key" },
+      },
       project_settings: { claude_md: true },
     });
+    expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
+    expect(claimed.profile_fingerprint).not.toContain("provider-key");
     // Off leaves the field out, so the answer is one a worker built before it
     // still reads: its schema was this one without the field, and strict.
     const beforeTheField = bootstrapClaimResponseSchema.extend({

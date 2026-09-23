@@ -32,6 +32,10 @@ integration("reconciler process on PostgreSQL", () => {
   let db: NodePgDatabase<typeof schema>;
   const sessionId = crypto.randomUUID();
   const podId = `reconciler-${crypto.randomUUID()}`;
+  // Heartbeated a minute ago under a 120-second TTL the API was given: past
+  // any 30-second default, still inside its own deadline.
+  const liveSessionId = crypto.randomUUID();
+  const livePodId = `reconciler-live-${crypto.randomUUID()}`;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "reconciler_it" });
@@ -48,6 +52,20 @@ integration("reconciler process on PostgreSQL", () => {
     await db.insert(workers).values({
       podId,
       lastSeen: new Date(Date.now() - 60_000),
+      leaseExpiresAt: new Date(Date.now() - 30_000),
+    });
+    await db.insert(sessions).values({
+      id: liveSessionId,
+      ownerId: "reconciler-owner",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${liveSessionId}`,
+      podId: livePodId,
+      status: "running",
+    });
+    await db.insert(workers).values({
+      podId: livePodId,
+      lastSeen: new Date(Date.now() - 60_000),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
     });
     const [turn] = await db
       .insert(turns)
@@ -77,16 +95,19 @@ integration("reconciler process on PostgreSQL", () => {
     }
   }, 60_000);
 
-  test("requeues once, logs the session, and exits zero", async () => {
+  async function runChild(extra: Record<string, string>) {
+    // HEARTBEAT_TTL_SEC comes only from `extra`: whatever the shell running
+    // the suite holds must not decide which case this is.
+    const { HEARTBEAT_TTL_SEC: _inherited, ...inherited } = process.env;
     const child = Bun.spawn(
       [process.execPath, "run", `${import.meta.dir}/main.ts`],
       {
         env: {
-          ...process.env,
+          ...inherited,
           DATABASE_URL: database.url,
-          HEARTBEAT_TTL_SEC: "1",
           RECONCILER_BATCH_SIZE: "10",
           RECONCILER_DRY_RUN: "false",
+          ...extra,
         },
         stderr: "pipe",
         stdout: "pipe",
@@ -99,8 +120,26 @@ integration("reconciler process on PostgreSQL", () => {
         throw new Error("Reconciler process did not exit");
       }),
     ]);
-    const stdout = await new Response(child.stdout).text();
-    const stderr = await new Response(child.stderr).text();
+    return {
+      exitCode,
+      stdout: await new Response(child.stdout).text(),
+      stderr: await new Response(child.stderr).text(),
+    };
+  }
+
+  test("a HEARTBEAT_TTL_SEC of its own stops the process before it touches a row", async () => {
+    const { exitCode, stderr } = await runChild({ HEARTBEAT_TTL_SEC: "1" });
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("HEARTBEAT_TTL_SEC is read by the API only");
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session).toMatchObject({ podId, status: "running" });
+  });
+
+  test("requeues once, logs the session, and exits zero", async () => {
+    const { exitCode, stdout, stderr } = await runChild({});
 
     expect(exitCode, stderr).toBe(0);
     expect(stdout).toContain("Orphan session reconciliation completed");
@@ -117,5 +156,12 @@ integration("reconciler process on PostgreSQL", () => {
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId)),
     ).toHaveLength(1);
+    // Judged by the deadline its heartbeat stored, not by a default TTL.
+    expect(stdout).not.toContain(liveSessionId);
+    const [live] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, liveSessionId));
+    expect(live).toMatchObject({ podId: livePodId, status: "running" });
   });
 });

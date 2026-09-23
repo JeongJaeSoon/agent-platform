@@ -5,8 +5,7 @@ export type SessionAction =
   | "sessions:control"
   | "sessions:approve"
   // Operator recovery decisions. api.md § 최소 운영 복구: issued apart from
-  // ordinary keys; a policy that knows scopes (94S-132) denies it to a
-  // key that owns the session but was not given it.
+  // ordinary keys.
   | "sessions:recover";
 
 export interface AuthorizationPolicy {
@@ -17,7 +16,9 @@ export interface AuthorizationPolicy {
   ): boolean;
 }
 
-// Owner match only; scopes per API key arrive with 94S-132.
+// Owner match only. Scopes are checked at the HTTP edge before a service is
+// called (apps/api/src/scope-policy.ts, 94S-132); this policy is where they
+// move once something other than the API calls these services.
 export const ownerScopedPolicy: AuthorizationPolicy = {
   authorize(actor, _action, resource) {
     return actor.ownerId === resource.ownerId;

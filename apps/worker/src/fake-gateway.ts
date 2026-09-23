@@ -223,6 +223,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
       runtime: this.options.runtime,
+      profile_fingerprint: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
       workspace: this.options.workspace ?? {
         repository: {

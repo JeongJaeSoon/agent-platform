@@ -66,6 +66,8 @@ export type FakeAnthropicOptions = {
    * a proxy (`CONNECT`) exercises that path instead of absolute-form HTTP.
    */
   tls?: { cert: string; key: string };
+  /** Where to listen; loopback on a free port unless a long-running host says otherwise. */
+  listen?: { hostname: string; port: number };
 };
 
 export type FakeAnthropicServer = {
@@ -83,8 +85,8 @@ export function startFakeAnthropicServer(
   const requests: RecordedRequest[] = [];
   const resolve = toResolver(replies);
   const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
+    hostname: options.listen?.hostname ?? "127.0.0.1",
+    port: options.listen?.port ?? 0,
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     async fetch(request) {
       const url = new URL(request.url);
@@ -119,7 +121,7 @@ export function startFakeAnthropicServer(
   return {
     requests,
     stop: () => server.stop(true),
-    url: `${options.tls === undefined ? "http" : "https"}://127.0.0.1:${server.port}`,
+    url: `${options.tls === undefined ? "http" : "https"}://${options.listen?.hostname ?? "127.0.0.1"}:${server.port}`,
   };
 }
 

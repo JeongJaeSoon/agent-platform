@@ -11,6 +11,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
 import {
+  type ApiKeyRecord,
   type BootstrapInput,
   bootstrapFirstOwner,
   countUsers,
@@ -432,9 +433,8 @@ function bearerToken(value: string | undefined): string | null {
   return match?.[1] ?? null;
 }
 
-// Until 94S-132 returns scopes per key, an API key principal is the legacy
-// owner lifted as contracts `authorizationContextFromLegacy` does.
-export function legacyApiKeyPrincipal(ownerId: string): Principal {
+// AUTH_MODE=none trusts X-Owner-Id and holds every scope, as before scopes.
+export function unauthenticatedPrincipal(ownerId: string): Principal {
   return {
     kind: "api_key",
     id: ownerId,
@@ -442,6 +442,23 @@ export function legacyApiKeyPrincipal(ownerId: string): Principal {
     workspace_id: null,
     scopes: [...SESSION_SCOPE_VALUES],
   };
+}
+
+// A key carries exactly what `keys create --scopes` gave it. One issued
+// before scopes existed (NULL) holds none and has to be reissued: guessing
+// "everything" would hand it recovery too.
+export function apiKeyPrincipal(key: ApiKeyRecord): Principal {
+  return {
+    kind: "api_key",
+    id: key.id,
+    owner_id: key.ownerId,
+    workspace_id: key.workspaceId,
+    scopes: key.scopes === null ? [] : [...key.scopes],
+  };
+}
+
+function samePrincipal(left: Principal, right: Principal): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 /** The alpha partition key every existing route authorizes on. */
@@ -465,7 +482,7 @@ export function createAuthenticator(
         const ownerId = context.req.header("X-Owner-Id")?.trim() || null;
         return ownerId
           ? {
-              principal: legacyApiKeyPrincipal(ownerId),
+              principal: unauthenticatedPrincipal(ownerId),
               reauthenticate: async () => true,
             }
           : null;
@@ -480,14 +497,23 @@ export function createAuthenticator(
           return null;
         }
         const keyHash = hashApiKey(token);
-        const ownerId = await keyStore.findOwner(keyHash);
-        return ownerId
-          ? {
-              principal: legacyApiKeyPrincipal(ownerId),
-              reauthenticate: async () =>
-                (await keyStore.findOwner(keyHash)) === ownerId,
-            }
-          : null;
+        const key = await keyStore.find(keyHash);
+        if (!key) {
+          return null;
+        }
+        const principal = apiKeyPrincipal(key);
+        return {
+          principal,
+          // Nothing edits a key's scopes today, but a stream that outlives
+          // a narrowed key must not keep what the key no longer holds.
+          reauthenticate: async () => {
+            const current = await keyStore.find(keyHash);
+            return (
+              current !== null &&
+              samePrincipal(apiKeyPrincipal(current), principal)
+            );
+          },
+        };
       }
       if (!identity) {
         return null;
