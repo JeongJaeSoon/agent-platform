@@ -35,6 +35,10 @@ import {
  */
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
+// The engine names its own session, and transcripts are filed under that name
+// — never the platform's. Keeping the two different is what proves nothing
+// here confuses them.
+const engineSession = "sdk-session-1";
 const projectKey = "-workspace";
 // The workspace half of the checkpoint: a real bundle, uploaded into the
 // attempt's own directory beside the manifest that names it.
@@ -154,7 +158,7 @@ for (const [name, createObjects] of backends) {
         objects,
         prefix: `sessions/${sessionId}/mirror`,
       });
-      const root = { projectKey, sessionId };
+      const root = { projectKey, sessionId: engineSession };
       const subagent = { ...root, subpath: "agents/reviewer" };
 
       for (const attempt of [attemptId, "attempt-stale"]) {
@@ -169,7 +173,7 @@ for (const [name, createObjects] of backends) {
           status: "ready",
           checkpoint: {
             engine: "claude",
-            resume: "sdk-session-1",
+            resume: engineSession,
             sdkVersion: runtime.sdkVersion,
           },
         },
@@ -184,7 +188,7 @@ for (const [name, createObjects] of backends) {
       const first = await publish(
         mirror,
         request.request.revision,
-        "sdk-session-1",
+        engineSession,
       );
       expect(
         await objects.putImmutable(request.request.manifestRef, first.bytes),
@@ -211,7 +215,7 @@ for (const [name, createObjects] of backends) {
       const stale = await publish(
         mirror,
         0,
-        "sdk-session-stale",
+        engineSession,
         runtime,
         "attempt-stale",
       );
@@ -243,7 +247,7 @@ for (const [name, createObjects] of backends) {
       const plan = await service.getRestorePlan({ runtime, sessionId });
       if (plan.status !== "ready")
         throw new Error(`expected a plan: ${plan.status}`);
-      expect(plan.plan.resume).toBe("sdk-session-1");
+      expect(plan.plan.resume).toBe(engineSession);
       expect(plan.plan.gitCommit).toBe(gitCommit);
       expect(plan.plan.revision).toBe(0);
       // The restore plan names the parts captured at revision 0 and nothing the
@@ -292,7 +296,7 @@ for (const [name, createObjects] of backends) {
         workspaceBundles: structuralBundleVerifier,
       });
       const prefix = `sessions/${sessionId}/mirror`;
-      const root = { projectKey, sessionId };
+      const root = { projectKey, sessionId: engineSession };
       const subagent = { ...root, subpath: "agents/reviewer" };
       await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
       await objects.put(bundleKeyFor(1, "attempt-2"), workspaceBundle.bytes);
@@ -300,7 +304,7 @@ for (const [name, createObjects] of backends) {
       const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
       await first.append(root, [entry("r1", "first turn")]);
       await first.append(subagent, [entry("s1", "review")]);
-      const committed = await publish(first, 0, sessionId);
+      const committed = await publish(first, 0, engineSession);
       await objects.putImmutable(
         manifestRefFor(sessionId, 0, attemptId),
         committed.bytes,
@@ -342,7 +346,13 @@ for (const [name, createObjects] of backends) {
       await second.append(root, [entry("r2", "second turn")]);
       await second.append(subagent, [entry("s2", "second review")]);
 
-      const next = await publish(second, 1, sessionId, runtime, "attempt-2");
+      const next = await publish(
+        second,
+        1,
+        engineSession,
+        runtime,
+        "attempt-2",
+      );
       await objects.putImmutable(
         manifestRefFor(sessionId, 1, "attempt-2"),
         next.bytes,
@@ -407,11 +417,11 @@ for (const [name, createObjects] of backends) {
         prefix: `sessions/${sessionId}/mirror`,
       });
       await objects.put(bundleKeyFor(0, attemptId), workspaceBundle.bytes);
-      await mirror.append({ projectKey, sessionId }, [
+      await mirror.append({ projectKey, sessionId: engineSession }, [
         entry("r1", "first turn"),
       ]);
 
-      const published = await publish(mirror, 0, "sdk-session-1", {
+      const published = await publish(mirror, 0, engineSession, {
         ...runtime,
         sdkVersion: "0.3.100",
       });
@@ -452,7 +462,7 @@ async function publish(
   fingerprint = runtime,
   attempt = attemptId,
 ) {
-  const transcripts = await mirror.captureTranscripts(sessionId);
+  const transcripts = await mirror.captureTranscripts(resume);
   if (transcripts === null) throw new Error("expected transcripts");
   const manifest: CheckpointManifest = {
     createdAt: "2026-09-22T00:00:00.000Z",
