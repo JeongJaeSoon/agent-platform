@@ -1,0 +1,27 @@
+# Overlay on infra/docker-compose.yml for the e2e run (94S-134); run.sh is
+# the only intended caller. Paths are relative to infra/, the project
+# directory of the base file.
+#
+# The stack is the product's own — same images, catalog, fake Messages API
+# and proxy allowlist a quickstart user gets. What changes: host ports are
+# ephemeral (still loopback), so a run never collides with a developer
+# stack or another run, and the scheduler loops faster, which only shortens
+# waits.
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1::5432"
+  localstack:
+    ports: !override
+      - "127.0.0.1::4566"
+  secrets:
+    ports: !override []
+  gitea:
+    ports: !override
+      - "127.0.0.1::3000"
+  api:
+    ports: !override
+      - "127.0.0.1::3000"
+  scheduler:
+    environment:
+      SCHEDULER_INTERVAL_SEC: "2"
