@@ -1,0 +1,6 @@
+# The compose Gitea repository run.sh creates for the D2 gate (94S-247).
+repositories:
+  gate-app:
+    url: http://gitea:3000/agent/gate-app.git
+    branch: main
+    profiles: [d2-gate]

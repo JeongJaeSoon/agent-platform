@@ -1,0 +1,21 @@
+# The D2 gate's catalog (94S-247), mounted over config/ by compose.yml. The
+# endpoint is the gate's scripted Messages API; the key is a placeholder the
+# gate sets on the API (GATE_PROVIDER_KEY), never a real credential.
+#
+# acceptEdits so the Write tool runs without a question; any other tool that
+# asks is answered by the gate through the public answers API. Agent is in
+# the tool list so a turn can run a subagent, which is what puts a subagent
+# transcript into the checkpoint.
+profiles:
+  d2-gate:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Write, Edit, Agent]
+    permission_mode: acceptEdits
+    provider:
+      kind: anthropic
+      endpoint: http://gate-messages:4010
+      auth:
+        kind: api_key
+        value_env: GATE_PROVIDER_KEY
