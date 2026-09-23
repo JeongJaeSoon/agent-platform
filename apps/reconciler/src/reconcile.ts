@@ -1,4 +1,8 @@
-import type { ReconciledLease, ReconciledOrphan } from "@agent-platform/db";
+import type {
+  ReconciledInterrupt,
+  ReconciledLease,
+  ReconciledOrphan,
+} from "@agent-platform/db";
 
 export type ReconcileOptions = {
   dryRun: boolean;
@@ -12,6 +16,8 @@ export type LeaseReconcileOptions = Omit<ReconcileOptions, "leaseTtlMs">;
 export type ReconcilerRun = {
   orphans: ReconciledOrphan[];
   leases: ReconciledLease[];
+  interrupts: ReconciledInterrupt[];
+  interruptsOverdue: number;
   terminationsOverdue: number;
 };
 
@@ -36,6 +42,15 @@ export async function runReconciler(input: {
   // Terminate receipts past their deadline become unknown. The scheduler
   // sweeps too, but it may not run at all while Docker is down.
   expireTerminations(options: { now: Date; dryRun: boolean }): Promise<number>;
+  // Interrupts left unsettled past their deadline by a worker that keeps its
+  // lease: its execution goes down the terminate path. Runs after the lease
+  // pass so an attempt that pass already fenced is not fenced twice.
+  reconcileInterrupts(
+    options: LeaseReconcileOptions,
+  ): Promise<ReconciledInterrupt[]>;
+  // Interrupt receipts still open past their later deadline become unknown,
+  // for when nothing confirms the kill above.
+  expireInterrupts(options: { now: Date; dryRun: boolean }): Promise<number>;
 }): Promise<ReconcilerRun> {
   const environment = input.environment ?? process.env;
   const leaseTtlSec = positiveNumber(
@@ -77,12 +92,29 @@ export async function runReconciler(input: {
     reconciled_count: leases.length,
     session_ids: leases.map(({ sessionId }) => sessionId),
   });
+  const interrupts = await input.reconcileInterrupts({ dryRun, limit, now });
+  input.logger.info("Overdue interrupt executions sent to terminate", {
+    dry_run: dryRun,
+    fenced_count: interrupts.length,
+    session_ids: interrupts.map(({ sessionId }) => sessionId),
+  });
+  const interruptsOverdue = await input.expireInterrupts({ dryRun, now });
+  input.logger.info("Overdue interrupt receipts marked unknown", {
+    dry_run: dryRun,
+    overdue_count: interruptsOverdue,
+  });
   const terminationsOverdue = await input.expireTerminations({ dryRun, now });
   input.logger.info("Overdue terminate receipts marked unknown", {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,
   });
-  return { orphans: reconciled, leases, terminationsOverdue };
+  return {
+    orphans: reconciled,
+    leases,
+    interrupts,
+    interruptsOverdue,
+    terminationsOverdue,
+  };
 }
 
 function positiveNumber(value: string, name: string): number {
