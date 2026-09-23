@@ -13,6 +13,7 @@ import type {
   TerminateOptions,
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
+import { launchSpecFingerprint } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
   ReplaceReason,
@@ -88,6 +89,8 @@ class MemoryStore implements SchedulerStore {
       desiredState: "running",
       executionId: `exec-${++this.sequence}`,
       generation: 1,
+      // A launch reserved before the spec was stored, unless a test says so.
+      image: null,
       nonce: null,
       nonceExpiresAt: null,
       nonceExpired: false,
@@ -97,6 +100,7 @@ class MemoryStore implements SchedulerStore {
       pendingReplacement: null,
       providerRef: null,
       replacementCount: 0,
+      resources: null,
       sessionId,
       slotReleased: false,
       ...overrides,
@@ -136,6 +140,8 @@ class MemoryStore implements SchedulerStore {
     const seeded = this.seedActive({
       backend: input.backend,
       generation,
+      image: input.image,
+      resources: input.resources,
       sessionId: input.sessionId,
     });
     if (seeded.operationId === null) {
@@ -342,6 +348,8 @@ type Container = {
   generation: number;
   /** The provider's own id; each create gets a new one, like Docker. */
   id?: string;
+  /** The `launchSpec` label; absent on one built without a stored spec. */
+  launchSpec?: string;
   /**
    * What the resource was built with, exactly as an env var would be. Only
    * containers this backend created have one; a hand-seeded fixture stands
@@ -367,6 +375,10 @@ class FakeBackend implements ExecutionBackend {
   readonly ensureCalls: LaunchIntent[] = [];
   readonly terminateCalls: ExecutionRef[] = [];
   readonly assertReplaceableCalls: LaunchIntent[] = [];
+  /** What each configured reference pins to; a moved tag is a new entry. */
+  readonly imageIds = new Map<string, string>();
+  readonly resolveCalls: string[] = [];
+  failResolveImage = false;
   failEnsureFor = new Set<string>();
   /** Session ids whose container dies right after start (bad image). */
   exitOnStartFor = new Set<string>();
@@ -428,6 +440,14 @@ class FakeBackend implements ExecutionBackend {
     return { suspend: false };
   }
 
+  async resolveImage(reference: string): Promise<string> {
+    this.resolveCalls.push(reference);
+    if (this.failResolveImage) {
+      throw new Error(`Image ${reference} is not on this daemon`);
+    }
+    return this.imageIds.get(reference) ?? `sha256:${reference}`;
+  }
+
   duringEnsure?: (intent: LaunchIntent) => void;
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
@@ -440,6 +460,14 @@ class FakeBackend implements ExecutionBackend {
     if (existing) {
       if (existing.operationId !== intent.operationId) {
         throw new Error("operation id mismatch");
+      }
+      // Refused, never removed, like the real backend.
+      if (
+        intent.launchSpec !== null &&
+        existing.launchSpec !== undefined &&
+        existing.launchSpec !== intent.launchSpec
+      ) {
+        throw new Error("launch spec mismatch");
       }
       existing.started = true;
       return {
@@ -456,6 +484,7 @@ class FakeBackend implements ExecutionBackend {
       exited,
       generation: intent.generation,
       id: `ctr-${intent.executionId}-${++this.created}`,
+      ...(intent.launchSpec === null ? {} : { launchSpec: intent.launchSpec }),
       // Only the create path asks for one, like the real backend.
       nonce: await intent.issueBootstrapNonce(),
       operationId: intent.operationId,
@@ -500,6 +529,7 @@ class FakeBackend implements ExecutionBackend {
       // created with, and nothing on a hand-seeded container.
       credentialFingerprint: fingerprintOf(container.nonce),
       found: true,
+      launchSpec: container.launchSpec ?? null,
       observedAt: new Date(),
       providerRef: this.providerRefOf(nameOf(ref), container),
       state: container.exited
@@ -2358,7 +2388,9 @@ describe("reclaimWorkspaces", () => {
     if (live === undefined) throw new Error("fixture has no session");
     const intent = await store.reserveLaunch({
       backend: "local_docker",
+      image: "sha256:worker:test",
       now: new Date(),
+      resources: RESOURCES,
       sessionId: live,
       slotLimit: 10,
     });
@@ -2668,5 +2700,203 @@ describe("runScheduler workspace GC", () => {
     const summary = await run();
 
     expect(summary.workspacesReclaimed).toEqual(["ap-ws-gone"]);
+  });
+});
+
+describe("launch spec (94S-202)", () => {
+  test("a new launch is pinned to what the image names when it is reserved, once per pass", async () => {
+    const { backend, run, store } = harness();
+    backend.imageIds.set("worker:test", "sha256:first");
+    store.addUnassigned(3);
+
+    await run();
+
+    expect(backend.resolveCalls).toEqual(["worker:test"]);
+    expect(backend.ensureCalls).toHaveLength(3);
+    for (const intent of backend.ensureCalls) {
+      expect(intent.image).toBe("sha256:first");
+      expect(intent.resources).toEqual(RESOURCES);
+      expect(intent.launchSpec).toBe(
+        launchSpecFingerprint("sha256:first", RESOURCES),
+      );
+    }
+    for (const row of store.executions.values()) {
+      expect(row.image).toBe("sha256:first");
+      expect(row.resources).toEqual(RESOURCES);
+    }
+  });
+
+  test("a pass with nobody to admit does not ask for the image", async () => {
+    const { backend, run } = harness();
+    const summary = await run();
+    expect(backend.resolveCalls).toEqual([]);
+    expect(summary.imageUnresolved).toBe(false);
+  });
+
+  test("a launch re-created after a rollout runs what it was reserved with; only a new launch gets the new settings", async () => {
+    const store = new MemoryStore();
+    const backend = new FakeBackend();
+    const { logger } = recordingLogger();
+    const pass = (resources: typeof RESOURCES) =>
+      runScheduler({
+        backend,
+        image: "worker:test",
+        logger,
+        resources,
+        slotLimit: 10,
+        store,
+      });
+    backend.imageIds.set("worker:test", "sha256:before");
+    const [early] = store.addUnassigned(1);
+    await pass(RESOURCES);
+
+    // The tag moves and the limits change; then the early launch's
+    // container disappears before any worker claimed it.
+    backend.imageIds.set("worker:test", "sha256:after");
+    const bigger = { ...RESOURCES, memoryBytes: RESOURCES.memoryBytes * 2 };
+    backend.containers.clear();
+    backend.ensureCalls.length = 0;
+    const [late] = store.addUnassigned(1);
+    const summary = await pass(bigger);
+
+    expect(summary.reensured).toHaveLength(1);
+    expect(summary.launched).toHaveLength(1);
+    const rebuilt = backend.ensureCalls.find((i) => i.sessionId === early);
+    const fresh = backend.ensureCalls.find((i) => i.sessionId === late);
+    expect(rebuilt?.generation).toBe(1);
+    expect(rebuilt?.image).toBe("sha256:before");
+    expect(rebuilt?.resources).toEqual(RESOURCES);
+    expect(fresh?.image).toBe("sha256:after");
+    expect(fresh?.resources).toEqual(bigger);
+  });
+
+  test("an image that cannot be pinned admits nobody and fails the pass, and the rest of the pass still runs", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    backend.containers.clear();
+    backend.ensureCalls.length = 0;
+    store.addUnassigned(2);
+    backend.failResolveImage = true;
+
+    const summary = await run();
+
+    expect(summary.imageUnresolved).toBe(true);
+    expect(summary.launched).toEqual([]);
+    // Reconciling what already exists does not need the configured image.
+    expect(summary.reensured).toHaveLength(1);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(store.executions.size).toBe(1);
+    expect(
+      records.some(
+        (r) => r.level === "error" && r.message.includes("could not be pinned"),
+      ),
+    ).toBe(true);
+  });
+
+  test("a running resource built from another spec is replaced with the one the launch was reserved with", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row?.image || !row.resources) throw new Error("no stored spec");
+    container.launchSpec = launchSpecFingerprint("sha256:other", RESOURCES);
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(summary.reensured).toHaveLength(1);
+    expect(row.replacementCount).toBe(1);
+    expect(row.pendingReplacement).toBeNull();
+    expect(store.confirmedGone).toEqual([]);
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.launchSpec).toBe(
+      launchSpecFingerprint(row.image, row.resources),
+    );
+    expect(
+      records.some(
+        (r) => r.level === "warn" && r.message.includes("another launch spec"),
+      ),
+    ).toBe(true);
+  });
+
+  test("a spec mismatch is left alone on a claimed launch, an unlabelled resource, and a launch with no stored spec", async () => {
+    const { backend, run, store } = harness();
+    const other = launchSpecFingerprint("sha256:other", RESOURCES);
+    // Claimed: a worker is bound, so the resource finishes where it is.
+    store.addUnassigned(1);
+    await run();
+    const [claimedName, claimedContainer] =
+      [...backend.containers.entries()][0] ?? [];
+    const claimed = store.executions.get(claimedName?.split("#")[0] ?? "");
+    if (!claimed || !claimedContainer) throw new Error("no launch");
+    claimed.claimed = true;
+    claimedContainer.launchSpec = other;
+    // Unlabelled: from before the label, adopted as it always was.
+    const unlabelled = store.seedActive({
+      image: "sha256:worker:test",
+      nonce: "nonce-unlabelled",
+      nonceExpiresAt: new Date(Date.now() + NONCE_TTL_MS),
+      resources: RESOURCES,
+    });
+    backend.containers.set(nameOf(unlabelled), {
+      exited: false,
+      generation: 1,
+      operationId: unlabelled.operationId ?? "",
+      sessionId: unlabelled.sessionId,
+    });
+    // No stored spec: nothing durable says what it should run.
+    const legacy = store.seedActive({
+      nonce: "nonce-legacy",
+      nonceExpiresAt: new Date(Date.now() + NONCE_TTL_MS),
+    });
+    backend.containers.set(nameOf(legacy), {
+      exited: false,
+      generation: 1,
+      launchSpec: other,
+      nonce: "nonce-legacy",
+      operationId: legacy.operationId ?? "",
+      sessionId: legacy.sessionId,
+    });
+    backend.terminateCalls.length = 0;
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+  });
+
+  test("a launch reserved before the spec was stored is re-created on the host's current settings", async () => {
+    const { backend, run, store } = harness();
+    const legacy = store.seedActive({});
+    const summary = await run();
+    expect(summary.reensured).toEqual([
+      { executionId: legacy.executionId, generation: 1 },
+    ]);
+    const [intent] = backend.ensureCalls;
+    expect(intent?.image).toBe("worker:test");
+    expect(intent?.resources).toEqual(RESOURCES);
+    expect(intent?.launchSpec).toBeNull();
+    expect([...backend.containers.values()][0]?.launchSpec).toBeUndefined();
+  });
+
+  test("limits the host could never launch are refused before any pass starts", async () => {
+    const store = new MemoryStore();
+    const { logger } = recordingLogger();
+    await expect(
+      runScheduler({
+        backend: new FakeBackend(),
+        image: "worker:test",
+        logger,
+        resources: { ...RESOURCES, pidsLimit: 0 },
+        slotLimit: 10,
+        store,
+      }),
+    ).rejects.toThrow("pidsLimit 0 is not a positive integer");
+    expect(store.locked).toBe(false);
   });
 });

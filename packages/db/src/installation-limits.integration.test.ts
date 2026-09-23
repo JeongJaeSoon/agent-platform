@@ -475,7 +475,13 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(
         await store().reserveLaunch({
           backend: "local_docker",
+          image: "sha256:worker",
           now: new Date(),
+          resources: {
+            cpus: 1,
+            memoryBytes: 512 * 1024 * 1024,
+            pidsLimit: 256,
+          },
           sessionId: other.session_id,
           slotLimit: 1_000,
         }),

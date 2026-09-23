@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ExecutionBackend as ExecutionBackendKind,
   ExecutionState,
@@ -21,8 +22,21 @@ export type LaunchIntent = {
   operationId: string;
   sessionId: string;
   generation: number;
+  /**
+   * What `resolveImage` pinned when the launch was reserved, so the same
+   * execution and generation never runs other content after a rollout. A
+   * launch reserved before the pin existed carries the host's configured
+   * reference instead, and `launchSpec` is then null.
+   */
   image: string;
   resources: ExecutionResources;
+  /**
+   * `launchSpecFingerprint` of the stored image and resources, for the
+   * backend to label the resource with and to hold an existing one against
+   * before adopting it. Null for a launch reserved before the spec was
+   * stored: nothing durable says what it should run, so nothing is judged.
+   */
+  launchSpec: string | null;
   /**
    * Mints the one-time bootstrap credential for a resource that is about to
    * be created, and returns the plaintext. Only the resource ever holds it;
@@ -79,6 +93,12 @@ export type ExecutionObservation = {
    * label at all.
    */
   credentialFingerprint?: string | null;
+  /**
+   * The `launchSpec` the resource was labelled with at creation, for the
+   * scheduler to hold against the stored spec. Null when it carries no such
+   * label; absent when the backend has no such label at all.
+   */
+  launchSpec?: string | null;
 };
 
 export type EnsureExecutionResult = {
@@ -144,6 +164,13 @@ export type WorkspaceRemovalResult = {
 export interface ExecutionBackend {
   readonly kind: ExecutionBackendKind;
   capabilities(): ExecutionBackendCapabilities;
+  /**
+   * A reference to exactly the content `reference` names right now, which
+   * this backend can launch again later and get the same thing — for Docker,
+   * the image id. Refuses an image it would refuse to launch. Called before
+   * a launch is reserved, and the result is stored with it.
+   */
+  resolveImage(reference: string): Promise<string>;
   /** Idempotent: creates the resource for `intent` or finds the one it made. */
   ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult>;
   inspect(ref: ExecutionRef): Promise<ExecutionObservation>;
@@ -192,3 +219,79 @@ export type NetworkReconcileResult = {
   /** Resources left as they are because the repair or removal failed. */
   failed: Array<{ id: string; error: string }>;
 };
+
+const LAUNCH_SPEC_VERSION = "launch-spec/v1";
+
+/**
+ * What a launch was reserved to run, as one value a label can carry and a
+ * row can recompute. Versioned so a change to what goes in never makes an
+ * old label look like a new one.
+ */
+export function launchSpecFingerprint(
+  image: string,
+  resources: ExecutionResources,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        LAUNCH_SPEC_VERSION,
+        image,
+        resources.cpus,
+        resources.memoryBytes,
+        resources.pidsLimit,
+      ]),
+    )
+    .digest("hex");
+}
+
+/**
+ * `value` as launch limits, or a throw naming what is wrong. Every limit has
+ * to be a real bound: Docker reads 0 (and for pids, -1) as "no limit".
+ */
+export function parseExecutionResources(value: unknown): ExecutionResources {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(
+      `Execution resources ${JSON.stringify(value)} are not an object`,
+    );
+  }
+  const { cpus, memoryBytes, pidsLimit } = value as Record<string, unknown>;
+  if (typeof cpus !== "number" || !Number.isFinite(cpus) || cpus <= 0) {
+    throw new Error(
+      `Execution resources cpus ${String(cpus)} is not a positive number`,
+    );
+  }
+  for (const [name, limit] of [
+    ["memoryBytes", memoryBytes],
+    ["pidsLimit", pidsLimit],
+  ] as const) {
+    if (!Number.isSafeInteger(limit) || (limit as number) < 1) {
+      throw new Error(
+        `Execution resources ${name} ${String(limit)} is not a positive integer`,
+      );
+    }
+  }
+  return {
+    cpus,
+    memoryBytes: memoryBytes as number,
+    pidsLimit: pidsLimit as number,
+  };
+}
+
+/**
+ * The resource under this launch's name was built from another image or
+ * other limits than the launch was reserved with. It is refused rather than
+ * adopted, and not removed here: it may hold a credential a worker is
+ * presenting right now, and only the scheduler's fenced replacement can
+ * take it away without racing that claim.
+ */
+export class LaunchSpecMismatchError extends Error {
+  constructor(
+    readonly ref: ExecutionRef,
+    readonly found: string,
+  ) {
+    super(
+      `Resource for execution ${ref.executionId} generation ${ref.generation} carries launch spec ${found}, not the one its launch was reserved with; left for the scheduler to replace`,
+    );
+    this.name = "LaunchSpecMismatchError";
+  }
+}

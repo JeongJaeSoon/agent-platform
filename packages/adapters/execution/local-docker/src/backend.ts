@@ -8,6 +8,7 @@ import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
+  LaunchSpecMismatchError,
   launchNonceFingerprint,
   type ManagedExecution,
   type ManagedWorkspace,
@@ -52,6 +53,11 @@ export const LABELS = {
   isolation: "agent-platform.isolation",
   /** Which control host owns the container; two installations may share a daemon. */
   installation: "agent-platform.installation",
+  /**
+   * The intent's `launchSpec`: which image and limits the launch was
+   * reserved with. Absent on a container whose launch stored none.
+   */
+  launchSpec: "agent-platform.launch-spec",
   managed: "agent-platform.managed",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
@@ -434,6 +440,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     return { suspend: false };
   }
 
+  /** The image id: content-addressed, and what a later create names. */
+  async resolveImage(reference: string): Promise<string> {
+    return this.inspectedImage(reference);
+  }
+
   /**
    * Refuses to start without the egress proxy every worker network needs.
    * The networks themselves are this backend's own, created `internal` per
@@ -609,6 +620,14 @@ export class LocalDockerBackend implements ExecutionBackend {
           verdict === "current" &&
           (await this.holdsAcceptedCredential(intent, existing))
         ) {
+          const spec = existing.Config.Labels?.[LABELS.launchSpec];
+          if (
+            intent.launchSpec !== null &&
+            spec !== undefined &&
+            spec !== intent.launchSpec
+          ) {
+            throw new LaunchSpecMismatchError(intent, spec);
+          }
           return this.adopt(intent, existing);
         }
         // Same intent, but either older isolation or a credential the
@@ -680,6 +699,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
       credentialFingerprint: credentialFingerprintOf(container),
       found: true,
+      launchSpec: container.Config.Labels?.[LABELS.launchSpec] ?? null,
       observedAt,
       providerRef: container.Id,
       state,
@@ -1444,7 +1464,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     // because the mount spec names a volume for exactly that target.
     const extra = declared.filter((path) => path !== this.config.workspaceDir);
     if (extra.length > 0) throw new ImageVolumeError(reference, extra.sort());
-    return inspected.Id || reference;
+    // The id is what a launch is pinned to; a reference passed through in
+    // its place would be the mutable tag the pin exists to replace.
+    if (!inspected.Id) {
+      throw new Error(`Image ${reference} was inspected but carries no id`);
+    }
+    return inspected.Id;
   }
 
   /**
@@ -1647,6 +1672,9 @@ export class LocalDockerBackend implements ExecutionBackend {
         [LABELS.generation]: String(intent.generation),
         [LABELS.installation]: config.installationId,
         [LABELS.isolation]: isolationStampFor(config),
+        ...(intent.launchSpec === null
+          ? {}
+          : { [LABELS.launchSpec]: intent.launchSpec }),
         [LABELS.managed]: "true",
         [LABELS.operationId]: intent.operationId,
         [LABELS.sessionId]: intent.sessionId,

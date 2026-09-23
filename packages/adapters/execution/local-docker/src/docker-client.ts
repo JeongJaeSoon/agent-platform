@@ -91,6 +91,8 @@ export type ContainerInspect = {
   };
   HostConfig: Record<string, unknown>;
   Id: string;
+  /** The id of the image it was created from, whatever name was asked for. */
+  Image?: string;
   /**
    * What the container holds, as the daemon resolved it when the container
    * was created: a volume mount carries that volume's `Name`. Fixed for the
