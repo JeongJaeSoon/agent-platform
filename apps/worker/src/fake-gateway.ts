@@ -280,6 +280,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       auth_revision: this.authRevision,
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       runtime: this.options.runtime,
       profile_fingerprint: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
@@ -353,6 +354,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     }
     return {
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       auth_revision: this.authRevision,
       control_pending: this.control !== null,
     };

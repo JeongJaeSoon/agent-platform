@@ -388,6 +388,7 @@ describe("WorkerGateway", () => {
       executionGeneration: 1,
       authRevision: 0,
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
       ownerScope: "owner-a",
       repository: {
@@ -451,6 +452,8 @@ describe("WorkerGateway", () => {
       request,
     );
     expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The worker tracks the remainder the store measured, not the deadline.
+    expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now (94S-258): one entry per allowed pair, nothing else.
     expect(runnable).toEqual([
@@ -1124,14 +1127,16 @@ describe("WorkerGateway", () => {
         return {
           outcome: "ok",
           leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          leaseRemainingMs: 29_990,
           authRevision: 0,
         };
       },
     });
-    await instance.heartbeat(principal, {
+    const beat = await instance.heartbeat(principal, {
       ...scope,
       attempt_state: "running",
     });
+    expect(beat.lease_remaining_ms).toBe(29_990);
     expect(seen[0]).not.toHaveProperty("transcript");
     await instance.heartbeat(principal, {
       ...scope,
@@ -1249,6 +1254,7 @@ describe("WorkerGateway", () => {
       heartbeatAtomic: async () => ({
         outcome: "ok",
         leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+        leaseRemainingMs: 60_000,
         authRevision: 0,
       }),
     });

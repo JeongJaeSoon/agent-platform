@@ -643,6 +643,7 @@ export function createWorkerGateway(deps: {
             auth_revision: binding.authRevision,
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
+            lease_remaining_ms: binding.leaseRemainingMs,
             ...resolveProfile(binding.profileId),
             workspace: { repository: binding.repository },
             principal: { owner_scope: binding.ownerScope },
@@ -737,6 +738,7 @@ export function createWorkerGateway(deps: {
       if (result.outcome !== "ok") rejected(result);
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
+        lease_remaining_ms: result.leaseRemainingMs,
         auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over.
