@@ -10,7 +10,7 @@ way: a block a reader should not run as-is is ```sh or ```text.
 
 모델 계정은 필요 없다. 예시 카탈로그(`config/`)는 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 스크립트대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)).
 
-같은 시나리오를 `tests/e2e/alpha-path.test.ts`가 CI(`e2e` job)에서 자동으로 돌고, 이 문서의 `bash` 블록도 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다.
+같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돌고, 이 문서의 `bash` 블록도 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다.
 
 ## 대상: 신뢰된 내부 인원 한정
 

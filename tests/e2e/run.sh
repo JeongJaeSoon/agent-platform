@@ -14,7 +14,9 @@
 #
 # E2E_UP_ONLY=1 stops before the tests and keeps the stack, writing the
 # variables the suite reads to $E2E_OUT/vars.sh: source it and run
-# `bun test tests/e2e` to iterate against the same stack.
+# `bun test ./tests/e2e/alpha-path.e2e.ts` to iterate against the same
+# stack. The file is named outside Bun's `*.test.ts` rule so `bun run test`
+# never collects it: without a stack it has nothing to talk to.
 #
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless E2E_KEEP=1: the compose project, the
@@ -123,7 +125,7 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-bun test tests/e2e --timeout 900000 2>&1 | tee "$out/test.log"
+bun test ./tests/e2e/alpha-path.e2e.ts --timeout 900000 2>&1 | tee "$out/test.log"
 status="${PIPESTATUS[0]}"
 set -e
 # Bun exits 0 when every test skipped, which is what a missing variable

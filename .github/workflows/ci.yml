@@ -224,6 +224,7 @@ jobs:
               - packages/platform/
               - packages/runtime-core/
               - packages/testkit/src/fake-anthropic.
+              - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/architecture.
               - tests/d2-gate

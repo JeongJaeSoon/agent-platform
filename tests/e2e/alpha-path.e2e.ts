@@ -14,21 +14,14 @@ import {
  * compose fake Messages API playing each prompt's script. docs/quickstart.md
  * walks the same steps by hand with curl.
  */
-const env = e2eEnv();
-const api = env === null ? null : new Api(env);
+const api = new Api(e2eEnv());
 const TIMEOUT = 600_000;
-
-function client(): Api {
-  if (api === null) throw new Error("unreachable: suite is skipped");
-  return api;
-}
 
 /**
  * Settles a turn that must not ask anything: a read-only command runs
  * without a permission request, and docs/quickstart.md answers none there.
  */
 async function settleUnasked(sessionId: string, turnId: string): Promise<Turn> {
-  const api = client();
   return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
     const turn = await api.turn(sessionId, turnId);
     if (!["queued", "running", "needs_input"].includes(turn.status)) {
@@ -50,7 +43,7 @@ function must<T>(value: T | undefined): T {
 }
 
 async function revision(sessionId: string): Promise<number> {
-  return (await client().session(sessionId)).revision;
+  return (await api.session(sessionId)).revision;
 }
 
 const bash = (command: string) => ({
@@ -58,12 +51,10 @@ const bash = (command: string) => ({
   input: { command, description: command },
 });
 
-describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
+describe("alpha path over public HTTP (94S-134)", () => {
   test(
     "create → events → pending → answer → message → interrupt → pause → resume → terminate → recovery → resume",
     async () => {
-      const api = client();
-
       // 1. create: the first turn writes a file, which asks permission.
       const created = await api.createSession(
         scripted("q1", [bash("echo alpha > hello.txt")], "wrote hello.txt"),
@@ -245,11 +236,10 @@ describe.skipIf(env === null)("alpha path over public HTTP (94S-134)", () => {
   );
 });
 
-describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
+describe("concurrency regressions (94S-134)", () => {
   test(
     "a retried create is one session; the same key with another body is refused",
     async () => {
-      const api = client();
       const key = crypto.randomUUID();
       const message = scripted("c1", [], "created once");
       const [first, retry] = await Promise.all([
@@ -276,7 +266,6 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
   test(
     "three concurrent messages to one session become three turns, run in order",
     async () => {
-      const api = client();
       const created = await api.createSession(scripted("m0", [], "ready"));
       const sessionId = created.body.session_id;
       await api.settledTurn(sessionId, "1");
@@ -309,7 +298,6 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
   test(
     "approvals answered in reverse order each reach their own request",
     async () => {
-      const api = client();
       const sessions = await Promise.all(
         ["a1", "a2"].map(async (id) => {
           const created = await api.createSession(
@@ -349,7 +337,6 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
   test(
     "two requests of one turn are each answered by their own id",
     async () => {
-      const api = client();
       // Claude Code asks for one tool at a time, even for tool calls the
       // model sent together, so one turn never holds two open requests; what
       // can go wrong is an answer landing on the next one.
@@ -390,7 +377,6 @@ describe.skipIf(env === null)("concurrency regressions (94S-134)", () => {
   test(
     "an interrupt racing the next message stops only its target",
     async () => {
-      const api = client();
       const created = await api.createSession(
         scripted("r1", [], "slow", 300_000),
       );

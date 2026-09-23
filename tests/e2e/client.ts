@@ -8,12 +8,16 @@
 
 export type E2eEnv = { apiKey: string; apiUrl: string; messagesUrl: string };
 
-/** Null unless tests/e2e/run.sh started a stack; the suite never starts one. */
-export function e2eEnv(): E2eEnv | null {
+/** The stack tests/e2e/run.sh started; the suite never starts one. */
+export function e2eEnv(): E2eEnv {
   const apiUrl = process.env.E2E_API_URL;
   const apiKey = process.env.E2E_API_KEY;
   const messagesUrl = process.env.E2E_MESSAGES_URL;
-  if (!apiUrl || !apiKey || !messagesUrl) return null;
+  if (!apiUrl || !apiKey || !messagesUrl) {
+    throw new Error(
+      "E2E_API_URL, E2E_API_KEY and E2E_MESSAGES_URL are unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
+    );
+  }
   return { apiKey, apiUrl, messagesUrl };
 }
 
