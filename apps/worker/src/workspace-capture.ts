@@ -2,7 +2,10 @@ import { constants } from "node:fs";
 import { lstat, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readWorkspaceFile } from "@agent-platform/runtime-core";
+import {
+  type GitResourceLimits,
+  readWorkspaceFile,
+} from "@agent-platform/runtime-core";
 
 import {
   check,
@@ -10,7 +13,9 @@ import {
   type Git,
   type GitExtras,
   GitOutputLimitError,
+  GitResourceLimitError,
   type GitResult,
+  LOCAL_DEADLINE_MS,
   runGitBytes,
 } from "./workspace.ts";
 
@@ -32,6 +37,12 @@ export type WorkspaceCaptureResult =
 export type WorkspaceCaptureLimits = {
   /** The control plane refuses a larger bundle (`DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`). */
   maxBundleBytes: number;
+  /**
+   * Any one tracked file on disk. A restore writes each one back under a file
+   * size limit (`checkpointGitLimits`), so a capture refuses what that would
+   * refuse rather than pin a checkpoint no worker can resume from.
+   */
+  maxFileBytes: number;
   /** The workspace index is copied whole before anything reads it. */
   maxIndexBytes: number;
   /**
@@ -51,6 +62,7 @@ export type WorkspaceCaptureLimits = {
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
   maxBundleBytes: 128 * 1024 * 1024,
+  maxFileBytes: 512 * 1024 * 1024,
   maxIndexBytes: 256 * 1024 * 1024,
   maxStagedBytes: 512 * 1024 * 1024,
   maxUntrackedBytes: 256 * 1024 * 1024,
@@ -89,6 +101,11 @@ export type InstructionsPin = { commit: string; objects?: string };
 // only one rewritten within the second its index entry was refreshed slips
 // through (git keeps whole-second ctimes unless built with USE_NSEC), and
 // what that stages is bounded by the tracked bytes the workspace quota holds.
+//
+// One pack thread, for `checkpointGitLimits`: each thread takes a malloc
+// arena of its own out of the address space, and left alone git starts one
+// per host CPU whatever the container's CPU share. `index-pack` reads the
+// same setting, so a restore's delta resolution is one thread too.
 export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
   ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
@@ -100,7 +117,41 @@ export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
   ["core.symlinks", "true"],
   ["core.trustctime", "true"],
   ["core.useReplaceRefs", "false"],
+  ["pack.threads", "1"],
 ];
+
+/**
+ * Address space for each capture or restore git: resolving a delta of a file
+ * near `maxFileBytes` holds base and result at once (a 480 MiB file with one
+ * edit peaked at 964 MiB resident; see the control plane's
+ * `DEFAULT_MAX_GIT_MEMORY_BYTES`, which this matches), and so does staging
+ * one that needs converting. Deliberately fixed rather than sized from the
+ * container's memory; make it configurable once a deployment changes
+ * `WORKER_MEMORY_MB` enough that the two disagree.
+ */
+const CHECKPOINT_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
+/** Compression's worst case on top of the largest file: zlib adds ~0.03%. */
+const FILE_SIZE_SLACK_BYTES = 16 * 1024 * 1024;
+
+/**
+ * What each git in a capture or a restore may use, so that a repository the
+ * engine built cannot take the worker's memory, disk or CPU with it. The
+ * largest file either writes is a tracked file (as a loose object, or back
+ * into the tree) or the index; packs are bounded by the bundle, well below.
+ * CPU gets the wall-clock deadline: one thread cannot use more, and a helper
+ * left running after git exits gets no more than that either.
+ */
+export function checkpointGitLimits(
+  limits: WorkspaceCaptureLimits = DEFAULT_WORKSPACE_CAPTURE_LIMITS,
+): GitResourceLimits {
+  return {
+    cpuSeconds: Math.ceil(LOCAL_DEADLINE_MS / 1000),
+    fileSizeBytes:
+      Math.max(limits.maxFileBytes, limits.maxIndexBytes) +
+      FILE_SIZE_SLACK_BYTES,
+    memoryBytes: CHECKPOINT_GIT_MEMORY_BYTES,
+  };
+}
 
 /**
  * What any one git call in a capture may print before it is killed: the
@@ -179,6 +230,7 @@ export async function captureWorkspace(input: {
   try {
     const repository = join(scratch, "checkpoint.git");
     const neutralized: Array<[string, string]> = [];
+    const gitLimits = checkpointGitLimits(limits);
     const runBytes = (
       args: string[],
       env: Record<string, string>,
@@ -187,6 +239,7 @@ export async function captureWorkspace(input: {
       runGitBytes(args, {
         cwd: root,
         extra: { config: CHECKPOINT_GIT_CONFIG, env },
+        limits: gitLimits,
         maxStdoutBytes,
         network: null,
         overrides: neutralized,
@@ -225,7 +278,7 @@ export async function captureWorkspace(input: {
       });
     const problem = await unrepresentable(indexed, gitDirectory);
     if (problem !== undefined) return refused(problem);
-    const staged = await stagedBytes(
+    const staged = await trackedSizes(
       (args) =>
         runBytes(args, {
           GIT_DIR: gitDirectory,
@@ -233,7 +286,8 @@ export async function captureWorkspace(input: {
           GIT_WORK_TREE: root,
         }),
       root,
-      limits.maxStagedBytes,
+      limits,
+      signal,
     );
     if (staged !== undefined) return refused(staged);
     await check(
@@ -429,6 +483,16 @@ export async function captureWorkspace(input: {
       untracked.push({ bytes: read.bytes, executable: read.executable, path });
     }
     return { status: "captured", capture: { bundle, gitCommit, untracked } };
+  } catch (error) {
+    // Any git in the capture that ran past what it may use or print, where
+    // no step above has a more specific reason.
+    if (
+      error instanceof GitResourceLimitError ||
+      error instanceof GitOutputLimitError
+    ) {
+      return refused(error.message);
+    }
+    throw error;
   } finally {
     await rm(scratch, { force: true, recursive: true });
   }
@@ -485,18 +549,19 @@ async function unrepresentable(
 }
 
 /**
- * What staging would write into the scratch object store: the tracked files
- * whose disk content differs from the index, by their size on disk (an
+ * Every tracked file on disk against `maxFileBytes`, and what staging would
+ * write into the scratch object store against `maxStagedBytes`: the tracked
+ * files whose disk content differs from the index, by their size on disk (an
  * upper bound on the loose objects they become). Once a `.gitattributes` has
  * changed, `--renormalize` may rewrite any tracked file, so every one counts.
- * Refused past `limit`.
  */
-async function stagedBytes(
+async function trackedSizes(
   git: (
     args: string[],
   ) => Promise<{ code: number; stderr: string; stdout: Uint8Array }>,
   root: string,
-  limit: number,
+  limits: WorkspaceCaptureLimits,
+  signal: AbortSignal,
 ): Promise<string | undefined> {
   const listing = async (args: string[]) => {
     const listed = await git(["ls-files", "-z", ...args]);
@@ -516,21 +581,29 @@ async function stagedBytes(
   ]);
   // Decoded as strictly as the untracked names, or lstat measures a
   // different file than the one `add -u` is about to write.
-  const modified = namesOf(
-    await listing(rules.byteLength > 0 ? ["--cached"] : ["--modified"]),
-  );
-  if (modified === undefined) return "a tracked file's name is not valid UTF-8";
+  const tracked = namesOf(await listing(["--cached"]));
+  const modified =
+    rules.byteLength > 0 ? tracked : namesOf(await listing(["--modified"]));
+  if (tracked === undefined || modified === undefined) {
+    return "a tracked file's name is not valid UTF-8";
+  }
+  const changed = new Set(modified.split("\0"));
   let total = 0;
-  for (const path of new Set(modified.split("\0"))) {
+  for (const path of new Set(tracked.split("\0"))) {
     if (path === "") continue;
+    signal.throwIfAborted();
     const found = await lstat(join(root, path)).catch(() => null);
     // A link is staged as a blob of its target, which lstat sizes.
     if (found === null || !(found.isFile() || found.isSymbolicLink())) {
       continue;
     }
+    if (found.size > limits.maxFileBytes) {
+      return `${path} is ${found.size} bytes, over the ${limits.maxFileBytes} a checkpoint restores`;
+    }
+    if (!changed.has(path)) continue;
     total += found.size;
-    if (total > limit) {
-      return `the tracked changes are over the ${limit} bytes a checkpoint stages`;
+    if (total > limits.maxStagedBytes) {
+      return `the tracked changes are over the ${limits.maxStagedBytes} bytes a checkpoint stages`;
     }
   }
   return undefined;

@@ -1,4 +1,11 @@
 import { spawn } from "node:child_process";
+import {
+  type GitResourceLimits,
+  gitCommand,
+  killProcessGroup,
+} from "@agent-platform/runtime-core";
+
+export type { GitResourceLimits };
 
 export interface GitCommandResult {
   readonly exitCode: number;
@@ -37,24 +44,6 @@ export type GitCommandOptions = {
   readonly timeoutMs?: number;
 };
 
-/**
- * Per-process ceilings, applied with `setrlimit` before git starts and
- * inherited by every helper it forks: each of `fetch` and its `index-pack`
- * gets the whole budget, so a caller sizing them adds them up.
- */
-export type GitResourceLimits = {
-  /** Soft and hard `RLIMIT_CPU`; git is killed once it has used this much. */
-  readonly cpuSeconds: number;
-  /** `RLIMIT_FSIZE`: no single file git writes may grow past this. */
-  readonly fileSizeBytes: number;
-  /**
-   * `RLIMIT_AS`: address space, so the file mappings git reads packs through
-   * count as well as the heap. An allocation past it fails and git dies
-   * with "Out of memory".
-   */
-  readonly memoryBytes: number;
-};
-
 export type GitCommandRunner = (
   args: readonly string[],
   options: GitCommandOptions,
@@ -71,15 +60,6 @@ export const GIT_TIMEOUT_EXIT_CODE = 124;
 export const GIT_OUTPUT_LIMIT_BYTES = 64 * 1024;
 
 /**
- * Absolute, so that a caller's `PATH` decides which git runs but never which
- * program applies the limits. util-linux installs it here on Debian, Ubuntu
- * and Alpine alike.
- */
-const PRLIMIT = "/usr/bin/prlimit";
-
-let warnedUnenforced = false;
-
-/**
  * Runs git and hands back exit code and both streams.
  *
  * git is started in its own process group because it forks helpers
@@ -93,14 +73,15 @@ export function defaultGitRunner(
   options: GitCommandOptions,
 ): Promise<GitCommandResult> {
   return new Promise((resolve, reject) => {
-    let launch: { command: string; argv: readonly string[] };
+    let command: string[];
     try {
-      launch = launcher(args, options.limits);
+      command = gitCommand(args, options.limits);
     } catch (error) {
       reject(error);
       return;
     }
-    const child = spawn(launch.command, launch.argv, {
+    const [program = "git", ...argv] = command;
+    const child = spawn(program, argv, {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       detached: true,
       env: {
@@ -122,7 +103,7 @@ export function defaultGitRunner(
         ? undefined
         : setTimeout(() => {
             timedOut = true;
-            killGroup(child.pid);
+            killProcessGroup(child.pid);
           }, options.timeoutMs);
     const settle = (result: () => GitCommandResult | Error) => {
       if (settled) return;
@@ -164,48 +145,6 @@ export function defaultGitRunner(
   });
 }
 
-/**
- * `prlimit` sets the limits and then execs git, so the pid, process group and
- * exit status stay git's own. Only Linux takes it: macOS refuses to lower
- * `RLIMIT_AS`, so there the limits are announced as missing once and git runs
- * as before. On Linux nothing falls back — a missing `prlimit` fails the
- * spawn rather than running git without the limits it was promised.
- */
-function launcher(
-  args: readonly string[],
-  limits: GitResourceLimits | undefined,
-): { command: string; argv: readonly string[] } {
-  if (limits === undefined) return { command: "git", argv: args };
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new RangeError(`git limit ${name} must be a positive integer`);
-    }
-  }
-  if (process.platform !== "linux") {
-    if (!warnedUnenforced) {
-      warnedUnenforced = true;
-      console.warn(
-        `git resource limits are not enforced on ${process.platform}; git runs with this process's memory, disk and CPU`,
-      );
-    }
-    return { command: "git", argv: args };
-  }
-  return {
-    command: PRLIMIT,
-    argv: [
-      `--as=${limits.memoryBytes}`,
-      `--fsize=${limits.fileSizeBytes}`,
-      `--cpu=${limits.cpuSeconds}`,
-      // A git killed by a limit would otherwise leave a core file the size
-      // of what it had mapped.
-      "--core=0",
-      "--",
-      "git",
-      ...args,
-    ],
-  };
-}
-
 function boundedCollector() {
   const chunks: Buffer[] = [];
   let kept = 0;
@@ -239,17 +178,4 @@ function withoutGitVariables(env: NodeJS.ProcessEnv): Record<string, string> {
     if (value !== undefined && !name.startsWith("GIT_")) kept[name] = value;
   }
   return kept;
-}
-
-function killGroup(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
 }
