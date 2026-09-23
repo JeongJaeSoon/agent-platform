@@ -576,17 +576,19 @@ async function readyzLoop(soak: Soak, clock: Clock): Promise<void> {
   const grace = Math.min(1000, interval / 2);
   let slot = Date.now();
   while (!clock.stopping) {
-    if (Date.now() > slot + grace) {
-      record(failed(slot, "slot missed: the runner did not get to it"));
-    } else {
-      const t = new Date().toISOString();
-      record(
-        await readyzProbe(env.apiUrl, config.readyz.timeoutMs).then(
-          (probe) => ({ t, ...probe }),
-          (error) => failed(Date.now(), `probe did not run: ${String(error)}`),
-        ),
-      );
-    }
+    const t = new Date().toISOString();
+    const probe = await readyzProbe(
+      env.apiUrl,
+      config.readyz.timeoutMs,
+      slot + grace,
+    ).catch((error) =>
+      failed(Date.now(), `probe did not run: ${String(error)}`),
+    );
+    record(
+      probe === null
+        ? failed(slot, "slot missed: the runner did not get to it")
+        : { t, ...probe },
+    );
     slot += interval;
     while (!clock.stopping && Date.now() < slot) {
       await Bun.sleep(Math.min(1000, slot - Date.now()));
@@ -594,11 +596,14 @@ async function readyzLoop(soak: Soak, clock: Clock): Promise<void> {
   }
 }
 
+/** null when the probe could not start by `notAfter`. */
 async function readyzProbe(
   apiUrl: string,
   timeoutMs: number,
-): Promise<Omit<ReadyzSample, "t">> {
+  notAfter: number,
+): Promise<Omit<ReadyzSample, "t"> | null> {
   const sent = Date.now();
+  if (sent > notAfter) return null;
   const child = Bun.spawn(
     [
       "curl",
@@ -769,23 +774,18 @@ export function judge(
       ? Date.parse(sample.t) - Date.parse(sample.status.lastSuccessAt)
       : Number.POSITIVE_INFINITY,
   );
-  // A restarted loop writes a new loopStartedAt, whatever its pass count.
-  // The last reading before steady is the baseline, and a loop that started
-  // inside the window is a restart even when no earlier reading shows the
-  // one it replaced (its fresh status also clears lastFailureAt).
-  const baseline = soak.reconciler
-    .filter((sample) => steadyKnown && Date.parse(sample.t) < steadyFrom)
-    .at(-1)?.status?.loopStartedAt;
-  const loopIds = new Set(
-    [
-      baseline,
-      ...reconcilerSamples.map((sample) => sample.status?.loopStartedAt),
-    ].filter((id): id is string => typeof id === "string"),
-  );
-  const startedInSteady = [...loopIds].some(
-    (id) => Date.parse(id) >= steadyFrom,
-  );
-  const restarts = Math.max(loopIds.size - 1, startedInSteady ? 1 : 0);
+  // A restarted loop writes a new loopStartedAt, whatever its pass count,
+  // and its fresh status clears lastFailureAt: every loop that started inside
+  // the window is a restart, seen or not in the reading before it. The loop
+  // and the runner share the Docker host's clock.
+  const restarts = new Set(
+    reconcilerSamples
+      .map((sample) => sample.status?.loopStartedAt)
+      .filter(
+        (id): id is string =>
+          typeof id === "string" && Date.parse(id) >= steadyFrom,
+      ),
+  ).size;
   const targets = config.targets;
   const accepted = (endpoint: TurnRecord["endpoint"]) =>
     distribution(
