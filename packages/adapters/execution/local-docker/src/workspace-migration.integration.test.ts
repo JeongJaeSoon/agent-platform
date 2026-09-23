@@ -523,6 +523,9 @@ integration("workspace migration against a real daemon", () => {
 
   test("a run that stalls before pinning cannot make a finished migration undone", async () => {
     const { legacy, sessionId } = await legacySession();
+    // Docker stamps CreatedAt to the second; a stand-in made within the
+    // second the source was would pass for it. No real source is that young.
+    await Bun.sleep(1_100);
     // A has planned and stalls before its pin; B migrates to the end and
     // removes the source; A's pin mount then makes an empty volume under
     // the source's name.

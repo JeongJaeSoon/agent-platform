@@ -69,7 +69,9 @@ export const LABELS = {
    * On a migration copy: the source's creation time when it was copied. A
    * source name alone can come back as a different, empty volume — Docker
    * makes one for any mount of a missing name — and only this tells them
-   * apart.
+   * apart. Docker keeps it to the second, which is enough: a source is
+   * copied, removed and remade within the second it was created only if it
+   * was created during the migration, and every source predates it.
    */
   migrationSourceCreatedAt: "agent-platform.migration-source-created-at",
   operationId: "agent-platform.operation-id",
