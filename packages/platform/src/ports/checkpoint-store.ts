@@ -1,5 +1,8 @@
 import type { CheckpointRef } from "@agent-platform/contracts";
 
+/** CheckpointPointer.parentRevision of a checkpoint that starts a history. */
+export const CHECKPOINT_ROOT_PARENT = -1;
+
 export type CheckpointPointer = {
   committedAt: Date;
   manifestRef: string;
@@ -11,6 +14,15 @@ export type CheckpointPointer = {
    * `objectProtection: "unversioned"` deployment restores.
    */
   manifestVersion?: string | null;
+  /**
+   * The revision this checkpoint's state was built on: the pointer before
+   * it, or the earlier revision a fallback restored (94S-204). Null or
+   * absent for revision 0 and for rows committed before it was recorded,
+   * which read as the revision before. CHECKPOINT_ROOT_PARENT for the first
+   * checkpoint after a start_fresh decision (94S-288): it was built on no
+   * earlier state, and a fallback must never walk into the retired history.
+   */
+  parentRevision?: number | null;
   revision: number;
   turnId: string | null;
   /**
@@ -63,4 +75,16 @@ export type CommitCheckpointResult =
 export interface CheckpointStore {
   commitAtomic(input: CommitCheckpointInput): Promise<CommitCheckpointResult>;
   readPointer(sessionId: string): Promise<CheckpointPointer | null>;
+  /**
+   * The committed checkpoints below `belowRevision`, newest first, at most
+   * `limit` of them: the generations a restore may fall back to when the
+   * pointer's own checkpoint no longer verifies. Each entry is recorded the
+   * way the pointer is, with the manifest version that revision committed.
+   * Bounded on purpose — a session accumulates a row per checkpoint, and a
+   * restore must not walk its whole history.
+   */
+  listCheckpoints(
+    sessionId: string,
+    options: { belowRevision: number; limit: number },
+  ): Promise<CheckpointPointer[]>;
 }

@@ -36,6 +36,10 @@ import {
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
 import type { WorkerLogger } from "./worker-host.ts";
+import type {
+  WorkspaceCapture,
+  WorkspaceCaptureResult,
+} from "./workspace-capture.ts";
 
 const runtime: RuntimeFingerprint = {
   ...CLAUDE_RUNTIME_FINGERPRINT,
@@ -277,6 +281,10 @@ describe("SessionCheckpoints", () => {
     expect(h.objects.keys().some((key) => key.includes("/checkpoints/"))).toBe(
       false,
     );
+    // The gateway made that call itself; nothing is reported back to it.
+    expect(
+      h.gateway.checkpointRequests.map((request) => request.preparation),
+    ).toEqual([{ status: "ready" }]);
   });
 
   test("a workspace the capture refuses fails the publish before the manifest", async () => {
@@ -607,6 +615,252 @@ describe("SessionCheckpoints", () => {
   });
 });
 
+describe("a publish that fails for a reason other than the mirror (94S-312)", () => {
+  const manifestRef = `sessions/${SESSION}/checkpoints/0000000000/att_fake/0123456789abcdef0123456789abcdef/manifest.json`;
+  const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
+  const bundle = new TextEncoder().encode("bundle bytes");
+  const captured =
+    (untracked: WorkspaceCapture["untracked"] = []) =>
+    async (): Promise<WorkspaceCaptureResult> => ({
+      status: "captured",
+      capture: { bundle, gitCommit: "c".repeat(40), untracked },
+    });
+  const untrackedFiles = (count: number, pathBytes = 8) =>
+    Array.from({ length: count }, (_, index) => ({
+      bytes: new TextEncoder().encode("same bytes"),
+      executable: false,
+      path: `${String(index).padStart(pathBytes, "0")}.txt`,
+    }));
+  /** Hands out `handed` for a ready request and records every refusal. */
+  const handing = (
+    handed = manifestRef,
+    ready: () => Promise<void> = async () => {},
+  ) =>
+    new FakeWorkerGateway({
+      checkpoints: {
+        commit: async () => {},
+        requestCheckpoint: async (request) => {
+          if (request.preparation.status === "rejected") {
+            return {
+              status: "blocked",
+              reason: request.preparation.reason,
+              detail: request.preparation.detail,
+            };
+          }
+          await ready();
+          return { status: "ready", revision: 0, manifest_ref: handed };
+        },
+        restorePlan: async () => ({ status: "none" }),
+      },
+    });
+
+  type Case = {
+    stage: string;
+    options: () => Promise<Parameters<typeof harness>[0]>;
+    mirrored?: false;
+    failWrites?: number;
+  };
+  const cases: Array<[string, Case]> = [
+    [
+      "a workspace the capture refuses",
+      {
+        stage: "workspace",
+        options: async () => ({
+          captureWorkspace: async () => ({
+            status: "refused",
+            reason: "5000 untracked files, over the 10 a checkpoint carries",
+          }),
+        }),
+      },
+    ],
+    [
+      "an upload key that already holds other bytes",
+      {
+        stage: "upload",
+        options: async () => {
+          const objects = createMemoryCheckpointObjectStore();
+          await objects.putImmutable(
+            `${directory}workspace-${sha256(bundle)}.bundle`,
+            new TextEncoder().encode("other bytes"),
+          );
+          return {
+            captureWorkspace: captured(),
+            gateway: handing(),
+            objects,
+          };
+        },
+      },
+    ],
+    [
+      "a manifest naming more objects than the control plane reads",
+      {
+        stage: "manifest",
+        options: async () => ({
+          captureWorkspace: captured(untrackedFiles(20_000)),
+        }),
+      },
+    ],
+    [
+      "a manifest larger than the control plane reads",
+      {
+        stage: "manifest",
+        options: async () => ({
+          captureWorkspace: captured(untrackedFiles(15_000, 600)),
+        }),
+      },
+    ],
+    [
+      "a manifest key that already holds another manifest",
+      {
+        stage: "manifest",
+        options: async () => {
+          const objects = createMemoryCheckpointObjectStore();
+          await objects.putImmutable(
+            manifestRef,
+            new TextEncoder().encode("{}"),
+          );
+          return {
+            captureWorkspace: captured(),
+            gateway: handing(),
+            objects,
+          };
+        },
+      },
+    ],
+    [
+      "a manifest key outside the session",
+      {
+        stage: "request",
+        options: async () => ({
+          gateway: handing("sessions/other/checkpoints/x/manifest.json"),
+        }),
+      },
+    ],
+    [
+      "an engine session with nothing mirrored",
+      {
+        stage: "transcript",
+        mirrored: false,
+        options: async () => ({ captureWorkspace: captured() }),
+      },
+    ],
+    [
+      "a store that fails an upload",
+      {
+        stage: "publish",
+        failWrites: 1,
+        options: async () => ({ captureWorkspace: captured() }),
+      },
+    ],
+    [
+      "a gateway that cannot hand out a key",
+      {
+        stage: "request",
+        options: async () => ({
+          gateway: handing(manifestRef, async () => {
+            throw new WorkerGatewayRequestError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "checkpoint store unreachable",
+              true,
+            );
+          }),
+        }),
+      },
+    ],
+  ];
+
+  test.each(cases)(
+    "%s is recorded as publish_failed",
+    async (_name, { stage, options, mirrored, failWrites }) => {
+      const h = harness(await options());
+      const { claim, mirror } = await opened(h);
+      if (mirrored !== false) {
+        await mirror.append(root, [
+          { type: "user", uuid: "u1", message: "hi" },
+        ]);
+      }
+      if (failWrites !== undefined) h.objects.failWrites(failWrites);
+
+      const ref = await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      });
+
+      expect(ref).toBeNull();
+      expect(
+        h.gateway.checkpointRequests
+          .map((request) => request.preparation)
+          .filter((preparation) => preparation.status === "rejected"),
+      ).toEqual([
+        {
+          status: "rejected",
+          reason: "publish_failed",
+          detail: expect.stringMatching(new RegExp(`^${stage}: `)),
+        },
+      ]);
+      expect(h.warnings[0]).toMatchObject({
+        event: "worker.checkpoint.failed",
+        fields: { stage },
+      });
+    },
+    30_000,
+  );
+
+  test("a manifest the gateway refuses at finalize is recorded the same way", async () => {
+    const h = harness();
+    const { claim } = await opened(h);
+
+    await h.port.finalizeRefused(
+      "Checkpoint manifest rejected: digest mismatch",
+      scopeOf(claim),
+    );
+
+    expect(h.gateway.checkpointRequests).toEqual([
+      {
+        ...scopeOf(claim),
+        preparation: {
+          status: "rejected",
+          reason: "publish_failed",
+          detail: "finalize: Checkpoint manifest rejected: digest mismatch",
+        },
+      },
+    ]);
+  });
+
+  test("a gateway that does not take the report only costs a log line", async () => {
+    const gateway = new FakeWorkerGateway({
+      checkpoints: {
+        commit: async () => {},
+        requestCheckpoint: async (request) => {
+          if (request.preparation.status === "rejected") {
+            throw new WorkerGatewayRequestError(503, null, "restarting", true);
+          }
+          return { status: "ready", revision: 0, manifest_ref: manifestRef };
+        },
+        restorePlan: async () => ({ status: "none" }),
+      },
+    });
+    const h = harness({
+      gateway,
+      captureWorkspace: async () => ({ status: "refused", reason: "shallow" }),
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    expect(
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      }),
+    ).toBeNull();
+    expect(h.warnings.map(({ event }) => event)).toEqual([
+      "worker.checkpoint.failed",
+      "worker.checkpoint.report_failed",
+    ]);
+  });
+});
+
 /** A gateway whose restore plan is whatever the test says it is. */
 class PlanningGateway extends FakeWorkerGateway {
   constructor(
@@ -648,6 +902,7 @@ function planOf(
     plan: {
       revision: ref.revision,
       manifest_ref: ref.manifest_ref,
+      manifest_sha256: ref.manifest_sha256,
       ...(ref.manifest_version === undefined
         ? {}
         : { manifest_version: ref.manifest_version }),
@@ -783,6 +1038,54 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     // CLAUDE.md as fetched, not as the engine left it on disk.
     expect(plan.committedClaudeMd?.()).toBe("rules as fetched\n");
     expect(plan.sessionStore).toBeDefined();
+  });
+
+  test("restores the earlier revision a fallback plan names in place of the claim's damaged pointer (94S-204)", async () => {
+    const from = await published({ versioned: true });
+    await replaceWorkspaceWithLeftovers();
+    const damaged: Partial<CheckpointRef> = {
+      revision: from.ref.revision + 1,
+      manifest_ref: `sessions/${SESSION}/checkpoints/damaged/manifest.json`,
+      manifest_sha256: "f".repeat(64),
+    };
+    const fallbackFrom = (pointerRevision: number) => () => {
+      const answer = planOf(from.ref, from.manifest);
+      if (answer.status !== "ready") throw new Error("expected a plan");
+      return {
+        ...answer,
+        plan: {
+          ...answer.plan,
+          fallback: {
+            pointer_revision: pointerRevision,
+            skipped: [{ revision: pointerRevision, reason: "manifest gone" }],
+          },
+        },
+      };
+    };
+
+    // A fallback from some other pointer is not the claim's to take.
+    const stray = restoring(from, {
+      claimed: damaged,
+      answer: fallbackFrom(from.ref.revision + 2),
+    });
+    await expect(
+      stray.port.restorePlan(await claimOf(stray.gateway), neverStopped()),
+    ).rejects.toBeInstanceOf(RestoreRefused);
+
+    const h = restoring(from, {
+      claimed: damaged,
+      answer: fallbackFrom(from.ref.revision + 1),
+    });
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+    expect(h.errors).toEqual([]);
+    if (plan.mode !== "resume") throw new Error("expected a resume plan");
+    expect(plan.restoredRevision).toBe(from.ref.revision);
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "edited\n",
+    );
   });
 
   test("a capture after the restore pins the same instructions commit", async () => {

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# API image: the sessions API (`apps/api`) and the reconciler one-shot
+# API image: the sessions API (`apps/api`) and the reconciler
 # (`apps/reconciler`) share it, both without the Agent SDK or the Claude Code
 # executable (docs/DESIGN.md §9.2–9.3). Built from the repository root
 # (`docker build -f apps/api/Dockerfile .`). Becomes the control-host image
@@ -45,5 +45,7 @@ EXPOSE 3000
 # base image's entrypoint stays in the chain so `docker run <image> <file>`
 # still means `bun <file>`.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
-# Reconciler: `docker run <image> bun run apps/reconciler/src/main.ts`.
+# Reconciler: `bun run apps/reconciler/src/loop.ts` runs a pass every
+# RECONCILER_INTERVAL_SEC (compose's `reconciler` service);
+# `bun run apps/reconciler/src/main.ts` runs one pass and exits.
 CMD ["bun", "run", "apps/api/src/server.ts"]

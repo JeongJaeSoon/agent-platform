@@ -27,7 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0111_next_havok");
+    expect(expectedMigrationHead().tag).toBe("0114_input_announcement");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -90,7 +90,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0111_next_havok",
+      "0114_input_announcement",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
@@ -128,6 +128,7 @@ describe("readiness probe", () => {
     const limits = {
       EXECUTION_SLOT_LIMIT: "10",
       MAX_TURN_SECONDS: "3600",
+      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",

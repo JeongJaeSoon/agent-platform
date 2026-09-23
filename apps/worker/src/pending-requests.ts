@@ -10,7 +10,6 @@ import {
   type QuestionAnswer,
   questionAnswerMismatch,
   type RegisterPendingRequest,
-  type SessionEvent,
   type WorkerScope,
 } from "@agent-platform/contracts";
 import { pendingRequestEvent } from "@agent-platform/runtime-claude";
@@ -27,8 +26,13 @@ export const QUESTION_TOOL = "AskUserQuestion";
 
 export type PendingRequestsOptions = {
   gateway: Pick<WorkerGatewayClient, "registerPending" | "pendingControl">;
-  /** Puts the `question` event into the same stream the frames go to. */
-  publish: (event: SessionEvent) => void;
+  /**
+   * Resolves once the tool call this request is about, and every event
+   * published before it, is stored. The gateway writes the `question` event
+   * itself when it registers the request, so without this it could land
+   * ahead of the call that raised it.
+   */
+  eventsStored: (toolUseId: string) => Promise<void>;
   scope: () => WorkerScope;
   /**
    * The longest this worker holds a callback, registered or not. Once the
@@ -59,8 +63,8 @@ const MAX_REGISTER_BACKOFF_MS = 30_000;
 
 /**
  * The turn's pending-request map. Each `canUseTool` callback is registered
- * with the gateway under an id this worker mints, published as a `question`
- * event, then held until its own answer arrives — never a single waiting
+ * with the gateway under an id this worker mints — the gateway writes its
+ * `question` event with the row — then held until its own answer arrives — never a single waiting
  * slot, because one assistant message can ask several things at once and
  * answers come back in any order.
  *
@@ -259,19 +263,32 @@ export class PendingRequestRegistry {
       `pending:${requestId}`,
     );
     const display = event.event === "question" ? event.data.input : {};
-    const body: RegisterPendingRequest["request"] =
+    // Redaction keeps the shape, so ids still line up with the unredacted
+    // copy the answer is turned back into. The gateway publishes this copy
+    // as it is, so one that no longer parses is refused rather than
+    // replaced with the unredacted questions.
+    const shown =
       questions === null
+        ? null
+        : pendingQuestionSchema
+            .array()
+            .min(1)
+            .safeParse((display as { questions?: unknown }).questions).data;
+    if (questions !== null && shown === undefined) {
+      this.close(
+        requestId,
+        {
+          behavior: "deny",
+          message: "The question cannot be shown without its redacted values",
+        },
+        "cancelled",
+      );
+      return;
+    }
+    const body: RegisterPendingRequest["request"] =
+      shown === null || shown === undefined
         ? { kind: "permission", tool: request.tool, input: display }
-        : {
-            kind: "question",
-            // Redaction keeps the shape, so ids still line up with the
-            // unredacted copy the answer is turned back into.
-            questions:
-              pendingQuestionSchema
-                .array()
-                .safeParse((display as { questions?: unknown }).questions)
-                .data ?? questions,
-          };
+        : { kind: "question", questions: shown };
     const turnId = this.options.scope().turn_id;
     if (turnId === null) {
       this.close(
@@ -279,6 +296,20 @@ export class PendingRequestRegistry {
         { behavior: "deny", message: "No turn is running to ask in" },
         "cancelled",
       );
+      return;
+    }
+    try {
+      await this.options.eventsStored(request.toolUseId);
+    } catch (error) {
+      this.close(
+        requestId,
+        {
+          behavior: "deny",
+          message: `The events before this request could not be stored: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        "cancelled",
+      );
+      this.settlements.delete(requestId);
       return;
     }
     // Once a call has gone out, a closed callback does not end the loop: the
@@ -296,6 +327,10 @@ export class PendingRequestRegistry {
           request_id: requestId,
           input_hash: inputHash,
           request: body,
+          // Hands the question event to the gateway, so it needs one that
+          // reads `announce`: the API ships before the worker image that
+          // sends it (the request schema is strict).
+          announce: { tool_use_id: request.toolUseId, tool: request.tool },
         });
         const entry = this.pending.get(requestId);
         if (entry === undefined) {
@@ -315,7 +350,6 @@ export class PendingRequestRegistry {
           Date.now() + response.expires_in_ms + 2 * interval,
         );
         this.arm(requestId);
-        this.options.publish(event);
         this.poll();
         return;
       } catch (error) {

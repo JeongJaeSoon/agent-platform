@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke for one app image: `image-smoke.sh <api|worker|scheduler> <image ref>`.
+# Smoke for one app image: `image-smoke.sh <api|worker|scheduler|egress-proxy> <image ref>`.
 # Shared by images.yml's build (loaded image) and publish (the digest that
 # was actually pushed) jobs so both check the same things.
 set -euo pipefail
@@ -45,7 +45,7 @@ console.log(zombies);
 # 94S-272: the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
-  local image="$1" cid pid1 server_ppid zombies control
+  local image="$1" cid
   # The image carries no catalog (94S-132): without one mounted the API must
   # refuse to start rather than run someone's example profiles.
   local refused status
@@ -54,7 +54,7 @@ api_init_smoke() {
     -e CHECKPOINT_OBJECT_STORE=disabled \
     -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
     -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
-    -e SESSION_COST_LIMIT_USD=1 \
+    -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
     "$image" 2>&1)" && status=0 || status=$?
   # A pattern match, not `| grep -q`: under pipefail grep's early exit can
   # fail the printf with SIGPIPE.
@@ -99,7 +99,7 @@ YAML
     -e CHECKPOINT_OBJECT_STORE=disabled \
     -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
     -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
-    -e SESSION_COST_LIMIT_USD=1 \
+    -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
     -e PLATFORM_CONFIG_DIR=/config \
     -e SMOKE_PROVIDER_KEY=smoke-placeholder \
     -v "$config_dir:/config:ro" \
@@ -110,13 +110,21 @@ YAML
     echo "API container exited" >&2
     exit 1
   fi
+  assert_init_reaps "$image" "$cid"
+}
+
+# 94S-272 for the API, 94S-247 for the worker: tini is PID 1, the app is its
+# child, and the orphans a timed-out git leaves behind are reaped. `cid` is a
+# running container of the image started with its own ENTRYPOINT.
+assert_init_reaps() {
+  local image="$1" cid="$2" pid1 app_ppid zombies control
   pid1="$(docker exec "$cid" cat /proc/1/comm)"
   echo "PID 1: $pid1"
   [ "$pid1" = tini ] || { echo "expected tini as PID 1, not $pid1" >&2; exit 1; }
-  # The server is the only bun in the container at this point.
-  server_ppid="$(docker exec "$cid" sh -c 'for d in /proc/[0-9]*; do awk "/^Name:/ { n = \$2 } /^PPid:/ && n == \"bun\" { print \$2 }" "$d/status" 2>/dev/null; done')"
-  echo "server parent: $server_ppid"
-  [ "$server_ppid" = 1 ] || { echo "expected the server to be tini's child" >&2; exit 1; }
+  # The app is the only bun in the container at this point.
+  app_ppid="$(docker exec "$cid" sh -c 'for d in /proc/[0-9]*; do awk "/^Name:/ { n = \$2 } /^PPid:/ && n == \"bun\" { print \$2 }" "$d/status" 2>/dev/null; done')"
+  echo "app parent: $app_ppid"
+  [ "$app_ppid" = 1 ] || { echo "expected the app to be tini's child" >&2; exit 1; }
   zombies="$(docker exec "$cid" bun -e "$zombie_probe")"
   echo "zombies after 5 git timeouts under tini: $zombies"
   [ "$zombies" = 0 ] || { echo "expected no zombies" >&2; exit 1; }
@@ -130,6 +138,33 @@ YAML
   [ "$control" -gt 0 ] || { echo "the zombie probe found none without an init" >&2; exit 1; }
 }
 
+# 94S-323: the proxy boots from its own image with no source mounted, runs
+# unprivileged over code it cannot rewrite, refuses what is not allowlisted,
+# and stops on SIGTERM as PID 1.
+egress_proxy_smoke() {
+  local image="$1" cid status code exit_code
+  cid="$(docker run -d --label "$smoke_label" \
+    -e EGRESS_ALLOWLIST=allowed.example.invalid:443 "$image")"
+  for _ in $(seq 1 30); do
+    status="$(docker exec "$cid" bun -e "const r = await fetch('http://127.0.0.1:3128/healthz'); console.log(r.status)" 2>/dev/null || true)"
+    [ "$status" = 200 ] && break
+    sleep 1
+  done
+  if [ "$status" != 200 ]; then
+    docker logs "$cid" >&2
+    echo "egress proxy never answered /healthz" >&2
+    exit 1
+  fi
+  docker exec "$cid" sh -c 'test "$(id -u)" = 1000 && test ! -w /app/src/main.ts && test ! -w /app/src'
+  code="$(docker exec "$cid" bun -e "const r = await fetch('http://denied.example.invalid/', { proxy: 'http://127.0.0.1:3128' }); console.log(r.status)")"
+  echo "absolute-form request to a host off the allowlist: $code"
+  [ "$code" = 403 ] || { echo "expected 403 from the proxy" >&2; exit 1; }
+  docker stop -t 10 "$cid" >/dev/null
+  exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$cid")"
+  echo "exit code after SIGTERM: $exit_code"
+  [ "$exit_code" = 0 ] || { echo "expected the proxy to exit 0 on SIGTERM, not be killed" >&2; exit 1; }
+}
+
 case "$app" in
   worker)
     # The ticket's check: the bundled executable resolves and is the version
@@ -138,6 +173,10 @@ case "$app" in
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
+    # Its own ENTRYPOINT, a command standing in for the worker's: the
+    # scheduler overrides Cmd only, never the entrypoint.
+    assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \
+      "$image" bun -e 'setInterval(() => {}, 1 << 30)')"
     ;;
   api)
     # git: the checkpoint bundle verifier spawns it (94S-201).
@@ -146,6 +185,9 @@ case "$app" in
     ;;
   scheduler)
     docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'
+    ;;
+  egress-proxy)
+    egress_proxy_smoke "$image"
     ;;
   *)
     echo "unknown app: $app" >&2

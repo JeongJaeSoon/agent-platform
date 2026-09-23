@@ -22,6 +22,11 @@ import type {
  *   reason is recorded so it is visible, but work goes on: holding turns back
  *   for a server the agent was asked to keep running would stall the session.
  *   Any later commit clears it, from this attempt or another.
+ *   `publish_failed` is the same for a run that was ready but whose checkpoint
+ *   could not be written — a workspace the capture refused, a manifest over
+ *   the limits, a store that failed. The ones that persist (a workspace too
+ *   large to capture) are not fixed by holding turns back, and a replaced
+ *   worker still refuses to go on past turns no checkpoint covers (94S-288).
  */
 export type CheckpointReasonKind = "advisory" | "blocking" | "ordinary";
 
@@ -31,6 +36,7 @@ const CHECKPOINT_REASONS: Record<CheckpointBlockReason, CheckpointReasonKind> =
     checkpoint_lease_held: "advisory",
     mirror_error: "blocking",
     no_engine_session: "ordinary",
+    publish_failed: "advisory",
     tool_in_flight: "advisory",
     turn_in_flight: "ordinary",
   };
@@ -104,7 +110,9 @@ export function checkpointAdmission(
 
 export type DurabilityFacts = {
   checkpointCommittedAt: Date | null;
+  checkpointFallbackRevision: number | null;
   checkpointRevision: number | null;
+  contextResetTurnId: string | null;
   lastCheckpointedTurnId: string | null;
   lastCompletedTurnId: string | null;
   lastTranscriptPersistedAt: Date | null;
@@ -114,8 +122,10 @@ export type DurabilityFacts = {
 export function projectDurability(facts: DurabilityFacts): SessionDurability {
   return {
     checkpoint_committed_at: facts.checkpointCommittedAt?.toISOString() ?? null,
+    checkpoint_fallback_revision: facts.checkpointFallbackRevision,
     checkpoint_pending_reason: facts.pendingReason,
     checkpoint_revision: facts.checkpointRevision,
+    context_reset_turn_id: facts.contextResetTurnId,
     last_checkpointed_turn_id: facts.lastCheckpointedTurnId,
     last_completed_turn_id: facts.lastCompletedTurnId,
     last_transcript_persisted_at:

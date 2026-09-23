@@ -46,6 +46,9 @@ export type WorkerBinding = {
   executionGeneration: number;
   authRevision: number;
   leaseExpiresAt: Date;
+  // The lease left on the database clock at an instant read after the claim
+  // arrived; what the worker tracks, on its own monotonic clock (94S-322).
+  leaseRemainingMs: number;
   profileId: string | null;
   // The session's owner partition, straight from the row; the claim hands
   // it to the worker as the checkpoint principal (94S-209).
@@ -53,6 +56,8 @@ export type WorkerBinding = {
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;
+  // What the session had spent when bound, read under the claim's row lock.
+  costUsd: number;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -93,6 +98,15 @@ export type ClaimResult =
   // The bound session's profile is not in this host's catalog, so the replay
   // is refused before it rotates anything.
   | { outcome: "profile_unavailable" }
+  // The session's last ran turn has no trusted checkpoint covering it
+  // (94S-288). Nothing was bound: the session went to recovery_required in
+  // the same transaction and the launch was asked to go.
+  | { outcome: "context_gap" }
+  // The launch was reserved for a session whose (profile, repository, url,
+  // branch) this host's catalog no longer allows. The launch was given up on
+  // in the same transaction: the session is `failed` with CATALOG_MISMATCH
+  // and the launch is asked to go (94S-280).
+  | { outcome: "catalog_mismatch" }
   | { outcome: "no_session" };
 
 // The fence as it stood when the token was issued. A request body may not
@@ -146,7 +160,13 @@ export type HeartbeatInput = {
   transcript?: { persistedAt: Date | null; mirrorError: string | null };
 };
 export type HeartbeatResult =
-  | { outcome: "ok"; leaseExpiresAt: Date; authRevision: number }
+  | {
+      outcome: "ok";
+      leaseExpiresAt: Date;
+      // As in WorkerBinding: counted from after the heartbeat arrived.
+      leaseRemainingMs: number;
+      authRevision: number;
+    }
   | FenceRejection;
 
 export type CommitEventsInput = {
@@ -218,8 +238,36 @@ export type CheckpointStateResult =
       // The pointer from the same snapshot as the fence; the protocol works
       // from this rather than re-reading it unfenced.
       pointer: CheckpointPointer | null;
+      // Whether that pointer may be restored from (hasRestorePoint): not
+      // under a blocking reason, and not retired by a start_fresh decision
+      // (94S-288). The next revision still counts from `pointer` either way.
+      restorable: boolean;
       pendingReason: CheckpointBlockReason | null;
     }
+  | FenceRejection;
+
+/**
+ * What a served restore plan was built on (94S-204). `fallback` is set when
+ * the plan restores an earlier revision because the pointer's checkpoint was
+ * damaged, and null when it restores the pointer itself.
+ */
+export type RestoreBaseInput = {
+  fence: WorkerFence;
+  now: Date;
+  /** The pointer revision the plan was judged against. */
+  pointerRevision: number;
+  fallback: {
+    revision: number;
+    skipped: readonly { reason: string; revision: number }[];
+  } | null;
+};
+export type RestoreBaseResult =
+  | { outcome: "ok" }
+  // The pointer is no longer the one the plan was judged against.
+  | { outcome: "pointer_moved"; currentRevision: number | null }
+  // This attempt was already handed a different revision, the pointer's or
+  // an earlier one, for the same pointer; it must not restore two.
+  | { outcome: "base_changed"; recordedRevision: number }
   | FenceRejection;
 
 export type ReleaseInput = {
@@ -329,6 +377,10 @@ export interface WorkerUnitOfWork {
   checkpointStateAtomic(
     input: CheckpointStateInput,
   ): Promise<CheckpointStateResult>;
+  // Records which revision a restore plan hands the attempt, before the
+  // plan is returned: a fallback is written to the session and announced on
+  // its event stream, and a plan on the pointer clears an earlier fallback.
+  recordRestoreBaseAtomic(input: RestoreBaseInput): Promise<RestoreBaseResult>;
   releaseAtomic(input: ReleaseInput): Promise<ReleaseResult>;
   // The attempt restored what its claim named and its engine loaded it.
   // For a `resuming` session that completes the resume: active, and the

@@ -12,7 +12,10 @@ import type {
   TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
-import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
+import {
+  MAX_TURN_COST_USD,
+  TURN_BUDGET_EXCEEDED_REASON,
+} from "@agent-platform/contracts";
 import { endedByAbort } from "@agent-platform/runtime-claude";
 import type {
   AgentRun,
@@ -25,7 +28,7 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import type { WorkerTimeouts } from "./config.ts";
+import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import {
@@ -55,6 +58,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
   committedClaudeMd: () => string | null;
   correlationId: string;
+  /** The claim's remaining_budget_usd: this run counts its spend from zero. */
+  maxBudgetUsd: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
 };
@@ -170,6 +175,8 @@ const INTERRUPT_GRACE_MS = 5_000;
 const ENGINE_EXIT_GRACE_MS = 5_000;
 /** Kept back from the stop grace for the release call. */
 const RELEASE_RESERVE_MS = 2_000;
+/** The default for `timeouts.toolUseFrameWaitMs`. */
+const TOOL_USE_FRAME_WAIT_MS = 10_000;
 
 /**
  * The worker process: one session, one attempt, however many turns the lease
@@ -246,8 +253,8 @@ export class WorkerHost {
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
-    const claim = await this.claim();
-    if (claim === null) {
+    const claimed = await this.claim();
+    if (claimed === null) {
       return {
         outcome: "unclaimed",
         reason:
@@ -255,6 +262,7 @@ export class WorkerHost {
         turns: [],
       };
     }
+    const { claim } = claimed;
     this.options.gateway.useCredential(claim.session_credential);
     this.scopeValue = {
       session_id: claim.session_id,
@@ -274,15 +282,25 @@ export class WorkerHost {
       gateway: this.options.gateway,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
-      onFailed: (error) =>
-        isOwnershipLost(error)
-          ? this.lose(describe(error))
-          : this.fail(`Events could not be stored: ${describe(error)}`),
+      onFailed: (error) => {
+        if (isOwnershipLost(error)) {
+          this.lose(describe(error));
+          return;
+        }
+        // Nothing the engine does from here is recorded, so nothing waiting
+        // on a person may be allowed to run.
+        this.pending?.cancelAll("The session's events can no longer be stored");
+        this.fail(`Events could not be stored: ${describe(error)}`);
+      },
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
       gateway: this.options.gateway,
-      publish: (event) => publisher.publish([event], this.scope.turn_id),
+      eventsStored: (toolUseId) =>
+        publisher.toolUseStored(
+          toolUseId,
+          this.options.timeouts.toolUseFrameWaitMs ?? TOOL_USE_FRAME_WAIT_MS,
+        ),
       scope: () => this.scope,
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
@@ -294,11 +312,12 @@ export class WorkerHost {
       scope: () => this.scope,
       attemptState: () => this.attemptState,
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
-      leaseExpiresAt: new Date(claim.lease_expires_at),
+      lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
+      safetyMarginMs:
+        this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
       onLost: (reason) => this.lose(reason),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
-      ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
     let run: AgentRun | undefined;
@@ -322,6 +341,7 @@ export class WorkerHost {
                   ? plan.committedClaudeMd
                   : () => this.options.workspace.committedClaudeMd(),
               correlationId: `${claim.session_id}:${claim.attempt_id}`,
+              maxBudgetUsd: claim.remaining_budget_usd,
               principal: claim.principal,
               runtimeConfig: claim.runtime_config,
             },
@@ -543,12 +563,17 @@ export class WorkerHost {
     this.pending?.stop();
   }
 
-  private async claim(): Promise<BootstrapClaimResponse | null> {
+  /** The claim, with the monotonic instant the request that won it went out. */
+  private async claim(): Promise<{
+    claim: BootstrapClaimResponse;
+    sentAt: number;
+  } | null> {
     const deadline =
       this.now().getTime() + this.options.timeouts.claimTimeoutMs;
     let retriedUnauthorized = false;
     for (;;) {
       if (this.stopping !== undefined) return null;
+      const sentAt = performance.now();
       try {
         const claimed = await this.untilStopGraceSpent(
           this.options.gateway.bootstrapClaim({
@@ -568,7 +593,7 @@ export class WorkerHost {
           });
           return null;
         }
-        return claimed;
+        return { claim: claimed, sentAt };
       } catch (error) {
         if (!(error instanceof WorkerGatewayRequestError)) throw error;
         // Two claims racing leave one holding the revoked token; before this
@@ -576,6 +601,22 @@ export class WorkerHost {
         if (error.code === "UNAUTHORIZED" && !retriedUnauthorized) {
           retriedUnauthorized = true;
           continue;
+        }
+        // The session was waiting, but on an operator rather than a worker:
+        // its turns have no checkpoint this worker could restore (94S-288).
+        // Nothing went wrong here, so the worker leaves as one with nothing
+        // to claim does.
+        if (error.code === "RECOVERY_REQUIRED") {
+          this.logger.info("worker.claim.refused", { reason: error.message });
+          return null;
+        }
+        // The session this launch was for was failed on the spot; there is
+        // nothing to wait for and nothing for anyone to resolve.
+        if (error.code === "CATALOG_MISMATCH") {
+          this.logger.warn("worker.claim.catalog_mismatch", {
+            reason: error.message,
+          });
+          return null;
         }
         if (!error.retryable) throw error;
         if (this.now().getTime() >= deadline) {
@@ -1102,6 +1143,9 @@ export class WorkerHost {
         // Nothing can commit the capture any more; the fallback carries no
         // checkpoint to wait on.
         captured?.lease?.release();
+        await this.checkpoints.finalizeRefused?.(describe(error), {
+          ...this.scope,
+        });
         // An interrupted turn is `interrupted` only with its checkpoint.
         terminal = interrupted ? unconfirm() : settlement;
         finalized = await finalize(terminal, null);
@@ -1401,6 +1445,17 @@ export class WorkerHost {
 
   private observe(native: NativeSdkMessage): void {
     this.accounting.observe(native);
+    if (this.accounting.restarted) {
+      // `/clear` starts the engine's count over, and the budget the claim
+      // gave it with it: left running, the next turn could spend the whole
+      // remainder again. The turn in flight is finalized; the next one waits
+      // for a claim that brings what is really left.
+      this.stop({
+        kind: "drain",
+        reason:
+          "The engine started its cost count over, so its budget no longer bounds the session's",
+      });
+    }
     if (native.type === "system" && native.subtype === "mirror_error") {
       // Latched for the run like the ledger's own: the SDK has given up on a
       // batch, and no later write brings it back.
@@ -1879,6 +1934,9 @@ function terminalOf(
  * (`api_error`, …) is the cause.
  */
 function failureReason(native: NativeSdkMessage, subtype: string): string {
+  // The engine's budget is the session's remaining one, so this is the same
+  // limit the gateway enforces between turns, reached inside one.
+  if (subtype === "error_max_budget_usd") return TURN_BUDGET_EXCEEDED_REASON;
   if (subtype !== "success") return subtype;
   return typeof native.terminal_reason === "string" &&
     native.terminal_reason.length > 0

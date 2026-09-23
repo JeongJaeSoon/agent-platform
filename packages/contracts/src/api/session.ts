@@ -122,6 +122,24 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("BUDGET_EXCEEDED"),
     reason: z.string().min(1),
   }),
+  // A turn ran that no trusted checkpoint covers, so the next worker could
+  // only start a new engine session without it (94S-288). The session is
+  // held in recovery_required (or cannot be resumed from stopped) until an
+  // operator decides: start_fresh continues without that context, close
+  // ends the session.
+  z.object({
+    code: z.literal("CONTEXT_GAP"),
+    last_ran_turn_id: turnIdSchema,
+    checkpointed_turn_id: turnIdSchema.nullable(),
+  }),
+  // The catalog does not allow the session's profile and repository pair as
+  // it stands now, so no worker will run it; a launch reserved for it fails
+  // the session with CATALOG_MISMATCH. Judged on every read: restoring the
+  // pair clears it, and the next message runs again (94S-280).
+  z.object({
+    code: z.literal("CATALOG_MISMATCH"),
+    reason: z.string().min(1),
+  }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
@@ -130,11 +148,20 @@ export const sessionDurabilitySchema = z.object({
   last_completed_turn_id: turnIdSchema.nullable(),
   last_checkpointed_turn_id: turnIdSchema.nullable(),
   checkpoint_pending_reason: z.string().min(1).nullable(),
+  // The earlier revision the session was last restored from because the
+  // checkpoint at checkpoint_revision was damaged (94S-204). While set, the
+  // session holds that revision's state and has lost what the newer ones
+  // recorded; the next committed checkpoint clears it.
+  checkpoint_fallback_revision: revisionSchema.nullable(),
+  // The last turn whose context a start_fresh decision gave up: the engine
+  // session running now began after it and does not remember it or anything
+  // before. Null while the session has never been reset.
+  context_reset_turn_id: turnIdSchema.nullable(),
 });
 
 // DESIGN.md §6.4.
 const NEEDS_INPUT_PROJECTION =
-  "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at and no status event.";
+  "needs_input is derived when read: a running session or turn with at least one pending request a client can still answer (open, unexpired, raised by the attempt that holds the turn). It returns to running as soon as none is left, whether by an answer, the worker settling the request, expiry or the attempt losing the session, with no change to updated_at. The event stream reports both edges as status events: needs_input right after the question that opened the wait, and the status read here once the wait ends — at the answer or settlement that ended it, or within one reconciler pass when nothing was written (expiry, a lost attempt).";
 
 export const sessionSummarySchema = z.object({
   id: sessionIdSchema,

@@ -388,6 +388,24 @@ export const sessions = pgTable(
     // was captured before the failure at best and proves nothing about what
     // came after. Any commit clears an advisory one.
     checkpointPendingAttemptId: text("checkpoint_pending_attempt_id"),
+    // The earlier revision the session was last restored from because the
+    // pointer's own checkpoint was damaged (94S-204). While set, the
+    // session's state is that revision's, not the pointer's; the next
+    // committed checkpoint, or another attempt restoring the pointer,
+    // clears it. The attempt column names the attempt that was last handed
+    // a restore plan on the current pointer, fallback or not: that attempt
+    // is held to the base it was given.
+    checkpointFallbackRevision: integer("checkpoint_fallback_revision"),
+    checkpointRestoreAttemptId: text("checkpoint_restore_attempt_id"),
+    // Set by a start_fresh recovery decision (94S-288): the last turn that
+    // ran before the operator accepted losing its context, and the pointer
+    // the session had then. Turns up to the first are no longer a context
+    // gap; checkpoints up to the second are retired and never restored,
+    // since a new engine session started on top of neither.
+    contextResetTurnSequence: integer("context_reset_turn_sequence"),
+    contextResetCheckpointRevision: integer(
+      "context_reset_checkpoint_revision",
+    ),
     // The worker's last successful transcript mirror write, as it reported
     // it; only ever moves forward.
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
@@ -429,6 +447,10 @@ export const sessions = pgTable(
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
+    // Whether the last status event the stream carries about input said
+    // needs_input (94S-278). A record of what was published, not a state:
+    // it flips only in the transaction that writes that status event.
+    inputAnnounced: boolean("input_announced").notNull().default(false),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -438,6 +460,10 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // The reconciler's sweep for waits that ended with no write.
+    index("sessions_input_announced_idx")
+      .on(table.id)
+      .where(sql`${table.inputAnnounced}`),
     // Lets a later table reference (session_id, owner_id, workspace_id) as
     // one FK. That only pins the row to its session's workspace when the
     // referencing side declares workspace_id NOT NULL (or MATCH FULL): with
@@ -658,6 +684,11 @@ export const pendingRequests = pgTable(
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
     settledOutcome: text("settled_outcome"),
+    // Set when the worker handed the `question` event to the gateway
+    // (94S-278); a replay must carry the same pair. Null for a worker that
+    // publishes the event itself.
+    toolUseId: text("tool_use_id"),
+    tool: text(),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
@@ -733,6 +764,8 @@ export const checkpoints = pgTable(
     manifestVersion: text("manifest_version"),
     // Set only by a locked finalize (CheckpointPointer.versionsHeld).
     versionsHeld: boolean("versions_held").notNull().default(false),
+    // CheckpointPointer.parentRevision: what a restore falls back along.
+    parentRevision: integer("parent_revision"),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()

@@ -1,9 +1,7 @@
-import { sessionEventPayloadSchema } from "@agent-platform/contracts";
 import { storedPendingReasonHoldsWork } from "@agent-platform/platform";
 import { and, eq, min, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
-  events,
   idempotencyKeys,
   receipts,
   sessions,
@@ -182,7 +180,9 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
  * it is not trusted until a later run commits past it. An advisory one (the
  * run was not quiescent) only says the newest turn went uncaptured; the
  * pointer it left is still the one to resume from (94S-284) — distrusting
- * it would wedge a stopped session, which no later commit ever reaches.
+ * it would wedge a stopped session, which no later commit ever reaches. A
+ * pointer at or below the revision a start_fresh decision retired (94S-288)
+ * belongs to an engine session the operator already gave up on.
  *
  * Deliberately coarse: a pointer committed by an earlier, healthy run would
  * be safe, but checkpoints do not record their attempt. If that case shows
@@ -193,39 +193,27 @@ export function hasRestorePoint<
   T extends {
     checkpointRevision: number | null;
     checkpointPendingReason: string | null;
+    contextResetCheckpointRevision: number | null;
   },
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason)
+    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    (session.contextResetCheckpointRevision === null ||
+      session.checkpointRevision > session.contextResetCheckpointRevision)
   );
 }
 
-// Every control decision leaves its audit record on the session's event
-// stream, where the operator and the SSE reader (94S-126) both find it.
-// Like every other writer to `events`, it holds the payload to the public
-// event contract before storing it: the reader parses each row with the
-// same schema, and a row it cannot parse is lost to every client (94S-283).
-export async function recordAudit(
-  tx: Database,
-  input: {
-    sessionId: string;
-    type: "system" | "status";
-    payload: Record<string, unknown>;
-    turnRowId: number | null;
-    now: Date;
-  },
-) {
-  const checked = sessionEventPayloadSchema.parse({
-    event: input.type,
-    data: input.payload,
-  });
-  await tx.insert(events).values({
-    sessionId: input.sessionId,
-    type: checked.event,
-    payload: checked.data,
-    turnId: input.turnRowId,
-    occurredAt: input.now,
-  });
-  await tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`);
+/**
+ * The checkpoint revision the session's state is actually based on: the
+ * pointer's, unless the last restore fell back to an earlier revision
+ * because the pointer's checkpoint was damaged (94S-204) and nothing has
+ * committed since. Coverage is judged on this one — the pointer's turn
+ * watermark describes work the running session no longer has.
+ */
+export function restoreBaseRevision(session: {
+  checkpointRevision: number | null;
+  checkpointFallbackRevision: number | null;
+}): number | null {
+  return session.checkpointFallbackRevision ?? session.checkpointRevision;
 }

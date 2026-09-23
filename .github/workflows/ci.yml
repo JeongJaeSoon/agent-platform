@@ -39,54 +39,227 @@ jobs:
   # gated on those skip here and run in `integration`. Suites that need nothing
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
-  check:
+  #
+  # Split by role across runners (94S-305): `bun run check` ran typecheck, lint
+  # and the suite one after another in 5m10s (1m, 1s and 4m10s), which made it
+  # the longest path of every PR run. Each part is now its own job, and the
+  # suite is cut once more along the repo layout — packages/ in one part,
+  # everything else in the other — because one bun process over it was still
+  # longer than the integration shards. The parts are names, not numbers: a red
+  # `check (lint)` says what broke without opening the log.
+  check-part:
+    name: check (${{ matrix.part }})
     # A non-dispatch event has no `only`, so it reads as `all`.
     if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # Ceilings sit just above the slowest run on record (6m/4m/6m), so a hang
-    # costs minutes rather than a quarter hour.
-    timeout-minutes: 10
+    # Ceiling just above the slowest part: the old single job's worst was 6m.
+    timeout-minutes: 6
+    strategy:
+      # Each part's failures are its own; a cancelled part would hide them
+      # until the next push.
+      fail-fast: false
+      matrix:
+        include:
+          - part: typecheck
+          - part: lint
+          - part: "unit: packages"
+            unit: packages
+          # The complement of `packages`: apps/ and tests/, and any other
+          # directory the `test` script's filters pick up.
+          - part: "unit: apps, tests"
+            unit: rest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
         with:
-          save-cache: "true"
+          # One writer per cache scope; the other parts restore what it saved.
+          save-cache: ${{ matrix.part == 'typecheck' }}
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - if: matrix.part == 'typecheck'
+        run: bun run typecheck
+      - if: matrix.part == 'lint'
+        run: bun run lint
+      - if: matrix.unit
+        name: Tests of this part
+        env:
+          UNIT: ${{ matrix.unit }}
+        # An assignment, not process substitution, so a planner failure fails
+        # the step instead of handing `bun test` an empty list — which it
+        # would read as the whole suite.
+        run: |
+          files=$(bun .github/scripts/unit-part.ts "$UNIT")
+          mapfile -t files <<<"$files"
+          bun test "${files[@]}"
 
-  # The same suite with every opt-in variable on, so `bun run test` reports
-  # zero skips. Filtering by file name would miss opt-in tests that do not
-  # follow the *.integration.test.ts convention.
+  # The required check, for the same reason as `integration` below: branch
+  # protection names `check`, the matrix reports one context per part, and a
+  # skipped required check counts as passing. So it runs on `always()` and
+  # fails on anything but `success` from every part.
+  check:
+    needs: check-part
+    if: >-
+      always()
+      && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.check-part.result }}
+        run: |
+          echo "check parts: $RESULT"
+          [ "$RESULT" = success ]
+
+  # The same suite with the opt-in variables on, so the tests gated on
+  # PostgreSQL, LocalStack or the Docker daemon run instead of skipping.
+  # Filtering by file name would miss opt-in tests that do not follow the
+  # *.integration.test.ts convention, so every file of `bun run test` runs in
+  # exactly one of these jobs.
   #
-  # Split by file across runners (94S-297): one bun process over every file
-  # took 6m30s. Each shard is its own VM with its own PostgreSQL, LocalStack
-  # and Docker daemon, so shards share nothing a test could race on; within a
-  # shard the files run exactly as they did in the single job.
+  # One job per domain (94S-307), each on its own VM with only the services its
+  # files need: a job that needs no LocalStack does not wait ~40s for one. The
+  # `paths` below are prefixes of repo-relative paths and the only record of
+  # which job runs which file; .github/scripts/integration-jobs.ts reads them
+  # from here and fails every job when a file belongs to no job or to two.
+  # After the run the same script fails the job on any skip it does not
+  # declare — a file placed in a job without the service it needs skips its
+  # tests rather than failing them, and that must not pass as green.
   #
-  # The shards start alongside `check` instead of after it. Waiting on `check`
+  # The jobs start alongside `check` instead of after it. Waiting on `check`
   # only saved runner minutes on a red run, and a public repository does not
-  # pay for those; it cost every green PR the whole of `check` (~5m) in wall
-  # time. Three shards, not more: each PR run then holds four jobs at once, so
-  # five PRs in flight fit the free plan's 20 concurrent jobs without queueing,
-  # and a fourth shard would only save ~30s behind a `check` that takes longer.
-  integration-shard:
-    name: integration (${{ matrix.shard }}/${{ strategy.job-total }})
+  # pay for those; it cost every green PR the whole of `check` in wall time.
+  integration-domain:
+    name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Ceiling for a shard measured at about 3m.
+    # Ceiling for a job measured at about 2m15s.
     timeout-minutes: 8
     strategy:
-      # A failing shard must not cancel the rest: each one's failures are
-      # their own, and a cancelled shard would hide them until the next push.
+      # A failing job must not cancel the rest: each one's failures are
+      # their own, and a cancelled job would hide them until the next push.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        # `docker` means the runner's own daemon, not a service container.
+        include:
+          # The PostgreSQL stores and the queue: unit and integration suites.
+          - domain: db
+            postgres: true
+            localstack: false
+            docker: false
+            paths:
+              - packages/db/
+              - packages/queue/
+              - packages/testkit/src/postgres.
+          # The HTTP surface and what it serves: routes, auth, events, the
+          # reconciler, the contracts it publishes and the UI that reads them.
+          - domain: api
+            postgres: true
+            localstack: true
+            docker: false
+            paths:
+              - apps/api/
+              - apps/reconciler/
+              - packages/contracts/
+              - packages/ui/
+              - tests/catalog-mismatch.
+              - tests/context-gap-flow.
+              - tests/interrupt-flow.
+              - tests/lease-clock.
+          # Object storage: checkpoint objects, the S3 transport and its bounds.
+          - domain: storage
+            postgres: false
+            localstack: true
+            docker: false
+            paths:
+              - packages/storage/
+              - packages/testkit/src/localstack.
+              - tests/checkpoint-flow.
+              - tests/checkpoint-pins.
+              - tests/object-store-egress.
+              - tests/worker-checkpoint-publish.
+            skips:
+              # skipIf(linux): the runner can enforce the limits.
+              - file: packages/storage/src/git-runner.test.ts
+                test: where limits cannot be enforced git still runs, and says so once
+          # Worker containers: the local-docker backend and its workspaces,
+          # the scheduler that drives it, and the images and compose they run
+          # as. Files are listed one by one under local-docker/src so that the
+          # egress suite can be a job of its own.
+          - domain: docker
+            postgres: true
+            localstack: false
+            docker: true
+            paths:
+              - apps/scheduler/
+              - packages/adapters/execution/local-docker/src/backend.
+              - packages/adapters/execution/local-docker/src/config.
+              - packages/adapters/execution/local-docker/src/docker-client.
+              - packages/adapters/execution/local-docker/src/workspace
+              - tests/backup-restore.
+              - tests/images.
+              - tests/scheduler-launch-claim.
+          # What a worker may reach: the egress proxy and the isolated worker
+          # networks. Split from `docker` because its suite alone runs ~70s,
+          # most of it pulling the LocalStack image it starts as a container.
+          - domain: egress
+            postgres: false
+            localstack: false
+            docker: true
+            paths:
+              - apps/egress-proxy/
+              - packages/adapters/execution/local-docker/src/egress.
+              - tests/sdk-egress-proxy.
+          # What runs inside a worker, none of it needing a service: the worker
+          # process, runtime adapters, platform services — and the repository's
+          # own tooling suites, too small for a runner of their own.
+          - domain: worker
+            postgres: false
+            localstack: false
+            docker: false
+            paths:
+              - apps/worker/
+              - packages/adapters/runtimes/
+              - packages/observability/
+              - packages/platform/
+              - packages/runtime-core/
+              - packages/testkit/src/fake-anthropic.
+              - packages/testkit/src/workspace.
+              - tests/architecture.
+              - tests/d2-gate
+              - tests/ci-issue-scripts.
+              - tests/integration-jobs.
+              - tests/retry-flaky.
+              - tests/test-files.
+              - tests/unit-part.
+              - tests/workspace.
+            skips:
+              # The D2 gate (94S-247) needs the whole compose stack and the
+              # images built from the checkout; scripts/d2-gate/run.sh runs it.
+              # (unnamed) is its beforeAll/afterAll.
+              - file: tests/d2-gate.e2e.test.ts
+                test: "(unnamed)"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "B: a publish that fails at the manifest is never promoted"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "C: a transcript mirror error blocks the checkpoint and new input"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "D: a worker that loses its lease mid-turn promotes nothing"
+              # 94S-320's sweep on the same stack; run against a stack kept by
+              # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "(unnamed)"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
+    # An empty image skips the service, so each job starts only its own.
     services:
       postgres:
-        image: postgres:16
+        image: ${{ matrix.postgres && 'postgres:16' || '' }}
         env:
           POSTGRES_DB: sessions
           POSTGRES_PASSWORD: dev
@@ -99,7 +272,7 @@ jobs:
           --health-timeout 3s
           --health-retries 12
       localstack:
-        image: localstack/localstack:3
+        image: ${{ matrix.localstack && 'localstack/localstack:3' || '' }}
         env:
           # secretsmanager: the catalog's secret_id references (94S-132).
           SERVICES: s3,secretsmanager
@@ -113,46 +286,61 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
-    env:
-      AWS_ACCESS_KEY_ID: test
-      AWS_ENDPOINT_URL: http://127.0.0.1:4566
-      AWS_REGION: ap-northeast-1
-      AWS_SECRET_ACCESS_KEY: test
-      # ubuntu runners ship a Docker daemon: run the LocalDockerBackend
-      # integration tests against it (busybox) instead of skipping them.
-      DOCKER_BACKEND_TEST: "1"
-      QUEUE_DATABASE_URL: postgresql://postgres:dev@127.0.0.1:5432/sessions
-      S3_BUCKET: claude-sessions
-      STORAGE_LOCALSTACK_TEST: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
-      - name: Tests of this shard
+      # Unset rather than empty where the service is absent: a test reading
+      # `?? default` would take an empty string as a value.
+      - name: Opt-in variables of this job's services
         env:
-          SHARD: ${{ matrix.shard }}
-          TOTAL: ${{ strategy.job-total }}
-        # An assignment, not process substitution, so a planner failure fails
-        # the step instead of handing `bun test` an empty list — which it
+          POSTGRES: ${{ matrix.postgres }}
+          LOCALSTACK: ${{ matrix.localstack }}
+          DOCKER: ${{ matrix.docker }}
+        run: |
+          {
+            if [ "$POSTGRES" = true ]; then
+              echo "QUEUE_DATABASE_URL=postgresql://postgres:dev@127.0.0.1:5432/sessions"
+            fi
+            if [ "$LOCALSTACK" = true ]; then
+              echo "AWS_ACCESS_KEY_ID=test"
+              echo "AWS_ENDPOINT_URL=http://127.0.0.1:4566"
+              echo "AWS_REGION=ap-northeast-1"
+              echo "AWS_SECRET_ACCESS_KEY=test"
+              echo "S3_BUCKET=claude-sessions"
+              echo "STORAGE_LOCALSTACK_TEST=1"
+            fi
+            # ubuntu runners ship a Docker daemon: run the LocalDockerBackend
+            # integration tests against it (busybox) instead of skipping them.
+            if [ "$DOCKER" = true ]; then
+              echo "DOCKER_BACKEND_TEST=1"
+            fi
+          } >>"$GITHUB_ENV"
+      - name: Tests of this domain
+        env:
+          DOMAIN: ${{ matrix.domain }}
+        # An assignment, not process substitution, so a failed assignment
+        # fails the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         run: |
-          files=$(bun .github/scripts/test-shard.ts "$SHARD" "$TOTAL")
+          files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN")
           mapfile -t files <<<"$files"
-          bun test "${files[@]}"
+          bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
+          bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
-      - if: matrix.shard == 1
+      - if: matrix.domain == 'api'
         run: bun test ./apps/api/src/server.integration.ts
 
   # The required check. Branch protection names `integration`, and a matrix
-  # reports one context per shard, so this job stands in for all of them:
-  # green only when every shard passed. A skipped required check counts as
-  # passing, so this must never skip once the shards were meant to run:
-  # `always()`, not the default (which skips after a failed shard) nor
-  # `!cancelled()` (which skips when the run is cancelled after a shard has
+  # reports one context per job, so this job stands in for all of them:
+  # green only when every domain passed. A skipped required check counts as
+  # passing, so this must never skip once the domains were meant to run:
+  # `always()`, not the default (which skips after a failed domain) nor
+  # `!cancelled()` (which skips when the run is cancelled after a domain has
   # already failed). Anything but `success` fails — a failed, cancelled,
-  # timed-out or skipped shard.
+  # timed-out or skipped domain.
   integration:
-    needs: integration-shard
+    needs: integration-domain
     if: >-
       always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
@@ -160,9 +348,9 @@ jobs:
     timeout-minutes: 2
     steps:
       - env:
-          RESULT: ${{ needs.integration-shard.result }}
+          RESULT: ${{ needs.integration-domain.result }}
         run: |
-          echo "integration shards: $RESULT"
+          echo "integration domains: $RESULT"
           [ "$RESULT" = success ]
 
   # The only place the workspace byte ceiling can actually be exercised. The
@@ -217,7 +405,10 @@ jobs:
         env:
           DOCKER_BACKEND_TEST: "1"
           DOCKER_HOST: unix:///tmp/apq/docker.sock
-        run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+        run: >-
+          bun test
+          packages/adapters/execution/local-docker/src/workspace.integration.test.ts
+          packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts
       # The daemon's own log is where a create that the suite could not
       # explain shows up. `|| true` because this step also runs when an
       # earlier one failed before the container existed.

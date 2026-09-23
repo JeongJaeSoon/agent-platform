@@ -12,6 +12,7 @@ import {
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
   CHECKPOINT_WORKTREE_REF,
+  checkpointGitLimits,
   required,
 } from "./workspace-capture.ts";
 
@@ -236,7 +237,11 @@ export async function restoreCheckpointTree(input: {
   await check(git(["remote", "add", "origin", input.origin]), "remote add");
 }
 
-/** A git that never reaches the network, with the capture's settings. */
+/**
+ * A git that never reaches the network, with the capture's settings and
+ * limits: one that runs out throws `GitResourceLimitError`, which fails the
+ * restore like any other git failure.
+ */
 function localGit(
   cwd: string,
   signal: AbortSignal,
@@ -246,6 +251,7 @@ function localGit(
     runGit(args, {
       cwd: options.cwd ?? cwd,
       extra: { config: CHECKPOINT_GIT_CONFIG, env },
+      limits: checkpointGitLimits(),
       network: null,
       overrides: [],
       redact: (text) => text,

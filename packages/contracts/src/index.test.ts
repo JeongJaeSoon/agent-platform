@@ -13,6 +13,7 @@ import {
   finalizeResponseSchema,
   getSessionResponseSchema,
   heartbeatRequestSchema,
+  heartbeatResponseSchema,
   listSessionsQuerySchema,
   loggableBootstrapClaim,
   nextInputRequestSchema,
@@ -148,6 +149,8 @@ describe("session contracts", () => {
         last_completed_turn_id: null,
         last_checkpointed_turn_id: null,
         checkpoint_pending_reason: null,
+        checkpoint_fallback_revision: null,
+        context_reset_turn_id: null,
       },
       created_at: AT,
       updated_at: AT,
@@ -336,6 +339,94 @@ describe("answers, pending requests and control", () => {
     ).toBe(false);
   });
 
+  test("a context gap is visible on the detail, and start_fresh takes no target", () => {
+    // 94S-288: a session held back because no checkpoint covers the turns
+    // that ran says which ones, and a reset stays visible afterwards.
+    const base = {
+      id: SESSION_ID,
+      revision: 3,
+      admission_state: "recovery_required",
+      status: "failed",
+      runtime: {
+        kind: "claude_agent_sdk",
+        version: "0.3.270",
+        profile_id: "claude-coding-v1",
+      },
+      repository_id: "sample-app",
+      current_turn_id: null,
+      queued_turn_count: 1,
+      last_event_at: AT,
+      execution: null,
+      checkpoint_revision: null,
+      pending_request_count: 0,
+      created_at: AT,
+      updated_at: AT,
+    };
+    const durability = {
+      last_transcript_persisted_at: null,
+      checkpoint_committed_at: null,
+      checkpoint_revision: null,
+      last_completed_turn_id: "1",
+      last_checkpointed_turn_id: null,
+      checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
+    };
+    const held = getSessionResponseSchema.parse({
+      ...base,
+      attention: {
+        code: "CONTEXT_GAP",
+        last_ran_turn_id: "1",
+        checkpointed_turn_id: null,
+      },
+      durability: { ...durability, context_reset_turn_id: null },
+    });
+    expect(held.attention).toEqual({
+      code: "CONTEXT_GAP",
+      last_ran_turn_id: "1",
+      checkpointed_turn_id: null,
+    });
+    expect(
+      getSessionResponseSchema.safeParse({
+        ...base,
+        attention: { code: "CONTEXT_GAP", checkpointed_turn_id: null },
+        durability: { ...durability, context_reset_turn_id: null },
+      }).success,
+    ).toBe(false);
+    // Required, not optional: a reader must be able to tell "never reset"
+    // from a server that does not report it.
+    expect(
+      getSessionResponseSchema.safeParse({
+        ...base,
+        attention: null,
+        durability,
+      }).success,
+    ).toBe(false);
+    expect(
+      getSessionResponseSchema.parse({
+        ...base,
+        admission_state: "active",
+        status: "idle",
+        attention: null,
+        durability: { ...durability, context_reset_turn_id: "1" },
+      }).durability.context_reset_turn_id,
+    ).toBe("1");
+
+    const decision = { expected_revision: 3, reason: "accept the loss" };
+    expect(
+      recoveryDecisionRequestSchema.safeParse({
+        ...decision,
+        decision: "start_fresh",
+      }).success,
+    ).toBe(true);
+    expect(
+      recoveryDecisionRequestSchema.safeParse({
+        ...decision,
+        decision: "start_fresh",
+        target_turn_id: "1",
+      }).success,
+    ).toBe(false);
+  });
+
   test("requires evidence for confirm_completed and a target unless closing", () => {
     const base = { expected_revision: 12, reason: "operator checked" };
     expect(
@@ -435,6 +526,26 @@ describe("worker protocol", () => {
     auth_revision: 1,
   };
 
+  test("a heartbeat answer carries the lease as time remaining on the database clock (94S-322)", () => {
+    const answer = {
+      lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
+      auth_revision: 1,
+      control_pending: false,
+    };
+    expect(heartbeatResponseSchema.parse(answer)).toEqual(answer);
+    const { lease_remaining_ms: _r, ...withoutRemaining } = answer;
+    expect(heartbeatResponseSchema.safeParse(withoutRemaining).success).toBe(
+      false,
+    );
+    for (const lease_remaining_ms of [-1, 1.5, Number.POSITIVE_INFINITY]) {
+      expect(
+        heartbeatResponseSchema.safeParse({ ...answer, lease_remaining_ms })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   test("fences every post-claim request with the same identity", () => {
     expect(workerScopeSchema.parse(scope)).toEqual(scope);
     expect(nextInputRequestSchema.safeParse(scope).success).toBe(true);
@@ -530,6 +641,7 @@ describe("worker protocol", () => {
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -556,8 +668,21 @@ describe("worker protocol", () => {
       },
       principal: { owner_scope: "owner_1" },
       restore: null,
+      remaining_budget_usd: 12.5,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    // The engine's budget is what is left of the session's, never below
+    // nothing and never left out (94S-279).
+    const { remaining_budget_usd: _b, ...withoutBudget } = claim;
+    expect(bootstrapClaimResponseSchema.safeParse(withoutBudget).success).toBe(
+      false,
+    );
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        remaining_budget_usd: -0.01,
+      }).success,
+    ).toBe(false);
     // A claim without the workspace or the resolved profile is not a claim a
     // worker can act on.
     const { workspace: _w, ...withoutWorkspace } = claim;
@@ -569,6 +694,12 @@ describe("worker protocol", () => {
       false,
     );
     // The fingerprint names the exact profile the claim resolved (94S-132).
+    // The lease a worker tracks is the remaining time, not the deadline
+    // (94S-322): a claim without it could only be judged by a wall clock.
+    const { lease_remaining_ms: _r, ...withoutRemaining } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutRemaining).success,
+    ).toBe(false);
     const { profile_fingerprint: _f, ...withoutFingerprint } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutFingerprint).success,
@@ -626,6 +757,7 @@ describe("worker protocol", () => {
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -656,6 +788,7 @@ describe("worker protocol", () => {
         manifest_ref: "m",
         manifest_sha256: "a".repeat(64),
       },
+      remaining_budget_usd: 12.5,
     });
     expect(loggableBootstrapClaim(claim)).toEqual({
       session_id: scope.session_id,
@@ -664,6 +797,7 @@ describe("worker protocol", () => {
       execution_generation: scope.execution_generation,
       auth_revision: scope.auth_revision,
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: claim.runtime,
       profile_fingerprint: `sha256:${"b".repeat(64)}`,
       model: "claude-sonnet-5",
@@ -674,6 +808,7 @@ describe("worker protocol", () => {
       branch: "main",
       owner_scope: "owner_1",
       restore_revision: 4,
+      remaining_budget_usd: 12.5,
     });
     const line = JSON.stringify(loggableBootstrapClaim(claim));
     for (const secret of [
@@ -733,6 +868,7 @@ describe("worker protocol", () => {
         plan: {
           revision: 0,
           manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
           manifest_version: "m1",
           engine: "claude",
           resume: "sdk-session",
@@ -756,5 +892,40 @@ describe("worker protocol", () => {
     });
     expect(plan(undefined)).toMatchObject({ status: "ready" });
     expect(() => plan("null")).toThrow();
+  });
+
+  test("a restore plan says when it falls back to an earlier revision, and names what it skipped (94S-204)", () => {
+    const plan = (fallback: unknown) =>
+      restorePlanResponseSchema.safeParse({
+        status: "ready",
+        plan: {
+          revision: 0,
+          manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
+          engine: "claude",
+          resume: "sdk-session",
+          cwd: "/workspace",
+          git_commit: "0".repeat(40),
+          artifacts: [],
+          object_keys: [],
+          ...(fallback === undefined ? {} : { fallback }),
+        },
+      });
+    expect(
+      plan({
+        pointer_revision: 2,
+        skipped: [
+          { revision: 2, reason: "manifest object is missing" },
+          { revision: 1, reason: "digest mismatch" },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(plan(undefined).success).toBe(true);
+    // A fallback that skipped nothing is not a fallback.
+    expect(plan({ pointer_revision: 1, skipped: [] }).success).toBe(false);
+    expect(
+      plan({ pointer_revision: 1, skipped: [{ revision: 1, reason: "" }] })
+        .success,
+    ).toBe(false);
   });
 });

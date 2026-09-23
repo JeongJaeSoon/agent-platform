@@ -2,10 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import * as schema from "@agent-platform/db";
 import {
+  createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
 import {
+  type CheckpointService,
   createWorkerGateway,
   manifestRefFor,
   sessionObjectPrefix,
@@ -38,8 +40,12 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { eq } from "drizzle-orm";
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+  PutObjectLegalHoldCommand,
+} from "@aws-sdk/client-s3";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
@@ -88,6 +94,9 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
   let bundle: GitBundleFixture;
   let objects: CheckpointObjectStore;
   let gateway: ReturnType<typeof createWorkerGateway>;
+  // The protocol createApiCheckpoints binds is the service itself; the
+  // turn-less commit a drain uses is reached through it.
+  let service: CheckpointService;
   const clock = new Date("2026-09-23T00:00:00.000Z");
 
   beforeAll(async () => {
@@ -113,6 +122,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     if (checkpoints.protocol === undefined) {
       throw new Error("an object store was configured; expected a protocol");
     }
+    service = checkpoints.protocol as CheckpointService;
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: {
@@ -226,52 +236,52 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     return { claimed, principal, scope, turnId: next.input.turn_id };
   }
 
-  test("a checkpoint asked for while the lease is held is blocked and the pointer stays (94S-208)", async () => {
-    const { claimed, principal, scope } = await claimedSession();
-    const pointer = async () =>
-      (
-        await db
-          .select({
-            revision: schema.sessions.checkpointRevision,
-            pending: schema.sessions.checkpointPendingReason,
-          })
-          .from(schema.sessions)
-          .where(eq(schema.sessions.id, claimed.session_id))
-      )[0];
-    const before = await pointer();
+  test.each([
+    ["checkpoint_lease_held", "Another checkpoint holds the lease"],
+    // 94S-312: a ready run whose publish failed reports it the same way.
+    ["publish_failed", "workspace: 12000 untracked files, over the 10000"],
+  ] as const)(
+    "a checkpoint refused as %s is recorded and the pointer stays (94S-208)",
+    async (reason, detail) => {
+      const { claimed, principal, scope } = await claimedSession();
+      const pointer = async () =>
+        (
+          await db
+            .select({
+              revision: schema.sessions.checkpointRevision,
+              pending: schema.sessions.checkpointPendingReason,
+            })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, claimed.session_id))
+        )[0];
+      const before = await pointer();
 
-    expect(
-      await gateway.requestCheckpoint(principal, {
-        ...scope,
-        preparation: {
-          status: "rejected",
-          reason: "checkpoint_lease_held",
-          detail: "Another checkpoint holds the lease",
-        },
-      }),
-    ).toEqual({
-      status: "blocked",
-      reason: "checkpoint_lease_held",
-      detail: "Another checkpoint holds the lease",
-    });
-    // Nothing published: the pointer is where it was, and the refusal is
-    // what the session detail shows as its pending reason.
-    expect(await pointer()).toEqual({
-      revision: before?.revision ?? null,
-      pending: "checkpoint_lease_held",
-    });
-    // It holds nothing back: the next request is answered from that pointer.
-    expect(
-      await gateway.requestCheckpoint(principal, {
-        ...scope,
-        preparation: { status: "ready" },
-      }),
-    ).toEqual({
-      status: "ready",
-      revision: 0,
-      manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
-    });
-  }, 60_000);
+      expect(
+        await gateway.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "rejected", reason, detail },
+        }),
+      ).toEqual({ status: "blocked", reason, detail });
+      // Nothing published: the pointer is where it was, and the refusal is
+      // what the session detail shows as its pending reason.
+      expect(await pointer()).toEqual({
+        revision: before?.revision ?? null,
+        pending: reason,
+      });
+      // It holds nothing back: the next request is answered from that pointer.
+      expect(
+        await gateway.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "ready" },
+        }),
+      ).toEqual({
+        status: "ready",
+        revision: 0,
+        manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
+      });
+    },
+    60_000,
+  );
 
   test("a manifest refused at finalize leaves the key free to finalize the turn without one (94S-246)", async () => {
     const { principal, scope, turnId } = await claimedSession();
@@ -432,6 +442,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         plan: {
           revision: 0,
           manifest_ref: asked.manifest_ref,
+          manifest_sha256: encoded.sha256,
           manifest_version: stored.version,
           engine: "claude",
           resume: "sdk-session-1",
@@ -605,6 +616,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       plan: {
         revision: 0,
         manifest_ref: asked.manifest_ref,
+        manifest_sha256: encoded.sha256,
         manifest_version: stored.version,
         engine: "claude",
         resume: "sdk-session-1",
@@ -630,6 +642,198 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       bundle.bytes,
     );
     expect(await objects.get(rootPart.key)).not.toEqual(transcript);
+  }, 60_000);
+
+  test("a damaged pointer restores the newest held revision below it, and the session and its event stream say so (94S-204)", async () => {
+    const { claimed, principal, scope, turnId } = await claimedSession();
+    const sessionId = claimed.session_id;
+    const prefix = sessionObjectPrefix(sessionId);
+    const { kind: _kind, ...fence } = principal as Extract<
+      WorkerPrincipal,
+      { kind: "session" }
+    >;
+    const runtime = {
+      engine: "claude",
+      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      profile_sha256: PROFILE_SHA,
+    };
+    const first = await put(
+      `${prefix}mirror/root-0.jsonl`,
+      new TextEncoder().encode('{"type":"user","n":0}\n'),
+    );
+    const second = await put(
+      `${prefix}mirror/root-1.jsonl`,
+      new TextEncoder().encode('{"type":"user","n":1}\n'),
+    );
+    /** Uploads revision `revision`'s bundle and manifest as a worker would. */
+    async function publish(revision: number, parts: (typeof first)[]) {
+      const manifestRef = manifestRefFor(
+        sessionId,
+        revision,
+        claimed.attempt_id,
+        crypto.randomUUID().replaceAll("-", ""),
+      );
+      const attemptDir = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
+      const bundleRef = await put(
+        `${attemptDir}workspace.bundle`,
+        bundle.bytes,
+      );
+      const manifest: CheckpointManifest = {
+        createdAt: clock.toISOString(),
+        cwd: "/workspace",
+        engine: "claude",
+        resume: `sdk-session-${revision}`,
+        revision,
+        runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+        sessionId,
+        transcripts: {
+          root: {
+            entryCount: parts.length,
+            parts,
+            sha256: digestParts(parts),
+          },
+          subagents: {},
+        },
+        version: 2,
+        workspace: {
+          bundle: bundleRef,
+          gitCommit: bundle.commit,
+          untracked: [],
+        },
+      };
+      const encoded = claudeCheckpointCodec.encode(manifest);
+      const stored = await put(manifestRef, encoded.bytes);
+      return {
+        manifest_ref: manifestRef,
+        manifest_sha256: encoded.sha256,
+        manifest_version: stored.version,
+        revision,
+      };
+    }
+
+    // Revision 0 closes the delivered turn; revision 1 is a turn-less
+    // commit on top of it that adds a transcript part.
+    const older = await publish(0, [first]);
+    expect(
+      await gateway.finalize(principal, {
+        ...scope,
+        turn_id: turnId,
+        finalize_key: "fin-0",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: older,
+      }),
+    ).toMatchObject({ checkpoint_revision: 0 });
+    const newer = await publish(1, [first, second]);
+    expect(
+      await service.finalize({
+        checkpoint: newer,
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 1 });
+
+    // Only an operator with the hold permission can do this: lift the hold
+    // on revision 1's new part and destroy that version.
+    await bucket.s3.send(
+      new PutObjectLegalHoldCommand({
+        Bucket: bucket.bucket,
+        Key: second.key,
+        VersionId: second.version,
+        LegalHold: { Status: "OFF" },
+      }),
+    );
+    await bucket.s3.send(
+      new DeleteObjectCommand({
+        Bucket: bucket.bucket,
+        Key: second.key,
+        VersionId: second.version,
+      }),
+    );
+
+    const plan = await gateway.restorePlan(principal, { ...scope, runtime });
+    expect(plan).toMatchObject({
+      status: "ready",
+      plan: {
+        revision: 0,
+        manifest_ref: older.manifest_ref,
+        manifest_sha256: older.manifest_sha256,
+        manifest_version: older.manifest_version,
+        resume: "sdk-session-0",
+        artifacts: [{ kind: "transcript_root", objects: [first] }, {}],
+        fallback: {
+          pointer_revision: 1,
+          skipped: [
+            {
+              revision: 1,
+              reason: `manifest references a missing object: ${second.key} (version ${second.version})`,
+            },
+          ],
+        },
+      },
+    });
+
+    // Not silent: the session detail and the event stream both carry it.
+    const detail = await createPostgresSessionReader(db).getSession(
+      "owner-a",
+      sessionId,
+    );
+    expect(detail?.checkpoint_revision).toBe(1);
+    expect(detail?.durability.checkpoint_fallback_revision).toBe(0);
+    const announced = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(
+        and(
+          eq(schema.events.sessionId, sessionId),
+          sql`${schema.events.payload}->>'subtype' = 'checkpoint_restore_fallback'`,
+        ),
+      );
+    expect(announced).toEqual([
+      {
+        payload: {
+          type: "system",
+          subtype: "checkpoint_restore_fallback",
+          attempt_id: claimed.attempt_id,
+          pointer_revision: 1,
+          restored_revision: 0,
+          skipped: [
+            {
+              revision: 1,
+              reason: `manifest references a missing object: ${second.key} (version ${second.version})`,
+            },
+          ],
+        },
+      },
+    ]);
+
+    // Garbage collection releasing revision 0 takes it out of the running:
+    // a fallback only ever lands on a generation still protected.
+    await bucket.s3.send(
+      new PutObjectLegalHoldCommand({
+        Bucket: bucket.bucket,
+        Key: older.manifest_ref,
+        VersionId: older.manifest_version,
+        LegalHold: { Status: "OFF" },
+      }),
+    );
+    const refused = await gateway.restorePlan(principal, { ...scope, runtime });
+    expect(refused).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+    if (refused.status !== "unavailable") return;
+    expect(refused.reason).toContain(
+      "earlier revision 0 is refused, and a refusal is not damage",
+    );
   }, 60_000);
 
   test("a locked deployment refuses to start on a bucket that cannot pin or hold versions; an unversioned one says so and starts (94S-229)", async () => {

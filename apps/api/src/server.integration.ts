@@ -136,6 +136,7 @@ async function refusedStart(
       DATABASE_URL: databaseUrl,
       EXECUTION_SLOT_LIMIT: "10",
       MAX_TURN_SECONDS: "3600",
+      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
@@ -223,6 +224,7 @@ integration("API server on PostgreSQL", () => {
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
           MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
@@ -406,6 +408,7 @@ integration("API server on PostgreSQL", () => {
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
           MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           // Blank counts as missing, and overrides whatever the runner has.
           SESSION_COST_LIMIT_USD: "",
@@ -433,6 +436,7 @@ integration("API server on PostgreSQL", () => {
         "Refusing to start: installation limits are invalid",
       );
       expect(logs).toContain("SESSION_COST_LIMIT_USD is required");
+      expect(logs).toContain("PROVIDER_MAX_RETRIES is required");
       expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,

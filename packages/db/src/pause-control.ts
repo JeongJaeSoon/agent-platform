@@ -16,10 +16,10 @@ import {
   inArray,
   isNull,
   lte,
-  max,
   notInArray,
   sql,
 } from "drizzle-orm";
+import { contextCoverage } from "./context-gap.ts";
 import {
   controlClock,
   findIdempotent,
@@ -28,14 +28,14 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   OPEN_TURN_STATUSES,
-  recordAudit,
+  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { fromDbNow } from "./db-clock.ts";
+import { dbNow, fromDbNow } from "./db-clock.ts";
+import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
-  checkpoints,
   executions,
   idempotencyKeys,
   pendingRequests,
@@ -44,6 +44,7 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
+import { recordStatus } from "./session-events.ts";
 
 export const PAUSE = "pause";
 
@@ -56,11 +57,6 @@ export const PAUSE_DRAIN_DEADLINE_MS = 60_000;
 
 type SessionRow = typeof sessions.$inferSelect;
 
-// Terminals a worker reached by running the turn. `cancelled` never ran and
-// `outcome_unknown` keeps the session in recovery, so neither can be the
-// last thing a checkpoint has to cover.
-const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
-
 /**
  * Why the session cannot be called paused yet, or null when it can: no turn
  * is open, and a trusted committed checkpoint exists that was taken at or
@@ -70,7 +66,11 @@ export async function pauseBlocker(
   tx: Database,
   session: Pick<
     SessionRow,
-    "id" | "checkpointRevision" | "checkpointPendingReason"
+    | "id"
+    | "checkpointRevision"
+    | "checkpointFallbackRevision"
+    | "checkpointPendingReason"
+    | "contextResetCheckpointRevision"
   >,
 ): Promise<PauseBlockedReason | null> {
   // A dropped mirror batch outranks everything: no amount of waiting makes
@@ -102,15 +102,6 @@ export async function pauseBlocker(
       .limit(1);
     return asking ? "pending_request" : "long_turn";
   }
-  const [ran] = await tx
-    .select({ sequence: max(turns.sequence) })
-    .from(turns)
-    .where(
-      and(
-        eq(turns.sessionId, session.id),
-        inArray(turns.status, RAN_TURN_STATUSES),
-      ),
-    );
   // Every pause stands on a committed checkpoint, a session that never ran
   // a turn included: a paused receipt promises a restore point. An advisory
   // pending reason does not block by itself (94S-284): a refused drain
@@ -118,32 +109,32 @@ export async function pauseBlocker(
   // check below refuses it; a pointer that covers every turn is enough.
   // checkpoint_pending_reason already tells the owner which one it was, so
   // PAUSE_BLOCKED gets no reason of its own for it.
+  // A start_fresh watermark does not count here: a pause needs a checkpoint
+  // to resume from, not a gap an operator already accepted.
   if (!hasRestorePoint(session)) return "checkpoint_unavailable";
-  const lastRan = ran?.sequence ?? null;
-  if (lastRan === null) return null;
+  // After a fallback restore it is the earlier revision the session runs
+  // on that has to cover the last turn (94S-204), not the damaged pointer.
+  const { lastRanTurn, checkpointedTurn } = await contextCoverage(
+    tx,
+    session,
+    restoreBaseRevision(session),
+  );
+  if (lastRanTurn === null) return null;
   // A turn-less checkpoint (CheckpointService.finalize, not reachable from a
   // worker yet) records no turn it was taken after, so it is not counted as
-  // covering one; the inner join below leaves it out. Record a watermark on
-  // checkpoints when a drain starts committing them.
-  const [pointer] = await tx
-    .select({ sequence: turns.sequence })
-    .from(checkpoints)
-    .innerJoin(turns, eq(turns.id, checkpoints.turnId))
-    .where(
-      and(
-        eq(checkpoints.sessionId, session.id),
-        eq(checkpoints.revision, session.checkpointRevision),
-      ),
-    )
-    .limit(1);
-  return pointer !== undefined && pointer.sequence >= lastRan
+  // covering one. Record a watermark on checkpoints when a drain starts
+  // committing them.
+  return checkpointedTurn !== null && checkpointedTurn >= lastRanTurn
     ? null
     : "checkpoint_unavailable";
 }
 
 export async function pauseReceiptResult(
   tx: Database,
-  session: Pick<SessionRow, "id" | "checkpointRevision">,
+  session: Pick<
+    SessionRow,
+    "id" | "checkpointRevision" | "checkpointFallbackRevision"
+  >,
 ): Promise<PauseReceiptResult> {
   const [queued] = await tx
     .select({ count: count() })
@@ -151,7 +142,8 @@ export async function pauseReceiptResult(
     .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")));
   return {
     resulting_admission_state: "paused",
-    checkpoint_revision: session.checkpointRevision,
+    // What the pause was judged safe on, and what a resume restores.
+    checkpoint_revision: restoreBaseRevision(session),
     queued_turn_count: queued?.count ?? 0,
   };
 }
@@ -180,7 +172,12 @@ export async function pauseAttention(
   db: Database,
   session: Pick<
     SessionRow,
-    "id" | "admissionState" | "checkpointRevision" | "checkpointPendingReason"
+    | "id"
+    | "admissionState"
+    | "checkpointRevision"
+    | "checkpointFallbackRevision"
+    | "checkpointPendingReason"
+    | "contextResetCheckpointRevision"
   >,
 ): Promise<SessionAttention | null> {
   if (session.admissionState !== "pausing") return null;
@@ -340,12 +337,17 @@ export function pauseAtomic(
       payloadHash: input.payloadHash,
       receiptId,
     });
-    await recordAudit(tx, {
+    // Pause moves admission only, so the status it reports is the one the
+    // session reads as now — after the epoch above moved, which ends any
+    // wait for input that the fenced attempt had open.
+    const at = await dbNow(tx);
+    await recordStatus(tx, {
       sessionId,
-      type: "status",
-      payload: {
-        // Pause moves admission only; the status it reports is untouched.
-        phase: session.status,
+      phase: publicStatus(
+        session.status,
+        await awaitingInputAt(tx, sessionId, at),
+      ),
+      extra: {
         admission_state: bound ? "pausing" : "paused",
         reason: input.reason,
         actor: { owner_id: input.principal.ownerId },

@@ -3,11 +3,13 @@ import {
   type CheckpointRef,
   checkpointBlockReasonSchema,
   type TerminalTurnStatus,
+  TURN_BUDGET_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@agent-platform/contracts";
 import {
   budgetExceeded,
+  CHECKPOINT_ROOT_PARENT,
   type CheckpointPointer,
   type CheckpointStateInput,
   type CheckpointStateResult,
@@ -37,6 +39,8 @@ import {
   type ReleaseInput,
   type ReleaseResult,
   type ResolvedCredential,
+  type RestoreBaseInput,
+  type RestoreBaseResult,
   type RunnablePair,
   storedPendingReasonHoldsWork,
   type WorkerBinding,
@@ -47,7 +51,6 @@ import {
   and,
   asc,
   count,
-  desc,
   eq,
   gt,
   inArray,
@@ -58,11 +61,11 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
   hasRestorePoint,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
-  recordAudit,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
@@ -70,6 +73,7 @@ import {
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { encodeEventCursor } from "./event-cursor.ts";
+import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import {
   openPauseReceipt,
   pauseBlocker,
@@ -99,6 +103,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
@@ -197,9 +202,20 @@ export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
+// The worker may only ever be told less than it has. `at` came through a
+// Date, which drops the database's sub-millisecond part, so it may stand up
+// to 1ms before the instant actually read: counted from the next whole
+// millisecond instead.
+function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
+  return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
+}
+
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
+// The system event a restore that fell back to an earlier revision leaves.
+export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
+
 export async function acquireFence(
   tx: Database,
   fence: WorkerFence,
@@ -383,26 +399,26 @@ export function parseTurnId(turnId: string): number | null {
   return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
-async function latestCheckpoint(
+/**
+ * What the claim tells the worker to restore: the trusted pointer, the same
+ * checkpoint the context verdict was judged against — not the newest row,
+ * which a blocker or a start_fresh decision may have left untrusted.
+ */
+async function restoreRef(
   tx: Database,
-  sessionId: string,
+  session: SessionRow,
 ): Promise<CheckpointRef | null> {
-  const [row] = await tx
-    .select()
-    .from(checkpoints)
-    .where(eq(checkpoints.sessionId, sessionId))
-    .orderBy(desc(checkpoints.revision))
-    .limit(1);
-  return row
-    ? {
-        revision: row.revision,
-        manifest_ref: row.manifestRef,
-        manifest_sha256: row.manifestSha256,
-        ...(row.manifestVersion === null
-          ? {}
-          : { manifest_version: row.manifestVersion }),
-      }
-    : null;
+  if (!hasRestorePoint(session)) return null;
+  const pointer = await readCheckpointPointer(tx, session);
+  if (pointer === null) return null;
+  return {
+    revision: pointer.revision,
+    manifest_ref: pointer.manifestRef,
+    manifest_sha256: pointer.manifestSha256,
+    ...(pointer.manifestVersion === null
+      ? {}
+      : { manifest_version: pointer.manifestVersion }),
+  };
 }
 
 /**
@@ -422,6 +438,26 @@ async function latestCheckpoint(
  * proves. An advisory reason (the run was not quiescent) is cleared by any
  * commit: a checkpoint that committed is exactly what it was missing.
  */
+/**
+ * What the committing attempt's state was built on: the fallback's revision
+ * when the row records one for this very attempt, the pointer otherwise.
+ * Another attempt's fallback says nothing about what this one restored. A
+ * base at or below the revision a start_fresh decision retired (94S-288) is
+ * no base at all: the engine session started empty, and a fallback past this
+ * checkpoint must not restore the history the operator gave up.
+ */
+function parentRevisionOf(session: SessionRow, attemptId: string) {
+  const base =
+    (session.checkpointRestoreAttemptId === attemptId
+      ? session.checkpointFallbackRevision
+      : null) ?? session.checkpointRevision;
+  return base !== null &&
+    session.contextResetCheckpointRevision !== null &&
+    base <= session.contextResetCheckpointRevision
+    ? CHECKPOINT_ROOT_PARENT
+    : base;
+}
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -450,6 +486,8 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
+    // The attempt committing ran on what its restore handed it.
+    parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
     turnId: input.turnRowId,
     committedAt: input.now,
   });
@@ -464,6 +502,10 @@ export async function advanceCheckpointPointer(
       .set({
         checkpointRevision: input.checkpoint.revision,
         checkpointCommittedAt: input.now,
+        // Whatever an earlier fallback restored, this commit now stands for
+        // the session's state.
+        checkpointFallbackRevision: null,
+        checkpointRestoreAttemptId: null,
         updatedAt: input.now,
         ...(resolvesPending
           ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
@@ -502,6 +544,7 @@ export async function readCheckpointPointer(
       manifestSha256: checkpoints.manifestSha256,
       manifestVersion: checkpoints.manifestVersion,
       versionsHeld: checkpoints.versionsHeld,
+      parentRevision: checkpoints.parentRevision,
       committedAt: checkpoints.committedAt,
       turnSequence: turns.sequence,
     })
@@ -524,6 +567,7 @@ export async function readCheckpointPointer(
     manifestRef: checkpoint.manifestRef,
     manifestSha256: checkpoint.manifestSha256,
     manifestVersion: checkpoint.manifestVersion,
+    parentRevision: checkpoint.parentRevision,
     revision: session.checkpointRevision,
     versionsHeld: checkpoint.versionsHeld,
     turnId:
@@ -547,6 +591,26 @@ function isRunnable(
   );
 }
 
+function replayableBinding(
+  session: SessionRow,
+  attempt: AttemptRow,
+  launch: Pick<
+    typeof workerLaunches.$inferSelect,
+    "executionId" | "generation"
+  >,
+): boolean {
+  return (
+    LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
+    session.podId === launch.executionId &&
+    session.executionId === launch.executionId &&
+    session.executionGeneration === launch.generation &&
+    attempt.executionId === launch.executionId &&
+    session.leaseEpoch === attempt.leaseEpoch &&
+    session.executionGeneration === attempt.executionGeneration &&
+    session.authRevision === attempt.authRevision
+  );
+}
+
 // A row with no repository id predates the catalog and matches nothing.
 function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   if (runnable.length === 0) return sql`false`;
@@ -559,10 +623,117 @@ function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   )})`;
 }
 
+/**
+ * A launch reserved for one session whose pair the catalog has since dropped
+ * would wait out the worker's claim timeout, exit unclaimed, and be rebuilt
+ * until the scheduler's failure limit gave it up (94S-207) — holding a slot
+ * the whole time for an answer that is already known here. When the pinned
+ * session is otherwise claimable and only the pair stands in the way, the
+ * launch is given up on now, in the claim's transaction and under its launch
+ * row lock (94S-280). Anything else — the session bound, paused, spent, or
+ * the launch already asked to go — is left to the ordinary "nothing to claim".
+ *
+ * Deliberately trusts this host's catalog alone, which holds while one API
+ * process serves the gateway. With several replicas mid-rollout, the one
+ * that answers could fail a session another would run; 94S-295 makes the
+ * judgment wait for an operator-activated catalog revision and must land
+ * before the API runs as more than one replica.
+ */
+async function giveUpOnCatalogMismatch(
+  tx: Database,
+  launch: typeof workerLaunches.$inferSelect,
+  sessionId: string,
+  runnable: readonly RunnablePair[],
+  costLimitUsd: number,
+  now: Date,
+): Promise<"catalog_mismatch" | "context_gap" | null> {
+  const [session] = await tx
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+    .for("update");
+  if (
+    !session ||
+    session.podId !== null ||
+    !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
+    // Reserved for this launch and no later one.
+    session.executionId !== launch.executionId ||
+    budgetExceeded(session.costUsd, costLimitUsd) ||
+    isRunnable(session, runnable)
+  ) {
+    return null;
+  }
+  // Skipped when locked, as the candidate query does: another claim holding
+  // it is binding the session and waits on the row lock taken above, so
+  // waiting for it here would deadlock, and failing the session under it
+  // would be wrong.
+  const [signal] = await tx
+    .select({ sessionId: unassignedSessions.sessionId })
+    .from(unassignedSessions)
+    .where(
+      and(
+        eq(unassignedSessions.sessionId, session.id),
+        eq(unassignedSessions.partition, launch.partition),
+      ),
+    )
+    .limit(1)
+    .for("update", { skipLocked: true });
+  if (!signal) return null;
+  const ref = {
+    executionId: launch.executionId,
+    generation: launch.generation,
+  };
+  const [execution] = await tx
+    .select({ desiredState: executions.desiredState })
+    .from(executions)
+    .where(
+      and(
+        eq(executions.id, ref.executionId),
+        eq(executions.generation, ref.generation),
+        eq(executions.sessionId, session.id),
+      ),
+    )
+    .limit(1);
+  if (execution?.desiredState !== "running") return null;
+  // A context gap is the operator's call before the catalog's (94S-288): it
+  // holds the queued input for start_fresh, where a catalog give-up would
+  // fail it and leave the gap to be found only at the next claim.
+  const coverage = await contextCoverage(tx, session);
+  if (contextGap(session, coverage)) {
+    await raiseContextGap(tx, { session, coverage, detectedAt: "claim", now });
+    await tx
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, launch.executionId));
+    return "context_gap";
+  }
+  // Names ids only: the stored URL may embed a credential (94S-147).
+  const detail = `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  // As `recordLaunchFailure` gives a launch up: counted, the credential
+  // revoked, nothing left to rebuild.
+  await tx
+    .update(workerLaunches)
+    .set({
+      launchFailureCount: sql`${workerLaunches.launchFailureCount} + 1`,
+      launchAttempts: sql`${workerLaunches.launchAttempts} + 1`,
+      lastLaunchError: detail,
+      launchRetryAt: null,
+      nonceHash: null,
+      replacementReason: null,
+    })
+    .where(eq(workerLaunches.executionId, launch.executionId));
+  await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
+  return "catalog_mismatch";
+}
+
+// `at` is a database instant read after the worker sent its request, which
+// is what lets the worker count the remainder from its own send time.
 async function bindingOf(
   tx: Database,
   session: SessionRow,
   attempt: AttemptRow,
+  at: Date,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -571,6 +742,7 @@ async function bindingOf(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
+    leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
     ownerScope: session.ownerId,
     repository: {
@@ -578,7 +750,8 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    restore: await latestCheckpoint(tx, session.id),
+    restore: await restoreRef(tx, session),
+    costUsd: session.costUsd,
   };
 }
 
@@ -681,6 +854,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!bound || bound.attempt.state !== "allocated") {
             return { outcome: "invalid_credential" };
           }
+          // Terminate, close, a pause with nothing to drain and the lease
+          // sweep fence this attempt by moving the session on, but leave it
+          // `allocated` until the execution is seen gone (94S-139). A replay
+          // is therefore judged as a new claim and the fence would judge it:
+          // still the session's binding, on its epoch, and claimable
+          // (94S-291). Refused before anything is written, so the tokens and
+          // lease stay as the exit observation expects to find them.
+          if (!replayableBinding(bound.session, bound.attempt, launch)) {
+            return { outcome: "invalid_credential" };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -717,7 +900,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, session, attempt),
+            binding: await bindingOf(tx, session, attempt, at),
           };
         }
         // Server-side selection: the worker never names a session. It is
@@ -743,7 +926,56 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))
           .limit(1)
           .for("update", { of: unassignedSessions, skipLocked: true });
-        if (!candidate) return { outcome: "no_session" };
+        if (!candidate) {
+          const givenUp =
+            launch.sessionId === null
+              ? null
+              : await giveUpOnCatalogMismatch(
+                  tx,
+                  launch,
+                  launch.sessionId,
+                  input.runnable,
+                  input.costLimitUsd,
+                  input.now,
+                );
+          return { outcome: givenUp ?? "no_session" };
+        }
+
+        // The candidate query locked only the signal; the context verdict
+        // below must be read under the session's own lock, or a checkpoint
+        // committing alongside could make it stale before it is acted on.
+        const [locked] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, candidate.sessionId))
+          .limit(1)
+          .for("update");
+        // A terminate can commit between the candidate read and this lock.
+        if (
+          !locked ||
+          locked.podId !== null ||
+          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState)
+        ) {
+          return { outcome: "no_session" };
+        }
+        // A worker bound now would start an engine session without turns it
+        // has no checkpoint for, and the user would never be told (94S-288).
+        // The session goes to an operator instead, and the launch is asked to
+        // go so the scheduler reclaims it rather than rebuilding it.
+        const coverage = await contextCoverage(tx, locked);
+        if (contextGap(locked, coverage)) {
+          await raiseContextGap(tx, {
+            session: locked,
+            coverage,
+            detectedAt: "claim",
+            now: input.now,
+          });
+          await tx
+            .update(executions)
+            .set({ desiredState: "terminated" })
+            .where(eq(executions.id, launch.executionId));
+          return { outcome: "context_gap" };
+        }
 
         const [session] = await tx
           .update(sessions)
@@ -811,7 +1043,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt),
+          binding: await bindingOf(tx, session, attempt, at),
         };
       });
     },
@@ -982,10 +1214,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         expectFenced(updated, "attempt");
         const [beat] = updated;
         if (!beat) throw new Error("Fenced attempt write returned no row");
-        if (input.transcript !== undefined) {
+        const persistedAt = input.transcript?.persistedAt ?? null;
+        const mirrorError = input.transcript?.mirrorError ?? null;
+        // A mirror that has written nothing yet reports nulls on every beat
+        // until its first batch lands; there is nothing to record, and an
+        // empty SET is an error in drizzle (94S-309).
+        if (persistedAt !== null || mirrorError !== null) {
           // A late heartbeat cannot walk the mirror mark backwards, and an
           // error only sets the reason: clearing is a checkpoint's to do.
-          const persistedAt = input.transcript.persistedAt;
           expectFenced(
             await tx
               .update(sessions)
@@ -995,7 +1231,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   : {
                       lastTranscriptPersistedAt: sql`GREATEST(${sessions.lastTranscriptPersistedAt}, ${persistedAt})`,
                     }),
-                ...(input.transcript.mirrorError === null
+                ...(mirrorError === null
                   ? {}
                   : {
                       checkpointPendingReason: "mirror_error",
@@ -1044,6 +1280,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           leaseExpiresAt: beat.leaseExpiresAt,
+          leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
           authRevision: fenced.session.authRevision,
         };
       });
@@ -1328,7 +1565,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             error: succeeded
               ? null
               : {
-                  code: unknownOutcome ? "RECOVERY_REQUIRED" : "INTERNAL_ERROR",
+                  code: unknownOutcome
+                    ? "RECOVERY_REQUIRED"
+                    : input.terminal.status === "failed" &&
+                        input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
+                      ? "BUDGET_EXCEEDED"
+                      : "INTERNAL_ERROR",
                   message: input.terminal.reason ?? input.terminal.status,
                 },
             updatedAt: now,
@@ -1439,8 +1681,87 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           pointer: await readCheckpointPointer(tx, fenced.session),
+          restorable: hasRestorePoint({
+            ...fenced.session,
+            checkpointPendingReason: pendingReason,
+          }),
           pendingReason,
         };
+      });
+    },
+
+    /**
+     * The fallback is a fact about the session, not about one response: it
+     * goes on the row, where pause and recovery read what the session's
+     * state is actually based on, and on the event stream, where the owner
+     * learns their session resumed from an older generation. Both happen
+     * before the worker is given the plan, under the same fence and against
+     * the same pointer the plan was judged on.
+     *
+     * Every served plan pins its attempt to the base it names, the pointer
+     * included, so asking again for the same base is a retry and being
+     * handed a different one is refused: the object store can change
+     * between two requests, and a worker holding two plans for one pointer
+     * may restore either while the row describes only one.
+     */
+    recordRestoreBaseAtomic(
+      input: RestoreBaseInput,
+    ): Promise<RestoreBaseResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        if (session.checkpointRevision !== input.pointerRevision) {
+          return {
+            outcome: "pointer_moved",
+            currentRevision: session.checkpointRevision,
+          };
+        }
+        const base = input.fallback?.revision ?? input.pointerRevision;
+        // A pointer advance clears the attempt column, so a match here
+        // means this attempt was served a plan on this very pointer.
+        if (session.checkpointRestoreAttemptId === fence.attemptId) {
+          const recorded =
+            session.checkpointFallbackRevision ?? input.pointerRevision;
+          return recorded === base
+            ? { outcome: "ok" }
+            : { outcome: "base_changed", recordedRevision: recorded };
+        }
+        expectFenced(
+          await tx
+            .update(sessions)
+            .set({
+              checkpointFallbackRevision: input.fallback?.revision ?? null,
+              checkpointRestoreAttemptId: fence.attemptId,
+              updatedAt: input.now,
+            })
+            .where(fencedSession(fence))
+            .returning({ id: sessions.id }),
+          "session restore base",
+        );
+        if (input.fallback === null) return { outcome: "ok" };
+        // The attempt goes in the payload, not the event's attempt column:
+        // that column numbers the worker's own sourced stream, and this row
+        // is the server's.
+        await recordEvent(tx, {
+          sessionId: fence.sessionId,
+          type: "system",
+          payload: {
+            type: "system",
+            subtype: CHECKPOINT_RESTORE_FALLBACK,
+            attempt_id: fence.attemptId,
+            pointer_revision: input.pointerRevision,
+            restored_revision: base,
+            skipped: input.fallback.skipped.map((skip) => ({
+              revision: skip.revision,
+              reason: skip.reason,
+            })),
+          },
+          turnRowId: null,
+          now: input.now,
+        });
+        return { outcome: "ok" };
       });
     },
 
@@ -1763,7 +2084,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // lost the only attempt that could still have committed it (94S-285):
         // the pause fails and the session is active again, as after any lost
         // worker, so a new one restores the last trusted checkpoint for the
-        // queued input. A blocking pending reason (a dropped mirror batch, or
+        // queued input — unless that checkpoint leaves a turn behind, which
+        // the context check below hands to an operator (94S-288). A blocking pending reason (a dropped mirror batch, or
         // one this build does not know) cannot be carried on from, so that
         // one goes to an operator instead, as a cancel would (94S-138).
         const pauseBlockedBy =
@@ -1788,6 +2110,20 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           launch?.claimedAttemptId !== null &&
           launch?.claimedAttemptId !== undefined &&
           (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
+        // A session left taking work would hand its next input to a worker
+        // that cannot restore the turns it ran (94S-288). Judged here, where
+        // the loss becomes certain, so it shows before anyone sends another
+        // message; the claim gate stays the one that cannot be bypassed. A
+        // failed pause lands here too: the pointer it could not advance is
+        // exactly the one that leaves the last turn uncovered.
+        const activeNow =
+          session.admissionState === "active" ||
+          (pauseFailed && pauseFailedInto === "active");
+        const coverage =
+          !closed && unresolved.length === 0 && activeNow
+            ? await contextCoverage(tx, session)
+            : null;
+        const contextLost = coverage !== null && contextGap(session, coverage);
         await tx
           .update(sessions)
           .set({
@@ -1864,15 +2200,24 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // has to carry, or a client following it stays at `pausing`.
         if (paused || pauseFailed) {
           const into = paused ? "paused" : pauseFailedInto;
-          await recordAudit(tx, {
+          await recordStatus(tx, {
             sessionId: session.id,
-            type: "status",
-            payload: {
-              phase: into === "recovery_required" ? "failed" : session.status,
+            phase: into === "recovery_required" ? "failed" : session.status,
+            extra: {
               admission_state: into,
               ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
             },
             turnRowId: null,
+            now: observedAt,
+          });
+        }
+        // After the pause's own outcome, so the stream ends on where the
+        // session actually is.
+        if (contextLost) {
+          await raiseContextGap(tx, {
+            session,
+            coverage,
+            detectedAt: "execution_gone",
             now: observedAt,
           });
         }
@@ -1922,12 +2267,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             and(eq(turns.sessionId, session.id), eq(turns.status, "queued")),
           );
         const queued = queuedRow?.queued ?? 0;
-        const activeNow =
-          session.admissionState === "active" ||
-          (pauseFailed && pauseFailedInto === "active");
         if (
           unresolved.length === 0 &&
-          ((queued > 0 && activeNow) ||
+          ((queued > 0 && activeNow && !contextLost) ||
             (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx

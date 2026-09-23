@@ -101,12 +101,14 @@ function harness(
       : { resumedTranscript: overrides.resumedTranscript },
   );
   const launched: RuntimeConfig[] = [];
+  const budgets: number[] = [];
   const principals: ClaimPrincipal[] = [];
   const claudeMds: Array<string | null> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
       start: ({ runtimeConfig, principal, ...launch }, hooks) => {
         launched.push(runtimeConfig);
+        budgets.push(launch.maxBudgetUsd);
         principals.push(principal);
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
@@ -141,7 +143,7 @@ function harness(
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
-  return { claudeMds, gateway, host, launched, principals, runtime };
+  return { budgets, claudeMds, gateway, host, launched, principals, runtime };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -349,6 +351,56 @@ describe("WorkerHost turn loop", () => {
     const summary = await host.runLoop();
 
     expect(summary.outcome).toBe("unclaimed");
+    expect(gateway.releases).toEqual([]);
+  });
+
+  test("leaves at once, unclaimed, when the session waits on an operator instead (94S-288)", async () => {
+    const gateway = new FakeWorkerGateway();
+    let claims = 0;
+    gateway.bootstrapClaim = async () => {
+      claims += 1;
+      throw new WorkerGatewayRequestError(
+        409,
+        "RECOVERY_REQUIRED",
+        "The session has turns no checkpoint covers; an operator decides how it continues",
+        false,
+      );
+    };
+    // A deadline long enough that only the refusal itself can end the loop.
+    const { host } = harness([], {
+      gateway,
+      timeouts: { claimTimeoutMs: 60_000 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("unclaimed");
+    expect(claims).toBe(1);
+    expect(gateway.releases).toEqual([]);
+  });
+
+  test("leaves at once, unclaimed, when its session was failed for a catalog mismatch (94S-280)", async () => {
+    const gateway = new FakeWorkerGateway();
+    let claims = 0;
+    gateway.bootstrapClaim = async () => {
+      claims += 1;
+      throw new WorkerGatewayRequestError(
+        409,
+        "CATALOG_MISMATCH",
+        "The session this launch was reserved for runs as a pair this host's catalog no longer allows",
+        false,
+      );
+    };
+    // A claim timeout the test would notice waiting out.
+    const { host } = harness([], {
+      gateway,
+      timeouts: { claimTimeoutMs: 60_000 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("unclaimed");
+    expect(claims).toBe(1);
     expect(gateway.releases).toEqual([]);
   });
 });
@@ -942,6 +994,99 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
         last_retry_status: 503,
       },
     });
+  });
+
+  test("a turn the engine ended on its budget fails as budget_exceeded, with its cost and its checkpoint (94S-279)", async () => {
+    const gateway = new FakeWorkerGateway({ remainingBudgetUsd: 4.5 });
+    const { budgets, host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: {
+            ...resultMessage(uuidForTurn(1)),
+            subtype: "error_max_budget_usd",
+            is_error: true,
+            total_cost_usd: 4.75,
+          },
+        },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        checkpoints: {
+          restorePlan: async () => ({ mode: "new" }),
+          capture: async (preparation) =>
+            preparation.status === "ready"
+              ? {
+                  revision: 0,
+                  manifest_ref: "checkpoints/0.json",
+                  manifest_sha256: "a".repeat(64),
+                }
+              : null,
+        },
+      },
+    );
+    gateway.enqueue("a turn that loops on tools");
+
+    const summary = await host.runLoop();
+
+    // The engine was given what the claim said the session had left.
+    expect(budgets).toEqual([4.5]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "budget_exceeded" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(gateway.finalized[0]).toMatchObject({
+      terminal: {
+        status: "failed",
+        reason: "budget_exceeded",
+        cost_usd: 4.75,
+        result: { subtype: "error_max_budget_usd", is_error: true },
+      },
+      checkpoint: { revision: 0, manifest_ref: "checkpoints/0.json" },
+    });
+  });
+
+  test("an engine that started its cost count over finishes the turn and drains (94S-279)", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: { ...resultMessage(uuidForTurn(1)), total_cost_usd: 3 },
+        },
+        { type: "await-input" },
+        // What `/clear` answers: a new engine session that has spent nothing.
+        {
+          type: "emit",
+          message: {
+            ...resultMessage(uuidForTurn(2)),
+            session_id: "after-clear",
+            total_cost_usd: 0,
+          },
+        },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { idleTimeoutMs: 60_000 } },
+    );
+    gateway.enqueue("spend something");
+    gateway.enqueue("/clear");
+    gateway.enqueue("a loop the old budget would no longer bound");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(summary.reason).toContain("cost count over");
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(gateway.finalized.map((call) => call.terminal.cost_usd)).toEqual([
+      3, 0,
+    ]);
+    expect(gateway.releases).toHaveLength(1);
   });
 
   test("gives the slot back as soon as the gateway says the budget is spent", async () => {
@@ -2576,8 +2721,14 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
         restorePlan: async () => ({ status: "none" }),
       },
     });
+    const recorded: Array<{ detail: string; turn: string | null }> = [];
     const { host } = harness(oneTurn, {
-      checkpoints: publishing,
+      checkpoints: {
+        ...publishing,
+        finalizeRefused: async (detail, scope) => {
+          recorded.push({ detail, turn: scope.turn_id });
+        },
+      },
       gateway,
       logger: { ...silent, warn: (event) => warnings.push(event) },
     });
@@ -2591,6 +2742,13 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(gateway.finalized.map((call) => call.checkpoint)).toEqual([null]);
     expect(gateway.calls.filter((call) => call === "finalize").length).toBe(2);
     expect(warnings).toContain("worker.checkpoint.failed");
+    // The session shows the turn went without its checkpoint (94S-312).
+    expect(recorded).toEqual([
+      {
+        detail: "Checkpoint manifest rejected: bundle digest mismatch",
+        turn: "1",
+      },
+    ]);
   });
 
   test("a refusal after an unanswered finalize is not retried without the checkpoint", async () => {
@@ -2614,13 +2772,24 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
       }
     }
     const gateway = new Undecided();
-    const { host } = harness(oneTurn, { checkpoints: publishing, gateway });
+    let recorded = 0;
+    const { host } = harness(oneTurn, {
+      checkpoints: {
+        ...publishing,
+        finalizeRefused: async () => {
+          recorded += 1;
+        },
+      },
+      gateway,
+    });
     gateway.enqueue("a turn whose finalize goes unanswered first");
 
     const summary = await host.runLoop();
 
     expect(summary.outcome).toBe("failed");
     expect(sent.every((checkpoint) => checkpoint !== null)).toBe(true);
+    // The first request may yet commit it: nothing says it went without.
+    expect(recorded).toBe(0);
   });
 
   test("a tool the engine starts while the checkpoint publishes is refused", async () => {

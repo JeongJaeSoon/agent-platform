@@ -17,6 +17,7 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -32,7 +33,10 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import {
+  CHECKPOINT_RESTORE_FALLBACK,
+  createPostgresWorkerUnitOfWork,
+} from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -1981,6 +1985,62 @@ integration("worker gateway on PostgreSQL", () => {
     expect(attempt?.leaseExpiresAt.getTime()).toBe(extended);
   });
 
+  test("claim and heartbeat hand the lease out as time left on the database clock, never more than the worker has (94S-322)", async () => {
+    // Long enough that a loaded runner does not see it lapse mid-test.
+    const TTL = 5_000;
+    const partition = partitionFor("remaining");
+    await queuedSession(partition);
+    const real = skewedGateway(0, TTL);
+    const behind = skewedGateway(-60_000, TTL);
+    const ahead = skewedGateway(60_000, TTL);
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const registered = await real.registerLaunch({
+      executionId,
+      generation: 1,
+      partition,
+      backend: "local_docker",
+    });
+    if (registered.nonce === null) throw new Error("launch already registered");
+    const claim = () =>
+      behind.bootstrapClaim(bootstrap, {
+        execution_id: executionId,
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: registered.nonce ?? "" },
+      });
+    // A worker counts the remainder from its own send: whatever instant that
+    // stands for on the database clock, the sum may not pass the deadline
+    // the database will judge, and the replica's clock must not enter it.
+    const within = async (
+      sentAt: number,
+      answer: { lease_expires_at: string; lease_remaining_ms: number },
+    ) => {
+      const answeredAt = await dbNowMs();
+      // A whole TTL, give or take the transaction it was granted in.
+      expect(answer.lease_remaining_ms).toBeGreaterThanOrEqual(TTL - 1);
+      expect(answer.lease_remaining_ms).toBeLessThanOrEqual(
+        TTL + (answeredAt - sentAt),
+      );
+      expect(sentAt + answer.lease_remaining_ms).toBeLessThanOrEqual(
+        new Date(answer.lease_expires_at).getTime(),
+      );
+    };
+    let sentAt = await dbNowMs();
+    const claimed = await claim();
+    await within(sentAt, claimed);
+    // The replay path answers from the same clock read.
+    sentAt = await dbNowMs();
+    const replayed = await claim();
+    await within(sentAt, replayed);
+    for (const replica of [ahead, behind]) {
+      sentAt = await dbNowMs();
+      const beat = await replica.heartbeat(principalOf(replayed), {
+        ...scopeOf(replayed),
+        attempt_state: "running",
+      });
+      await within(sentAt, beat);
+    }
+  });
+
   test("the database clock judges the launch nonce, not the clock of the replica that registered or claims it", async () => {
     const partition = partitionFor("nonce-skew");
     await queuedSession(partition);
@@ -2644,7 +2704,13 @@ integration("worker gateway on PostgreSQL", () => {
         result: null,
         usage: null,
       },
-      checkpoint: null,
+      // Covered, so the next claim restores it rather than meeting the
+      // context gate (94S-288).
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "s3://bucket/release-0.json",
+        manifest_sha256: "a".repeat(64),
+      },
     });
     // A second input arrives while the worker is still bound.
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
@@ -2706,6 +2772,7 @@ integration("worker gateway on PostgreSQL", () => {
     const reclaimed = await claim(next);
     expect(reclaimed.session_id).toBe(session.session_id);
     expect(reclaimed.lease_epoch).toBe(claimed.lease_epoch + 3);
+    expect(reclaimed.restore?.revision).toBe(0);
     const redelivered = await gateway.nextInput(
       principalOf(reclaimed),
       scopeOf(reclaimed),
@@ -2824,7 +2891,42 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await work.countReservedSlots(partition)).toBe(0);
   });
 
-  test("a mirror failure holds new input and completed terminals; only another attempt's checkpoint releases it", async () => {
+  // 94S-309: every worker with a mirror beats this way until its first batch
+  // lands, and the empty update it used to run failed the beat with a 500.
+  test("a transcript report with nothing mirrored yet extends the lease and records nothing", async () => {
+    const partition = partitionFor("mirrorempty");
+    const { session, claimed } = await claimAndDeliver(partition);
+    const read = async () =>
+      (
+        await db
+          .select({
+            lease: attempts.leaseExpiresAt,
+            pending: sessions.checkpointPendingReason,
+            persistedAt: sessions.lastTranscriptPersistedAt,
+          })
+          .from(sessions)
+          .innerJoin(attempts, eq(attempts.id, claimed.attempt_id))
+          .where(eq(sessions.id, session.session_id))
+      )[0];
+    const before = await read();
+    await Bun.sleep(5);
+    const beat = await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+      transcript: { persisted_at: null, mirror_error: null },
+    });
+    const after = await read();
+    expect(new Date(beat.lease_expires_at).getTime()).toBeGreaterThan(
+      before?.lease.getTime() ?? Number.POSITIVE_INFINITY,
+    );
+    expect(after).toEqual({
+      lease: new Date(beat.lease_expires_at),
+      pending: null,
+      persistedAt: null,
+    });
+  });
+
+  test("a mirror failure holds new input and completed terminals, and a checkpoint from the same attempt does not release it", async () => {
     const partition = partitionFor("mirror");
     const { session, launch: l, claimed } = await claimAndDeliver(partition);
     const ownerId =
@@ -2889,7 +2991,12 @@ integration("worker gateway on PostgreSQL", () => {
         fence: fenceOf(claimed),
         now: clock,
       }),
-    ).toEqual({ outcome: "ok", pointer: null, pendingReason: "mirror_error" });
+    ).toEqual({
+      outcome: "ok",
+      pointer: null,
+      restorable: false,
+      pendingReason: "mirror_error",
+    });
 
     // New input is refused: a turn run now could never be reported done.
     expect(await append("third input")).toEqual({
@@ -2933,46 +3040,32 @@ integration("worker gateway on PostgreSQL", () => {
     ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
     expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
 
-    // A fresh run re-mirrors from the local file; its checkpoint is what
-    // shows the transcript is whole again.
+    // The pointer the failing run committed is not trusted, so no worker
+    // can take the session on from it: once the execution is gone the
+    // session waits on an operator instead of being restored from a
+    // transcript that may be missing entries (94S-288).
     await gateway.release(principalOf(claimed), {
       ...scopeOf(claimed),
       reason: "mirror_error",
     });
     await gateway.confirmExecutionGone(l.executionId);
-    await db
-      .update(unassignedSessions)
-      .set({ partition })
-      .where(eq(unassignedSessions.sessionId, session.session_id));
-    const again = await claim(await launch(partition, session.session_id));
-    expect(again.restore?.revision).toBe(0);
-    const next = await gateway.nextInput(principalOf(again), scopeOf(again));
-    expect(next.input?.turn_id).toBe("2");
+    const [held] = await db
+      .select({
+        admission: sessions.admissionState,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(held).toEqual({ admission: "recovery_required", status: "failed" });
     expect(
-      await gateway.finalize(principalOf(again), {
-        ...scopeOf(again, "2"),
-        turn_id: "2",
-        finalize_key: "fin-2",
-        final_source_sequence: 0,
-        terminal: {
-          status: "completed",
-          reason: null,
-          result: null,
-          usage: null,
-        },
-        checkpoint: {
-          revision: 1,
-          manifest_ref: "s3://bucket/mirror-1.json",
-          manifest_sha256: "b".repeat(64),
-        },
-      }),
-    ).toMatchObject({ status: "completed", checkpoint_revision: 1 });
-    expect(await row()).toMatchObject({
-      pending: null,
-      pendingAttempt: null,
-      revision: 1,
-    });
-    expect((await append("fourth input")).outcome).toBe("accepted");
+      (
+        await db
+          .select({ id: unassignedSessions.sessionId })
+          .from(unassignedSessions)
+          .where(eq(unassignedSessions.sessionId, session.session_id))
+      ).length,
+    ).toBe(0);
+    expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
   });
 
   test("a mirror failure never holds back an interrupt that commits its checkpoint", async () => {
@@ -3012,107 +3105,118 @@ integration("worker gateway on PostgreSQL", () => {
     expect(stored).toEqual({ status: "stopped", pending: "mirror_error" });
   });
 
-  test("a run that was not quiescent is recorded for display, holds nothing back, and yields to a mirror failure", async () => {
-    const partition = partitionFor("quiesce");
-    const { session, claimed } = await claimAndDeliver(partition);
-    const work = createPostgresWorkerUnitOfWork(db);
-    const ownerId =
-      (
-        await db
-          .select({ ownerId: sessions.ownerId })
-          .from(sessions)
-          .where(eq(sessions.id, session.session_id))
-      )[0]?.ownerId ?? "";
-    const append = (message: string) =>
-      createPostgresSessionUnitOfWork(db).appendInputAtomic({
-        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-        principal: { ownerId },
-        sessionId: session.session_id,
-        idempotencyKey: crypto.randomUUID(),
-        payloadHash: crypto.randomUUID(),
-        message,
+  test.each([
+    "background_writer",
+    // 94S-312: a ready run whose checkpoint could not be written.
+    "publish_failed",
+  ] as const)(
+    "%s is recorded for display, holds nothing back, and yields to a mirror failure",
+    async (reason) => {
+      const partition = partitionFor(`quiesce-${reason}`);
+      const { session, claimed } = await claimAndDeliver(partition);
+      const work = createPostgresWorkerUnitOfWork(db);
+      const ownerId =
+        (
+          await db
+            .select({ ownerId: sessions.ownerId })
+            .from(sessions)
+            .where(eq(sessions.id, session.session_id))
+        )[0]?.ownerId ?? "";
+      const append = (message: string) =>
+        createPostgresSessionUnitOfWork(db).appendInputAtomic({
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+          },
+          principal: { ownerId },
+          sessionId: session.session_id,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message,
+        });
+      const pending = async () =>
+        (
+          await db
+            .select({ reason: sessions.checkpointPendingReason })
+            .from(sessions)
+            .where(eq(sessions.id, session.session_id))
+        )[0]?.reason;
+      const finalize = (turnId: string, revision: number | null) =>
+        gateway.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, turnId),
+          turn_id: turnId,
+          finalize_key: `fin-${turnId}`,
+          final_source_sequence: 0,
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint:
+            revision === null
+              ? null
+              : {
+                  revision,
+                  manifest_ref: `s3://bucket/quiesce-${reason}-${revision}.json`,
+                  manifest_sha256: "c".repeat(64),
+                },
+        });
+
+      expect(
+        await work.checkpointStateAtomic({
+          fence: fenceOf(claimed),
+          now: clock,
+          pendingReason: reason,
+        }),
+      ).toEqual({
+        outcome: "ok",
+        pointer: null,
+        restorable: false,
+        pendingReason: reason,
       });
-    const pending = async () =>
-      (
-        await db
-          .select({ reason: sessions.checkpointPendingReason })
-          .from(sessions)
-          .where(eq(sessions.id, session.session_id))
-      )[0]?.reason;
-    const finalize = (turnId: string, revision: number | null) =>
-      gateway.finalize(principalOf(claimed), {
-        ...scopeOf(claimed, turnId),
-        turn_id: turnId,
-        finalize_key: `fin-${turnId}`,
-        final_source_sequence: 0,
-        terminal: {
-          status: "completed",
-          reason: null,
-          result: null,
-          usage: null,
-        },
-        checkpoint:
-          revision === null
-            ? null
-            : {
-                revision,
-                manifest_ref: `s3://bucket/quiesce-${revision}.json`,
-                manifest_sha256: "c".repeat(64),
-              },
+      expect(await pending()).toBe(reason);
+      // The previous generation stays the one to resume from, and work goes on:
+      // new input is taken and the turn completes without a checkpoint.
+      expect((await append("while the server runs")).outcome).toBe("accepted");
+      expect(await finalize("1", null)).toMatchObject({
+        status: "completed",
+        checkpoint_revision: null,
       });
+      expect(await pending()).toBe(reason);
 
-    expect(
-      await work.checkpointStateAtomic({
-        fence: fenceOf(claimed),
-        now: clock,
-        pendingReason: "background_writer",
-      }),
-    ).toEqual({
-      outcome: "ok",
-      pointer: null,
-      pendingReason: "background_writer",
-    });
-    expect(await pending()).toBe("background_writer");
-    // The previous generation stays the one to resume from, and work goes on:
-    // new input is taken and the turn completes without a checkpoint.
-    expect((await append("while the server runs")).outcome).toBe("accepted");
-    expect(await finalize("1", null)).toMatchObject({
-      status: "completed",
-      checkpoint_revision: null,
-    });
-    expect(await pending()).toBe("background_writer");
+      // This attempt's own next checkpoint is exactly what was missing.
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      expect(next.input?.turn_id).toBe("2");
+      expect(await finalize("2", 0)).toMatchObject({
+        status: "completed",
+        checkpoint_revision: 0,
+      });
+      expect(await pending()).toBeNull();
 
-    // This attempt's own next checkpoint is exactly what was missing.
-    const next = await gateway.nextInput(
-      principalOf(claimed),
-      scopeOf(claimed),
-    );
-    expect(next.input?.turn_id).toBe("2");
-    expect(await finalize("2", 0)).toMatchObject({
-      status: "completed",
-      checkpoint_revision: 0,
-    });
-    expect(await pending()).toBeNull();
-
-    // A mirror failure outranks it, and is not replaced by it.
-    await gateway.heartbeat(principalOf(claimed), {
-      ...scopeOf(claimed),
-      attempt_state: "running",
-      transcript: { persisted_at: null, mirror_error: "batch 3 dropped" },
-    });
-    expect(
-      await work.checkpointStateAtomic({
-        fence: fenceOf(claimed),
-        now: clock,
-        pendingReason: "tool_in_flight",
-      }),
-    ).toMatchObject({ pendingReason: "mirror_error" });
-    expect(await pending()).toBe("mirror_error");
-    expect(await append("after the failure")).toEqual({
-      outcome: "checkpoint_unavailable",
-      reason: "mirror_error",
-    });
-  });
+      // A mirror failure outranks it, and is not replaced by it.
+      await gateway.heartbeat(principalOf(claimed), {
+        ...scopeOf(claimed),
+        attempt_state: "running",
+        transcript: { persisted_at: null, mirror_error: "batch 3 dropped" },
+      });
+      expect(
+        await work.checkpointStateAtomic({
+          fence: fenceOf(claimed),
+          now: clock,
+          pendingReason: "tool_in_flight",
+        }),
+      ).toMatchObject({ pendingReason: "mirror_error" });
+      expect(await pending()).toBe("mirror_error");
+      expect(await append("after the failure")).toEqual({
+        outcome: "checkpoint_unavailable",
+        reason: "mirror_error",
+      });
+    },
+  );
 
   test("checkpointStateAtomic answers the fenced pointer and records only a durable refusal", async () => {
     const { session, claimed } = await claimAndDeliver();
@@ -3122,7 +3226,12 @@ integration("worker gateway on PostgreSQL", () => {
         fence: fenceOf(claimed),
         now: clock,
       }),
-    ).toEqual({ outcome: "ok", pointer: null, pendingReason: null });
+    ).toEqual({
+      outcome: "ok",
+      pointer: null,
+      restorable: false,
+      pendingReason: null,
+    });
     await gateway.finalize(principalOf(claimed), {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
@@ -3153,10 +3262,13 @@ integration("worker gateway on PostgreSQL", () => {
         manifestRef: "s3://bucket/state-0.json",
         manifestSha256: "a".repeat(64),
         manifestVersion: null,
+        parentRevision: null,
         revision: 0,
         turnId: "1",
         versionsHeld: false,
       },
+      // The blocker just recorded makes the pointer untrusted at once.
+      restorable: false,
       pendingReason: "mirror_error",
     });
     // The store reads the same pointer, outside any fence.
@@ -3304,5 +3416,297 @@ integration("worker gateway on PostgreSQL", () => {
       .from(checkpoints)
       .where(eq(checkpoints.sessionId, session.session_id));
     expect(row?.version).toBe("v1");
+  });
+
+  test("listCheckpoints returns the revisions below the one asked, newest first, bounded (94S-204)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const store = createPostgresCheckpointStore(db);
+    for (const revision of [0, 1, 2, 3]) {
+      expect(
+        await store.commitAtomic({
+          checkpoint: {
+            revision,
+            manifest_ref: `s3://bucket/listed-${revision}.json`,
+            manifest_sha256: String(revision).repeat(64),
+            ...(revision === 1 ? {} : { manifest_version: `v${revision}` }),
+          },
+          fence: fenceOf(claimed),
+          now: clock,
+          sessionId: session.session_id,
+          turnId: null,
+          versionsHeld: revision !== 2,
+        }),
+      ).toEqual({ outcome: "committed", revision });
+    }
+    const listed = await store.listCheckpoints(session.session_id, {
+      belowRevision: 3,
+      limit: 2,
+    });
+    expect(listed).toEqual([
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-2.json",
+        manifestSha256: "2".repeat(64),
+        manifestVersion: "v2",
+        parentRevision: 1,
+        revision: 2,
+        turnId: null,
+        versionsHeld: false,
+      },
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-1.json",
+        manifestSha256: "1".repeat(64),
+        manifestVersion: null,
+        parentRevision: 0,
+        revision: 1,
+        turnId: null,
+        versionsHeld: true,
+      },
+    ]);
+    expect(
+      (
+        await store.listCheckpoints(session.session_id, {
+          belowRevision: 10,
+          limit: 10,
+        })
+      ).map((row) => row.revision),
+    ).toEqual([3, 2, 1, 0]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 0,
+        limit: 10,
+      }),
+    ).toEqual([]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 3,
+        limit: 0,
+      }),
+    ).toEqual([]);
+    // Another session's rows never leak into this one's list.
+    expect(
+      await store.listCheckpoints(crypto.randomUUID(), {
+        belowRevision: 10,
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
+
+  test("a restore that falls back is recorded on the session and its event stream, and the next commit clears it (94S-204)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const sessionId = session.session_id;
+    const fence = fenceOf(claimed);
+    const store = createPostgresCheckpointStore(db);
+    const work = createPostgresWorkerUnitOfWork(db);
+    // Revision 0 was taken before any turn; revision 1 closes turn 1.
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/fallback-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, "1"),
+        turn_id: "1",
+        finalize_key: "fin",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "s3://bucket/fallback-1.json",
+          manifest_sha256: "b".repeat(64),
+        },
+      }),
+    ).toMatchObject({ checkpoint_revision: 1 });
+
+    const row = async () => {
+      const [found] = await db
+        .select({
+          revision: sessions.checkpointFallbackRevision,
+          attempt: sessions.checkpointRestoreAttemptId,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      return found;
+    };
+    const blocker = () =>
+      db.transaction(async (tx) => {
+        const [found] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+        if (!found) throw new Error("session vanished");
+        return pauseBlocker(tx, found);
+      });
+    const announced = () =>
+      db
+        .select({ payload: events.payload, attemptId: events.attemptId })
+        .from(events)
+        .where(
+          and(
+            eq(events.sessionId, sessionId),
+            sql`${events.payload}->>'subtype' = ${CHECKPOINT_RESTORE_FALLBACK}`,
+          ),
+        );
+    const skipped = [{ revision: 1, reason: "manifest object is missing" }];
+    const record = (
+      pointerRevision: number,
+      fallback: { revision: number; skipped: typeof skipped } | null,
+    ) =>
+      work.recordRestoreBaseAtomic({
+        fence,
+        now: clock,
+        pointerRevision,
+        fallback,
+      });
+
+    expect(await blocker()).toBeNull();
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await row()).toEqual({ revision: 0, attempt: claimed.attempt_id });
+    // A retry is the same announcement, not a second one; a different base
+    // for the same pointer is refused; a stale pointer is a conflict.
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await record(1, { revision: 5, skipped })).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 0,
+    });
+    expect(await record(0, { revision: 0, skipped })).toEqual({
+      outcome: "pointer_moved",
+      currentRevision: 1,
+    });
+    expect(await announced()).toEqual([
+      {
+        attemptId: null,
+        payload: {
+          type: "system",
+          subtype: CHECKPOINT_RESTORE_FALLBACK,
+          attempt_id: claimed.attempt_id,
+          pointer_revision: 1,
+          restored_revision: 0,
+          skipped,
+        },
+      },
+    ]);
+    // Turn 1 ran, and the revision the session now runs on does not cover
+    // it: a pause may no longer lean on the damaged pointer.
+    expect(await blocker()).toBe("checkpoint_unavailable");
+
+    // The same attempt handed the pointer after all is refused too: the
+    // object may have come back between two requests, and the worker could
+    // restore either plan.
+    expect(await record(1, null)).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 0,
+    });
+
+    // Another attempt restoring the pointer puts the session back on it.
+    // The row, not a second claim, stands in for that attempt having been
+    // the one served before.
+    const handedTo = async (attempt: string) => {
+      await db
+        .update(sessions)
+        .set({ checkpointRestoreAttemptId: attempt })
+        .where(eq(sessions.id, sessionId));
+    };
+    await handedTo("att_earlier");
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await row()).toEqual({
+      revision: null,
+      attempt: claimed.attempt_id,
+    });
+    expect(await blocker()).toBeNull();
+    // Having been served the pointer, this attempt cannot be handed an
+    // earlier revision for it either.
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 1,
+    });
+
+    // The next committed checkpoint clears a fallback as well.
+    await handedTo("att_earlier");
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await announced()).toHaveLength(2);
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 2,
+          manifest_ref: "s3://bucket/fallback-2.json",
+          manifest_sha256: "c".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 2 });
+    expect(await row()).toEqual({ revision: null, attempt: null });
+    // The commit was built on what the restore handed out, not on the pointer
+    // it skipped, and a later fallback walks back along that.
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 2,
+      parentRevision: 0,
+    });
+    expect(
+      (
+        await store.listCheckpoints(sessionId, { belowRevision: 2, limit: 1 })
+      )[0],
+    ).toMatchObject({ revision: 1, parentRevision: 0 });
+
+    // A fallback another attempt was handed is not what this one runs on:
+    // its commit builds on the pointer.
+    await db
+      .update(sessions)
+      .set({
+        checkpointFallbackRevision: 0,
+        checkpointRestoreAttemptId: "att_earlier",
+      })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 3,
+          manifest_ref: "s3://bucket/fallback-3.json",
+          manifest_sha256: "d".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 3 });
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 3,
+      parentRevision: 2,
+    });
+
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, sessionId));
+    expect(await record(3, { revision: 0, skipped })).toEqual({
+      outcome: "stale_epoch",
+    });
+    expect(await announced()).toHaveLength(2);
   });
 });

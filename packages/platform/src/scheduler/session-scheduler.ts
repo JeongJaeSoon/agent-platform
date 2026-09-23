@@ -27,7 +27,6 @@ import type {
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 
-export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
 /** api.md: a kill not observed within this is reported unknown. */
 export const TERMINATE_DEADLINE_MS = 30_000;
 
@@ -351,6 +350,7 @@ async function collectWorkspaces(
   }
   let workspaces: ManagedWorkspace[];
   let retained: Set<string>;
+  let closedLegacy: Set<string>;
   try {
     // Workspaces first, then the rows. A session created between the two
     // calls is in the retained set, so its brand-new workspace is kept;
@@ -358,15 +358,22 @@ async function collectWorkspaces(
     // unowned by the time it was listed.
     workspaces = await listWorkspaces.call(backend);
     if (workspaces.length === 0) return;
-    const labelled = workspaces
-      .map((workspace) => workspace.sessionId)
-      .filter((sessionId): sessionId is string => sessionId !== null);
+    const labelled: string[] = [];
+    const named: string[] = [];
+    for (const { sessionFrom, sessionId } of workspaces) {
+      if (sessionId === null) continue;
+      (sessionFrom === "name" ? named : labelled).push(sessionId);
+    }
     retained =
       labelled.length === 0
         ? new Set<string>()
         : new Set(
             await store.filterRetainedSessions(labelled, { stoppedTtlMs }),
           );
+    closedLegacy =
+      named.length === 0
+        ? new Set<string>()
+        : new Set(await store.filterClosedLegacySessions(named));
   } catch (error) {
     // Nothing was removed, so nothing is inconsistent; the next pass
     // reclaims whatever this one could not even look at. It is still a
@@ -387,6 +394,15 @@ async function collectWorkspaces(
         created_at: workspace.createdAt.toISOString(),
         workspace_id: id,
       });
+      continue;
+    }
+    if (workspace.sessionFrom === "name") {
+      // A name is only a nomination: anything short of a closed row stays,
+      // a stopped one included — the TTL is for workspaces a label proves.
+      // Closed is final, so there is no resume for a claim to hold off.
+      if (!closedLegacy.has(sessionId)) continue;
+      lock.throwIfAborted();
+      await removeUnclaimed(removal, sessionId, id);
       continue;
     }
     if (retained.has(sessionId)) continue;
@@ -418,20 +434,29 @@ async function collectWorkspaces(
       });
       continue;
     }
-    let outcome: WorkspaceRemovalResult["outcome"];
-    try {
-      outcome = (await removal.remove(id, sessionId)).outcome;
-    } catch (error) {
-      summary.workspacesFailed.push(id);
-      logger.error("Reclaiming workspace failed", {
-        error: messageOf(error),
-        session_id: sessionId,
-        workspace_id: id,
-      });
-      continue;
-    }
-    recordRemoval(removal, sessionId, id, outcome);
+    await removeUnclaimed(removal, sessionId, id);
   }
+}
+
+/** A removal nothing can race: the session is closed or has no row. */
+async function removeUnclaimed(
+  removal: WorkspaceRemoval,
+  sessionId: string,
+  id: string,
+): Promise<void> {
+  let outcome: WorkspaceRemovalResult["outcome"];
+  try {
+    outcome = (await removal.remove(id, sessionId)).outcome;
+  } catch (error) {
+    removal.summary.workspacesFailed.push(id);
+    removal.logger.error("Reclaiming workspace failed", {
+      error: messageOf(error),
+      session_id: sessionId,
+      workspace_id: id,
+    });
+    return;
+  }
+  recordRemoval(removal, sessionId, id, outcome);
 }
 
 type WorkspaceRemoval = {

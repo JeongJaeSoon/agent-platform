@@ -9,13 +9,14 @@ import {
 const complete = {
   EXECUTION_SLOT_LIMIT: "10",
   MAX_TURN_SECONDS: "3600",
+  PROVIDER_MAX_RETRIES: "2",
   QUEUED_INPUT_LIMIT_PER_SESSION: "20",
   SESSION_COST_LIMIT_USD: "25",
   STORAGE_LIMIT_BYTES: "1073741824",
 };
 
 describe("installationLimitsFromEnv", () => {
-  test("reads every limit, with the provider retry default", () => {
+  test("reads every limit", () => {
     expect(installationLimitsFromEnv(complete)).toEqual({
       executionSlotLimit: 10,
       maxTurnSeconds: 3600,
@@ -44,6 +45,7 @@ describe("installationLimitsFromEnv", () => {
       "STORAGE_LIMIT_BYTES is required",
       "MAX_TURN_SECONDS is required",
       "SESSION_COST_LIMIT_USD is required",
+      "PROVIDER_MAX_RETRIES is required",
     ]);
   });
 
@@ -54,7 +56,7 @@ describe("installationLimitsFromEnv", () => {
       STORAGE_LIMIT_BYTES: ["0", "9007199254740993"],
       MAX_TURN_SECONDS: ["0", "604801"],
       SESSION_COST_LIMIT_USD: ["0", "-5", "Infinity", "abc", "1000001"],
-      PROVIDER_MAX_RETRIES: ["-1", "11"],
+      PROVIDER_MAX_RETRIES: ["-1", "1.5", "11", ""],
     };
     for (const [name, values] of Object.entries(rejected)) {
       for (const value of values) {

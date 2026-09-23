@@ -61,6 +61,25 @@ describe("TurnAccounting", () => {
     expect(accounting.settle().costUsd).toBeUndefined();
   });
 
+  test("says when the engine's count started over, and only then (94S-279)", () => {
+    const accounting = new TurnAccounting();
+    accounting.observe(result(0.5, "resumed"));
+    accounting.observe(result(1, "resumed"));
+    // A result that reports nothing is not a new count.
+    accounting.observe(result(0, "resumed"));
+    expect(accounting.restarted).toBe(false);
+
+    const cleared = new TurnAccounting();
+    cleared.observe(result(1, "old"));
+    cleared.observe(result(0, "new"));
+    expect(cleared.restarted).toBe(true);
+
+    const dropped = new TurnAccounting();
+    dropped.observe(result(1));
+    dropped.observe(result(0.25));
+    expect(dropped.restarted).toBe(true);
+  });
+
   test("a turn whose totals are missing or not a cost has no cost, not zero", () => {
     expect(charges([undefined, -1, Number.NaN, 0.5])).toEqual([
       undefined,

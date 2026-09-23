@@ -32,6 +32,7 @@ import type {
 import { executionBackendSchema } from "@agent-platform/contracts";
 import type {
   CheckpointRequestDecision,
+  RestoreFallback,
   RestorePlan,
   RestorePlanResult,
 } from "../checkpoints/checkpoint-service.ts";
@@ -279,6 +280,14 @@ export function restorePlanOnWire(
         status: "incompatible",
         code: result.code,
         mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
+        ...(result.fallback === undefined
+          ? {}
+          : {
+              fallback: {
+                ...fallbackOnWire(result.fallback),
+                revision: result.fallback.revision,
+              },
+            }),
       };
     default:
       return planOnWire(result.plan);
@@ -291,6 +300,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
     plan: {
       revision: plan.revision,
       manifest_ref: plan.manifestRef,
+      manifest_sha256: plan.manifestSha256,
       ...(plan.manifestVersion === undefined
         ? {}
         : { manifest_version: plan.manifestVersion }),
@@ -324,7 +334,20 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
             },
       ),
       object_keys: [...plan.objectKeys],
+      ...(plan.fallback === undefined
+        ? {}
+        : { fallback: fallbackOnWire(plan.fallback) }),
     },
+  };
+}
+
+function fallbackOnWire(fallback: RestoreFallback) {
+  return {
+    pointer_revision: fallback.pointerRevision,
+    skipped: fallback.skipped.map((skip) => ({
+      revision: skip.revision,
+      reason: skip.reason,
+    })),
   };
 }
 
@@ -593,6 +616,22 @@ export function createWorkerGateway(deps: {
             "The session's profile, or its pairing with the session's repository, is not in this host's catalog",
             true,
           );
+        // Not retryable: the session is no longer waiting for a worker, and
+        // the one that asked has nothing to do but leave.
+        case "context_gap":
+          throw new WorkerGatewayError(
+            409,
+            "RECOVERY_REQUIRED",
+            "The session has turns no checkpoint covers; an operator decides how it continues",
+          );
+        // Not retryable: the session this launch was for has been failed and
+        // the launch asked to go, so a retry could only find nothing.
+        case "catalog_mismatch":
+          throw new WorkerGatewayError(
+            409,
+            "CATALOG_MISMATCH",
+            "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
+          );
         default: {
           const binding = result.binding;
           return {
@@ -604,10 +643,17 @@ export function createWorkerGateway(deps: {
             auth_revision: binding.authRevision,
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
+            lease_remaining_ms: binding.leaseRemainingMs,
             ...resolveProfile(binding.profileId),
             workspace: { repository: binding.repository },
             principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
+            // A replay can bind a session that has since spent its budget;
+            // its engine gets nothing to spend, and nextInput hands it no turn.
+            remaining_budget_usd: Math.max(
+              0,
+              deps.options.sessionCostLimitUsd - binding.costUsd,
+            ),
           };
         }
       }
@@ -692,6 +738,7 @@ export function createWorkerGateway(deps: {
       if (result.outcome !== "ok") rejected(result);
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
+        lease_remaining_ms: result.leaseRemainingMs,
         auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over.
@@ -756,6 +803,9 @@ export function createWorkerGateway(deps: {
         requestId: request.request_id,
         inputHash: request.input_hash,
         request: request.request,
+        ...(request.announce === undefined
+          ? {}
+          : { announce: request.announce }),
         ttlMs: pendingTtlMs,
       });
       if (result.outcome === "turn_not_found") {
@@ -942,7 +992,9 @@ export function createWorkerGateway(deps: {
             sdkVersion: request.runtime.sdk_version,
           },
           sessionId: fence.sessionId,
-          pointer: state.pointer,
+          // A pointer the claim did not hand out is not one to restore: a
+          // retired one belongs to the engine session start_fresh gave up.
+          pointer: state.restorable ? state.pointer : null,
         }),
       );
       // A refusal is the end of a resume from `paused` that stands on this
@@ -969,8 +1021,64 @@ export function createWorkerGateway(deps: {
           },
         });
         if (failed.outcome !== "ok") rejected(failed);
+        return restorePlanOnWire(result);
       }
-      return restorePlanOnWire(result);
+      if (result.status !== "ready") return restorePlanOnWire(result);
+      // A ready plan exists only with a pointer: "none" answered above.
+      const pointerRevision =
+        state.pointer?.revision ??
+        result.plan.fallback?.pointerRevision ??
+        result.plan.revision;
+      const fallback = result.plan.fallback;
+      if (fallback !== undefined) {
+        // A resume from `paused` promised the pointer's state; an older one
+        // is not that resume, so the owner decides (94S-138 with 94S-204).
+        // A session that is not resuming takes the fallback as before.
+        const failed = await work.failResumeAtomic({
+          fence,
+          now: now(),
+          pointerRevision,
+          error: {
+            code: "CHECKPOINT_UNAVAILABLE",
+            message: `the resume could not restore its checkpoint: revision ${pointerRevision} is damaged and only revision ${result.plan.revision} verifies`,
+          },
+        });
+        if (failed.outcome !== "ok") rejected(failed);
+        else if (failed.failed) {
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `Revision ${pointerRevision} is damaged; the resume it was to restore is handed to an operator rather than resumed from revision ${result.plan.revision}`,
+          );
+        }
+      }
+      const recorded = await work.recordRestoreBaseAtomic({
+        fence,
+        now: now(),
+        pointerRevision,
+        fallback:
+          fallback === undefined
+            ? null
+            : { revision: result.plan.revision, skipped: fallback.skipped },
+      });
+      switch (recorded.outcome) {
+        case "ok":
+          return restorePlanOnWire(result);
+        case "pointer_moved":
+          throw new WorkerGatewayError(
+            409,
+            "REVISION_CONFLICT",
+            `The checkpoint pointer moved to ${recorded.currentRevision ?? "none"} while the plan was judged; ask for the plan again`,
+          );
+        case "base_changed":
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `This attempt was already handed revision ${recorded.recordedRevision} to restore; a new attempt must start over`,
+          );
+        default:
+          return rejected(recorded);
+      }
     },
 
     async release(

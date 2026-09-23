@@ -27,6 +27,7 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_DRAIN_TIMEOUT_SEC?: string | undefined;
   WORKER_HEARTBEAT_INTERVAL_SEC?: string | undefined;
   WORKER_IDLE_TIMEOUT_SEC?: string | undefined;
+  WORKER_LEASE_SAFETY_MARGIN_SEC?: string | undefined;
   WORKER_MAX_TURN_SEC?: string | undefined;
   WORKER_NEXT_INPUT_RETRY_SEC?: string | undefined;
   WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
@@ -58,6 +59,19 @@ export type WorkerTimeouts = {
   interruptGraceMs?: number;
   /** Release the session and exit after this long with no input. */
   idleTimeoutMs: number;
+  /**
+   * How long a permission callback waits for the frame carrying its tool
+   * call to be stored. That frame is normally just behind the callback; one
+   * that is not stored in time gets the request denied rather than shown
+   * ahead of the call it is about. Not configurable from the environment.
+   */
+  toolUseFrameWaitMs?: number;
+  /**
+   * How long before an unrenewed lease runs out the worker gives it up and
+   * kills the engine (94S-322): enough for the kill to land before another
+   * attempt may be handed the session. `LEASE_SAFETY_MARGIN_MS` when unset.
+   */
+  leaseSafetyMarginMs?: number;
   /**
    * Wall-clock budget for one turn, approvals included. Nothing else bounds
    * an engine that stops answering while the heartbeat keeps the lease alive
@@ -144,7 +158,8 @@ export function workerConfigFromEnv(
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
-      // 2 matches the installation default, for a launcher that predates it.
+      // 2 is compose's local PROVIDER_MAX_RETRIES, for a launcher that
+      // predates it; the scheduler always passes the installation's value.
       providerMaxRetries: nonNegativeInteger(
         environment.WORKER_PROVIDER_MAX_RETRIES ?? "2",
         "WORKER_PROVIDER_MAX_RETRIES",
@@ -178,6 +193,11 @@ export function workerConfigFromEnv(
         environment.WORKER_IDLE_TIMEOUT_SEC,
         1800,
         "WORKER_IDLE_TIMEOUT_SEC",
+      ),
+      leaseSafetyMarginMs: seconds(
+        environment.WORKER_LEASE_SAFETY_MARGIN_SEC,
+        LEASE_SAFETY_MARGIN_MS / 1000,
+        "WORKER_LEASE_SAFETY_MARGIN_SEC",
       ),
       maxTurnMs: seconds(
         environment.WORKER_MAX_TURN_SEC,
@@ -234,6 +254,13 @@ function url(value: string, name: string): string {
  * interrupted at once and left for the recovery path to retry.
  */
 export const SHUTDOWN_RESERVE_MS = 12_000;
+
+/**
+ * Room for the shutdown to reach the engine kill and for that kill's own
+ * 5s exit grace. Against the compose default lease of 30s it leaves 20s
+ * of gateway outage ridden out; a longer lease leaves more.
+ */
+export const LEASE_SAFETY_MARGIN_MS = 10_000;
 
 function drainBudget(configured: number, stopGraceMs: number | undefined) {
   if (stopGraceMs === undefined) return configured;

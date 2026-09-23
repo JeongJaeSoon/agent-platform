@@ -10,8 +10,15 @@ import type {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { dbNow } from "./db-clock.ts";
 import { openPauseReceipt } from "./pause-control.ts";
+import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
+import {
+  announceInputWaitEnded,
+  inputWaitBefore,
+  recordEvent,
+  recordStatus,
+} from "./session-events.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 import {
   acquireFence,
@@ -41,6 +48,30 @@ const RECEIPT_BY_OUTCOME = {
     },
   },
 };
+
+// The event a worker that hands publication over would have published: the
+// display copy it registered, which is already redacted, plus the expiry
+// only the control plane knows.
+function questionEvent(
+  requestId: string,
+  request: RegisterPendingInput["request"],
+  announce: NonNullable<RegisterPendingInput["announce"]>,
+  expiresAt: Date,
+) {
+  return {
+    request_id: requestId,
+    tool_use_id: announce.tool_use_id,
+    kind: request.kind,
+    // A permission names its tool in the request, which is what the
+    // callback and the pending list act on; the announce cannot restate it.
+    tool: request.kind === "permission" ? request.tool : announce.tool,
+    input:
+      request.kind === "permission"
+        ? request.input
+        : { questions: request.questions },
+    expires_at: expiresAt.toISOString(),
+  };
+}
 
 function undelivered(fence: WorkerFence) {
   return and(
@@ -97,6 +128,8 @@ export function createPostgresWorkerPendingStore(
             existing.turnId === turn.id &&
             existing.kind === input.request.kind &&
             existing.inputHash === input.inputHash &&
+            existing.toolUseId === (input.announce?.tool_use_id ?? null) &&
+            existing.tool === (input.announce?.tool ?? null) &&
             existing.settledAt === null;
           if (!same) return { outcome: "conflict" };
           return {
@@ -121,6 +154,25 @@ export function createPostgresWorkerPendingStore(
         }
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         const expiresAt = new Date(at.getTime() + input.ttlMs);
+        // Read before the insert: whether the stream already says this
+        // session is waiting, and whether that is still true. An earlier
+        // wait that lapsed with no write is reported first, so the stream
+        // does not run one wait into the next.
+        const waiting =
+          input.announce !== undefined &&
+          (await awaitingInputAt(tx, fence.sessionId, at));
+        if (
+          input.announce !== undefined &&
+          fenced.session.inputAnnounced &&
+          !waiting
+        ) {
+          await recordStatus(tx, {
+            sessionId: fence.sessionId,
+            phase: publicStatus(fenced.session.status, false),
+            turnRowId: turn.id,
+            now: at,
+          });
+        }
         await tx.insert(pendingRequests).values({
           requestId: input.requestId,
           sessionId: fence.sessionId,
@@ -131,7 +183,35 @@ export function createPostgresWorkerPendingStore(
           inputHash: input.inputHash,
           expiresAt,
           createdAt: at,
+          toolUseId: input.announce?.tool_use_id ?? null,
+          tool: input.announce?.tool ?? null,
         });
+        if (input.announce !== undefined) {
+          // The question first, then the status it opens, in this
+          // transaction: a client never sees needs_input for a question it
+          // has not been shown. The session row is locked by the fence.
+          await recordEvent(tx, {
+            sessionId: fence.sessionId,
+            type: "question",
+            payload: questionEvent(
+              input.requestId,
+              input.request,
+              input.announce,
+              expiresAt,
+            ),
+            turnRowId: turn.id,
+            attemptId: fence.attemptId,
+            now: at,
+          });
+          if (!(fenced.session.inputAnnounced && waiting)) {
+            await recordStatus(tx, {
+              sessionId: fence.sessionId,
+              phase: publicStatus(fenced.session.status, true),
+              turnRowId: turn.id,
+              now: at,
+            });
+          }
+        }
         return {
           outcome: "registered",
           expiresAt,
@@ -203,7 +283,10 @@ export function createPostgresWorkerPendingStore(
           return { outcome: "lease_expired" };
         }
         const byId = new Map(locked.map((row) => [row.requestId, row]));
+        const waitingBefore =
+          locked.length > 0 && (await inputWaitBefore(tx, fenced.session, at));
         const settledNow = new Set<string>();
+        const settledTurns = new Set<number>();
         for (const settlement of input.settled) {
           const row = byId.get(settlement.request_id);
           // Unknown or already settled: the first word stands, and a
@@ -223,6 +306,7 @@ export function createPostgresWorkerPendingStore(
             .where(eq(pendingRequests.requestId, row.requestId));
           row.settledAt = at;
           settledNow.add(row.requestId);
+          settledTurns.add(row.turnId);
           if (row.answerReceiptId !== null) {
             const effect = RECEIPT_BY_OUTCOME[settlement.outcome];
             await tx
@@ -235,6 +319,17 @@ export function createPostgresWorkerPendingStore(
                 ),
               );
           }
+        }
+        if (settledNow.size > 0) {
+          await announceInputWaitEnded(tx, {
+            sessionId: fence.sessionId,
+            waitingBefore,
+            // The turn whose requests this call closed; a retried batch
+            // can also carry rows an earlier call already settled.
+            turnRowId:
+              settledTurns.size === 1 ? ([...settledTurns][0] ?? null) : null,
+            at,
+          });
         }
         const rows = due.filter((row) => !settledNow.has(row.requestId));
         return {

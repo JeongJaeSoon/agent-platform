@@ -35,6 +35,13 @@ export type RuntimeConfig = RuntimeMode & {
   correlationId: string;
   cwd: string;
   home: string;
+  /**
+   * The most this run may spend, in USD, as the engine estimates it. The
+   * engine ends the turn that crosses it. It counts from zero for every run,
+   * resumed ones included, so a caller holding a longer budget passes what
+   * is left of it.
+   */
+  maxBudgetUsd?: number;
   maxTurns?: number;
   model: string;
   tools: string[];

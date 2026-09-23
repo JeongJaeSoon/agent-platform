@@ -19,6 +19,7 @@ import {
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
+import { GitResourceLimitError } from "./workspace.ts";
 import {
   CHECKPOINT_WORKTREE_REF,
   captureWorkspace,
@@ -255,6 +256,36 @@ describe("restoring a captured checkout", () => {
       await readFile(join(target, "written-after-the-checkpoint.txt"), "utf8"),
     ).toBe("stale\n");
   });
+
+  test("fails, rather than taking the worker down, when git runs out of its limits", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    const staged = await stage(await captured());
+    const target = await staleRoot();
+    // The real git, except that `read-tree` dies the way RLIMIT_FSIZE kills
+    // it when a file it writes grows past the limit.
+    const real = Bun.which("git");
+    const bin = join(scratch, "bin");
+    await mkdir(bin);
+    await writeFile(
+      join(bin, "git"),
+      `#!/bin/sh\nfor arg; do [ "$arg" = read-tree ] && kill -s XFSZ $$; done\nexec ${real} "$@"\n`,
+      { mode: 0o755 },
+    );
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ""}`;
+    try {
+      await expect(
+        restoreCheckpointTree({
+          origin: "https://git.example.test/acme/app.git",
+          root: target,
+          signal: new AbortController().signal,
+          staged,
+        }),
+      ).rejects.toThrow(new GitResourceLimitError("SIGXFSZ"));
+    } finally {
+      process.env.PATH = path;
+    }
+  }, 30_000);
 });
 
 describe("staging a checkpoint bundle", () => {

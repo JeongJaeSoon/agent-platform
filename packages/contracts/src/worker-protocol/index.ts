@@ -168,15 +168,28 @@ export const profileFingerprintSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
+// The lease as the worker may track it (94S-322): what was left of it on the
+// database clock at an instant after the request was sent. Counted from its
+// own send time on a monotonic clock, it can only end early, never late,
+// whatever either side's wall clock says. `lease_expires_at` is that same
+// deadline as the database clock names it, for logs; no worker judges by it.
+export const leaseRemainingMsSchema = z.number().int().nonnegative();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
+  // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
+  // most this attempt's engine may spend before it ends the turn in flight
+  // (94S-279). A second line only; the gate stays the stored sum against the
+  // limit, checked before every turn.
+  remaining_budget_usd: z.number().nonnegative(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -191,6 +204,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     execution_generation: response.execution_generation,
     auth_revision: response.auth_revision,
     lease_expires_at: response.lease_expires_at,
+    lease_remaining_ms: response.lease_remaining_ms,
     runtime: response.runtime,
     profile_fingerprint: response.profile_fingerprint,
     model: response.runtime_config.model,
@@ -201,6 +215,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
+    remaining_budget_usd: response.remaining_budget_usd,
   };
 }
 
@@ -231,13 +246,15 @@ export const nextInputResponseSchema = z.object({
   reason: z.enum(["BUDGET_EXCEEDED"]).optional(),
 });
 
-// Why a run refuses to be checkpointed right now (runtime-core
-// CheckpointBlockReason, mirrored here so the wire schema is closed).
+// Why a run refuses to be checkpointed right now, or why the publisher
+// failed to (runtime-core CheckpointBlockReason, mirrored here so the wire
+// schema is closed).
 export const checkpointBlockReasonSchema = z.enum([
   "background_writer",
   "checkpoint_lease_held",
   "mirror_error",
   "no_engine_session",
+  "publish_failed",
   "tool_in_flight",
   "turn_in_flight",
 ]);
@@ -264,6 +281,7 @@ export const heartbeatRequestSchema = workerScopeSchema
   .strict();
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   auth_revision: epochSchema,
   control_pending: z.boolean(),
 });
@@ -328,6 +346,14 @@ export const registerPendingRequestSchema = workerScopeSchema
         })
         .strict(),
     ]),
+    // What the `question` event needs beyond the request. Present, it hands
+    // the event to the control plane: the gateway writes it with the row, in
+    // the same transaction as the status it opens, and the worker publishes
+    // nothing. An older worker leaves it out and publishes the event itself.
+    announce: z
+      .object({ tool_use_id: z.string().min(1), tool: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 // `expires_in_ms` is what is left, measured on the server's clock: a replay
@@ -461,9 +487,21 @@ export const restoreArtifactSchema = z.discriminatedUnion("kind", [
     ),
   }),
 ]);
+// Every revision tried and refused before the one restored, newest first,
+// starting with the pointer's.
+const restoreFallbackSchema = z.object({
+  pointer_revision: revisionSchema,
+  skipped: z
+    .array(z.object({ revision: revisionSchema, reason: z.string().min(1) }))
+    .min(1),
+});
 export const restorePlanSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
+  // What the restored revision's manifest must hash to. It equals the
+  // claim's restore digest unless `fallback` says an earlier revision is
+  // restored, and then only this names it (94S-204).
+  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),
@@ -471,6 +509,11 @@ export const restorePlanSchema = z.object({
   git_commit: z.string().regex(/^[0-9a-f]{40}$/),
   artifacts: z.array(restoreArtifactSchema),
   object_keys: z.array(z.string().min(1)),
+  // Present only when the pointer's own checkpoint was damaged and the plan
+  // restores an earlier revision (`revision` above) instead (94S-204). The
+  // resumed session is then older than the pointer says, so the worker must
+  // not treat this as the checkpoint its claim named.
+  fallback: restoreFallbackSchema.optional(),
 });
 // `none` is a new session. `unavailable` and `incompatible` are refusals the
 // worker must fail its claim on: starting a fresh engine session on top of a
@@ -493,8 +536,20 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
         found: z.string(),
       }),
     ),
+    // Set when the pointer's checkpoint was damaged and it is the earlier
+    // `revision` the runtime cannot resume (94S-204).
+    fallback: restoreFallbackSchema
+      .extend({ revision: revisionSchema })
+      .optional(),
   }),
 ]);
+
+/**
+ * The terminal reason of a turn the engine ended because the budget the claim
+ * gave it (`remaining_budget_usd`) ran out mid-turn. Its receipt fails with
+ * BUDGET_EXCEEDED rather than INTERNAL_ERROR.
+ */
+export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 
 export const finalizeRequestSchema = workerScopeSchema
   .extend({

@@ -162,6 +162,23 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
+  function catalogAllows(
+    profileId: string | null,
+    repositoryId: string | null,
+    url: string,
+    branch: string,
+  ): boolean {
+    const pair =
+      profileId && repositoryId
+        ? allowedPair(catalog, profileId, repositoryId)
+        : null;
+    return (
+      pair !== null &&
+      pair.repository.url === url &&
+      pair.repository.branch === branch
+    );
+  }
+
   function runtimeFor(profileId: string | null): SessionRuntime {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
     return {
@@ -421,12 +438,23 @@ export function createSessionService(deps: {
         case "not_in_recovery":
           throw new SessionServiceError(
             "REQUEST_STALE",
-            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed`,
+            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed, and start_fresh only to recovery_required or a stopped session that cannot be resumed`,
           );
         case "checkpoint_not_covering":
           throw new SessionServiceError(
             "CHECKPOINT_UNAVAILABLE",
             "No committed checkpoint reaches the target turn, so a resume would lose the confirmed work; abandon or close instead",
+          );
+        case "unknown_turn_left":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            `Turn ${result.turnId} has an unknown outcome; abandon or confirm it before starting fresh`,
+          );
+        case "workspace_reclaiming":
+          throw new SessionServiceError(
+            "BACKEND_UNAVAILABLE",
+            "The stopped session's workspace is being reclaimed; retry the same request shortly",
+            { afterSeconds: 10 },
           );
         default:
           return result.response;
@@ -517,13 +545,22 @@ export function createSessionService(deps: {
       if (!record) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const { profile_id, cost_usd, ...detail } = record;
+      const { profile_id, cost_usd, repo_url, branch, ...detail } = record;
       return {
         ...detail,
-        // Dispatch stops at the same predicate (nextInputAtomic), so what
-        // this says and what the gateway does come from one comparison.
         attention:
           detail.attention ??
+          // The claim matches the same four values (isRunnable), so this
+          // says exactly when no worker of this host would take the session.
+          (catalogAllows(profile_id, detail.repository_id, repo_url, branch)
+            ? null
+            : {
+                code: "CATALOG_MISMATCH",
+                reason:
+                  "The catalog does not allow this session's profile and repository pair; messages will not run until an operator restores it",
+              }) ??
+          // Dispatch stops at the same predicate (nextInputAtomic), so what
+          // this says and what the gateway does come from one comparison.
           (budgetExceeded(cost_usd, deps.limits.sessionCostLimitUsd)
             ? {
                 code: "BUDGET_EXCEEDED",

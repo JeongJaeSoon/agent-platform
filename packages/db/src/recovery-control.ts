@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ControlAcceptedResponse,
   RecoveryDecisionResult as RecoveryDecisionReceiptResult,
+  RecoveryDecisionRequest,
   ResumeReceiptResult,
 } from "@agent-platform/contracts";
 import type {
@@ -11,6 +12,7 @@ import type {
   ResumeSessionResult,
 } from "@agent-platform/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
   controlClock,
   earliestUnknownTurn,
@@ -21,7 +23,7 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
-  recordAudit,
+  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
@@ -39,8 +41,12 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 
-export { hasRestorePoint, recordAudit } from "./control-shared.ts";
+export {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./control-shared.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
@@ -83,18 +89,40 @@ async function closableByRecovery(
     return true;
   }
   if (session.admissionState !== "stopped") return false;
+  return !(await resumableFromStopped(tx, session));
+}
+
+/**
+ * Whether a stopped session can simply be resumed: a trusted checkpoint to
+ * restore, no turn whose outcome is unknown, and no turn that ran after that
+ * checkpoint (94S-288) — a resume would bring the session back without it
+ * and nobody would be told. start_fresh is the way on for one that cannot.
+ */
+async function resumableFromStopped(
+  tx: Database,
+  session: Pick<
+    SessionRow,
+    | "id"
+    | "checkpointRevision"
+    | "checkpointPendingReason"
+    | "contextResetCheckpointRevision"
+    | "contextResetTurnSequence"
+  >,
+): Promise<boolean> {
   return (
-    !hasRestorePoint(session) ||
-    (await earliestUnknownTurn(tx, session.id)) !== null
+    hasRestorePoint(session) &&
+    (await earliestUnknownTurn(tx, session.id)) === null &&
+    !contextGap(session, await contextCoverage(tx, session))
   );
 }
 
 /**
  * api.md § 최소 운영 복구: confirm_completed needs a consistent checkpoint up
  * to the input's watermark. The pointer is only ever moved by finalize, so
- * "consistent" means the committed checkpoint the session points at was
- * taken at or after the target turn. An older one would resume the session
- * without the work the operator is confirming.
+ * "consistent" means the committed checkpoint the session's state is based
+ * on — the pointer's, or the earlier one a fallback restored — was taken at
+ * or after the target turn. An older one would resume the session without
+ * the work the operator is confirming.
  */
 async function checkpointCovers(
   tx: Database,
@@ -109,7 +137,10 @@ async function checkpointCovers(
     .where(
       and(
         eq(checkpoints.sessionId, session.id),
-        eq(checkpoints.revision, session.checkpointRevision),
+        eq(
+          checkpoints.revision,
+          restoreBaseRevision(session) ?? session.checkpointRevision,
+        ),
       ),
     )
     .limit(1);
@@ -289,7 +320,12 @@ export function decideRecoveryAtomic(
     }
 
     let targetTurnRowId: number | null = null;
-    if (decision.decision === "close") {
+    let reset: ContextReset | null = null;
+    if (decision.decision === "start_fresh") {
+      const started = await startFresh(tx, session, now);
+      if (started.outcome !== "reset") return started;
+      reset = started.reset;
+    } else if (decision.decision === "close") {
       if (!(await closableByRecovery(tx, session))) {
         return {
           outcome: "not_in_recovery",
@@ -336,38 +372,43 @@ export function decideRecoveryAtomic(
     }
 
     const [after] = await tx
-      .select({
-        admissionState: sessions.admissionState,
-        checkpointRevision: sessions.checkpointRevision,
-        checkpointPendingReason: sessions.checkpointPendingReason,
-      })
+      .select()
       .from(sessions)
       .where(eq(sessions.id, sessionId));
     if (!after) throw new Error(`Session ${sessionId} vanished mid-decision`);
-    const unknownLeft = await earliestUnknownTurn(tx, sessionId);
     const result: RecoveryDecisionReceiptResult = {
       resulting_admission_state: after.admissionState,
-      checkpoint_revision: after.checkpointRevision,
+      // The revision a resume would restore from, as `resumable` judges it;
+      // none once start_fresh retired it.
+      checkpoint_revision: reset === null ? restoreBaseRevision(after) : null,
       resumable:
         after.admissionState === "stopped" &&
-        hasRestorePoint(after) &&
-        unknownLeft === null,
+        (await resumableFromStopped(tx, after)),
     };
-    await recordAudit(tx, {
+    // Every control decision leaves its audit record on the session's event
+    // stream, where the operator and the SSE reader (94S-126) both find it.
+    await recordEvent(tx, {
       sessionId,
       type: "system",
       payload: {
         type: "system",
         subtype: RECOVERY_DECISION,
         decision: decision.decision,
-        target_turn_id:
-          decision.decision === "close" ? null : decision.target_turn_id,
+        target_turn_id: targetTurnIdOf(decision),
         evidence_ref:
           decision.decision === "confirm_completed"
             ? decision.evidence_ref
             : null,
         reason: decision.reason,
         actor: { owner_id: input.principal.ownerId },
+        ...(reset === null
+          ? {}
+          : {
+              context_reset_turn_id:
+                reset.turnSequence === null ? null : String(reset.turnSequence),
+              retired_checkpoint_revision: reset.retiredCheckpointRevision,
+              cleared_checkpoint_pending_reason: reset.clearedPendingReason,
+            }),
         ...result,
       },
       turnRowId: targetTurnRowId,
@@ -376,12 +417,150 @@ export function decideRecoveryAtomic(
     const response = await writeReceipt(tx, {
       scope,
       payloadHash: input.payloadHash,
-      turnId: decision.decision === "close" ? null : decision.target_turn_id,
+      turnId: targetTurnIdOf(decision),
       result,
       now,
     });
     return { outcome: "accepted", response };
   });
+}
+
+function targetTurnIdOf(decision: RecoveryDecisionRequest): string | null {
+  return decision.decision === "abandon" ||
+    decision.decision === "confirm_completed"
+    ? decision.target_turn_id
+    : null;
+}
+
+type ContextReset = {
+  turnSequence: number | null;
+  retiredCheckpointRevision: number | null;
+  clearedPendingReason: string | null;
+};
+
+/**
+ * start_fresh (94S-288): the operator accepts that the turns so far will not
+ * be in the engine's context and lets the session go on without them. Every
+ * checkpoint up to the current pointer is retired — the next worker starts a
+ * new engine session and restores nothing, not even an older checkpoint,
+ * which would also roll the workspace back — and the turns that ran stop
+ * counting as a gap. A pending checkpoint reason goes with them: it was about
+ * the transcript being given up. Queued input is dispatched as on a resume.
+ *
+ * Offered where the session is out of dispatch waiting on an operator
+ * (recovery_required) or stopped without a way to resume; never over an
+ * unknown turn, which abandon or confirm_completed settles first, and never
+ * while the last execution may still be running.
+ */
+async function startFresh(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+): Promise<
+  | { outcome: "reset"; reset: ContextReset }
+  | Exclude<RecoveryDecisionResult, { outcome: "accepted" | "replayed" }>
+> {
+  const eligible =
+    session.admissionState === "recovery_required" ||
+    (session.admissionState === "stopped" &&
+      !(await resumableFromStopped(tx, session)));
+  if (!eligible) {
+    return {
+      outcome: "not_in_recovery",
+      admissionState: session.admissionState,
+    };
+  }
+  if (session.executionId !== null) return { outcome: "execution_unconfirmed" };
+  const unknown = await earliestUnknownTurn(tx, session.id);
+  if (unknown !== null) {
+    return { outcome: "unknown_turn_left", turnId: unknown };
+  }
+  // Same as resume (94S-225): an active session must not have its workspace
+  // removed underneath the worker the reset launches.
+  if (session.workspaceReclaimId !== null) {
+    return { outcome: "workspace_reclaiming" };
+  }
+  const { lastRanTurn } = await contextCoverage(tx, session);
+  const reset: ContextReset = {
+    turnSequence: lastRanTurn ?? session.contextResetTurnSequence,
+    retiredCheckpointRevision:
+      session.checkpointRevision ?? session.contextResetCheckpointRevision,
+    clearedPendingReason: session.checkpointPendingReason,
+  };
+  const queued = await queuedTurnCount(tx, session.id);
+  await tx
+    .update(sessions)
+    .set({
+      revision: sql`${sessions.revision} + 1`,
+      leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+      admissionState: "active",
+      status: queued > 0 ? "queued" : "idle",
+      contextResetTurnSequence: reset.turnSequence,
+      contextResetCheckpointRevision: reset.retiredCheckpointRevision,
+      checkpointPendingReason: null,
+      checkpointPendingAttemptId: null,
+      // A fallback base (94S-204) is at or below the retired pointer, so it
+      // goes with it.
+      checkpointFallbackRevision: null,
+      checkpointRestoreAttemptId: null,
+      updatedAt: now,
+      workspaceReclaimedAt: null,
+    })
+    .where(eq(sessions.id, session.id));
+  await signalQueuedInput(tx, session.id, queued, now);
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: queued > 0 ? "queued" : "idle",
+    extra: {
+      admission_state: "active",
+      context_reset_turn_id:
+        reset.turnSequence === null ? null : String(reset.turnSequence),
+    },
+    turnRowId: null,
+    now,
+  });
+  return { outcome: "reset", reset };
+}
+
+async function queuedTurnCount(tx: Database, sessionId: string) {
+  const [row] = await tx
+    .select({ queued: count() })
+    .from(turns)
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")));
+  return row?.queued ?? 0;
+}
+
+/**
+ * Puts a session that admits work again back in line for a worker when it
+ * has input waiting, in the partition it last ran in; the row may still be
+ * there from before, in which case it is re-dated. With nothing queued a
+ * leftover signal would launch a worker with no input, so it goes; the next
+ * message re-signals.
+ */
+async function signalQueuedInput(
+  tx: Database,
+  sessionId: string,
+  queued: number,
+  now: Date,
+) {
+  if (queued === 0) {
+    await tx
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, sessionId));
+    return;
+  }
+  const launch = await lastLaunchPartition(tx, sessionId);
+  await tx
+    .insert(unassignedSessions)
+    .values({
+      sessionId,
+      signaledAt: now,
+      partition: launch?.partition ?? "default",
+    })
+    .onConflictDoUpdate({
+      target: unassignedSessions.sessionId,
+      set: { signaledAt: now, partition: launch?.partition ?? "default" },
+    });
 }
 
 // The input is given up: it will not run again and its queue head goes,
@@ -613,8 +792,13 @@ export function resumeAtomic(
     }
     // Resuming onto an untrusted pointer would also wedge an idle session:
     // appends stay refused while the blocker stands, and only a new run's
-    // checkpoint clears it. Close is the way out instead.
-    if (!hasRestorePoint(session)) {
+    // checkpoint clears it. Resuming onto one that predates a turn that ran
+    // would bring the session back without that turn (94S-288). start_fresh
+    // or close is the way out instead.
+    if (
+      !hasRestorePoint(session) ||
+      !(await resumableFromStopped(tx, session))
+    ) {
       return { outcome: "checkpoint_unavailable" };
     }
     if (session.podId !== null) return { outcome: "unsupported" };
@@ -623,11 +807,7 @@ export function resumeAtomic(
       return { outcome: "workspace_reclaiming" };
     }
 
-    const [queuedRow] = await tx
-      .select({ queued: count() })
-      .from(turns)
-      .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")));
-    const queued = queuedRow?.queued ?? 0;
+    const queued = await queuedTurnCount(tx, sessionId);
     await tx
       .update(sessions)
       .set({
@@ -639,40 +819,22 @@ export function resumeAtomic(
         workspaceReclaimedAt: null,
       })
       .where(eq(sessions.id, sessionId));
-    if (queued > 0) {
-      // Back to the partition the session last ran in; the row may already
-      // exist from before the stop, in which case it is re-dated.
-      const launch = await lastLaunchPartition(tx, sessionId);
-      await tx
-        .insert(unassignedSessions)
-        .values({
-          sessionId,
-          signaledAt: now,
-          partition: launch?.partition ?? "default",
-        })
-        .onConflictDoUpdate({
-          target: unassignedSessions.sessionId,
-          set: { signaledAt: now, partition: launch?.partition ?? "default" },
-        });
-    } else {
-      // Nothing to run: a signal left over from before the stop would
-      // launch a worker with no input. The next message re-signals.
-      await tx
-        .delete(unassignedSessions)
-        .where(eq(unassignedSessions.sessionId, sessionId));
-    }
+    await signalQueuedInput(tx, sessionId, queued, now);
+    // The revision the next worker restores: after a fallback, not the
+    // damaged pointer (94S-204).
+    const restoredFrom =
+      session.checkpointFallbackRevision ?? session.checkpointRevision;
     const result: ResumeReceiptResult = {
       resulting_admission_state: "active",
-      checkpoint_revision: session.checkpointRevision,
+      checkpoint_revision: restoredFrom,
       queued_turn_count: queued,
     };
-    await recordAudit(tx, {
+    await recordStatus(tx, {
       sessionId,
-      type: "status",
-      payload: {
-        phase: queued > 0 ? "queued" : "idle",
+      phase: queued > 0 ? "queued" : "idle",
+      extra: {
         admission_state: "active",
-        resumed_from_checkpoint_revision: session.checkpointRevision,
+        resumed_from_checkpoint_revision: restoredFrom,
         actor: { owner_id: input.principal.ownerId },
       },
       turnRowId: null,

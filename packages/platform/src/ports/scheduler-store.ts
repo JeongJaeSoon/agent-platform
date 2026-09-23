@@ -292,7 +292,7 @@ export interface SchedulerStore {
   /**
    * Opens a launch attempt before the provider is asked, and returns the
    * `launchAttempts` its failure must be recorded against; null when the
-   * launch moved on since `expectedAttempts` was read. A pass that lost its
+   * launch moved on since `expectedAttempts` was read, or was asked to go. A pass that lost its
    * lock while its ensure was out at the provider then reports a failure
    * for an attempt a later pass has already superseded, and is refused
    * instead of revoking the credential the later attempt's resource holds —
@@ -385,10 +385,18 @@ export interface SchedulerStore {
   ): Promise<string[]>;
 
   /**
+   * The subset of `sessionIds` that the database proves done with their
+   * workspace: a row exists, it is `closed`, and no launch holds its slot.
+   * For workspaces whose session was read off a name rather than a label,
+   * where a missing row is no evidence at all — the name may be a stranger's.
+   */
+  filterClosedLegacySessions(sessionIds: string[]): Promise<string[]>;
+
+  /**
    * Decides, under the session's lock, whether this workspace may be removed.
    * `unclaimed`: nothing can come back to the session (closed, or no row), so
    * the removal needs no claim. `claimed`: a stopped session past its TTL;
-   * resume refuses until `finishWorkspaceReclaim` settles the token. Anything
+   * resume refuses until `finishWorkspaceReclaim` settles the claim. Anything
    * else — resumed since, stopped too recently, a launch holding its slot, a
    * claim already pending — is `retained`.
    */
@@ -400,8 +408,8 @@ export interface SchedulerStore {
 
   /**
    * Settles a claim by its id: `removed` records the workspace gone,
-   * `released` gives the session its workspace back. A token that no longer
-   * matches changes nothing.
+   * `released` gives the session its workspace back. A claim id that no
+   * longer matches changes nothing.
    */
   finishWorkspaceReclaim(input: {
     claimId: string;

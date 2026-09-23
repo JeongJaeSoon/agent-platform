@@ -24,6 +24,8 @@ export type FakeBlock =
 export type FakeReply = {
   content: FakeBlock[];
   stopReason: "end_turn" | "tool_use";
+  /** Token counts to report, which is how a test makes a reply cost something. */
+  usage?: { input_tokens: number; output_tokens: number };
 };
 
 export type RecordedRequest = {
@@ -224,7 +226,7 @@ function anthropicResponse(
     content: reply.content,
     stop_reason: reply.stopReason,
     stop_sequence: null,
-    usage: { input_tokens: 1, output_tokens: 4 },
+    usage: reply.usage ?? { input_tokens: 1, output_tokens: 4 },
   };
   const requestId = `req_${crypto.randomUUID()}`;
   if (!stream) {
@@ -279,7 +281,7 @@ function anthropicResponse(
     {
       type: "message_delta",
       delta: { stop_reason: reply.stopReason, stop_sequence: null },
-      usage: { output_tokens: 4 },
+      usage: { output_tokens: message.usage.output_tokens },
     },
     { type: "message_stop" },
   );

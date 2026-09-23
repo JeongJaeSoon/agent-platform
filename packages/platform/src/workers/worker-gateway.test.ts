@@ -8,6 +8,8 @@ import type {
   FailResumeInput,
   NextInputInput,
   ReadyInput,
+  RestoreBaseInput,
+  RestoreBaseResult,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import { profileFingerprint } from "../sessions/catalog.ts";
@@ -56,6 +58,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
     checkpointStateAtomic: unimplemented,
+    recordRestoreBaseAtomic: unimplemented,
     releaseAtomic: unimplemented,
     readyAtomic: unimplemented,
     failResumeAtomic: unimplemented,
@@ -385,6 +388,7 @@ describe("WorkerGateway", () => {
       executionGeneration: 1,
       authRevision: 0,
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
       ownerScope: "owner-a",
       repository: {
@@ -393,6 +397,7 @@ describe("WorkerGateway", () => {
         branch: "release",
       },
       restore: null,
+      costUsd: 250.5,
     };
     const profile = {
       runtime_kind: "claude_agent_sdk" as const,
@@ -447,6 +452,8 @@ describe("WorkerGateway", () => {
       request,
     );
     expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The worker tracks the remainder the store measured, not the deadline.
+    expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now (94S-258): one entry per allowed pair, nothing else.
     expect(runnable).toEqual([
@@ -493,6 +500,8 @@ describe("WorkerGateway", () => {
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
     expect(claimed.profile_fingerprint).not.toContain("provider-key");
+    // The engine's own budget is what the session has left (94S-279).
+    expect(claimed.remaining_budget_usd).toBe(749.5);
     // Off leaves the field out, so the answer is one a worker built before it
     // still reads: its schema was this one without the field, and strict.
     const beforeTheField = bootstrapClaimResponseSchema.extend({
@@ -534,6 +543,47 @@ describe("WorkerGateway", () => {
     await expect(
       stranger.bootstrapClaim({ kind: "bootstrap" }, request),
     ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    // A replay does not check the budget, so a session that spent past it
+    // in between is answered with nothing left rather than a negative.
+    const spent = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({
+          outcome: "replayed",
+          binding: { ...binding, costUsd: 1_000.25 },
+        }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    const spentClaim = await spent.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(spentClaim.remaining_budget_usd).toBe(0);
+    expect(bootstrapClaimResponseSchema.safeParse(spentClaim).success).toBe(
+      true,
+    );
+  });
+
+  test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409 (94S-280)", async () => {
+    const { instance } = gateway({
+      claimAtomic: async () => ({ outcome: "catalog_mismatch" }),
+    });
+    await expect(
+      instance.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "exec-1",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "nonce" },
+        },
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+      retryable: false,
+    });
   });
 
   test("bootstrapClaim refuses workload_identity and non-bootstrap principals", async () => {
@@ -571,7 +621,12 @@ describe("WorkerGateway", () => {
       work: work({
         async checkpointStateAtomic(input) {
           stateCalls.push(input);
-          return { outcome: "ok", pointer, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer,
+            restorable: true,
+            pendingReason: null,
+          };
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -691,20 +746,76 @@ describe("WorkerGateway", () => {
     }
   });
 
+  test("restorePlan never plans a restore from a pointer that is not a restore point (94S-288)", async () => {
+    // A start_fresh decision retired this pointer: the claim handed out no
+    // restore, and a worker asking anyway must not be given the old engine
+    // session's transcript either.
+    const seen: unknown[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return {
+            outcome: "ok",
+            pointer: {
+              committedAt: new Date("2026-09-23T00:00:00Z"),
+              manifestRef: "sessions/s/checkpoints/0000000000/att_1/m.json",
+              manifestSha256: "a".repeat(64),
+              revision: 0,
+              turnId: "1",
+            },
+            restorable: false,
+            pendingReason: null,
+          };
+        },
+        // The refusal a missing plan leads to reaches the resume check,
+        // which leaves a session that is not resuming alone.
+        async failResumeAtomic() {
+          return { outcome: "ok", failed: false };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        requestCheckpoint: unimplemented,
+        async getRestorePlan(input) {
+          seen.push(input.pointer);
+          return { status: "none" };
+        },
+      },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({ status: "none" });
+    expect(seen).toEqual([null]);
+  });
+
   test("restorePlan puts the service's plan on the wire and passes refusals through", async () => {
     const seen: unknown[] = [];
+    const recorded: RestoreBaseInput[] = [];
+    let base: RestoreBaseResult = { outcome: "ok" };
     const failed: FailResumeInput[] = [];
+    let resuming = false;
     let answer: Awaited<ReturnType<CheckpointProtocol["getRestorePlan"]>> = {
       status: "none",
     };
     const instance = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: null,
+          };
+        },
+        async recordRestoreBaseAtomic(input) {
+          recorded.push(input);
+          return base;
         },
         async failResumeAtomic(input) {
           failed.push(input);
-          return { outcome: "ok", failed: false };
+          return { outcome: "ok", failed: resuming };
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -763,6 +874,7 @@ describe("WorkerGateway", () => {
         engine: "claude",
         gitCommit: "e".repeat(40),
         manifestRef: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifestSha256: "f".repeat(64),
         objectKeys: [object.key, bundle.key],
         resume: "sdk-session",
         revision: 0,
@@ -775,6 +887,7 @@ describe("WorkerGateway", () => {
       plan: {
         revision: 0,
         manifest_ref: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifest_sha256: "f".repeat(64),
         engine: "claude",
         resume: "sdk-session",
         cwd: "/workspace",
@@ -795,6 +908,69 @@ describe("WorkerGateway", () => {
       },
     });
 
+    // An earlier revision restored in the pointer's place says so on the
+    // wire too (94S-204).
+    if (answer.status !== "ready") throw new Error("expected a plan");
+    answer = {
+      status: "ready",
+      plan: {
+        ...answer.plan,
+        fallback: {
+          pointerRevision: 1,
+          skipped: [{ revision: 1, reason: "manifest object is missing" }],
+        },
+      },
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toMatchObject({
+      status: "ready",
+      plan: {
+        revision: 0,
+        fallback: {
+          pointer_revision: 1,
+          skipped: [{ revision: 1, reason: "manifest object is missing" }],
+        },
+      },
+    });
+    // Each ready plan is recorded before it is handed out: the plain one
+    // clears any earlier fallback, this one records its own.
+    expect(recorded.map((input) => input.fallback)).toEqual([
+      null,
+      {
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
+    ]);
+    for (const [result, expected] of [
+      [
+        { outcome: "pointer_moved", currentRevision: 2 },
+        { status: 409, code: "REVISION_CONFLICT" },
+      ],
+      [
+        { outcome: "base_changed", recordedRevision: 3 },
+        { status: 409, code: "CHECKPOINT_UNAVAILABLE" },
+      ],
+      [{ outcome: "stale_epoch" }, { status: 409, code: "STALE_EPOCH" }],
+    ] as const) {
+      base = result;
+      await expect(
+        instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+      ).rejects.toMatchObject(expected);
+    }
+    base = { outcome: "ok" };
+
+    // A resume from `paused` promised the pointer's state: a fallback ends
+    // it for an operator instead of quietly resuming older state, and is not
+    // recorded as the session's base (94S-138 with 94S-204).
+    resuming = true;
+    const before = recorded.length;
+    await expect(
+      instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    expect(recorded).toHaveLength(before);
+    resuming = false;
+
     answer = {
       status: "incompatible",
       code: "INCOMPATIBLE_CHECKPOINT",
@@ -812,6 +988,28 @@ describe("WorkerGateway", () => {
       ],
     });
     answer = {
+      status: "incompatible",
+      code: "INCOMPATIBLE_CHECKPOINT",
+      mismatches: [
+        { field: "sdkVersion", expected: "0.3.270", found: "0.3.1" },
+      ],
+      fallback: {
+        pointerRevision: 1,
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toMatchObject({
+      status: "incompatible",
+      fallback: {
+        pointer_revision: 1,
+        revision: 0,
+        skipped: [{ revision: 1, reason: "manifest object is missing" }],
+      },
+    });
+    answer = {
       status: "unavailable",
       code: "CHECKPOINT_UNAVAILABLE",
       reason: "manifest object is missing",
@@ -823,8 +1021,18 @@ describe("WorkerGateway", () => {
       code: "CHECKPOINT_UNAVAILABLE",
       reason: "manifest object is missing",
     });
-    // Every refusal is offered to a resume from `paused` standing on that
-    // pointer (94S-138); the plan itself is not.
+    // Every refusal and every fallback is offered to a resume from `paused`
+    // standing on that pointer (94S-138); a plain plan is not.
+    const fellBack = [
+      1,
+      "CHECKPOINT_UNAVAILABLE",
+      "the resume could not restore its checkpoint: revision 1 is damaged and only revision 0 verifies",
+    ];
+    const incompatible = [
+      null,
+      "CHECKPOINT_UNAVAILABLE",
+      "the resume could not restore its checkpoint: the checkpoint is incompatible with this worker: sdkVersion 0.3.270 != 0.3.1",
+    ];
     expect(
       failed.map((input) => [
         input.pointerRevision,
@@ -837,11 +1045,14 @@ describe("WorkerGateway", () => {
         "CHECKPOINT_UNAVAILABLE",
         "the resume could not restore its checkpoint: no committed checkpoint to restore",
       ],
-      [
-        null,
-        "CHECKPOINT_UNAVAILABLE",
-        "the resume could not restore its checkpoint: the checkpoint is incompatible with this worker: sdkVersion 0.3.270 != 0.3.1",
-      ],
+      // The fallback plan, the three recording outcomes, and the resume.
+      fellBack,
+      fellBack,
+      fellBack,
+      fellBack,
+      fellBack,
+      incompatible,
+      incompatible,
       [
         null,
         "CHECKPOINT_UNAVAILABLE",
@@ -882,7 +1093,12 @@ describe("WorkerGateway", () => {
     const instance = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            pendingReason: null,
+            restorable: false,
+          };
         },
         async failResumeAtomic() {
           return { outcome: "stale_epoch" };
@@ -911,14 +1127,16 @@ describe("WorkerGateway", () => {
         return {
           outcome: "ok",
           leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          leaseRemainingMs: 29_990,
           authRevision: 0,
         };
       },
     });
-    await instance.heartbeat(principal, {
+    const beat = await instance.heartbeat(principal, {
       ...scope,
       attempt_state: "running",
     });
+    expect(beat.lease_remaining_ms).toBe(29_990);
     expect(seen[0]).not.toHaveProperty("transcript");
     await instance.heartbeat(principal, {
       ...scope,
@@ -941,7 +1159,12 @@ describe("WorkerGateway", () => {
     const throwing = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: null,
+          };
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -1031,6 +1254,7 @@ describe("WorkerGateway", () => {
       heartbeatAtomic: async () => ({
         outcome: "ok",
         leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+        leaseRemainingMs: 60_000,
         authRevision: 0,
       }),
     });

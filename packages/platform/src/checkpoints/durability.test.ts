@@ -55,6 +55,7 @@ describe("a run that was not quiescent", () => {
     ["tool_in_flight", "1 tool call(s) still running"],
     ["background_writer", "Background task(s) still running: bash_1"],
     ["checkpoint_lease_held", "Another checkpoint holds the lease"],
+    ["publish_failed", "workspace: 12000 untracked files, over the 10000"],
   ] as const;
 
   test.each(refusals)("surfaces %s as the pending reason", (reason, detail) => {
@@ -64,7 +65,9 @@ describe("a run that was not quiescent", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: null,
+        checkpointFallbackRevision: null,
         checkpointRevision: 3,
+        contextResetTurnId: null,
         lastCheckpointedTurnId: "3",
         lastCompletedTurnId: "4",
         lastTranscriptPersistedAt: null,
@@ -92,6 +95,9 @@ describe("a run that was not quiescent", () => {
     expect(nextPendingReason(null, "checkpoint_lease_held")).toBe(
       "checkpoint_lease_held",
     );
+    expect(nextPendingReason("mirror_error", "publish_failed")).toBe(
+      "mirror_error",
+    );
   });
 });
 
@@ -114,7 +120,9 @@ describe("durability projection", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: new Date("2026-09-22T00:00:01.000Z"),
+        checkpointFallbackRevision: null,
         checkpointRevision: 4,
+        contextResetTurnId: null,
         lastCheckpointedTurnId: "7",
         lastCompletedTurnId: "9",
         lastTranscriptPersistedAt: new Date("2026-09-22T00:00:02.000Z"),
@@ -122,8 +130,10 @@ describe("durability projection", () => {
       }),
     ).toEqual({
       checkpoint_committed_at: "2026-09-22T00:00:01.000Z",
+      checkpoint_fallback_revision: null,
       checkpoint_pending_reason: "mirror_error",
       checkpoint_revision: 4,
+      context_reset_turn_id: null,
       last_checkpointed_turn_id: "7",
       last_completed_turn_id: "9",
       last_transcript_persisted_at: "2026-09-22T00:00:02.000Z",
@@ -134,7 +144,9 @@ describe("durability projection", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: null,
+        checkpointFallbackRevision: null,
         checkpointRevision: null,
+        contextResetTurnId: null,
         lastCheckpointedTurnId: null,
         lastCompletedTurnId: null,
         lastTranscriptPersistedAt: null,
@@ -142,18 +154,40 @@ describe("durability projection", () => {
       }),
     ).toEqual({
       checkpoint_committed_at: null,
+      checkpoint_fallback_revision: null,
       checkpoint_pending_reason: null,
       checkpoint_revision: null,
+      context_reset_turn_id: null,
       last_checkpointed_turn_id: null,
       last_completed_turn_id: null,
       last_transcript_persisted_at: null,
     });
   });
 
+  test("a session restored from an earlier revision says which one (94S-204)", () => {
+    expect(
+      projectDurability({
+        checkpointCommittedAt: null,
+        checkpointFallbackRevision: 2,
+        checkpointRevision: 4,
+        contextResetTurnId: null,
+        lastCheckpointedTurnId: "9",
+        lastCompletedTurnId: "9",
+        lastTranscriptPersistedAt: null,
+        pendingReason: null,
+      }),
+    ).toMatchObject({
+      checkpoint_fallback_revision: 2,
+      checkpoint_revision: 4,
+    });
+  });
+
   test("a completed turn ahead of the checkpointed one is visible as such", () => {
     const durability = projectDurability({
       checkpointCommittedAt: new Date("2026-09-22T00:00:01.000Z"),
+      checkpointFallbackRevision: null,
       checkpointRevision: 1,
+      contextResetTurnId: null,
       lastCheckpointedTurnId: "3",
       lastCompletedTurnId: "5",
       lastTranscriptPersistedAt: null,

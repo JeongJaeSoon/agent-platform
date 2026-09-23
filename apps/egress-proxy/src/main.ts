@@ -1,6 +1,7 @@
 import { egressProxyConfigFromEnv } from "./config.ts";
 import { createProxyLogger } from "./logger.ts";
 import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
+import { sourceDigest } from "./source.ts";
 
 /**
  * The only container on the worker network with a route off it. Workers
@@ -16,6 +17,7 @@ export async function main(
     logger: createProxyLogger(config.logLevel),
     policy: { allow: config.allow, allowPrivate: config.allowPrivate },
     port: config.port,
+    sourceDigest: sourceDigest(import.meta.dir),
   });
 }
 

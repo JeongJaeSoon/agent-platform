@@ -1,10 +1,15 @@
 # Claude Code 세션 컨트롤 플레인 설계안
 
 > **보관본이다. 현재 설계 정본이 아니다.** rename 이전 프로젝트의 계획이며 티켓 번호도
-> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`
-> (`architecture.md`·`module-design.md`·`delivery-plan.md`)이고 티켓은 Linear P-94S-5
-> (94S-108~147)다. 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
+> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`의
+> 다섯 문서다. 목적·불변식·알파 완료 정의는 `final-design.md`, 모듈·포트·프로세스는
+> `module-design.md`, API 계약은 `api.md`, 배포·권한·이미지는 `deployment.md`, 게이트
+> 체인과 티켓 의존은 `delivery-plan.md`가 정한다(2026-09-24 정렬, 94S-325). `architecture.md`는
+> `final-design.md`로 대체된 보관본이다. 티켓은 Linear P-94S-5(94S-108 이후)다.
+> 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
 > 남겨 둔 이유는 SDK·저장소 gate의 조사 근거와 결정 이력이다.
+> 본문은 개정 당시 그대로 둔다. 예를 들어 1.3절의 "0.3.270은 비교 후보, 미채택"은 당시 기준이며,
+> 이후 94S-91이 SDK 0.3.270/CLI 2.1.270을 고정했다(아래 SDK 실측 절, 현재 `package.json`).
 
 > 상태: v0.5 방향성 반영 · G1 v0.4/M0 완료 이력 유지 · G2 SDK 재검증 대기
 > 작성일: 2026-09-12 · 개정: 2026-09-15 · 보관: 2026-09-22
@@ -338,7 +343,7 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **증명하지 못하는 것.** 엔진 밖에서 도는 writer는 보이지 않는다. 명령이 detach한 프로세스, project hook이 띄운 서버, 거절된 tool 옆에서 병렬로 도는 sibling hook command가 그렇다. project 설정의 `disableAllHooks`·`allowManagedHooksOnly`가 SDK callback hook을 끄지 않는 것은 고정 CLI에서 확인했다.
 - **lease.** `AgentRun.leaseCheckpoint()`가 판정과 lease 획득을 한 동기 단계에서 한다. 준비되면 `{ preparation: ready, lease }`, 아니면 `{ preparation: rejected, lease: null }`를 돌려준다. 이미 lease가 잡혀 있으면 `checkpoint_lease_held`다. lease를 쥔 동안 `PreToolUse`와 `canUseTool`은 모든 새 tool을 거절하고, 새 input은 `send`에서 거절된다. execution lease(94S-121)와는 별개다. 하나는 세션 소유권이고, 하나는 저장 구간에 writer가 없다는 약속이다.
 - **만료 없음.** lease에는 TTL이 없다. 호출자가 기다리기를 그만둬도 요청은 멈추지 않는다. 시간이 지나 writer가 풀린 뒤 늦은 pointer CAS가 성공하면 이미 달라진 workspace의 capture가 commit된다. 그래서 finalize가 실제로 답한 뒤에만 푼다. 워커는 drain 예산이 끝나 기다림을 포기한 finalize도 응답이 올 때까지 lease를 쥔다. 재시도 가능한 실패(응답 없음, 5xx)는 CAS의 결말을 알려 주지 않는다. 그런 시도가 한 번이라도 있었다면 이후 재시도가 거절돼도 먼저 나간 요청이 아직 commit될 수 있다. 그래서 재시도 중 하나가 성공해 idempotent key가 결말을 정하지 않는 한, lease를 쥔 채 run을 끝낸다. lease를 푸는 것은 성공, 또는 그 요청 하나만 나가 있던 상태에서 받은 결정적 거절뿐이다. capture가 실패하거나 commit할 ref가 없으면 즉시 푼다.
-- **거절 사유의 세 종류.** `turn_in_flight`·`no_engine_session`은 **ordinary**다. 다음 경계에서 평소대로 checkpoint하며 아무것도 기록하지 않는다. `mirror_error`는 **blocking**이다. `checkpoint_pending_reason`에 기록되고, 새 turn과 checkpoint 없는 completed finalize를 막으며, 다른 attempt의 commit만 푼다. `tool_in_flight`·`background_writer`·`checkpoint_lease_held`는 **advisory**다. 기록되어 `durability.checkpoint_pending_reason`에 보이지만 작업은 막지 않는다. 사용자가 켜 둔 dev server 때문에 turn을 막으면 세션이 멈추기 때문이다. 이전 generation이 계속 재개 지점이다. advisory는 blocking을 덮어쓰지 않으며, 같은 attempt든 아니든 다음 commit이 푼다. ready 요청, checkpoint 없는 finalize, 실패한 CAS는 advisory를 풀지 않는다.
+- **거절 사유의 세 종류.** `turn_in_flight`·`no_engine_session`은 **ordinary**다. 다음 경계에서 평소대로 checkpoint하며 아무것도 기록하지 않는다. `mirror_error`는 **blocking**이다. `checkpoint_pending_reason`에 기록되고, 새 turn과 checkpoint 없는 completed finalize를 막으며, 다른 attempt의 commit만 푼다. `tool_in_flight`·`background_writer`·`checkpoint_lease_held`·`publish_failed`는 **advisory**다. 기록되어 `durability.checkpoint_pending_reason`에 보이지만 작업은 막지 않는다. 사용자가 켜 둔 dev server 때문에 turn을 막으면 세션이 멈추기 때문이다. 이전 generation이 계속 재개 지점이다. 다만 그 generation이 마지막으로 실행된 turn을 덮지 못하면, 워커가 교체될 때 조용히 그리로 되돌아가지 않고 운영자 결정으로 넘어간다(§6.5, 94S-288). blocking 사유도 같다. 신뢰할 수 없는 pointer로는 교체 워커가 이어받지 않고, `start_fresh`가 그 사유를 transcript와 함께 버린다. advisory는 blocking을 덮어쓰지 않으며, 같은 attempt든 아니든 다음 commit이 푼다. ready 요청, checkpoint 없는 finalize, 실패한 CAS는 advisory를 풀지 않는다.
 
 **fingerprint의 principal과 component identity 규칙 (94S-209, 2026-09-23).** 3번의 "secret을 제외한 fingerprint"는 그대로 두되, 무엇을 넣고 빼는지를 다음 규칙으로 고정한다.
 
@@ -354,6 +359,7 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **key는 서버가 준다.** revision과 manifest key는 `requestCheckpoint` 응답만 따른다. key는 publish마다 새로 발급되고(`<rev>/<attempt>/<publishId>/manifest.json`), bundle·untracked는 그 manifest와 같은 디렉터리에 content-addressed key로 쓴다. 그래서 한 publish가 다른 publish의 객체를 덮지 않고, 도중에 멈춘 publish는 manifest 없는 고아만 남긴다. manifest는 create-only로 맨 마지막에 쓴다.
 - **transcript 정착.** mirror batch 하나라도 실패한 채 다시 쓰이지 않았으면(`unsettled`) 또는 lease를 잡은 뒤 `mirror_error`가 왔으면 manifest를 쓰지 않는다. 이때 publish가 어느 단계에서 멈췄든 `requestCheckpoint(rejected: mirror_error)`로 blocking 사유를 먼저 기록하고, 기록이 실패하면 capture가 던져 turn을 열어 둔다. checkpoint 없는 completed finalize는 blocking 사유가 기록되기 전까지는 받아들여지기 때문이다. 거절된 preparation(advisory 사유 포함)으로 checkpoint 없이 끝나는 경로도 같은 재확인을 거친다. latch되는 순간 heartbeat를 바로 보내고 그 자리에서 drain을 시작한다 — 이미 기다리고 있는 poll이 checkpoint할 수 없는 turn을 받아 가지 않게. pause도 flush 중에 latch되면 pause release를 하지 않고 drain의 release 장벽을 따른다. heartbeat는 mirror가 마지막으로 쓴 시각과 run에 latch된 `mirror_error`를 `transcript`로 싣는다. 종료 중인 heartbeat도 요청받은 beat를 버리지 않는다. latch된 `mirror_error`를 실은 beat에 gateway가 답하기 전에는 release하지 않고, 끝내 기록하지 못하면 lease가 만료되게 둔다(`worker.mirror_error.unrecorded`).
 - **실패는 turn 실패가 아니다.** publish가 도중에 실패하면 `worker.checkpoint.failed`(stage·reason·revision·manifest_ref)를 남기고 checkpoint 없이 finalize한다. 소유권 상실만 던진다. checkpoint를 실은 finalize가 결정적 `CHECKPOINT_UNAVAILABLE`(manifest 검증 거절)을 받고 앞서 결말 모를 시도가 없었으면, 같은 finalize key로 checkpoint 없이 한 번 더 finalize한다. 거절된 요청은 아무것도 commit하지 않았기 때문이다.
+- **실패는 세션에 남는다 (94S-312, 2026-09-24).** ready였던 run의 checkpoint가 써지지 않으면 finalize 전에 `requestCheckpoint(rejected: publish_failed, detail: "<stage>: <reason>")`로 보고한다. 대상은 workspace capture 거절, content-addressed 업로드 충돌, manifest 객체 수·바이트 초과, manifest key 충돌·세션 밖 key, root transcript 없음, 저장소·gateway 오류, 그리고 위의 finalize 검증 거절이다. `publish_failed`는 advisory다. 세션 상세의 `durability.checkpoint_pending_reason`에 보이고, turn·pause·resume을 막지 않는다. 이전 checkpoint가 계속 재개 지점이고, 다음 commit이 푼다. blocking으로 두지 않는 이유가 있다. 상한 초과처럼 지속되는 원인은 turn을 막아도 풀리지 않고, 세션만 멈춘다. 덮이지 않은 turn 위로 교체 워커가 조용히 이어 가는 것은 94S-288의 gap gate가 막는다. 같은 capture에서 mirror가 유실됐으면 `mirror_error`만 보고한다. 그쪽이 더 많은 것을 말하고 blocking이다. 보고가 gateway에 닿지 않으면 로그만 남는다(best-effort). `detail`은 저장하지 않는다. 원인은 워커 로그 `worker.checkpoint.failed`에서 본다. gateway가 스스로 `blocked`로 답한 요청은 다시 보고하지 않는다.
 - **엔진 밖 writer (한계).** lease는 엔진이 실행하는 tool만 막는다. 명령이 detach한 프로세스처럼 엔진 밖에서 쓰는 writer가 capture 도중 workspace를 바꾸면 bundle과 transcript가 어긋난 generation이 commit될 수 있다. v0.1은 이 한계를 받아들인다(Codex 판정 (c)). 막으려면 workspace를 snapshot 가능한 파일시스템에 두거나 capture 동안 컨테이너 전체를 freeze해야 하며, 둘 다 execution backend의 일이다.
 - **version을 싣는다(94S-229).** 업로드가 돌려준 object version을 bundle·untracked·transcript part ref와 `CheckpointRef.manifest_version`에 싣는다. 그래서 기본 `locked` 모드의 finalize가 그대로 받는다. version이 없는 저장소에서는 ref에서 빠진다.
 - **복원은 publish와 함께 켠다.** composition은 publisher와 restorer를 한 `SessionCheckpoints`로 묶는다. gateway·logger·workspace는 host와 같은 인스턴스를 쓴다. `unwiredCheckpoints`는 object store 없이 host를 도는 테스트에만 남긴다.
@@ -374,6 +380,8 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **turn 뒤 capture의 기한.** heartbeat는 capture가 도는 동안에도 lease를 늘리므로, interrupt가 아닌 turn의 capture는 시작 단계와 같은 예산(`WORKER_STARTUP_TIMEOUT_SEC`)을 받는다. 넘기면 워커를 failed로 멈추고 drain 예산이 기다림을 끝낸다. workspace를 들여오는 단계와 내보내는 단계라 같은 상한을 쓰고, 둘이 다른 상한을 필요로 할 때 따로 둔다(94S-269에서 넘겨받은 지적).
 
 1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
+
+이전 generation으로 돌아가는 조건은 좁다(94S-204). pointer의 checkpoint가 **손상**됐을 때만, 즉 객체가 사라졌거나 기록한 바이트와 달라졌을 때만 그 checkpoint가 딛고 선 이전 checkpoint들을 parent 사슬(`checkpoints.parent_revision`)을 따라 최대 `maxRestoreFallbacks`개(기본 3, 상한 10) 다시 해시해 본다. 폴백 뒤의 커밋은 복원한 revision을 parent로 기록한다. 그래서 그때 건너뛴 revision은 나중에 멀쩡해 보여도 다시 후보가 되지 않는다. 그 revision은 세션이 버린 이력이기 때문이다. 한도를 낮췄거나 codec·verifier가 바뀌어 거부된 것은 손상이 아니다. 이런 거부는 더 작은 옛 revision만 통과시켜 설정 변경이 세션 기록을 버리게 만들므로 폴백하지 않는다. 후보도 같은 규칙을 따른다. 손상된 후보는 건너뛰고, 다른 이유로 거부되거나 런타임과 호환되지 않는 후보에서는 멈춘다. `locked`에서는 versions_held로 커밋되고 지금도 모든 version에 legal hold가 걸린 revision만 후보다. 이 조건을 못 채운 후보는 손상이 아니라 거부로 보고 거기서 멈춘다. hold가 풀린 revision 아래로 내려가면 같은 이유로 더 많은 상태를 잃기 때문이다. held version은 바뀌거나 사라질 수 없으므로 `locked`에서는 후보의 손상도 거부로 본다. 그래서 `locked`의 폴백은 한 칸만 내려간다. 한 attempt는 현재 pointer에 대해 받은 복원 base(pointer든 이전 revision이든)에 묶이고, 같은 attempt가 다른 base를 받으려 하면 거부된다. 묶임은 그 attempt가 다음 checkpoint를 커밋하면 풀린다. 그때부터 attempt의 상태를 설명하는 것은 새 pointer이기 때문이다. 폴백은 조용히 일어나지 않는다. 복원 계획의 `fallback`, 세션의 `durability.checkpoint_fallback_revision`, 이벤트 스트림의 `checkpoint_restore_fallback` system 이벤트가 이를 드러낸다. pointer는 되감지 않는다. 다음 checkpoint는 pointer+1로 커밋되고 그때 fallback 표시가 지워진다. 그동안 pause와 운영 복구의 커버리지는 pointer가 아니라 실제로 복원한 revision 기준으로 판정한다.
 
 G2는 현재 `pod_id`와 previous revision의 CAS까지만 요구한다. 94S-44는 G4에서 checkpoint 외 전체 write에 claim epoch fencing을 확장하며, G2가 이를 구현 완료했다고 주장하지 않는다.
 
@@ -414,6 +422,22 @@ SDK `result` 수신만으로 성공 종료를 가정하지 않는다. 94S-91이 
 checkpoint publish가 실패하면 완료 event와 input ACK를 보류하고 이전 안전 generation을 유지한다. turn을 완료로 표시한 뒤 저장 실패를 숨기거나, 실패·interrupt를 성공과 같은 `idle` 경로로 보내지 않는다.
 
 타이머 만료 시: 매핑 삭제(`pod_id = NULL`) → 프로세스 종료 → pod 종료. 개발 서버가 떠 있는 세션은 `pinned` 또는 긴 타이머로 회수를 미룬다. 회수 후 재개 시 개발 서버는 다시 띄워야 하므로, CLAUDE.md에 "작업 시작 시 서버 상태를 확인하고 필요하면 기동" 규칙을 둔다.
+
+**checkpoint가 덮지 않은 turn과 워커 교체 (94S-288, 2026-09-23).** 유휴 종료 전 checkpoint 시도는 위 1번, 곧 turn마다의 checkpoint가 맡는다. 워커는 finalize에서 capture를 시도한 뒤에야 유휴 타이머를 돌린다. 유휴 시점에 따로 찍는 turn-less checkpoint는 두지 않는다. turn-less checkpoint는 어떤 turn도 덮지 않기 때문이다. 이것이 필요해지면 덮은 turn watermark와 commit 경로를 먼저 만든다. 저장이 실패한 채 워커가 사라지는 경우(유휴 종료, SIGTERM drain, lease 상실)는 서버가 판정한다.
+
+- **gap**: 실행된 turn(`completed`·`failed`·`interrupted`) 중 가장 뒤의 것이 두 값 모두보다 뒤이면 gap이다. 하나는 신뢰할 pointer(blocking 사유 없음, retire되지 않음)의 checkpoint가 덮는 turn이고, 다른 하나는 `start_fresh`가 남긴 reset watermark다. advisory 사유는 pointer를 불신하게 만들지 않지만 coverage를 만들어 주지도 않는다.
+- **판정 자리**: 두 곳이다.
+  - execution 종료 확인(`confirmExecutionGone`): 세션이 작업을 받는 상태로 남을 때 판정한다.
+  - claim 발급: 새 claim마다 판정한다. 우회할 수 없는 게이트는 이쪽이다.
+- **gap이 있으면**: 세션은 `recovery_required`·`failed`가 되고 dispatch 신호가 지워진다. claim에서 걸리면 예약된 launch의 `desired_state`를 `terminated`로 바꾸고, 워커에 409 `RECOVERY_REQUIRED`를 답한다. 워커는 claim하지 않은 채 끝난다.
+  - SSE에는 status 이벤트(`reason: context_gap`)와 system `context_gap_detected` 이벤트가 남는다.
+  - 세션 상세에는 attention `CONTEXT_GAP`이 뜬다.
+  - queued 입력과 그 영수증은 그대로 둔다.
+- **계속하는 길**은 운영자 결정(`POST /v1/sessions/{id}/recovery-decisions`) 둘뿐이다.
+  - `start_fresh`: 새 engine session으로 계속한다. 복원하는 것이 없고, 그때까지의 checkpoint는 retire되며, `durability.context_reset_turn_id`가 그 경계를 계속 보인다.
+  - `close`: 세션을 닫는다.
+  - 오래된 checkpoint로 되감는 선택지는 두지 않는다. 복원은 workspace까지 snapshot으로 되돌리기 때문이다.
+- **stopped 세션의 resume**도 pointer가 마지막 실행 turn을 덮을 때만 받는다.
 
 ### 6.6 사용자 interrupt와 인프라 drain
 

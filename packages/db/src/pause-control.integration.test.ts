@@ -26,10 +26,10 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import { recordAudit } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  checkpoints,
   events,
   executions,
   queueMessages,
@@ -39,6 +39,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { recordEvent } from "./session-events.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -573,6 +574,39 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect((await sessionRow(fresh.sessionId)).admissionState).toBe("active");
   });
 
+  test("after a fallback restore the pause rests on, and its receipt names, the revision restored (94S-204)", async () => {
+    const fellBack = await newSession("idle-fallback");
+    const worker = await claim(fellBack);
+    await finalize(worker, await deliver(worker), 0);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "idle",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    // A later turn-less revision 1 became the pointer and turned out damaged;
+    // the session was restored from revision 0, which covers the last turn.
+    await db.insert(checkpoints).values({
+      sessionId: fellBack.sessionId,
+      revision: 1,
+      manifestRef: `manifests/${fellBack.sessionId}/1`,
+      manifestSha256: MANIFEST_SHA,
+      parentRevision: 0,
+      turnId: null,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 1, checkpointFallbackRevision: 0 })
+      .where(eq(sessions.id, fellBack.sessionId));
+
+    const response = await accepted(fellBack);
+    expect(response.receipt_status).toBe("succeeded");
+    expect((await receiptRow(response.receipt_id)).result).toEqual({
+      resulting_admission_state: "paused",
+      checkpoint_revision: 0,
+      queued_turn_count: 0,
+    });
+  });
+
   test("an audit the event contract would not read is refused before it is stored", async () => {
     const session = await newSession("audit-contract");
     const stored = () =>
@@ -583,7 +617,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     const before = (await stored()).length;
     const write = (payload: Record<string, unknown>) =>
       db.transaction((tx) =>
-        recordAudit(tx, {
+        recordEvent(tx, {
           sessionId: session.sessionId,
           type: "status",
           payload,
@@ -635,9 +669,18 @@ integration("pause on PostgreSQL (94S-137)", () => {
     // The turn's own checkpoint was refused (a dev server still running):
     // nothing covers it, whatever the reason says.
     const uncovered = await idleOn("advisory-uncovered", true);
+    // The exit already hands that gap to an operator (94S-288); a row from
+    // before that check still meets the pause's own coverage rule.
+    expect((await sessionRow(uncovered.sessionId)).admissionState).toBe(
+      "recovery_required",
+    );
     await db
       .update(sessions)
-      .set({ checkpointPendingReason: "background_writer" })
+      .set({
+        admissionState: "active",
+        status: "idle",
+        checkpointPendingReason: "background_writer",
+      })
       .where(eq(sessions.id, uncovered.sessionId));
     const row = await sessionRow(uncovered.sessionId);
     expect(await pause(uncovered, row.revision)).toEqual({

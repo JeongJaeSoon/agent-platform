@@ -72,6 +72,7 @@ describe("HttpWorkerGatewayClient", () => {
         ...scope,
         session_credential: "wsc_session",
         lease_expires_at: new Date().toISOString(),
+        lease_remaining_ms: 30_000,
         runtime: {
           kind: "claude_agent_sdk",
           version: "0.3.270",
@@ -97,6 +98,7 @@ describe("HttpWorkerGatewayClient", () => {
         },
         principal: { owner_scope: "owner-a" },
         restore: null,
+        remaining_budget_usd: 25,
       }),
     );
     const claim = await gateway.bootstrapClaim({

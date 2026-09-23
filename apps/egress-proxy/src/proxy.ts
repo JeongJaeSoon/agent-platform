@@ -8,7 +8,14 @@ import {
   type EgressPolicy,
   type EgressResolver,
 } from "./policy.ts";
-import { type ProxyRequest, parseRequestHead } from "./request.ts";
+import {
+  type BodyFramer,
+  createBodyFramer,
+  headEnd,
+  type ProxyRequest,
+  parseRequestHead,
+} from "./request.ts";
+import { createResponseRewriter, type ResponseRewriter } from "./response.ts";
 import {
   type ClientHelloCursor,
   MAX_CLIENT_HELLO_BYTES,
@@ -78,6 +85,8 @@ export type EgressProxyOptions = {
   maxConnectionsPerClient?: number;
   policy: EgressPolicy;
   port?: number;
+  /** Reported on `/healthz` and at start; see `sourceDigest`. */
+  sourceDigest?: string;
   /** How long a queue may stay over `maxBufferedBytes` before the drop. */
   stallTimeoutMs?: number;
   /** Injected by tests; production dials with Bun. */
@@ -133,7 +142,14 @@ type UpstreamAttempt = {
 };
 
 type ClientState = {
+  /**
+   * A forwarded request's body, counted so nothing past it reaches the
+   * upstream; null for a tunnel, whose bytes are TLS.
+   */
+  body: BodyFramer | null;
   buffer: Uint8Array;
+  /** Bytes past the request have been seen, and said so once. */
+  discarding: boolean;
   /** The upstream is done; end the client once its queue has drained. */
   closeWhenDrained: boolean;
   /** Still counted against the connection caps. */
@@ -188,6 +204,10 @@ export async function startEgressProxy(
   const dispatchTimeoutMs =
     options.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
   const headTimeoutMs = options.headTimeoutMs ?? DEFAULT_HEAD_TIMEOUT_MS;
+  const health =
+    options.sourceDigest === undefined
+      ? "ok"
+      : `ok source=${options.sourceDigest}`;
   const handshakeTimeoutMs =
     options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
@@ -231,7 +251,9 @@ export async function startEgressProxy(
       open(socket) {
         const remote = socket.remoteAddress;
         socket.data = {
+          body: null,
           buffer: new Uint8Array(0),
+          discarding: false,
           closeWhenDrained: false,
           counted: true,
           dispatching: false,
@@ -287,15 +309,7 @@ export async function startEgressProxy(
     const state = socket.data;
     if (state.phase === "closed") return;
     if (state.phase === "connecting") {
-      // The client can keep sending while we resolve and connect; that
-      // window is bounded in time but not in bytes unless we bound it.
-      state.earlyBytes += chunk.byteLength;
-      if (state.earlyBytes > maxBuffered) {
-        logger.warn("Dropping a connection that outran the upstream handshake");
-        drop(socket);
-        return;
-      }
-      state.early.push(chunk);
+      holdEarly(socket, chunk);
       return;
     }
     if (state.phase === "inspecting") {
@@ -308,7 +322,9 @@ export async function startEgressProxy(
     if (state.phase === "piping") {
       const upstream = state.upstream;
       if (upstream === null) return;
-      if (!push(upstream, state.toUpstream, chunk, maxBuffered)) {
+      const bytes = requestBytes(socket, chunk);
+      if (bytes === null || bytes.byteLength === 0) return;
+      if (!push(upstream, state.toUpstream, bytes, maxBuffered)) {
         stall(
           socket,
           socket,
@@ -361,7 +377,7 @@ export async function startEgressProxy(
     // the awaits below: the client can close while we resolve or connect.
     const closed = (): boolean => socket.data.phase === "closed";
     if (request.kind === "health") {
-      reply(socket, 200, "ok");
+      reply(socket, 200, health);
       return;
     }
     if (request.kind === "invalid") {
@@ -372,17 +388,9 @@ export async function startEgressProxy(
       return;
     }
     state.phase = "connecting";
-    if (rest.byteLength > 0) {
-      // Bytes pipelined in the same segment as the head are early bytes too,
-      // and count against the same cap.
-      state.early.push(rest);
-      state.earlyBytes += rest.byteLength;
-      if (state.earlyBytes > maxBuffered) {
-        logger.warn("Dropping a connection that outran the upstream handshake");
-        drop(socket);
-        return;
-      }
-    }
+    if (request.kind === "forward") state.body = createBodyFramer(request.body);
+    // Bytes pipelined in the same segment as the head are early bytes too.
+    if (!holdEarly(socket, rest)) return;
     const expiry = Date.now() + dispatchTimeoutMs;
     const left = (): number => expiry - Date.now();
     let decision: Awaited<ReturnType<typeof decideEgress>>;
@@ -433,7 +441,17 @@ export async function startEgressProxy(
       }
       let attempt: UpstreamAttempt;
       try {
-        attempt = await connectUpstream(socket, address, request.port, budget);
+        attempt = await connectUpstream(
+          socket,
+          address,
+          request.port,
+          budget,
+          request.kind === "forward"
+            ? createResponseRewriter(MAX_HEAD_BYTES, {
+                headOnly: request.head.startsWith("HEAD "),
+              })
+            : null,
+        );
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
         if (closed()) return;
@@ -522,6 +540,57 @@ export async function startEgressProxy(
   }
 
   /**
+   * Keeps what the client sends while the upstream is still being dialled.
+   * That window is bounded in time but not in bytes unless we bound it, and
+   * the bound counts only what will be delivered: bytes past a request are
+   * discarded here, not held. False once the connection has been dropped.
+   */
+  function holdEarly(socket: Socket<ClientState>, chunk: Uint8Array): boolean {
+    const state = socket.data;
+    const bytes = requestBytes(socket, chunk);
+    if (bytes === null) return false;
+    if (bytes.byteLength === 0) return true;
+    state.earlyBytes += bytes.byteLength;
+    if (state.earlyBytes > maxBuffered) {
+      logger.warn("Dropping a connection that outran the upstream handshake");
+      drop(socket);
+      return false;
+    }
+    state.early.push(bytes);
+    return true;
+  }
+
+  /**
+   * What of a client chunk goes to the upstream: all of it on a tunnel, and
+   * on a forwarded request only what is still its body. Null once a
+   * malformed body has dropped the connection.
+   */
+  function requestBytes(
+    socket: Socket<ClientState>,
+    chunk: Uint8Array,
+  ): Uint8Array | null {
+    const body = socket.data.body;
+    if (body === null) return chunk;
+    const taken = body.take(chunk);
+    if ("error" in taken) {
+      logger.warn("Dropping a request whose body is malformed", {
+        reason: taken.error,
+      });
+      drop(socket);
+      return null;
+    }
+    if (taken.dropped > 0 && !socket.data.discarding) {
+      // Once per connection: a client can keep sending for as long as the
+      // answer takes.
+      socket.data.discarding = true;
+      logger.warn("Discarding bytes sent past the request", {
+        bytes: taken.dropped,
+      });
+    }
+    return taken.forward;
+  }
+
+  /**
    * Copies a chunk into the hello buffer, up to the cap. What does not fit
    * is still forwarded from `early` once the gate opens: a small hello
    * followed by early data in the same segment is a hello that fits, and
@@ -594,11 +663,16 @@ export async function startEgressProxy(
     releaseEarly(socket, upstream);
   }
 
+  /**
+   * `answer` reads a forwarded exchange's answer on its way to the client
+   * (response.ts); a tunnel's bytes are TLS and pass untouched.
+   */
   function connectUpstream(
     client: Socket<ClientState>,
     address: string,
     port: number,
     timeoutMs: number,
+    answer: ResponseRewriter | null,
   ): Promise<UpstreamAttempt> {
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
@@ -614,14 +688,56 @@ export async function startEgressProxy(
     const held: Queue = { bytes: 0, chunks: [] };
     let closedEarly = false;
     let failedEarly: Error | null = null;
-    const onClose = (): void => {
-      // The upstream closing is how a forwarded response ends — but the
-      // tail of that response may still be queued for a slow client.
+    let upstream: Socket<undefined> | null = null;
+    /** A forwarded answer the client must not see a torn piece of. */
+    const refuseAnswer = (reason: string): void => {
+      // The upstream's close after our own 502 comes back through here.
+      if (client.data.phase === "closed") return;
+      logger.warn("Dropping a forwarded response that failed its framing", {
+        reason,
+      });
+      upstream?.end();
+      if (answer?.started) drop(client);
+      else reply(client, 502, `upstream ${reason}`);
+    };
+    /** false once the client's queue is past its cap. */
+    const deliver = (chunk: Uint8Array): boolean => {
+      if (client.data.phase === "closed") return true;
+      if (answer === null) {
+        return push(client, client.data.toClient, chunk, maxBuffered);
+      }
+      const result = answer.push(chunk);
+      if ("error" in result) {
+        refuseAnswer(result.error);
+        return true;
+      }
+      const keepingUp =
+        result.bytes.byteLength === 0 ||
+        push(client, client.data.toClient, result.bytes, maxBuffered);
+      if (!answer.complete) return keepingUp;
+      // The exchange is over whether or not the upstream agrees; ending it
+      // here is what stops a client that ignores `connection: close` from
+      // waiting on this socket for an answer to its next request.
+      upstream?.end();
+      endClient();
+      return true;
+    };
+    /** Ends the client once whatever it is still owed has been written. */
+    const endClient = (): void => {
       if (client.data.toClient.chunks.length > 0) {
         client.data.closeWhenDrained = true;
         return;
       }
       client.end();
+    };
+    const onClose = (): void => {
+      if (answer !== null && !answer.done) {
+        refuseAnswer("closed before its response head was complete");
+        return;
+      }
+      // The upstream closing is how a close-delimited response ends — but
+      // the tail of that response may still be queued for a slow client.
+      endClient();
     };
     const onError = (error: Error): void => {
       logger.warn("Upstream connection failed", { error: error.message });
@@ -647,7 +763,7 @@ export async function startEgressProxy(
             if (held.bytes > maxBuffered) reader(socket).pause();
             return;
           }
-          if (!push(client, client.data.toClient, chunk, maxBuffered)) {
+          if (!deliver(chunk)) {
             stall(
               client,
               socket,
@@ -673,34 +789,37 @@ export async function startEgressProxy(
         },
       },
     });
-    const attempt = (socket: Socket<undefined>): UpstreamAttempt => ({
-      socket,
-      adopt() {
-        if (phase !== "pending") return;
-        phase = "adopted";
-        let keepingUp = true;
-        for (const chunk of held.chunks.splice(0)) {
-          keepingUp = push(client, client.data.toClient, chunk, maxBuffered);
-        }
-        held.bytes = 0;
-        if (keepingUp) reader(socket).resume();
-        else
-          stall(
-            client,
-            socket,
-            "Dropping a connection whose client fell behind",
-          );
-        if (failedEarly !== null) onError(failedEarly);
-        else if (closedEarly) onClose();
-      },
-      abandon() {
-        if (phase !== "pending") return;
-        phase = "abandoned";
-        held.chunks.length = 0;
-        held.bytes = 0;
-        socket.end();
-      },
-    });
+    const attempt = (socket: Socket<undefined>): UpstreamAttempt => {
+      upstream = socket;
+      return {
+        socket,
+        adopt() {
+          if (phase !== "pending") return;
+          phase = "adopted";
+          let keepingUp = true;
+          for (const chunk of held.chunks.splice(0)) {
+            keepingUp = deliver(chunk);
+          }
+          held.bytes = 0;
+          if (keepingUp) reader(socket).resume();
+          else
+            stall(
+              client,
+              socket,
+              "Dropping a connection whose client fell behind",
+            );
+          if (failedEarly !== null) onError(failedEarly);
+          else if (closedEarly) onClose();
+        },
+        abandon() {
+          if (phase !== "pending") return;
+          phase = "abandoned";
+          held.chunks.length = 0;
+          held.bytes = 0;
+          socket.end();
+        },
+      };
+    };
     // Bun.connect has no deadline of its own; a black-holed address would
     // otherwise hold the client socket open forever.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -858,6 +977,7 @@ export async function startEgressProxy(
     allow: options.policy.allow.map(describe),
     allow_private: options.policy.allowPrivate.map(describe),
     port: listener.port,
+    source: options.sourceDigest,
   });
   return {
     port: listener.port,
@@ -938,19 +1058,4 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
   out.set(left, 0);
   out.set(right, left.byteLength);
   return out;
-}
-
-/** Index just past the CRLFCRLF that ends the head, or -1. */
-function headEnd(buffer: Uint8Array): number {
-  for (let i = 3; i < buffer.byteLength; i += 1) {
-    if (
-      buffer[i] === 10 &&
-      buffer[i - 1] === 13 &&
-      buffer[i - 2] === 10 &&
-      buffer[i - 3] === 13
-    ) {
-      return i + 1;
-    }
-  }
-  return -1;
 }

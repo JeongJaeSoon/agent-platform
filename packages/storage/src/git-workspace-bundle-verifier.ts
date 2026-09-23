@@ -1,11 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { WorkspaceBundleVerifier } from "@agent-platform/platform";
-import {
-  gitBundleOffers,
-  readGitBundleHeader,
-} from "@agent-platform/runtime-core";
+import { gitBundleOffersFrom } from "@agent-platform/runtime-core";
 
 import {
   defaultGitRunner,
@@ -62,15 +60,6 @@ export const DEFAULT_MAX_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
  * `gitLimits` does not itemise (index-pack's temporary names, the ref files).
  */
 const FILE_SIZE_SLACK_BYTES = 1024 * 1024;
-
-/** The object count from the 12-byte pack header the bundle header precedes. */
-function packObjectCount(bytes: Uint8Array): number | undefined {
-  const header = readGitBundleHeader(bytes);
-  if (header === undefined) return undefined;
-  const offset = header.packOffset + 8;
-  if (offset + 4 > bytes.byteLength) return undefined;
-  return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0);
-}
 
 /**
  * `git check-ref-format`'s rules, so that any name git itself would write
@@ -141,11 +130,11 @@ export function createGitWorkspaceBundleVerifier(
   const maxGitMemoryBytes =
     options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
   return {
-    async verify({ bytes, commit }) {
+    async verify({ bytes, commit, path }) {
       // The structural read is the cheap gate: no git process for bytes that
       // are not a whole bundle offering the commit, and it hands back the ref
-      // to fetch.
-      const offer = gitBundleOffers(bytes, commit);
+      // to fetch and the object count the pack declares.
+      const offer = await gitBundleOffersFrom(createReadStream(path), commit);
       if (offer.status !== "offers") {
         return { status: "unusable", reason: offer.reason };
       }
@@ -162,17 +151,17 @@ export function createGitWorkspaceBundleVerifier(
           reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
         };
       }
-      const objects = packObjectCount(bytes);
-      if (objects === undefined || objects > maxPackObjects) {
+      const { objects } = offer;
+      if (objects > maxPackObjects) {
         return {
           status: "unusable",
-          reason: `git bundle declares ${objects ?? "an unreadable number of"} objects, over the ${maxPackObjects} the control plane will index`,
+          reason: `git bundle declares ${objects} objects, over the ${maxPackObjects} the control plane will index`,
         };
       }
       const directory = await mkdtemp(
         join(options.tempRoot ?? tmpdir(), "bundle-verify-"),
       );
-      const limits = gitLimits(bytes.byteLength, objects);
+      const limits = gitLimits(bytes, objects);
       const git = (args: readonly string[], cwd: string) =>
         gitRunner(args, {
           clearGitEnvironment: true,
@@ -192,9 +181,7 @@ export function createGitWorkspaceBundleVerifier(
           timeoutMs,
         });
       try {
-        const bundle = join(directory, "workspace.bundle");
         const repository = join(directory, "repo.git");
-        await writeFile(bundle, bytes);
         const init = await git(
           ["init", "--quiet", "--bare", repository],
           directory,
@@ -227,7 +214,9 @@ export function createGitWorkspaceBundleVerifier(
             "--quiet",
             "--no-tags",
             "--no-write-fetch-head",
-            bundle,
+            // Absolute: fetch runs inside the repository, not where the
+            // service put the file.
+            resolve(path),
             `${ref}:refs/verify/tip`,
           ],
           repository,

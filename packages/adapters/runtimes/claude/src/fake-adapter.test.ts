@@ -449,9 +449,12 @@ describe("fake agent runtime", () => {
         return { behavior: "allow" };
       },
     });
-    for await (const _frame of run) {
-      throw new Error("Permission-only fake should not emit frames");
-    }
+    const frames: AgentFrame[] = [];
+    for await (const frame of run) frames.push(frame);
+    // Only the assistant message carrying both calls, before they are asked.
+    expect(
+      frames.map((frame) => frame.events.map((item) => item.event)),
+    ).toEqual([["tool_use", "tool_use"]]);
     expect(maxActive).toBe(2);
     expect(runtime.permissionDecisions).toHaveLength(2);
   });
@@ -585,9 +588,35 @@ describe("fake agent runtime", () => {
     await started;
     await pending.interrupt();
     await within(pendingConsume, 100);
-    expect(pendingFrames[0]?.envelope.message.terminal_reason).toBe(
+    // After the frame carrying the call the permission was about.
+    expect(pendingFrames[1]?.envelope.message.terminal_reason).toBe(
       "aborted_tools",
     );
+  });
+
+  test("an interrupt after the calls frame asks no permission", async () => {
+    let asked = 0;
+    const run = new FakeAgentRuntime([
+      {
+        type: "permissions",
+        requests: [
+          { input: {}, requestId: "request", tool: "Read", toolUseId: "tool" },
+        ],
+      },
+    ]).start(config, {
+      onPermission: async () => {
+        asked += 1;
+        return { behavior: "allow" };
+      },
+    });
+    const frames: AsyncIterator<AgentFrame> = run[Symbol.asyncIterator]();
+    const calls: AgentFrame = (await frames.next()).value;
+    expect(calls.events.map((item) => item.event)).toEqual(["tool_use"]);
+    await run.interrupt();
+    const terminal: AgentFrame = (await within(frames.next(), 100)).value;
+    expect(terminal.envelope.message.terminal_reason).toBe("aborted_tools");
+    expect((await frames.next()).done).toBe(true);
+    expect(asked).toBe(0);
   });
 
   test("await-input holds the script until each turn's input arrives", async () => {

@@ -32,6 +32,7 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
+import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 
 const ANSWER = "answer";
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
@@ -69,7 +70,7 @@ function askerIsLive(at: Date | typeof DB_NOW) {
 // SELECT must not straddle an expiry or a lease end.
 const STATEMENT_NOW = sql<Date>`statement_timestamp()`;
 
-function actionable(at: typeof DB_NOW) {
+function actionable(at: Date | typeof DB_NOW) {
   return and(
     isNull(pendingRequests.resolvedAt),
     gt(pendingRequests.expiresAt, at),
@@ -103,6 +104,27 @@ export function actionableOfSession(db: Database) {
         actionable(STATEMENT_NOW),
       ),
     );
+}
+
+/**
+ * Whether the session has a request a person can still answer at `at`: the
+ * projection above, judged at one instant a writer already holds, so a
+ * before and an after read in one transaction cannot straddle an expiry.
+ */
+export async function awaitingInputAt(
+  tx: Database,
+  sessionId: string,
+  at: Date,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ one: sql`1` })
+    .from(pendingRequests)
+    .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+    .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+    .where(and(eq(pendingRequests.sessionId, sessionId), actionable(at)))
+    .limit(1);
+  return row !== undefined;
 }
 
 // The same, for the outer query's `turns` row.
@@ -364,6 +386,7 @@ export function createPostgresPendingRequests(
         );
         if (mismatch !== null) return { outcome: "invalid", reason: mismatch };
 
+        const waitingBefore = await inputWaitBefore(tx, session, at);
         const receiptId = randomUUID();
         await tx.insert(receipts).values({
           id: receiptId,
@@ -397,6 +420,12 @@ export function createPostgresPendingRequests(
             answerReceiptId: receiptId,
           })
           .where(eq(pendingRequests.requestId, pending.requestId));
+        await announceInputWaitEnded(tx, {
+          sessionId,
+          waitingBefore,
+          turnRowId: pending.turnId,
+          at,
+        });
         return {
           outcome: "accepted",
           response: { receipt_id: receiptId, receipt_status: "accepted" },

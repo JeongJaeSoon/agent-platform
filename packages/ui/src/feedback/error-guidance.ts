@@ -17,6 +17,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   RATE_LIMITED: "요청이 몰렸습니다 — 잠시 뒤 다시 시도하세요.",
   STORAGE_LIMIT_EXCEEDED:
     "저장 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
+  BUDGET_EXCEEDED:
+    "세션 비용 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
   INTERNAL_ERROR: "서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   REVISION_CONFLICT: "다른 사람이 먼저 바꿨습니다 — 최신 내용을 확인하세요.",
   IDEMPOTENCY_CONFLICT:
@@ -39,6 +41,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
+  CATALOG_MISMATCH:
+    "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",

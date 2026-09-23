@@ -45,7 +45,75 @@ function accepted(request: AppendEventsRequest): AppendEventsResponse {
   return { accepted_through: last, cursor: `cursor-${last}` };
 }
 
+function toolUseEvent(toolUseId: string): SessionEvent {
+  return {
+    id: toolUseId,
+    event: "tool_use",
+    data: {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: {} }],
+      },
+      parent_tool_use_id: null,
+    },
+  };
+}
+
 describe("EventPublisher", () => {
+  test("lets a permission callback wait until the frame carrying its tool call is stored", async () => {
+    let release: (() => void) | undefined;
+    const { publisher: events } = publisher(async (request) => {
+      if (request.events.some((event) => event.event === "tool_use")) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return accepted(request);
+    });
+    let stored = false;
+    const waiting = events.toolUseStored("toolu_1", 5_000).then(() => {
+      stored = true;
+    });
+    events.publish([systemEvent("a"), toolUseEvent("toolu_other")], "1");
+    await Bun.sleep(5);
+    expect(stored).toBe(false);
+    release?.();
+    events.publish([toolUseEvent("toolu_1")], "1");
+    // Numbered is not enough: it has to be stored.
+    await Bun.sleep(5);
+    expect(stored).toBe(false);
+    release?.();
+    await waiting;
+    expect(stored).toBe(true);
+  });
+
+  test("a tool call answers one wait, and a wait that runs out or a failed stream rejects", async () => {
+    const { publisher: events } = publisher(async (request) =>
+      accepted(request),
+    );
+    events.publish([toolUseEvent("toolu_1")], "1");
+    await events.toolUseStored("toolu_1", 5_000);
+    // The engine used the id again: this wait is for a frame not seen yet.
+    await expect(events.toolUseStored("toolu_1", 30)).rejects.toThrow(
+      "did not reach the event stream within 30ms",
+    );
+
+    const failing = publisher(async () => {
+      throw new WorkerGatewayRequestError(409, "STALE_EPOCH", "fenced", false);
+    }).publisher;
+    const waiting = failing.toolUseStored("toolu_2", 5_000);
+    failing.publish([toolUseEvent("toolu_2")], "1");
+    await expect(waiting).rejects.toThrow("fenced");
+    // A call stored before the stream failed does not let a request through.
+    events.publish([toolUseEvent("toolu_3")], "1");
+    await events.idle();
+    events.abandon("owner lost");
+    await expect(events.toolUseStored("toolu_3", 5_000)).rejects.toThrow(
+      "abandoned",
+    );
+  });
+
   test("numbers the attempt's stream from one and keeps frame order", async () => {
     const { batches, publisher: events } = publisher(async (request) =>
       accepted(request),

@@ -43,7 +43,6 @@ export type InstallationLimitsEnvironment = {
  */
 export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 
-export const DEFAULT_PROVIDER_MAX_RETRIES = 2;
 /** Past this the engine clamps it anyway, and each retry backs off longer. */
 const MAX_PROVIDER_RETRIES = 10;
 /** Well inside what `sessions.cost_usd` can hold, so the limit is reachable. */
@@ -63,13 +62,10 @@ function integer(
   environment: InstallationLimitsEnvironment,
   name: keyof InstallationLimitsEnvironment,
   bounds: { min: number; max: number },
-  fallback?: number,
 ): Parsed {
   const raw = environment[name];
   if (raw === undefined || raw.trim() === "") {
-    return fallback === undefined
-      ? { problem: `${name} is required` }
-      : { value: fallback };
+    return { problem: `${name} is required` };
   }
   const value = Number(raw);
   if (
@@ -158,12 +154,11 @@ function parseAll(
       "SESSION_COST_LIMIT_USD",
       MAX_SESSION_COST_LIMIT_USD,
     ),
-    providerMaxRetries: integer(
-      environment,
-      "PROVIDER_MAX_RETRIES",
-      { min: 0, max: MAX_PROVIDER_RETRIES },
-      DEFAULT_PROVIDER_MAX_RETRIES,
-    ),
+    // Zero is a real setting: the first failed request fails the turn.
+    providerMaxRetries: integer(environment, "PROVIDER_MAX_RETRIES", {
+      min: 0,
+      max: MAX_PROVIDER_RETRIES,
+    }),
   };
 }
 

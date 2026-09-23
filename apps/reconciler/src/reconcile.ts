@@ -1,4 +1,5 @@
 import type {
+  AnnouncedInputReturn,
   ReconciledInterrupt,
   ReconciledLease,
   ReconciledOrphan,
@@ -19,6 +20,7 @@ export type ReconcilerRun = {
   interrupts: ReconciledInterrupt[];
   interruptsOverdue: number;
   terminationsOverdue: number;
+  inputReturns: AnnouncedInputReturn[];
 };
 
 export type ReconcilerLogger = {
@@ -52,6 +54,13 @@ export async function runReconciler(input: {
   // Interrupt receipts still open past their later deadline become unknown,
   // for when nothing confirms the kill above.
   expireInterrupts(options: { now: Date; dryRun: boolean }): Promise<number>;
+  // Waits for input the stream still reports after they ended with nothing
+  // written (expiry, a lost attempt). Last, so the lease pass above has
+  // already fenced what it fences and this reports the result in one go.
+  announceInputReturns(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<AnnouncedInputReturn[]>;
 }): Promise<ReconcilerRun> {
   const environment = input.environment ?? process.env;
   // Every lease this judges carries the deadline its writer stamped from the
@@ -93,6 +102,10 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     ended_count: leases.filter(({ action }) => action === "ended").length,
     fenced_count: leases.filter(({ action }) => action === "fenced").length,
+    // session_ids also names the ended ones; this says which were fenced.
+    fenced_session_ids: leases
+      .filter(({ action }) => action === "fenced")
+      .map(({ sessionId }) => sessionId),
     reconciled_count: leases.length,
     session_ids: leases.map(({ sessionId }) => sessionId),
   });
@@ -112,12 +125,19 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,
   });
+  const inputReturns = await input.announceInputReturns({ dryRun, limit });
+  input.logger.info("Ended input waits announced", {
+    dry_run: dryRun,
+    announced_count: inputReturns.length,
+    session_ids: inputReturns.map(({ sessionId }) => sessionId),
+  });
   return {
     orphans: reconciled,
     leases,
     interrupts,
     interruptsOverdue,
     terminationsOverdue,
+    inputReturns,
   };
 }
 

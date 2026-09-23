@@ -53,6 +53,9 @@ const store: CheckpointStore = {
   async readPointer() {
     return null;
   },
+  async listCheckpoints() {
+    return [];
+  },
   async commitAtomic() {
     throw new Error("not exercised");
   },
@@ -118,7 +121,7 @@ describe("API checkpoint composition", () => {
     const calls: Array<{ bytes: number; commit: string; key: string }> = [];
     const spy: WorkspaceBundleVerifier = {
       async verify({ bytes, commit, key }) {
-        calls.push({ bytes: bytes.byteLength, commit, key });
+        calls.push({ bytes, commit, key });
         return { status: "restorable" };
       },
     };

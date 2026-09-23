@@ -50,6 +50,7 @@ import {
   notExists,
   sql,
 } from "drizzle-orm";
+import { contextGapAttention } from "./context-gap.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import {
   decodeEventCursor,
@@ -696,11 +697,20 @@ export function createPostgresSessionReader(
           : null,
         checkpoint_revision: row.checkpointRevision,
         pending_request_count: read.pendingCount,
-        attention: await pauseAttention(db, row),
+        attention:
+          (await pauseAttention(db, row)) ??
+          (await contextGapAttention(db, row)),
         cost_usd: row.costUsd,
+        repo_url: row.repoUrl,
+        branch: row.branch,
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
+          checkpointFallbackRevision: row.checkpointFallbackRevision,
           checkpointRevision: row.checkpointRevision,
+          contextResetTurnId:
+            row.contextResetTurnSequence === null
+              ? null
+              : String(row.contextResetTurnSequence),
           lastCheckpointedTurnId:
             checkpoint?.sequence == null ? null : String(checkpoint.sequence),
           lastCompletedTurnId:

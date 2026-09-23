@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import {
+  createGitBundle,
+  verifyBundleBytes,
+} from "@agent-platform/testkit/git-bundle";
 
 import {
   rejectUnverifiedWorkspaceBundles,
@@ -36,7 +39,7 @@ describe("rejectUnverifiedWorkspaceBundles", () => {
     // The default is about the deployment, not the object: until someone says
     // how bundles are verified here, no checkpoint is promoted.
     expect(
-      await rejectUnverifiedWorkspaceBundles.verify({
+      await verifyBundleBytes(rejectUnverifiedWorkspaceBundles, {
         bytes: real.bytes,
         commit: real.commit,
         key: "sessions/s/checkpoints/0/a/workspace.bundle",
@@ -51,7 +54,7 @@ describe("rejectUnverifiedWorkspaceBundles", () => {
 describe("structuralBundleVerifier", () => {
   test("accepts a bundle git wrote for the commit it names", async () => {
     expect(
-      await structuralBundleVerifier.verify({
+      await verifyBundleBytes(structuralBundleVerifier, {
         bytes: real.bytes,
         commit: real.commit,
         key: "sessions/s/checkpoints/0/a/workspace.bundle",
@@ -61,7 +64,7 @@ describe("structuralBundleVerifier", () => {
 
   test("refuses a commit the bundle does not name", async () => {
     expect(
-      await structuralBundleVerifier.verify({
+      await verifyBundleBytes(structuralBundleVerifier, {
         bytes: real.bytes,
         commit: "f".repeat(40),
         key: "sessions/s/checkpoints/0/a/workspace.bundle",
@@ -77,7 +80,7 @@ describe("structuralBundleVerifier", () => {
     // git; 94S-228 injects that verifier, and until then a deployment picking
     // this one is trusting its workers about their own commits.
     expect(
-      await structuralBundleVerifier.verify({
+      await verifyBundleBytes(structuralBundleVerifier, {
         bytes: fabricated("a".repeat(40)),
         commit: "a".repeat(40),
         key: "sessions/s/checkpoints/0/a/workspace.bundle",
