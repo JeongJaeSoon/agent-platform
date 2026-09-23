@@ -671,6 +671,8 @@ integration("sessions API on PostgreSQL", () => {
         runtime: { profile_id: "unknown" },
         current_turn_id: null,
         queued_turn_count: 0,
+        // No catalog key, so no worker of this host will take it (94S-280).
+        attention: { code: "CATALOG_MISMATCH" },
       });
       expect(detailText).not.toContain(secret);
       expect(detailText).not.toContain("legacy.invalid");
@@ -1121,5 +1123,47 @@ integration("sessions API on PostgreSQL", () => {
     const spent = await detail();
     expect(spent.attention).toMatchObject({ code: "BUDGET_EXCEEDED" });
     expect(JSON.stringify(spent)).not.toContain("cost_usd");
+  }, 60_000);
+
+  test("detail raises CATALOG_MISMATCH while the catalog does not allow the session's pair, and drops it once restored (94S-280)", async () => {
+    const sessionId = await createdSession("catalog-mismatch-1");
+    const detail = async () => {
+      const read = await app.request(`/v1/sessions/${sessionId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(read.status).toBe(200);
+      const text = await read.text();
+      return { text, detail: getSessionResponseSchema.parse(JSON.parse(text)) };
+    };
+    expect((await detail()).detail.attention).toBeNull();
+
+    // What an operator pointing sample-app at another URL looks like from
+    // the session's side: the row keeps the URL it was created against.
+    const movedFrom = "https://moved.invalid/elsewhere.git";
+    await db
+      .update(sessions)
+      .set({ repoUrl: movedFrom })
+      .where(eq(sessions.id, sessionId));
+    const moved = await detail();
+    expect(moved.detail.attention).toMatchObject({ code: "CATALOG_MISMATCH" });
+    expect(moved.text).not.toContain("moved.invalid");
+
+    await db
+      .update(sessions)
+      .set({ branch: "release" })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(sessions)
+      .set({ repoUrl: catalog.repositories["sample-app"]?.url })
+      .where(eq(sessions.id, sessionId));
+    expect((await detail()).detail.attention).toMatchObject({
+      code: "CATALOG_MISMATCH",
+    });
+
+    await db
+      .update(sessions)
+      .set({ branch: "main" })
+      .where(eq(sessions.id, sessionId));
+    expect((await detail()).detail.attention).toBeNull();
   }, 60_000);
 });

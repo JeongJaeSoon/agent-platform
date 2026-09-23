@@ -585,6 +585,14 @@ export class WorkerHost {
           this.logger.info("worker.claim.refused", { reason: error.message });
           return null;
         }
+        // The session this launch was for was failed on the spot; there is
+        // nothing to wait for and nothing for anyone to resolve.
+        if (error.code === "CATALOG_MISMATCH") {
+          this.logger.warn("worker.claim.catalog_mismatch", {
+            reason: error.message,
+          });
+          return null;
+        }
         if (!error.retryable) throw error;
         if (this.now().getTime() >= deadline) {
           // Nothing was waiting for this worker: KEDA-style launchers must see

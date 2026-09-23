@@ -701,6 +701,8 @@ export function createPostgresSessionReader(
           (await pauseAttention(db, row)) ??
           (await contextGapAttention(db, row)),
         cost_usd: row.costUsd,
+        repo_url: row.repoUrl,
+        branch: row.branch,
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
           checkpointFallbackRevision: row.checkpointFallbackRevision,

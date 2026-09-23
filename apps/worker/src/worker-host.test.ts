@@ -376,6 +376,31 @@ describe("WorkerHost turn loop", () => {
     expect(claims).toBe(1);
     expect(gateway.releases).toEqual([]);
   });
+
+  test("leaves at once, unclaimed, when its session was failed for a catalog mismatch (94S-280)", async () => {
+    const gateway = new FakeWorkerGateway();
+    let claims = 0;
+    gateway.bootstrapClaim = async () => {
+      claims += 1;
+      throw new WorkerGatewayRequestError(
+        409,
+        "CATALOG_MISMATCH",
+        "The session this launch was reserved for runs as a pair this host's catalog no longer allows",
+        false,
+      );
+    };
+    // A claim timeout the test would notice waiting out.
+    const { host } = harness([], {
+      gateway,
+      timeouts: { claimTimeoutMs: 60_000 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("unclaimed");
+    expect(claims).toBe(1);
+    expect(gateway.releases).toEqual([]);
+  });
 });
 
 describe("WorkerHost approvals", () => {

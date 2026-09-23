@@ -41,21 +41,14 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import {
-  INPUT_RECEIPT_OPERATIONS,
-  LAUNCHABLE_ADMISSION_STATES,
-} from "./control-shared.ts";
+import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
+import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import type { Database } from "./queries.ts";
-import { failResume } from "./resume-control.ts";
 import {
-  events,
   executions,
-  queueMessages,
-  receipts,
   sessions,
-  turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
@@ -549,7 +542,12 @@ export function createPostgresSchedulerStore(
           .returning({ sessionId: workerLaunches.sessionId });
         if (!row) return "stale";
         if (!input.quarantine) return "backing_off";
-        await quarantine(tx, ref, row.sessionId, error);
+        await quarantineLaunch(
+          tx,
+          ref,
+          row.sessionId,
+          launchFailedCause(error),
+        );
         return "quarantined";
       });
     },
@@ -567,6 +565,20 @@ export function createPostgresSchedulerStore(
             eq(workerLaunches.generation, ref.generation),
             eq(workerLaunches.launchAttempts, expectedAttempts),
             holdsSlot(),
+            // A launch asked to go since the pass read it — by a terminate,
+            // or by the gateway failing its session (94S-280) — gets no new
+            // resource.
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(executions)
+                .where(
+                  and(
+                    eq(executions.id, workerLaunches.executionId),
+                    eq(executions.desiredState, DESIRED_RUNNING),
+                  ),
+                ),
+            ),
           ),
         )
         .returning({ attempts: workerLaunches.launchAttempts });
@@ -937,123 +949,6 @@ export function createPostgresSchedulerStore(
       return expireOverdueTerminations(db, input);
     },
   };
-}
-
-/**
- * The give-up half of `recordLaunchFailure`, inside its transaction and after
- * the launch row lock. Writes the kill intent — the pass carries it out and
- * `confirmExecutionGone` gives the slot back — and fails what was queued for
- * the session so far, the way a terminate cancels it: the turns, their queue
- * rows (a terminal head would block delivery), and their input receipts.
- * The session is left `failed` and unsignalled, still admitting input: the
- * next message signals it again and gets a fresh launch. A resuming session
- * goes to an operator instead, its resume failed.
- */
-async function quarantine(
-  tx: Database,
-  ref: ExecutionRef,
-  sessionId: string | null,
-  error: string,
-): Promise<void> {
-  const [session] =
-    sessionId === null
-      ? []
-      : await tx
-          .select({
-            admissionState: sessions.admissionState,
-            id: sessions.id,
-          })
-          .from(sessions)
-          .where(eq(sessions.id, sessionId))
-          .limit(1)
-          .for("update");
-  // Read after the locks, so the failure's timestamps are no earlier than
-  // anything the input they fail was accepted at.
-  const now = await dbNow(tx);
-  // A resume that cannot get a worker at all fails as a resume (94S-138):
-  // its receipt closes and an operator decides, with the queued input kept
-  // for whatever that decision resumes.
-  if (session?.admissionState === "resuming") {
-    await tx
-      .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, session.id));
-    await failResume(tx, {
-      sessionId: session.id,
-      error: {
-        code: "LAUNCH_FAILED",
-        message: `no worker could be launched to restore the checkpoint: ${error}`,
-      },
-      now,
-    });
-  } else if (session) {
-    const failed = await tx
-      .update(turns)
-      .set({ status: "failed", endedAt: now, terminalReason: "launch_failed" })
-      .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")))
-      .returning({ id: turns.id, sequence: turns.sequence });
-    if (failed.length > 0) {
-      await tx.delete(queueMessages).where(
-        inArray(
-          queueMessages.turnId,
-          failed.map((turn) => turn.id),
-        ),
-      );
-      await tx
-        .update(receipts)
-        .set({
-          status: "failed",
-          error: {
-            code: "LAUNCH_FAILED",
-            message: `no worker could be launched for this input: ${error}`,
-          },
-          // `result` stays the acceptance response (receiptSchema.result).
-          updatedAt: now,
-        })
-        .where(
-          and(
-            inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
-            eq(receipts.status, "accepted"),
-            sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
-            inArray(
-              sql`${receipts.targetRef}->>'turn_id'`,
-              failed.map((turn) => String(turn.sequence)),
-            ),
-          ),
-        );
-    }
-    await tx
-      .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, session.id));
-    if (session.admissionState !== "closed") {
-      await tx
-        .update(sessions)
-        .set({ status: "failed", updatedAt: now })
-        .where(eq(sessions.id, session.id));
-      await tx.insert(events).values({
-        sessionId: session.id,
-        type: "status",
-        payload: {
-          phase: "failed",
-          admission_state: session.admissionState,
-          code: "LAUNCH_FAILED",
-          message: error,
-          failed_turn_count: failed.length,
-        },
-        turnId: null,
-        occurredAt: now,
-      });
-      await tx.execute(sql`SELECT pg_notify('session_events', ${session.id})`);
-    }
-  }
-  await tx
-    .update(executions)
-    .set({ desiredState: "terminated" })
-    .where(
-      and(
-        eq(executions.id, ref.executionId),
-        eq(executions.generation, ref.generation),
-      ),
-    );
 }
 
 const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([

@@ -73,6 +73,7 @@ import {
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { encodeEventCursor } from "./event-cursor.ts";
+import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import {
   openPauseReceipt,
   pauseBlocker,
@@ -593,6 +594,110 @@ function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   )})`;
 }
 
+/**
+ * A launch reserved for one session whose pair the catalog has since dropped
+ * would wait out the worker's claim timeout, exit unclaimed, and be rebuilt
+ * until the scheduler's failure limit gave it up (94S-207) — holding a slot
+ * the whole time for an answer that is already known here. When the pinned
+ * session is otherwise claimable and only the pair stands in the way, the
+ * launch is given up on now, in the claim's transaction and under its launch
+ * row lock (94S-280). Anything else — the session bound, paused, spent, or
+ * the launch already asked to go — is left to the ordinary "nothing to claim".
+ *
+ * Deliberately trusts this host's catalog alone, which holds while one API
+ * process serves the gateway. With several replicas mid-rollout, the one
+ * that answers could fail a session another would run; 94S-295 makes the
+ * judgment wait for an operator-activated catalog revision and must land
+ * before the API runs as more than one replica.
+ */
+async function giveUpOnCatalogMismatch(
+  tx: Database,
+  launch: typeof workerLaunches.$inferSelect,
+  sessionId: string,
+  runnable: readonly RunnablePair[],
+  costLimitUsd: number,
+  now: Date,
+): Promise<"catalog_mismatch" | "context_gap" | null> {
+  const [session] = await tx
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+    .for("update");
+  if (
+    !session ||
+    session.podId !== null ||
+    !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
+    // Reserved for this launch and no later one.
+    session.executionId !== launch.executionId ||
+    budgetExceeded(session.costUsd, costLimitUsd) ||
+    isRunnable(session, runnable)
+  ) {
+    return null;
+  }
+  // Skipped when locked, as the candidate query does: another claim holding
+  // it is binding the session and waits on the row lock taken above, so
+  // waiting for it here would deadlock, and failing the session under it
+  // would be wrong.
+  const [signal] = await tx
+    .select({ sessionId: unassignedSessions.sessionId })
+    .from(unassignedSessions)
+    .where(
+      and(
+        eq(unassignedSessions.sessionId, session.id),
+        eq(unassignedSessions.partition, launch.partition),
+      ),
+    )
+    .limit(1)
+    .for("update", { skipLocked: true });
+  if (!signal) return null;
+  const ref = {
+    executionId: launch.executionId,
+    generation: launch.generation,
+  };
+  const [execution] = await tx
+    .select({ desiredState: executions.desiredState })
+    .from(executions)
+    .where(
+      and(
+        eq(executions.id, ref.executionId),
+        eq(executions.generation, ref.generation),
+        eq(executions.sessionId, session.id),
+      ),
+    )
+    .limit(1);
+  if (execution?.desiredState !== "running") return null;
+  // A context gap is the operator's call before the catalog's (94S-288): it
+  // holds the queued input for start_fresh, where a catalog give-up would
+  // fail it and leave the gap to be found only at the next claim.
+  const coverage = await contextCoverage(tx, session);
+  if (contextGap(session, coverage)) {
+    await raiseContextGap(tx, { session, coverage, detectedAt: "claim", now });
+    await tx
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, launch.executionId));
+    return "context_gap";
+  }
+  // Names ids only: the stored URL may embed a credential (94S-147).
+  const detail = `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  // As `recordLaunchFailure` gives a launch up: counted, the credential
+  // revoked, nothing left to rebuild.
+  await tx
+    .update(workerLaunches)
+    .set({
+      launchFailureCount: sql`${workerLaunches.launchFailureCount} + 1`,
+      launchAttempts: sql`${workerLaunches.launchAttempts} + 1`,
+      lastLaunchError: detail,
+      launchRetryAt: null,
+      nonceHash: null,
+      replacementReason: null,
+    })
+    .where(eq(workerLaunches.executionId, launch.executionId));
+  await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
+  return "catalog_mismatch";
+}
+
 async function bindingOf(
   tx: Database,
   session: SessionRow,
@@ -777,7 +882,20 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))
           .limit(1)
           .for("update", { of: unassignedSessions, skipLocked: true });
-        if (!candidate) return { outcome: "no_session" };
+        if (!candidate) {
+          const givenUp =
+            launch.sessionId === null
+              ? null
+              : await giveUpOnCatalogMismatch(
+                  tx,
+                  launch,
+                  launch.sessionId,
+                  input.runnable,
+                  input.costLimitUsd,
+                  input.now,
+                );
+          return { outcome: givenUp ?? "no_session" };
+        }
 
         // The candidate query locked only the signal; the context verdict
         // below must be read under the session's own lock, or a checkpoint
