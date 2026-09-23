@@ -101,10 +101,14 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
       if (block.type !== "text" || block.text === undefined) continue;
       const marker = block.text.indexOf(SPEC_MARKER);
       if (marker < 0) continue;
-      const spec = JSON.parse(
-        firstJsonObject(block.text.slice(marker + SPEC_MARKER.length)),
-      ) as GateSpec;
-      ids.push(spec.id);
+      // A log reader, not a planner: a prompt that only mentions the marker
+      // is skipped rather than failing the whole listing.
+      try {
+        const spec = JSON.parse(
+          firstJsonObject(block.text.slice(marker + SPEC_MARKER.length)),
+        ) as GateSpec;
+        ids.push(spec.id);
+      } catch {}
     }
   }
   return ids;

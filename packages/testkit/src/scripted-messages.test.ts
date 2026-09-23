@@ -130,6 +130,12 @@ describe("scripted Messages API", () => {
         { role: "user", content: prompt("q2") },
       ]),
     ).toEqual(["q1", "outer", "q2"]);
+    expect(
+      specIdsIn([
+        { role: "user", content: `about ${SPEC_MARKER}{unterminated` },
+        { role: "user", content: prompt("q3") },
+      ]),
+    ).toEqual(["q3"]);
     expect(specIdsIn([{ role: "user", content: "hi" }])).toEqual([]);
   });
 });
