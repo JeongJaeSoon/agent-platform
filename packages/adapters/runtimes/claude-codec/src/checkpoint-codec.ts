@@ -42,6 +42,23 @@ const workspaceArtifactSchema = objectRefSchema
         .some((segment) => segment === ".." || segment === ""),
     { message: "workspace path must be relative and free of .. segments" },
   );
+// The label is the transcript's subpath under the session directory, and a
+// restore plan hands it on as one; the same rule ClaudeSessionStore applies
+// when it writes the file, so a manifest can never name a place the store
+// would refuse.
+const subagentLabelSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (label) =>
+      !label.includes("\\") &&
+      label
+        .split("/")
+        .every(
+          (segment) => segment !== "" && segment !== "." && segment !== "..",
+        ),
+    { message: "subagent label must be a relative subpath free of . and .." },
+  );
 const transcriptRevisionSchema = z
   .object({
     entryCount: z.number().int().nonnegative(),
@@ -73,7 +90,7 @@ const manifestSchema = z
     transcripts: z
       .object({
         root: transcriptRevisionSchema,
-        subagents: z.record(z.string().min(1), transcriptRevisionSchema),
+        subagents: z.record(subagentLabelSchema, transcriptRevisionSchema),
       })
       .strict(),
     version: z.literal(2),

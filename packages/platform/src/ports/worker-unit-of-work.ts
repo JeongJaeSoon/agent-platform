@@ -158,6 +158,9 @@ export type FinalizeResult =
   // The turn already reached a terminal state under a different key or body.
   | { outcome: "finalize_conflict" }
   | { outcome: "checkpoint_rejected"; reason: string }
+  // The checkpoint names a revision other than the pointer's next one:
+  // another finalize moved it first. Ask again, upload, finalize again.
+  | { outcome: "checkpoint_conflict"; currentRevision: number | null }
   // A completed terminal was offered without a checkpoint while the session
   // carries a durable pending reason: the turn cannot be reported as durably
   // finished. Interrupted/failed/unknown terminals are never held back.

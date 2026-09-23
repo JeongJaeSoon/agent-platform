@@ -147,6 +147,28 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("refuses a subagent label that is not a safe relative subpath", () => {
+    for (const label of [
+      "../escape",
+      "a/../b",
+      "/abs",
+      "a//b",
+      "./a",
+      "a\\b",
+    ]) {
+      const { bytes } = encodeCheckpointManifest(manifest());
+      const body = JSON.parse(new TextDecoder().decode(bytes));
+      body.transcripts.subagents = {
+        [label]: body.transcripts.subagents["agents/reviewer"],
+      };
+      expect(() =>
+        decodeCheckpointManifest(
+          new TextEncoder().encode(JSON.stringify(body)),
+        ),
+      ).toThrow(/Invalid Claude checkpoint manifest/);
+    }
+  });
+
   test("refuses a version 1 manifest instead of reading it as this shape", () => {
     // Version 1 pinned a commit with no bundle behind it. Decoding one here
     // would mean inventing a bundle that was never uploaded, so the version

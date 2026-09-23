@@ -2222,6 +2222,8 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ checkpointRevision: 5 })
       .where(eq(sessions.id, session.session_id));
     // Neither the current revision nor one that skips ahead: only 6 is next.
+    // That is a race the worker recovers from by asking again, so it is a
+    // revision conflict, not an unavailable checkpoint.
     for (const revision of [5, 7]) {
       expect(
         await failure(
@@ -2234,7 +2236,7 @@ integration("worker gateway on PostgreSQL", () => {
             },
           }),
         ),
-      ).toEqual({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+      ).toEqual({ status: 409, code: "REVISION_CONFLICT" });
     }
     const [turn] = await db
       .select({ status: turns.status })
@@ -2807,6 +2809,21 @@ integration("worker gateway on PostgreSQL", () => {
       outcome: "conflict",
       currentRevision: null,
     });
+    // A turn's checkpoint belongs to its finalize; this path will not attach
+    // one, not even the session's own delivered turn.
+    await expect(
+      store.commitAtomic({
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/turnless-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        fence: fenceOf(claimed),
+        now: clock,
+        sessionId: session.session_id,
+        turnId: "1",
+      }),
+    ).rejects.toThrow(/turn-less checkpoints only/);
     expect(await commit(0, "a")).toEqual({ outcome: "committed", revision: 0 });
     expect(await commit(0, "a")).toEqual({ outcome: "replayed", revision: 0 });
     expect(await commit(0, "b")).toEqual({

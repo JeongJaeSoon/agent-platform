@@ -47,7 +47,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 
-export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409;
+export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
 // A heartbeat says the attempt is alive. "allocated" would walk the attempt
 // back to the state a claim leaves behind, which reopens the one-shot
@@ -165,6 +165,26 @@ function rejected(rejection: FenceRejection): never {
   );
 }
 
+/**
+ * The checkpoint service answers a bad checkpoint with a verdict and throws
+ * only when it could not reach a verdict: S3, git or the manifest read
+ * failed underneath it. Left alone, that throw becomes a non-retryable 500
+ * and the worker abandons a checkpoint that may be perfectly healthy.
+ */
+async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof WorkerGatewayError) throw error;
+    throw new WorkerGatewayError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      `Checkpoint storage could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      true,
+    );
+  }
+}
+
 // Both the replay lookup and the commit answer in the same shape.
 function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   switch (result.outcome) {
@@ -185,6 +205,12 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
         409,
         "CHECKPOINT_UNAVAILABLE",
         `Checkpoint rejected: ${result.reason}`,
+      );
+    case "checkpoint_conflict":
+      throw new WorkerGatewayError(
+        409,
+        "REVISION_CONFLICT",
+        `The checkpoint pointer stands at ${result.currentRevision ?? "none"}; request the next revision and upload again`,
       );
     case "checkpoint_required":
       throw new WorkerGatewayError(
@@ -715,12 +741,15 @@ export function createWorkerGateway(deps: {
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       if (request.checkpoint) {
-        const verdict = await checkpoints.verify({
-          fence,
-          turnId: request.turn_id,
-          checkpoint: request.checkpoint,
-          at: attempt.now,
-        });
+        const checkpoint = request.checkpoint;
+        const verdict = await checkpointInfrastructure(() =>
+          checkpoints.verify({
+            fence,
+            turnId: request.turn_id,
+            checkpoint,
+            at: attempt.now,
+          }),
+        );
         if (verdict.status === "rejected") {
           throw new WorkerGatewayError(
             409,
@@ -768,12 +797,15 @@ export function createWorkerGateway(deps: {
       // and the fence come from one snapshot. The revision it names is the
       // only one finalize will accept next; a pointer that moves in between
       // (another finalize of this attempt) makes the upload a 409 there.
-      const decision = await service.requestCheckpoint({
-        attemptId: fence.attemptId,
-        preparation: request.preparation,
-        sessionId: fence.sessionId,
-        pointer: state.pointer,
-      });
+      const preparation = request.preparation;
+      const decision = await checkpointInfrastructure(() =>
+        service.requestCheckpoint({
+          attemptId: fence.attemptId,
+          preparation,
+          sessionId: fence.sessionId,
+          pointer: state.pointer,
+        }),
+      );
       if (decision.status === "blocked") {
         return {
           status: "blocked",
@@ -799,16 +831,18 @@ export function createWorkerGateway(deps: {
       const service = requireProtocol();
       const state = await work.checkpointStateAtomic({ fence, now: now() });
       if (state.outcome !== "ok") rejected(state);
-      const result = await service.getRestorePlan({
-        runtime: {
-          cliVersion: request.runtime.cli_version,
-          engine: request.runtime.engine,
-          profileSha256: request.runtime.profile_sha256,
-          sdkVersion: request.runtime.sdk_version,
-        },
-        sessionId: fence.sessionId,
-        pointer: state.pointer,
-      });
+      const result = await checkpointInfrastructure(() =>
+        service.getRestorePlan({
+          runtime: {
+            cliVersion: request.runtime.cli_version,
+            engine: request.runtime.engine,
+            profileSha256: request.runtime.profile_sha256,
+            sdkVersion: request.runtime.sdk_version,
+          },
+          sessionId: fence.sessionId,
+          pointer: state.pointer,
+        }),
+      );
       switch (result.status) {
         case "none":
           return { status: "none" };

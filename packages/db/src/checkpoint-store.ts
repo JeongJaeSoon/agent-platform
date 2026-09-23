@@ -6,14 +6,12 @@ import type {
 } from "@agent-platform/platform";
 import { and, eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { checkpoints, sessions, turns } from "./schema.ts";
+import { checkpoints, sessions } from "./schema.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
   readCheckpointPointer,
 } from "./worker-unit-of-work.ts";
-
-const TURN_ID = /^[1-9]\d{0,9}$/;
 
 /**
  * The checkpoint pointer on PostgreSQL. Reads and turn-less commits share the
@@ -54,31 +52,26 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
         executionGeneration: input.fence.executionGeneration,
         authRevision: input.fence.authRevision,
       };
+      // A turn's checkpoint commits with its terminal in finalizeAtomic;
+      // attaching one here would bypass that turn's ownership and replay
+      // rules, so a turn id is refused rather than looked up.
+      if (input.turnId !== null) {
+        return Promise.reject(
+          new Error(
+            "createPostgresCheckpointStore commits turn-less checkpoints only; a turn's checkpoint goes through finalizeAtomic",
+          ),
+        );
+      }
       return db.transaction(async (tx) => {
         if (input.sessionId !== fence.sessionId)
           return { outcome: "stale_epoch" };
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
-        let turnRowId: number | null = null;
-        if (input.turnId !== null) {
-          if (!TURN_ID.test(input.turnId)) return { outcome: "stale_epoch" };
-          const [turn] = await tx
-            .select({ id: turns.id })
-            .from(turns)
-            .where(
-              and(
-                eq(turns.sessionId, fence.sessionId),
-                eq(turns.sequence, Number(input.turnId)),
-              ),
-            )
-            .limit(1);
-          turnRowId = turn?.id ?? null;
-        }
         const advanced = await advanceCheckpointPointer(tx, {
           fence,
           session: fenced.session,
           checkpoint: input.checkpoint,
-          turnRowId,
+          turnRowId: null,
           now: input.now,
         });
         if (advanced.outcome === "committed") {

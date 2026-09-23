@@ -750,6 +750,73 @@ describe("WorkerGateway", () => {
     });
   });
 
+  test("a checkpoint store that throws is a retryable 503, a verdict stays a 409", async () => {
+    const outage = new Error("S3 answered 503 SlowDown");
+    const throwing = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          throw outage;
+        },
+      },
+      checkpointProtocol: {
+        async requestCheckpoint() {
+          throw outage;
+        },
+        async getRestorePlan() {
+          throw outage;
+        },
+      },
+      options: { leaseTtlMs: 30_000 },
+    });
+    const finalizeRequest = {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "f",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed" as const,
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "sessions/s/checkpoints/0000000000/att_1/manifest.json",
+        manifest_sha256: "a".repeat(64),
+      },
+    };
+    for (const call of [
+      () => throwing.finalize(principal, finalizeRequest),
+      () =>
+        throwing.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "ready" },
+        }),
+      () => throwing.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        retryable: true,
+      });
+    }
+
+    const { instance } = gateway({
+      async finalizeAtomic() {
+        return { outcome: "checkpoint_conflict", currentRevision: 4 };
+      },
+    });
+    await expect(
+      instance.finalize(principal, finalizeRequest),
+    ).rejects.toMatchObject({ status: 409, code: "REVISION_CONFLICT" });
+  });
+
   test("a completed turn the session cannot checkpoint is answered 409 CHECKPOINT_UNAVAILABLE", async () => {
     const { instance } = gateway({
       async finalizeAtomic() {

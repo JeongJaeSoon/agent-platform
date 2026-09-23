@@ -1152,8 +1152,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           });
           if (advanced.outcome === "not_next") {
             return {
-              outcome: "checkpoint_rejected",
-              reason: `revision ${input.checkpoint.revision} is not the next after ${advanced.currentRevision ?? "none"}`,
+              outcome: "checkpoint_conflict",
+              currentRevision: advanced.currentRevision,
             };
           }
           checkpointRevision = advanced.revision;
