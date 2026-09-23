@@ -141,14 +141,18 @@ integration("scheduler launch failures on PostgreSQL (94S-207)", () => {
       sessionCostLimitUsd: 1_000,
     });
     const logged: string[] = [];
+    // The default backoff is judged on the database clock; a test spends it
+    // by moving the retry time into the past rather than waiting it out.
+    const spendBackoff = () =>
+      db
+        .update(workerLaunches)
+        .set({ launchRetryAt: sql`clock_timestamp() - interval '1 second'` })
+        .where(sql`${workerLaunches.launchRetryAt} IS NOT NULL`);
     const pass = () =>
       runScheduler({
         backend,
         image: "worker:test",
         launchFailureLimit: 3,
-        // Real waits on the database clock, kept short.
-        launchRetryBaseMs: 100,
-        launchRetryCapMs: 100,
         logger: {
           error: (message) => logged.push(message),
           info: () => {},
@@ -174,7 +178,7 @@ integration("scheduler launch failures on PostgreSQL (94S-207)", () => {
       i < 6 && !summaries.some((s) => s.launched.length);
       i += 1
     ) {
-      await Bun.sleep(150);
+      await spendBackoff();
       summaries.push(await pass());
     }
     const launchedIn = summaries.findIndex((s) => s.launched.length > 0);
@@ -223,7 +227,7 @@ integration("scheduler launch failures on PostgreSQL (94S-207)", () => {
     ).toHaveLength(2);
 
     // Given up on, a session is not admitted again on its own...
-    await Bun.sleep(150);
+    await spendBackoff();
     const quiet = await pass();
     expect(quiet.launched).toEqual([]);
     expect(quiet.failedLaunches).toEqual([]);
