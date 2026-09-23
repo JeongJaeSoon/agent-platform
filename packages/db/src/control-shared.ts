@@ -23,6 +23,8 @@ export function parseTurnSequence(turnId: string): number | null {
   return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
+export const OPEN_TURN_STATUSES = ["running", "needs_input"];
+
 // Receipts written for the inputs a decision or a cancellation settles.
 export const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 

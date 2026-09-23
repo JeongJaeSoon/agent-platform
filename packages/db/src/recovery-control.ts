@@ -42,7 +42,7 @@ const RECOVERY_DECISION = "recovery_decision";
 const RESUME = "resume";
 // Control receipts a close supersedes: whichever of these is still open
 // was waiting on an outcome the close makes irrelevant.
-const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume"];
+const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause"];
 
 type SessionRow = typeof sessions.$inferSelect;
 
@@ -73,7 +73,7 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
  * up in practice, key the check on the pointer's attempt against
  * checkpoint_pending_attempt_id instead.
  */
-function hasRestorePoint<
+export function hasRestorePoint<
   T extends {
     checkpointRevision: number | null;
     checkpointPendingReason: string | null;
@@ -138,7 +138,7 @@ async function checkpointCovers(
 
 // Every control decision leaves its audit record on the session's event
 // stream, where the operator and the SSE reader (94S-126) both find it.
-async function recordAudit(
+export async function recordAudit(
   tx: Database,
   input: {
     sessionId: string;

@@ -23,6 +23,7 @@ import {
   interruptRouteErrors,
   registerInterruptRoutes,
 } from "./routes/interrupt.ts";
+import { pauseRouteErrors, registerPauseRoutes } from "./routes/pause.ts";
 import { pendingRouteErrors, registerPendingRoutes } from "./routes/pending.ts";
 import {
   receiptRouteErrors,
@@ -35,7 +36,7 @@ import {
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
-const NOT_YET_IMPLEMENTED = ["POST /v1/sessions/{id}/pause"];
+const NOT_YET_IMPLEMENTED: string[] = [];
 
 function honoRoutes(only?: "public"): Set<string> {
   const auth = {
@@ -52,6 +53,7 @@ function honoRoutes(only?: "public"): Set<string> {
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
+      registerPauseRoutes(router, {} as SessionService);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });
@@ -117,6 +119,7 @@ test("each handler's error statuses match its OpenAPI operation", () => {
           eventRouteErrors[route] ??
           pendingRouteErrors[route] ??
           interruptRouteErrors[route] ??
+          pauseRouteErrors[route] ??
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     // Errors the /v1 middleware adds before the handler runs.

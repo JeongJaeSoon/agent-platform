@@ -470,8 +470,16 @@ export const finalizeResponseSchema = z.object({
   checkpoint_revision: revisionSchema.nullable(),
 });
 
+// `pause_control_id` makes the release the drained attempt's answer to that
+// pause: the coordinator commits the pause with it or refuses it (409
+// CHECKPOINT_UNAVAILABLE while no safe checkpoint covers the session, 409
+// REQUEST_STALE once the pause is not the open one), and a refused attempt
+// keeps its lease. Without it the release is unconditional.
 export const releaseRequestSchema = workerScopeSchema
-  .extend({ reason: z.string().min(1) })
+  .extend({
+    reason: z.string().min(1),
+    pause_control_id: z.string().min(1).optional(),
+  })
   .strict();
 export const releaseResponseSchema = z.object({ released: z.boolean() });
 

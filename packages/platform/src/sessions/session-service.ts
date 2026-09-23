@@ -9,6 +9,7 @@ import type {
   ListSessionsResponse,
   ListTurnsQuery,
   ListTurnsResponse,
+  PauseSessionRequest,
   PostSessionMessageRequest,
   PostSessionMessageResponse,
   Receipt,
@@ -105,6 +106,22 @@ const RESUME_REJECTIONS: Record<
     "Resume from a paused session is not available yet (94S-138)",
   ],
   resuming: ["SESSION_RESUMING", "Session is already resuming"],
+  closed: ["SESSION_CLOSED", "Session is closed"],
+};
+
+const PAUSE_REJECTIONS: Record<
+  Exclude<AdmissionState, "active">,
+  [ApiErrorCode, string]
+> = {
+  pausing: ["SESSION_PAUSED", "Session is already pausing"],
+  paused: ["SESSION_PAUSED", "Session is already paused"],
+  resuming: ["SESSION_RESUMING", "Session is resuming"],
+  stopping: ["SESSION_STOPPED", "Session is stopping"],
+  stopped: ["SESSION_STOPPED", "Session is stopped"],
+  recovery_required: [
+    "RECOVERY_REQUIRED",
+    "Session requires an operator recovery decision",
+  ],
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
 
@@ -279,6 +296,47 @@ export function createSessionService(deps: {
           );
         default:
           return { ...result.response, external_effects_reverted: false };
+      }
+    },
+
+    async pauseSession(
+      actor: Principal,
+      sessionId: string,
+      input: { idempotencyKey: string; body: PauseSessionRequest },
+    ): Promise<ControlAcceptedResponse> {
+      requireAuthorized(actor, "sessions:control", actor.ownerId);
+      const result = await controls.pauseAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        reason: input.body.reason ?? null,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected":
+          throw new SessionServiceError(
+            ...PAUSE_REJECTIONS[result.admissionState],
+          );
+        case "checkpoint_unavailable":
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            "No trusted committed checkpoint covers the last turn that ran, so a pause would have nothing to restore from; terminate instead",
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that cannot be paused",
+          );
+        default:
+          return result.response;
       }
     },
 

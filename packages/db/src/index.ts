@@ -6,6 +6,7 @@ export * from "./identity.ts";
 export * from "./interrupt-control.ts";
 export * from "./lease-reconcile.ts";
 export * from "./migration-head.ts";
+export * from "./pause-control.ts";
 export * from "./pending-control.ts";
 export * from "./pending-requests.ts";
 export * from "./postgres-unit-of-work.ts";

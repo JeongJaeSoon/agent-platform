@@ -938,7 +938,12 @@
                   },
                   "reason": {
                     "type": "string",
-                    "minLength": 1
+                    "enum": [
+                      "long_turn",
+                      "pending_request",
+                      "mirror_error",
+                      "checkpoint_unavailable"
+                    ]
                   }
                 },
                 "required": [
@@ -4717,6 +4722,36 @@
             }
           },
           "409": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {

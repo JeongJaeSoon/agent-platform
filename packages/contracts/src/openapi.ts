@@ -293,7 +293,8 @@ const routes: Route[] = [
     scope: "control",
     body: "PauseSessionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    // 422: a legacy pod binding, as for terminate.
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "post",

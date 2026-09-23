@@ -72,13 +72,14 @@ export type PendingControlInput = {
   settled: PendingSettlement[];
 };
 
-/** An interrupt the attempt owes; `turnId` is the public turn id. */
-export type DeliveredControl = {
-  controlId: string;
-  kind: "interrupt";
-  turnId: string;
-  issuedAt: Date;
-};
+/**
+ * A control intent the attempt owes an answer to. An interrupt names its
+ * turn (the public turn id); a pause names none: it asks the attempt to
+ * finish the one it has and take no other, and its id is the pause receipt's.
+ */
+export type DeliveredControl =
+  | { controlId: string; kind: "interrupt"; turnId: string; issuedAt: Date }
+  | { controlId: string; kind: "pause"; turnId: null; issuedAt: Date };
 
 export type PendingControlResult =
   | {
@@ -94,7 +95,7 @@ export interface WorkerPendingStore {
   pendingControlAtomic(
     input: PendingControlInput,
   ): Promise<PendingControlResult>;
-  // A hint for heartbeat: an answer or an interrupt is waiting for this
+  // A hint for heartbeat: an answer or a control intent is waiting for this
   // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;
 }

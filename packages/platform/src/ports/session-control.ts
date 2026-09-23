@@ -60,6 +60,21 @@ export type RecoveryDecisionResult =
   // (interface-drafts dd-dispatch § 8.3).
   | { outcome: "not_in_recovery"; admissionState: AdmissionState };
 
+export type PauseSessionInput = TerminateSessionInput;
+
+export type PauseSessionResult =
+  | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
+  | { outcome: "conflict" | "not_found" }
+  | { outcome: "revision_conflict"; currentRevision: number }
+  // Only an active session pauses; every other state keeps its own answer.
+  | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
+  // Nothing is running, so nothing will ever checkpoint, and the committed
+  // one does not reach the last turn that ran (or a blocker leaves it
+  // untrusted): pausing now would promise a restore point that is not there.
+  | { outcome: "checkpoint_unavailable" }
+  // Legacy pod binding, as for terminate.
+  | { outcome: "unsupported" };
+
 export type ResumeSessionInput = {
   principal: Principal;
   sessionId: string;
@@ -101,6 +116,13 @@ export interface SessionControl {
   terminateAtomic(
     input: TerminateSessionInput,
   ): Promise<TerminateSessionResult>;
+  /**
+   * api.md § 일시 중지와 저장 상태: admission goes pausing and the bound
+   * worker is asked to drain. Queued input and open questions stay. The
+   * receipt succeeds only once the execution is seen gone with a committed
+   * checkpoint covering every turn that ran.
+   */
+  pauseAtomic(input: PauseSessionInput): Promise<PauseSessionResult>;
   /**
    * api.md § 최소 운영 복구: abandon, confirm_completed or close, decided
    * under the session lock against the operator's expected_revision, with

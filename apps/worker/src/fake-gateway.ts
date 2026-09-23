@@ -85,6 +85,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   appendFailure: WorkerGatewayRequestError | undefined;
   /** Thrown by every first-time finalize while set. */
   finalizeFailure: WorkerGatewayRequestError | undefined;
+  /** Handed out by every pendingControl poll while set. */
+  control: ControlIntent | null = null;
+  /** Thrown by a release that answers a pause while set, as a refusal would be. */
+  pauseRefusal: WorkerGatewayRequestError | undefined;
 
   private readonly controls: ControlIntent[] = [];
   private readonly answers: Array<{
@@ -280,7 +284,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     return {
       lease_expires_at: this.leaseExpiresAt(),
       auth_revision: this.authRevision,
-      control_pending: false,
+      control_pending: this.control !== null,
     };
   }
 
@@ -344,7 +348,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
             !this.finalized.some(
               (done) => done.turn_id === control.target_turn_id,
             ),
-        ) ?? null,
+        ) ?? this.control,
       // Like the real gateway, a settled request is no longer handed out.
       answers: this.answers.filter(
         (entry) =>
@@ -390,6 +394,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   async release(request: ReleaseRequest): Promise<ReleaseResponse> {
     this.calls.push("release");
     this.releases.push(request);
+    if (request.pause_control_id !== undefined && this.pauseRefusal) {
+      throw this.pauseRefusal;
+    }
     return { released: true };
   }
 

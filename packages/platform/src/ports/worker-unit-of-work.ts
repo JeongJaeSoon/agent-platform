@@ -4,6 +4,7 @@ import type {
   CheckpointRef,
   ExecutionBackend,
   FinalizeRequest,
+  PauseBlockedReason,
   WorkerEvent,
   WorkspaceRepository,
 } from "@agent-platform/contracts";
@@ -194,8 +195,24 @@ export type CheckpointStateResult =
     }
   | FenceRejection;
 
-export type ReleaseInput = { fence: WorkerFence; now: Date; reason: string };
-export type ReleaseResult = { released: boolean };
+export type ReleaseInput = {
+  fence: WorkerFence;
+  now: Date;
+  reason: string;
+  /**
+   * Set when the release answers a pause: the attempt drained and asks the
+   * coordinator to commit the pause. It is refused, and the attempt keeps
+   * its lease and engine, unless the pause can be committed now.
+   */
+  pauseControlId?: string;
+};
+export type ReleaseResult =
+  | { released: boolean }
+  // The pause it answers is no longer the session's open one.
+  | { released: false; refused: "pause_stale" }
+  // Not at a safe boundary: the checkpoint the pause needs is not there.
+  | { released: false; refused: "pause_blocked"; reason: PauseBlockedReason }
+  | { released: false; refused: "lease_expired" };
 
 /**
  * Which resource a caller saw go, told apart from any other built for the

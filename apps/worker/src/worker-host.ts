@@ -80,7 +80,13 @@ export type TurnOutcome = {
 };
 
 export type WorkerRunSummary = {
-  outcome: "unclaimed" | "idle" | "drained" | "lease_lost" | "failed";
+  outcome:
+    | "unclaimed"
+    | "idle"
+    | "drained"
+    | "paused"
+    | "lease_lost"
+    | "failed";
   reason: string;
   turns: TurnOutcome[];
 };
@@ -99,8 +105,15 @@ export type WorkerHostOptions = {
   engines?: EngineExitWatch;
 };
 
-/** `failed` winds down like a drain; only the reported outcome differs. */
-type Stop = { kind: "drain" | "failed" | "idle" | "lost"; reason: string };
+/**
+ * `failed` winds down like a drain; only the reported outcome differs.
+ * `paused` comes after the release that committed a pause, so the shutdown
+ * that follows has nothing left to release.
+ */
+type Stop = {
+  kind: "drain" | "failed" | "idle" | "lost" | "paused";
+  reason: string;
+};
 
 type Settlement = {
   reason: string | null;
@@ -186,6 +199,12 @@ export class WorkerHost {
   private readonly stopped: Promise<void>;
   private announceStop: () => void = () => {};
   private released = false;
+  /**
+   * The pause this attempt was asked for (its control id). Not a stop: the
+   * turn in flight runs on with its questions and approvals, and only the
+   * release that commits the pause ends the loop.
+   */
+  private pauseControl: string | undefined;
   private turn: Turn | undefined;
 
   constructor(options: WorkerHostOptions) {
@@ -320,7 +339,9 @@ export class WorkerHost {
             ? "idle"
             : stop.kind === "failed"
               ? "failed"
-              : "drained",
+              : stop.kind === "paused"
+                ? "paused"
+                : "drained",
       reason: stop.reason,
       turns: this.turns,
     };
@@ -398,8 +419,10 @@ export class WorkerHost {
       reason: stop.reason,
     });
     // Tell the gateway now rather than at the next beat: a draining attempt
-    // is handed no further input.
-    if (stop.kind !== "lost") this.heartbeat?.beatNow();
+    // is handed no further input. A paused one has already released.
+    if (stop.kind !== "lost" && stop.kind !== "paused") {
+      this.heartbeat?.beatNow();
+    }
     if (stop.kind === "lost") {
       this.announceAbandon();
       return;
@@ -497,12 +520,20 @@ export class WorkerHost {
       // Before asking for input, not after: a delivered input the engine is
       // never given would be left for recovery as if it might have run.
       if (!(await this.interruptSettled())) return;
+      // Between turns, the one safe boundary a pause waits for.
+      if (this.pauseControl !== undefined) {
+        await this.commitPause(this.pauseControl);
+        return;
+      }
       // Not raced with a drain: an input the gateway hands over is this
       // attempt's to finish, and one dropped here stays open until the
       // reconciler decides it. The draining heartbeat `stop` sends makes the
       // gateway answer the poll empty, so waiting costs one poll interval.
       const next = await this.untilAbandoned(this.nextInput());
       if (next === undefined || next === null || this.ownerLost) return;
+      // Pausing hands out no input; the idle clock must not end the attempt
+      // before the pause is committed or refused.
+      if (next.input === null && this.pauseControl !== undefined) continue;
       if (next.input === null) {
         const idleFor = this.now().getTime() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
@@ -518,6 +549,67 @@ export class WorkerHost {
       // Idle is counted from the end of the last turn, not its start: a turn
       // longer than the idle timeout must not end the worker on the next poll.
       lastInputAt = this.now().getTime();
+    }
+  }
+
+  private requestPause(control: ControlIntent): void {
+    if (this.stopping !== undefined) return;
+    if (this.pauseControl === control.control_id) return;
+    this.pauseControl = control.control_id;
+    this.logger.info("worker.pause.requested", {
+      control_id: control.control_id,
+      turn_id: this.turn?.closed === false ? this.turn.turnId : null,
+    });
+  }
+
+  /**
+   * The turn is finished and finalized with its checkpoint; asking the
+   * coordinator to commit the pause is the release itself. Everything the
+   * attempt owes goes out first, since nothing it writes lands afterwards.
+   * A refusal — no safe checkpoint yet, or the pause is no longer open —
+   * keeps the lease and the engine: the session stays pausing and shows
+   * why, and only a later stop (terminate fences it, SIGTERM drains it)
+   * ends this attempt.
+   */
+  private async commitPause(controlId: string): Promise<void> {
+    const flushed = await settledWithin(
+      this.publisher?.idle() ?? Promise.resolve(),
+      this.options.timeouts.requestTimeoutMs,
+    );
+    if (!flushed || this.ownerLost) return;
+    await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
+    try {
+      const response = await this.withRetry(() =>
+        this.options.gateway.release({
+          ...this.scope,
+          turn_id: null,
+          reason: "pause",
+          pause_control_id: controlId,
+        }),
+      );
+      this.released = response.released;
+      if (!response.released) {
+        // Only a superseded epoch answers so; the heartbeat says the same.
+        this.lose("The pause release found the binding already superseded");
+        return;
+      }
+      this.logger.info("worker.pause.committed", { control_id: controlId });
+      this.stop({
+        kind: "paused",
+        reason: "Paused; the execution is released",
+      });
+    } catch (error) {
+      if (this.ownerLost) return;
+      const refused =
+        error instanceof WorkerGatewayRequestError &&
+        (error.code === "CHECKPOINT_UNAVAILABLE" ||
+          error.code === "REQUEST_STALE");
+      if (!refused) throw error;
+      this.logger.warn("worker.pause.blocked", {
+        control_id: controlId,
+        reason: describe(error),
+      });
+      await this.stopped;
     }
   }
 
@@ -928,6 +1020,10 @@ export class WorkerHost {
    * actually ended. The engine keeps its session; only this turn stops.
    */
   private onControl(control: ControlIntent): void {
+    if (control.kind === "pause") {
+      this.requestPause(control);
+      return;
+    }
     const turn = this.turn;
     const run = this.engine;
     if (control.kind !== "interrupt") return;
@@ -1253,6 +1349,8 @@ export class WorkerHost {
     // the release.
     this.pending?.stop();
     if (this.reportedOwnerLost()) return;
+    // The pause commit was the release.
+    if (this.released) return;
     this.released = true;
     const releasing = this.options.gateway
       .release({
