@@ -319,6 +319,26 @@ export class DockerClient {
   }
 
   /**
+   * Every container attached to the network, stopped and never-started ones
+   * included — what `NetworkInspect.Containers` leaves out. Asked by name
+   * and by id: a created container records the network by name only, and
+   * the id catches one that joined by id (Docker 29, measured).
+   */
+  async listContainersOn(network: {
+    Id: string;
+    Name: string;
+  }): Promise<ContainerSummary[]> {
+    const filters = encodeURIComponent(
+      JSON.stringify({ network: [network.Name, network.Id] }),
+    );
+    const response = await this.request(
+      "GET",
+      `/containers/json?all=true&filters=${filters}`,
+    );
+    return response.json();
+  }
+
+  /**
    * Not idempotent on the daemon's side: a container that is already
    * attached answers 403. Callers judge the outcome by inspecting the
    * attachment afterwards, not by the status code.

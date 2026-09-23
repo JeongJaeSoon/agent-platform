@@ -535,15 +535,23 @@ export class LocalDockerBackend implements ExecutionBackend {
       const existing = await this.client.inspectContainer(name);
       if (existing) {
         const verdict = contractVerdictOf(existing, this.config);
-        if (verdict === "newer") {
-          throw new IsolationContractError(
-            intent,
-            existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
-          );
+        try {
+          if (verdict === "newer") {
+            throw new IsolationContractError(
+              intent,
+              existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+            );
+          }
+          // Ownership first: a container that is not this launch's is a
+          // conflict whatever else is wrong with it, never ours to destroy.
+          this.assertSameLaunch(intent, existing);
+        } catch (error) {
+          // `launchedContainerId` refused such a container before the proxy
+          // went on; one that took the name since sits on a network that now
+          // has the proxy, so the proxy comes off before the refusal.
+          await this.detachProxies(network, new Set([proxy.Id]));
+          throw error;
         }
-        // Ownership first: a container that is not this launch's is a
-        // conflict whatever else is wrong with it, never ours to destroy.
-        this.assertSameLaunch(intent, existing);
         if (verdict === "current") assertOnlyOn(existing, network);
         if (
           verdict === "current" &&
@@ -797,8 +805,9 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   /**
    * What `reconcileNetworks` requires of a network whose container exists.
-   * A container that has not joined it yet is fine — an old-contract worker
-   * whose replacement had its network made ready ahead of the teardown.
+   * Only a stale worker may be off it — an old-contract container whose
+   * replacement had its network made ready ahead of the teardown. The
+   * verdict comes from labels, which a container cannot change after create.
    */
   private async assertLiveNetwork(
     network: NetworkInspect,
@@ -808,9 +817,11 @@ export class LocalDockerBackend implements ExecutionBackend {
   ): Promise<void> {
     const labels = container.Config.Labels ?? {};
     const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
-    const strangers = Object.entries(network.Containers ?? {})
-      .filter(([id]) => id !== container.Id && !proxyIds.has(id))
-      .map(([, member]) => member.Name);
+    const strangers = strangersIn(
+      await this.membersOf(network),
+      new Set([container.Id, ...proxyIds]),
+    );
+    const joined = network.Name in (container.NetworkSettings?.Networks ?? {});
     const problem =
       workerNetworkProblem(network, ref, this.config.installationId) ??
       (labels[LABELS.installation] !== this.config.installationId ||
@@ -818,17 +829,37 @@ export class LocalDockerBackend implements ExecutionBackend {
       labels[LABELS.generation] !== String(ref.generation)
         ? `is named for ${container.Name}, which is not this installation's worker for it`
         : strangers.length > 0
-          ? `has members other than its worker and the egress proxy (${strangers.sort().join(", ")})`
-          : null);
+          ? `has members other than its worker and the egress proxy (${strangers.join(", ")})`
+          : joined || contractVerdictOf(container, this.config) === "current"
+            ? onlyOnProblem(container, network)
+            : null);
     if (problem !== null) {
       throw new NetworkIsolationError(
         network.Name,
         `${problem}; ${await this.detachProxies(network, proxyIds)}`,
       );
     }
-    if (network.Name in (container.NetworkSettings?.Networks ?? {})) {
-      assertOnlyOn(container, network);
+  }
+
+  /**
+   * Everything attached to the network, id → name: the running endpoints
+   * the inspect lists and the stopped or never-started containers it
+   * leaves out, which rejoin the moment they start.
+   */
+  private async membersOf(
+    network: NetworkInspect,
+  ): Promise<Map<string, string>> {
+    const members = new Map<string, string>();
+    for (const [id, member] of Object.entries(network.Containers ?? {})) {
+      members.set(id, member.Name);
     }
+    for (const container of await this.client.listContainersOn(network)) {
+      members.set(
+        container.Id,
+        container.Names[0]?.replace(/^\//, "") ?? container.Id,
+      );
+    }
+    return members;
   }
 
   /**
@@ -840,17 +871,17 @@ export class LocalDockerBackend implements ExecutionBackend {
     network: NetworkInspect,
     proxyIds: Set<string>,
   ): Promise<string> {
-    const attached = () =>
-      Object.keys(network.Containers ?? {}).filter((id) => proxyIds.has(id));
-    for (const id of attached()) {
+    const attached = async (current: NetworkInspect) =>
+      [...(await this.membersOf(current)).keys()].filter((id) =>
+        proxyIds.has(id),
+      );
+    for (const id of await attached(network)) {
       await this.client
         .disconnectNetwork(network.Id, id)
         .catch(() => undefined);
     }
     const after = await this.client.inspectNetwork(network.Id);
-    const left = Object.keys(after?.Containers ?? {}).filter((id) =>
-      proxyIds.has(id),
-    );
+    const left = after === null ? [] : await attached(after);
     return left.length === 0
       ? "the egress proxy was detached and the network left in place"
       : "the egress proxy could NOT be detached; the network still reaches the allowlist";
@@ -942,13 +973,14 @@ export class LocalDockerBackend implements ExecutionBackend {
     if (problem !== null) throw new NetworkIsolationError(name, problem);
     // By id, not by name: a container under the worker's name that is not
     // this launch's was already refused by `launchedContainerId`.
-    const strangers = Object.entries(network.Containers ?? {})
-      .filter(([id]) => id !== proxy.Id && id !== workerId)
-      .map(([, member]) => member.Name);
+    const strangers = strangersIn(
+      await this.membersOf(network),
+      new Set(workerId === null ? [proxy.Id] : [proxy.Id, workerId]),
+    );
     if (strangers.length > 0) {
       throw new NetworkIsolationError(
         name,
-        `has members other than its worker and the egress proxy (${strangers.sort().join(", ")})`,
+        `has members other than its worker and the egress proxy (${strangers.join(", ")})`,
       );
     }
     await this.attachProxy(network, proxy);
@@ -1031,13 +1063,11 @@ export class LocalDockerBackend implements ExecutionBackend {
     proxies: ContainerSummary[],
   ): Promise<void> {
     const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
-    const strangers = Object.entries(network.Containers ?? {})
-      .filter(([id]) => !proxyIds.has(id))
-      .map(([, member]) => member.Name);
+    const strangers = strangersIn(await this.membersOf(network), proxyIds);
     if (strangers.length > 0) {
       throw new NetworkIsolationError(
         network.Name,
-        `still has members other than the egress proxy (${strangers.sort().join(", ")}); ${await this.detachProxies(network, proxyIds)}`,
+        `still has members other than the egress proxy (${strangers.join(", ")}); ${await this.detachProxies(network, proxyIds)}`,
       );
     }
     await this.detachProxies(network, proxyIds);
@@ -1472,6 +1502,10 @@ function workerNetworkProblem(
   installationId: string,
 ): string | null {
   const labels = network.Labels ?? {};
+  const name = networkNameFor(ref, installationId);
+  if (network.Name !== name) {
+    return `carries this execution's labels under another name than ${name}`;
+  }
   if (
     labels[LABELS.workerNetwork] !== "true" ||
     labels[LABELS.installation] !== installationId ||
@@ -1503,6 +1537,19 @@ function assertOnlyOn(
   container: ContainerInspect,
   network: NetworkInspect,
 ): void {
+  const problem = onlyOnProblem(container, network);
+  if (problem !== null) {
+    throw new NetworkIsolationError(
+      network.Name,
+      `${problem}; the container is not adopted`,
+    );
+  }
+}
+
+function onlyOnProblem(
+  container: ContainerInspect,
+  network: NetworkInspect,
+): string | null {
   const attached = Object.entries(container.NetworkSettings?.Networks ?? {});
   const [only] = attached;
   if (
@@ -1513,17 +1560,25 @@ function assertOnlyOn(
       only[1].NetworkID === "" ||
       only[1].NetworkID === network.Id)
   ) {
-    return;
+    return null;
   }
-  throw new NetworkIsolationError(
-    network.Name,
-    `is not the only network ${container.Name} is attached to (${
-      attached
-        .map(([name]) => name)
-        .sort()
-        .join(", ") || "none"
-    }); the container is not adopted`,
-  );
+  return `is not the only network ${container.Name} is attached to (${
+    attached
+      .map(([name]) => name)
+      .sort()
+      .join(", ") || "none"
+  })`;
+}
+
+/** Members outside `allowed`, by name, sorted for a stable message. */
+function strangersIn(
+  members: Map<string, string>,
+  allowed: Set<string>,
+): string[] {
+  return [...members]
+    .filter(([id]) => !allowed.has(id))
+    .map(([, name]) => name)
+    .sort();
 }
 
 function soleRunningProxy(

@@ -280,15 +280,31 @@ class FakeDocker {
     if (request.method === "GET" && path === "/containers/json") {
       const filters = JSON.parse(url.searchParams.get("filters") ?? "{}") as {
         label?: string[];
+        network?: string[];
       };
       const wanted = (filters.label ?? []).map(
         (l) => l.split("=") as [string, string],
       );
-      const matching = [...this.containers.values()].filter((c) =>
-        wanted.every(([k, v]) => c.body.Labels[k] === v),
+      // Any status: unlike a network inspect, the listing keeps stopped and
+      // never-started members.
+      const onNetwork = (id: string, mode?: string) =>
+        filters.network === undefined ||
+        filters.network.some((key) => {
+          const network = this.networkByIdOrName(key);
+          return (
+            network !== undefined &&
+            (mode === network.id ||
+              mode === network.name ||
+              network.attached.has(id))
+          );
+        });
+      const matching = [...this.containers.values()].filter(
+        (c) =>
+          wanted.every(([k, v]) => c.body.Labels[k] === v) &&
+          onNetwork(c.id, c.body.HostConfig.NetworkMode),
       );
-      const others = [...this.others.values()].filter((o) =>
-        wanted.every(([k, v]) => o.labels[k] === v),
+      const others = [...this.others.values()].filter(
+        (o) => wanted.every(([k, v]) => o.labels[k] === v) && onNetwork(o.id),
       );
       return json([
         ...matching.map((c) => ({
@@ -1839,6 +1855,36 @@ describe("LocalDockerBackend worker networks", () => {
     expect(networkOf(intent)).toBeUndefined();
   });
 
+  test("a stopped stranger on the network counts, though the inspect does not list it", async () => {
+    const intent = intentFor();
+    const network = docker.addNetwork(networkNameFor(intent, "test-a"), {
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workerNetwork]: "true",
+      },
+    });
+    const stranger = docker.addOther("sleeper", {}, "exited");
+    network.attached.set(stranger.id, { aliases: [] });
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow("sleeper");
+    expect(network.attached.has(PROXY)).toBe(false);
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a launcher that takes the name after the check leaves the network without the proxy", async () => {
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = { [LABELS.operationId]: "op-other" };
+
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+    expect(networkOf(intent)?.attached.has(PROXY)).toBe(false);
+  });
+
   test("terminate leaves a network something else still holds, and still terminates", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
@@ -1994,6 +2040,84 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
       removed: [],
       repaired: [],
     });
+  });
+
+  test("a stopped stranger keeps an orphan in place and the proxy off it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.containers.clear();
+    const stranger = docker.addOther("sleeper", {}, "exited");
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(stranger.id, { aliases: [] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.removed).toEqual([]);
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringMatching(/sleeper.*egress proxy was detached/),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+    expect(network?.attached.has(PROXY)).toBe(false);
+  });
+
+  test("a stopped proxy is taken off an orphan so the network can go", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.containers.clear();
+    const old = docker.addOther(
+      "egress-proxy-a-old",
+      { [LABELS.egressProxy]: "test-a" },
+      "exited",
+    );
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(old.id, { aliases: ["egress-proxy"] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result).toEqual({
+      failed: [],
+      removed: [networkNameFor(intent, "test-a")],
+      repaired: [],
+    });
+  });
+
+  test("a current worker that left its network for another is reported, the proxy taken off", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!worker) throw new Error("no worker");
+    worker.body.HostConfig.NetworkMode = "net-somewhere-else";
+    docker.addNetwork("somewhere-else");
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("is not the only network"),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+    expect(network?.attached.has(PROXY)).toBe(false);
+  });
+
+  test("an execution's labels on a network of another name do not earn it the proxy", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const own = docker.networks.get(networkNameFor(intent, "test-a"));
+    const copy = docker.addNetwork("lookalike", { labels: { ...own?.labels } });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("under another name"),
+        id: "lookalike",
+      },
+    ]);
+    expect(copy.attached.has(PROXY)).toBe(false);
   });
 
   test("a labelled network that names no execution is reported, not guessed at", async () => {

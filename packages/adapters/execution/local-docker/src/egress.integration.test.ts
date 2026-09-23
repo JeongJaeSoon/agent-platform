@@ -1088,6 +1088,44 @@ console.log("TLS " + response.status + " " + (await response.text()));
       expect(restored.output).toContain("allowed-upstream");
     }, 120_000);
 
+    test("a never-started stranger on a worker's network costs that network the proxy", async () => {
+      // The network inspect lists running endpoints only; this one would
+      // join the moment it started.
+      const network = networkNameFor(lateral.b, installationId);
+      const stranger = `ap-it-stranger-${suffix}`;
+      created.push(stranger);
+      const response = await raw(
+        "POST",
+        `/containers/create?name=${stranger}`,
+        {
+          Cmd: ["sleep", "600"],
+          HostConfig: { NetworkMode: network },
+          Image: IMAGE,
+        },
+      );
+      expect(response.status).toBe(201);
+      try {
+        const result = await backend.reconcileNetworks();
+
+        expect(result.failed).toEqual([
+          {
+            error: expect.stringMatching(
+              new RegExp(`${stranger}.*egress proxy was detached`),
+            ),
+            id: network,
+          },
+        ]);
+        const proxy = await client.inspectContainer(proxyName);
+        expect(
+          Object.keys(proxy?.NetworkSettings?.Networks ?? {}),
+        ).not.toContain(network);
+      } finally {
+        await raw("DELETE", `/containers/${stranger}?force=true`);
+      }
+      // Once it is gone the next pass puts the proxy back.
+      expect((await backend.reconcileNetworks()).repaired).toEqual([network]);
+    }, 60_000);
+
     test("the network of a force-removed worker is gone after one reconcile", async () => {
       const network = networkNameFor(lateral.c, otherInstallationId);
       await raw(

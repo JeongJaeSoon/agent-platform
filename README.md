@@ -33,7 +33,7 @@
 | `apps/scheduler` | eligible unassigned session 수요를 보고 `executions` launch intent를 커밋한 뒤 LocalDockerBackend로 worker 컨테이너를 보장하는 one-shot 프로세스 (94S-117 전까지의 control host 자리) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 bare Bun 이미지에 자기 디렉터리만 마운트해 기동한다 |
-| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, worker용 internal 네트워크와 egress proxy. `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
+| `infra/docker-compose.yml` | Postgres·LocalStack·Gitea와 one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 `apps/*/Dockerfile`로 빌드한 api·scheduler(루프)를 띄우고, `worker` profile은 scheduler가 띄울 worker 이미지를 빌드한다 |
 | `apps/*/Dockerfile` | api(+reconciler)·worker·scheduler 이미지. base는 `oven/bun:1.3.10` digest pin, `bun install --frozen-lockfile --production` multi-stage. `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`가 담당하고, `apps/api`가 이를 S3 object store·Postgres `CheckpointStore`·git bundle verifier로 조립해 Worker Gateway에 붙인다(94S-201). Gateway의 finalize는 manifest ref가 `sessions/<sid>/checkpoints/<rev>/<attempt>/manifest.json`이고 본문 digest·bundle이 검증된 checkpoint만 받으며, pointer는 `finalizeAtomic`(turn 있는 경로)과 `CheckpointStore.commitAtomic`(turn 없는 경로, 94S-137)이 같은 SQL helper로 "정확히 current+1"만 전진시킨다. 워커용 `/internal/worker/checkpoint-request`·`/restore-plan`은 lease fence 안에서 읽은 pointer로 답한다. 워커 heartbeat의 `transcript` 보고는 세션의 `last_transcript_persisted_at`과 `checkpoint_pending_reason`이 되고, `mirror_error`가 기록된 세션은 새 입력과 checkpoint 없는 completed 종료를 409 `CHECKPOINT_UNAVAILABLE`로 거절한다 — 같은 attempt의 checkpoint는 이를 지우지 못하고 **다른** attempt가 커밋한 checkpoint만 지운다(복구 결정은 94S-140). completed turn에 checkpoint를 강제하지는 않는다: 세션 상세의 `durability`가 `last_completed_turn_id`와 `last_checkpointed_turn_id`의 차이로 드러낸다. typed pending requests와 SDK 기반 resume은 D3다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
@@ -170,6 +170,7 @@ volume의 quota label이 지금 설정과 다르면 — 예전에 암묵 생성�
 **회수 실패 시 동작.**
 
 * 살아 있는 네트워크도 매 pass 같은 기준으로 다시 검사한다. 대상은 네트워크 모양, 이름에 대응하는 컨테이너가 이 설치의 그 worker인지, worker·proxy 외 구성원, worker가 다른 네트워크에도 붙었는지다. 교체를 앞두고 미리 만들어 둔 네트워크(아직 옛 컨테이너가 붙지 않은 것)는 문제로 보지 않는다.
+* 구성원은 network inspect가 보여 주는 실행 중 endpoint만이 아니다. 멈췄거나 한 번도 시작하지 않은 컨테이너도 시작하는 순간 붙으므로 함께 센다(`network` 필터로 컨테이너를 조회).
 * 모르는 구성원이 붙은 네트워크에서는 그 구성원을 떼어 내지 않는다. 강제로 떼면 흔적이 사라지기 때문이다. 대신 **이 설치의 proxy를 뗀다.** 모르는 컨테이너가 이 설치의 allowlist를 쓰지 못하게 하기 위해서다. 그 네트워크의 worker도 egress를 잃는다. 이런 네트워크는 그대로 두고 `networksFailed`로 보고하며 pass는 exit 1로 끝난다.
 * 목록 조회 자체가 실패하면(`networkScanFailed`) 역시 exit 1이다.
 * 남은 네트워크는 주소 풀을 계속 차지한다. 운영자가 `docker network inspect <name>`으로 구성원을 확인하고 정리한다.
