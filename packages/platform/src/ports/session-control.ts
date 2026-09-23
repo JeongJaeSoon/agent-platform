@@ -58,7 +58,13 @@ export type RecoveryDecisionResult =
   // it is the operator's answer to an unknown outcome, a pending kill or a
   // session left without a restorable checkpoint, not an ordinary close
   // (interface-drafts dd-dispatch § 8.3).
-  | { outcome: "not_in_recovery"; admissionState: AdmissionState };
+  | { outcome: "not_in_recovery"; admissionState: AdmissionState }
+  // start_fresh over a turn whose outcome is still unknown: abandon or
+  // confirm_completed settles it first.
+  | { outcome: "unknown_turn_left"; turnId: string }
+  // start_fresh on a stopped session whose workspace GC has claimed and not
+  // yet settled, as for resume.
+  | { outcome: "workspace_reclaiming" };
 
 export type PauseSessionInput = TerminateSessionInput;
 

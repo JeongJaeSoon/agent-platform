@@ -574,7 +574,12 @@ describe("WorkerGateway", () => {
       work: work({
         async checkpointStateAtomic(input) {
           stateCalls.push(input);
-          return { outcome: "ok", pointer, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer,
+            restorable: true,
+            pendingReason: null,
+          };
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -694,6 +699,50 @@ describe("WorkerGateway", () => {
     }
   });
 
+  test("restorePlan never plans a restore from a pointer that is not a restore point (94S-288)", async () => {
+    // A start_fresh decision retired this pointer: the claim handed out no
+    // restore, and a worker asking anyway must not be given the old engine
+    // session's transcript either.
+    const seen: unknown[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return {
+            outcome: "ok",
+            pointer: {
+              committedAt: new Date("2026-09-23T00:00:00Z"),
+              manifestRef: "sessions/s/checkpoints/0000000000/att_1/m.json",
+              manifestSha256: "a".repeat(64),
+              revision: 0,
+              turnId: "1",
+            },
+            restorable: false,
+            pendingReason: null,
+          };
+        },
+        // The refusal a missing plan leads to reaches the resume check,
+        // which leaves a session that is not resuming alone.
+        async failResumeAtomic() {
+          return { outcome: "ok", failed: false };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        requestCheckpoint: unimplemented,
+        async getRestorePlan(input) {
+          seen.push(input.pointer);
+          return { status: "none" };
+        },
+      },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toEqual({ status: "none" });
+    expect(seen).toEqual([null]);
+  });
+
   test("restorePlan puts the service's plan on the wire and passes refusals through", async () => {
     const seen: unknown[] = [];
     const recorded: RestoreBaseInput[] = [];
@@ -706,7 +755,12 @@ describe("WorkerGateway", () => {
     const instance = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: null,
+          };
         },
         async recordRestoreBaseAtomic(input) {
           recorded.push(input);
@@ -992,7 +1046,12 @@ describe("WorkerGateway", () => {
     const instance = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            pendingReason: null,
+            restorable: false,
+          };
         },
         async failResumeAtomic() {
           return { outcome: "stale_epoch" };
@@ -1051,7 +1110,12 @@ describe("WorkerGateway", () => {
     const throwing = createWorkerGateway({
       work: work({
         async checkpointStateAtomic() {
-          return { outcome: "ok", pointer: null, pendingReason: null };
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: null,
+          };
         },
       }),
       catalog: { profiles: {}, repositories: {} },

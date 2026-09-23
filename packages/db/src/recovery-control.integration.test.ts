@@ -675,7 +675,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     );
   });
 
-  test("an advisory refusal leaves the pointer to resume from: terminate then resume is accepted (94S-284)", async () => {
+  test("an advisory refusal keeps the pointer trusted, but a turn it left uncovered is a context gap: resume is refused and start_fresh continues (94S-284, 94S-288)", async () => {
     const partition = `advisory-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
     const l = await launch(partition, session.session_id);
@@ -735,25 +735,95 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       checkpointPendingReason: "background_writer",
     });
 
-    // Resumable, so not a recovery close's business.
-    expect(
-      await decide(session, {
-        decision: "close",
-        expected_revision: stopped.revision,
-        reason: "should be an ordinary close",
-      }),
-    ).toEqual({ outcome: "not_in_recovery", admissionState: "stopped" });
-    const resumed = await resume(session, stopped.revision);
-    if (resumed.outcome !== "accepted") throw new Error(resumed.outcome);
-    expect(resumed.response.receipt_status).toBe("succeeded");
+    // The pointer is still trusted (94S-284) but covers turn 1 only:
+    // resuming from it would drop turn 2 without a word (94S-288).
+    expect(await resume(session, stopped.revision)).toEqual({
+      outcome: "checkpoint_unavailable",
+    });
+    const fresh = await decide(session, {
+      decision: "start_fresh",
+      expected_revision: stopped.revision,
+      reason: "turn 2 was not captured",
+    });
+    if (fresh.outcome !== "accepted") throw new Error(fresh.outcome);
+    expect(fresh.response.receipt_status).toBe("succeeded");
     const after = await sessionRow(session.session_id);
     expect(after).toMatchObject({
+      admissionState: "active",
+      checkpointRevision: 0,
+      contextResetCheckpointRevision: 0,
+      contextResetTurnSequence: 2,
+      checkpointPendingReason: null,
+    });
+    await append(session, "carry on");
+  });
+
+  test("a stopped session whose uncaptured turn left no gap still resumes over an advisory reason (94S-284)", async () => {
+    const partition = `advisory-covered-${crypto.randomUUID()}`;
+    const session = await queuedSession(partition);
+    const l = await launch(partition, session.session_id);
+    const claimed = await claim(l);
+    const principal = principalOf(claimed);
+    const scope = scopeOf(claimed);
+    const first = await gateway.nextInput(principal, scope);
+    if (!first.input) throw new Error("no input delivered");
+    await gateway.finalize(principal, {
+      ...scope,
+      turn_id: first.input.turn_id,
+      finalize_key: `${scope.attempt_id}:${first.input.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${session.session_id}/0`,
+        manifest_sha256: "0".repeat(64),
+      },
+    });
+    // A later capture of the same turn is refused as not quiescent: the
+    // reason is recorded, but revision 0 already covers every turn.
+    expect(
+      await gateway.requestCheckpoint(principal, {
+        ...scope,
+        turn_id: first.input.turn_id,
+        preparation: {
+          status: "rejected",
+          reason: "background_writer",
+          detail: "Background task(s) still running: bash_1",
+        },
+      }),
+    ).toMatchObject({ status: "blocked", reason: "background_writer" });
+
+    await terminate(session);
+    await gateway.confirmExecutionGone(l.executionId);
+    const stopped = await sessionRow(session.session_id);
+    expect(stopped).toMatchObject({
+      admissionState: "stopped",
+      checkpointRevision: 0,
+      checkpointPendingReason: "background_writer",
+    });
+    // Resumable, so neither a recovery close's nor start_fresh's business.
+    for (const decision of ["close", "start_fresh"] as const) {
+      expect(
+        await decide(session, {
+          decision,
+          expected_revision: stopped.revision,
+          reason: "should be refused",
+        }),
+      ).toEqual({ outcome: "not_in_recovery", admissionState: "stopped" });
+    }
+    const resumed = await resume(session, stopped.revision);
+    if (resumed.outcome !== "accepted") throw new Error(resumed.outcome);
+    expect(await sessionRow(session.session_id)).toMatchObject({
       admissionState: "active",
       checkpointRevision: 0,
       // Only a later commit clears it, which the resumed run now can make.
       checkpointPendingReason: "background_writer",
     });
-    await append(session, "carry on");
   });
 
   test.each([

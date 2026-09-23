@@ -397,6 +397,15 @@ export const sessions = pgTable(
     // is held to the base it was given.
     checkpointFallbackRevision: integer("checkpoint_fallback_revision"),
     checkpointRestoreAttemptId: text("checkpoint_restore_attempt_id"),
+    // Set by a start_fresh recovery decision (94S-288): the last turn that
+    // ran before the operator accepted losing its context, and the pointer
+    // the session had then. Turns up to the first are no longer a context
+    // gap; checkpoints up to the second are retired and never restored,
+    // since a new engine session started on top of neither.
+    contextResetTurnSequence: integer("context_reset_turn_sequence"),
+    contextResetCheckpointRevision: integer(
+      "context_reset_checkpoint_revision",
+    ),
     // The worker's last successful transcript mirror write, as it reported
     // it; only ever moves forward.
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {

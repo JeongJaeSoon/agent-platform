@@ -13,10 +13,11 @@ import type {
 } from "@agent-platform/runtime-core";
 import { workspacePathsProblem } from "@agent-platform/runtime-core";
 
-import type {
-  CheckpointFence,
-  CheckpointPointer,
-  CheckpointStore,
+import {
+  CHECKPOINT_ROOT_PARENT,
+  type CheckpointFence,
+  type CheckpointPointer,
+  type CheckpointStore,
 } from "../ports/checkpoint-store.ts";
 import {
   rejectUnverifiedWorkspaceBundles,
@@ -1082,6 +1083,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
  * where that is always the revision before.
  */
 function parentOf(checkpoint: CheckpointPointer): number | null {
+  if (checkpoint.parentRevision === CHECKPOINT_ROOT_PARENT) return null;
   if (checkpoint.parentRevision != null) return checkpoint.parentRevision;
   return checkpoint.revision > 0 ? checkpoint.revision - 1 : null;
 }

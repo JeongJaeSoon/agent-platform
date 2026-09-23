@@ -93,6 +93,10 @@ export type ClaimResult =
   // The bound session's profile is not in this host's catalog, so the replay
   // is refused before it rotates anything.
   | { outcome: "profile_unavailable" }
+  // The session's last ran turn has no trusted checkpoint covering it
+  // (94S-288). Nothing was bound: the session went to recovery_required in
+  // the same transaction and the launch was asked to go.
+  | { outcome: "context_gap" }
   | { outcome: "no_session" };
 
 // The fence as it stood when the token was issued. A request body may not
@@ -218,6 +222,10 @@ export type CheckpointStateResult =
       // The pointer from the same snapshot as the fence; the protocol works
       // from this rather than re-reading it unfenced.
       pointer: CheckpointPointer | null;
+      // Whether that pointer may be restored from (hasRestorePoint): not
+      // under a blocking reason, and not retired by a start_fresh decision
+      // (94S-288). The next revision still counts from `pointer` either way.
+      restorable: boolean;
       pendingReason: CheckpointBlockReason | null;
     }
   | FenceRejection;

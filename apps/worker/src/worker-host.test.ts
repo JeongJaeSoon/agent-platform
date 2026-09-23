@@ -351,6 +351,31 @@ describe("WorkerHost turn loop", () => {
     expect(summary.outcome).toBe("unclaimed");
     expect(gateway.releases).toEqual([]);
   });
+
+  test("leaves at once, unclaimed, when the session waits on an operator instead (94S-288)", async () => {
+    const gateway = new FakeWorkerGateway();
+    let claims = 0;
+    gateway.bootstrapClaim = async () => {
+      claims += 1;
+      throw new WorkerGatewayRequestError(
+        409,
+        "RECOVERY_REQUIRED",
+        "The session has turns no checkpoint covers; an operator decides how it continues",
+        false,
+      );
+    };
+    // A deadline long enough that only the refusal itself can end the loop.
+    const { host } = harness([], {
+      gateway,
+      timeouts: { claimTimeoutMs: 60_000 },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("unclaimed");
+    expect(claims).toBe(1);
+    expect(gateway.releases).toEqual([]);
+  });
 });
 
 describe("WorkerHost approvals", () => {

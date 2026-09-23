@@ -149,6 +149,7 @@ describe("session contracts", () => {
         last_checkpointed_turn_id: null,
         checkpoint_pending_reason: null,
         checkpoint_fallback_revision: null,
+        context_reset_turn_id: null,
       },
       created_at: AT,
       updated_at: AT,
@@ -334,6 +335,94 @@ describe("answers, pending requests and control", () => {
     ).toBe(true);
     expect(
       pendingRequestSchema.safeParse({ ...base, kind: "question" }).success,
+    ).toBe(false);
+  });
+
+  test("a context gap is visible on the detail, and start_fresh takes no target", () => {
+    // 94S-288: a session held back because no checkpoint covers the turns
+    // that ran says which ones, and a reset stays visible afterwards.
+    const base = {
+      id: SESSION_ID,
+      revision: 3,
+      admission_state: "recovery_required",
+      status: "failed",
+      runtime: {
+        kind: "claude_agent_sdk",
+        version: "0.3.270",
+        profile_id: "claude-coding-v1",
+      },
+      repository_id: "sample-app",
+      current_turn_id: null,
+      queued_turn_count: 1,
+      last_event_at: AT,
+      execution: null,
+      checkpoint_revision: null,
+      pending_request_count: 0,
+      created_at: AT,
+      updated_at: AT,
+    };
+    const durability = {
+      last_transcript_persisted_at: null,
+      checkpoint_committed_at: null,
+      checkpoint_revision: null,
+      last_completed_turn_id: "1",
+      last_checkpointed_turn_id: null,
+      checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
+    };
+    const held = getSessionResponseSchema.parse({
+      ...base,
+      attention: {
+        code: "CONTEXT_GAP",
+        last_ran_turn_id: "1",
+        checkpointed_turn_id: null,
+      },
+      durability: { ...durability, context_reset_turn_id: null },
+    });
+    expect(held.attention).toEqual({
+      code: "CONTEXT_GAP",
+      last_ran_turn_id: "1",
+      checkpointed_turn_id: null,
+    });
+    expect(
+      getSessionResponseSchema.safeParse({
+        ...base,
+        attention: { code: "CONTEXT_GAP", checkpointed_turn_id: null },
+        durability: { ...durability, context_reset_turn_id: null },
+      }).success,
+    ).toBe(false);
+    // Required, not optional: a reader must be able to tell "never reset"
+    // from a server that does not report it.
+    expect(
+      getSessionResponseSchema.safeParse({
+        ...base,
+        attention: null,
+        durability,
+      }).success,
+    ).toBe(false);
+    expect(
+      getSessionResponseSchema.parse({
+        ...base,
+        admission_state: "active",
+        status: "idle",
+        attention: null,
+        durability: { ...durability, context_reset_turn_id: "1" },
+      }).durability.context_reset_turn_id,
+    ).toBe("1");
+
+    const decision = { expected_revision: 3, reason: "accept the loss" };
+    expect(
+      recoveryDecisionRequestSchema.safeParse({
+        ...decision,
+        decision: "start_fresh",
+      }).success,
+    ).toBe(true);
+    expect(
+      recoveryDecisionRequestSchema.safeParse({
+        ...decision,
+        decision: "start_fresh",
+        target_turn_id: "1",
+      }).success,
     ).toBe(false);
   });
 

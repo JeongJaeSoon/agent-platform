@@ -2648,7 +2648,13 @@ integration("worker gateway on PostgreSQL", () => {
         result: null,
         usage: null,
       },
-      checkpoint: null,
+      // Covered, so the next claim restores it rather than meeting the
+      // context gate (94S-288).
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "s3://bucket/release-0.json",
+        manifest_sha256: "a".repeat(64),
+      },
     });
     // A second input arrives while the worker is still bound.
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
@@ -2710,6 +2716,7 @@ integration("worker gateway on PostgreSQL", () => {
     const reclaimed = await claim(next);
     expect(reclaimed.session_id).toBe(session.session_id);
     expect(reclaimed.lease_epoch).toBe(claimed.lease_epoch + 3);
+    expect(reclaimed.restore?.revision).toBe(0);
     const redelivered = await gateway.nextInput(
       principalOf(reclaimed),
       scopeOf(reclaimed),
@@ -2863,7 +2870,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
-  test("a mirror failure holds new input and completed terminals; only another attempt's checkpoint releases it", async () => {
+  test("a mirror failure holds new input and completed terminals, and a checkpoint from the same attempt does not release it", async () => {
     const partition = partitionFor("mirror");
     const { session, launch: l, claimed } = await claimAndDeliver(partition);
     const ownerId =
@@ -2928,7 +2935,12 @@ integration("worker gateway on PostgreSQL", () => {
         fence: fenceOf(claimed),
         now: clock,
       }),
-    ).toEqual({ outcome: "ok", pointer: null, pendingReason: "mirror_error" });
+    ).toEqual({
+      outcome: "ok",
+      pointer: null,
+      restorable: false,
+      pendingReason: "mirror_error",
+    });
 
     // New input is refused: a turn run now could never be reported done.
     expect(await append("third input")).toEqual({
@@ -2972,46 +2984,32 @@ integration("worker gateway on PostgreSQL", () => {
     ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
     expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
 
-    // A fresh run re-mirrors from the local file; its checkpoint is what
-    // shows the transcript is whole again.
+    // The pointer the failing run committed is not trusted, so no worker
+    // can take the session on from it: once the execution is gone the
+    // session waits on an operator instead of being restored from a
+    // transcript that may be missing entries (94S-288).
     await gateway.release(principalOf(claimed), {
       ...scopeOf(claimed),
       reason: "mirror_error",
     });
     await gateway.confirmExecutionGone(l.executionId);
-    await db
-      .update(unassignedSessions)
-      .set({ partition })
-      .where(eq(unassignedSessions.sessionId, session.session_id));
-    const again = await claim(await launch(partition, session.session_id));
-    expect(again.restore?.revision).toBe(0);
-    const next = await gateway.nextInput(principalOf(again), scopeOf(again));
-    expect(next.input?.turn_id).toBe("2");
+    const [held] = await db
+      .select({
+        admission: sessions.admissionState,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect(held).toEqual({ admission: "recovery_required", status: "failed" });
     expect(
-      await gateway.finalize(principalOf(again), {
-        ...scopeOf(again, "2"),
-        turn_id: "2",
-        finalize_key: "fin-2",
-        final_source_sequence: 0,
-        terminal: {
-          status: "completed",
-          reason: null,
-          result: null,
-          usage: null,
-        },
-        checkpoint: {
-          revision: 1,
-          manifest_ref: "s3://bucket/mirror-1.json",
-          manifest_sha256: "b".repeat(64),
-        },
-      }),
-    ).toMatchObject({ status: "completed", checkpoint_revision: 1 });
-    expect(await row()).toMatchObject({
-      pending: null,
-      pendingAttempt: null,
-      revision: 1,
-    });
-    expect((await append("fourth input")).outcome).toBe("accepted");
+      (
+        await db
+          .select({ id: unassignedSessions.sessionId })
+          .from(unassignedSessions)
+          .where(eq(unassignedSessions.sessionId, session.session_id))
+      ).length,
+    ).toBe(0);
+    expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
   });
 
   test("a mirror failure never holds back an interrupt that commits its checkpoint", async () => {
@@ -3109,6 +3107,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({
       outcome: "ok",
       pointer: null,
+      restorable: false,
       pendingReason: "background_writer",
     });
     expect(await pending()).toBe("background_writer");
@@ -3161,7 +3160,12 @@ integration("worker gateway on PostgreSQL", () => {
         fence: fenceOf(claimed),
         now: clock,
       }),
-    ).toEqual({ outcome: "ok", pointer: null, pendingReason: null });
+    ).toEqual({
+      outcome: "ok",
+      pointer: null,
+      restorable: false,
+      pendingReason: null,
+    });
     await gateway.finalize(principalOf(claimed), {
       ...scopeOf(claimed, "1"),
       turn_id: "1",
@@ -3197,6 +3201,8 @@ integration("worker gateway on PostgreSQL", () => {
         turnId: "1",
         versionsHeld: false,
       },
+      // The blocker just recorded makes the pointer untrusted at once.
+      restorable: false,
       pendingReason: "mirror_error",
     });
     // The store reads the same pointer, outside any fence.

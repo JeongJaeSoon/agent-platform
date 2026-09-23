@@ -594,6 +594,44 @@ integration(
       expect((await receiptRow(otherResume.receipt_id)).status).toBe("failed");
     });
 
+    test("a resume whose pointer stopped covering the last turn fails at the claim, with its receipt (94S-288)", async () => {
+      const { session } = await pausedSession("gap");
+      const resume = await accepted("resume", session);
+      // A blocker recorded after the pause leaves the pointer untrusted, so
+      // nothing restorable covers turn 1 any more.
+      await db
+        .update(sessions)
+        .set({ checkpointPendingReason: "mirror_error" })
+        .where(eq(sessions.id, session.sessionId));
+      const intent = await reserve(session);
+      const nonce = await scheduler().issueBootstrapNonce({
+        executionId: intent.executionId,
+        generation: intent.generation,
+      });
+      expect(
+        await failure(
+          gateway.bootstrapClaim(bootstrap, {
+            execution_id: intent.executionId,
+            execution_generation: intent.generation,
+            credential: { kind: "launch_nonce", nonce },
+          }),
+        ),
+      ).toBe("RECOVERY_REQUIRED");
+      expect((await sessionRow(session.sessionId)).admissionState).toBe(
+        "recovery_required",
+      );
+      expect(await receiptRow(resume.receipt_id)).toMatchObject({
+        status: "failed",
+        error: { code: "RECOVERY_REQUIRED" },
+      });
+      expect(
+        await db
+          .select()
+          .from(unassignedSessions)
+          .where(eq(unassignedSessions.sessionId, session.sessionId)),
+      ).toHaveLength(0);
+    });
+
     test("claimed workers that end before ready are relaunched up to the limit, then the resume fails; a launch that never claimed spends nothing", async () => {
       const { session } = await pausedSession("gone");
       const resume = await accepted("resume", session);
@@ -837,22 +875,28 @@ integration(
       return { session, pause };
     }
 
-    test("a blocked pause whose worker is lost fails and the session is active again, its queue signalled (94S-285)", async () => {
+    test("a blocked pause whose worker is lost fails, and the turn its checkpoint never covered sends the session to an operator (94S-285, 94S-288)", async () => {
       const { session, pause } = await blockedPauseLosesItsWorker("lost", null);
       const row = await sessionRow(session.sessionId);
-      expect(row.admissionState).toBe("active");
+      // The pause fails back to active, but the queued input would run on a
+      // new engine session without the turn that ran: a context gap.
+      expect(row.admissionState).toBe("recovery_required");
       expect(row.executionId).toBeNull();
       const receipt = await receiptRow(pause.receipt_id);
       expect(receipt.status).toBe("failed");
       expect(receipt.error).toMatchObject({ code: "CHECKPOINT_UNAVAILABLE" });
       expect(JSON.stringify(receipt.error)).toContain("checkpoint_unavailable");
-      expect(await admissionEvents(session)).toEqual(["pausing", "active"]);
+      expect(await admissionEvents(session)).toEqual([
+        "pausing",
+        "active",
+        "recovery_required",
+      ]);
       expect(
         await db
           .select()
           .from(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, session.sessionId)),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
       // Nothing is left open for the pause.
       expect(
         await db
