@@ -13,8 +13,9 @@ import {
   findApiKey,
   revokeApiKey,
 } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import { createLogger } from "@agent-platform/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 
 export interface ApiKeyStore {
   find(keyHash: Uint8Array): Promise<ApiKeyRecord | null>;
@@ -165,7 +166,12 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is required");
   }
 
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = createEnforcedPool(
+    databaseUrl,
+    createLogger(),
+    "keys",
+    JOB_POOL_TIMEOUTS,
+  );
   try {
     const store = new DatabaseApiKeyStore(drizzle(pool));
     if (command.command === "revoke") {

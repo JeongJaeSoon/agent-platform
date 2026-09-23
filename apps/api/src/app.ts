@@ -9,7 +9,10 @@ import {
   readyResponseSchema,
 } from "@agent-platform/contracts";
 import type { ResolvedWebSession } from "@agent-platform/db";
-import { RequestDeadlineExceededError } from "@agent-platform/db/pool";
+import {
+  isConnectionFailure,
+  RequestDeadlineExceededError,
+} from "@agent-platform/db/pool";
 import {
   createLogger,
   type StructuredLogger,
@@ -105,43 +108,23 @@ export class ApiHttpError extends Error {
   }
 }
 
-const SOCKET_ERROR_CODES = new Set([
-  "ETIMEDOUT",
-  "EPIPE",
-  "EHOSTUNREACH",
-  "ENETUNREACH",
-  "EAI_AGAIN",
-]);
-
-// pg raises these without a code when a socket drops, a timeout fires, or a
-// saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
-const PG_CONNECTION_MESSAGES =
-  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect|Client has encountered a connection error|Client was closed and is not queryable)/;
-
-// Postgres connection (08xxx), insufficient-resources (53xxx: too many
-// connections, disk full) and operator-intervention (57xxx: admin shutdown,
-// and 57014 for a statement_timeout cancel) SQLSTATEs, node socket errors,
-// and pg's code-less connection failures. Walks the cause chain because
-// Drizzle and pg-pool both wrap the original error.
+// A lost connection (isConnectionFailure), insufficient resources (53xxx:
+// too many connections, disk full), operator intervention (57xxx: admin
+// shutdown, and 57014 for a statement_timeout cancel), or the request's own
+// deadline. Walks the cause chain because Drizzle and pg-pool both wrap the
+// original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
-    if (current instanceof RequestDeadlineExceededError) {
-      return true;
-    }
-    const code = (current as { code?: unknown })?.code;
     if (
-      typeof code === "string" &&
-      (code.startsWith("08") ||
-        code.startsWith("53") ||
-        code.startsWith("57") ||
-        code.startsWith("ECONN") ||
-        SOCKET_ERROR_CODES.has(code))
+      current instanceof RequestDeadlineExceededError ||
+      isConnectionFailure(current)
     ) {
       return true;
     }
+    const code = (current as { code?: unknown } | null)?.code;
     if (
-      current instanceof Error &&
-      PG_CONNECTION_MESSAGES.test(current.message)
+      typeof code === "string" &&
+      (code.startsWith("53") || code.startsWith("57"))
     ) {
       return true;
     }
@@ -162,6 +145,8 @@ export function storageUnavailableError(): ApiHttpError {
   );
 }
 
+// What the error hook answers on any route for a failure nothing mapped.
+export const globalRouteErrors = [500];
 // Errors the auth middleware can produce on every /v1 route; the OpenAPI
 // parity test holds the root operation to this.
 export const rootRouteErrors = [401, 503];
