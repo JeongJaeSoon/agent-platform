@@ -116,6 +116,33 @@ schema_check() {
   return "$EXIT_SCHEMA_MISMATCH"
 }
 
+# One section of an ini file on stdin as `key=value` lines, trimmed of the
+# spaces Gitea's writer puts around `=`. A key of the same name in another
+# section is not printed.
+ini_section() {
+  awk -v want="[$1]" '
+    /^[[:space:]]*\[/ { line = $0; gsub(/[[:space:]]/, "", line); in_section = (line == want); next }
+    /^[[:space:]]*[;#]/ { next }
+    in_section && /=/ {
+      key = $0; sub(/[[:space:]]*=.*/, "", key); sub(/^[[:space:]]*/, "", key)
+      value = $0; sub(/^[^=]*=[[:space:]]*/, "", value); sub(/[[:space:]]*$/, "", value)
+      print key "=" value
+    }'
+}
+
+# True when the Gitea app.ini on stdin gives the restored installation's own
+# address (loopback, the given published ports) as its external one.
+gitea_address_is() {
+  local http_port="$1" ssh_port="$2" server want
+  server="$(ini_section server)"
+  for want in "ROOT_URL=http://127.0.0.1:${http_port}/" DOMAIN=127.0.0.1 SSH_DOMAIN=127.0.0.1 "SSH_PORT=${ssh_port}"; do
+    if ! printf '%s\n' "$server" | grep -qxF "$want"; then
+      log "gitea: app.ini [server] does not say $want"
+      return 1
+    fi
+  done
+}
+
 # True when the compose project already owns any container, volume or network.
 # Restore never reuses one: an existing project means existing data. A daemon
 # that cannot be asked is a failure, not an empty project.

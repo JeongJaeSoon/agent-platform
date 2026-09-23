@@ -136,6 +136,83 @@ describe("restore schema gate", () => {
   });
 });
 
+describe("restored gitea address check", () => {
+  const appIni = (server: string) =>
+    [
+      "APP_NAME = Gitea",
+      "",
+      "[server]",
+      server,
+      "HTTP_PORT = 3000",
+      "SSH_LISTEN_PORT = 22",
+      "",
+      "[security]",
+      "INSTALL_LOCK = true",
+      "",
+    ].join("\n");
+
+  const addressIs = async (ini: string) => {
+    const dir = await mkdtemp(join(tmpdir(), "backup-restore-ini-"));
+    try {
+      await writeFile(join(dir, "app.ini"), ini);
+      return await bash(
+        `source "${lib}"; gitea_address_is 25434 25435 < "${join(dir, "app.ini")}"`,
+        repoRoot,
+      );
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  };
+
+  test("accepts the restore address as environment-to-ini writes it", async () => {
+    const result = await addressIs(
+      appIni(
+        [
+          "DOMAIN = 127.0.0.1",
+          "SSH_DOMAIN = 127.0.0.1",
+          "ROOT_URL = http://127.0.0.1:25434/",
+          "SSH_PORT = 25435",
+        ].join("\n"),
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("refuses the source's address left in place", async () => {
+    const result = await addressIs(
+      appIni(
+        [
+          "DOMAIN = example.test",
+          "SSH_DOMAIN = example.test",
+          "ROOT_URL = http://example.test:3001/",
+          "SSH_PORT = 2222",
+        ].join("\n"),
+      ),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "does not say ROOT_URL=http://127.0.0.1:25434/",
+    );
+  });
+
+  test("does not take the right values from another section or a comment", async () => {
+    const result = await addressIs(
+      [
+        "[server]",
+        "; ROOT_URL = http://127.0.0.1:25434/",
+        "DOMAIN = 127.0.0.1",
+        "SSH_DOMAIN = 127.0.0.1",
+        "SSH_PORT = 25435",
+        "[server.extra]",
+        "ROOT_URL = http://127.0.0.1:25434/",
+        "",
+      ].join("\n"),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("does not say ROOT_URL=");
+  });
+});
+
 describe("restore.sh preflight", () => {
   test("refuses a bundle whose files no longer match SHA256SUMS", async () => {
     await withManifest(await checkoutMigrations(), async (dir) => {

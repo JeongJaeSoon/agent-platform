@@ -191,6 +191,12 @@ EOF
 compose_restore "$INTO" exec -T gitea rm -rf "$STAGE"
 compose_restore "$INTO" restart gitea >/dev/null
 compose_restore "$INTO" up -d --wait gitea >/dev/null
+# The override's GITEA__server__* rewrite is done by the image's entrypoint,
+# not by this script; if it ever stops running, the restored Gitea would
+# quietly hand out the source's clone URLs.
+compose_restore "$INTO" exec -T gitea cat /data/gitea/conf/app.ini </dev/null \
+  | gitea_address_is "$RESTORE_GITEA_HTTP_PORT" "$RESTORE_GITEA_SSH_PORT" \
+  || die "restored gitea still names another address; its clone URLs would point at the source"
 log "restore: gitea data and $(jq -r '.repos.bundled | length' "$MANIFEST") bundled + $(jq -r '.repos.empty | length' "$MANIFEST") empty repositories"
 
 # --- migration state ---------------------------------------------------------
@@ -209,5 +215,11 @@ restore: done — project '$INTO'
   localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)
   gitea      http://127.0.0.1:${RESTORE_GITEA_HTTP_PORT}
   verify     scripts/verify-restore.sh --project $INTO --bucket $BUCKET
+  start again (always with the override; the base file alone rebinds the
+  source's ports while Gitea keeps advertising these ones)
+             RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
+             RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
+             RESTORE_WORKER_NETWORK=$RESTORE_WORKER_NETWORK POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
+             docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d postgres localstack gitea
   tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
 EOF
