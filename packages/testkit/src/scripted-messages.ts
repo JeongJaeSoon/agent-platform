@@ -66,7 +66,9 @@ export function planOf(
     for (let at = blocks.length - 1; at >= 0; at--) {
       const block = blocks[at];
       if (block?.type !== "text" || block.text === undefined) continue;
-      const marker = block.text.lastIndexOf(SPEC_MARKER);
+      // The first marker: an Agent step's prompt carries the subagent's
+      // spec inside this one, escaped as a JSON string.
+      const marker = block.text.indexOf(SPEC_MARKER);
       if (marker < 0) continue;
       const spec = JSON.parse(
         firstJsonObject(block.text.slice(marker + SPEC_MARKER.length)),

@@ -46,7 +46,8 @@ cleanup() {
   if [ "${D2_GATE_KEEP:-0}" = 1 ]; then
     echo "kept: compose project ${project}, installation ${EXECUTION_INSTALLATION_ID}" >&2
   else
-    dc down -v --remove-orphans >/dev/null 2>&1 || true
+    # --rmi local: migrate's image, built under the project's default name.
+    dc down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     local label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
     local ids
     ids="$(docker ps -aq --filter "label=${label}")"
