@@ -396,12 +396,15 @@ class FakeDocker {
     if (request.method === "GET" && path === "/volumes") {
       const filters = JSON.parse(url.searchParams.get("filters") ?? "{}") as {
         label?: string[];
+        name?: string[];
       };
       const wanted = (filters.label ?? []).map(
         (l) => l.split("=") as [string, string],
       );
-      const matching = [...this.volumes.values()].filter((v) =>
-        wanted.every(([k, value]) => v.labels[k] === value),
+      const matching = [...this.volumes.values()].filter(
+        (v) =>
+          wanted.every(([k, value]) => v.labels[k] === value) &&
+          (filters.name ?? []).every((part) => v.name.includes(part)),
       );
       return json({ Volumes: matching.map(asVolume), Warnings: null });
     }
@@ -3097,6 +3100,39 @@ describe("LocalDockerBackend workspace volumes", () => {
     expect(volume?.labels[LABELS.workspaceQuota]).toBe("off");
   });
 
+  test("a labelled workspace beside the legacy one refuses the launch", async () => {
+    // An unfinished migration: the copy exists, the source was never
+    // removed, so nothing says the copy is whole.
+    docker.addVolume(legacyName, {});
+    docker.addVolume(
+      ourName,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.migratedFrom]: legacyName,
+        [LABELS.sessionId]: intentFor().sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "finish the migration",
+    );
+    await expect(backend.assertReplaceable(intentFor())).rejects.toThrow(
+      "finish the migration",
+    );
+    expect(docker.containers.size).toBe(0);
+
+    // Once the source is gone the copy is the session's workspace.
+    docker.volumes.delete(legacyName);
+    await backend.ensureExecution(intentFor());
+    expect(
+      mountedWorkspaceOf(
+        docker.containers.values().next().value?.body as ContainerCreateBody,
+      ),
+    ).toBe(ourName);
+  });
+
   test("turning the quota on over an opted-out volume refuses the launch", async () => {
     await backendWith({ workspaceQuota: { mode: "off" } }).ensureExecution(
       intentFor(),
@@ -3253,6 +3289,77 @@ describe("LocalDockerBackend workspace GC", () => {
       outcome: "not_ours",
     });
     expect(docker.volumes.has("ap-ws-test-b-session-3")).toBe(true);
+  });
+
+  const legacySession = "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9";
+  const legacyVolume = `ap-ws-test-a-${legacySession}`;
+
+  test("lists a legacy volume by the session its name derives from", async () => {
+    docker.addVolume(legacyVolume, {});
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    // Not legacy: another installation's, a single-use name, not a uuid,
+    // or labelled for another session.
+    docker.addVolume(`ap-ws-test-b-${legacySession}`, {});
+    docker.addVolume(`ap-ws-test-a-${legacySession}-0f1e2d3c`, {});
+    docker.addVolume("ap-ws-test-a-not-a-session", {});
+    docker.addVolume(`ap-ws-test-a-${legacySession.replace("0b", "1b")}`, {
+      [LABELS.sessionId]: "someone-else",
+    });
+
+    const listed = await backend.listWorkspaces();
+
+    expect(
+      listed.map((w) => [w.id, w.sessionId, w.sessionFrom ?? "label"]).sort(),
+    ).toEqual([
+      [legacyVolume, legacySession, "name"],
+      ["ap-ws-test-a-session-1", "session-1", "label"],
+    ]);
+  });
+
+  test("neither side of an unfinished migration is listed for GC", async () => {
+    const copy = `ap-ws-test-a-${legacySession}-0f1e2d3c`;
+    docker.addVolume(legacyVolume, {});
+    docker.addVolume(copy, {
+      [LABELS.installation]: "test-a",
+      [LABELS.managed]: "true",
+      [LABELS.migratedFrom]: legacyVolume,
+      [LABELS.sessionId]: legacySession,
+    });
+    docker.addVolume("ap-ws-test-a-session-1", ours);
+    expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([
+      "ap-ws-test-a-session-1",
+    ]);
+
+    // Finished: the source is gone, and the copy is an ordinary workspace.
+    docker.volumes.delete(legacyVolume);
+    expect((await backend.listWorkspaces()).map((w) => w.id).sort()).toEqual(
+      [copy, "ap-ws-test-a-session-1"].sort(),
+    );
+  });
+
+  test("a legacy volume is removed only for the session its name derives from", async () => {
+    docker.addVolume(legacyVolume, {});
+    // No owner: nothing proves an unlabelled volume ours.
+    expect(await backend.removeWorkspace(legacyVolume)).toEqual({
+      outcome: "not_ours",
+    });
+    expect(
+      await backend.removeWorkspace(legacyVolume, {
+        sessionId: "11111111-2222-4333-8444-555555555555",
+      }),
+    ).toEqual({ outcome: "not_ours" });
+    expect(docker.volumes.has(legacyVolume)).toBe(true);
+    expect(
+      await backend.removeWorkspace(legacyVolume, { sessionId: legacySession }),
+    ).toEqual({ outcome: "removed" });
+  });
+
+  test("a legacy name that came to carry another installation's volume is left", async () => {
+    docker.addVolume(legacyVolume, { [LABELS.installation]: "test-b" });
+    expect(
+      await backend.removeWorkspace(legacyVolume, { sessionId: legacySession }),
+    ).toEqual({ outcome: "not_ours" });
+    expect(docker.volumes.has(legacyVolume)).toBe(true);
   });
 
   test("a removal asked for one session leaves another session's volume", async () => {

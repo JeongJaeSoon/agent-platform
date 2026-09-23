@@ -1,0 +1,171 @@
+import * as schema from "@agent-platform/db";
+import { createPostgresSchedulerStore } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import {
+  DEFAULT_MIGRATION_HELPER_IMAGE,
+  LocalDockerBackend,
+  WorkspaceMigrator,
+} from "@agent-platform/execution-local-docker";
+import { createLogger } from "@agent-platform/observability";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schedulerConfigFromEnv } from "./config.ts";
+
+const USAGE =
+  "usage: migrate-workspace [--helper-image name@sha256:...] [--deadline-sec N] <session-id>...";
+
+export type MigrateWorkspaceArgs = {
+  sessionIds: string[];
+  helperImage: string;
+  deadlineMs: number;
+};
+
+export function parseMigrateWorkspaceArgs(
+  argv: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): MigrateWorkspaceArgs {
+  const sessionIds: string[] = [];
+  let helperImage =
+    environment.EXECUTION_WORKSPACE_MIGRATION_IMAGE ||
+    DEFAULT_MIGRATION_HELPER_IMAGE;
+  let deadlineSec = 3_600;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] ?? "";
+    if (arg === "--helper-image" || arg === "--deadline-sec") {
+      const value = argv[++i];
+      if (value === undefined)
+        throw new Error(`${arg} needs a value\n${USAGE}`);
+      if (arg === "--helper-image") {
+        helperImage = value;
+      } else {
+        deadlineSec = Number(value);
+        if (!Number.isInteger(deadlineSec) || deadlineSec < 1) {
+          throw new Error(`--deadline-sec ${value} is not a positive integer`);
+        }
+      }
+    } else if (arg.startsWith("-")) {
+      throw new Error(`unknown option ${arg}\n${USAGE}`);
+    } else {
+      sessionIds.push(arg);
+    }
+  }
+  if (sessionIds.length === 0) throw new Error(USAGE);
+  return { deadlineMs: deadlineSec * 1_000, helperImage, sessionIds };
+}
+
+/**
+ * Moves legacy workspaces onto the current quota contract (94S-225): an
+ * explicit operator action, never something a pass does on its own. Holds
+ * the scheduler's pass lock throughout, so no pass launches onto or reclaims
+ * either volume while a copy is in flight; run it between passes. Returns
+ * the process exit code: 0 when every session is now current.
+ */
+export async function migrateWorkspaces(
+  argv: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<number> {
+  const args = parseMigrateWorkspaceArgs(argv, environment);
+  const config = schedulerConfigFromEnv(environment);
+  const logger = createLogger(
+    config.logLevel === undefined ? {} : { level: config.logLevel },
+  );
+  const pool = createEnforcedPool(
+    config.databaseUrl,
+    logger,
+    "migrate-workspace",
+    JOB_POOL_TIMEOUTS,
+  );
+  try {
+    const db = drizzle(pool, { schema });
+    // Only the pass lock is used from it.
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+      sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
+    });
+    // The copy lands under the ceiling this host enforces; a daemon that
+    // cannot carry it would only fail the copy later and less clearly.
+    await new LocalDockerBackend(config.docker).verifyWorkspaceQuota();
+    const lock = await store.acquirePassLock();
+    if (lock === null) {
+      logger.error("A scheduler pass holds the lock; run again once it ends");
+      return 1;
+    }
+    let failed = 0;
+    try {
+      const migrator = new WorkspaceMigrator(config.docker);
+      for (const sessionId of args.sessionIds) {
+        try {
+          const [row] = await db
+            .select({
+              admissionState: schema.sessions.admissionState,
+              id: schema.sessions.id,
+              reclaimId: schema.sessions.workspaceReclaimId,
+            })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, sessionId))
+            .limit(1);
+          // Neither has anything to resume onto the copy.
+          if (row === undefined) {
+            throw new Error(
+              `session ${sessionId} is not in the database; nothing proves its workspace ours, so neither GC nor this command touches it — remove it by hand once you are sure`,
+            );
+          }
+          if (row.admissionState === "closed") {
+            throw new Error(
+              `session ${sessionId} is closed; GC reclaims its workspace, there is nothing to migrate`,
+            );
+          }
+          // The next pass settles that claim before it lists anything, and
+          // would remove the source out from under a copy made now. No new
+          // claim can be taken while this holds the pass lock.
+          if (row.reclaimId !== null) {
+            throw new Error(
+              `session ${sessionId} has a workspace reclaim pending; let the next scheduler pass settle it`,
+            );
+          }
+          const result = await migrator.migrate({
+            deadlineMs: args.deadlineMs,
+            helperImage: args.helperImage,
+            // PostgreSQL matches a uuid in any case; Docker names and labels
+            // carry it in the one spelling the row holds.
+            sessionId: row.id,
+            signal: lock.signal,
+          });
+          logger.info(
+            result.outcome === "migrated"
+              ? "Workspace migrated"
+              : "Workspace already current",
+            { session_id: sessionId, ...result },
+          );
+        } catch (error) {
+          failed++;
+          logger.error("Workspace migration failed", {
+            error: error instanceof Error ? error.message : String(error),
+            session_id: sessionId,
+          });
+          if (lock.signal.aborted) break;
+        }
+      }
+      if (lock.signal.aborted) {
+        // A pass may have run beside the last step; that session's outcome
+        // was logged, but the run as a whole is not one to call clean.
+        logger.error("The scheduler pass lock was lost during the run");
+        failed++;
+      }
+    } finally {
+      await lock.release();
+    }
+    return failed === 0 ? 0 : 1;
+  } finally {
+    await pool.end();
+  }
+}
+
+if (import.meta.main) {
+  try {
+    process.exitCode = await migrateWorkspaces(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 2;
+  }
+}
