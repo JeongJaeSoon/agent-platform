@@ -26,7 +26,9 @@ type Workflow = { jobs: Record<string, Job> };
 const mirrored =
   (Bun.YAML.parse(read(".github/workflows/ci-image-mirror.yml")) as Workflow)
     .jobs.mirror?.strategy?.matrix?.include ?? [];
-const byName = new Map(mirrored.map((entry) => [entry.name, entry]));
+/** The entry a `<name>@<digest>` mirror reference resolves to, if any. */
+const entryOf = (name: string, digest: string | undefined) =>
+  mirrored.find((entry) => entry.name === name && entry.digest === digest);
 const ciText = read(".github/workflows/ci.yml");
 const ci = Bun.YAML.parse(ciText) as Workflow;
 
@@ -50,9 +52,13 @@ const imageVariables = Object.values(ci.jobs).flatMap((job) =>
 );
 
 describe("the mirror list", () => {
-  test("names each image once, from Docker Hub, by a full digest", () => {
+  test("names each digest once, from Docker Hub", () => {
     expect(mirrored.length).toBeGreaterThan(0);
-    expect(byName.size).toBe(mirrored.length);
+    // A name may carry two digests while a bump is under way (README § CI).
+    const keys = new Set(
+      mirrored.map(({ name, digest }) => `${name}@${digest}`),
+    );
+    expect(keys.size).toBe(mirrored.length);
     for (const { name, source, tag, digest } of mirrored) {
       expect(name).toMatch(/^[a-z0-9-]+$/);
       expect(source).toMatch(/^docker\.io\/[a-z0-9._/-]+$/);
@@ -62,15 +68,60 @@ describe("the mirror list", () => {
   });
 
   test("busybox is the workspace-migration helper, bun the app base", () => {
-    const busybox = byName.get("busybox");
-    expect(`busybox@${busybox?.digest}`).toBe(DEFAULT_MIGRATION_HELPER_IMAGE);
+    const [, helperDigest] = DEFAULT_MIGRATION_HELPER_IMAGE.split("@");
+    expect(entryOf("busybox", helperDigest)?.source).toBe(
+      "docker.io/library/busybox",
+    );
     const base = read("apps/api/Dockerfile").match(
       /^ARG BUN_IMAGE=(\S+)$/m,
     )?.[1];
-    const bun = byName.get("bun");
+    const bun = entryOf("bun", base?.split("@")[1]);
     expect(base).toBe(
       `${shortName(bun?.source ?? "")}:${bun?.tag}@${bun?.digest}`,
     );
+  });
+});
+
+describe("assert-mirror-images.sh", () => {
+  const script = join(root, ".github/scripts/assert-mirror-images.sh");
+  /** Runs the check against a fake `docker images` that prints `listing`. */
+  const check = (listing: string, fake = 'printf "%s" "$LISTING"') => {
+    const result = Bun.spawnSync(["bash", script, "bash", "-c", fake, "_"], {
+      env: { ...process.env, LISTING: listing },
+    });
+    return { code: result.exitCode, out: result.stdout.toString() };
+  };
+  const pinned = `${MIRROR}busybox@sha256:${"a".repeat(64)}`;
+
+  test("passes a daemon holding mirror images only, or none", () => {
+    expect(
+      check(`${pinned}\n${MIRROR}postgres@sha256:${"b".repeat(64)}`).code,
+    ).toBe(0);
+    expect(check("").code).toBe(0);
+  });
+
+  test("fails on any image pulled from elsewhere, naming it", () => {
+    const { code, out } = check(
+      `${pinned}\nalpine@<none>\nbusybox@sha256:${"c".repeat(64)}`,
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("::error::alpine did not come from the CI mirror");
+    expect(out).toContain("::error::busybox did not come from the CI mirror");
+    // A mirror path is matched as a prefix, not anywhere in the name.
+    expect(check(`docker.io/x/${MIRROR}y@sha256:1`).code).toBe(1);
+  });
+
+  test("fails when the daemon cannot be listed", () => {
+    expect(check("", "exit 3").code).not.toBe(0);
+  });
+
+  test("runs after the tests in every Docker job", () => {
+    const steps = (job: string) =>
+      JSON.stringify(ci.jobs[job]?.steps ?? []).includes(
+        "assert-mirror-images.sh",
+      );
+    expect(steps("integration-domain")).toBe(true);
+    expect(steps("workspace-quota")).toBe(true);
   });
 });
 
@@ -89,17 +140,16 @@ describe("ci.yml", () => {
   test("pins every mirror reference to the digest the mirror copies", () => {
     const references = ciText.match(/ghcr\.io\/[^\s'"\\]+/g) ?? [];
     expect(references.length).toBeGreaterThan(0);
-    const used = new Set<string>();
     for (const reference of references) {
       const [, name = "", digest] = reference.match(MIRROR_REF) ?? [];
-      expect({ reference, digest: byName.get(name)?.digest }).toEqual({
+      expect({
         reference,
-        digest,
+        mirrored: entryOf(name, digest) !== undefined,
+      }).toEqual({
+        reference,
+        mirrored: true,
       });
-      used.add(name);
     }
-    // An entry nothing pulls is a copy nobody refreshes on purpose.
-    expect([...byName.keys()].filter((name) => !used.has(name))).toEqual([]);
   });
 
   test("points every image a suite pulls itself at the mirror", () => {
@@ -118,8 +168,8 @@ describe("ci.yml", () => {
     const integrationEnv = ci.jobs["integration-domain"]?.env ?? {};
     for (const [variable, fallback] of overrides) {
       const image = String(integrationEnv[variable] ?? "");
-      const [, name = ""] = image.match(MIRROR_REF) ?? [];
-      const entry = byName.get(name);
+      const [, name = "", digest] = image.match(MIRROR_REF) ?? [];
+      const entry = entryOf(name, digest);
       expect({ variable, mirrored: entry !== undefined }).toEqual({
         variable,
         mirrored: true,

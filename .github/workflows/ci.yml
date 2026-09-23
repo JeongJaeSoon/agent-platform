@@ -316,6 +316,11 @@ jobs:
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
       - if: matrix.domain == 'api'
         run: bun test ./apps/api/src/server.integration.ts
+      # Whatever the suites pulled, by whatever path: only the mirror counts.
+      # Also after a failure — a Docker Hub pull is worth knowing about either way.
+      - if: '!cancelled()'
+        name: Only mirror images were pulled
+        run: .github/scripts/assert-mirror-images.sh docker
 
   # The required check. Branch protection names `integration`, and a matrix
   # reports one context per job, so this job stands in for all of them:
@@ -398,6 +403,13 @@ jobs:
           bun test
           packages/adapters/execution/local-docker/src/workspace.integration.test.ts
           packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts
+      # Both daemons: the runner's holds the dind image, the nested one what
+      # the suite pulled.
+      - if: '!cancelled()'
+        name: Only mirror images were pulled
+        run: |
+          .github/scripts/assert-mirror-images.sh docker
+          .github/scripts/assert-mirror-images.sh env DOCKER_HOST=unix:///tmp/apq/docker.sock docker
       # The daemon's own log is where a create that the suite could not
       # explain shows up. `|| true` because this step also runs when an
       # earlier one failed before the container existed.
