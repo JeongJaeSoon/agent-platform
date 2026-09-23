@@ -1697,6 +1697,53 @@ describe("LocalDockerBackend worker networks", () => {
     expect(docker.containers.size).toBe(0);
   });
 
+  test("a same-named container of another launch never gets the proxy", async () => {
+    const intent = intentFor();
+    const network = docker.addNetwork(networkNameFor(intent, "test-a"), {
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.workerNetwork]: "true",
+      },
+    });
+    const body = await createBodyOf(intentFor({ operationId: "op-other" }));
+    body.HostConfig.NetworkMode = network.id;
+    docker.add(containerNameFor(intent, "test-a"), body);
+
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+    expect(network.attached.has(PROXY)).toBe(false);
+  });
+
+  test("a replacement's network is made ready, proxy and all, before the teardown", async () => {
+    const intent = intentFor();
+    await backend.assertReplaceable(intent);
+
+    expect(networkOf(intent)?.attached.get(PROXY)).toEqual({
+      aliases: ["egress-proxy"],
+    });
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a replacement is refused before the teardown when its network cannot be used", async () => {
+    const intent = intentFor();
+    docker.addNetwork(networkNameFor(intent, "test-a"), {
+      internal: false,
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.workerNetwork]: "true",
+      },
+    });
+
+    await expect(backend.assertReplaceable(intent)).rejects.toBeInstanceOf(
+      NetworkIsolationError,
+    );
+  });
+
   test("a create race is judged by the network the racer left behind", async () => {
     const intent = intentFor();
     docker.networkCreateRace = {
@@ -1801,8 +1848,10 @@ describe("LocalDockerBackend worker networks", () => {
     expect(await backend.terminate(intent)).toMatchObject({
       outcome: "terminated",
     });
-    // The proxy stays too: nothing is forced off a network that is kept.
-    expect(networkOf(intent)?.attached.has(PROXY)).toBe(true);
+    // Kept for someone to look at, but without this installation's proxy:
+    // whatever joined it does not get the allowlist.
+    expect(networkOf(intent)).toBeDefined();
+    expect(networkOf(intent)?.attached.has(PROXY)).toBe(false);
   });
 });
 
@@ -1872,7 +1921,7 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
     expect(docker.networks.has(networkNameFor(intent, "test-b"))).toBe(true);
   });
 
-  test("an orphan with a stranger on it is kept and reported, the proxy left on", async () => {
+  test("an orphan with a stranger on it is kept and reported, the proxy taken off", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
     docker.containers.clear();
@@ -1885,11 +1934,66 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
     expect(result.removed).toEqual([]);
     expect(result.failed).toEqual([
       {
+        error: expect.stringMatching(/snooper.*egress proxy was detached/),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+    expect(network?.attached.has(PROXY)).toBe(false);
+    expect(network?.attached.has(stranger.id)).toBe(true);
+  });
+
+  test("a live network that gained a stranger is reported and loses the proxy", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const stranger = docker.addOther("snooper", {});
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(stranger.id, { aliases: [] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
         error: expect.stringContaining("snooper"),
         id: networkNameFor(intent, "test-a"),
       },
     ]);
-    expect(network?.attached.has(PROXY)).toBe(true);
+    expect(network?.attached.has(PROXY)).toBe(false);
+  });
+
+  test("a worker that also joined another network is reported", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!worker) throw new Error("no worker");
+    docker.addNetwork("somewhere-else").attached.set(worker.id, {
+      aliases: [],
+    });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("is not the only network"),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+  });
+
+  test("a network made ready for a replacement is left alone while the old worker runs", async () => {
+    // The old-contract container still has the name and sits on the old
+    // shared network; its replacement's network was made before teardown.
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.Labels[LABELS.isolation] = "4:0000000000000000";
+    docker.add(containerNameFor(intent, "test-a"), body);
+    await backend.assertReplaceable(intent);
+
+    expect(await backend.reconcileNetworks()).toEqual({
+      failed: [],
+      removed: [],
+      repaired: [],
+    });
   });
 
   test("a labelled network that names no execution is reported, not guessed at", async () => {

@@ -218,6 +218,9 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       localDockerConfigFromEnv(environment()),
     );
     const ref = { executionId: crypto.randomUUID(), generation: 1 };
+    const sessionId = crypto.randomUUID();
+    // Tracked so afterAll removes its workspace; GC would leave one this young.
+    sessionIds.push(sessionId);
     await backend.ensureExecution({
       ...ref,
       bootstrapCredentialState: async () => ({
@@ -228,7 +231,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       issueBootstrapNonce: async () => "wln-orphan",
       operationId: crypto.randomUUID(),
       resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },
-      sessionId: crypto.randomUUID(),
+      sessionId,
     });
     await fetch(
       `http://docker/v1.44/containers/${containerNameFor(ref, runLabel)}?force=true`,
