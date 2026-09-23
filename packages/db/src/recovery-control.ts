@@ -413,6 +413,7 @@ export function decideRecoveryAtomic(
       .select({
         admissionState: sessions.admissionState,
         checkpointRevision: sessions.checkpointRevision,
+        checkpointFallbackRevision: sessions.checkpointFallbackRevision,
         checkpointPendingReason: sessions.checkpointPendingReason,
       })
       .from(sessions)
@@ -421,7 +422,8 @@ export function decideRecoveryAtomic(
     const unknownLeft = await earliestUnknownTurn(tx, sessionId);
     const result: RecoveryDecisionReceiptResult = {
       resulting_admission_state: after.admissionState,
-      checkpoint_revision: after.checkpointRevision,
+      // The revision a resume would restore from, as `resumable` judges it.
+      checkpoint_revision: restoreBaseRevision(after),
       resumable:
         after.admissionState === "stopped" &&
         hasRestorePoint(after) &&
@@ -719,9 +721,13 @@ export function resumeAtomic(
         .delete(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId));
     }
+    // The revision the next worker restores: after a fallback, not the
+    // damaged pointer (94S-204).
+    const restoredFrom =
+      session.checkpointFallbackRevision ?? session.checkpointRevision;
     const result: ResumeReceiptResult = {
       resulting_admission_state: "active",
-      checkpoint_revision: session.checkpointRevision,
+      checkpoint_revision: restoredFrom,
       queued_turn_count: queued,
     };
     await recordAudit(tx, {
@@ -730,7 +736,7 @@ export function resumeAtomic(
       payload: {
         phase: queued > 0 ? "queued" : "idle",
         admission_state: "active",
-        resumed_from_checkpoint_revision: session.checkpointRevision,
+        resumed_from_checkpoint_revision: restoredFrom,
         actor: { owner_id: input.principal.ownerId },
       },
       turnRowId: null,

@@ -1052,6 +1052,45 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     });
   });
 
+  test("after a fallback restore the decision and resume receipts name the revision restored, not the damaged pointer (94S-204)", async () => {
+    const { session, row } = await unknownSession("resume-fallback", {
+      queuedBehind: true,
+      checkpointRevision: 3,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: 2 })
+      .where(eq(sessions.id, session.session_id));
+    const decided = await decide(session, {
+      decision: "abandon",
+      expected_revision: row.revision,
+      target_turn_id: "1",
+      reason: "reviewed",
+    });
+    if (decided.outcome !== "accepted") throw new Error(decided.outcome);
+    expect(
+      (await receiptRow(decided.response.receipt_id)).result,
+    ).toMatchObject({ checkpoint_revision: 2 });
+    const stopped = await sessionRow(session.session_id);
+
+    const result = await resume(session, stopped.revision);
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect((await receiptRow(result.response.receipt_id)).result).toEqual({
+      resulting_admission_state: "active",
+      checkpoint_revision: 2,
+      queued_turn_count: 1,
+    });
+    const audit = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id))
+      .orderBy(asc(events.id));
+    expect(audit.at(-1)?.payload).toMatchObject({
+      admission_state: "active",
+      resumed_from_checkpoint_revision: 2,
+    });
+  });
+
   test("resume with nothing queued goes idle and clears a stale launch signal", async () => {
     const {
       session,
