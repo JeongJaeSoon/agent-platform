@@ -1900,6 +1900,32 @@ describe("LocalDockerBackend worker networks", () => {
     ).toEqual(["agent-platform-worker"]);
   });
 
+  test("a pre-contract-5 worker that claims while being cut off gets its network back", async () => {
+    let reads = 0;
+    const intent = intentFor({
+      // Unclaimed when first asked, claimed by the time it is asked again.
+      bootstrapCredentialState: async () => {
+        reads += 1;
+        return { claimed: reads > 1, fingerprint: fingerprintOf("nonce-abc") };
+      },
+    });
+    const body = await createBodyOf(intent);
+    docker.addNetwork("agent-platform-worker");
+    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.Labels[LABELS.isolation] = "4:0000000000000000";
+    const old = docker.add(containerNameFor(intent, "test-a"), body);
+    docker.images.delete("worker:test");
+
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "was claimed while being taken off its networks and was put back",
+    );
+    expect(
+      Object.keys(
+        docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
+      ),
+    ).toEqual(["agent-platform-worker"]);
+  });
+
   test("a refused replacement leaves a worker on its own network where it is", async () => {
     const intent = intentFor();
     await backend.ensureExecution(intent);
@@ -2209,6 +2235,51 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
       },
     ]);
     expect(copy.attached.has(PROXY)).toBe(false);
+  });
+
+  test("a stopped predecessor proxy is taken off a live network, the running one kept", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const old = docker.addOther(
+      "egress-proxy-a-old",
+      { [LABELS.egressProxy]: "test-a" },
+      "exited",
+    );
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(old.id, { aliases: ["egress-proxy"] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result).toEqual({
+      failed: [],
+      removed: [],
+      repaired: [networkNameFor(intent, "test-a")],
+    });
+    expect(network?.attached.has(old.id)).toBe(false);
+    expect(network?.attached.has(PROXY)).toBe(true);
+  });
+
+  test("two running proxies cost every live network all of them", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const second = docker.addOther("egress-proxy-a-2", {
+      [LABELS.egressProxy]: "test-a",
+    });
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(second.id, { aliases: ["egress-proxy"] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringMatching(
+          /2 running containers carry.*egress proxy was detached/,
+        ),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+    expect(network?.attached.has(PROXY)).toBe(false);
+    expect(network?.attached.has(second.id)).toBe(false);
   });
 
   test("a labelled network that names no execution is reported, not guessed at", async () => {

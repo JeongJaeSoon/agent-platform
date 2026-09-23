@@ -718,17 +718,25 @@ export class LocalDockerBackend implements ExecutionBackend {
     } catch {
       return null;
     }
-    // Only an unclaimed launch: a claimed one is torn down by the scheduler
-    // without asking this at all. A claim landing between this read and
-    // the disconnect is not fenced here; that worker loses its network,
-    // which is less than the teardown the next pass gives a claimed
-    // pre-contract-5 worker anyway.
+    // Only an unclaimed launch: a claimed one is torn down by the scheduler,
+    // with a SIGTERM to drain on, without asking this at all.
     if ((await intent.bootstrapCredentialState()).claimed) return null;
     const networks = Object.keys(existing.NetworkSettings?.Networks ?? {});
     for (const network of networks) {
       await this.client
         .disconnectNetwork(network, existing.Id)
         .catch(() => undefined);
+    }
+    // No fence spans the read above and the disconnects, so the claim is
+    // asked again: one that landed in between gets its networks back and is
+    // left to the scheduler's teardown like any other claimed worker.
+    if ((await intent.bootstrapCredentialState()).claimed) {
+      for (const network of networks) {
+        await this.client
+          .connectNetwork(network, existing.Id, [])
+          .catch(() => undefined);
+      }
+      return `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and was put back`;
     }
     const after = await this.client.inspectContainer(existing.Id);
     const left = Object.keys(after?.NetworkSettings?.Networks ?? {});
@@ -833,6 +841,17 @@ export class LocalDockerBackend implements ExecutionBackend {
     const proxies = await this.client.listContainers([
       `${LABELS.egressProxy}=${installationId}`,
     ]);
+    const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
+    // Settled once, before any network is judged: only the one running
+    // proxy may stay on a live network. A stopped predecessor would rejoin
+    // under the same alias the moment it started.
+    let sole: ContainerSummary | null = null;
+    let noSoleProxy = "";
+    try {
+      sole = soleRunningProxy(proxies, this.config);
+    } catch (error) {
+      noSoleProxy = messageOf(error);
+    }
     for (const listed of networks) {
       try {
         // A listing leaves out the members; only an inspect has them.
@@ -858,12 +877,19 @@ export class LocalDockerBackend implements ExecutionBackend {
           continue;
         }
         await this.assertLiveNetwork(network, ref, container, proxies);
-        if (
-          await this.attachProxy(
-            network,
-            soleRunningProxy(proxies, this.config),
-          )
-        ) {
+        if (sole === null) {
+          // None to trust, or more than one to choose from: every labelled
+          // proxy comes off until the installation has exactly one again.
+          throw new NetworkIsolationError(
+            network.Name,
+            `${noSoleProxy}; ${await this.detachProxies(network, proxyIds)}`,
+          );
+        }
+        const retired = await this.detachRetiredProxies(
+          network,
+          new Set([...proxyIds].filter((id) => id !== sole?.Id)),
+        );
+        if ((await this.attachProxy(network, sole)) || retired) {
           result.repaired.push(network.Name);
         }
       } catch (error) {
@@ -909,6 +935,36 @@ export class LocalDockerBackend implements ExecutionBackend {
         `${problem}; ${await this.detachProxies(network, proxyIds)}`,
       );
     }
+  }
+
+  /**
+   * Takes labelled proxies other than the running one off a live network,
+   * and answers whether there were any. One that will not come off fails
+   * the network: it would serve the worker under the same alias.
+   */
+  private async detachRetiredProxies(
+    network: NetworkInspect,
+    retiredIds: Set<string>,
+  ): Promise<boolean> {
+    const attached = async (current: NetworkInspect) =>
+      [...(await this.membersOf(current)).keys()].filter((id) =>
+        retiredIds.has(id),
+      );
+    const before = await attached(network);
+    if (before.length === 0) return false;
+    for (const id of before) {
+      await this.client
+        .disconnectNetwork(network.Id, id)
+        .catch(() => undefined);
+    }
+    const after = await this.client.inspectNetwork(network.Id);
+    if (after !== null && (await attached(after)).length > 0) {
+      throw new NetworkIsolationError(
+        network.Name,
+        "still has an egress proxy that is no longer the running one, and it could not be detached",
+      );
+    }
+    return true;
   }
 
   /**
