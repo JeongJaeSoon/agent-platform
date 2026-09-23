@@ -2824,6 +2824,41 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await work.countReservedSlots(partition)).toBe(0);
   });
 
+  // 94S-309: every worker with a mirror beats this way until its first batch
+  // lands, and the empty update it used to run failed the beat with a 500.
+  test("a transcript report with nothing mirrored yet extends the lease and records nothing", async () => {
+    const partition = partitionFor("mirrorempty");
+    const { session, claimed } = await claimAndDeliver(partition);
+    const read = async () =>
+      (
+        await db
+          .select({
+            lease: attempts.leaseExpiresAt,
+            pending: sessions.checkpointPendingReason,
+            persistedAt: sessions.lastTranscriptPersistedAt,
+          })
+          .from(sessions)
+          .innerJoin(attempts, eq(attempts.id, claimed.attempt_id))
+          .where(eq(sessions.id, session.session_id))
+      )[0];
+    const before = await read();
+    await Bun.sleep(5);
+    const beat = await gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "running",
+      transcript: { persisted_at: null, mirror_error: null },
+    });
+    const after = await read();
+    expect(new Date(beat.lease_expires_at).getTime()).toBeGreaterThan(
+      before?.lease.getTime() ?? Number.POSITIVE_INFINITY,
+    );
+    expect(after).toEqual({
+      lease: new Date(beat.lease_expires_at),
+      pending: null,
+      persistedAt: null,
+    });
+  });
+
   test("a mirror failure holds new input and completed terminals; only another attempt's checkpoint releases it", async () => {
     const partition = partitionFor("mirror");
     const { session, launch: l, claimed } = await claimAndDeliver(partition);
