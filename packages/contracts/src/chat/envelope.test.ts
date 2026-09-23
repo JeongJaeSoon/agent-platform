@@ -202,6 +202,21 @@ describe("ScopedSessionBinding and ChatOutboundEnvelope", () => {
     ).toBe(false);
   });
 
+  test("the audience is captured on the binding the delivery is scoped to", () => {
+    expect(chatOutboundEnvelopeSchema.safeParse(outbound).success).toBe(true);
+    const mismatched = chatOutboundEnvelopeSchema.safeParse({
+      ...outbound,
+      audience: {
+        ...outbound.audience,
+        surfaceBindingId: "019a0000-0000-7000-8000-0000000000f7",
+      },
+    });
+    expect(mismatched.success).toBe(false);
+    expect(mismatched.error?.issues.map((issue) => issue.path)).toEqual([
+      ["audience", "surfaceBindingId"],
+    ]);
+  });
+
   test("the surface ref a session link is keyed by is never null", () => {
     expect(formatSurfaceRef("C01", "1758500000.0001")).toBe(
       "C01:1758500000.0001",

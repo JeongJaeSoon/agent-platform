@@ -131,7 +131,20 @@ export const chatOutboundEnvelopeSchema = z
     category: chatOutboundCategorySchema,
     content: chatContentSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((envelope, ctx) => {
+    // Delivery sends to `scope`'s binding but intersects with `audience`'s
+    // ACL, so two bindings would let B's actors authorise a post into A.
+    if (
+      envelope.audience.surfaceBindingId !== envelope.scope.surfaceBindingId
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["audience", "surfaceBindingId"],
+        message: "must be the binding the delivery is scoped to",
+      });
+    }
+  });
 
 /**
  * Mute suppresses output; it does not stop admission — that is the binding's
