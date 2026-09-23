@@ -338,6 +338,67 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
     ]);
   }, 60_000);
 
+  test("a resuming session's launch fails the resume to an operator and keeps its input (94S-138)", async () => {
+    const session = await queuedSession(MOVED_TO);
+    const intent = await store().reserveLaunch({
+      backend: "local_docker",
+      image: "worker:test",
+      now: new Date(),
+      resources: RESOURCES,
+      sessionId: session.session_id,
+      slotLimit: 1_000,
+    });
+    if (!intent) throw new Error("no reservation");
+    const nonce = await store().issueBootstrapNonce(intent);
+    await db
+      .update(sessions)
+      .set({ admissionState: "resuming" })
+      .where(eq(sessions.id, session.session_id));
+
+    const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
+      runnable: [pairAt(REGISTERED)],
+      costLimitUsd: 1_000,
+      nonceHash: hashWorkerToken(nonce),
+      executionId: intent.executionId,
+      executionGeneration: intent.generation,
+      attemptId: `att_${randomUUID()}`,
+      credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
+      credentialTtlMs: 60_000,
+      leaseTtlMs: 60_000,
+      now: new Date(),
+    });
+    expect(result.outcome).toBe("catalog_mismatch");
+    expect(await sessionRow(session.session_id)).toEqual({
+      admission: "recovery_required",
+      podId: null,
+      status: "failed",
+    });
+    const [turn] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.sessionId, session.session_id));
+    expect(turn?.status).toBe("queued");
+    const status = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(
+          eq(events.sessionId, session.session_id),
+          eq(events.type, "status"),
+        ),
+      )
+      .orderBy(asc(events.id));
+    expect(status.at(-1)?.payload).toMatchObject({
+      admission_state: "recovery_required",
+      resume_failed: { code: "CATALOG_MISMATCH" },
+    });
+    const [execution] = await db
+      .select({ desired: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, intent.executionId));
+    expect(execution?.desired).toBe("terminated");
+  });
+
   describe("leaves everything alone when the pair is not what stops the claim", () => {
     async function reserved(sessionId: string) {
       const intent = await store().reserveLaunch({
