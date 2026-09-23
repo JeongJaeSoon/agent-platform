@@ -22,11 +22,16 @@ export type ProviderFailure = {
  * A total of zero after spending is not a restart — it is a result that
  * reports nothing (a request that never reached the provider) — so it
  * neither charges nor moves the baseline.
+ *
+ * A turn whose results carried no usable total settles with no cost at all,
+ * not zero: the API tells "unknown" apart from "free" (94S-275). Zero is a
+ * figure only while nothing has been spent, when it agrees with the baseline.
  */
 export class TurnAccounting {
   private lastTotalUsd = 0;
   private lastSessionId: string | undefined;
   private unsettledUsd = 0;
+  private reported = false;
   private providerFailure: ProviderFailure | undefined;
 
   observe(native: NativeSdkMessage): void {
@@ -35,7 +40,11 @@ export class TurnAccounting {
       if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
         return;
       }
-      if (total === 0) return;
+      if (total === 0) {
+        if (this.lastTotalUsd === 0) this.reported = true;
+        return;
+      }
+      this.reported = true;
       const sessionId =
         typeof native.session_id === "string" ? native.session_id : undefined;
       const restarted =
@@ -75,12 +84,16 @@ export class TurnAccounting {
    * previous one. A cost with no turn to carry it — a result nobody was
    * waiting for — rides on the next one instead of being dropped.
    */
-  settle(): { costUsd: number; providerFailure: ProviderFailure | undefined } {
+  settle(): {
+    costUsd: number | undefined;
+    providerFailure: ProviderFailure | undefined;
+  } {
     const settled = {
-      costUsd: this.unsettledUsd,
+      costUsd: this.reported ? this.unsettledUsd : undefined,
       providerFailure: this.providerFailure,
     };
     this.unsettledUsd = 0;
+    this.reported = false;
     this.providerFailure = undefined;
     return settled;
   }

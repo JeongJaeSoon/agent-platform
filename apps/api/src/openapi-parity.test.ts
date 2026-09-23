@@ -7,6 +7,7 @@ import type {
   InterruptService,
   PendingRequestService,
   SessionService,
+  UsageService,
 } from "@agent-platform/platform";
 import {
   bodyRouteErrors,
@@ -36,6 +37,7 @@ import {
   registerSessionRoutes,
   sessionRouteErrors,
 } from "./routes/sessions.ts";
+import { registerUsageRoutes, usageRouteErrors } from "./routes/usage.ts";
 import { scopedRouteErrors } from "./scope-policy.ts";
 
 const SCOPED_ROUTES = new Set(
@@ -62,6 +64,7 @@ function honoRoutes(only?: "public"): Set<string> {
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
       registerPauseRoutes(router, {} as SessionService);
+      registerUsageRoutes(router, {} as UsageService);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });
@@ -125,6 +128,7 @@ test("each handler's error statuses match its OpenAPI operation", () => {
           pendingRouteErrors[route] ??
           interruptRouteErrors[route] ??
           pauseRouteErrors[route] ??
+          usageRouteErrors[route] ??
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     // Errors the /v1 middleware adds before the handler runs.
