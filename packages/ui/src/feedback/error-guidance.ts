@@ -11,6 +11,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   BOOTSTRAP_DONE: "이미 관리자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
   NOT_FOUND: "대상을 찾을 수 없습니다 — 목록에서 다시 여세요.",
   PAYLOAD_TOO_LARGE: "내용이 너무 큽니다 — 나눠서 보내세요.",
+  REQUEST_TIMEOUT:
+    "전송이 제때 끝나지 않았습니다 — 연결을 확인하고 다시 보내세요.",
   UNSUPPORTED_CAPABILITY: "이 런타임이 지원하지 않는 기능입니다.",
   RATE_LIMITED: "요청이 몰렸습니다 — 잠시 뒤 다시 시도하세요.",
   INTERNAL_ERROR: "서버에서 처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",

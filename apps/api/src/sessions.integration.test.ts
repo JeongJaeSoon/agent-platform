@@ -403,6 +403,63 @@ integration("sessions API on PostgreSQL", () => {
     }
   }, 60_000);
 
+  test("a request whose statements each finish just inside their timeout still answers 503 at its deadline and drops its client", async () => {
+    // Every statement ends well inside statement_timeout, so no pool timeout
+    // ever fires; only the request deadline bounds the sum.
+    const apiPool = createApiPool(databaseUrl ?? "", createLogger(), {
+      connectMs: 1_000,
+      statementMs: 1_000,
+      queryMs: 2_000,
+    });
+    const apiDb = drizzle(apiPool, { schema });
+    const table = `deadline_app_${crypto.randomUUID().replaceAll("-", "")}`;
+    let statements = 0;
+    const slowApp = createApiApp({
+      authMode: "none",
+      requestDeadlineMs: 1_500,
+      registerRoutes: (router) => {
+        router.post("/slow", async (context) => {
+          await apiDb.transaction(async (tx) => {
+            await tx.execute(`INSERT INTO ${table} VALUES (1)`);
+            for (let i = 0; i < 5; i += 1) {
+              await tx.execute("SELECT pg_sleep(0.8)");
+              statements += 1;
+            }
+          });
+          return context.json({ ok: true });
+        });
+      },
+    });
+    try {
+      await pool.query(`CREATE TABLE ${table} (id int)`);
+      const started = performance.now();
+      const response = await slowApp.request("/v1/slow", {
+        method: "POST",
+        headers: { "X-Owner-Id": owner, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const elapsed = performance.now() - started;
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        error: { code: "BACKEND_UNAVAILABLE", retryable: true },
+      });
+      expect(elapsed).toBeGreaterThanOrEqual(1_400);
+      expect(elapsed).toBeLessThan(2_500);
+      // The one checkout was evicted, not parked in the pool with its open
+      // transaction.
+      await Bun.sleep(100);
+      expect(apiPool.totalCount).toBe(0);
+      expect(statements).toBeLessThan(5);
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM ${table}`,
+      );
+      expect(rows).toEqual([{ n: 0 }]);
+    } finally {
+      await pool.query(`DROP TABLE IF EXISTS ${table}`);
+      await apiPool.end();
+    }
+  }, 60_000);
+
   test("survives the backend of an idle probe connection being terminated", async () => {
     expect((await app.request("/readyz")).status).toBe(200);
     expect(probePool.idleCount).toBe(1);

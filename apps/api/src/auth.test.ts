@@ -29,6 +29,10 @@ import {
   WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "./auth.ts";
+import {
+  REQUEST_IDLE_TIMEOUT_SECONDS,
+  RESPONSE_IDLE_TIMEOUT_SECONDS,
+} from "./deadline.ts";
 import { hashApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 
@@ -837,12 +841,15 @@ describe("principal middleware", () => {
       env,
     );
     expect(response.status).toBe(401);
-    // Clock off for the auth lookup, never re-armed for a body.
-    expect(calls).toEqual([0]);
+    // The deadline's clock for the auth lookup, never re-armed for a body.
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
     expect(pulled).toBeLessThanOrEqual(1);
   });
 
-  test("public routes read their body under the idle clock, then stop it", async () => {
+  test("public routes read their body under the idle clock, then return to the deadline's", async () => {
     const h = harness();
     const calls: number[] = [];
     const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
@@ -856,7 +863,12 @@ describe("principal middleware", () => {
       env,
     );
     expect(response.status).toBe(401);
-    expect(calls).toEqual([BODY_IDLE_TIMEOUT_SECONDS, 0]);
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      BODY_IDLE_TIMEOUT_SECONDS,
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
   });
 
   test("reauthenticate follows the cookie session: logout, disable and role change end it", async () => {

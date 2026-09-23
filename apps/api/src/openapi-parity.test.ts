@@ -6,6 +6,7 @@ import type {
   SessionService,
 } from "@agent-platform/platform";
 import {
+  bodyRouteErrors,
   createApiApp,
   mutationRouteErrors,
   probeRouteErrors,
@@ -119,10 +120,12 @@ test("each handler's error statuses match its OpenAPI operation", () => {
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
     // Errors the /v1 middleware adds before the handler runs.
-    const middleware =
-      route.startsWith("POST /v1") && !publicRoutes.has(route)
-        ? mutationRouteErrors
-        : [];
+    const middleware = route.startsWith("POST /v1")
+      ? [
+          ...bodyRouteErrors,
+          ...(publicRoutes.has(route) ? [] : mutationRouteErrors),
+        ]
+      : [];
     const expected = [
       ...new Set([
         ...(implemented ?? []),

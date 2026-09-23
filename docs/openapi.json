@@ -418,6 +418,7 @@
                   "BOOTSTRAP_DONE",
                   "NOT_FOUND",
                   "PAYLOAD_TOO_LARGE",
+                  "REQUEST_TIMEOUT",
                   "UNSUPPORTED_CAPABILITY",
                   "RATE_LIMITED",
                   "INTERNAL_ERROR",
@@ -2530,6 +2531,7 @@
                       "BOOTSTRAP_DONE",
                       "NOT_FOUND",
                       "PAYLOAD_TOO_LARGE",
+                      "REQUEST_TIMEOUT",
                       "UNSUPPORTED_CAPABILITY",
                       "RATE_LIMITED",
                       "INTERNAL_ERROR",
@@ -3182,6 +3184,16 @@
               }
             }
           },
+          "408": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Error",
             "content": {
@@ -3285,6 +3297,16 @@
               }
             }
           },
+          "408": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "413": {
             "description": "Error",
             "content": {
@@ -3356,6 +3378,16 @@
             }
           },
           "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3505,6 +3537,16 @@
             }
           },
           "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -3828,6 +3870,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -4342,6 +4394,16 @@
               }
             }
           },
+          "408": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Error",
             "content": {
@@ -4474,6 +4536,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -4634,6 +4706,16 @@
               }
             }
           },
+          "408": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Error",
             "content": {
@@ -4746,6 +4828,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -4906,6 +4998,16 @@
               }
             }
           },
+          "408": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Error",
             "content": {
@@ -5048,6 +5150,16 @@
             }
           },
           "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "408": {
             "description": "Error",
             "content": {
               "application/json": {
