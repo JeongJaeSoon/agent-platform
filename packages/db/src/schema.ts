@@ -833,6 +833,11 @@ export const workerLaunches = pgTable(
     // Replacements ever requested for this launch; never reset, so the
     // scheduler's limit holds across settle-and-request-again cycles.
     replacementCount: integer("replacement_count").notNull().default(0),
+    // What the launch runs for as long as it lives: the image pinned when it
+    // was reserved and the limits it was reserved with. Null on a launch
+    // reserved before they were stored, which runs on current settings.
+    image: text(),
+    resources: jsonb(),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -853,11 +858,15 @@ export const workerLaunches = pgTable(
       ),
     check(
       "worker_launches_replacement_reason_check",
-      sql`${table.replacementReason} IS NULL OR ${table.replacementReason} IN ('credential_mismatch', 'nonce_expired', 'stale_isolation')`,
+      sql`${table.replacementReason} IS NULL OR ${table.replacementReason} IN ('credential_mismatch', 'nonce_expired', 'spec_mismatch', 'stale_isolation')`,
     ),
     check(
       "worker_launches_replacement_count_check",
       sql`${table.replacementCount} >= 0`,
+    ),
+    check(
+      "worker_launches_launch_spec_check",
+      sql`(${table.image} IS NULL) = (${table.resources} IS NULL)`,
     ),
   ],
 );

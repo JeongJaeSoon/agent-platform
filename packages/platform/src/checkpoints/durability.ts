@@ -1,4 +1,7 @@
-import type { SessionDurability } from "@agent-platform/contracts";
+import {
+  checkpointBlockReasonSchema,
+  type SessionDurability,
+} from "@agent-platform/contracts";
 import type {
   CheckpointBlockReason,
   CheckpointPreparation,
@@ -43,6 +46,17 @@ export function checkpointReasonHoldsWork(
   reason: CheckpointBlockReason | null,
 ): boolean {
   return reason !== null && CHECKPOINT_REASONS[reason] === "blocking";
+}
+
+/**
+ * checkpointReasonHoldsWork for the reason as the session row stores it
+ * (text). A value this build does not know counts as blocking: trusting a
+ * pointer on an unrecognised reason is the unsafe direction.
+ */
+export function storedPendingReasonHoldsWork(stored: string | null): boolean {
+  if (stored === null) return false;
+  const parsed = checkpointBlockReasonSchema.safeParse(stored);
+  return !parsed.success || checkpointReasonHoldsWork(parsed.data);
 }
 
 /** The reason to record for a refusal, or null when it leaves no trace. */

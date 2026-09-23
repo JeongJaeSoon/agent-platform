@@ -6,6 +6,7 @@ const clean: SchedulerRunSummary = {
   activeAfter: 0,
   activeBefore: 0,
   failedLaunches: [],
+  imageUnresolved: false,
   killFailed: [],
   killed: [],
   launched: [],
@@ -39,6 +40,8 @@ describe("scheduler exit code", () => {
 
   test("unfinished work exits 1 so supervisors notice", () => {
     expect(exitCodeFor({ ...clean, failedLaunches: [ref] })).toBe(1);
+    // An image that could not be pinned admits nobody at all.
+    expect(exitCodeFor({ ...clean, imageUnresolved: true })).toBe(1);
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);

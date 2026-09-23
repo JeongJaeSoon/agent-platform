@@ -6,6 +6,7 @@ import {
   checkpointReasonHoldsWork,
   nextPendingReason,
   projectDurability,
+  storedPendingReasonHoldsWork,
 } from "./durability.ts";
 
 describe("checkpoint pending reason", () => {
@@ -76,6 +77,7 @@ describe("a run that was not quiescent", () => {
   test.each(refusals)("%s holds no work back", (reason) => {
     expect(checkpointReasonHoldsWork(reason)).toBe(false);
     expect(checkpointAdmission(reason)).toEqual({ admitted: true });
+    expect(storedPendingReasonHoldsWork(reason)).toBe(false);
   });
 
   test("never replaces a mirror failure, which a later one replaces", () => {
@@ -184,5 +186,17 @@ describe("durability projection", () => {
     expect(durability.last_completed_turn_id).not.toBe(
       durability.last_checkpointed_turn_id,
     );
+  });
+});
+
+describe("a pending reason as the session row stores it", () => {
+  test("nothing stored holds nothing back, a mirror failure does", () => {
+    expect(storedPendingReasonHoldsWork(null)).toBe(false);
+    expect(storedPendingReasonHoldsWork("mirror_error")).toBe(true);
+  });
+
+  test("a value this build does not know is treated as blocking", () => {
+    expect(storedPendingReasonHoldsWork("disk_on_fire")).toBe(true);
+    expect(storedPendingReasonHoldsWork("")).toBe(true);
   });
 });

@@ -9,6 +9,10 @@ import type {
   TerminateExecutionResult,
   TerminateOptions,
 } from "../ports/execution-backend.ts";
+import {
+  launchSpecFingerprint,
+  parseExecutionResources,
+} from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
   ReplaceReason,
@@ -37,6 +41,7 @@ export type SchedulerLogger = {
 
 export type SchedulerOptions = {
   backend: ExecutionBackend;
+  /** The configured reference; each new launch is pinned to what it names. */
   image: string;
   logger: SchedulerLogger;
   now?: () => Date;
@@ -59,6 +64,11 @@ export type SchedulerRunSummary = {
   activeBefore: number;
   /** Executions whose row lists them as live but the provider had lost. */
   failedLaunches: ExecutionRef[];
+  /**
+   * true when the configured image could not be pinned, so no session was
+   * admitted this pass. A fault: sessions wait on it until someone looks.
+   */
+  imageUnresolved: boolean;
   launched: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
@@ -148,6 +158,9 @@ export async function runScheduler(
   if (!Number.isInteger(replacementLimit) || replacementLimit < 1) {
     throw new Error("replacementLimit must be a positive integer");
   }
+  // Checked once here rather than at each create: these limits are stored
+  // with every launch reserved from now on.
+  parseExecutionResources(options.resources);
   const lock = await options.store.acquirePassLock();
   if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
@@ -360,6 +373,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     activeAfter: 0,
     activeBefore: 0,
     failedLaunches: [],
+    imageUnresolved: false,
     launched: [],
     orphansTerminated: [],
     orphansUnresolved: [],
@@ -398,12 +412,15 @@ async function pass(
       store.bootstrapCredentialState(refOf(stored)),
     executionId: stored.executionId,
     generation: stored.generation,
-    image: options.image,
+    // A launch reserved before the spec was stored runs on the host's
+    // current settings, as every launch used to.
+    image: stored.image ?? options.image,
     // Only the create path calls this, so the credential a running worker
     // holds is never rotated out from under it.
     issueBootstrapNonce: () => store.issueBootstrapNonce(refOf(stored)),
+    launchSpec: storedSpecOf(stored),
     operationId: stored.operationId,
-    resources: options.resources,
+    resources: stored.resources ?? options.resources,
     sessionId: stored.sessionId,
   });
   const summary = emptySummary(options.slotLimit);
@@ -534,6 +551,30 @@ async function pass(
         },
       );
       await replace(execution, "credential_mismatch", observed);
+      return;
+    }
+    const spec = storedSpecOf(execution);
+    if (
+      up &&
+      !execution.claimed &&
+      spec !== null &&
+      observed.launchSpec != null &&
+      observed.launchSpec !== spec
+    ) {
+      // Built from something other than what the launch was reserved with.
+      // Nothing the scheduler creates does that — a create reads its spec
+      // from the row — so this is a resource another hand put there, or a
+      // pending replacement whose rebuild is not what is up. Either way it
+      // is not this launch, and once replaced it will be. A claimed one has
+      // a worker bound and is left to finish; a resource without the label
+      // cannot be judged.
+      logger.warn("Execution resource runs another launch spec", {
+        ...fieldsOf(ref),
+        provider_ref: observed.providerRef,
+        session_id: execution.sessionId,
+        state: observed.state,
+      });
+      await replace(execution, "spec_mismatch", observed);
       return;
     }
     const running = up && observed.state !== "pending";
@@ -1036,6 +1077,22 @@ async function pass(
 
   // 3. Fill free slots.
   const demand = await store.inspectDemand({ limit: options.slotLimit });
+  // Pinned once per pass, and only when there is a session to admit. What a
+  // tag names can move between passes; that is the point — each new launch
+  // gets whatever it names when the launch is reserved, and keeps it.
+  let image: string | null | undefined;
+  const pinnedImage = async (): Promise<string | null> => {
+    try {
+      return await backend.resolveImage(options.image);
+    } catch (error) {
+      summary.imageUnresolved = true;
+      logger.error("Worker image could not be pinned; nothing admitted", {
+        error: messageOf(error),
+        image: options.image,
+      });
+      return null;
+    }
+  };
   // Rows are the ledger, but a still-running orphan occupies the host too.
   let free = Math.max(
     0,
@@ -1045,10 +1102,14 @@ async function pass(
   );
   for (const sessionId of demand.eligibleSessionIds) {
     if (free <= 0) break;
+    if (image === undefined) image = await pinnedImage();
+    if (image === null) break;
     lock.throwIfAborted();
     const stored = await store.reserveLaunch({
       backend: backend.kind,
+      image,
       now: now(),
+      resources: options.resources,
       sessionId,
       slotLimit: options.slotLimit,
     });
@@ -1112,6 +1173,7 @@ async function pass(
     active_after: summary.activeAfter,
     active_before: summary.activeBefore,
     failed_count: summary.failedLaunches.length,
+    image_unresolved: summary.imageUnresolved,
     kill_failed_count: summary.killFailed.length,
     killed_count: summary.killed.length,
     launched_count: summary.launched.length,
@@ -1147,9 +1209,20 @@ function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
   return {
     executionId: execution.executionId,
     generation: execution.generation,
+    image: execution.image,
     operationId: execution.operationId,
+    resources: execution.resources,
     sessionId: execution.sessionId,
   };
+}
+
+/** The spec a launch was reserved with, or null when none was stored. */
+function storedSpecOf(
+  stored: Pick<StoredLaunchIntent, "image" | "resources">,
+): string | null {
+  return stored.image === null || stored.resources === null
+    ? null
+    : launchSpecFingerprint(stored.image, stored.resources);
 }
 
 /**

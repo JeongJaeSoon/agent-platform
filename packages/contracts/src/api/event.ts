@@ -147,6 +147,34 @@ export const sseEventSchema = z.discriminatedUnion("event", [
   frame(v.error),
 ]);
 
+// A stored row the contract does not read (written before every writer was
+// held to it, 94S-283) would otherwise stop each read at that row for good:
+// no page past it could be served and the cursor could never move on. It
+// reads instead as an `error` event under its own cursor. This code is not
+// terminal; the session's state is read from the session, not from here.
+// The flip side: a reader cannot tell such a row from one a newer writer
+// stored, so widening this contract (a new kind or enum value) must reach
+// every reader before any writer uses it.
+export const UNREADABLE_EVENT_CODE = "EVENT_UNREADABLE";
+
+export function readStoredEvent(
+  event: string,
+  data: unknown,
+): { payload: SessionEventPayload; readable: boolean } {
+  const parsed = sessionEventPayloadSchema.safeParse({ event, data });
+  if (parsed.success) return { payload: parsed.data, readable: true };
+  return {
+    payload: {
+      event: "error",
+      data: {
+        message: "This event could not be read and was replaced",
+        code: UNREADABLE_EVENT_CODE,
+      },
+    },
+    readable: false,
+  };
+}
+
 export type SessionEventName = (typeof SESSION_EVENT_NAMES)[number];
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;

@@ -4,6 +4,7 @@ import {
   SESSION_SCOPE_VALUES,
   SSE_SCHEMA_VERSION,
   sseEventSchema,
+  UNREADABLE_EVENT_CODE,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
@@ -11,6 +12,7 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  encodeEventCursor,
   eventPageQuery,
   events,
   idempotencyKeys,
@@ -122,7 +124,9 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       authorization: ownerScopedPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
+      reader: createPostgresSessionReader(db, {
+        logger: createLogger({ sinks: [sink] }),
+      }),
       catalog: {
         profiles: {
           "claude-coding-v1": {
@@ -301,6 +305,64 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     const restIds = rest.frames.filter((f) => f.id).map((f) => f.id);
     expect(restIds).toHaveLength(500);
     expect(restIds).toEqual(ids.slice(500));
+  }, 30_000);
+
+  test("a stored row the contract rejects reads as EVENT_UNREADABLE under its own id, and the stream goes on past it", async () => {
+    const sessionId = await createdSession();
+    // The shape pause wrote before 94S-283: a status event with no phase.
+    const [broken] = await db
+      .insert(events)
+      .values({
+        sessionId,
+        type: "status",
+        payload: { admission_state: "paused", reason: "overnight" },
+      })
+      .returning({ id: events.id });
+    await appendLikeWorker(sessionId, 1);
+
+    const response = await stream(sessionId);
+    expect(response.status).toBe(200);
+    const read = await collect(
+      response,
+      (frames) => frames.filter((f) => f.id).length >= 2,
+    );
+    const [unreadable, next] = read.frames
+      .filter((f) => f.id)
+      .map((frame) =>
+        sseEventSchema.parse({
+          id: frame.id,
+          event: frame.event,
+          data: JSON.parse(frame.data ?? "null"),
+        }),
+      );
+    expect(unreadable?.id).toBe(encodeEventCursor(broken?.id ?? 0));
+    expect(unreadable?.event).toBe("error");
+    expect(unreadable?.data.data).toMatchObject({
+      code: UNREADABLE_EVENT_CODE,
+    });
+    expect(next).toMatchObject({
+      event: "status",
+      data: { data: { phase: "running" } },
+    });
+    expect(
+      sink.records.some(
+        (record) =>
+          record.message === "Stored event does not match the contract" &&
+          record.fields?.session_id === sessionId,
+      ),
+    ).toBe(true);
+
+    // A client that reconnects from the replaced row resumes after it.
+    const resumed = await stream(sessionId, {
+      "Last-Event-ID": unreadable?.id ?? "",
+    });
+    expect(resumed.status).toBe(200);
+    const rest = await collect(resumed, (frames) =>
+      frames.some((f) => f.id === next?.id),
+    );
+    expect(rest.frames.filter((f) => f.id).map((f) => f.id)).toEqual([
+      next?.id,
+    ]);
   }, 30_000);
 
   test("a replay page is cut by payload bytes, never below one row", async () => {

@@ -1,5 +1,6 @@
 import {
   postSessionAnswerRequestSchema,
+  readStoredEvent,
   sessionEventSchema,
   sessionMessageSchema,
 } from "@agent-platform/contracts";
@@ -199,10 +200,10 @@ export class PostgresQueue implements QueueBackend {
         .limit(100);
       for (const row of rows) {
         lastId = row.id;
+        const stored = readStoredEvent(row.type, row.payload);
         yield sessionEventSchema.parse({
           id: encodeEventCursor(row.id),
-          event: row.type,
-          data: row.payload,
+          ...stored.payload,
         });
       }
       if (rows.length === 100) {

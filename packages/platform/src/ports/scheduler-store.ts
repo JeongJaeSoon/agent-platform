@@ -2,6 +2,7 @@ import type { ExecutionBackend as ExecutionBackendKind } from "@agent-platform/c
 import type {
   ExecutionObservation,
   ExecutionRef,
+  ExecutionResources,
   LaunchCredentialState,
   LaunchIntent,
 } from "./execution-backend.ts";
@@ -11,10 +12,13 @@ import type { ExecutionIncarnation } from "./worker-unit-of-work.ts";
  * Why a resource that exists is torn down and built again.
  * `credential_mismatch`: it holds a bootstrap credential the registry has
  * rotated past, so it can never bind (94S-231).
+ * `spec_mismatch`: it runs an image or limits other than the ones its launch
+ * was reserved with (94S-202).
  */
 export type ReplaceReason =
   | "credential_mismatch"
   | "nonce_expired"
+  | "spec_mismatch"
   | "stale_isolation";
 
 export type SchedulerDemand = {
@@ -26,7 +30,10 @@ export type SchedulerDemand = {
 
 export type ReserveLaunchInput = {
   backend: ExecutionBackendKind;
+  /** Already pinned by `ExecutionBackend.resolveImage`. */
+  image: string;
   now: Date;
+  resources: ExecutionResources;
   sessionId: string;
   /**
    * Global cap on reserved launch slots, enforced inside the reservation
@@ -36,14 +43,23 @@ export type ReserveLaunchInput = {
 };
 
 /**
- * What the registry durably holds. Image and resources are host
- * configuration, so the scheduler adds them when it turns this into a
- * `LaunchIntent`; a restarted host relaunches with its current settings.
+ * What the registry durably holds, image and limits included: the launch
+ * runs what it was reserved with for as long as it lives, and only a new
+ * reservation — a new generation — picks up changed host settings. Both are
+ * null for a launch reserved before they were stored; the scheduler then
+ * falls back to its current settings, the one exception to that rule.
  */
 export type StoredLaunchIntent = Omit<
   LaunchIntent,
-  "image" | "resources" | "issueBootstrapNonce" | "bootstrapCredentialState"
->;
+  | "image"
+  | "resources"
+  | "launchSpec"
+  | "issueBootstrapNonce"
+  | "bootstrapCredentialState"
+> & {
+  image: string | null;
+  resources: ExecutionResources | null;
+};
 
 /**
  * A launch that still holds its slot. Rows written before the intent columns
