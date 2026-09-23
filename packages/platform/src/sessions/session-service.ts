@@ -135,9 +135,10 @@ export function createSessionService(deps: {
   }
 
   // A resource of another owner does not exist as far as this principal
-  // can tell. One the principal owns but may not act on is a 403: the
-  // owner-only policy never says so today, so the branch is the place
-  // 94S-132's scoped keys plug into.
+  // can tell. A recovery decision the principal may not take on its own
+  // session is a 403, which is the only route that declares one; the other
+  // actions keep answering 404 until 94S-132 publishes 403 for them with
+  // the scoped keys that could produce it.
   function requireAuthorized(
     actor: Principal,
     action: SessionAction,
@@ -147,10 +148,13 @@ export function createSessionService(deps: {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
     if (!authorization.authorize(actor, action, { ownerId })) {
-      throw new SessionServiceError(
-        "FORBIDDEN",
-        `This API key does not hold ${action}`,
-      );
+      if (action === "sessions:recover") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This API key does not hold sessions:recover",
+        );
+      }
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
   }
 

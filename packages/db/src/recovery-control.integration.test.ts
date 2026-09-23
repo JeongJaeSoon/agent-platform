@@ -809,7 +809,11 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   });
 
   test("resume with nothing queued goes idle and clears a stale launch signal", async () => {
-    const { session, row } = await unknownSession("idle", {
+    const {
+      session,
+      row,
+      launch: launched,
+    } = await unknownSession("idle", {
       checkpointRevision: 1,
       checkpointCoversTurn1: true,
     });
@@ -838,14 +842,14 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, session.session_id)),
     ).toEqual([]);
-    // The next message signals again, as for any unbound session.
+    // The next message signals again, back to the partition it ran in.
     await append(session, "after resume");
     expect(
       await db
-        .select({ sessionId: unassignedSessions.sessionId })
+        .select({ partition: unassignedSessions.partition })
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, session.session_id)),
-    ).toHaveLength(1);
+    ).toEqual([{ partition: launched.partition }]);
   });
 
   test("resume is RECOVERY_REQUIRED while a turn is unknown or the exit unconfirmed, and refuses other states", async () => {

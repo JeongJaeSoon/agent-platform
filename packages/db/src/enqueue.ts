@@ -2,9 +2,14 @@ import {
   postSessionAnswerRequestSchema,
   sessionMessageSchema,
 } from "@agent-platform/contracts";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { queueMessages, sessions, unassignedSessions } from "./schema.ts";
+import {
+  queueMessages,
+  sessions,
+  unassignedSessions,
+  workerLaunches,
+} from "./schema.ts";
 
 export type EnqueueInput = {
   sessionId: string;
@@ -52,9 +57,22 @@ export async function enqueueWithin(
     throw new Error("Session not found");
   }
   if (session.podId === null) {
+    // A session that already ran goes back to the partition it ran in; a
+    // default here would strand it when only partition-specific workers
+    // serve it (an idle session after its worker exited, or after a resume
+    // with nothing queued).
+    const [launch] = await tx
+      .select({ partition: workerLaunches.partition })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.sessionId, input.sessionId))
+      .orderBy(desc(workerLaunches.generation))
+      .limit(1);
     await tx
       .insert(unassignedSessions)
-      .values({ sessionId: input.sessionId })
+      .values({
+        sessionId: input.sessionId,
+        ...(launch ? { partition: launch.partition } : {}),
+      })
       .onConflictDoNothing({ target: unassignedSessions.sessionId });
   }
   return inserted.id;
