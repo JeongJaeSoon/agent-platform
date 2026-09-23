@@ -455,7 +455,7 @@ describe("git workspace bundle verifier", () => {
     expect(await readdir(tempRoot)).toEqual([]);
   });
 
-  test("a pack whose object count was raised, with the trailer recomputed, is unusable", async () => {
+  test("a pack whose object count was raised, with the trailer recomputed, is never restorable", async () => {
     const text = new TextDecoder("latin1").decode(bundle.bytes);
     const packOffset = text.indexOf("\n\n") + 2;
     const body = Buffer.from(
@@ -469,13 +469,20 @@ describe("git workspace bundle verifier", () => {
         createHash("sha1").update(body).digest(),
       ]),
     );
+    // index-pack reads the recomputed trailer as the missing object, so what
+    // it says depends on those twenty bytes: usually a premature end of the
+    // pack (unusable), but git 2.47 on Linux sometimes aborts on
+    // `BUG: git-zlib.c:58: total_in mismatch` instead, which reaches us as
+    // "index-pack died of signal 6" — a crash, so a retryable throw.
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    const verdict = await verifier.verify({
-      bytes,
-      commit: bundle.commit,
-      key: "k",
-    });
-    expect(verdict.status).toBe("unusable");
+    const outcome = await verifier
+      .verify({ bytes, commit: bundle.commit, key: "k" })
+      .then(
+        (verdict) => verdict.status,
+        (error: Error) => error.message,
+      );
+    expect(outcome).not.toBe("restorable");
+    if (outcome !== "unusable") expect(outcome).toContain("died of signal");
     expect(await readdir(tempRoot)).toEqual([]);
   });
 

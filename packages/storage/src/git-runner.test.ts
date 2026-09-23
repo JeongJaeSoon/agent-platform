@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +80,23 @@ describe("defaultGitRunner", () => {
       if (previous === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previous;
     }
+  });
+
+  test("a git that fails leaves its helper to the timeout, not to a kill on exit", async () => {
+    // Node reports the exit after reaping git, when its pid may already be
+    // someone else's; only the timeout, which fires while the helper still
+    // holds the group, may signal it.
+    const pidFile = join(bin, "helper.pid");
+    const env = await fakeGit(
+      `/bin/sleep 30 & echo $! > ${pidFile}; echo failed >&2; exit 1`,
+    );
+    const started = Date.now();
+    const result = await defaultGitRunner(["x"], { env, timeoutMs: 500 });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(450);
+    expect(result.exitCode).toBe(1);
+    const helper = Number((await readFile(pidFile, "utf8")).trim());
+    await Bun.sleep(100);
+    expect(() => process.kill(helper, 0)).toThrow();
   });
 
   test("refuses limits that are not positive integers before starting git", async () => {
