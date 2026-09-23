@@ -973,6 +973,30 @@ describe("runGitBytes", () => {
       }
     });
 
+    test("keeps no part of a line that was cut, and every line that was not", async () => {
+      // One line longer than what is kept: a cut inside it could land inside
+      // a credential, so none of it is kept.
+      let restorePath = await fakeGit(
+        `printf 'https://user:secret@example.test/' >&2\nhead -c ${96 * 1024} /dev/zero | tr '\\0' 'w' >&2\nexit 1`,
+      );
+      try {
+        expect((await runGitBytes(["status"], options())).stderr).toBe("");
+      } finally {
+        restorePath();
+      }
+      // 64-byte lines: the last 64 KiB starts exactly on one, which is kept.
+      restorePath = await fakeGit(
+        `head -c ${126 * 1024} /dev/zero | tr '\\0' 'w' | fold -w 63 >&2\necho >&2\nexit 1`,
+      );
+      try {
+        const { stderr } = await runGitBytes(["status"], options());
+        expect(stderr).toHaveLength(64 * 1024);
+        expect(stderr).toMatch(/^w{63}\n/);
+      } finally {
+        restorePath();
+      }
+    });
+
     test("past its deadline, as a limit rather than an exit code", async () => {
       const restorePath = await fakeGit("sleep 30");
       try {

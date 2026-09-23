@@ -287,6 +287,7 @@ export async function captureWorkspace(input: {
         }),
       root,
       limits,
+      signal,
     );
     if (staged !== undefined) return refused(staged);
     await check(
@@ -483,8 +484,15 @@ export async function captureWorkspace(input: {
     }
     return { status: "captured", capture: { bundle, gitCommit, untracked } };
   } catch (error) {
-    if (!(error instanceof GitResourceLimitError)) throw error;
-    return refused(error.message);
+    // Any git in the capture that ran past what it may use or print, where
+    // no step above has a more specific reason.
+    if (
+      error instanceof GitResourceLimitError ||
+      error instanceof GitOutputLimitError
+    ) {
+      return refused(error.message);
+    }
+    throw error;
   } finally {
     await rm(scratch, { force: true, recursive: true });
   }
@@ -553,6 +561,7 @@ async function trackedSizes(
   ) => Promise<{ code: number; stderr: string; stdout: Uint8Array }>,
   root: string,
   limits: WorkspaceCaptureLimits,
+  signal: AbortSignal,
 ): Promise<string | undefined> {
   const listing = async (args: string[]) => {
     const listed = await git(["ls-files", "-z", ...args]);
@@ -582,6 +591,7 @@ async function trackedSizes(
   let total = 0;
   for (const path of new Set(tracked.split("\0"))) {
     if (path === "") continue;
+    signal.throwIfAborted();
     const found = await lstat(join(root, path)).catch(() => null);
     // A link is staged as a blob of its target, which lstat sizes.
     if (found === null || !(found.isFile() || found.isSymbolicLink())) {

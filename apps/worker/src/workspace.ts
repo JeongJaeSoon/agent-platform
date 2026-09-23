@@ -924,7 +924,8 @@ async function collectTail(
 ): Promise<string> {
   const chunks: Uint8Array[] = [];
   let held = 0;
-  let dropped = false;
+  // The byte just before what is kept, once anything has been dropped.
+  let before: number | undefined;
   const reader = stream.getReader();
   const abandoned = abandon.then(() => ABANDONED);
   for (;;) {
@@ -937,9 +938,13 @@ async function collectTail(
     if (done) break;
     chunks.push(value);
     held += value.byteLength;
-    while (held - (chunks[0]?.byteLength ?? 0) >= limit) {
-      held -= chunks.shift()?.byteLength ?? 0;
-      dropped = true;
+    while (
+      chunks.length > 1 &&
+      held - (chunks[0] as Uint8Array).byteLength >= limit
+    ) {
+      const gone = chunks.shift() as Uint8Array;
+      held -= gone.byteLength;
+      before = gone.at(-1);
     }
   }
   const bytes = new Uint8Array(held);
@@ -951,9 +956,13 @@ async function collectTail(
   let kept = bytes;
   if (held > limit) {
     kept = bytes.subarray(held - limit);
-    dropped = true;
+    before = bytes[held - limit - 1];
   }
-  if (dropped) kept = kept.subarray(kept.indexOf(0x0a) + 1);
+  if (before !== undefined && before !== 0x0a) {
+    const newline = kept.indexOf(0x0a);
+    kept =
+      newline < 0 ? kept.subarray(kept.byteLength) : kept.subarray(newline + 1);
+  }
   return new TextDecoder().decode(kept);
 }
 
