@@ -19,6 +19,7 @@ import { readGitBundleHeader } from "@agent-platform/runtime-core";
 import { GitOutputLimitError, runGitBytes } from "./workspace.ts";
 import {
   CHECKPOINT_HEAD_REF,
+  CHECKPOINT_INSTRUCTIONS_REF,
   CHECKPOINT_WORKTREE_REF,
   captureWorkspace,
   DEFAULT_WORKSPACE_CAPTURE_LIMITS,
@@ -270,6 +271,44 @@ describe("captureWorkspace", () => {
       CHECKPOINT_WORKTREE_REF,
     ]);
     expect(header?.refs[0]?.oid).toBe(head);
+  });
+
+  test("pins the caller's instructions commit, from objects kept outside the workspace", async () => {
+    const head = await commitFiles({ "a.txt": "a\n" });
+    // A commit the workspace does not have, as after a restore whose engine
+    // since pruned it: the restorer keeps it in a repository of its own.
+    const kept = join(scratch, "kept");
+    await mkdir(kept);
+    await git(kept, "init", "--quiet");
+    await writeFile(join(kept, "CLAUDE.md"), "rules\n");
+    await git(kept, "add", "--all");
+    await git(kept, "commit", "--quiet", "-m", "instructions");
+    const pinned = (await git(kept, "rev-parse", "HEAD")).trim();
+    const signal = new AbortController().signal;
+
+    const result = await captureWorkspace({
+      root,
+      signal,
+      instructions: { commit: pinned, objects: join(kept, ".git", "objects") },
+    });
+
+    if (result.status !== "captured") throw new Error(result.reason);
+    expect(readGitBundleHeader(result.capture.bundle)?.refs).toEqual([
+      { name: CHECKPOINT_HEAD_REF, oid: head },
+      { name: CHECKPOINT_WORKTREE_REF, oid: head },
+      { name: "refs/heads/main", oid: head },
+      { name: CHECKPOINT_INSTRUCTIONS_REF, oid: pinned },
+    ]);
+    expect(
+      await captureWorkspace({
+        root,
+        signal,
+        instructions: { commit: pinned },
+      }),
+    ).toEqual({
+      status: "refused",
+      reason: `the instructions commit ${pinned} is no longer in the repository`,
+    });
   });
 
   test("never writes an object into the workspace repository", async () => {

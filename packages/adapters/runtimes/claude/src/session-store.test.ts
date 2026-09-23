@@ -592,6 +592,36 @@ describe("Claude session store across execution generations", () => {
     );
   });
 
+  test("verifies every adopted part up front, then loads from what it checked", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await first.append(root, [entry("a", "first")]);
+    await first.append(subagent, [entry("b", "subagent")]);
+    const inherited = await checkpointOf(first);
+    const second = launch(objects, 2, inherited);
+
+    objects.resetReads();
+    await second.verifyInherited();
+    expect(objects.reads()).toHaveLength(2);
+    objects.resetReads();
+    expect(await second.load(subagent)).toEqual([entry("b", "subagent")]);
+    expect(
+      objects.reads().filter((read) => read.includes("generation-0000000001")),
+    ).toEqual([]);
+
+    const pinned = inherited.transcripts.subagents["agents/reviewer"]?.parts[0];
+    if (pinned === undefined) throw new Error("expected a subagent part");
+    await objects.put(pinned.key, new TextEncoder().encode("not json\n"));
+    await expect(
+      launch(objects, 3, inherited).verifyInherited(),
+    ).rejects.toThrow(/Inherited transcript part changed/);
+    const stopped = new AbortController();
+    stopped.abort(new Error("stopped"));
+    await expect(
+      launch(objects, 4, inherited).verifyInherited(stopped.signal),
+    ).rejects.toThrow("stopped");
+  });
+
   test("verifies an adopted part once, not on every capture", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const first = launch(objects, 1);

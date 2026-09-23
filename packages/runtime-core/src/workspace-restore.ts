@@ -137,9 +137,10 @@ const DIRECTORY = O_RDONLY | O_DIRECTORY | O_NOFOLLOW;
 // anything that does — a tracked file, a symlink, a hard link — means the tree
 // is not the one the manifest describes. Never truncated into.
 const NEW_FILE = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW;
-// The manifest carries no mode, and the engine runs as the restoring user.
-// Executable bits are lost until it does.
+// The engine runs as the restoring user, and the manifest carries one mode
+// bit: whether the file was executable (`WorkspaceArtifact.executable`).
 const FILE_MODE = 0o600;
+const EXECUTABLE_FILE_MODE = 0o700;
 const DIRECTORY_MODE = 0o700;
 
 // A leaf or ancestor that is a symlink, a file where a directory should be,
@@ -159,12 +160,14 @@ const CONFINEMENT_ERRORS = new Set([
  * directories, without following a symlink anywhere below the root. Returns
  * a refusal for anything that would leave the workspace or overwrite what is
  * there; throws for faults that are not about confinement (ENOSPC, EIO), so a
- * full disk is never reported as a bad checkpoint.
+ * full disk is never reported as a bad checkpoint. `executable` sets the
+ * owner's execute bit, the only one the manifest keeps.
  *
  * `fdDirectory` exists for tests that need procfs to be missing.
  */
 export async function writeWorkspaceFile(input: {
   bytes: Uint8Array;
+  executable?: boolean;
   path: string;
   workspaceRoot: string;
   fdDirectory?: string;
@@ -221,7 +224,7 @@ export async function writeWorkspaceFile(input: {
       file = await open(
         `${fdDirectory}/${parent.fd}/${leaf}`,
         NEW_FILE,
-        FILE_MODE,
+        input.executable === true ? EXECUTABLE_FILE_MODE : FILE_MODE,
       );
     } catch (error) {
       if (!CONFINEMENT_ERRORS.has(errorCode(error) ?? "")) throw error;

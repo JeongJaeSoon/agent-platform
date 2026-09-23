@@ -200,6 +200,8 @@ export class WorkerHost {
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
+  /** The restore in flight or done, settled either way; see `shutdown`. */
+  private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -318,7 +320,10 @@ export class WorkerHost {
         run = launcher.start(
           {
             ...plan,
-            committedClaudeMd: () => this.options.workspace.committedClaudeMd(),
+            committedClaudeMd:
+              plan.mode === "resume" && plan.committedClaudeMd !== undefined
+                ? plan.committedClaudeMd
+                : () => this.options.workspace.committedClaudeMd(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             principal: claim.principal,
             runtimeConfig: claim.runtime_config,
@@ -394,7 +399,17 @@ export class WorkerHost {
       repository_id: claim.workspace.repository.id,
       branch: claim.workspace.repository.branch,
     });
-    return this.untilStopped(this.checkpoints.restorePlan(claim));
+    const restoring = this.checkpoints
+      .restorePlan(claim, this.preparation.signal)
+      .catch((error: unknown) => {
+        if (this.preparation.signal.aborted) return undefined;
+        throw error;
+      });
+    this.restoring = restoring.then(
+      () => {},
+      () => {},
+    );
+    return this.untilStopped(restoring);
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -1472,6 +1487,23 @@ export class WorkerHost {
       );
     }
     await this.confirmEngineExit();
+    // A restore still replacing the workspace should not outlive the
+    // release: the next attempt restores into the same root. The abort
+    // reaches it at its next step, and the port starts no file work after
+    // it, so this waits out only a step already under way. One still out
+    // past that is waiting on the network, not writing; the process exits
+    // right after the release, which ends it either way.
+    if (
+      this.restoring !== undefined &&
+      !(await settledWithin(
+        this.restoring,
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      ))
+    ) {
+      this.logger.warn("worker.restore.unsettled", {
+        reason: "the restore had not stopped by the release",
+      });
+    }
     if (this.heartbeat !== undefined) {
       await settledWithin(
         this.heartbeat.stop(),
@@ -1818,7 +1850,7 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const consoleLogger: WorkerLogger = {
+export const consoleLogger: WorkerLogger = {
   info: (event, fields) => log("info", event, fields),
   warn: (event, fields) => log("warn", event, fields),
   error: (event, fields) => log("error", event, fields),

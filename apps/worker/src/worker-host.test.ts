@@ -5,6 +5,7 @@ import type {
   FinalizeResponse,
   HeartbeatRequest,
   NextInputRequest,
+  ReleaseRequest,
   RuntimeConfig,
 } from "@agent-platform/contracts";
 import {
@@ -101,11 +102,13 @@ function harness(
   );
   const launched: RuntimeConfig[] = [];
   const principals: ClaimPrincipal[] = [];
+  const claudeMds: Array<string | null> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
       start: ({ runtimeConfig, principal, ...launch }, hooks) => {
         launched.push(runtimeConfig);
         principals.push(principal);
+        claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
           runtime.start(
@@ -138,7 +141,7 @@ function harness(
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
-  return { gateway, host, launched, principals, runtime };
+  return { claudeMds, gateway, host, launched, principals, runtime };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -327,7 +330,7 @@ describe("WorkerHost turn loop", () => {
     const summary = await host.runLoop();
 
     expect(summary.outcome).toBe("failed");
-    expect(summary.reason).toContain("94S-246");
+    expect(summary.reason).toContain("no restorer bound");
     expect(gateway.finalized).toEqual([]);
   });
 
@@ -1037,6 +1040,7 @@ describe("WorkerHost before the engine starts", () => {
         },
         workspace: {
           committedClaudeMd: () => null,
+          instructionsCommit: () => null,
           async prepare({ descriptor }) {
             order.push(`prepare ${descriptor.repository.branch}`);
             expect(runtime.inputs).toHaveLength(0);
@@ -1060,6 +1064,7 @@ describe("WorkerHost before the engine starts", () => {
       gateway,
       workspace: {
         committedClaudeMd: () => null,
+        instructionsCommit: () => null,
         async prepare() {
           throw new Error("Workspace /workspace refused: not a git checkout");
         },
@@ -1086,6 +1091,7 @@ describe("WorkerHost before the engine starts", () => {
       gateway,
       workspace: {
         committedClaudeMd: () => null,
+        instructionsCommit: () => null,
         prepare: ({ signal }) =>
           new Promise((_, reject) => {
             started();
@@ -2296,6 +2302,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
       gateway,
       workspace: {
         committedClaudeMd: () => null,
+        instructionsCommit: () => null,
         prepare: ({ signal }) => {
           signal.addEventListener("abort", () => {
             aborted = true;
@@ -2414,6 +2421,87 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
 
     expect(summary.outcome).toBe("idle");
     expect(summary.turns).toHaveLength(1);
+  });
+});
+
+describe("WorkerHost restoring a checkpoint (94S-246)", () => {
+  test("hands the engine the CLAUDE.md the checkpoint pinned, not the preparer's", async () => {
+    const { claudeMds, host } = harness([{ type: "await-input" }], {
+      checkpoints: {
+        restorePlan: async () => ({
+          mode: "resume",
+          resume: "fake-session",
+          committedClaudeMd: () => "as pinned\n",
+        }),
+        capture: async () => null,
+      },
+      workspace: { ...noWorkspace, committedClaudeMd: () => "as prepared\n" },
+    });
+
+    await host.runLoop();
+
+    expect(claudeMds).toEqual(["as pinned\n"]);
+  });
+
+  test("a stop during the restore waits for it to stop before releasing", async () => {
+    const order: string[] = [];
+    const gateway = new (class extends FakeWorkerGateway {
+      override async release(request: ReleaseRequest) {
+        order.push("release");
+        return super.release(request);
+      }
+    })();
+    let host: WorkerHost | undefined;
+    const built = harness([{ type: "await-input" }], {
+      checkpoints: {
+        restorePlan: (_claim, signal) =>
+          new Promise((_resolve, reject) => {
+            // The step in flight finishes before the abort is noticed.
+            signal.addEventListener("abort", () =>
+              setTimeout(() => {
+                order.push("restore stopped");
+                reject(signal.reason);
+              }, 30),
+            );
+            host?.drain("received SIGTERM");
+          }),
+        capture: async () => null,
+      },
+      gateway,
+    });
+    host = built.host;
+
+    const summary = await built.host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(order).toEqual(["restore stopped", "release"]);
+  });
+
+  test("a restore that never stops is waited for only as long as the release can spare", async () => {
+    const warnings: string[] = [];
+    let host: WorkerHost | undefined;
+    const built = harness([{ type: "await-input" }], {
+      checkpoints: {
+        restorePlan: () => {
+          host?.drain("received SIGTERM");
+          return new Promise(() => {});
+        },
+        capture: async () => null,
+      },
+      logger: {
+        info: () => {},
+        warn: (event) => warnings.push(event),
+        error: () => {},
+      },
+      timeouts: { requestTimeoutMs: 50 },
+    });
+    host = built.host;
+
+    const summary = await built.host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(warnings).toContain("worker.restore.unsettled");
+    expect(built.gateway.releases).toHaveLength(1);
   });
 });
 
