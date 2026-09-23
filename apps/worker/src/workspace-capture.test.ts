@@ -578,6 +578,37 @@ describe("captureWorkspace", () => {
       });
     });
 
+    test("a file rewritten to its old size and mtime, whatever stat checks the checkout asked for", async () => {
+      const past = new Date("2020-01-01T00:00:00Z");
+      await writeFile(join(root, "big.txt"), "y".repeat(100));
+      await utimes(join(root, "big.txt"), past, past);
+      await commitFiles({});
+      await git(root, "config", "core.checkStat", "minimal");
+      await git(root, "config", "core.trustctime", "false");
+      // Past the second the index recorded, which is all the ctime git keeps.
+      await Bun.sleep(1_100);
+      await writeFile(join(root, "big.txt"), "z".repeat(100));
+      await utimes(join(root, "big.txt"), past, past);
+
+      expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "the tracked changes are over the 50 bytes a checkpoint stages",
+      });
+    });
+
+    test("a tracked link whose new target is over the limit", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await symlink("a.txt", join(root, "link"));
+      await commitFiles({});
+      await rm(join(root, "link"));
+      await symlink("t".repeat(100), join(root, "link"));
+
+      expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "the tracked changes are over the 50 bytes a checkpoint stages",
+      });
+    });
+
     test("an untracked file it cannot read without following paths", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await writeFile(join(root, "notes.md"), "n\n");

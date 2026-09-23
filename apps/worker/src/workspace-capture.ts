@@ -71,15 +71,21 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 // tracked link is staged as the file it is. No attributes file outside the
 // tree: the default one lives under the engine's HOME. No replace refs: they
 // stay in the workspace, and HEAD read through one names a tree the bundled
-// commit does not have.
+// commit does not have. Full stat checks with ctime, so a file rewritten to
+// its old size and mtime is still listed as changed when staging is sized;
+// only one rewritten within the second its index entry was refreshed slips
+// through (git keeps whole-second ctimes unless built with USE_NSEC), and
+// what that stages is bounded by the tracked bytes the workspace quota holds.
 const CAPTURE_CONFIG: Array<[string, string]> = [
   ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
+  ["core.checkStat", "default"],
   ["core.eol", "lf"],
   ["core.fileMode", "true"],
   ["core.ignoreCase", "false"],
   ["core.safecrlf", "true"],
   ["core.symlinks", "true"],
+  ["core.trustctime", "true"],
   ["core.useReplaceRefs", "false"],
 ];
 
@@ -484,7 +490,10 @@ async function stagedBytes(
   for (const path of new Set(modified.split("\0"))) {
     if (path === "") continue;
     const found = await lstat(join(root, path)).catch(() => null);
-    if (found?.isFile() !== true) continue;
+    // A link is staged as a blob of its target, which lstat sizes.
+    if (found === null || !(found.isFile() || found.isSymbolicLink())) {
+      continue;
+    }
     total += found.size;
     if (total > limit) {
       return `the tracked changes are over the ${limit} bytes a checkpoint stages`;
