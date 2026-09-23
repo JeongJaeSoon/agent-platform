@@ -2440,7 +2440,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref."
           },
           "error": {
             "anyOf": [

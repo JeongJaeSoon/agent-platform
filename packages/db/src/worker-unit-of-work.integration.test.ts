@@ -2154,7 +2154,7 @@ integration("worker gateway on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.id, session.receipt_id));
     expect(receipt?.status).toBe("succeeded");
-    expect(receipt?.result).toEqual({ turn_id: "1", status: "completed" });
+    expect(receipt?.result).toEqual(session);
     const remaining = await db
       .select()
       .from(queueMessages)
@@ -2189,6 +2189,92 @@ integration("worker gateway on PostgreSQL", () => {
       scopeOf(claimed),
     );
     expect(empty.input).toBeNull();
+  });
+
+  test("a settled input replays its acceptance response for the same idempotency key (94S-265)", async () => {
+    const partition = partitionFor("replay");
+    const inputs = createPostgresSessionUnitOfWork(db);
+    const ownerId = `owner-${crypto.randomUUID()}`;
+    const create = {
+      principal: { ownerId },
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+      message: "first input",
+    };
+    const created = await inputs.acceptInputAtomic(create);
+    if (created.outcome !== "accepted") throw new Error(created.outcome);
+    const sessionId = created.response.session_id;
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, sessionId));
+    const claimed = await claim(await launch(partition));
+    const finalizeTurn = async (
+      turnId: string,
+      status: "completed" | "failed",
+    ) => {
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      expect(next.input?.turn_id).toBe(turnId);
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, turnId),
+        turn_id: turnId,
+        finalize_key: `fin-${turnId}`,
+        final_source_sequence: 0,
+        terminal: {
+          status,
+          reason: status === "failed" ? "boom" : null,
+          result: { text: "done" },
+          usage: null,
+        },
+        checkpoint: null,
+      });
+    };
+    await finalizeTurn("1", "completed");
+
+    const append = {
+      principal: { ownerId },
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "second input",
+    };
+    const appended = await inputs.appendInputAtomic(append);
+    if (appended.outcome !== "accepted") throw new Error(appended.outcome);
+    await finalizeTurn("2", "failed");
+
+    expect(await inputs.acceptInputAtomic(create)).toEqual({
+      outcome: "replayed",
+      response: created.response,
+    });
+    expect(await inputs.appendInputAtomic(append)).toEqual({
+      outcome: "replayed",
+      response: appended.response,
+    });
+    const receiptOf = async (id: string) =>
+      (
+        await db
+          .select({ status: receipts.status, result: receipts.result })
+          .from(receipts)
+          .where(eq(receipts.id, id))
+      )[0];
+    // Settled either way, and the current outcome is on the receipt itself.
+    expect(await receiptOf(created.response.receipt_id)).toEqual({
+      status: "succeeded",
+      result: created.response,
+    });
+    expect(await receiptOf(appended.response.receipt_id)).toEqual({
+      status: "failed",
+      result: appended.response,
+    });
   });
 
   test("finalize refuses a rejected manifest and a revision that is not the next one without touching the turn", async () => {
