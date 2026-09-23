@@ -744,7 +744,10 @@ describe("WorkerGateway", () => {
           {
             kind: "workspace_untracked",
             label: "",
-            objects: [{ ...object, path: "notes.md" }],
+            objects: [
+              { ...object, path: "notes.md" },
+              { ...object, executable: true, path: "bin/tool" },
+            ],
           },
         ],
         cwd: "/workspace",
@@ -773,7 +776,10 @@ describe("WorkerGateway", () => {
           {
             kind: "workspace_untracked",
             label: "",
-            objects: [{ ...object, path: "notes.md" }],
+            objects: [
+              { ...object, path: "notes.md" },
+              { ...object, executable: true, path: "bin/tool" },
+            ],
           },
         ],
         object_keys: [object.key, bundle.key],

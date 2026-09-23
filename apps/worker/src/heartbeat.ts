@@ -1,4 +1,8 @@
-import type { AttemptState, WorkerScope } from "@agent-platform/contracts";
+import type {
+  AttemptState,
+  TranscriptReport,
+  WorkerScope,
+} from "@agent-platform/contracts";
 import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
 
 import {
@@ -18,6 +22,12 @@ export type HeartbeatOptions = {
   onLost: (reason: string) => void;
   /** An answer or control intent is waiting to be fetched. */
   onControlPending?: () => void;
+  /**
+   * The transcript mirror as of this beat; undefined while the run has none.
+   * A `mirror_error` here is what records the session's blocking pending
+   * reason even when no checkpoint is asked for afterwards.
+   */
+  transcript?: () => TranscriptReport | undefined;
   now?: () => Date;
 };
 
@@ -34,8 +44,10 @@ export class Heartbeat {
   private running: Promise<void> | undefined;
   private stopped = false;
   private wake: (() => void) | undefined;
-  /** A beat asked for while one was in flight; the loop owes it next. */
+  /** A beat asked for and not yet sent; the loop, or `stop`, owes it. */
   private owed = false;
+  /** Whether a beat the gateway answered carried a `mirror_error`. */
+  private mirrorErrorAnswered = false;
 
   constructor(options: HeartbeatOptions) {
     this.options = options;
@@ -44,6 +56,14 @@ export class Heartbeat {
 
   get leaseExpiresAt(): Date {
     return this.lease;
+  }
+
+  /**
+   * True once the gateway answered a beat that reported the transcript
+   * mirror's error, which is when it holds the session's pending reason.
+   */
+  get mirrorErrorRecorded(): boolean {
+    return this.mirrorErrorAnswered;
   }
 
   start(): void {
@@ -56,14 +76,26 @@ export class Heartbeat {
    * carry the state from before the change this call is announcing.
    */
   beatNow(): void {
-    if (this.wake !== undefined) this.wake();
-    else this.owed = true;
+    this.owed = true;
+    this.wake?.();
   }
 
+  /**
+   * Ends the loop, then sends a beat that was asked for and never sent: a
+   * stop that lands between `beatNow` and the beat must not drop what that
+   * beat was announcing.
+   */
   async stop(): Promise<void> {
     this.stopped = true;
     this.wake?.();
     await this.running;
+    if (this.owed && !this.lost) await this.beatOnce();
+  }
+
+  /** One beat now, outside the loop; for a caller that must see it land. */
+  async beatOnce(): Promise<void> {
+    this.owed = false;
+    await this.beat();
   }
 
   private async loop(): Promise<void> {
@@ -74,8 +106,8 @@ export class Heartbeat {
       if (!this.owed) {
         await this.pause(Math.min(this.options.intervalMs, this.leaseLeftMs()));
       }
-      this.owed = false;
       if (this.stopped || this.lost) return;
+      this.owed = false;
       await this.beat();
     }
   }
@@ -87,11 +119,13 @@ export class Heartbeat {
 
   private async beat(): Promise<void> {
     const scope = this.options.scope();
+    const transcript = this.options.transcript?.();
     try {
       const response = await this.beforeLeaseRunsOut(
         this.options.gateway.heartbeat({
           ...scope,
           attempt_state: this.options.attemptState(),
+          ...(transcript === undefined ? {} : { transcript }),
         }),
       );
       if (response === undefined) {
@@ -103,6 +137,7 @@ export class Heartbeat {
         return;
       }
       this.lease = new Date(response.lease_expires_at);
+      if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
       if (response.control_pending) this.options.onControlPending?.();
       if (response.auth_revision !== scope.auth_revision) {
         // The session's authorization moved on, so this token's binding is

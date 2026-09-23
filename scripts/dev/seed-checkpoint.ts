@@ -73,7 +73,14 @@ await mirror.append({ ...root, subpath: "agents/reviewer" }, [
 const transcripts = await mirror.captureTranscripts(engineSession);
 if (transcripts === null) throw new Error("root transcript was not captured");
 
-const manifestRef = manifestRefFor(sessionId, revision, attemptId);
+// A publish id like the one requestCheckpoint mints, so the key has the
+// shape the gateway verifies.
+const manifestRef = manifestRefFor(
+  sessionId,
+  revision,
+  attemptId,
+  randomUUID().replaceAll("-", ""),
+);
 const attemptPrefix = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
 const bundle = await createGitBundle({ message: `seed ${sessionId}` });
 const bundleKey = `${attemptPrefix}workspace.bundle`;

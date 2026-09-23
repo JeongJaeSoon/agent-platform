@@ -638,6 +638,41 @@ describe("WorkerHost interrupt", () => {
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
   });
 
+  test("a refused checkpoint after an unanswered finalize leaves the interrupted turn open", async () => {
+    const gateway = new FakeWorkerGateway();
+    let calls = 0;
+    gateway.finalize = async () => {
+      calls += 1;
+      if (calls === 1) {
+        // The server may still be committing this one, checkpoint and all.
+        throw new WorkerGatewayRequestError(
+          0,
+          null,
+          "POST /finalize did not reach the gateway: timed out",
+          true,
+        );
+      }
+      throw new WorkerGatewayRequestError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        "Checkpoint manifest rejected",
+        false,
+      );
+    };
+    const { host, runtime } = harness(TWO_TURNS, { gateway });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    const summary = await loop;
+
+    // No second body under the same key: recovery decides the turn.
+    expect(calls).toBe(2);
+    expect(summary.outcome).toBe("failed");
+    expect(summary.turns).toEqual([]);
+  });
+
   test("a capture that throws turns the interrupt into outcome_unknown", async () => {
     const { gateway, host, runtime } = harness(TWO_TURNS, {
       checkpoints: {

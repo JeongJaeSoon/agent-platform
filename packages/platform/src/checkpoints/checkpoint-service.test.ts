@@ -33,6 +33,8 @@ import {
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
 const attemptId = "attempt-1";
+// What `requestCheckpoint` would have minted for the publish these tests upload.
+const PUBLISH_ID = "0123456789abcdef0123456789abcdef";
 const runtime: RuntimeFingerprint = {
   cliVersion: "2.1.270",
   engine: "test-engine",
@@ -100,7 +102,7 @@ const workspaceBundle = await createGitBundle();
 
 /** A bundle lives beside the manifest that names it, in the attempt's own dir. */
 function bundleKeyFor(revision: number, attempt: string): string {
-  const ref = manifestRefFor(sessionId, revision, attempt);
+  const ref = manifestRefFor(sessionId, revision, attempt, PUBLISH_ID);
   return `${ref.slice(0, ref.lastIndexOf("/") + 1)}workspace.bundle`;
 }
 
@@ -232,6 +234,7 @@ beforeEach(async () => {
   service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
     objectProtection: "unversioned",
+    newPublishId: () => PUBLISH_ID,
     objects,
     store: checkpoints.store,
     workspaceBundles: structuralBundleVerifier,
@@ -246,6 +249,7 @@ function serviceOwnedBy(owner: CheckpointFence) {
     service: createCheckpointService({
       codecs: { [runtime.engine]: codec },
       objectProtection: "unversioned",
+      newPublishId: () => PUBLISH_ID,
       objects,
       store: store.store,
       workspaceBundles: structuralBundleVerifier,
@@ -255,7 +259,12 @@ function serviceOwnedBy(owner: CheckpointFence) {
 
 /** Uploads a manifest the way a worker would, and returns the ref for it. */
 async function upload(body: CheckpointManifest, attempt = attemptId) {
-  const manifestRef = manifestRefFor(body.sessionId, body.revision, attempt);
+  const manifestRef = manifestRefFor(
+    body.sessionId,
+    body.revision,
+    attempt,
+    PUBLISH_ID,
+  );
   const { bytes, sha256: digest } = codec.encode(body);
   const result = await objects.putImmutable(manifestRef, bytes);
   return {
@@ -279,7 +288,7 @@ describe("requestCheckpoint", () => {
     ).toEqual({
       status: "ready",
       request: {
-        manifestRef: manifestRefFor(sessionId, 0, attemptId),
+        manifestRef: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
         revision: 0,
         sessionId,
       },
@@ -334,6 +343,63 @@ describe("requestCheckpoint", () => {
     ).toEqual({ outcome: "committed", revision: 0 });
   });
 
+  test("hands one attempt a new key for every publish, so an upload that never committed cannot wedge it", async () => {
+    const minting = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const ask = async () => {
+      const answer = await minting.requestCheckpoint({
+        attemptId,
+        preparation: ready(),
+        sessionId,
+      });
+      if (answer.status !== "ready") throw new Error("expected a request");
+      return answer.request;
+    };
+    const publish = async (manifestRef: string, resume: string) => {
+      const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
+      await objects.put(`${directory}workspace.bundle`, workspaceBundle.bytes);
+      const body = manifest({
+        resume,
+        workspace: workspace({
+          bundle: bundleRef(`${directory}workspace.bundle`),
+        }),
+      });
+      const { bytes, sha256: digest } = codec.encode(body);
+      expect(await objects.putImmutable(manifestRef, bytes)).toEqual({
+        outcome: "created",
+      });
+      return {
+        manifest_ref: manifestRef,
+        manifest_sha256: digest,
+        revision: 0,
+      };
+    };
+
+    // Uploaded, and then its turn was finalized without it.
+    const first = await ask();
+    await publish(first.manifestRef, "engine-session-1");
+
+    // The attempt's next turn is handed the same revision, at its own key.
+    const second = await ask();
+    expect(second.revision).toBe(0);
+    expect(second.manifestRef).not.toBe(first.manifestRef);
+    const checkpoint = await publish(second.manifestRef, "engine-session-2");
+    expect(
+      await minting.finalize({
+        checkpoint,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "2",
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
+  });
+
   test("passes the runtime's refusal through instead of allocating a revision", async () => {
     expect(
       await service.requestCheckpoint({
@@ -367,7 +433,7 @@ describe("validateManifest", () => {
     expect(
       await service.validateManifest({
         checkpoint: {
-          manifest_ref: manifestRefFor(sessionId, 0, attemptId),
+          manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
           manifest_sha256: "1".repeat(64),
           revision: 0,
         },
@@ -433,7 +499,7 @@ describe("validateManifest", () => {
   });
 
   test("refuses bytes the codec cannot decode", async () => {
-    const manifestRef = manifestRefFor(sessionId, 0, attemptId);
+    const manifestRef = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
     const bytes = encode(
       JSON.stringify({ engine: runtime.engine, corrupt: true }),
     );
@@ -871,7 +937,7 @@ describe("finalize", () => {
   test("never commits a checkpoint it could not validate", async () => {
     const result = await service.finalize({
       checkpoint: {
-        manifest_ref: manifestRefFor(sessionId, 0, attemptId),
+        manifest_ref: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
         manifest_sha256: "1".repeat(64),
         revision: 0,
       },
@@ -1075,9 +1141,41 @@ describe("finalize", () => {
       }),
     ).toMatchObject({
       outcome: "rejected",
-      reason: expect.stringMatching(/is not this attempt's key/),
+      reason: expect.stringMatching(/is not a key this attempt was handed/),
     });
     expect(checkpoints.committed).toEqual([]);
+    expect(checkpoints.pointer()).toBeNull();
+  });
+
+  test("refuses a key under this attempt that is not one requestCheckpoint mints", async () => {
+    const minted = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
+    const directory = minted.slice(0, minted.indexOf(PUBLISH_ID));
+    for (const key of [
+      `${directory}manifest.json`,
+      `${directory}${PUBLISH_ID.toUpperCase()}/manifest.json`,
+      `${directory}${PUBLISH_ID}/nested/manifest.json`,
+      `${directory}${PUBLISH_ID}/manifest.json.bak`,
+      `${directory}../${PUBLISH_ID}/manifest.json`,
+    ]) {
+      const { bytes, sha256: digest } = codec.encode(manifest());
+      await objects.put(key, bytes);
+      expect(
+        await service.finalize({
+          checkpoint: {
+            manifest_ref: key,
+            manifest_sha256: digest,
+            revision: 0,
+          },
+          fence: fence(),
+          now: new Date(),
+          sessionId,
+          turnId: "1",
+        }),
+      ).toMatchObject({
+        outcome: "rejected",
+        reason: expect.stringMatching(/is not a key this attempt was handed/),
+      });
+    }
     expect(checkpoints.pointer()).toBeNull();
   });
 
@@ -1198,7 +1296,7 @@ describe("getRestorePlan", () => {
         cwd: "/workspace",
         engine: runtime.engine,
         gitCommit: workspaceBundle.commit,
-        manifestRef: manifestRefFor(sessionId, 0, attemptId),
+        manifestRef: manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID),
         objectKeys: [ROOT_PART, SUB_PART, BUNDLE, UNTRACKED],
         resume: "engine-session-1",
         revision: 0,

@@ -59,6 +59,23 @@ const integration =
 
 const PROFILE_SHA = "c".repeat(64);
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The publish id is the server's to mint, so only the shape around it is known.
+function mintedRef(sessionId: string, revision: number, attemptId: string) {
+  const [directory, file] = manifestRefFor(
+    sessionId,
+    revision,
+    attemptId,
+    "<publish>",
+  ).split("<publish>") as [string, string];
+  return expect.stringMatching(
+    new RegExp(`^${escapeRegExp(directory)}[0-9a-f]{32}${escapeRegExp(file)}$`),
+  );
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -252,7 +269,51 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     ).toEqual({
       status: "ready",
       revision: 0,
-      manifest_ref: manifestRefFor(claimed.session_id, 0, claimed.attempt_id),
+      manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
+    });
+  }, 60_000);
+
+  test("a manifest refused at finalize leaves the key free to finalize the turn without one (94S-246)", async () => {
+    const { principal, scope, turnId } = await claimedSession();
+    const asked = await gateway.requestCheckpoint(principal, {
+      ...scope,
+      preparation: { status: "ready" },
+    });
+    if (asked.status !== "ready") throw new Error("expected a key");
+    const terminal = {
+      status: "completed" as const,
+      reason: null,
+      result: null,
+      usage: null,
+    };
+    // Nothing was uploaded under the key, so verification refuses it before
+    // finalizeAtomic stores anything for the turn.
+    const refused = {
+      ...scope,
+      turn_id: turnId,
+      finalize_key: "fin-1",
+      final_source_sequence: 0,
+      terminal,
+      checkpoint: {
+        revision: asked.revision,
+        manifest_ref: asked.manifest_ref,
+        manifest_sha256: "f".repeat(64),
+      },
+    };
+    await expect(gateway.finalize(principal, refused)).rejects.toMatchObject({
+      status: 409,
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+
+    expect(
+      await gateway.finalize(principal, { ...refused, checkpoint: null }),
+    ).toMatchObject({ status: "completed", checkpoint_revision: null });
+
+    // The refused body never becomes the stored one: replaying it now is a
+    // different request under a settled key.
+    await expect(gateway.finalize(principal, refused)).rejects.toMatchObject({
+      status: 409,
+      code: "IDEMPOTENCY_CONFLICT",
     });
   }, 60_000);
 
@@ -268,7 +329,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     expect(asked).toEqual({
       status: "ready",
       revision: 0,
-      manifest_ref: manifestRefFor(sessionId, 0, claimed.attempt_id),
+      manifest_ref: mintedRef(sessionId, 0, claimed.attempt_id),
     });
     if (asked.status !== "ready") return;
 
@@ -277,7 +338,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       new TextEncoder().encode('{"type":"user"}\n'),
     );
     const bundleRef = await put(
-      `${prefix}checkpoints/0000000000/${claimed.attempt_id}/workspace.bundle`,
+      // Beside the manifest, in the directory this publish was handed.
+      `${asked.manifest_ref.slice(0, asked.manifest_ref.lastIndexOf("/") + 1)}workspace.bundle`,
       bundle.bytes,
     );
     const manifest: CheckpointManifest = {
@@ -355,7 +417,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     ).toEqual({
       status: "ready",
       revision: 1,
-      manifest_ref: manifestRefFor(sessionId, 1, claimed.attempt_id),
+      manifest_ref: mintedRef(sessionId, 1, claimed.attempt_id),
     });
 
     const runtime = {

@@ -34,6 +34,7 @@ import {
 
 const sessionId = "44444444-4444-4444-8444-444444444444";
 const attemptId = "attempt-1";
+const PUBLISH_ID = "0123456789abcdef0123456789abcdef";
 const prefix = sessionObjectPrefix(sessionId);
 const runtime: RuntimeFingerprint = {
   cliVersion: "2.1.270",
@@ -67,7 +68,7 @@ const codec: CheckpointCodec = {
 const workspaceBundle = await createGitBundle();
 
 function attemptDirectory(revision: number): string {
-  const ref = manifestRefFor(sessionId, revision, attemptId);
+  const ref = manifestRefFor(sessionId, revision, attemptId, PUBLISH_ID);
   return ref.slice(0, ref.lastIndexOf("/") + 1);
 }
 
@@ -158,7 +159,12 @@ async function publish(
       untracked: [{ ...notes, path: "notes.md" }],
     },
   });
-  const manifestRef = manifestRefFor(sessionId, revision, attemptId);
+  const manifestRef = manifestRefFor(
+    sessionId,
+    revision,
+    attemptId,
+    PUBLISH_ID,
+  );
   const encoded = codec.encode(manifest);
   const stored = await upload(manifestRef, encoded.bytes);
   return {
@@ -431,7 +437,7 @@ describe("unversioned", () => {
         untracked: [],
       },
     };
-    const manifestRef = manifestRefFor(sessionId, 0, attemptId);
+    const manifestRef = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
     const encoded = codec.encode(manifest);
     await plain.putImmutable(manifestRef, encoded.bytes);
 

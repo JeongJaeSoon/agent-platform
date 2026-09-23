@@ -7,6 +7,9 @@ import {
   type BootstrapClaimRequest,
   type BootstrapClaimResponse,
   bootstrapClaimResponseSchema,
+  type CheckpointRequest,
+  type CheckpointRequestResponse,
+  checkpointRequestResponseSchema,
   type FinalizeRequest,
   type FinalizeResponse,
   finalizeResponseSchema,
@@ -23,8 +26,11 @@ import {
   type RegisterPendingResponse,
   type ReleaseRequest,
   type ReleaseResponse,
+  type RestorePlanRequest,
+  type RestorePlanResponse,
   registerPendingResponseSchema,
   releaseResponseSchema,
+  restorePlanResponseSchema,
 } from "@agent-platform/contracts";
 
 import type { WorkerGatewaySession } from "./worker-host.ts";
@@ -142,6 +148,20 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
     return this.post("/pending-control", request, pendingControlResponseSchema);
+  }
+
+  requestCheckpoint(
+    request: CheckpointRequest,
+  ): Promise<CheckpointRequestResponse> {
+    return this.post(
+      "/checkpoint-request",
+      request,
+      checkpointRequestResponseSchema,
+    );
+  }
+
+  restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse> {
+    return this.post("/restore-plan", request, restorePlanResponseSchema);
   }
 
   finalize(request: FinalizeRequest): Promise<FinalizeResponse> {

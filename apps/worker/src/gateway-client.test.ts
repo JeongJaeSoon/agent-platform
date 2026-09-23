@@ -116,6 +116,45 @@ describe("HttpWorkerGatewayClient", () => {
     expect(recorded[1]?.headers.Authorization).toBe("Bearer wsc_session");
   });
 
+  test("asks for a checkpoint and a restore plan on the routes the API mounts", async () => {
+    const answers: Record<string, unknown> = {
+      "/internal/worker/checkpoint-request": {
+        status: "ready",
+        revision: 3,
+        manifest_ref: "sessions/s/checkpoints/0000000003/att_1/p/manifest.json",
+      },
+      "/internal/worker/restore-plan": { status: "none" },
+    };
+    const { gateway, recorded } = client(({ url }) =>
+      ok(answers[new URL(url).pathname]),
+    );
+
+    expect(
+      await gateway.requestCheckpoint({
+        ...scope,
+        preparation: { status: "ready" },
+      }),
+    ).toEqual({
+      status: "ready",
+      revision: 3,
+      manifest_ref: "sessions/s/checkpoints/0000000003/att_1/p/manifest.json",
+    });
+    const runtime = {
+      engine: "claude",
+      sdk_version: "0.3.270",
+      cli_version: "2.1.270",
+      profile_sha256: "a".repeat(64),
+    };
+    expect(await gateway.restorePlan({ ...scope, runtime })).toEqual({
+      status: "none",
+    });
+    expect(recorded.map((entry) => new URL(entry.url).pathname)).toEqual([
+      "/internal/worker/checkpoint-request",
+      "/internal/worker/restore-plan",
+    ]);
+    expect(recorded[1]?.body).toEqual({ ...scope, runtime });
+  });
+
   test("decodes an API error body into a typed decision", async () => {
     const { gateway } = client(() => apiError(409, "LEASE_EXPIRED"));
     const error = await gateway

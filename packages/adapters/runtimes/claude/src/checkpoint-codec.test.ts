@@ -187,6 +187,30 @@ describe("Claude checkpoint codec", () => {
     );
   });
 
+  test("carries an untracked file's execute bit only as true", () => {
+    const base = manifest();
+    const executable = manifest({
+      workspace: {
+        ...base.workspace,
+        untracked: base.workspace.untracked.map((file) => ({
+          ...file,
+          executable: true as const,
+        })),
+      },
+    });
+
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(executable).bytes),
+    ).toEqual(executable);
+    const body = JSON.parse(
+      new TextDecoder().decode(encodeCheckpointManifest(base).bytes),
+    );
+    body.workspace.untracked[0].executable = false;
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("refuses bytes that are not a manifest", () => {
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode("not json")),

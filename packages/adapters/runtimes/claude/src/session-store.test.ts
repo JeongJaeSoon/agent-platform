@@ -169,6 +169,38 @@ describe("Claude session store", () => {
     expect(mirror.appendFailures).toBe(1);
   });
 
+  test("is unsettled from a failed append until a later one for that transcript lands", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const { mirror } = store(objects);
+    expect(mirror.persistedAt).toBeNull();
+    await mirror.append(root, [entry("a", "first")]);
+    const landed = mirror.persistedAt;
+    expect(landed).toBeInstanceOf(Date);
+
+    objects.failWrites(1);
+    await expect(mirror.append(root, [entry("b", "dropped")])).rejects.toThrow(
+      /Injected object store failure/,
+    );
+    expect(mirror.unsettled).toBe(true);
+    expect(mirror.persistedAt).toBe(landed);
+    // Another transcript landing says nothing about the root's batch.
+    await mirror.append({ ...root, subpath: "agents/a" }, [entry("s", "x")]);
+    expect(mirror.unsettled).toBe(true);
+
+    await mirror.append(root, [entry("b", "dropped")]);
+    expect(mirror.unsettled).toBe(false);
+  });
+
+  test("ready() rejects before any append when the generation is taken", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    await store(objects).mirror.append(root, [entry("a", "other launch")]);
+
+    await expect(store(objects).mirror.ready()).rejects.toThrow(
+      /already holds transcript parts/,
+    );
+    await store().mirror.ready();
+  });
+
   test("refuses a subpath that would escape the session namespace", async () => {
     const { mirror } = store();
 

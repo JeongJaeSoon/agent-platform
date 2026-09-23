@@ -45,7 +45,10 @@ const objectRefSchema = z
 // Restoring writes these paths into a workspace, so the manifest is where
 // traversal is refused — not the code that later unpacks it.
 const workspaceArtifactSchema = objectRefSchema
-  .extend({ path: z.string().min(1) })
+  .extend({
+    executable: z.literal(true).exactOptional(),
+    path: z.string().min(1),
+  })
   .strict()
   .refine(
     (artifact) =>

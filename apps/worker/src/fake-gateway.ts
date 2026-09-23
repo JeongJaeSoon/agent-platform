@@ -5,6 +5,8 @@ import type {
   BootstrapClaimRequest,
   BootstrapClaimResponse,
   CheckpointRef,
+  CheckpointRequest,
+  CheckpointRequestResponse,
   ControlIntent,
   FinalizeRequest,
   FinalizeResponse,
@@ -20,6 +22,8 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RestorePlanRequest,
+  RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
   WorkerEvent,
@@ -29,8 +33,25 @@ import type {
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
+/**
+ * The checkpoint half of the gateway, for a test that binds it to the real
+ * CheckpointService. `commit` runs for a first-time finalize that carries a
+ * checkpoint, before the turn is recorded; throwing refuses the finalize.
+ */
+export type FakeCheckpointProtocol = {
+  commit(
+    request: FinalizeRequest & { checkpoint: CheckpointRef },
+  ): Promise<void>;
+  requestCheckpoint(
+    request: CheckpointRequest,
+  ): Promise<CheckpointRequestResponse>;
+  restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse>;
+};
+
 export type FakeWorkerGatewayOptions = {
   attemptId?: string;
+  /** Absent: an in-memory pointer that accepts any checkpoint at the next revision. */
+  checkpoints?: FakeCheckpointProtocol;
   /** Where this session's turn numbering carries on from. */
   firstTurn?: number;
   leaseTtlMs?: number;
@@ -91,6 +112,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   control: ControlIntent | null = null;
   /** Thrown by a release that answers a pause while set, as a refusal would be. */
   pauseRefusal: WorkerGatewayRequestError | undefined;
+  /** Every checkpoint request the worker made, rejected ones included. */
+  readonly checkpointRequests: CheckpointRequest[] = [];
+  readonly restorePlans: RestorePlanRequest[] = [];
+  /** The in-memory pointer, when no protocol is bound: null until a commit. */
+  checkpointRevision: number | null = null;
+  private readonly checkpointProtocol: FakeCheckpointProtocol | undefined;
 
   private readonly controls: ControlIntent[] = [];
   private readonly answers: Array<{
@@ -99,7 +126,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     input_hash: string;
   }> = [];
   private readonly options: Required<
-    Omit<FakeWorkerGatewayOptions, "restore" | "workspace">
+    Omit<FakeWorkerGatewayOptions, "checkpoints" | "restore" | "workspace">
   > &
     Pick<FakeWorkerGatewayOptions, "restore" | "workspace">;
   private readonly queue: Queued[] = [];
@@ -109,6 +136,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
 
   constructor(options: FakeWorkerGatewayOptions = {}) {
     this.nextTurn = options.firstTurn ?? 1;
+    this.checkpointProtocol = options.checkpoints;
     this.options = {
       attemptId: options.attemptId ?? "att_fake",
       firstTurn: options.firstTurn ?? 1,
@@ -390,6 +418,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           false,
         );
       }
+      if (request.checkpoint !== null) {
+        await this.commitCheckpoint({
+          ...request,
+          checkpoint: request.checkpoint,
+        });
+      }
       this.finalized.push(request);
       if (request.terminal.status === "outcome_unknown") {
         this.recoveryRequired = true;
@@ -402,6 +436,45 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     };
   }
 
+  async requestCheckpoint(
+    request: CheckpointRequest,
+  ): Promise<CheckpointRequestResponse> {
+    this.calls.push("requestCheckpoint");
+    this.checkpointRequests.push(request);
+    if (this.checkpointProtocol !== undefined) {
+      return this.checkpointProtocol.requestCheckpoint(request);
+    }
+    if (request.preparation.status === "rejected") {
+      return {
+        status: "blocked",
+        reason: request.preparation.reason,
+        detail: request.preparation.detail,
+      };
+    }
+    const revision = (this.checkpointRevision ?? -1) + 1;
+    const publish = crypto.randomUUID().replaceAll("-", "");
+    return {
+      status: "ready",
+      revision,
+      manifest_ref: `sessions/${this.options.sessionId}/checkpoints/${String(revision).padStart(10, "0")}/${this.options.attemptId}/${publish}/manifest.json`,
+    };
+  }
+
+  async restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse> {
+    this.calls.push("restorePlan");
+    this.restorePlans.push(request);
+    if (this.checkpointProtocol !== undefined) {
+      return this.checkpointProtocol.restorePlan(request);
+    }
+    return this.options.restore === null
+      ? { status: "none" }
+      : {
+          status: "unavailable",
+          code: "CHECKPOINT_UNAVAILABLE",
+          reason: "The fake gateway holds no checkpoint objects",
+        };
+  }
+
   async release(request: ReleaseRequest): Promise<ReleaseResponse> {
     this.calls.push("release");
     this.releases.push(request);
@@ -409,6 +482,26 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       throw this.pauseRefusal;
     }
     return { released: true };
+  }
+
+  /** Like finalizeAtomic's pointer CAS: the next revision or nothing. */
+  private async commitCheckpoint(
+    request: FinalizeRequest & { checkpoint: CheckpointRef },
+  ): Promise<void> {
+    if (this.checkpointProtocol !== undefined) {
+      await this.checkpointProtocol.commit(request);
+      return;
+    }
+    const expected = (this.checkpointRevision ?? -1) + 1;
+    if (request.checkpoint.revision !== expected) {
+      throw new WorkerGatewayRequestError(
+        409,
+        "REVISION_CONFLICT",
+        `The checkpoint pointer stands at ${this.checkpointRevision ?? "none"}`,
+        false,
+      );
+    }
+    this.checkpointRevision = expected;
   }
 
   private leaseExpiresAt(): string {

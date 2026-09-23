@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { CheckpointRef } from "@agent-platform/contracts";
 import type {
   CheckpointBlockReason,
@@ -182,6 +182,8 @@ export type CheckpointServiceDependencies = {
    * prevented.
    */
   objectProtection?: ObjectProtection;
+  /** Tests pin it; it must match `PUBLISH_ID`. */
+  newPublishId?: () => string;
   objects: CheckpointObjectStore;
   store: CheckpointStore;
   /**
@@ -203,23 +205,35 @@ export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 
 /**
- * Every publish attempt gets its own key.
+ * Every publish gets its own key: the attempt's, and within it one per
+ * `requestCheckpoint` answer.
  *
  * Keying by revision alone deadlocks the session: a worker that uploads and
  * then dies before finalizing leaves an orphan object at the key the next
  * attempt is handed, and create-only then refuses every later manifest for that
- * revision forever. Two attempts may therefore both upload; which one becomes
- * the session's truth is decided by the fenced pointer CAS, not by who wrote
- * the object first.
+ * revision forever. Keying by attempt alone does the same inside one attempt:
+ * a manifest that was uploaded and never committed — its finalize refused, or
+ * its put timed out after landing — sits at the key the attempt's next turn is
+ * handed for the same revision. So both may upload; which one becomes the
+ * session's truth is decided by the fenced pointer CAS, not by who wrote the
+ * object first.
  */
 export function manifestRefFor(
   sessionId: string,
   revision: number,
   attemptId: string,
+  publishId: string,
 ): string {
   // Zero-padded so a prefix listing of a session's checkpoints is ordered.
   const padded = String(revision).padStart(10, "0");
-  return `${sessionObjectPrefix(sessionId)}checkpoints/${padded}/${attemptId}/manifest.json`;
+  return `${sessionObjectPrefix(sessionId)}checkpoints/${padded}/${attemptId}/${publishId}/manifest.json`;
+}
+
+/** What `requestCheckpoint` mints; finalize accepts nothing else in its place. */
+const PUBLISH_ID = /^[0-9a-f]{32}$/;
+
+function newPublishId(): string {
+  return randomUUID().replaceAll("-", "");
 }
 
 /**
@@ -255,6 +269,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   // to read in `locked`, and nothing in `unversioned`, which reads by key.
   const pinnedVersion = (version: string | null | undefined) =>
     protection === "locked" ? (version ?? undefined) : undefined;
+  const publishId = deps.newPublishId ?? newPublishId;
 
   async function validateManifest(input: {
     checkpoint: CheckpointRef;
@@ -573,27 +588,39 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   }
 
   /**
-   * The finalize-side check: the manifest the caller offers must be the one
-   * key this session, revision and attempt could have written, and it must
+   * The finalize-side check: the manifest the caller offers must be at a key
+   * this session, revision and attempt could have been handed, and it must
    * validate. The caller supplies both the fence and the manifest reference,
    * and nothing else ties them together: a confused worker could hand over
    * the fence it holds and some other attempt's manifest, which would promote
    * exactly the orphan that per-attempt keys exist to isolate.
+   *
+   * Which publish id the key carries is not checked against anything the
+   * server remembers — it remembers none. Any key of exactly the shape
+   * `requestCheckpoint` mints under this attempt's directory is one only this
+   * attempt could have written, which is the property that matters.
    */
   async function verifyAttemptManifest(input: {
     checkpoint: CheckpointRef;
     fence: CheckpointFence;
   }): Promise<ManifestVerdict> {
     const sessionId = input.fence.sessionId;
-    const expectedRef = manifestRefFor(
+    const ref = input.checkpoint.manifest_ref;
+    const shape = manifestRefFor(
       sessionId,
       input.checkpoint.revision,
       input.fence.attemptId,
+      "<publish>",
     );
-    if (input.checkpoint.manifest_ref !== expectedRef) {
+    const [directory, file] = shape.split("<publish>") as [string, string];
+    const minted =
+      ref.startsWith(directory) &&
+      ref.endsWith(file) &&
+      PUBLISH_ID.test(ref.slice(directory.length, ref.length - file.length));
+    if (!minted) {
       return {
         status: "rejected",
-        reason: `manifest ${input.checkpoint.manifest_ref} is not this attempt's key ${expectedRef}`,
+        reason: `manifest ${ref} is not a key this attempt was handed under ${directory}`,
       };
     }
     const pinned = pinnedVersions();
@@ -668,6 +695,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
             input.sessionId,
             revision,
             input.attemptId,
+            publishId(),
           ),
           revision,
           sessionId: input.sessionId,
