@@ -54,6 +54,17 @@ function resultMessage(uuid: string): NativeSdkMessage {
   };
 }
 
+function errorResult(uuid: string, terminalReason: string): NativeSdkMessage {
+  return {
+    type: "result",
+    subtype: "error_during_execution",
+    session_id: "fake-session",
+    is_error: true,
+    terminal_reason: terminalReason,
+    user_message_uuid: uuid,
+  };
+}
+
 /** Captures a checkpoint whenever the run says one is ready. */
 function capturing(): WorkerCheckpointPort & { refs: CheckpointRef[] } {
   const refs: CheckpointRef[] = [];
@@ -221,6 +232,66 @@ describe("WorkerHost interrupt", () => {
     // The session awaits a recovery decision; its next input is not run.
     expect(runtime.inputs).toHaveLength(1);
   });
+
+  test("an aborted terminal nobody interrupted is a failure, not an interrupt", async () => {
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: errorResult(uuidForTurn(1), "aborted_streaming"),
+      },
+      { type: "await-input" },
+    ]);
+    gateway.enqueue("aborted on its own");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "error_during_execution" },
+    ]);
+  });
+
+  test.each([
+    {
+      name: "a success keeps its completion",
+      message: resultMessage(uuidForTurn(1)),
+      status: "completed",
+    },
+    {
+      name: "an error that is no abort stays a failure",
+      message: errorResult(uuidForTurn(1), "api_error"),
+      status: "failed",
+    },
+  ])(
+    "a turn that ended before the interrupt landed: $name",
+    async ({ message, status }) => {
+      let interrupted = false;
+      const { gateway, host, runtime } = harness(
+        [
+          { type: "await-input" },
+          { type: "delay", delayMs: 200 },
+          { type: "emit", message },
+          { type: "await-input" },
+        ],
+        {
+          // The engine had already finished: the interrupt reaches nothing.
+          wrap: withInterrupt(async () => {
+            interrupted = true;
+            return { stillQueued: [] };
+          }),
+        },
+      );
+      gateway.enqueue("finishes anyway");
+      const loop = host.runLoop();
+      await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+      gateway.interrupt("1");
+
+      const summary = await loop;
+
+      expect(interrupted).toBe(true);
+      expect(summary.turns[0]?.status).toBe(status);
+    },
+  );
 
   test("an interrupt that names a turn already over does not touch the running one", async () => {
     const gateway = new FakeWorkerGateway();

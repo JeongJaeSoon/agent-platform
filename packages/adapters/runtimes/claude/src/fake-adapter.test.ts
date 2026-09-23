@@ -199,16 +199,19 @@ describe("fake agent runtime", () => {
     expect(await run.interrupt()).toEqual({ stillQueued: [] });
     await consume;
     expect(frames).toHaveLength(1);
-    expect(frames[0]?.envelope.message.terminal_reason).toBe("interrupted");
+    expect(frames[0]?.envelope.message.terminal_reason).toBe(
+      "aborted_streaming",
+    );
     expect(frames[0]?.envelope.message.user_message_uuids).toEqual([
       "u1",
       "u2",
     ]);
+    // The interrupt's result names the session the run resumed, as the SDK's does.
     expect(await run.prepareCheckpoint()).toEqual({
       status: "ready",
       checkpoint: {
         engine: "claude",
-        resume: "fake-session",
+        resume: "ckpt",
         sdkVersion: "0.3.270",
       },
     });
@@ -233,7 +236,7 @@ describe("fake agent runtime", () => {
     await consume;
     expect(
       frames.map((frame) => frame.envelope.message.terminal_reason),
-    ).toEqual(["interrupted"]);
+    ).toEqual(["aborted_streaming"]);
     expect((await interruptedFirst.prepareCheckpoint()).status).toBe("ready");
 
     const abortedFirst = start();
@@ -265,7 +268,9 @@ describe("fake agent runtime", () => {
     await Bun.sleep(5);
     await run.interrupt();
     await waitFor(() => frames.length === 1);
-    expect(frames[0]?.envelope.message.terminal_reason).toBe("interrupted");
+    expect(frames[0]?.envelope.message.terminal_reason).toBe(
+      "aborted_streaming",
+    );
     expect(frames[0]?.envelope.message.user_message_uuid).toBe("u1");
     expect((await run.prepareCheckpoint()).status).toBe("ready");
 
@@ -301,6 +306,8 @@ describe("fake agent runtime", () => {
     await waitFor(() => runtime.toolAdmissions.length === 1);
     await run.interrupt();
     await waitFor(() => frames.length === 1);
+    // A tool was running, so the SDK names that abort, not a streaming one.
+    expect(frames[0]?.envelope.message.terminal_reason).toBe("aborted_tools");
     expect(frames[0]?.envelope.message.user_message_uuids).toEqual([
       "u1",
       "u2",
@@ -466,7 +473,7 @@ describe("fake agent runtime", () => {
     const interruptedFrames = [];
     for await (const frame of interrupted) interruptedFrames.push(frame);
     expect(interruptedFrames[0]?.envelope.message.terminal_reason).toBe(
-      "interrupted",
+      "aborted_streaming",
     );
 
     const aborted = interruptRuntime.start(config, {
@@ -543,7 +550,7 @@ describe("fake agent runtime", () => {
     await delayed.interrupt();
     await within(delayedConsume, 100);
     expect(delayedFrames[0]?.envelope.message.terminal_reason).toBe(
-      "interrupted",
+      "aborted_streaming",
     );
 
     let permissionStarted: (() => void) | undefined;
@@ -579,7 +586,7 @@ describe("fake agent runtime", () => {
     await pending.interrupt();
     await within(pendingConsume, 100);
     expect(pendingFrames[0]?.envelope.message.terminal_reason).toBe(
-      "interrupted",
+      "aborted_tools",
     );
   });
 

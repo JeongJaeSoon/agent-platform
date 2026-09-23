@@ -12,6 +12,7 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
+import { endedByAbort } from "@agent-platform/runtime-claude";
 import type {
   AgentRun,
   CheckpointLease,
@@ -136,6 +137,11 @@ type Turn = {
   closed: boolean;
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
+  /**
+   * That intent's interrupt went to the engine. Only this makes an aborted
+   * terminal an interrupted turn: the SDK ends every abort the same way.
+   */
+  interruptSent: boolean;
   /**
    * When the interrupt's grace runs out (performance.now()): it bounds the
    * whole way to a terminal, checkpoint capture included, not each step.
@@ -773,7 +779,7 @@ export class WorkerHost {
     run.send({ message, uuid: turn.uuid });
     turn.sent = true;
     // An interrupt taken while the check ran reaches the engine now.
-    if (turn.interrupting) this.sendInterrupt(run);
+    if (turn.interrupting) this.sendInterrupt(run, turn);
   }
 
   /**
@@ -1005,6 +1011,7 @@ export class WorkerHost {
     const turn: Turn = {
       closed: false,
       interrupting: false,
+      interruptSent: false,
       sent: false,
       settled,
       settle,
@@ -1095,10 +1102,11 @@ export class WorkerHost {
         });
       }, graceMs),
     );
-    if (turn.sent) this.sendInterrupt(run);
+    if (turn.sent) this.sendInterrupt(run, turn);
   }
 
-  private sendInterrupt(run: AgentRun): void {
+  private sendInterrupt(run: AgentRun, turn: Turn): void {
+    turn.interruptSent = true;
     this.interruptAnswered = run.interrupt().then(
       () => {},
       (error) => {
@@ -1236,11 +1244,11 @@ export class WorkerHost {
         ? turn.timedOut
           ? // Whatever the engine says it ended with, the budget ended it.
             {
-              ...terminalOf(native, providerFailure),
+              ...terminalOf(native, providerFailure, false),
               status: "failed",
               reason: "turn_timeout",
             }
-          : terminalOf(native, providerFailure)
+          : terminalOf(native, providerFailure, turn.interruptSent)
         : {
             status: "outcome_unknown",
             reason: turn.timedOut
@@ -1574,13 +1582,19 @@ function attributedUuids(native: NativeSdkMessage): string[] {
   return [...new Set([...listed, ...last])];
 }
 
+/**
+ * `interruptSent` is the worker's own fact that it interrupted this turn. An
+ * aborted terminal without it is some other abort, and a turn that finished
+ * before the interrupt landed keeps the outcome it reached.
+ */
 function terminalOf(
   native: NativeSdkMessage,
   providerFailure: ProviderFailure | undefined,
+  interruptSent: boolean,
 ): Settlement {
   const subtype =
     typeof native.subtype === "string" ? native.subtype : "unknown";
-  const interrupted = native.terminal_reason === "interrupted";
+  const interrupted = interruptSent && endedByAbort(native);
   const failed = native.is_error === true || subtype !== "success";
   const status: WorkerTerminalStatus = interrupted
     ? "interrupted"

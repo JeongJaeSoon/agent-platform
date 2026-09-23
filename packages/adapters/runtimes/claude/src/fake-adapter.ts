@@ -11,6 +11,10 @@ import type {
   RuntimeCapabilities,
   RuntimeHooks,
 } from "@agent-platform/runtime-core";
+import type {
+  SDKResultError,
+  TerminalReason,
+} from "@anthropic-ai/claude-agent-sdk";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,
@@ -86,6 +90,8 @@ class FakeRun implements AgentRun {
   // First accepted terminal action wins: an interrupt that already returned
   // its receipt still yields its terminal result even if abort() follows.
   private terminal: "aborted" | "interrupted" | undefined;
+  /** What the SDK names its results with: the session it resumed or reported. */
+  private sessionId: string;
 
   constructor(
     private readonly runtime: FakeAgentRuntime,
@@ -98,6 +104,7 @@ class FakeRun implements AgentRun {
     private readonly resumed: ReadonlySet<string>,
   ) {
     this.ledger = new TurnLedger(resume);
+    this.sessionId = resume ?? "fake-session";
   }
 
   send(input: AgentInput): void {
@@ -172,13 +179,16 @@ class FakeRun implements AgentRun {
         let interrupted = false;
         if (this.terminal === "aborted") throw abortError();
         if (this.terminal === "interrupted") {
-          yield this.interruptedFrame(`fake:${cursor}`, index);
+          yield this.interruptedFrame(`fake:${cursor}`, index, false);
           interrupted = true;
         } else {
           try {
             await this.runStep(step, controlSignal);
             if (step.type === "emit") {
               this.ledger.observe(step.message);
+              if (typeof step.message.session_id === "string") {
+                this.sessionId = step.message.session_id;
+              }
               yield frameFromNativeMessage(
                 step.message,
                 this.correlationId,
@@ -190,7 +200,11 @@ class FakeRun implements AgentRun {
           }
           if (this.terminal === "aborted") throw abortError();
           if (this.terminal === "interrupted") {
-            yield this.interruptedFrame(`fake:${cursor}:interrupted`, index);
+            yield this.interruptedFrame(
+              `fake:${cursor}:interrupted`,
+              index,
+              true,
+            );
             interrupted = true;
           }
         }
@@ -276,32 +290,78 @@ class FakeRun implements AgentRun {
    * the turn's tools stop, and the inputs the terminal names are dropped
    * rather than run by the next turn. Inputs sent after it are kept.
    */
-  private interruptedFrame(cursor: string, index: number): AgentFrame {
+  private interruptedFrame(
+    cursor: string,
+    index: number,
+    reached: boolean,
+  ): AgentFrame {
+    const reason = this.abortedAt(index, reached);
     for (const step of this.steps.slice(index)) {
       if (step.type === "await-input") break;
       if (step.type === "tool-end") this.ledger.toolSettled(step.toolUseId);
     }
     this.consumedInputs = this.acceptedInputs;
-    const message = interruptedMessage(this.ledger.pendingUuids());
+    const message = interruptedMessage(
+      this.ledger.pendingUuids(),
+      reason,
+      this.sessionId,
+    );
     this.ledger.observe(message);
     return frameFromNativeMessage(message, this.correlationId, cursor);
   }
+
+  /**
+   * The SDK tells an interrupt that caught a tool, or its permission prompt,
+   * from one that caught the model mid-response. `reached` says whether the
+   * step at `index` had begun.
+   */
+  private abortedAt(index: number, reached: boolean): TerminalReason {
+    const ended = new Set<string>();
+    for (let at = reached ? index : index - 1; at >= 0; at -= 1) {
+      const step = this.steps[at];
+      if (step === undefined || step.type === "await-input") break;
+      if (step.type === "permissions" && at === index) return "aborted_tools";
+      if (step.type === "tool-end") ended.add(step.toolUseId);
+      if (step.type === "tool-start" && !ended.has(step.toolUseId)) {
+        return "aborted_tools";
+      }
+    }
+    return "aborted_streaming";
+  }
 }
+
+// Typed against the SDK: a value no real run sends would let a host that
+// branches on it pass here and fail against the engine.
+type InterruptedResult = Pick<
+  SDKResultError,
+  | "is_error"
+  | "session_id"
+  | "subtype"
+  | "terminal_reason"
+  | "type"
+  | "user_message_uuid"
+  | "user_message_uuids"
+>;
 
 // An interrupt drops every queued input, so the terminal frame attributes all
 // of them the way the SDK attributes a batch: last uuid plus the full list.
-function interruptedMessage(pending: string[]): NativeSdkMessage {
+function interruptedMessage(
+  pending: string[],
+  reason: TerminalReason,
+  sessionId: string,
+): NativeSdkMessage {
   const last = pending.at(-1);
-  return {
+  const message: InterruptedResult = {
     type: "result",
     subtype: "error_during_execution",
-    session_id: "fake-session",
+    session_id: sessionId,
     is_error: true,
-    terminal_reason: "interrupted",
+    terminal_reason: reason,
     ...(last === undefined
       ? {}
       : { user_message_uuid: last, user_message_uuids: pending }),
   };
+  return message;
 }
 
 async function raceAbort<T>(

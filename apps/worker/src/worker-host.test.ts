@@ -2088,7 +2088,7 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
     expect(gateway.finalized[0]?.terminal).toMatchObject({
       status: "failed",
       reason: "turn_timeout",
-      result: { terminal_reason: "interrupted" },
+      result: { terminal_reason: "aborted_tools" },
     });
     expect(summary.outcome).toBe("drained");
     expect(summary.reason).toBe("Turn 1 ran past its 0.04s budget");

@@ -7,4 +7,5 @@ export * from "./profile.ts";
 export * from "./run.ts";
 export * from "./runtime.ts";
 export * from "./session-store.ts";
+export * from "./terminal-reason.ts";
 export * from "./turn-ledger.ts";
