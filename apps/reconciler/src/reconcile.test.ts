@@ -80,6 +80,10 @@ describe("reconciler run", () => {
         });
         return 2;
       },
+      announceInputReturns: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return [{ sessionId: "session-e", phase: "running" }];
+      },
     });
 
     expect(calls).toBe(1);
@@ -131,6 +135,18 @@ describe("reconciler run", () => {
         message: "Overdue terminate receipts marked unknown",
         fields: { dry_run: false, overdue_count: 2 },
       }),
+      expect.objectContaining({
+        level: "info",
+        message: "Ended input waits announced",
+        fields: {
+          dry_run: false,
+          announced_count: 1,
+          session_ids: ["session-e"],
+        },
+      }),
+    ]);
+    expect(result.inputReturns).toEqual([
+      { sessionId: "session-e", phase: "running" },
     ]);
   });
 
@@ -167,9 +183,13 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      announceInputReturns: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
     });
 
-    expect(seen).toEqual([true, true, true, true, true]);
+    expect(seen).toEqual([true, true, true, true, true, true]);
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Overdue interrupt receipts marked unknown",
@@ -195,6 +215,7 @@ describe("reconciler run", () => {
     const reconcileInterrupts = async () => [];
     const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
+    const announceInputReturns = async () => [];
     // Valid or not: the reconciler has no TTL to be told, so a value here is
     // an operator who believes it does. It must not start and quietly
     // judge by the deadlines the API wrote with a different one.
@@ -212,6 +233,7 @@ describe("reconciler run", () => {
           reconcileInterrupts,
           expireInterrupts,
           expireTerminations,
+          announceInputReturns,
         }),
       ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
       expect(reconciled).toBe(0);
@@ -225,6 +247,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        announceInputReturns,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
     await expect(
@@ -236,6 +259,7 @@ describe("reconciler run", () => {
         reconcileInterrupts,
         expireInterrupts,
         expireTerminations,
+        announceInputReturns,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");
   });

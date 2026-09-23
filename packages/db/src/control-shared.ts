@@ -1,9 +1,7 @@
-import { sessionEventPayloadSchema } from "@agent-platform/contracts";
 import { storedPendingReasonHoldsWork } from "@agent-platform/platform";
 import { and, eq, min, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
-  events,
   idempotencyKeys,
   receipts,
   sessions,
@@ -218,33 +216,4 @@ export function restoreBaseRevision(session: {
   checkpointFallbackRevision: number | null;
 }): number | null {
   return session.checkpointFallbackRevision ?? session.checkpointRevision;
-}
-
-// Every control decision leaves its audit record on the session's event
-// stream, where the operator and the SSE reader (94S-126) both find it.
-// Like every other writer to `events`, it holds the payload to the public
-// event contract before storing it: the reader parses each row with the
-// same schema, and a row it cannot parse is lost to every client (94S-283).
-export async function recordAudit(
-  tx: Database,
-  input: {
-    sessionId: string;
-    type: "system" | "status";
-    payload: Record<string, unknown>;
-    turnRowId: number | null;
-    now: Date;
-  },
-) {
-  const checked = sessionEventPayloadSchema.parse({
-    event: input.type,
-    data: input.payload,
-  });
-  await tx.insert(events).values({
-    sessionId: input.sessionId,
-    type: checked.event,
-    payload: checked.data,
-    turnId: input.turnRowId,
-    occurredAt: input.now,
-  });
-  await tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`);
 }

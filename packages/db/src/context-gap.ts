@@ -1,6 +1,6 @@
 import type { SessionAttention } from "@agent-platform/contracts";
 import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
-import { hasRestorePoint, recordAudit } from "./control-shared.ts";
+import { hasRestorePoint } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import {
@@ -10,6 +10,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;
 
@@ -135,18 +136,17 @@ export async function raiseContextGap(
   await tx
     .delete(unassignedSessions)
     .where(eq(unassignedSessions.sessionId, session.id));
-  await recordAudit(tx, {
+  await recordStatus(tx, {
     sessionId: session.id,
-    type: "status",
-    payload: {
-      phase: "failed",
+    phase: "failed",
+    extra: {
       admission_state: "recovery_required",
       reason: "context_gap",
     },
     turnRowId: null,
     now,
   });
-  await recordAudit(tx, {
+  await recordEvent(tx, {
     sessionId: session.id,
     type: "system",
     payload: {

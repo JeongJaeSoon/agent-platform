@@ -9,7 +9,7 @@ import {
   pendingControlRequestSchema,
   type RegisterPendingRequest,
   type RegisterPendingResponse,
-  type SessionEvent,
+  type SessionEventPayload,
   type WorkerScope,
 } from "@agent-platform/contracts";
 import type { PermissionRequest } from "@agent-platform/runtime-core";
@@ -43,16 +43,46 @@ function registry(
   options: Partial<PendingRequestsOptions> & { timeoutMs?: number } = {},
 ) {
   const gateway = new FakeWorkerGateway();
-  const published: SessionEvent[] = [];
+  // What the gateway would have written to the stream: a question event for
+  // each registration that landed.
+  const published: SessionEventPayload[] = [];
   const lost: unknown[] = [];
+  const target = options.gateway ?? gateway;
   const instance = new PendingRequestRegistry({
-    gateway,
-    publish: (event) => published.push(event),
+    eventsStored: async () => {},
     scope: () => scope,
     timeoutMs: 30_000,
     pollIntervalMs: 1,
     onOwnershipLost: (error) => lost.push(error),
     ...options,
+    gateway: {
+      async registerPending(request) {
+        const response = await target.registerPending(request);
+        // Once per row: a replay writes nothing, as with the real gateway.
+        const seen = published.some(
+          (event) =>
+            event.event === "question" &&
+            event.data.request_id === request.request_id,
+        );
+        if (request.announce !== undefined && !seen) {
+          published.push({
+            event: "question",
+            data: {
+              request_id: request.request_id,
+              tool_use_id: request.announce.tool_use_id,
+              kind: request.request.kind,
+              tool: request.announce.tool,
+              input:
+                request.request.kind === "permission"
+                  ? request.request.input
+                  : { questions: request.request.questions },
+            },
+          });
+        }
+        return response;
+      },
+      pendingControl: (request) => target.pendingControl(request),
+    },
   });
   // The id the worker minted for the callback the engine raised as this
   // tool use, once its question event is out.
@@ -133,6 +163,12 @@ describe("PendingRequestRegistry", () => {
     );
     // What clients see is the redacted copy; the hash is not.
     expect(JSON.stringify(registration?.request)).not.toContain(secret);
+    // The gateway writes the question event, so it is told what that event
+    // needs beyond the request.
+    expect(registration?.announce).toEqual({
+      tool_use_id: "toolu_req-allow",
+      tool: "Bash",
+    });
     expect(harness.gateway.calls.indexOf("registerPending")).toBeGreaterThan(
       -1,
     );
@@ -156,6 +192,44 @@ describe("PendingRequestRegistry", () => {
     expect(harness.gateway.settled).toEqual([
       { request_id: requestId, outcome: "answered" },
     ]);
+  });
+
+  test("registers only once the events before the callback are stored", async () => {
+    let stored: (() => void) | undefined;
+    const harness = registry({
+      eventsStored: () =>
+        new Promise<void>((resolve) => {
+          stored = resolve;
+        }),
+    });
+    const decision = harness.registry.request(permission("req-ordered"));
+    await waitFor(() => stored !== undefined, "the barrier");
+    await Bun.sleep(5);
+    // The gateway writes the question as it registers, so registering now
+    // could put it ahead of the tool call still in the publisher.
+    expect(harness.gateway.calls).not.toContain("registerPending");
+    stored?.();
+    await harness.idFor("req-ordered");
+    harness.registry.cancelAll("done");
+    await decision;
+  });
+
+  test("denies without registering when the events before it cannot be stored", async () => {
+    const harness = registry({
+      eventsStored: async () => {
+        throw new Error("owner lost");
+      },
+    });
+    const decision = await harness.registry.request(permission("req-broken"));
+
+    expect(decision.behavior).toBe("deny");
+    expect(decision.behavior === "deny" ? decision.message : "").toContain(
+      "owner lost",
+    );
+    expect(harness.gateway.calls).not.toContain("registerPending");
+    await harness.registry.flush(100);
+    // There is no row, so there is nothing to settle.
+    expect(harness.gateway.settled).toEqual([]);
   });
 
   test("mints a new id for every callback, even when the engine repeats its own", async () => {
@@ -543,8 +617,9 @@ describe("PendingRequestRegistry", () => {
     expect(gateway.settled).toEqual([
       { request_id: requestId, outcome: "cancelled" },
     ]);
-    // It never became something to answer.
-    expect(harness.published).toHaveLength(0);
+    // The row did commit, and the gateway wrote its question with it; the
+    // settlement is what closes it for whoever saw that.
+    expect(harness.published).toHaveLength(1);
   });
 
   test("stops retrying a registration of unknown outcome once stopped", async () => {

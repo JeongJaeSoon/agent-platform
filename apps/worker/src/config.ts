@@ -59,6 +59,13 @@ export type WorkerTimeouts = {
   /** Release the session and exit after this long with no input. */
   idleTimeoutMs: number;
   /**
+   * How long a permission callback waits for the frame carrying its tool
+   * call to be stored. That frame is normally just behind the callback; one
+   * that is not stored in time gets the request denied rather than shown
+   * ahead of the call it is about. Not configurable from the environment.
+   */
+  toolUseFrameWaitMs?: number;
+  /**
    * Wall-clock budget for one turn, approvals included. Nothing else bounds
    * an engine that stops answering while the heartbeat keeps the lease alive
    * (94S-242); 94S-131 sets it per installation as `MAX_TURN_SECONDS`.

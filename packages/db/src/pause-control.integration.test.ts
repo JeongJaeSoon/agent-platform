@@ -26,7 +26,6 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import { recordAudit } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -40,6 +39,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { recordEvent } from "./session-events.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -617,7 +617,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     const before = (await stored()).length;
     const write = (payload: Record<string, unknown>) =>
       db.transaction((tx) =>
-        recordAudit(tx, {
+        recordEvent(tx, {
           sessionId: session.sessionId,
           type: "status",
           payload,

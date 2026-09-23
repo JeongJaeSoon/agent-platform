@@ -22,7 +22,7 @@ import {
   lockSessionForControl,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { fromDbNow } from "./db-clock.ts";
+import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
@@ -37,6 +37,7 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
+import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 
 const TERMINATE = "terminate";
 
@@ -208,6 +209,10 @@ export function createPostgresSessionControl(db: Database): SessionControl {
               ),
             );
         }
+        // Judged on the database clock, which is what the projection reads
+        // with; the caller's clock above only stamps the rows.
+        const at = await dbNow(tx);
+        const waitingBefore = await inputWaitBefore(tx, session, at);
         // A question nobody can answer any more: the worker that asked is
         // being fenced out, so an answer would land on nothing.
         await tx
@@ -301,6 +306,12 @@ export function createPostgresSessionControl(db: Database): SessionControl {
                   }),
           })
           .where(eq(sessions.id, sessionId));
+        await announceInputWaitEnded(tx, {
+          sessionId,
+          waitingBefore,
+          turnRowId: null,
+          at,
+        });
 
         const receiptId = randomUUID();
         const response: ControlAcceptedResponse = {

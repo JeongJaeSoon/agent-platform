@@ -795,6 +795,9 @@ export function createWorkerGateway(deps: {
         requestId: request.request_id,
         inputHash: request.input_hash,
         request: request.request,
+        ...(request.announce === undefined
+          ? {}
+          : { announce: request.announce }),
         ttlMs: pendingTtlMs,
       });
       if (result.outcome === "turn_not_found") {

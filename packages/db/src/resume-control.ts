@@ -14,11 +14,11 @@ import {
   earliestUnknownTurn,
   hasRestorePoint,
   type IdempotencyScope,
-  recordAudit,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
 import { openPauseReceipt } from "./pause-control.ts";
+import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -30,6 +30,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { recordStatus } from "./session-events.ts";
 
 export const RESUME = "resume";
 
@@ -100,11 +101,10 @@ export async function failResume(
     .update(receipts)
     .set({ status: "failed", error: input.error, updatedAt: input.now })
     .where(openResumeReceipt(input.sessionId));
-  await recordAudit(tx, {
+  await recordStatus(tx, {
     sessionId: input.sessionId,
-    type: "status",
-    payload: {
-      phase: "failed",
+    phase: "failed",
+    extra: {
       admission_state: "recovery_required",
       resume_failed: input.error,
     },
@@ -175,11 +175,10 @@ export async function completeResume(
     .update(receipts)
     .set({ status: "succeeded", error: null, result, updatedAt: now })
     .where(openResumeReceipt(session.id));
-  await recordAudit(tx, {
+  await recordStatus(tx, {
     sessionId: session.id,
-    type: "status",
-    payload: {
-      phase: result.queued_turn_count > 0 ? "queued" : "idle",
+    phase: result.queued_turn_count > 0 ? "queued" : "idle",
+    extra: {
       admission_state: "active",
       resumed_from_checkpoint_revision: session.checkpointRevision,
     },
@@ -289,11 +288,10 @@ async function resumePaused(
       target: unassignedSessions.sessionId,
       set: { signaledAt: now, partition },
     });
-  await recordAudit(tx, {
+  await recordStatus(tx, {
     sessionId: session.id,
-    type: "status",
-    payload: {
-      phase: session.status,
+    phase: session.status,
+    extra: {
       admission_state: "resuming",
       resuming_from_checkpoint_revision: session.checkpointRevision,
       actor: { owner_id: context.ownerId },
@@ -392,11 +390,10 @@ async function cancelPause(
         updatedAt: now,
       })
       .where(openPauseReceipt(session.id));
-    await recordAudit(tx, {
+    await recordStatus(tx, {
       sessionId: session.id,
-      type: "status",
-      payload: {
-        phase: "failed",
+      phase: "failed",
+      extra: {
         admission_state: "recovery_required",
         pause_cancel_refused: error,
         actor: { owner_id: context.ownerId },
@@ -437,11 +434,15 @@ async function cancelPause(
       updatedAt: now,
     })
     .where(openPauseReceipt(session.id));
-  await recordAudit(tx, {
+  // The drainer's questions stay open with its epoch, so a wait the pause
+  // reported is still one: say what the session reads as, not its row.
+  await recordStatus(tx, {
     sessionId: session.id,
-    type: "status",
-    payload: {
-      phase: session.status,
+    phase: publicStatus(
+      session.status,
+      await awaitingInputAt(tx, session.id, await dbNow(tx)),
+    ),
+    extra: {
       admission_state: "active",
       pause_cancelled: pause?.id ?? null,
       actor: { owner_id: context.ownerId },

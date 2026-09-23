@@ -328,6 +328,14 @@ export const registerPendingRequestSchema = workerScopeSchema
         })
         .strict(),
     ]),
+    // What the `question` event needs beyond the request. Present, it hands
+    // the event to the control plane: the gateway writes it with the row, in
+    // the same transaction as the status it opens, and the worker publishes
+    // nothing. An older worker leaves it out and publishes the event itself.
+    announce: z
+      .object({ tool_use_id: z.string().min(1), tool: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 // `expires_in_ms` is what is left, measured on the server's clock: a replay

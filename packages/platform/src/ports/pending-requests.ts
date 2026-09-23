@@ -43,6 +43,8 @@ export type RegisterPendingInput = {
   requestId: string;
   inputHash: string;
   request: RegisterPendingRequest["request"];
+  // Present: the store writes the `question` event with the row.
+  announce?: RegisterPendingRequest["announce"];
   // A lifetime on the storage clock, never a caller deadline.
   ttlMs: number;
 };

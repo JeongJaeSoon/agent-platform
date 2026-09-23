@@ -447,6 +447,10 @@ export const sessions = pgTable(
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
+    // Whether the last status event the stream carries about input said
+    // needs_input (94S-278). A record of what was published, not a state:
+    // it flips only in the transaction that writes that status event.
+    inputAnnounced: boolean("input_announced").notNull().default(false),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -456,6 +460,10 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // The reconciler's sweep for waits that ended with no write.
+    index("sessions_input_announced_idx")
+      .on(table.id)
+      .where(sql`${table.inputAnnounced}`),
     // Lets a later table reference (session_id, owner_id, workspace_id) as
     // one FK. That only pins the row to its session's workspace when the
     // referencing side declares workspace_id NOT NULL (or MATCH FULL): with
@@ -676,6 +684,11 @@ export const pendingRequests = pgTable(
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
     settledOutcome: text("settled_outcome"),
+    // Set when the worker handed the `question` event to the gateway
+    // (94S-278); a replay must carry the same pair. Null for a worker that
+    // publishes the event itself.
+    toolUseId: text("tool_use_id"),
+    tool: text(),
   },
   (table) => [
     index("pending_requests_unresolved_session_idx")
