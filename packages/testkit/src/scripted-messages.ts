@@ -59,14 +59,21 @@ export function planOf(
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message?.role !== "user") continue;
-    for (const block of blocksOf(message)) {
-      if (block.type !== "text" || block.text === undefined) continue;
-      const at = block.text.lastIndexOf(SPEC_MARKER);
-      if (at < 0) continue;
+    // Last block first: after an interrupt the engine merges the cut-off
+    // prompt and the next one into a single user message, and the newer
+    // spec is the one being asked.
+    const blocks = blocksOf(message);
+    for (let at = blocks.length - 1; at >= 0; at--) {
+      const block = blocks[at];
+      if (block?.type !== "text" || block.text === undefined) continue;
+      const marker = block.text.lastIndexOf(SPEC_MARKER);
+      if (marker < 0) continue;
       const spec = JSON.parse(
-        firstJsonObject(block.text.slice(at + SPEC_MARKER.length)),
+        firstJsonObject(block.text.slice(marker + SPEC_MARKER.length)),
       ) as GateSpec;
-      let step = 0;
+      let step = blocks
+        .slice(at + 1)
+        .filter((candidate) => candidate.type === "tool_result").length;
       for (const later of messages.slice(index + 1)) {
         if (later.role !== "user") continue;
         step += blocksOf(later).filter(

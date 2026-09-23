@@ -125,8 +125,14 @@ describe("alpha path over public HTTP (94S-134)", () => {
         "interrupted",
       );
 
-      // 7. pause: the worker drains, checkpoints and goes away.
-      await api.sessionUntil(sessionId, "is idle", (s) => s.status === "idle");
+      // 7. pause: the worker drains, checkpoints and goes away. An
+      // interrupted turn leaves the session `stopped`, not `idle`
+      // (DESIGN.md §6.5); its worker stays for the next message.
+      await api.sessionUntil(
+        sessionId,
+        "is stopped",
+        (s) => s.status === "stopped",
+      );
       const pause = await api.control(sessionId, "pause", {
         expected_revision: await revision(sessionId),
         reason: "e2e",

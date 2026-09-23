@@ -161,7 +161,7 @@ wait_for "/v1/sessions/$SID/turns/2" .status completed
 
 ### ⑥ interrupt
 
-turn 3은 모델 응답이 5분 늦게 오도록 스크립트했다. 실행 중인 turn을 지정해서 멈춘다.
+turn 3은 모델 응답이 5분 늦게 오도록 스크립트했다. 실행 중인 turn을 지정해서 멈춘다. 여기서는 turn이 `running`이 된 것만 기다린다 — 모델 호출이 실제로 진행 중일 때 멈추는지는 `tests/e2e`가 fake의 호출 기록을 보고 확인한다.
 
 ```bash
 post "/v1/sessions/$SID/messages" "$(say 'GATE-SPEC {"id":"q3","steps":[],"final":"too late","finalDelayMs":300000}')" | jq .
@@ -173,18 +173,20 @@ wait_for "/v1/sessions/$SID/turns/3" .status interrupted
 get "/v1/receipts/$(echo "$interrupt" | jq -r .receipt_id)" | jq '{status, result}'
 ```
 
-아직 시작하지 않은 turn은 409 `TURN_NOT_STARTED`, 이미 끝난 turn은 `no_op: true`인 성공 receipt다.
+아직 시작하지 않은 turn은 409 `TURN_NOT_STARTED`, 이미 끝난 turn은 `no_op: true`인 성공 receipt다. 멈춘 turn은 `interrupted`, 세션은 `status: stopped`가 된다. worker는 남아 있어 다음 메시지를 그대로 받는다.
 
 ### ⑦ pause
 
 pause·terminate·resume·recovery는 세션의 현재 `revision`을 `expected_revision`으로 보낸다(다르면 409 `REVISION_CONFLICT`).
 
 ```bash
-wait_for "/v1/sessions/$SID" .status idle
+wait_for "/v1/sessions/$SID" .status stopped
 post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$(revision)" '{expected_revision:$r, reason:"quickstart"}')" | jq .
 wait_for "/v1/sessions/$SID" .admission_state paused
 get "/v1/sessions/$SID" | jq '{status, admission_state, checkpoint_revision}'
-post "/v1/sessions/$SID/messages" "$(say 'while paused')" | jq .error.code
+code=$(curl -sS -o /tmp/quickstart-paused.json -w '%{http_code}' "$API/v1/sessions/$SID/messages" \
+  "${AUTH[@]}" -H "Idempotency-Key: $(uuidgen)" -d "$(say 'while paused')")
+test "$code $(jq -r .error.code /tmp/quickstart-paused.json)" = "409 SESSION_PAUSED"
 ```
 
 worker가 진행 중인 일을 마무리하고 checkpoint(workspace git bundle + transcript)를 커밋한 뒤 사라진다. 그동안은 `pausing`이고, 끝나면 `paused`다. paused 동안 메시지는 409 `SESSION_PAUSED`다. 60초 안에 drain되지 않으면 세션 상세의 `attention`에 `PAUSE_BLOCKED`가 뜬다.
@@ -205,7 +207,7 @@ grep '^data:' /tmp/quickstart-events.txt | grep '"turn_id":"4"' | grep -m1 alpha
 
 ### ⑨ terminate → 복구 결정 → resume
 
-turn 5를 느리게 걸어 두고 실행 중에 terminate한다. 결과를 알 수 없는 turn이 남으므로 세션은 복구 결정을 기다린다.
+turn 5를 느리게 걸어 두고 실행 중에 terminate한다(⑥처럼 `running`까지만 기다린다). 결과를 알 수 없는 turn이 남으므로 세션은 복구 결정을 기다린다.
 
 ```bash
 post "/v1/sessions/$SID/messages" "$(say 'GATE-SPEC {"id":"q5","steps":[],"final":"never","finalDelayMs":300000}')" | jq .

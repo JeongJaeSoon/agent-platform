@@ -46,6 +46,23 @@ describe("scripted Messages API", () => {
     ).toBe(1);
   });
 
+  test("a message holding two prompts plays the later one", () => {
+    const cutOff = { ...spec, id: "old", final: "slow", finalDelayMs: 300_000 };
+    const merged = {
+      role: "user",
+      content: [
+        { type: "text", text: `${SPEC_MARKER}${JSON.stringify(cutOff)}` },
+        { type: "text", text: "[Request interrupted by user]" },
+        { type: "text", text: `${SPEC_MARKER}${JSON.stringify(spec)}` },
+      ],
+    };
+    expect(planOf([merged])).toEqual({ spec, step: 0 });
+    expect(
+      planOf([merged, { role: "assistant", content: [] }, toolResult("t0")])
+        ?.step,
+    ).toBe(1);
+  });
+
   test("the engine's trailing text does not break the spec's JSON", () => {
     const text = `${SPEC_MARKER}${JSON.stringify(spec)}\n\n{"not":"spec"}`;
     expect(planOf([{ role: "user", content: text }])?.spec).toEqual(spec);
