@@ -2,7 +2,8 @@
 # Bundles one compose installation into backup-<ts>/:
 #
 #   db.sql          pg_dump of the sessions database (schema + data + journal)
-#   objects/        every object in the S3 bucket, key = path
+#   objects/        every object in the S3 bucket, key = path; a key a
+#                   checkpoint pins holds the bytes of the pinned version
 #   repos/<o>/<r>.bundle
 #                   `git bundle create --all` of each Gitea bare repository
 #   gitea/          gitea.db (sqlite online backup) and conf/app.ini — the
@@ -39,7 +40,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-require_tools docker jq
+require_tools docker jq bun
 
 for service in postgres localstack gitea; do
   [ -n "$(compose "$PROJECT" ps -q --status running "$service")" ] \
@@ -91,6 +92,11 @@ compose "$PROJECT" exec -T localstack sh -c \
   "rm -rf '$STAGE' && mkdir -p '$STAGE' && awslocal s3 sync 's3://${BUCKET}' '$STAGE' --quiet"
 compose "$PROJECT" cp "localstack:${STAGE}/." "$DEST/objects/"
 compose "$PROJECT" exec -T localstack rm -rf "$STAGE"
+# The sync copied what each key holds now. A checkpoint names a version, and
+# the key may have moved on (overwritten, delete-marked) since it committed;
+# the backup must carry the bytes the checkpoint pinned, or refuse.
+checkpoint_pins "$PROJECT" "$BUCKET" capture "$DEST/objects" >/dev/null \
+  || die "checkpoint objects could not be backed up at the versions their checkpoints pin"
 OBJECT_COUNT="$(find "$DEST/objects" -type f | wc -l | tr -d ' ')"
 log "backup: objects/ $OBJECT_COUNT objects from s3://${BUCKET}"
 

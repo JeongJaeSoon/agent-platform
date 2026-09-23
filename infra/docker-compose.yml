@@ -238,7 +238,8 @@ services:
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       # Pin every checkpoint object by version and hold what a checkpoint
       # commits (94S-229); the bucket above is created with Object Lock.
-      # "unversioned" reads by key only — for a bucket restored from a backup.
+      # "unversioned" reads by key only — for a bucket without versioning. A
+      # restored bucket needs no such thing: restore re-pins (94S-282).
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
