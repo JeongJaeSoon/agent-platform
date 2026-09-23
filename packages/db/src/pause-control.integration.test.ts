@@ -602,6 +602,49 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect(await stored()).toHaveLength(before + 1);
   });
 
+  test("an advisory pending reason blocks a pause only when the pointer falls short of the last turn (94S-284)", async () => {
+    // Turn 1 checkpointed at revision 0; a second turn, when asked for,
+    // ends without one.
+    const idleOn = async (name: string, secondTurn: boolean) => {
+      const session = await newSession(name);
+      const worker = await claim(session);
+      await finalize(worker, await deliver(worker), 0);
+      if (secondTurn) {
+        await append(session, "start the dev server");
+        await finalize(worker, await deliver(worker), null);
+      }
+      await gateway.release(worker.principal, {
+        ...worker.scope,
+        reason: "idle",
+      });
+      await gateway.confirmExecutionGone(worker.executionId);
+      return session;
+    };
+
+    // Recorded after another checkpoint had already committed past the
+    // turn: the pointer covers everything that ran.
+    const covered = await idleOn("advisory-covered", false);
+    await db
+      .update(sessions)
+      .set({ checkpointPendingReason: "checkpoint_lease_held" })
+      .where(eq(sessions.id, covered.sessionId));
+    const response = await accepted(covered);
+    expect(response.receipt_status).toBe("succeeded");
+    expect((await sessionRow(covered.sessionId)).admissionState).toBe("paused");
+
+    // The turn's own checkpoint was refused (a dev server still running):
+    // nothing covers it, whatever the reason says.
+    const uncovered = await idleOn("advisory-uncovered", true);
+    await db
+      .update(sessions)
+      .set({ checkpointPendingReason: "background_writer" })
+      .where(eq(sessions.id, uncovered.sessionId));
+    const row = await sessionRow(uncovered.sessionId);
+    expect(await pause(uncovered, row.revision)).toEqual({
+      outcome: "checkpoint_unavailable",
+    });
+  });
+
   test("a launch reserved but not yet claimed gets its stop intent at once, and the gone observation pauses it", async () => {
     const session = await newSession("unclaimed");
     const worker = await claim(session);

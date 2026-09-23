@@ -5,11 +5,12 @@ import {
   type ResumeReceiptResult,
   sessionEventPayloadSchema,
 } from "@agent-platform/contracts";
-import type {
-  RecoveryDecisionInput,
-  RecoveryDecisionResult,
-  ResumeSessionInput,
-  ResumeSessionResult,
+import {
+  type RecoveryDecisionInput,
+  type RecoveryDecisionResult,
+  type ResumeSessionInput,
+  type ResumeSessionResult,
+  storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -65,9 +66,12 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
 
 /**
  * Whether the checkpoint the session points at can be restored from. A
- * durable blocker (94S-201: a dropped transcript mirror batch) means the
+ * blocking reason (94S-201: a dropped transcript mirror batch) means the
  * pointer may have been taken by the run whose mirror is missing entries, so
- * it is not trusted until a later run commits past it.
+ * it is not trusted until a later run commits past it. An advisory one (the
+ * run was not quiescent) only says the newest turn went uncaptured; the
+ * pointer it left is still the one to resume from (94S-284) — distrusting
+ * it would wedge a stopped session, which no later commit ever reaches.
  *
  * Deliberately coarse: a pointer committed by an earlier, healthy run would
  * be safe, but checkpoints do not record their attempt. If that case shows
@@ -82,7 +86,7 @@ export function hasRestorePoint<
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    session.checkpointPendingReason === null
+    !storedPendingReasonHoldsWork(session.checkpointPendingReason)
   );
 }
 
