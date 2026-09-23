@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentFrame, TranscriptKey } from "@agent-platform/runtime-core";
+import type {
+  AgentFrame,
+  CheckpointObjectStore,
+  TranscriptKey,
+  TranscriptRevision,
+} from "@agent-platform/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
@@ -377,6 +383,7 @@ describe("transcript mirror against the actual SDK", () => {
     );
     const objects = createMemoryCheckpointObjectStore();
     const mirror = new ClaudeSessionStore({
+      generation: 1,
       objects,
       prefix: "sessions/direct-local/mirror",
     });
@@ -446,7 +453,181 @@ describe("transcript mirror against the actual SDK", () => {
     expect(byUuid(await mirror.loadRevision(revision))).toEqual(byUuid(local));
     expect(await run.prepareCheckpoint()).toMatchObject({ status: "ready" });
   }, 40_000);
+
+  test("resumes a new generation from the pinned checkpoint, never from an old worker's later writes", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-203-" });
+    const { home, root, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(index === 0 ? "TURN_ONE_CONTEXT" : "TURN_TWO_RESUMED"),
+    );
+    const objects = createMemoryCheckpointObjectStore();
+    const prefix = "sessions/resume/mirror";
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const baseConfig = {
+      correlationId: "actual-generation-resume",
+      cwd: workspace,
+      maxTurns: 2,
+      model: "claude-sonnet-4-5",
+      profile: {
+        kind: "anthropic" as const,
+        endpoint: server.url,
+        auth: { kind: "api_key" as const, value: "placeholder-local" },
+      },
+      settingSources: ["project"] as ["project"],
+      tools: [],
+    };
+    const hooks = {
+      onPermission: async () => ({
+        behavior: "deny" as const,
+        message: "No tools expected",
+      }),
+    };
+
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const firstFrames = await drive(
+      runtime.start(
+        {
+          ...baseConfig,
+          claudeConfigDir: home,
+          home,
+          mode: "new",
+          sessionStore: first,
+        },
+        hooks,
+      ),
+      "remember the first turn",
+    );
+    const sessionId = sessionIdOf(firstFrames);
+    const rootKey = await rootKeyOf(first, objects, sessionId);
+    const pinned = await first.captureRevision(rootKey);
+    if (pinned === null) throw new Error("expected a root revision");
+    const subagents: Record<string, TranscriptRevision> = {};
+    for (const subpath of await first.listSubkeys(rootKey)) {
+      const captured = await first.captureRevision({ ...rootKey, subpath });
+      if (captured !== null) subagents[subpath] = captured;
+    }
+
+    // The first worker lost its lease and keeps writing: a well-formed entry
+    // that continues its own conversation, so only the generation boundary
+    // stands between it and the resumed run.
+    const stored = (await first.load(rootKey)) ?? [];
+    const tail = [...stored]
+      .reverse()
+      .find((item) => typeof item.uuid === "string");
+    if (tail === undefined) throw new Error("expected a stored entry");
+    await first.append(rootKey, [
+      {
+        ...tail,
+        message: { content: "ZOMBIE_SUFFIX", role: "user" },
+        parentUuid: tail.uuid,
+        type: "user",
+        uuid: crypto.randomUUID(),
+      },
+    ]);
+
+    const resumedHome = join(root, "home-resumed");
+    await mkdir(resumedHome);
+    const second = new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts: { root: pinned, subagents } },
+      objects,
+      prefix,
+    });
+    const secondFrames = await drive(
+      runtime.start(
+        {
+          ...baseConfig,
+          claudeConfigDir: resumedHome,
+          home: resumedHome,
+          mode: "resume",
+          resume: sessionId,
+          sessionStore: second,
+        },
+        hooks,
+      ),
+      "what did I ask you to remember?",
+    );
+
+    expect(server.requests).toHaveLength(2);
+    const resumedRequest = JSON.stringify(server.requests[1]?.body.messages);
+    expect(resumedRequest).toContain("remember the first turn");
+    expect(resumedRequest).toContain("TURN_ONE_CONTEXT");
+    expect(resumedRequest).not.toContain("ZOMBIE_SUFFIX");
+    expect(sessionIdOf(secondFrames)).toBe(sessionId);
+
+    // The next checkpoint is the adopted parts followed by the second
+    // generation's own, and restores to the conversation the engine had.
+    const next = await second.captureRevision(rootKey);
+    if (next === null) throw new Error("expected a revision");
+    expect(next.parts.slice(0, pinned.parts.length)).toEqual([...pinned.parts]);
+    expect(
+      next.parts
+        .slice(pinned.parts.length)
+        .every((part) => part.key.includes("/generation-0000000002/")),
+    ).toBe(true);
+    const restored = JSON.stringify(await second.loadRevision(next));
+    expect(restored).toContain("remember the first turn");
+    expect(restored).toContain("TURN_TWO_RESUMED");
+    expect(restored).not.toContain("ZOMBIE_SUFFIX");
+  }, 60_000);
 });
+
+/** Sends one prompt, closes input, and collects every frame the run emits. */
+async function drive(
+  run: AsyncIterable<AgentFrame> & {
+    finishInput(): void;
+    send(input: { message: string; uuid: string }): void;
+  },
+  message: string,
+): Promise<AgentFrame[]> {
+  const frames: AgentFrame[] = [];
+  const consume = (async () => {
+    for await (const frame of run) frames.push(frame);
+  })();
+  run.send({ message, uuid: crypto.randomUUID() });
+  run.finishInput();
+  await withTimeout(consume, 20_000, "SDK run did not settle");
+  expect(
+    frames.some(
+      (frame) =>
+        frame.envelope.message.type === "system" &&
+        frame.envelope.message.subtype === "mirror_error",
+    ),
+  ).toBe(false);
+  return frames;
+}
+
+function sessionIdOf(frames: readonly AgentFrame[]): string {
+  const ids = new Set(
+    frames
+      .map((frame) => frame.envelope.message.session_id)
+      .filter((value): value is string => typeof value === "string"),
+  );
+  const [only] = ids;
+  if (ids.size !== 1 || only === undefined) {
+    throw new Error(`expected one SDK session id, saw ${[...ids].join(", ")}`);
+  }
+  return only;
+}
+
+/** The root key the engine mirrored under, read back from the stored layout. */
+async function rootKeyOf(
+  mirror: ClaudeSessionStore,
+  objects: CheckpointObjectStore,
+  sessionId: string,
+): Promise<TranscriptKey> {
+  for (const stored of await objects.list("")) {
+    const match = stored.match(/\/generation-\d+\/([^/]+)\/([^/]+)\/main\//);
+    if (match?.[1] !== undefined && match[2] === sessionId) {
+      const key = { projectKey: match[1], sessionId };
+      if ((await mirror.load(key)) !== null) return key;
+    }
+  }
+  throw new Error(`The SDK mirrored nothing for ${sessionId}`);
+}
 
 /**
  * Where the CLI writes a session's JSONL: `<config dir>/projects/<sanitized

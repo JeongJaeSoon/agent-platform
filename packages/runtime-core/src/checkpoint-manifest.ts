@@ -171,7 +171,8 @@ export interface TranscriptMirror {
   append(key: TranscriptKey, entries: TranscriptEntry[]): Promise<void>;
   /**
    * True when `load` answers with exactly the parts a committed checkpoint
-   * pinned, rather than everything the mirror currently holds.
+   * pinned, rather than everything the mirror currently holds — as of the
+   * moment a resumed engine reads it, before anything new is appended.
    *
    * A plain mirror is deliberately not revision-scoped: it keeps recording
    * after a checkpoint, and those entries are not part of it. Handing such a
