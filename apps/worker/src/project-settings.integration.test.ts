@@ -111,7 +111,8 @@ function claimedConfig(endpoint: string, claudeMd: boolean): RuntimeConfig {
       endpoint,
       auth: { kind: "api_key", value: "placeholder-local" },
     },
-    project_settings: { claude_md: claudeMd },
+    // Off is left out, as the gateway leaves it out.
+    ...(claudeMd ? { project_settings: { claude_md: true } } : {}),
   };
 }
 

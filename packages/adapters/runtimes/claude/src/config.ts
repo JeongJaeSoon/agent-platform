@@ -85,9 +85,12 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
    * hooks, env and permission rules — so this requires `settingSources: []`.
    * The checkpoint fingerprint takes the switch, not the text: a restored
    * workspace can carry a CLAUDE.md the agent itself edited, and that must
-   * not make its own checkpoint unresumable. The edit does not reach the
-   * resumed conversation either — the engine replays the system prompt it
-   * recorded (`snapshot`) until the conversation is compacted.
+   * not make its own checkpoint unresumable. What is trusted is the file in
+   * the checkout the session works in, not one revision of it: the engine
+   * replays the system prompt it recorded (`snapshot`), so a resumed run
+   * keeps the text it started with until the conversation is compacted, and
+   * after that it carries the file as this process read it — the same point
+   * at which the engine rereads its own CLAUDE.md.
    */
   repositoryClaudeMd?: boolean;
   /**

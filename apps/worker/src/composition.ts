@@ -108,7 +108,8 @@ export function claudeRuntimeRegistry(
           // reach, and the claim's profile is the only policy reviewed. Its
           // CLAUDE.md comes back only when that profile says so, read by the
           // adapter apart from the rest (`projectSettingsSchema`).
-          repositoryClaudeMd: runtimeConfig.project_settings.claude_md,
+          repositoryClaudeMd:
+            runtimeConfig.project_settings?.claude_md === true,
           settingSources: [],
           tools: runtimeConfig.tools,
           ...plan,

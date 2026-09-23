@@ -86,7 +86,6 @@ describe("HttpWorkerGatewayClient", () => {
             endpoint: "http://litellm:4000",
             auth: { kind: "api_key", value: "placeholder" },
           },
-          project_settings: { claude_md: false },
         },
         workspace: {
           repository: {

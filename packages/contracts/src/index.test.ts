@@ -565,16 +565,16 @@ describe("worker protocol", () => {
     expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
       false,
     );
-    // Which repository settings the run may take in is the server's call,
-    // stated on every claim; a hooks switch does not exist to be sent.
+    // A claim from a gateway that predates the field lets nothing in; a
+    // hooks switch does not exist to be sent.
     const { project_settings: _s, ...withoutProjectSettings } =
       claim.runtime_config;
-    expect(
-      bootstrapClaimResponseSchema.safeParse({
-        ...claim,
-        runtime_config: withoutProjectSettings,
-      }).success,
-    ).toBe(false);
+    const legacy = bootstrapClaimResponseSchema.parse({
+      ...claim,
+      runtime_config: withoutProjectSettings,
+    });
+    expect(legacy.runtime_config.project_settings).toBeUndefined();
+    expect(loggableBootstrapClaim(legacy).claude_md).toBe(false);
     expect(
       bootstrapClaimResponseSchema.safeParse({
         ...claim,

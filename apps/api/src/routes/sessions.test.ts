@@ -28,7 +28,6 @@ const catalog: SessionCatalog = {
         endpoint: "https://litellm.invalid",
         auth: { kind: "api_key", value: "catalog-provider-key" },
       },
-      project_settings: { claude_md: false },
     },
   },
   repositories: {

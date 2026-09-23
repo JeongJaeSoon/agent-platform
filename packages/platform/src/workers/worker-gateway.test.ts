@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  bootstrapClaimResponseSchema,
+  runtimeConfigSchema,
+} from "@agent-platform/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
   NextInputInput,
@@ -430,6 +434,34 @@ describe("WorkerGateway", () => {
       provider: profile.provider,
       project_settings: { claude_md: true },
     });
+    // Off leaves the field out, so the answer is one a worker built before it
+    // still reads: its schema was this one without the field, and strict.
+    const beforeTheField = bootstrapClaimResponseSchema.extend({
+      runtime_config: runtimeConfigSchema.omit({ project_settings: true }),
+    });
+    expect(beforeTheField.safeParse(claimed).success).toBe(false);
+    const off = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            ...profile,
+            project_settings: { claude_md: false },
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: { leaseTtlMs: 30_000 },
+    });
+    const offClaim = await off.bootstrapClaim({ kind: "bootstrap" }, request);
+    expect("project_settings" in offClaim.runtime_config).toBe(false);
+    expect(
+      beforeTheField.safeParse(bootstrapClaimResponseSchema.parse(offClaim))
+        .success,
+    ).toBe(true);
     // A profile the catalog lost between the row's binding and this replay
     // is refused rather than answered with a guess.
     const stranger = createWorkerGateway({
