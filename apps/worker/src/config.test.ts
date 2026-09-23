@@ -44,9 +44,11 @@ describe("workerConfigFromEnv", () => {
       heartbeatIntervalMs: 10_000,
       idleTimeoutMs: 1_800_000,
       maxTurnMs: 3_600_000,
+      nextInputRetryTimeoutMs: 60_000,
       nextInputWaitMs: 20_000,
       questionTimeoutMs: 1_800_000,
       requestTimeoutMs: 30_000,
+      startupTimeoutMs: 3_600_000,
     });
   });
 

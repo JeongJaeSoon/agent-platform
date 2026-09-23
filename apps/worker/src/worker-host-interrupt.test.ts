@@ -33,9 +33,11 @@ const timeouts: WorkerTimeouts = {
   heartbeatIntervalMs: 10_000,
   idleTimeoutMs: 60,
   maxTurnMs: 60_000,
+  nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 15,
   questionTimeoutMs: 1_000,
   requestTimeoutMs: 1_000,
+  startupTimeoutMs: 60_000,
 };
 
 function uuidForTurn(turn: number): string {

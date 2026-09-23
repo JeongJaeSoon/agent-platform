@@ -268,30 +268,17 @@ export class WorkerHost {
       const launcher = this.options.runtimes.launcherFor(claim.runtime);
       // From here on: a clone can take longer than the lease the claim gave.
       this.heartbeat.start();
-      const prepared = await this.options.workspace
-        .prepare({
-          descriptor: claim.workspace,
-          restore: claim.restore,
-          signal: this.preparation.signal,
-        })
-        .catch((error: unknown) => {
-          // A stop aborts the preparation; that is the stop's outcome, not a
-          // failure of its own.
-          if (this.preparation.signal.aborted) return null;
-          throw error;
-        });
-      if (prepared !== null) {
-        this.logger.info("worker.workspace.prepared", {
-          action: prepared,
-          repository_id: claim.workspace.repository.id,
-          branch: claim.workspace.repository.branch,
-        });
+      const startup = this.stageBudget(
+        "Starting the session",
+        this.options.timeouts.startupTimeoutMs,
+      );
+      let plan: RuntimeResumePlan | undefined;
+      try {
+        plan = await this.startUp(claim);
+      } finally {
+        startup.disarm();
       }
-      const plan =
-        prepared === null
-          ? null
-          : await this.checkpoints.restorePlan(claim.restore);
-      if (plan !== null && this.stopping === undefined) {
+      if (plan !== undefined && this.stopping === undefined) {
         run = launcher.start(
           {
             ...plan,
@@ -337,6 +324,39 @@ export class WorkerHost {
       reason: stop.reason,
       turns: this.turns,
     };
+  }
+
+  /**
+   * Prepares the workspace and resolves the restore plan, or gives up at the
+   * first stop — the startup budget's included. Both are raced with it: a
+   * preparation that ignores its abort, or a restore that never answers,
+   * would otherwise hold a session the heartbeat keeps leased. Undefined
+   * once stopped; whatever either answers after that is not used.
+   */
+  private async startUp(
+    claim: BootstrapClaimResponse,
+  ): Promise<RuntimeResumePlan | undefined> {
+    const prepared = await this.untilStopped(
+      this.options.workspace
+        .prepare({
+          descriptor: claim.workspace,
+          restore: claim.restore,
+          signal: this.preparation.signal,
+        })
+        .catch((error: unknown) => {
+          // A stop aborts the preparation; that is the stop's outcome, not a
+          // failure of its own.
+          if (this.preparation.signal.aborted) return undefined;
+          throw error;
+        }),
+    );
+    if (prepared === undefined || this.stopping !== undefined) return;
+    this.logger.info("worker.workspace.prepared", {
+      action: prepared,
+      repository_id: claim.workspace.repository.id,
+      branch: claim.workspace.repository.branch,
+    });
+    return this.untilStopped(this.checkpoints.restorePlan(claim.restore));
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -501,19 +521,51 @@ export class WorkerHost {
     }
   }
 
+  /**
+   * The server may have handed a turn over on a poll whose answer was lost,
+   * so retrying is bounded: past the budget the worker fails and releases,
+   * and the gateway closes that turn as unknown once the execution is gone.
+   * A poll that answers after the budget is not used — its turn is the same
+   * one, already given up.
+   */
   private async nextInput(): Promise<NextInputResponse | null> {
-    try {
-      return await this.withRetry(() =>
-        this.options.gateway.nextInput({
+    let budget: ReturnType<WorkerHost["stageBudget"]> | undefined;
+    let expire: () => void = () => {};
+    const expired = new Promise<undefined>((resolve) => {
+      expire = () => resolve(undefined);
+    });
+    const poll = () =>
+      this.options.gateway
+        .nextInput({
           ...this.scope,
           wait_ms: this.options.timeouts.nextInputWaitMs,
-        }),
-      );
+        })
+        .catch((error: unknown) => {
+          if (budget === undefined && isRetryable(error)) {
+            budget = this.stageBudget(
+              "Retrying nextInput",
+              this.options.timeouts.nextInputRetryTimeoutMs,
+            );
+            budget.expired.then(expire);
+          }
+          throw error;
+        });
+    const polling = this.withRetry(
+      poll,
+      () => budget?.hasExpired() === true || this.stopping !== undefined,
+    );
+    polling.catch(() => {});
+    try {
+      const answer = await Promise.race([polling, expired]);
+      if (answer === undefined || budget?.hasExpired() === true) return null;
+      return answer;
     } catch (error) {
       // Once winding down, a failed poll only means there is nothing more to
       // run; losing the lease is still a loss.
       if (this.stopping !== undefined && !isOwnershipLost(error)) return null;
       throw error;
+    } finally {
+      budget?.disarm();
     }
   }
 
@@ -1294,6 +1346,39 @@ export class WorkerHost {
     return Promise.race([work, cut]);
   }
 
+  /** Resolves with the value, or undefined once any stop has come. */
+  private async untilStopped<T>(work: Promise<T>): Promise<T | undefined> {
+    work.catch(() => {});
+    return Promise.race([work, this.stopped.then(() => undefined)]);
+  }
+
+  /**
+   * A budget for a stage the turn deadline does not cover. The heartbeat
+   * extends the lease on its own clock whatever the stage is doing, so one
+   * that never ends would hold the session forever (94S-269). Expiry fails
+   * the worker, unless a stop is already under way: a drain keeps its outcome.
+   */
+  private stageBudget(stage: string, ms: number) {
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        this.logger.error("worker.stage.timeout", { stage, budget_ms: ms });
+        this.stop({
+          kind: "failed",
+          reason: `${stage} ran past its ${ms / 1000}s budget`,
+        });
+        resolve();
+      }, ms);
+    });
+    return {
+      disarm: () => clearTimeout(timer),
+      expired,
+      hasExpired: () => timedOut,
+    };
+  }
+
   /** Resolves with the value, or undefined once the turn has to be given up. */
   private async untilAbandoned<T>(work: Promise<T>): Promise<T | undefined> {
     work.catch(() => {});
@@ -1320,6 +1405,8 @@ export class WorkerHost {
         if (!isRetryable(error) || giveUp()) throw error;
         this.logger.warn("worker.gateway.retry", { reason: describe(error) });
         await this.sleep(GATEWAY_RETRY_MS);
+        // What gave up during the backoff sends nothing more.
+        if (giveUp()) throw error;
       }
     }
   }

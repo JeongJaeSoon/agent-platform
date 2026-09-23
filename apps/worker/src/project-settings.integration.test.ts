@@ -41,9 +41,11 @@ const timeouts: WorkerTimeouts = {
   heartbeatIntervalMs: 60_000,
   idleTimeoutMs: 300,
   maxTurnMs: 60_000,
+  nextInputRetryTimeoutMs: 60_000,
   nextInputWaitMs: 100,
   questionTimeoutMs: 5_000,
   requestTimeoutMs: 5_000,
+  startupTimeoutMs: 60_000,
 };
 
 /** Opens with `plan` and remembers the engine session a turn left behind. */

@@ -28,8 +28,10 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_HEARTBEAT_INTERVAL_SEC?: string | undefined;
   WORKER_IDLE_TIMEOUT_SEC?: string | undefined;
   WORKER_MAX_TURN_SEC?: string | undefined;
+  WORKER_NEXT_INPUT_RETRY_SEC?: string | undefined;
   WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
   WORKER_REQUEST_TIMEOUT_SEC?: string | undefined;
+  WORKER_STARTUP_TIMEOUT_SEC?: string | undefined;
   QUESTION_TIMEOUT_SEC?: string | undefined;
 };
 
@@ -61,10 +63,23 @@ export type WorkerTimeouts = {
    * (94S-242); 94S-131 sets it per installation as `MAX_TURN_SECONDS`.
    */
   maxTurnMs: number;
+  /**
+   * How long a poll keeps retrying a gateway that answers with transient
+   * errors. The server may already have handed the turn over, so without it
+   * a worker whose heartbeats still land holds that turn forever (94S-269).
+   * Counted from the first failure; retries are not charged to `maxTurnMs`.
+   */
+  nextInputRetryTimeoutMs: number;
   nextInputWaitMs: number;
   /** A pending permission or question denied once nobody has answered it. */
   questionTimeoutMs: number;
   requestTimeoutMs: number;
+  /**
+   * Wall-clock budget from the claim to a running engine: workspace
+   * preparation and checkpoint restore together. The turn deadline starts
+   * only after it, and the heartbeat keeps the lease alive meanwhile.
+   */
+  startupTimeoutMs: number;
   /**
    * Time between SIGTERM and SIGKILL, when the launcher says (LocalDocker
    * does). Every shutdown wait fits inside it; unknown means unbounded.
@@ -158,6 +173,11 @@ export function workerConfigFromEnv(
         3600,
         "WORKER_MAX_TURN_SEC",
       ),
+      nextInputRetryTimeoutMs: seconds(
+        environment.WORKER_NEXT_INPUT_RETRY_SEC,
+        60,
+        "WORKER_NEXT_INPUT_RETRY_SEC",
+      ),
       nextInputWaitMs: seconds(
         environment.WORKER_NEXT_INPUT_WAIT_SEC,
         20,
@@ -172,6 +192,11 @@ export function workerConfigFromEnv(
         environment.WORKER_REQUEST_TIMEOUT_SEC,
         30,
         "WORKER_REQUEST_TIMEOUT_SEC",
+      ),
+      startupTimeoutMs: seconds(
+        environment.WORKER_STARTUP_TIMEOUT_SEC,
+        3600,
+        "WORKER_STARTUP_TIMEOUT_SEC",
       ),
       ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
     },
