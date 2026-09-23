@@ -67,4 +67,47 @@ integration("enforced pool on PostgreSQL", () => {
       await admin.end();
     }
   }, 30_000);
+
+  test("a checked-out connection the server drops fails its holder's next statement, not the process", async () => {
+    const pool = createEnforcedPool(databaseUrl ?? "", createLogger(), "job", {
+      connectMs: 1_000,
+      statementMs: 1_000,
+      queryMs: 2_000,
+    });
+    const admin = new Pool({ connectionString: databaseUrl, max: 1 });
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown) => uncaught.push(error);
+    process.on("uncaughtException", onUncaught);
+    try {
+      // Held between statements, the way a request holds a transaction's
+      // client while it awaits something else: pg-pool has taken its idle
+      // listener off.
+      const client = await pool.connect();
+      const pid = (
+        await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+      ).rows[0]?.pid;
+      await admin.query("SELECT pg_terminate_backend($1)", [pid]);
+      await Bun.sleep(200);
+      expect(uncaught).toEqual([]);
+
+      const failure = await client.query("SELECT 1").then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      // The API reads these as a storage outage (503); see isStorageUnavailable.
+      expect((failure as Error).message).toMatch(
+        /^(Client has encountered a connection error|Client was closed and is not queryable|Connection terminated)/,
+      );
+      expect(Object.keys(failure as object)).not.toContain("client");
+      client.release();
+      expect(pool.totalCount).toBe(0);
+      // The pool hands out a working connection again.
+      expect((await pool.query("SELECT 1 AS one")).rows[0]?.one).toBe(1);
+    } finally {
+      process.off("uncaughtException", onUncaught);
+      await pool.end();
+      await admin.end();
+    }
+  }, 30_000);
 });

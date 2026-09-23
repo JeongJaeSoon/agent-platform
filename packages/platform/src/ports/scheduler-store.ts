@@ -5,6 +5,7 @@ import type {
   LaunchCredentialState,
   LaunchIntent,
 } from "./execution-backend.ts";
+import type { ExecutionIncarnation } from "./worker-unit-of-work.ts";
 
 /**
  * Why a resource that exists is torn down and built again.
@@ -101,17 +102,34 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
   replacementCount: number;
 };
 
+/** The scheduling pass lock, while this pass holds it. */
+export type PassLock = {
+  /**
+   * Aborted once the connection that holds the lock is gone. PostgreSQL has
+   * then already released it, so another pass may be reconciling the same
+   * rows from its own snapshot; the pass stops before its next provider or
+   * binding change. A connection that dies silently is only noticed when
+   * its socket says so, and the moment between a check and the change it
+   * guards always remains: the durable fences — `requestReplacement`'s
+   * count and credential, `confirmExecutionGone`'s incarnation — are what
+   * keep a pass from undoing another's work, not this.
+   */
+  readonly signal: AbortSignal;
+  /** Gives the lock back; on a lost lock, only the connection. */
+  release(): Promise<void>;
+};
+
 /**
  * Durable side of the scheduler. Every method is its own transaction so the
  * provider call always happens after the intent is committed.
  */
 export interface SchedulerStore {
   /**
-   * Serializes whole scheduling passes. Returns a release function, or null
-   * when another pass holds the lock, so overlapping runs never reconcile the
-   * same rows from different snapshots.
+   * Serializes whole scheduling passes. Returns the held lock, or null when
+   * another pass holds it, so overlapping runs never reconcile the same rows
+   * from different snapshots.
    */
-  acquirePassLock(): Promise<(() => Promise<void>) | null>;
+  acquirePassLock(): Promise<PassLock | null>;
   inspectDemand(input: { limit: number }): Promise<SchedulerDemand>;
   /**
    * Commits the launch intent for a session that is still eligible and a slot
@@ -139,10 +157,10 @@ export interface SchedulerStore {
    * bootstrap door in the same write — the resource about to go must not
    * bind a worker between here and the teardown, and the one built next
    * gets a credential of its own. Returns the new count, or null when the
-   * launch has bound a worker, given its slot back, or been asked since the
-   * rows were read (`expectedCount` no longer matches): there is then
-   * nothing to rebuild from this snapshot, and the caller must not tear
-   * down. The count check is what stops a pass that lost its lock — a
+   * launch has bound a worker, given its slot back, been asked to go, or been
+   * asked since the rows were read (`expectedCount` no longer matches): there
+   * is then nothing to rebuild from this snapshot, and the caller must not
+   * tear down. The count check is what stops a pass that lost its lock — a
    * dropped lock connection — from tearing down what a later pass built.
    *
    * `expectedNonceFingerprint`, when given, fences the write on the
@@ -162,11 +180,14 @@ export interface SchedulerStore {
   ): Promise<number | null>;
   /**
    * The replacement landed: the resource built from the intent is up. Clears
-   * the pending reason and keeps the count. An operator who wants an
+   * the pending reason and keeps the count — only while the count is still
+   * `expectedCount`, the one the caller's replacement was recorded at, so a
+   * replacement another pass asked for since is not cleared by this one's
+   * settling. An operator who wants an
    * exhausted launch retried resets the count alone: clearing the reason as
    * well would turn its stopped resource back into an ordinary exit.
    */
-  settleReplacement(ref: ExecutionRef): Promise<void>;
+  settleReplacement(ref: ExecutionRef, expectedCount: number): Promise<void>;
   /**
    * Which credential this launch accepts right now, read without changing
    * anything: the fingerprint of the stored hash while the launch is open,
@@ -199,8 +220,18 @@ export interface SchedulerStore {
    * Refused, changing nothing, while an unclaimed launch has a replacement
    * pending: its resource being gone is the rebuild in progress, not an
    * exit.
+   *
+   * `incarnation` is the resource the caller saw go. `superseded` means the
+   * launch has moved on to another since, and nothing was changed; null
+   * speaks for the launch whatever it runs now, which only a kill intent
+   * may. `deferred` is the pending replacement above; a launch asked to go
+   * is never deferred, since it is killed rather than rebuilt.
    */
-  confirmExecutionGone(executionId: string, now: Date): Promise<void>;
+  confirmExecutionGone(
+    executionId: string,
+    now: Date,
+    incarnation: ExecutionIncarnation | null,
+  ): Promise<"confirmed" | "deferred" | "superseded">;
   /**
    * The row's kill intent as it stands now, not as the pass's snapshot had
    * it. A terminate can commit while the pass is out at the provider, and

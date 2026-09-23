@@ -19,6 +19,7 @@ import type {
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
+import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 import {
   hashWorkerToken,
   launchNonceFingerprint,
@@ -45,6 +46,8 @@ class MemoryStore implements SchedulerStore {
   readonly unassigned = new Set<string>();
   readonly confirmedGone: string[] = [];
   locked = false;
+  /** Aborting it models the lock connection dropping mid-pass. */
+  lockLost = new AbortController();
   /** Models the store itself failing, distinct from one row's provider. */
   failList = false;
   private sequence = 0;
@@ -52,9 +55,17 @@ class MemoryStore implements SchedulerStore {
   async acquirePassLock() {
     if (this.locked) return null;
     this.locked = true;
-    return async () => {
-      this.locked = false;
+    this.lockLost = new AbortController();
+    return {
+      signal: this.lockLost.signal,
+      release: async () => {
+        this.locked = false;
+      },
     };
+  }
+
+  loseLock(): void {
+    this.lockLost.abort(new Error("Scheduler pass lock connection ended"));
   }
 
   addUnassigned(count: number): string[] {
@@ -143,6 +154,7 @@ class MemoryStore implements SchedulerStore {
       row.generation !== ref.generation ||
       row.claimed ||
       row.slotReleased ||
+      row.desiredState !== "running" ||
       row.replacementCount !== expectedCount ||
       (expectedNonceFingerprint !== undefined &&
         fingerprintOf(row.nonce) !== expectedNonceFingerprint)
@@ -156,9 +168,13 @@ class MemoryStore implements SchedulerStore {
     return row.replacementCount;
   }
 
-  async settleReplacement(ref: ExecutionRef): Promise<void> {
+  async settleReplacement(
+    ref: ExecutionRef,
+    expectedCount: number,
+  ): Promise<void> {
     const row = this.executions.get(ref.executionId);
     if (!row || row.generation !== ref.generation) return;
+    if (row.replacementCount !== expectedCount) return;
     row.pendingReplacement = null;
   }
 
@@ -204,12 +220,41 @@ class MemoryStore implements SchedulerStore {
     return { claimed: false, fingerprint: fingerprintOf(row.nonce) };
   }
 
-  async confirmExecutionGone(executionId: string): Promise<void> {
-    this.confirmedGone.push(executionId);
+  /** Confirmations refused because the launch had moved on. */
+  readonly supersededConfirms: string[] = [];
+  /** Runs as a confirmation reaches the store, before it is judged. */
+  duringConfirm: ((executionId: string) => void) | null = null;
+
+  async confirmExecutionGone(
+    executionId: string,
+    _now: Date,
+    incarnation: ExecutionIncarnation | null,
+  ): Promise<"confirmed" | "deferred" | "superseded"> {
+    this.duringConfirm?.(executionId);
     const row = this.executions.get(executionId);
-    if (!row) return;
+    if (
+      incarnation !== null &&
+      (!row ||
+        fingerprintOf(row.nonce) !== incarnation.nonceFingerprint ||
+        (incarnation.claimed !== undefined &&
+          row.claimed !== incarnation.claimed))
+    ) {
+      this.supersededConfirms.push(executionId);
+      return "superseded";
+    }
+    if (
+      row &&
+      row.pendingReplacement !== null &&
+      !row.claimed &&
+      row.desiredState !== "terminated"
+    ) {
+      return "deferred";
+    }
+    this.confirmedGone.push(executionId);
+    if (!row) return "confirmed";
     row.slotReleased = true;
     row.observedState = "terminated";
+    return "confirmed";
   }
 
   async desiredStateOf(ref: ExecutionRef) {
@@ -338,6 +383,13 @@ class FakeBackend implements ExecutionBackend {
   duringInspect: ((ref: ExecutionRef) => void) | null = null;
   /** Runs after the pass decided to terminate and before the fake does. */
   duringTerminate: ((ref: ExecutionRef) => void) | null = null;
+  /**
+   * Runs after the pinned id matched and before the stop and remove by that
+   * id — the window the real backend has between its name lookup and the
+   * calls. Docker answers a stop or remove of an id that is gone with 404,
+   * which counts as done.
+   */
+  afterPinCheck: ((ref: ExecutionRef) => void) | null = null;
   private created = 0;
   /** Volume name -> the session label on it, null when it carries none. */
   readonly workspaces = new Map<string, string | null>();
@@ -491,6 +543,16 @@ class FakeBackend implements ExecutionBackend {
         foundProviderRef: this.providerRefOf(nameOf(ref), pinned),
         outcome: "provider_mismatch",
       };
+    }
+    if (pinned && options.providerRef !== undefined && this.afterPinCheck) {
+      this.afterPinCheck(ref);
+      const now = this.containers.get(nameOf(ref));
+      if (
+        !now ||
+        this.providerRefOf(nameOf(ref), now) !== options.providerRef
+      ) {
+        return { outcome: "terminated", providerRef: options.providerRef };
+      }
     }
     const stopped = this.containers.get(nameOf(ref));
     if (stopped && this.failRemoveFor.has(nameOf(ref))) {
@@ -1448,6 +1510,222 @@ describe("runScheduler", () => {
     expect(row.observedState).toBe("terminating");
   });
 
+  test("an exited resource's reclaim that races a replacement past the id check keeps the replacement's binding", async () => {
+    // The pinned id matched; before the stop and remove by that id, a pass
+    // that still held the lock removed the exited resource, built a
+    // replacement under the same name and its worker bound. The stop and
+    // remove answer 404, which reads as done — only the incarnation tells
+    // this pass that the resource it saw is not the one the launch runs now.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    container.exited = true;
+    backend.afterPinCheck = () => {
+      backend.containers.delete(name);
+      // The create path issues before it creates, as the real backend does.
+      row.nonce = `nonce-${crypto.randomUUID()}`;
+      backend.containers.set(name, {
+        ...container,
+        exited: false,
+        id: `${container.id}-replacement`,
+        nonce: row.nonce,
+      });
+      row.claimed = true;
+      backend.afterPinCheck = null;
+    };
+
+    const summary = await run();
+
+    expect(backend.terminateCalls).toHaveLength(1);
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(store.supersededConfirms).toEqual([row.executionId]);
+    expect(row.slotReleased).toBe(false);
+    expect(row.claimed).toBe(true);
+    expect(backend.containers.get(name)?.id).toBe(
+      `${container.id}-replacement`,
+    );
+
+    // The next pass sees what the launch runs now and leaves it be.
+    const next = await run();
+    expect(next.terminatedObserved).toEqual([]);
+    expect(row.slotReleased).toBe(false);
+    expect(row.observedState).toBe("running");
+  });
+
+  test("an exited resource's reclaim that finds the name empty mid-replacement keeps the launch", async () => {
+    // Between the other pass's delete and its create the name resolves to
+    // nothing, so the terminate says `absent`. The other pass has already
+    // issued the replacement's credential, so the launch names an
+    // incarnation this pass never saw.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    container.exited = true;
+    const replacementNonce = `nonce-${crypto.randomUUID()}`;
+    backend.duringTerminate = () => {
+      backend.containers.delete(name);
+      row.nonce = replacementNonce;
+      backend.duringTerminate = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(store.supersededConfirms).toEqual([row.executionId]);
+    expect(row.slotReleased).toBe(false);
+
+    // The other pass finishes its create and the worker binds; the launch
+    // still holds the slot the binding needs.
+    backend.containers.set(name, {
+      ...container,
+      exited: false,
+      id: `${container.id}-replacement`,
+      nonce: replacementNonce,
+    });
+    row.claimed = true;
+    const next = await run();
+    expect(next.terminatedObserved).toEqual([]);
+    expect(row.slotReleased).toBe(false);
+    expect(row.observedState).toBe("running");
+  });
+
+  test("a resource marked terminating that is absent mid-replacement is not confirmed on the old row", async () => {
+    // The row was read as `terminating`; by the inspect, another pass had
+    // removed the resource and issued the replacement's credential. Absent
+    // on its own would read as "the previous pass removed it".
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.observedState = "terminating";
+    backend.duringInspect = () => {
+      backend.containers.delete(name);
+      row.nonce = `nonce-${crypto.randomUUID()}`;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(store.supersededConfirms).toEqual([row.executionId]);
+    expect(row.slotReleased).toBe(false);
+  });
+
+  test("an absent resource whose launch a worker bound since is not confirmed on the credential alone", async () => {
+    // The row was read `terminating`, unclaimed, naming a credential a
+    // create had already issued and not yet built. By the confirmation that
+    // create has landed and its worker bound — on the very credential the
+    // row named, so the fingerprint matches; the claim this pass never saw
+    // is what refuses it.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    backend.containers.delete(name);
+    row.observedState = "terminating";
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+    const issued = row.nonce;
+    store.duringConfirm = () => {
+      backend.containers.set(name, {
+        ...container,
+        id: `${container.id}-replacement`,
+        nonce: issued,
+      });
+      row.claimed = true;
+      store.duringConfirm = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(store.supersededConfirms).toEqual([row.executionId]);
+    expect(row.slotReleased).toBe(false);
+    expect(row.claimed).toBe(true);
+  });
+
+  test("a kill confirms a launch whose replacement is still pending", async () => {
+    // A replacement recorded, then a terminate: the launch is killed, not
+    // rebuilt, and nothing holds its slot for a rebuild that will not come.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name] = [...backend.containers.keys()];
+    const row = store.executions.get(name?.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.pendingReplacement = "stale_isolation";
+    row.replacementCount = 1;
+    row.desiredState = "terminated";
+
+    const summary = await run();
+
+    expect(summary.killed).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(row.slotReleased).toBe(true);
+    expect(backend.containers.has(name ?? "")).toBe(false);
+  });
+
+  test("a replacement names its new incarnation before the resource exists", async () => {
+    // What a worker could bind to is only ever created after the launch row
+    // names it, so a pass still holding the old resource's incarnation can
+    // never confirm the new one's binding away, however early it claims.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, before] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !before) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const oldIncarnation = { nonceFingerprint: fingerprintOf(before.nonce) };
+    backend.staleFor.add(name);
+    let namedBeforeCreate: string | null | undefined;
+    backend.duringEnsure = () => {
+      // The create has not happened yet: the old one is torn down, the new
+      // one not built.
+      expect(backend.containers.has(name)).toBe(false);
+      namedBeforeCreate = fingerprintOf(row.nonce);
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    const after = backend.containers.get(name);
+    expect(after?.id).not.toBe(before.id);
+    // The fake issues inside ensure, before it stores the container.
+    expect(namedBeforeCreate).toBeNull();
+    expect(fingerprintOf(row.nonce)).toBe(fingerprintOf(after?.nonce));
+    expect(fingerprintOf(row.nonce)).not.toBe(oldIncarnation.nonceFingerprint);
+    row.claimed = true;
+    expect(
+      await store.confirmExecutionGone(
+        row.executionId,
+        new Date(),
+        oldIncarnation,
+      ),
+    ).toBe("superseded");
+    expect(row.slotReleased).toBe(false);
+  });
+
   test("an exited resource whose removal fails stays live and is retried", async () => {
     const { backend, records, run, store } = harness();
     store.addUnassigned(1);
@@ -1783,6 +2061,64 @@ describe("runScheduler", () => {
     store.failList = true;
     await expect(run()).rejects.toThrow("database down");
     expect(store.locked).toBe(false);
+  });
+
+  test("a pass whose lock connection drops stops before tearing anything down", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(2);
+    await run();
+    for (const container of backend.containers.values()) {
+      container.exited = true;
+    }
+    // Lost while the pass is out at the provider: another pass may now be
+    // judging the same rows.
+    backend.duringInspect = () => {
+      store.loseLock();
+      backend.duringInspect = null;
+    };
+    const ensuresBefore = backend.ensureCalls.length;
+
+    await expect(run()).rejects.toThrow("pass lock connection ended");
+
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(ensuresBefore);
+    expect(store.confirmedGone).toEqual([]);
+    expect([...store.executions.values()].every((e) => !e.slotReleased)).toBe(
+      true,
+    );
+    // Nothing is marked on the way out either.
+    expect([...store.executions.values()].map((e) => e.observedState)).toEqual([
+      "running",
+      "running",
+    ]);
+    expect(store.locked).toBe(false);
+  });
+
+  test("a lock lost after the last change still fails the pass", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.clear();
+    store.addUnassigned(1);
+    backend.duringEnsure = () => {
+      store.loseLock();
+      delete backend.duringEnsure;
+    };
+
+    await expect(run()).rejects.toThrow("pass lock connection ended");
+    expect(store.locked).toBe(false);
+  });
+
+  test("workspace reclaim stops when its lock connection drops", async () => {
+    const { backend, reclaim, store } = harness();
+    backend.workspaces.set("ap-ws-a", "session-a");
+    backend.workspaces.set("ap-ws-b", "session-b");
+    const list = backend.listWorkspaces;
+    backend.listWorkspaces = async () => {
+      store.loseLock();
+      return (await list?.()) ?? [];
+    };
+
+    await expect(reclaim()).rejects.toThrow("pass lock connection ended");
+    expect([...backend.workspaces.keys()]).toEqual(["ap-ws-a", "ap-ws-b"]);
   });
 
   test("one row's inspect failure does not stop the rest of the pass", async () => {

@@ -197,10 +197,47 @@ export type CheckpointStateResult =
 export type ReleaseInput = { fence: WorkerFence; now: Date; reason: string };
 export type ReleaseResult = { released: boolean };
 
-export type ConfirmExecutionGoneInput = { executionId: string; now: Date };
+/**
+ * Which resource a caller saw go, told apart from any other built for the
+ * same launch: the fingerprint of the bootstrap credential it was created
+ * with (`launchNonceFingerprint`; null for none). Every create issues a new
+ * credential before the resource exists and a claim keeps it, so the launch
+ * row names its current incarnation before a worker can bind to it, and no
+ * later write by a stale observer can put an old one back.
+ *
+ * A fingerprint read off the resource itself is that resource. One read off
+ * the launch row is only what the row meant to run: a create may have issued
+ * it and not yet built anything, so a caller that saw nothing also says
+ * whether the launch was `claimed` — a worker that bound since is bound to
+ * something the caller never saw.
+ */
+export type ExecutionIncarnation = {
+  nonceFingerprint: string | null;
+  claimed?: boolean;
+};
+
+export type ConfirmExecutionGoneInput = {
+  executionId: string;
+  now: Date;
+  /**
+   * Given, the confirmation holds only while the launch still names this
+   * incarnation. A scheduler pass that lost its lock can have watched an old
+   * resource go while another pass built a replacement a worker has since
+   * bound; confirming that would hand back the new binding and its slot.
+   * The gateway leaves it out: it speaks for the attempt it fenced.
+   */
+  incarnation?: ExecutionIncarnation;
+};
 export type ConfirmExecutionGoneResult = {
   sessionReleased: boolean;
   slotReleased: boolean;
+  /** Present when `incarnation` no longer matched; nothing was changed. */
+  superseded?: true;
+  /**
+   * Present when a replacement is pending and nothing was changed: the
+   * resource being gone is the rebuild in progress, not an exit.
+   */
+  deferred?: true;
 };
 
 export interface WorkerUnitOfWork {

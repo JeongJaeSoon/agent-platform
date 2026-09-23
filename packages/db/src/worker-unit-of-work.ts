@@ -22,6 +22,7 @@ import {
   type FinalizeResult,
   type HeartbeatInput,
   type HeartbeatResult,
+  launchNonceFingerprint,
   type NextInputInput,
   type NextInputResult,
   nextPendingReason,
@@ -1361,11 +1362,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
     confirmExecutionGoneAtomic(
       input: ConfirmExecutionGoneInput,
     ): Promise<ConfirmExecutionGoneResult> {
-      const { executionId, now } = input;
+      const { executionId, incarnation, now } = input;
       return db.transaction(async (tx) => {
         const [launch] = await tx
           .select({
             claimedAttemptId: workerLaunches.claimedAttemptId,
+            nonceHash: workerLaunches.nonceHash,
             partition: workerLaunches.partition,
             replacementReason: workerLaunches.replacementReason,
           })
@@ -1373,6 +1375,25 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(workerLaunches.executionId, executionId))
           .limit(1)
           .for("update");
+        if (
+          incarnation !== undefined &&
+          (!launch ||
+            (launch.nonceHash
+              ? launchNonceFingerprint(launch.nonceHash)
+              : null) !== incarnation.nonceFingerprint ||
+            (incarnation.claimed !== undefined &&
+              (launch.claimedAttemptId !== null) !== incarnation.claimed))
+        ) {
+          // Judged under the row lock a create's credential issue and a
+          // claim both take, so the caller's resource either is still the
+          // launch's incarnation here or has been succeeded by one it never
+          // saw — whose binding is not the caller's to end.
+          return {
+            sessionReleased: false,
+            slotReleased: false,
+            superseded: true,
+          };
+        }
         if (
           launch &&
           launch.replacementReason !== null &&
@@ -1384,8 +1405,21 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // exit: releasing here would hand the session a new launch under
           // a new generation, which is exactly what the record exists to
           // prevent. A claimed launch is never rebuilt, so it stays
-          // confirmable whatever the column says.
-          return { sessionReleased: false, slotReleased: false };
+          // confirmable whatever the column says; so does one asked to go,
+          // which is killed rather than rebuilt — a replacement recorded
+          // after the terminate would otherwise hold its slot forever.
+          const [execution] = await tx
+            .select({ desiredState: executions.desiredState })
+            .from(executions)
+            .where(eq(executions.id, executionId))
+            .limit(1);
+          if (execution?.desiredState !== "terminated") {
+            return {
+              deferred: true,
+              sessionReleased: false,
+              slotReleased: false,
+            };
+          }
         }
         // One slot returns per launch, however many times the exit is seen.
         const slot = await tx

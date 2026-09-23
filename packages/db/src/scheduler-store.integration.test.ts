@@ -40,10 +40,41 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     ]);
     const held = [first, second].filter((r) => r !== null);
     expect(held).toHaveLength(1);
-    await held[0]?.();
+    await held[0]?.release();
     const again = await store.acquirePassLock();
     expect(again).not.toBeNull();
-    await again?.();
+    await again?.release();
+  });
+
+  test("a pass lock whose connection the server drops says so, and is free for the next pass", async () => {
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    const lock = await store.acquirePassLock();
+    if (!lock) throw new Error("lock not taken");
+    const [holder] = (
+      await pool.query<{ pid: number }>(
+        `SELECT pid FROM pg_locks
+          WHERE locktype = 'advisory' AND granted
+            AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+      )
+    ).rows;
+    expect(holder).toBeDefined();
+    await pool.query("SELECT pg_terminate_backend($1)", [holder?.pid]);
+    // The server let go the moment the session ended; the holder hears about
+    // it from its own socket.
+    for (let i = 0; i < 50 && !lock.signal.aborted; i += 1) {
+      await Bun.sleep(20);
+    }
+    expect(lock.signal.aborted).toBe(true);
+    expect(() => lock.signal.throwIfAborted()).toThrow(/pass lock connection/);
+    const idleBefore = pool.idleCount;
+    await lock.release();
+    // Destroyed, not parked for the next caller.
+    expect(pool.idleCount).toBe(idleBefore);
+    const next = await store.acquirePassLock();
+    expect(next).not.toBeNull();
+    await next?.release();
   });
 
   test("15 concurrent reservations from an empty pool yield exactly slotLimit intents", async () => {
@@ -155,6 +186,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
       const confirm = store.confirmExecutionGone(
         intent.executionId,
         new Date(),
+        null,
       );
       expect(await settledWithin(confirm, 300)).toBe("pending");
       await requesting.query("COMMIT");

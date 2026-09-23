@@ -14,6 +14,7 @@ import type {
   SchedulerStore,
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
+import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 
 export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
 /** api.md: a kill not observed within this is reported unknown. */
@@ -131,16 +132,22 @@ export async function runScheduler(
   if (!Number.isInteger(replacementLimit) || replacementLimit < 1) {
     throw new Error("replacementLimit must be a positive integer");
   }
-  const release = await options.store.acquirePassLock();
-  if (release === null) {
+  const lock = await options.store.acquirePassLock();
+  if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
     return { ...emptySummary(options.slotLimit), skipped: true };
   }
+  let summary: SchedulerRunSummary;
   try {
-    return await pass(options);
+    summary = await pass(options, lock.signal);
   } finally {
-    await release();
+    await lock.release();
   }
+  // Lost after the last change it guarded, or while one was in flight:
+  // either way this pass ran for a while without the lock, and saying so is
+  // the process's failure, whatever its summary says.
+  lock.signal.throwIfAborted();
+  return summary;
 }
 
 /**
@@ -155,24 +162,25 @@ export async function runScheduler(
 export async function reclaimWorkspaces(
   options: ReclaimOptions,
 ): Promise<SchedulerRunSummary> {
-  const release = await options.store.acquirePassLock();
-  if (release === null) {
+  const lock = await options.store.acquirePassLock();
+  if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
     return { ...emptySummary(0), skipped: true };
   }
   const summary = emptySummary(0);
   try {
-    await collectWorkspaces(options, summary);
+    await collectWorkspaces(options, summary, lock.signal);
     options.logger.info("Workspace reclaim completed", {
       workspace_failed_count: summary.workspacesFailed.length,
       workspace_reclaimed_count: summary.workspacesReclaimed.length,
       workspace_scan_failed: summary.workspaceScanFailed,
       workspace_unresolved_count: summary.workspacesUnresolved.length,
     });
-    return summary;
   } finally {
-    await release();
+    await lock.release();
   }
+  lock.signal.throwIfAborted();
+  return summary;
 }
 
 /**
@@ -182,6 +190,7 @@ export async function reclaimWorkspaces(
 async function collectWorkspaces(
   options: ReclaimOptions,
   summary: SchedulerRunSummary,
+  lock: AbortSignal,
 ): Promise<void> {
   const { backend, logger, store } = options;
   const { listWorkspaces, removeWorkspace } = backend;
@@ -227,6 +236,7 @@ async function collectWorkspaces(
       continue;
     }
     if (retained.has(sessionId)) continue;
+    lock.throwIfAborted();
     let outcome: string;
     try {
       outcome = (await removeWorkspace.call(backend, id)).outcome;
@@ -283,7 +293,10 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
   };
 }
 
-async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
+async function pass(
+  options: SchedulerOptions,
+  lock: AbortSignal,
+): Promise<SchedulerRunSummary> {
   const now = options.now ?? (() => new Date());
   const replacementLimit =
     options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
@@ -311,6 +324,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     try {
       await reconcile(execution);
     } catch (error) {
+      // Not one row's failure: the whole pass stops (see `PassLock`).
+      lock.throwIfAborted();
       // A resource-local failure (ownership conflict, a stuck inspect) must
       // not take the rest of the pass down with it. The row stays live, so
       // it keeps its slot until a later pass resolves it.
@@ -376,6 +391,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // worker may have bound itself since. Revoking decides and shuts the
       // door in one write: it loses to a claim that got there first, and once
       // it wins no claim can follow, so the teardown never orphans a binding.
+      lock.throwIfAborted();
       if (await store.revokeBootstrapNonce(ref)) {
         logger.warn("Launch nonce expired before the resource claimed", {
           ...fieldsOf(ref),
@@ -448,7 +464,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         // resource on its way out (`terminating`) or in a state the provider
         // cannot name would be settled straight into the ordinary exit path,
         // which is the loss this record exists to prevent.
-        await store.settleReplacement(ref);
+        lock.throwIfAborted();
+        await store.settleReplacement(ref, execution.replacementCount);
         await store.recordObservation(ref, observed);
         logger.info("Pending replacement found already running; settled", {
           ...fieldsOf(ref),
@@ -474,10 +491,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // Mark, reclaim, then record. `terminating` keeps the row live so a
       // failed or interrupted removal is retried, and tells the next pass
       // that an absent resource means "reclaimed", not "relaunch me".
+      lock.throwIfAborted();
       await store.recordObservation(ref, {
         ...observed,
         state: "terminating",
       });
+      lock.throwIfAborted();
       let outcome: TerminateExecutionResult;
       try {
         // Pinned to the exited resource that was inspected, like `teardown`:
@@ -509,8 +528,15 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         return;
       }
       // The one place the slot and the session come back, so an exit the
-      // scheduler sees is accounted exactly like one the gateway sees.
-      await store.confirmExecutionGone(ref.executionId, now());
+      // scheduler sees is accounted exactly like one the gateway sees. The
+      // terminate is pinned to the exited resource, but a replacement built
+      // under the same name after its check reads as the same success; the
+      // incarnation it was created with is what tells them apart.
+      if (
+        !(await confirmGone(execution, seenIncarnation(execution, observed)))
+      ) {
+        return;
+      }
       summary.terminatedObserved.push(ref);
       logger.info("Execution exited; resource reclaimed", {
         ...fieldsOf(ref),
@@ -521,7 +547,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     }
     if (!observed.found && execution.observedState === "terminating") {
       // The previous pass removed the resource but crashed before recording.
-      await store.confirmExecutionGone(ref.executionId, now());
+      // Or another pass is between removing it and creating its replacement:
+      // the row this pass read is the only incarnation it can speak for.
+      if (!(await confirmGone(execution, seenIncarnation(execution)))) return;
       summary.terminatedObserved.push(ref);
       return;
     }
@@ -529,7 +557,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // A worker traded this launch's nonce for a binding and its resource
       // is gone. Re-creating it would put a second container on a session an
       // attempt still owns, so the binding is ended instead.
-      await store.confirmExecutionGone(ref.executionId, now());
+      if (!(await confirmGone(execution, seenIncarnation(execution)))) return;
       summary.terminatedObserved.push(ref);
       logger.warn("Claimed execution resource vanished; binding released", {
         ...fieldsOf(ref),
@@ -552,6 +580,39 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   }
 
   /**
+   * Hands the launch's slot and session back for a resource seen gone. False
+   * when the launch has moved on to an incarnation this pass never saw —
+   * another pass rebuilt it, and a worker may already be bound to the
+   * rebuild — or has a replacement pending since the rows were read; nothing
+   * changed and the row is left to a pass that sees what it runs now.
+   */
+  async function confirmGone(
+    execution: ExecutionRef & { sessionId: string },
+    incarnation: ExecutionIncarnation | null,
+  ): Promise<boolean> {
+    const ref = refOf(execution);
+    lock.throwIfAborted();
+    const outcome = await store.confirmExecutionGone(
+      ref.executionId,
+      now(),
+      incarnation,
+    );
+    if (outcome === "confirmed") return true;
+    logger.warn(
+      outcome === "superseded"
+        ? "Launch moved on to another resource; exit not confirmed"
+        : "Launch has a replacement pending; exit not confirmed",
+      {
+        ...fieldsOf(ref),
+        seen_claimed: incarnation?.claimed ?? null,
+        seen_fingerprint: incarnation?.nonceFingerprint ?? null,
+        session_id: execution.sessionId,
+      },
+    );
+    return false;
+  }
+
+  /**
    * Carries out a kill intent. The resource is removed whatever it was
    * doing; the store then decides what its session's turns become. A
    * provider that will not remove it leaves the row as is, so the next pass
@@ -561,6 +622,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     execution: ExecutionRef & { sessionId: string },
   ): Promise<void> {
     const ref = refOf(execution);
+    lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
       outcome = await backend.terminate(ref);
@@ -582,7 +644,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
       return;
     }
-    await store.confirmExecutionGone(ref.executionId, now());
+    // A kill is asked of the launch, not of one resource: whatever it runs
+    // now is what was asked to go.
+    if (!(await confirmGone(execution, null))) {
+      summary.killFailed.push(ref);
+      return;
+    }
     summary.killed.push(ref);
     summary.terminatedObserved.push(ref);
     logger.info("Execution killed on request; resource removed", {
@@ -615,7 +682,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // binding, a pre-intent row never had one. Teardown and close.
       if (!(await teardown(execution, reason, observed))) return;
       summary.replaced.push(ref);
-      await store.confirmExecutionGone(ref.executionId, now());
+      if (
+        !(await confirmGone(execution, seenIncarnation(execution, observed)))
+      ) {
+        return;
+      }
       summary.terminatedObserved.push(ref);
       logger.warn("Replaced an execution nothing can rebuild; closed", {
         ...fieldsOf(ref),
@@ -671,6 +742,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     // rebuilds from the same intent, never one it reads as an exit. The same
     // write shuts the bootstrap door, so a worker cannot bind to the
     // resource while it is on its way out.
+    lock.throwIfAborted();
     const attempts = await store.requestReplacement(
       ref,
       reason,
@@ -690,7 +762,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     }
     if (!(await teardown(execution, reason, observed))) return;
     summary.replaced.push(ref);
-    await reensure(execution, reason);
+    await reensure(execution, reason, attempts);
   }
 
   /**
@@ -706,6 +778,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   ): Promise<boolean> {
     const ref = refOf(execution);
     if (!observed.found) return true;
+    lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
       // Pinned to the resource this pass inspected. The name it would
@@ -741,6 +814,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   async function reensure(
     execution: ActiveExecution,
     reason: "missing" | ReplaceReason,
+    // The count the replacement being finished was recorded at; settling is
+    // fenced on it.
+    replacementCount = execution.replacementCount,
   ): Promise<void> {
     const ref = refOf(execution);
     if (await killRequested(execution)) {
@@ -753,7 +829,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     if (stored === null) {
       // Pre-intent row: nothing to relaunch from, so close it out instead of
       // letting it hold a slot forever.
-      await store.confirmExecutionGone(ref.executionId, now());
+      if (!(await confirmGone(execution, seenIncarnation(execution)))) return;
       summary.terminatedObserved.push(ref);
       logger.warn(
         "Execution row has no launch intent; closed without relaunch",
@@ -765,6 +841,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       );
       return;
     }
+    lock.throwIfAborted();
     try {
       const ensured = await backend.ensureExecution(intentOf(stored));
       await store.recordObservation(ref, {
@@ -787,7 +864,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       // and could not show. The intent stays until a pass sees it running,
       // or a container that dies right here would read as an ordinary exit.
       if (reason !== "missing" && ensured.state !== "pending") {
-        await store.settleReplacement(ref);
+        lock.throwIfAborted();
+        await store.settleReplacement(ref, replacementCount);
       }
       summary.reensured.push(ref);
       logger.warn("Execution resource re-created from intent", {
@@ -803,6 +881,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         await kill(execution);
       }
     } catch (error) {
+      lock.throwIfAborted();
       summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
       logger.error("Re-creating execution resource failed", {
@@ -832,6 +911,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       provider_ref: resource.providerRef,
       session_id: resource.sessionId,
     });
+    lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
       outcome = await backend.terminate(refOf(resource), {
@@ -872,6 +952,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
   );
   for (const sessionId of demand.eligibleSessionIds) {
     if (free <= 0) break;
+    lock.throwIfAborted();
     const stored = await store.reserveLaunch({
       backend: backend.kind,
       now: now(),
@@ -881,6 +962,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     if (stored === null) continue;
     free -= 1;
     const ref = refOf(stored);
+    lock.throwIfAborted();
     try {
       const ensured = await backend.ensureExecution(intentOf(stored));
       await store.recordObservation(ref, {
@@ -916,6 +998,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         await kill({ ...ref, sessionId });
       }
     } catch (error) {
+      lock.throwIfAborted();
       // The intent stays committed; step 1 of the next pass retries it.
       summary.failedLaunches.push(ref);
       await store.recordObservation(ref, unknownObservation(now()));
@@ -927,7 +1010,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     }
   }
   // 4. Workspaces nothing will come back to.
-  await collectWorkspaces(options, summary);
+  await collectWorkspaces(options, summary, lock);
 
   summary.activeAfter = (
     await store.inspectDemand({ limit: 0 })
@@ -969,6 +1052,25 @@ function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
     generation: execution.generation,
     operationId: execution.operationId,
     sessionId: execution.sessionId,
+  };
+}
+
+/**
+ * The incarnation a pass saw go: the credential the resource was labelled
+ * with. For a resource it did not see — or one from before the label — only
+ * the row it read speaks, and the row names what a create meant to build
+ * before anything is built: a worker that bound since may be bound to that,
+ * so the claim the row showed is part of what was seen.
+ */
+function seenIncarnation(
+  execution: ActiveExecution,
+  observed?: ExecutionObservation,
+): ExecutionIncarnation {
+  const label = observed?.credentialFingerprint;
+  if (label != null) return { nonceFingerprint: label };
+  return {
+    claimed: execution.claimed,
+    nonceFingerprint: execution.nonceFingerprint,
   };
 }
 

@@ -743,6 +743,28 @@ describe("LocalDockerBackend.ensureExecution", () => {
     );
   });
 
+  test("the registry names a container's credential before the container exists", async () => {
+    // The scheduler fences an exit confirmation on this credential
+    // (94S-262): a worker can only bind to a container the launch row
+    // already names, so a pass holding an older one cannot end its binding.
+    const intent = intentFor({
+      issueBootstrapNonce: async () => {
+        existedAtIssue = docker.containers.has(
+          containerNameFor(intent, "test-a"),
+        );
+        return "nonce-abc";
+      },
+    });
+    let existedAtIssue: boolean | undefined;
+    await backend.ensureExecution(intent);
+    expect(existedAtIssue).toBe(false);
+    expect(
+      docker.containers.get(containerNameFor(intent, "test-a"))?.body.Labels?.[
+        LABELS.bootstrapFingerprint
+      ],
+    ).toBe(fingerprintOf("nonce-abc"));
+  });
+
   test("a race lost to a newer contract is refused, not adopted", async () => {
     const intent = intentFor();
     docker.conflictNextCreate = true;

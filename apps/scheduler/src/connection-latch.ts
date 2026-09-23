@@ -55,8 +55,9 @@ export type ConnectionLatch = {
  * with that same error. The pass reconciles each live execution on its own
  * and carries on past a failure there, so against a frozen database each one
  * would otherwise wait out its own connect timeout and the pass would grow
- * with the number of live rows. The unlock closure `acquirePassLock` returns
- * is left alone: it has to run on the locked connection whatever happened.
+ * with the number of live rows. The release of the lock `acquirePassLock`
+ * returns is left alone: it has to run on the locked connection whatever
+ * happened.
  */
 export function latchOnConnectionLoss(
   store: SchedulerStore,
