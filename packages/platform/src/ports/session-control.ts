@@ -53,7 +53,12 @@ export type RecoveryDecisionResult =
   // confirm_completed with no committed checkpoint that reaches the target
   // turn: the session could only resume from a state that lacks the work
   // being confirmed, so the decision is refused (abandon or close instead).
-  | { outcome: "checkpoint_not_covering" };
+  | { outcome: "checkpoint_not_covering" }
+  // close through recovery-decisions on a session with nothing to recover:
+  // it is the operator's answer to an unknown outcome, a pending kill or a
+  // session left without a restorable checkpoint, not an ordinary close
+  // (interface-drafts dd-dispatch § 8.3).
+  | { outcome: "not_in_recovery"; admissionState: AdmissionState };
 
 export type ResumeSessionInput = {
   principal: Principal;

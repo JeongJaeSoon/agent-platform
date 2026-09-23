@@ -1009,6 +1009,61 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect((await turnRows(session.session_id))[0]?.status).toBe("cancelled");
   });
 
+  test("close through recovery is refused for a session with nothing to recover", async () => {
+    const active = await queuedSession(`close-active-${crypto.randomUUID()}`);
+    const activeRow = await sessionRow(active.session_id);
+    expect(
+      await decide(active, {
+        decision: "close",
+        expected_revision: activeRow.revision,
+        reason: "ordinary close",
+      }),
+    ).toEqual({ outcome: "not_in_recovery", admissionState: "active" });
+
+    // Stopped and resumable: an ordinary close too.
+    const resumable = await unknownSession("close-resumable", {
+      checkpointRevision: 1,
+    });
+    const abandoned = await decide(resumable.session, {
+      decision: "abandon",
+      expected_revision: resumable.row.revision,
+      target_turn_id: "1",
+      reason: "reviewed",
+    });
+    expect(abandoned.outcome).toBe("accepted");
+    const stopped = await sessionRow(resumable.session.session_id);
+    expect(
+      await decide(resumable.session, {
+        decision: "close",
+        expected_revision: stopped.revision,
+        reason: "ordinary close",
+      }),
+    ).toEqual({ outcome: "not_in_recovery", admissionState: "stopped" });
+    expect(
+      (await sessionRow(resumable.session.session_id)).admissionState,
+    ).toBe("stopped");
+
+    // Stopped without a checkpoint cannot resume, so close is the way out.
+    const stuck = await unknownSession("close-stuck");
+    const abandonedStuck = await decide(stuck.session, {
+      decision: "abandon",
+      expected_revision: stuck.row.revision,
+      target_turn_id: "1",
+      reason: "reviewed",
+    });
+    expect(abandonedStuck.outcome).toBe("accepted");
+    const stuckRow = await sessionRow(stuck.session.session_id);
+    expect(
+      (
+        await decide(stuck.session, {
+          decision: "close",
+          expected_revision: stuckRow.revision,
+          reason: "no checkpoint to resume",
+        })
+      ).outcome,
+    ).toBe("accepted");
+  });
+
   test("a session with no execution ever (legacy pod binding) cannot be resumed", async () => {
     const session = await queuedSession(`legacy-${crypto.randomUUID()}`);
     await db

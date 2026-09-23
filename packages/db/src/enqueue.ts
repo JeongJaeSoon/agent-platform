@@ -5,6 +5,7 @@ import {
 import { desc, eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  executions,
   queueMessages,
   sessions,
   unassignedSessions,
@@ -26,6 +27,26 @@ function validatePayload(payload: unknown) {
     kind: "message",
     payload: sessionMessageSchema.parse(payload),
   } as const;
+}
+
+/**
+ * The partition of the session's latest launch, or undefined for a session
+ * that never ran. Reached through executions, whose (session_id,
+ * generation) index serves it: launch history itself is only indexed for
+ * open slots, and this runs on every enqueue.
+ */
+export async function lastLaunchPartition(
+  tx: Database,
+  sessionId: string,
+): Promise<{ partition: string } | undefined> {
+  const [launch] = await tx
+    .select({ partition: workerLaunches.partition })
+    .from(executions)
+    .innerJoin(workerLaunches, eq(workerLaunches.executionId, executions.id))
+    .where(eq(executions.sessionId, sessionId))
+    .orderBy(desc(executions.generation))
+    .limit(1);
+  return launch;
 }
 
 // Runs inside the caller's transaction so input, receipt and queue rows commit
@@ -61,12 +82,7 @@ export async function enqueueWithin(
     // default here would strand it when only partition-specific workers
     // serve it (an idle session after its worker exited, or after a resume
     // with nothing queued).
-    const [launch] = await tx
-      .select({ partition: workerLaunches.partition })
-      .from(workerLaunches)
-      .where(eq(workerLaunches.sessionId, input.sessionId))
-      .orderBy(desc(workerLaunches.generation))
-      .limit(1);
+    const launch = await lastLaunchPartition(tx, input.sessionId);
     await tx
       .insert(unassignedSessions)
       .values({

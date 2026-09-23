@@ -10,7 +10,7 @@ import type {
   ResumeSessionInput,
   ResumeSessionResult,
 } from "@agent-platform/platform";
-import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   earliestUnknownTurn,
@@ -22,6 +22,7 @@ import {
   parseTurnSequence,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
+import { lastLaunchPartition } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
 import {
   checkpoints,
@@ -59,6 +60,30 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
     .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
     .limit(1);
   return turn ?? null;
+}
+
+/**
+ * Where a recovery close applies: a session waiting on an operator
+ * (recovery_required), one whose terminate is still waiting on the kill
+ * (stopping), and a stopped one that cannot be resumed — no committed
+ * checkpoint, or an unknown turn left. Anything else is an ordinary close,
+ * which this endpoint must not stand in for.
+ */
+async function closableByRecovery(
+  tx: Database,
+  session: SessionRow,
+): Promise<boolean> {
+  if (
+    session.admissionState === "recovery_required" ||
+    session.admissionState === "stopping"
+  ) {
+    return true;
+  }
+  if (session.admissionState !== "stopped") return false;
+  return (
+    session.checkpointRevision === null ||
+    (await earliestUnknownTurn(tx, session.id)) !== null
+  );
 }
 
 /**
@@ -284,6 +309,12 @@ export function decideRecoveryAtomic(
 
     let targetTurnRowId: number | null = null;
     if (decision.decision === "close") {
+      if (!(await closableByRecovery(tx, session))) {
+        return {
+          outcome: "not_in_recovery",
+          admissionState: session.admissionState,
+        };
+      }
       await close(tx, session, now);
     } else {
       // The exit that made the turn unknown must be observed before its
@@ -610,12 +641,7 @@ export function resumeAtomic(
     if (queued > 0) {
       // Back to the partition the session last ran in; the row may already
       // exist from before the stop, in which case it is re-dated.
-      const [launch] = await tx
-        .select({ partition: workerLaunches.partition })
-        .from(workerLaunches)
-        .where(eq(workerLaunches.sessionId, sessionId))
-        .orderBy(desc(workerLaunches.generation))
-        .limit(1);
+      const launch = await lastLaunchPartition(tx, sessionId);
       await tx
         .insert(unassignedSessions)
         .values({

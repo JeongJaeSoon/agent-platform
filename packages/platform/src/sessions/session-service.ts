@@ -325,6 +325,11 @@ export function createSessionService(deps: {
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that has no recovery path",
           );
+        case "not_in_recovery":
+          throw new SessionServiceError(
+            "REQUEST_STALE",
+            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed`,
+          );
         case "checkpoint_not_covering":
           throw new SessionServiceError(
             "CHECKPOINT_UNAVAILABLE",
