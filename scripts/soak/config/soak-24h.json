@@ -36,7 +36,6 @@
     "toleranceMs": 1000
   },
   "reconciler": {
-    "mode": "product",
     "intervalSec": 30
   },
   "sampleIntervalSec": 60,

@@ -19,6 +19,7 @@ import {
 import { checkInvariants, runningWorkers } from "./invariants.ts";
 import {
   type Criterion,
+  clockOffset,
   container,
   criterion,
   markdownReport,
@@ -1576,19 +1577,162 @@ const concurrentPut: Campaign = {
   },
 };
 
+/** The operator's Grant command (94S-321), run where keys.ts runs. */
+async function grants(
+  ctx: Ctx,
+  command: "revoke" | "restore",
+  sessionId: string,
+): Promise<{ code: number; line: string }> {
+  const result = await run(
+    [
+      "docker",
+      "exec",
+      container(ctx.env, "api"),
+      "bun",
+      "run",
+      "apps/api/src/grants.ts",
+      command,
+      sessionId,
+      "--reason",
+      `94S-135 campaign ${ctx.id}`,
+    ],
+    { allowFail: true },
+  );
+  const line =
+    `${result.stdout}${result.stderr}`.trim().split("\n").at(-1) ?? "";
+  note(ctx, { step: `grants ${command}`, code: result.code, line });
+  return { code: result.code, line };
+}
+
+// Gateway paths a worker writes through; a 2xx on any of them after the
+// revocation committed is a write the revoked binding still got in.
+const WRITE_PATHS =
+  /\/internal\/worker\/(append-events|finalize|heartbeat|checkpoint-request|register-pending|ready|bootstrap-claim|next-input)$/;
+
+const grantRevoke: Campaign = {
+  id: "race-grant-revoke",
+  kind: "race",
+  title: "Grant revoked while a turn is in flight (94S-321)",
+  async run(ctx) {
+    const a = await readySession(ctx);
+    const slow = await startTurn(ctx, a.sessionId, "interrupt", 60_000);
+    const reached = await ctx.model.reached(slow.specId, 1, 120_000);
+    const since = await chaosCursor(ctx);
+    const sent = Date.now();
+    const revoked = await grants(ctx, "revoke", a.sessionId);
+    const committed = Date.now();
+    const receiptId = /receipt=([0-9a-f-]{36})/.exec(revoked.line)?.[1] ?? null;
+
+    // Worker gone and receipt settled, each timed from the command.
+    let goneMs: number | null = null;
+    let receiptMs: number | null = null;
+    let receiptStatus: string | null = null;
+    while (
+      Date.now() - sent < 60_000 &&
+      (goneMs === null || receiptMs === null)
+    ) {
+      const running = (await runningWorkers(ctx.env.installation)).get(
+        a.sessionId,
+      );
+      if (goneMs === null && !running?.length) goneMs = Date.now() - sent;
+      if (receiptMs === null && receiptId) {
+        const receipt = await ctx.api.receipt(receiptId);
+        if (receipt && receipt.status !== "accepted") {
+          receiptMs = Date.now() - sent;
+          receiptStatus = String(receipt.status);
+        }
+      }
+      await Bun.sleep(250);
+    }
+    const refusedInput = await ctx.api.postMessage(
+      a.sessionId,
+      "94S-135: input after the Grant was revoked",
+    );
+    // Long enough for several scheduling passes: a revoked session must not
+    // be given a new worker.
+    await Bun.sleep(20_000);
+    // The revoked worker was already seen gone, so any running one is new.
+    const relaunched =
+      (await runningWorkers(ctx.env.installation)).get(a.sessionId) ?? [];
+    const offset = await clockOffsetMs(ctx);
+    const lateWrites = (await ctx.chaos.log()).filter(
+      (entry) =>
+        entry.index >= since &&
+        entry.sessionId === a.sessionId &&
+        WRITE_PATHS.test(entry.path) &&
+        entry.upstreamStatus !== null &&
+        entry.upstreamStatus < 300 &&
+        // Arrived after the command returned, on the host's clock.
+        Date.parse(entry.at) + offset > committed + 1000,
+    );
+    const turn = await turnRow(ctx.db, a.sessionId, slow.turnId);
+    const models = await ctx.model.requests({ spec: slow.specId });
+    const afterRevoke = models.filter(
+      (entry) => Date.parse(entry.at) + offset > committed + 1000,
+    );
+
+    const restored = await grants(ctx, "restore", a.sessionId);
+    const resumed = await ctx.api.control(a.sessionId, "resume");
+    const next =
+      resumed.status === 202
+        ? await finish(ctx, await startTurn(ctx, a.sessionId, "normal"))
+        : null;
+
+    ctx.rows.push(
+      criterion({
+        id: "race-grant-revoke/in-flight",
+        area: "경합: Grant 회수↔in-flight turn",
+        input:
+          "느린 모델 호출 중인 turn이 있는 세션에 grants.ts revoke → 20초 관찰 → restore → resume → 새 turn",
+        expected:
+          "revoke 성공, worker가 30초 안에 사라지고 receipt가 succeeded|unknown으로 정산, 회수 뒤 입력은 202가 아니고, 회수 커밋 뒤 도착한 worker 쓰기 2xx 0건, restore 전 재기동 0, 회수된 turn은 completed가 아니며, restore·resume 뒤 새 turn은 completed",
+        actual: {
+          reachedSlowStep: reached !== null,
+          revoke: revoked.line,
+          goneMs,
+          receipt: { status: receiptStatus, ms: receiptMs },
+          inputAfterRevoke: refusedInput.status,
+          relaunched,
+          lateWrites: lateWrites.map((entry) => ({
+            at: entry.at,
+            path: entry.path,
+            upstream: entry.upstreamStatus,
+          })),
+          modelRequestsAfterRevoke: afterRevoke.length,
+          turn,
+          restore: restored.line,
+          resume: resumed.status,
+          next: next?.status ?? null,
+        },
+        pass:
+          reached !== null &&
+          revoked.code === 0 &&
+          revoked.line.startsWith("revoked ") &&
+          goneMs !== null &&
+          goneMs <= 30_000 &&
+          (receiptStatus === "succeeded" || receiptStatus === "unknown") &&
+          refusedInput.status !== 202 &&
+          relaunched.length === 0 &&
+          lateWrites.length === 0 &&
+          afterRevoke.length === 0 &&
+          turn?.status !== "completed" &&
+          restored.line.startsWith("restored ") &&
+          resumed.status === 202 &&
+          next?.status === "completed",
+      }),
+    );
+    await invariants(ctx, "Grant 회수·복구 뒤");
+  },
+};
+
+/** Host clock minus container clock, from the scripted model's /clock. */
+async function clockOffsetMs(ctx: Ctx): Promise<number> {
+  return (await clockOffset(ctx.env.messagesUrl)).offsetMs;
+}
+
 // ---------------------------------------------------------------- hooks
 
 const hooks: Campaign[] = [
-  {
-    id: "race-grant-revoke",
-    kind: "race",
-    title: "Grant revoked while requests are in flight",
-    waitsFor: {
-      ticket: "94S-321",
-      reason:
-        "Grant 회수·API key 폐기 운영 명령(auth_revision 증가·epoch 폐기)이 아직 없다. 착지하면 in-flight turn 중 회수 → 이후 쓰기 거절·dispatch 차단·terminate intent를 여기서 잰다.",
-    },
-  },
   {
     id: "fault-backup-restore-resume",
     kind: "fault",
@@ -1627,6 +1771,7 @@ export const CAMPAIGNS: Campaign[] = [
   replacementLateClaim,
   resumeClose,
   concurrentPut,
+  grantRevoke,
   ...hooks,
 ];
 

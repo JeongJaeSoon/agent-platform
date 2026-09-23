@@ -60,6 +60,8 @@ down() {
   ids="$(docker volume ls -q --filter "label=${label}")"
   [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
   if [ "${SOAK_RMI:-0}" = 1 ]; then
+    # migrate's image, built under the project's default name.
+    dc down --rmi local >/dev/null 2>&1 || true
     docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
 }
@@ -92,7 +94,8 @@ up() {
   key="$(dc exec -T api bun run apps/api/src/keys.ts create soak-owner \
     --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-  dc up -d --wait scheduler >>"$state/up.log" 2>&1
+  # The reconciler runs as the product runs it, on its own loop (94S-320).
+  dc up -d --wait scheduler reconciler >>"$state/up.log" 2>&1
 
   rm -f "$state/vars.sh"
   {

@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Pool } from "pg";
-import { database, run, Workers } from "../../tests/d2-gate/harness.ts";
+import { database, Workers } from "../../tests/d2-gate/harness.ts";
 import {
   ContainerLifetimes,
   checkInvariants,
@@ -12,6 +12,7 @@ import {
   between,
   type Criterion,
   clockOffset,
+  compose,
   composeToFile,
   criterion,
   distribution,
@@ -85,7 +86,8 @@ export type SoakConfig = {
     slotLimit: number;
     toleranceMs: number;
   };
-  reconciler: { mode: "external-loop" | "product"; intervalSec: number };
+  /** How often the product reconciler's status file is read (94S-320). */
+  reconciler: { intervalSec: number };
   sampleIntervalSec: number;
   targets: {
     acceptP95Ms: number;
@@ -149,9 +151,7 @@ export function validConfig(value: unknown): SoakConfig {
   positive("invariants.intervalMin", config.invariants?.intervalMin);
   positive("invariants.slotLimit", config.invariants?.slotLimit);
   positive("sampleIntervalSec", config.sampleIntervalSec);
-  if (!["external-loop", "product"].includes(config.reconciler?.mode)) {
-    problems.push("reconciler.mode must be external-loop or product");
-  }
+  positive("reconciler.intervalSec", config.reconciler?.intervalSec);
   positive("targets.acceptP95Ms", config.targets?.acceptP95Ms);
   try {
     validFaults(config.messagesFaults);
@@ -575,40 +575,29 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
       await invariantSample(soak);
     }),
   ];
-  if (config.reconciler.mode === "external-loop") {
-    let pass = 0;
-    tasks.push(
-      every(clock, config.reconciler.intervalSec * 1000, async () => {
-        const result = await run(
-          [
-            "docker",
-            "run",
-            "--rm",
-            "--name",
-            `${env.project}-reconciler-pass-${++pass}`,
-            "--network",
-            env.network,
-            "-e",
-            "DATABASE_URL=postgres://postgres:dev@postgres:5432/sessions",
-            "-e",
-            "HEARTBEAT_TTL_SEC=30",
-            "-e",
-            "LOG_LEVEL=info",
-            env.apiImage,
-            "bun",
-            "run",
-            "apps/reconciler/src/main.ts",
-          ],
-          { allowFail: true },
-        );
-        out.jsonl("reconciler").write({
-          pass,
-          code: result.code,
-          output: `${result.stdout}${result.stderr}`.slice(-4000),
-        });
-      }),
-    );
-  }
+  // The compose reconciler (94S-320) runs its own loop; its status file is
+  // the record of whether passes kept succeeding over the whole run.
+  tasks.push(
+    every(clock, config.reconciler.intervalSec * 1000, async () => {
+      const result = await compose(env, [
+        "exec",
+        "-T",
+        "reconciler",
+        "cat",
+        "/tmp/reconciler-status.json",
+      ]);
+      let status: unknown = null;
+      try {
+        status = JSON.parse(result.stdout);
+      } catch {}
+      out.jsonl("reconciler").write({
+        t: new Date().toISOString(),
+        code: result.code,
+        status,
+        ...(status === null ? { output: result.stderr.slice(-2000) } : {}),
+      });
+    }),
+  );
   return tasks;
 }
 
@@ -1007,7 +996,7 @@ async function main(): Promise<number> {
     config: configPath,
     config_sha256: sha256File(configPath),
     run_started_at: new Date().toISOString(),
-    reconciler: config.reconciler.mode,
+    reconciler: "compose reconciler service (94S-320)",
   });
   out.json("meta", meta);
   console.error(`soak ${config.name}: output ${dir}`);

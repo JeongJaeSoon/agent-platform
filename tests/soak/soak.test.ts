@@ -173,6 +173,6 @@ describe("94S-135 soak tooling", () => {
       CAMPAIGNS.filter((campaign) => campaign.waitsFor)
         .map((campaign) => campaign.waitsFor?.ticket)
         .sort(),
-    ).toEqual(["94S-117", "94S-321", "94S-324"]);
+    ).toEqual(["94S-117", "94S-324"]);
   });
 });

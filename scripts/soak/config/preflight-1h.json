@@ -25,14 +25,19 @@
     "errorRate": 0.02,
     "errorStatuses": [500, 529, 429]
   },
-  "readyz": { "intervalMs": 5000, "timeoutMs": 2000 },
+  "readyz": {
+    "intervalMs": 5000,
+    "timeoutMs": 2000
+  },
   "invariants": {
     "intervalMin": 5,
     "slotLeakGraceSec": 180,
     "slotLimit": 10,
     "toleranceMs": 1000
   },
-  "reconciler": { "mode": "external-loop", "intervalSec": 30 },
+  "reconciler": {
+    "intervalSec": 30
+  },
   "sampleIntervalSec": 60,
   "targets": {
     "acceptP95Ms": 500,
