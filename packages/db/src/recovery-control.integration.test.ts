@@ -910,6 +910,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         ...scopeOf(claimed),
         turn_id: "1",
         finalize_key: "fin-1",
+        final_source_sequence: 0,
         terminal: {
           status: "outcome_unknown",
           reason: "mirror_error",

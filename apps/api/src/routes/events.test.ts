@@ -9,11 +9,25 @@ import {
   createSessionService,
   ownerScopedPolicy,
   type ReadEventsQuery,
+  type SessionControl,
   type SessionReader,
 } from "@agent-platform/platform";
 import { createApiApp } from "../app.ts";
 import type { SessionEventWakeup } from "../events/notifications.ts";
 import { registerEventRoutes } from "./events.ts";
+
+// SSE never reaches a control transaction.
+const unusedControls: SessionControl = {
+  terminateAtomic: async () => {
+    throw new Error("not reached");
+  },
+  decideRecoveryAtomic: async () => {
+    throw new Error("not reached");
+  },
+  resumeAtomic: async () => {
+    throw new Error("not reached");
+  },
+};
 
 const SESSION = "019a0000-0000-7000-8000-000000000001";
 const OWNER = "owner-a";
@@ -124,11 +138,7 @@ function harness(
   const wakeup = new FakeWakeup();
   const service = createSessionService({
     authorization: ownerScopedPolicy,
-    controls: {
-      terminateAtomic: async () => {
-        throw new Error("not reached");
-      },
-    },
+    controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
@@ -361,11 +371,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -461,11 +467,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -515,11 +517,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let valid = true;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -576,11 +574,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -643,11 +637,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let releaseRead: (() => void) | undefined;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -719,11 +709,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let lookups = 0;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
@@ -809,11 +795,7 @@ describe("GET /v1/sessions/{id}/events", () => {
     let lookups = 0;
     const service = createSessionService({
       authorization: ownerScopedPolicy,
-      controls: {
-        terminateAtomic: async () => {
-          throw new Error("not reached");
-        },
-      },
+      controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {

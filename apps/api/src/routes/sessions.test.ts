@@ -663,6 +663,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        readEvents: async () => null,
       },
     });
     const scoped = createApiApp({
