@@ -150,6 +150,7 @@ export class GitWorkspace implements WorkspacePreparer {
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
+          input.signal,
         );
         return plan.action;
       case "clone":
@@ -159,6 +160,7 @@ export class GitWorkspace implements WorkspacePreparer {
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
+          input.signal,
         );
         return plan.action;
       case "reuse":
@@ -167,7 +169,12 @@ export class GitWorkspace implements WorkspacePreparer {
           git(["remote", "set-url", "origin", remote.url]),
           "remote set-url",
         );
-        await this.fetchThroughMirror(git, remote.url, plan.branch);
+        await this.fetchThroughMirror(
+          git,
+          remote.url,
+          plan.branch,
+          input.signal,
+        );
         await check(git(["checkout", "--quiet", plan.branch]), "checkout");
         return plan.action;
     }
@@ -267,6 +274,7 @@ export class GitWorkspace implements WorkspacePreparer {
     git: Git,
     url: string,
     branch: string,
+    signal: AbortSignal,
   ): Promise<void> {
     const scratch = await mkdtemp(join(tmpdir(), "worker-fetch-"));
     const mirror = join(scratch, "origin.git");
@@ -295,6 +303,7 @@ export class GitWorkspace implements WorkspacePreparer {
         git,
         mirror,
         `refs/heads/${branch}`,
+        signal,
       );
     } finally {
       await rm(scratch, { force: true, recursive: true });
@@ -329,6 +338,25 @@ const MAX_LINK_TARGET_BYTES = 4096;
  * a repository the platform serves depends on one.
  */
 async function readCommittedClaudeMd(
+  git: Git,
+  cwd: string,
+  rev: string,
+  signal: AbortSignal,
+): Promise<CommittedClaudeMd> {
+  try {
+    return await resolveCommittedClaudeMd(git, cwd, rev);
+  } catch (error) {
+    // A stop is the preparation's to report. Anything else that goes wrong
+    // with this file is only the business of a profile that asks for it.
+    if (signal.aborted) throw error;
+    return {
+      kind: "refused",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function resolveCommittedClaudeMd(
   git: Git,
   cwd: string,
   rev: string,
@@ -375,6 +403,10 @@ async function readCommittedClaudeMd(
           kind: "refused",
           reason: `git cat-file failed (exit ${target.code}): ${target.stderr.trim()}`,
         };
+      }
+      // A link is an arbitrary blob; no filesystem path holds a NUL.
+      if (target.stdout.includes("\0")) {
+        return { kind: "refused", reason: "it links to a malformed path" };
       }
       const next = posix.normalize(
         posix.join(posix.dirname(path), target.stdout),

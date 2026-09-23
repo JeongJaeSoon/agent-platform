@@ -487,6 +487,40 @@ describe("GitWorkspace.committedClaudeMd", () => {
     }
   });
 
+  test("refuses a committed link whose target holds a NUL, without failing the preparation", async () => {
+    await publish({ "CLAUDE.md": "first\n" });
+    const workspace = await prepared();
+    const seed = join(scratch, "seed");
+    const blob = Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
+      cwd: seed,
+      stdin: new TextEncoder().encode("docs\0AGENTS.md"),
+      stdout: "pipe",
+    });
+    git(["rm", "--quiet", "CLAUDE.md"], seed);
+    git(
+      [
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `120000,${blob.stdout.toString().trim()},CLAUDE.md`,
+      ],
+      seed,
+    );
+    git(["commit", "--quiet", "-m", "nul link"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    expect(
+      await workspace.prepare({
+        descriptor: descriptor(),
+        restore: null,
+        signal: new AbortController().signal,
+      }),
+    ).toBe("reuse");
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "it links to a malformed path",
+    );
+  });
+
   test("a file exactly at the cap is whole", async () => {
     const whole = "b".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES);
     await publish({ "CLAUDE.md": whole });
