@@ -348,7 +348,9 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **eligibility ≠ compatibility.** 시작 전 거절은 fingerprint를 계산할 수 있는지만 본다. 복원하는 쪽(워커)은 새로 resolve한 구성으로 fingerprint를 **다시 계산해** manifest와 비교해야 하며, 저장된 digest를 복사해 넘기면 검사가 무력화된다(`getRestorePlan`은 호출자가 준 fingerprint를 받는다).
 - **digest 변경 정책.** 이 규칙은 모든 digest를 바꾼다. 적용 시점(2026-09-23)에 워커 루프가 아직 머지되지 않아 운영 checkpoint가 없으므로 재계산 경로 없이 fail-closed다. 앞으로 fingerprint 입력을 바꿀 때는 그 시점의 checkpoint를 어떻게 다룰지(재계산 또는 fail-closed)를 같은 PR에서 정한다.
 
-1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
+1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다.
+
+이전 generation으로 돌아가는 조건은 좁다(94S-204). pointer의 checkpoint가 **손상**됐을 때만, 즉 객체가 사라졌거나 기록한 바이트와 달라졌을 때만 revision 내림차순으로 최대 `maxRestoreFallbacks`개(기본 3, 상한 10)를 다시 해시해 본다. 한도를 낮췄거나 codec·verifier가 바뀌어 거부된 것은 손상이 아니다. 이런 거부는 더 작은 옛 revision만 통과시켜 설정 변경이 세션 기록을 버리게 만들므로 폴백하지 않는다. 후보도 같은 규칙을 따른다. 손상된 후보는 건너뛰고, 다른 이유로 거부되거나 런타임과 호환되지 않는 후보에서는 멈춘다. `locked`에서는 versions_held로 커밋되고 지금도 모든 version에 legal hold가 걸린 revision만 후보다. 폴백은 조용히 일어나지 않는다. 복원 계획의 `fallback`, 세션의 `durability.checkpoint_fallback_revision`, 이벤트 스트림의 `checkpoint_restore_fallback` system 이벤트가 이를 드러낸다. pointer는 되감지 않는다. 다음 checkpoint는 pointer+1로 커밋되고 그때 fallback 표시가 지워진다. 그동안 pause와 운영 복구의 커버리지는 pointer가 아니라 실제로 복원한 revision 기준으로 판정한다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
 
 G2는 현재 `pod_id`와 previous revision의 CAS까지만 요구한다. 94S-44는 G4에서 checkpoint 외 전체 write에 claim epoch fencing을 확장하며, G2가 이를 구현 완료했다고 주장하지 않는다.
 
