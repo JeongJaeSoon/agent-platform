@@ -63,11 +63,11 @@ export function scopedCheckpointObjectStore(
   // `async` so a refusal is a rejection like any other store failure, not a
   // synchronous throw a caller awaiting the promise would never catch.
   return {
-    async get(key) {
-      return store.get(within(key));
+    async get(key, version) {
+      return store.get(within(key), version);
     },
-    async head(key) {
-      return store.head(within(key));
+    async head(key, version) {
+      return store.head(within(key), version);
     },
     async list(prefix) {
       // A list prefix may be the scope itself or anything under it, and it
@@ -82,5 +82,6 @@ export function scopedCheckpointObjectStore(
     async putImmutable(key, bytes) {
       return store.putImmutable(within(key), bytes);
     },
+    // No `hold`: only the control plane places holds, on what it committed.
   };
 }

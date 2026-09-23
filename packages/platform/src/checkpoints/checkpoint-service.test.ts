@@ -231,6 +231,7 @@ beforeEach(async () => {
   checkpoints = memoryCheckpointStore();
   service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
+    objectProtection: "unversioned",
     objects,
     store: checkpoints.store,
     workspaceBundles: structuralBundleVerifier,
@@ -244,6 +245,7 @@ function serviceOwnedBy(owner: CheckpointFence) {
     store,
     service: createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       objects,
       store: store.store,
       workspaceBundles: structuralBundleVerifier,
@@ -607,6 +609,7 @@ describe("validateManifest", () => {
     // checked against the declared size before anything is fetched.
     const small = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       maxWorkspaceBundleBytes: 16,
       objects,
       store: checkpoints.store,
@@ -637,6 +640,7 @@ describe("validateManifest", () => {
     };
     const capped = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       maxManifestBytes: 64,
       objects: watched,
       store: checkpoints.store,
@@ -665,6 +669,7 @@ describe("validateManifest", () => {
     };
     const capped = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       maxManifestObjects: 1,
       objects: watched,
       store: checkpoints.store,
@@ -694,6 +699,7 @@ describe("validateManifest", () => {
     };
     const strict = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       objects,
       store: checkpoints.store,
       workspaceBundles,
@@ -715,6 +721,7 @@ describe("validateManifest", () => {
     // wrote it is gone and the last healthy revision has been superseded.
     const unconfigured = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       objects,
       store: checkpoints.store,
     });
@@ -778,6 +785,7 @@ describe("validateManifest", () => {
     };
     const gated = createCheckpointService({
       codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
       maxConcurrentBundleVerifications: 2,
       objects,
       store: checkpoints.store,
@@ -1091,7 +1099,9 @@ describe("finalize", () => {
     expect(checkpoints.committed).toEqual([]);
   });
 
-  test("does not re-read parts the committed pointer already proved", async () => {
+  // The versioned counterpart, which does skip them, is in
+  // checkpoint-versions.test.ts.
+  test("re-reads parts the committed pointer proved when nothing pins their version", async () => {
     const zero = await upload(manifest());
     await service.finalize({
       ...zero,
@@ -1135,8 +1145,10 @@ describe("finalize", () => {
         turnId: "2",
       }),
     ).toEqual({ outcome: "committed", revision: 1 });
-    // Only the new part's body is fetched; the carried-over ones are not.
-    expect(objects.reads().filter((key) => key === ROOT_PART)).toEqual([]);
+    // A key can be rewritten with different bytes of the same length, which
+    // the HEAD that still runs cannot tell apart, so the old part is hashed
+    // again rather than trusted.
+    expect(objects.reads()).toContain(ROOT_PART);
     expect(objects.reads()).toContain(grown);
   });
 });

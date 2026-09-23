@@ -34,10 +34,27 @@ export const workerScopeSchema = z.object({
   auth_revision: epochSchema,
 });
 
+// An object store version id (S3 VersionId): opaque UTF-8, at most 1024
+// bytes. "null" is S3's name for the replaceable unversioned slot, so it
+// never counts as a pinned version. Same rules as the manifest codec's.
+export const objectVersionSchema = z
+  .string()
+  .min(1)
+  .refine((version) => version !== "null", {
+    message: 'version "null" is not an immutable version',
+  })
+  .refine((version) => new TextEncoder().encode(version).byteLength <= 1024, {
+    message: "a version id is at most 1024 bytes of UTF-8",
+  });
+
 export const checkpointRefSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
   manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  // The version `putImmutable` answered for the manifest. The server verifies
+  // that version, records it on the pointer and restores from it; a server
+  // that requires versions refuses a checkpoint without one (94S-229).
+  manifest_version: objectVersionSchema.optional(),
 });
 
 export const bootstrapClaimRequestSchema = z
@@ -391,10 +408,14 @@ export const restorePlanRequestSchema = workerScopeSchema
   .extend({ runtime: runtimeFingerprintSchema })
   .strict();
 
+// `version`, when present, is the only thing the worker may download: the
+// key's current object can be a later write than the one the checkpoint
+// verified (94S-229).
 const restoreObjectSchema = z.object({
   key: z.string().min(1),
   bytes: z.number().int().nonnegative(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  version: objectVersionSchema.optional(),
 });
 export const restoreArtifactSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -415,6 +436,7 @@ export const restoreArtifactSchema = z.discriminatedUnion("kind", [
 export const restorePlanSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
+  manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),
   cwd: z.string().min(1),

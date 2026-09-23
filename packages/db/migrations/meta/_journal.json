@@ -106,6 +106,13 @@
       "when": 1790139012881,
       "tag": "0105_wet_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1790153618596,
+      "tag": "0106_material_colossus",
+      "breakpoints": true
     }
   ]
 }

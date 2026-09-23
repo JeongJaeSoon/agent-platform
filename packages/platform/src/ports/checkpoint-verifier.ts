@@ -4,7 +4,8 @@ import type { CheckpointFence } from "./checkpoint-store.ts";
 import type { WorkerFence } from "./worker-unit-of-work.ts";
 
 export type CheckpointVerdict =
-  | { status: "verified" }
+  // `versionsHeld`: see `ManifestVerdict`; finalize records it on the pointer.
+  | { status: "verified"; versionsHeld?: boolean }
   | { status: "rejected"; reason: string };
 
 // finalize refuses to promote a checkpoint pointer the verifier has not
@@ -66,9 +67,12 @@ export function serviceCheckpointVerifier(service: {
           sessionId: fence.sessionId,
         },
       });
-      return verdict.status === "verified"
-        ? { status: "verified" }
-        : { status: "rejected", reason: verdict.reason };
+      if (verdict.status === "rejected") {
+        return { status: "rejected", reason: verdict.reason };
+      }
+      return verdict.versionsHeld === true
+        ? { status: "verified", versionsHeld: true }
+        : { status: "verified" };
     },
   };
 }

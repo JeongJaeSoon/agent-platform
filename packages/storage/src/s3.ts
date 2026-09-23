@@ -253,19 +253,43 @@ export async function getObjectBytes(
   key: string,
   bounds: BodyReadBounds = DEFAULT_BODY_READ_BOUNDS,
 ): Promise<Uint8Array | undefined> {
+  return (await getObjectVersion(client, bucket, key, { bounds }))?.bytes;
+}
+
+/**
+ * `getObjectBytes` that can ask for one version and says which version
+ * answered. A missing version is undefined, like a missing key: S3 answers
+ * both with 404.
+ */
+export async function getObjectVersion(
+  client: S3ClientLike,
+  bucket: string,
+  key: string,
+  options: { bounds?: BodyReadBounds; version?: string } = {},
+): Promise<{ bytes: Uint8Array; version?: string } | undefined> {
+  const bounds = options.bounds ?? DEFAULT_BODY_READ_BOUNDS;
   let lastError: unknown;
   for (let attempt = 1; attempt <= bounds.attempts; attempt += 1) {
     try {
       const response = (await client.send(
-        new GetObjectCommand({ Bucket: bucket, Key: key }),
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          VersionId: options.version,
+        }),
         { requestTimeout: bounds.requestTimeoutMs },
-      )) as { Body?: unknown };
+      )) as { Body?: unknown; VersionId?: string };
       if (response.Body === undefined) {
         throw new Error(`S3 object has no body: ${key}`);
       }
-      return await bodyBytes(response.Body, bounds);
+      const bytes = await bodyBytes(response.Body, bounds);
+      const version = storedVersion(response.VersionId);
+      return version === undefined ? { bytes } : { bytes, version };
     } catch (error) {
       if (isMissingObject(error)) return undefined;
+      if (options.version !== undefined && isUnreadableVersion(error)) {
+        return undefined;
+      }
       if (!(error instanceof BodyStallError)) throw error;
       lastError = error;
     }
@@ -275,10 +299,41 @@ export async function getObjectBytes(
   });
 }
 
+/**
+ * A version id worth recording, or undefined. `"null"` is what S3 calls the
+ * version of an object written while versioning was off or suspended, and it
+ * is not a version in the sense that matters: the next unversioned write to
+ * the key replaces it in place.
+ */
+export function storedVersion(value: string | undefined): string | undefined {
+  return value === undefined || value === "" || value === "null"
+    ? undefined
+    : value;
+}
+
+/**
+ * A version-specific read that names something other than an object version:
+ * an id AWS cannot parse (400), or the id of a delete marker (405). The id
+ * came from a manifest a worker wrote, so to the caller it is one more version
+ * the store does not have — not an outage worth retrying.
+ */
+export function isUnreadableVersion(error: unknown): boolean {
+  const value = awsError(error);
+  return (
+    value?.name === "InvalidArgument" ||
+    value?.Code === "InvalidArgument" ||
+    value?.name === "MethodNotAllowed" ||
+    value?.Code === "MethodNotAllowed" ||
+    value?.$metadata?.httpStatusCode === 400 ||
+    value?.$metadata?.httpStatusCode === 405
+  );
+}
+
 export function isMissingObject(error: unknown): boolean {
   const value = awsError(error);
   return (
     value?.name === "NoSuchKey" ||
+    value?.name === "NoSuchVersion" ||
     value?.name === "NotFound" ||
     value?.$metadata?.httpStatusCode === 404
   );

@@ -21,11 +21,25 @@ import { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION } from "./versions.ts";
 export const CLAUDE_CHECKPOINT_ENGINE = "claude";
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+// Optional here, because whether versions are required is the deployment's
+// call (CheckpointService `objectProtection`), not the manifest format's. S3
+// ids are opaque UTF-8 of at most 1024 bytes; `"null"` is refused because it
+// names the replaceable unversioned slot. Same rules as the wire contract's.
+const objectVersionSchema = z
+  .string()
+  .min(1)
+  .refine((version) => version !== "null", {
+    message: 'version "null" is not an immutable version',
+  })
+  .refine((version) => new TextEncoder().encode(version).byteLength <= 1024, {
+    message: "a version id is at most 1024 bytes of UTF-8",
+  });
 const objectRefSchema = z
   .object({
     bytes: z.number().int().nonnegative(),
     key: z.string().min(1),
     sha256: sha256Schema,
+    version: objectVersionSchema.optional(),
   })
   .strict();
 // Restoring writes these paths into a workspace, so the manifest is where
@@ -141,11 +155,14 @@ export function decodeCheckpointManifest(
         .join("; ")}`,
     );
   }
-  const edited = editedRevision(result.data);
+  // Zod types an optional field as `T | undefined`; parsing JSON can only
+  // leave it out, which is what `CheckpointManifest` says.
+  const manifest = result.data as CheckpointManifest;
+  const edited = editedRevision(manifest);
   if (edited !== undefined) {
     throw new Error(`Invalid Claude checkpoint manifest: ${edited}`);
   }
-  return result.data;
+  return manifest;
 }
 
 /**

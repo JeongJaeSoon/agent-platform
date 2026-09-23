@@ -88,6 +88,86 @@ describe("Claude checkpoint codec", () => {
     expect(decodeCheckpointManifest(bytes)).toEqual(original);
   });
 
+  test("round-trips the object versions a writer pinned (94S-229)", () => {
+    const parts = [
+      {
+        bytes: 42,
+        key: "root/part-1.jsonl",
+        sha256: "b".repeat(64),
+        version: "3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+      },
+    ];
+    const original = manifest({
+      transcripts: {
+        root: { entryCount: 1, parts, sha256: digestParts(parts) },
+        subagents: {},
+      },
+      workspace: {
+        ...manifest().workspace,
+        bundle: { ...manifest().workspace.bundle, version: "bundle-v1" },
+      },
+    });
+
+    const decoded = decodeCheckpointManifest(
+      encodeCheckpointManifest(original).bytes,
+    );
+
+    expect(decoded).toEqual(original);
+    expect(decoded.transcripts.root.parts[0]?.version).toBe(
+      "3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+    );
+    // A version is not part of what the part-list digest pins: the manifest
+    // digest already covers it, and the mirror computes the list digest
+    // before any writer could know one.
+    expect(digestParts(parts)).toBe(
+      digestParts(parts.map(({ version: _v, ...rest }) => rest)),
+    );
+  });
+
+  test("accepts a manifest without versions; whether one is required is the control plane's call", () => {
+    const original = manifest();
+    expect(original.workspace.bundle).not.toHaveProperty("version");
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+    ).toEqual(original);
+  });
+
+  test.each(["x".repeat(1024), "has space", "버전-🙂"])(
+    "accepts the opaque object version %p",
+    (version) => {
+      const original = manifest();
+      const edited = {
+        ...original,
+        workspace: {
+          ...original.workspace,
+          bundle: { ...original.workspace.bundle, version },
+        },
+      };
+      expect(
+        decodeCheckpointManifest(encodeCheckpointManifest(edited).bytes)
+          .workspace.bundle.version,
+      ).toBe(version);
+    },
+  );
+
+  test.each([
+    ["null", /immutable version/],
+    ["", /version/],
+    ["x".repeat(1025), /1024 bytes/],
+    // 342 characters, 1026 bytes: the limit is S3's, in UTF-8 bytes.
+    ["한".repeat(342), /1024 bytes/],
+  ])("refuses the object version %p", (version, message) => {
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const edited = JSON.parse(new TextDecoder().decode(bytes));
+    edited.workspace.bundle.version = version;
+
+    expect(() =>
+      decodeCheckpointManifest(
+        new TextEncoder().encode(JSON.stringify(edited)),
+      ),
+    ).toThrow(message);
+  });
+
   test("encodes the same manifest to the same bytes whatever the key order", () => {
     const ordered = manifest();
     const shuffled = Object.fromEntries(

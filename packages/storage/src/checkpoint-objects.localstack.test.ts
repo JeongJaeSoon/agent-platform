@@ -3,9 +3,12 @@ import {
   localstackEnabled,
   withLocalstackBucket,
 } from "@agent-platform/testkit/localstack";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 
-import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
+import {
+  createCheckpointObjectStore,
+  describeBucketProtection,
+} from "./checkpoint-objects.ts";
 import {
   ObjectScopeError,
   scopedCheckpointObjectStore,
@@ -148,6 +151,109 @@ localstackTest(
         );
         // Untouched: the refusal happened before any request was sent.
         expect(await unscoped.get(foreign)).toEqual(encode("{}"));
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+// 94S-229, against the real endpoint: a version is what a checkpoint names,
+// so what the key holds later — an overwrite, a delete marker, a create-only
+// write landing again behind the marker — cannot reach it, and a held version
+// cannot be deleted by anyone who has not released the hold.
+localstackTest(
+  "a versioned Object Lock bucket answers versions, reads them back and refuses to delete a held one",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const key = "sessions/s1/mirror/part-0000000000.jsonl";
+        expect(await describeBucketProtection(s3, bucket)).toEqual({
+          objectLock: true,
+          versioning: "Enabled",
+        });
+
+        const created = await store.putImmutable(key, encode("one\n"));
+        expect(created).toEqual({
+          outcome: "created",
+          version: expect.any(String),
+        });
+        const version = (created as { version: string }).version;
+        // A retry of the same bytes names the write that already landed.
+        expect(await store.putImmutable(key, encode("one\n"))).toEqual({
+          outcome: "duplicate",
+          version,
+        });
+
+        await store.put(key, encode("two\n"));
+        expect(await store.get(key)).toEqual(encode("two\n"));
+        expect(await store.get(key, version)).toEqual(encode("one\n"));
+        expect(await store.head(key, version)).toEqual({ bytes: 4, version });
+
+        await store.hold?.(key, version);
+        expect(await store.head(key, version)).toEqual({
+          bytes: 4,
+          held: true,
+          version,
+        });
+        const refused = await s3
+          .send(
+            new DeleteObjectCommand({
+              Bucket: bucket,
+              BypassGovernanceRetention: true,
+              Key: key,
+              VersionId: version,
+            }),
+          )
+          .then(
+            () => undefined,
+            (error: { $metadata?: { httpStatusCode?: number } }) => error,
+          );
+        expect(refused?.$metadata?.httpStatusCode).toBe(403);
+
+        // A delete marker hides the key and lets create-only land again,
+        // and neither touches the version a checkpoint names.
+        const marker = (await s3.send(
+          new DeleteObjectCommand({ Bucket: bucket, Key: key }),
+        )) as { DeleteMarker?: boolean; VersionId?: string };
+        expect(marker.DeleteMarker).toBe(true);
+        expect(await store.get(key)).toBeUndefined();
+        // A manifest naming the marker's own id names nothing readable: S3
+        // answers 405 there, which is absence, not an outage to retry.
+        expect(await store.head(key, marker.VersionId)).toBeUndefined();
+        expect(await store.get(key, marker.VersionId)).toBeUndefined();
+        const reused = await store.putImmutable(key, encode("three\n"));
+        expect(reused.outcome).toBe("created");
+        expect(await store.get(key, version)).toEqual(encode("one\n"));
+
+        // A version the bucket never issued reads as absent, not as an outage.
+        expect(await store.get(key, "no-such-version")).toBeUndefined();
+        expect(await store.head(key, "no-such-version")).toBeUndefined();
+      },
+      { objectLock: true, prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+localstackTest(
+  "a bucket without versioning reports none, and cannot hold",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const key = "sessions/s1/mirror/part-0000000000.jsonl";
+        expect(await describeBucketProtection(s3, bucket)).toEqual({
+          objectLock: false,
+          versioning: "Off",
+        });
+        expect(await store.putImmutable(key, encode("one\n"))).toEqual({
+          outcome: "created",
+        });
+        expect(await store.head(key)).toEqual({ bytes: 4 });
+        expect(await store.get(key, "some-version")).toBeUndefined();
+        await expect(store.hold?.(key, "null")).rejects.toThrow();
       },
       { prefix: "checkpoint-objects-it" },
     );

@@ -248,12 +248,19 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   }
 }
 
+function versionOnWire(object: { version?: string }): { version?: string } {
+  return object.version === undefined ? {} : { version: object.version };
+}
+
 function planOnWire(plan: RestorePlan): RestorePlanResponse {
   return {
     status: "ready",
     plan: {
       revision: plan.revision,
       manifest_ref: plan.manifestRef,
+      ...(plan.manifestVersion === undefined
+        ? {}
+        : { manifest_version: plan.manifestVersion }),
       engine: plan.engine,
       resume: plan.resume,
       cwd: plan.cwd,
@@ -267,6 +274,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
                 key: object.key,
                 bytes: object.bytes,
                 sha256: object.sha256,
+                ...versionOnWire(object),
                 path: object.path,
               })),
             }
@@ -277,6 +285,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
                 key: object.key,
                 bytes: object.bytes,
                 sha256: object.sha256,
+                ...versionOnWire(object),
               })),
             },
       ),
@@ -770,6 +779,7 @@ export function createWorkerGateway(deps: {
       // result that is already durable.
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
+      let checkpointVersionsHeld = false;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -787,12 +797,17 @@ export function createWorkerGateway(deps: {
             `Checkpoint manifest rejected: ${verdict.reason}`,
           );
         }
+        checkpointVersionsHeld = verdict.versionsHeld === true;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
       // request started with.
       return finalizeAnswer(
-        await work.finalizeAtomic({ ...attempt, now: now() }),
+        await work.finalizeAtomic({
+          ...attempt,
+          checkpointVersionsHeld,
+          now: now(),
+        }),
       );
     },
 

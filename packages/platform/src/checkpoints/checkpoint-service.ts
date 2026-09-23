@@ -35,7 +35,16 @@ export type CheckpointRequestDecision =
   | { detail: string; reason: CheckpointBlockReason; status: "blocked" };
 
 export type ManifestVerdict =
-  | { manifest: CheckpointManifest; status: "verified" }
+  | {
+      manifest: CheckpointManifest;
+      status: "verified";
+      /**
+       * Set by a `locked` finalize once every version the checkpoint names
+       * was hashed by version and held. The pointer records it, and it is the
+       * only thing that lets a later read trust those versions unhashed.
+       */
+      versionsHeld?: true;
+    }
   | { reason: string; status: "rejected" };
 
 /**
@@ -91,7 +100,14 @@ export type RestorePlan = {
    */
   gitCommit: string;
   manifestRef: string;
-  /** Every object key the plan needs, deduplicated, in download order. */
+  /** The manifest version the pointer pinned, when there is one. */
+  manifestVersion?: string;
+  /**
+   * Every object key the plan needs, deduplicated, in download order. Keys
+   * only: where an object carries a `version`, the artifact list is what the
+   * worker downloads from, because the key's current object may be a later
+   * write than the one this checkpoint verified.
+   */
   objectKeys: readonly string[];
   resume: string;
   revision: number;
@@ -145,6 +161,27 @@ export type CheckpointServiceDependencies = {
    * the old one — raise it back and they return.
    */
   maxWorkspaceBundleBytes?: number;
+  /**
+   * How far a committed checkpoint's objects are protected once verified.
+   *
+   * `locked`, the default: every object — the manifest, each transcript part,
+   * the bundle, each untracked file — must be named by version. Finalize
+   * reads those versions, and before answering "verified" places a legal hold
+   * on each one, so the bytes it judged are the bytes restore reads, and
+   * nobody without the hold permission can delete them. A key being
+   * overwritten, deleted or reused after that changes nothing a checkpoint
+   * names. The store must offer `hold`.
+   *
+   * `unversioned`: for a store without versions or Object Lock, or one whose
+   * version ids are not the ones the manifests name (a bucket restored from a
+   * backup). Objects are read by key; versions a manifest carries are ignored
+   * and left out of the restore plan; nothing is held; and every object is
+   * hashed again on every finalize, since only a version can vouch for bytes
+   * read earlier. What finalize verified is then only as durable as the key:
+   * a delete or overwrite after the commit is found at restore, not
+   * prevented.
+   */
+  objectProtection?: ObjectProtection;
   objects: CheckpointObjectStore;
   store: CheckpointStore;
   /**
@@ -154,6 +191,8 @@ export type CheckpointServiceDependencies = {
    */
   workspaceBundles?: WorkspaceBundleVerifier;
 };
+
+export type ObjectProtection = "locked" | "unversioned";
 
 export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
 // A reference is about 200 bytes of canonical JSON, so the object limit
@@ -206,30 +245,52 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     deps.maxConcurrentBundleVerifications ??
       DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
   );
+  const protection = deps.objectProtection ?? "locked";
+  if (protection === "locked" && objects.hold === undefined) {
+    throw new Error(
+      'objectProtection "locked" needs an object store that can hold versions; pass "unversioned" for one without versions or Object Lock',
+    );
+  }
+  // What a version the manifest or the pointer names is worth here: the one
+  // to read in `locked`, and nothing in `unversioned`, which reads by key.
+  const pinnedVersion = (version: string | null | undefined) =>
+    protection === "locked" ? (version ?? undefined) : undefined;
 
   async function validateManifest(input: {
     checkpoint: CheckpointRef;
+    /**
+     * Collects every version this validation read, with whether a legal
+     * hold already covers it. Finalize holds the rest; restore passes none.
+     */
+    pinned?: PinnedVersions;
     sessionId: string;
     /**
-     * `key\u0000sha256` pairs a previous commit already read and hashed. Parts
-     * are write-once, so re-hashing them would only re-download a transcript
-     * that grows with the session.
+     * Tokens (`refToken`) of versions a previous commit already read and
+     * hashed. A version never changes, so re-hashing it would only
+     * re-download a transcript that grows with the session.
      */
     verified?: ReadonlySet<string>;
   }): Promise<ManifestVerdict> {
     const { checkpoint, sessionId } = input;
+    const version = pinnedVersion(checkpoint.manifest_version);
+    if (protection === "locked" && version === undefined) {
+      return {
+        status: "rejected",
+        reason: `manifest ${checkpoint.manifest_ref} is not named by version, and this deployment pins every checkpoint object by version`,
+      };
+    }
     const missing: ManifestVerdict = {
       status: "rejected",
-      reason: `manifest object is missing: ${checkpoint.manifest_ref}`,
+      reason: `manifest object is missing: ${checkpoint.manifest_ref}${versionSuffix(version)}`,
     };
     const tooLarge = (bytes: number): ManifestVerdict => ({
       status: "rejected",
       reason: `manifest is ${bytes} bytes, over the ${maxManifestBytes}-byte limit`,
     });
-    const size = await objects.head(checkpoint.manifest_ref);
+    const size = await objects.head(checkpoint.manifest_ref, version);
     if (size === undefined) return missing;
     if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
-    const bytes = await objects.get(checkpoint.manifest_ref);
+    const bytes = await objects.get(checkpoint.manifest_ref, version);
     if (bytes === undefined) return missing;
     // Replaced between the two reads: judge what actually arrived.
     if (bytes.byteLength > maxManifestBytes) return tooLarge(bytes.byteLength);
@@ -254,6 +315,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     } catch (error) {
       return { status: "rejected", reason: (error as Error).message };
     }
+    if (protection === "unversioned") manifest = withoutVersions(manifest);
     if (manifest.sessionId !== sessionId) {
       return {
         status: "rejected",
@@ -271,8 +333,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       sessionId,
       checkpoint.manifest_ref,
       input.verified,
+      input.pinned,
     );
     if (bad !== undefined) return { status: "rejected", reason: bad };
+    if (version !== undefined) {
+      input.pinned?.note(checkpoint.manifest_ref, version, size);
+    }
     return { status: "verified", manifest };
   }
 
@@ -305,6 +371,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     sessionId: string,
     manifestRef: string,
     verified: ReadonlySet<string> = new Set(),
+    pinned?: PinnedVersions,
   ): Promise<string | undefined> {
     const refs = [
       ...manifest.transcripts.root.parts,
@@ -328,6 +395,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // so both are checked, and here rather than in whatever later unpacks it.
     // This is the text half; the restorer's writer refuses what only the disk
     // can show, like a checked-out symlink on the way (workspace-restore.ts).
+    // Before any request: a ref without a version can only be read as "the
+    // key's current object", which is exactly what this mode exists to stop
+    // trusting.
+    if (protection === "locked") {
+      const loose = [...refs, manifest.workspace.bundle].find(
+        (ref) => ref.version === undefined,
+      );
+      if (loose !== undefined) {
+        return `manifest names ${loose.key} without a version, and this deployment pins every checkpoint object by version`;
+      }
+    }
     const pathProblem = workspacePathsProblem(
       manifest.workspace.untracked.map((artifact) => artifact.path),
     );
@@ -338,17 +416,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // thousands of parts and firing a request per part at once turns a valid
     // checkpoint into a throttled one.
     const problems = await inBatches(refs, 32, async (ref) => {
-      const head = await objects.head(ref.key);
+      const head = await objects.head(ref.key, ref.version);
       if (head === undefined) {
-        return `manifest references a missing object: ${ref.key}`;
+        return `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`;
       }
       if (head.bytes !== ref.bytes) {
         return `manifest object ${ref.key} is ${head.bytes} bytes, not ${ref.bytes}`;
       }
-      if (verified.has(refToken(ref))) return undefined;
-      const body = await objects.get(ref.key);
+      if (ref.version !== undefined) pinned?.note(ref.key, ref.version, head);
+      const token = refToken(ref);
+      if (token !== undefined && verified.has(token)) return undefined;
+      const body = await objects.get(ref.key, ref.version);
       if (body === undefined) {
-        return `manifest references a missing object: ${ref.key}`;
+        return `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`;
       }
       const digest = sha256(body);
       if (digest !== ref.sha256) {
@@ -357,7 +437,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       return undefined;
     });
     const bad = problems.find((problem) => problem !== undefined);
-    return bad ?? (await badWorkspaceBundle(manifest.workspace, manifestRef));
+    return (
+      bad ?? (await badWorkspaceBundle(manifest.workspace, manifestRef, pinned))
+    );
   }
 
   /**
@@ -380,15 +462,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
+    pinned?: PinnedVersions,
   ): Promise<string | undefined> {
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
-    return bundleGate(() => readAndVerifyBundle(workspace, manifestRef));
+    return bundleGate(() =>
+      readAndVerifyBundle(workspace, manifestRef, pinned),
+    );
   }
 
   async function readAndVerifyBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
+    pinned?: PinnedVersions,
   ): Promise<string | undefined> {
     const { bundle, gitCommit } = workspace;
     // One attempt's directory holds one attempt's objects. A bundle at a key
@@ -407,17 +493,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const tooBig = (found: number) =>
       `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`;
     if (bundle.bytes > maxBundleBytes) return tooBig(bundle.bytes);
-    const head = await objects.head(bundle.key);
+    const head = await objects.head(bundle.key, bundle.version);
     if (head === undefined) {
-      return `manifest references a missing workspace bundle: ${bundle.key}`;
+      return `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`;
     }
     if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
     if (head.bytes !== bundle.bytes) {
       return `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`;
     }
-    const body = await objects.get(bundle.key);
+    const body = await objects.get(bundle.key, bundle.version);
     if (body === undefined) {
-      return `manifest references a missing workspace bundle: ${bundle.key}`;
+      return `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`;
     }
     // A store that answered a smaller HEAD than it then served is the one
     // case the checks above cannot bound.
@@ -431,21 +517,38 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       commit: gitCommit,
       key: bundle.key,
     });
-    return verdict.status === "restorable"
-      ? undefined
-      : `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
+    if (verdict.status !== "restorable") {
+      return `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
+    }
+    if (bundle.version !== undefined) {
+      pinned?.note(bundle.key, bundle.version, head);
+    }
+    return undefined;
   }
 
   /**
    * What the currently committed checkpoint already proved. A pointer that
    * cannot be read yields nothing, which only costs a re-hash.
+   *
+   * In `locked` only a pointer recorded with `versionsHeld` vouches for the
+   * versions it names. One committed under `unversioned` recorded whatever
+   * version the worker reported, and nothing ever read those; trusting them
+   * would let a same-length stranger through. The hold state cannot stand in
+   * for the record: any later candidate may name an old manifest as one of
+   * its own objects and get it held without ever committing.
    */
   async function verifiedRefs(sessionId: string): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
       const pointer = await store.readPointer(sessionId);
       if (pointer === null) return tokens;
-      const bytes = await objects.get(pointer.manifestRef);
+      if (protection === "locked" && pointer.versionsHeld !== true) {
+        return tokens;
+      }
+      const bytes = await objects.get(
+        pointer.manifestRef,
+        pinnedVersion(pointer.manifestVersion),
+      );
       if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
         return tokens;
       }
@@ -460,7 +563,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         ),
         ...manifest.workspace.untracked,
       ]) {
-        tokens.add(refToken(ref));
+        const token = refToken(ref);
+        if (token !== undefined) tokens.add(token);
       }
     } catch {
       return new Set();
@@ -492,11 +596,36 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest ${input.checkpoint.manifest_ref} is not this attempt's key ${expectedRef}`,
       };
     }
-    return validateManifest({
+    const pinned = pinnedVersions();
+    const verdict = await validateManifest({
       checkpoint: input.checkpoint,
+      pinned,
       sessionId,
       verified: await verifiedRefs(sessionId),
     });
+    if (verdict.status === "verified" && protection === "locked") {
+      await holdAll(pinned.unheld());
+      return { ...verdict, versionsHeld: true };
+    }
+    return verdict;
+  }
+
+  /**
+   * Holds every version a verified checkpoint names that is not held yet —
+   * including ones the verified set let skip a re-hash, since that cache
+   * speaks for the bytes, not for their protection. Awaited in full before
+   * finalize may answer "verified": a failure throws, the caller reports the
+   * store as unavailable, and the pointer stays where it was. Holds that did
+   * land are left in place — a retry needs them, and another checkpoint may
+   * already share them. Releasing any hold is garbage collection's job, and
+   * GC must not release a version a finalize in flight may still commit.
+   */
+  async function holdAll(
+    versions: readonly { key: string; version: string }[],
+  ): Promise<void> {
+    const hold = objects.hold?.bind(objects);
+    if (hold === undefined) return;
+    await inBatches(versions, 32, ({ key, version }) => hold(key, version));
   }
 
   return {
@@ -587,6 +716,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         now: input.now,
         sessionId: input.sessionId,
         turnId: input.turnId,
+        versionsHeld: verdict.versionsHeld === true,
       });
       switch (result.outcome) {
         case "conflict":
@@ -620,10 +750,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           ? await store.readPointer(input.sessionId)
           : input.pointer;
       if (pointer === null) return { status: "none" };
+      const pinned = pinnedVersions();
       const verdict = await validateManifest({
+        pinned,
         checkpoint: {
           manifest_ref: pointer.manifestRef,
           manifest_sha256: pointer.manifestSha256,
+          ...(pointer.manifestVersion == null
+            ? {}
+            : { manifest_version: pointer.manifestVersion }),
           revision: pointer.revision,
         },
         sessionId: input.sessionId,
@@ -659,7 +794,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           mismatches: compatibility.mismatches,
         };
       }
-      return { status: "ready", plan: planOf(manifest, pointer.manifestRef) };
+      // A no-op for a checkpoint a locked finalize committed. Any other was
+      // just hashed version by version above, since `verifiedRefs` trusts
+      // none of it, and is held here before any worker is told to download
+      // it. The pointer keeps saying it was not, so the next restore hashes
+      // it again: restore does not write the pointer.
+      if (protection === "locked") await holdAll(pinned.unheld());
+      return {
+        status: "ready",
+        plan: planOf(
+          manifest,
+          pointer.manifestRef,
+          pinnedVersion(pointer.manifestVersion),
+        ),
+      };
     },
   };
 }
@@ -669,6 +817,7 @@ export type CheckpointService = ReturnType<typeof createCheckpointService>;
 function planOf(
   manifest: CheckpointManifest,
   manifestRef: string,
+  manifestVersion: string | undefined,
 ): RestorePlan {
   const artifacts: RestoreArtifact[] = [
     {
@@ -706,6 +855,7 @@ function planOf(
     engine: manifest.engine,
     gitCommit: manifest.workspace.gitCommit,
     manifestRef,
+    ...(manifestVersion === undefined ? {} : { manifestVersion }),
     objectKeys: [
       ...new Set(
         artifacts.flatMap((artifact) =>
@@ -748,10 +898,75 @@ async function inBatches<T, R>(
   return results;
 }
 
-// Key and digest together: the same key carrying different bytes is exactly
-// the case a verified-set must not wave through.
-function refToken(ref: ObjectRef): string {
-  return `${ref.key}\u0000${ref.sha256}`;
+// Only a versioned ref has one. Key and digest alone are not enough: an
+// unversioned key can be overwritten with different bytes of the same length,
+// which passes the HEAD that still runs and would then skip the hash. A
+// version cannot be rewritten, so its token stays true.
+function refToken(ref: ObjectRef): string | undefined {
+  return ref.version === undefined
+    ? undefined
+    : JSON.stringify([ref.key, ref.sha256, ref.version]);
+}
+
+function versionSuffix(version: string | undefined): string {
+  return version === undefined ? "" : ` (version ${version})`;
+}
+
+type PinnedVersions = ReturnType<typeof pinnedVersions>;
+
+/**
+ * The manifest as an `unversioned` deployment reads it: by key alone. The
+ * versions are dropped rather than honoured because a store that is not
+ * versioned the same way cannot answer them — a bucket restored from a backup
+ * gives every object a new version id — and a plan naming them would send the
+ * worker after versions that are not there.
+ */
+function withoutVersions(manifest: CheckpointManifest): CheckpointManifest {
+  const strip = <T extends ObjectRef>(ref: T): T => {
+    const { version: _version, ...rest } = ref;
+    return rest as T;
+  };
+  const revision = (value: CheckpointManifest["transcripts"]["root"]) => ({
+    ...value,
+    parts: value.parts.map(strip),
+  });
+  return {
+    ...manifest,
+    transcripts: {
+      root: revision(manifest.transcripts.root),
+      subagents: Object.fromEntries(
+        Object.entries(manifest.transcripts.subagents).map(([label, value]) => [
+          label,
+          revision(value),
+        ]),
+      ),
+    },
+    workspace: {
+      ...manifest.workspace,
+      bundle: strip(manifest.workspace.bundle),
+      untracked: manifest.workspace.untracked.map(strip),
+    },
+  };
+}
+
+/** The versions one validation read, deduplicated, and which are held. */
+function pinnedVersions() {
+  const seen = new Map<
+    string,
+    { held: boolean; key: string; version: string }
+  >();
+  return {
+    note(key: string, version: string, head: { held?: boolean }) {
+      const id = JSON.stringify([key, version]);
+      const held = (seen.get(id)?.held ?? false) || head.held === true;
+      seen.set(id, { held, key, version });
+    },
+    unheld() {
+      return [...seen.values()]
+        .filter((entry) => !entry.held)
+        .map(({ key, version }) => ({ key, version }));
+    },
+  };
 }
 
 // Codec registries are plain objects; inherited keys are not codecs.
