@@ -65,21 +65,22 @@ async function reconcilerLines(sessionId: string): Promise<string[]> {
 }
 
 /**
- * The sweeps that fenced this session. A pass logs one line per sweep with
- * every session it fenced, so the count is read from `session_ids`.
+ * The sweeps that fenced this session. A pass logs one line per sweep for
+ * every session it touched, so the session is looked up in the line: in
+ * `fenced_session_ids` for the lease sweep, whose `session_ids` also names
+ * attempts it only ended, and in `session_ids` for the interrupt sweep,
+ * which fences every session it names.
  */
 function fencedBy(lines: string[], message: string, sessionId: string) {
   return lines.filter((line) => {
     try {
       const record = JSON.parse(line) as {
         message?: string;
-        fields?: { fenced_count?: number; session_ids?: string[] };
+        fields?: { fenced_session_ids?: string[]; session_ids?: string[] };
       };
-      return (
-        record.message === message &&
-        (record.fields?.fenced_count ?? 0) > 0 &&
-        (record.fields?.session_ids ?? []).includes(sessionId)
-      );
+      const fenced =
+        record.fields?.fenced_session_ids ?? record.fields?.session_ids ?? [];
+      return record.message === message && fenced.includes(sessionId);
     } catch {
       return false;
     }
