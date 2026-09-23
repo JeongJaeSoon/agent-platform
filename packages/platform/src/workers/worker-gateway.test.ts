@@ -388,6 +388,7 @@ describe("WorkerGateway", () => {
       executionGeneration: 1,
       authRevision: 0,
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
       ownerScope: "owner-a",
       repository: {
@@ -396,6 +397,7 @@ describe("WorkerGateway", () => {
         branch: "release",
       },
       restore: null,
+      costUsd: 250.5,
     };
     const profile = {
       runtime_kind: "claude_agent_sdk" as const,
@@ -450,6 +452,8 @@ describe("WorkerGateway", () => {
       request,
     );
     expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The worker tracks the remainder the store measured, not the deadline.
+    expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now (94S-258): one entry per allowed pair, nothing else.
     expect(runnable).toEqual([
@@ -496,6 +500,8 @@ describe("WorkerGateway", () => {
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
     expect(claimed.profile_fingerprint).not.toContain("provider-key");
+    // The engine's own budget is what the session has left (94S-279).
+    expect(claimed.remaining_budget_usd).toBe(749.5);
     // Off leaves the field out, so the answer is one a worker built before it
     // still reads: its schema was this one without the field, and strict.
     const beforeTheField = bootstrapClaimResponseSchema.extend({
@@ -537,6 +543,27 @@ describe("WorkerGateway", () => {
     await expect(
       stranger.bootstrapClaim({ kind: "bootstrap" }, request),
     ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    // A replay does not check the budget, so a session that spent past it
+    // in between is answered with nothing left rather than a negative.
+    const spent = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({
+          outcome: "replayed",
+          binding: { ...binding, costUsd: 1_000.25 },
+        }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    const spentClaim = await spent.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(spentClaim.remaining_budget_usd).toBe(0);
+    expect(bootstrapClaimResponseSchema.safeParse(spentClaim).success).toBe(
+      true,
+    );
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409 (94S-280)", async () => {
@@ -1100,14 +1127,16 @@ describe("WorkerGateway", () => {
         return {
           outcome: "ok",
           leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          leaseRemainingMs: 29_990,
           authRevision: 0,
         };
       },
     });
-    await instance.heartbeat(principal, {
+    const beat = await instance.heartbeat(principal, {
       ...scope,
       attempt_state: "running",
     });
+    expect(beat.lease_remaining_ms).toBe(29_990);
     expect(seen[0]).not.toHaveProperty("transcript");
     await instance.heartbeat(principal, {
       ...scope,
@@ -1225,6 +1254,7 @@ describe("WorkerGateway", () => {
       heartbeatAtomic: async () => ({
         outcome: "ok",
         leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+        leaseRemainingMs: 60_000,
         authRevision: 0,
       }),
     });

@@ -13,15 +13,23 @@ x-installation-limits: &installation-limits
   SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
   PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
 
+# Every image is pinned by its multi-arch index digest or built from this
+# repository, so amd64 and arm64 daemons run the same bytes
+# (tests/images.test.ts). The oven/bun digest is the app Dockerfiles' own;
+# bump them together.
+#
+# Published ports are loopback only, and only for what a process on this
+# host uses (README): nothing here is meant for another machine, and the
+# postgres and LocalStack credentials are local defaults.
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sessions}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../packages/db/migrations/0000_gifted_morg.sql:/docker-entrypoint-initdb.d/0000_m0.sql:ro
@@ -36,7 +44,7 @@ services:
       start_period: 5s
 
   migrate:
-    image: oven/bun:1.3.10
+    image: oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
     working_dir: /app
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
@@ -55,14 +63,14 @@ services:
   # below), so it runs S3 alone: every service on the allowlisted port is a
   # service a worker can call, and nothing here uses Secrets Manager.
   localstack:
-    image: localstack/localstack:3
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
-      - "4566:4566"
+      - "127.0.0.1:4566:4566"
     volumes:
       - localstack-data:/var/lib/localstack
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
@@ -78,7 +86,7 @@ services:
   # allowlist may answer for the provider keys the catalog references. Only
   # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER).
   secrets:
-    image: localstack/localstack:3
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     environment:
       SERVICES: secretsmanager
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
@@ -100,7 +108,7 @@ services:
   # the local stack runs sessions without an Anthropic account. Workers reach
   # it through the proxy (EGRESS_PRIVATE_ALLOWLIST).
   fake-messages:
-    image: oven/bun:1.3.10
+    image: oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
     command: ["bun", "run", "/app/packages/testkit/src/fake-messages-main.ts"]
     environment:
       FAKE_MESSAGES_PORT: "4010"
@@ -114,13 +122,14 @@ services:
       start_period: 5s
 
   gitea:
-    image: gitea/gitea:1.22
+    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__security__INSTALL_LOCK: "true"
     ports:
-      - "3001:3000"
-      - "2222:22"
+      # Web UI and HTTP clone for this host. SSH is not published: workers
+      # clone over HTTP through the proxy (gitea:3000).
+      - "127.0.0.1:3001:3000"
     volumes:
       - gitea-data:/data
     healthcheck:
@@ -137,8 +146,12 @@ services:
   # what a worker can reach. The label is how the scheduler finds it, so each
   # installation on a daemon labels its own proxy with its own id.
   egress-proxy:
-    image: oven/bun:1.3.10
-    command: ["bun", "run", "/app/src/main.ts"]
+    # Built from apps/egress-proxy/Dockerfile and released with the other
+    # apps (images.yml); a deployment points EGRESS_PROXY_IMAGE at that digest.
+    build:
+      context: ..
+      dockerfile: apps/egress-proxy/Dockerfile
+    image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
     environment:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
@@ -154,10 +167,11 @@ services:
       - "host.docker.internal:host-gateway"
     labels:
       agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
-    volumes:
-      - ../apps/egress-proxy:/app:ro
+    # Also unhealthy when /app/src no longer matches what the process loaded
+    # (94S-319). The image bakes the source in, so this now only fires when
+    # someone mounts a source tree over it and moves that checkout.
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3128/healthz'); if (!r.ok) process.exit(1)"]
+      test: ["CMD", "bun", "run", "/app/src/healthcheck.ts"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -173,6 +187,11 @@ services:
       dockerfile: apps/control-host/Dockerfile
     image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
+    # Docker's default 10s would SIGKILL a shutdown that may run to
+    # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
+    # apps/control-host/src/api/shutdown.ts); one open SSE stream is enough to use the
+    # whole drain. Keep this above the sum.
+    stop_grace_period: 45s
     # No `init: true`: the image's own ENTRYPOINT is tini (apps/control-host/Dockerfile),
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
@@ -181,10 +200,11 @@ services:
     # bundles are verified at once (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).
     # Each has git fetch and its index-pack alive together, each capped at
     # CHECKPOINT_GIT_MEMORY_MB of address space (fsck runs after them, not
-    # beside), while the service holds the bundle about twice over
-    # (2 x 128 MiB). So:
-    #   2 x (2 x 1536 + 256) MiB = 6656 MiB for verification
-    #   + 512 MiB for the API itself           = 7168 MiB
+    # beside). The service itself streams the bundle to a spool file and
+    # holds none of it (94S-230), so the 256 MiB per verification it used
+    # to hold is now headroom. So:
+    #   2 x (2 x 1536) MiB = 6144 MiB for verification
+    #   + 512 MiB for the API itself     = 6656 MiB, under 7168 MiB
     # Measured far below it: two concurrent verifications of 94S-259's worst
     # honest bundle (480 MiB file, one edit) peaked at 3.5 GiB including page
     # cache, which the kernel reclaims before it OOM-kills anything. A crafted
@@ -386,6 +406,57 @@ services:
       egress-proxy:
         condition: service_healthy
       localstack:
+        condition: service_healthy
+
+  # Lease expiry, overdue interrupts and terminations, and orphan sessions are
+  # recovered by nothing else, so this runs by default with the other apps
+  # (94S-320). apps/control-host/src/reconciler/loop.ts runs one pass per child process
+  # every RECONCILER_INTERVAL_SEC, kills a pass that outlives
+  # RECONCILER_PASS_TIMEOUT_SEC, and exits after
+  # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
+  # policy engages. The healthcheck reads the status file the loop writes and
+  # is unhealthy when the last pass failed, when a pass runs past its
+  # deadline, or once no pass has succeeded for RECONCILER_HEALTH_STALE_SEC;
+  # `docker compose exec reconciler cat /tmp/reconciler-status.json` shows the
+  # last success and failure. Passes are serial here, and every write a pass
+  # makes is re-judged under row locks, so an overlapping or restarted pass
+  # does nothing twice.
+  #
+  # No Docker socket: the reconciler only records intent in the database
+  # (a fenced epoch, `desired_state = terminated`); the scheduler does the
+  # removal and confirms it. No env_file either: HEARTBEAT_TTL_SEC belongs to
+  # the API, and the reconciler refuses to start if it is set.
+  #
+  # No build either: it runs the image the api service builds, and a second
+  # service building the same tag races it on export. Starting it on its own
+  # needs that image first (`docker compose build api`).
+  reconciler:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps"]
+    command: ["bun", "run", "apps/control-host/src/reconciler/loop.ts"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/control-host/src/reconciler/health.ts"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      RECONCILER_INTERVAL_SEC: ${RECONCILER_INTERVAL_SEC:-10}
+      RECONCILER_PASS_TIMEOUT_SEC: ${RECONCILER_PASS_TIMEOUT_SEC:-60}
+      RECONCILER_MAX_CONSECUTIVE_FAILURES: ${RECONCILER_MAX_CONSECUTIVE_FAILURES:-3}
+      RECONCILER_HEALTH_STALE_SEC: ${RECONCILER_HEALTH_STALE_SEC:-90}
+      RECONCILER_BATCH_SIZE: ${RECONCILER_BATCH_SIZE:-100}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
         condition: service_healthy
 
 networks:

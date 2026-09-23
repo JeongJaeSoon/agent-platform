@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -878,6 +882,155 @@ describe("validateManifest", () => {
       true,
     );
     expect(peak).toBe(2);
+  });
+
+  test("verifies a bundle far larger than any chunk without ever holding it", async () => {
+    // The bundle is generated as it is read, into one 64 KiB buffer refilled
+    // for every chunk, as the store contract allows. A service that kept a
+    // view instead of hashing and writing each chunk before asking for the
+    // next would hash and spool whatever the last refill left behind, and
+    // the digest would not match. `get` is not there for the bundle at all.
+    const size = 48 * 1024 * 1024 + 123;
+    const chunk = 64 * 1024;
+    function* pattern(): Generator<Uint8Array> {
+      const buffer = new Uint8Array(chunk);
+      for (let offset = 0; offset < size; offset += chunk) {
+        const length = Math.min(chunk, size - offset);
+        buffer.fill(offset / chunk, 0, length);
+        buffer[0] = (offset >>> 16) & 0xff;
+        yield buffer.subarray(0, length);
+      }
+    }
+    const expected = createHash("sha256");
+    for (const piece of pattern()) expected.update(piece);
+    const digest = expected.digest("hex");
+    let pulled = 0;
+    const lazy = {
+      ...objects,
+      async get(key: string, version?: string) {
+        if (key === BUNDLE) throw new Error("the bundle is never read whole");
+        return objects.get(key, version);
+      },
+      async head(key: string, version?: string) {
+        return key === BUNDLE ? { bytes: size } : objects.head(key, version);
+      },
+      async stream(key: string, version?: string) {
+        if (key !== BUNDLE) return objects.stream(key, version);
+        return (async function* () {
+          for (const piece of pattern()) {
+            pulled += 1;
+            yield piece;
+          }
+        })();
+      },
+    };
+    const spoolRoot = await mkdtemp(join(tmpdir(), "spool-test-"));
+    const seen: Array<{ bytes: number; digest: string }> = [];
+    const workspaceBundles: WorkspaceBundleVerifier = {
+      async verify(input) {
+        const onDisk = createHash("sha256");
+        for await (const piece of createReadStream(input.path)) {
+          onDisk.update(piece as Buffer);
+        }
+        seen.push({ bytes: input.bytes, digest: onDisk.digest("hex") });
+        return { status: "restorable" };
+      },
+    };
+    try {
+      const large = createCheckpointService({
+        bundleSpoolRoot: spoolRoot,
+        codecs: { [runtime.engine]: codec },
+        maxWorkspaceBundleBytes: size,
+        objectProtection: "unversioned",
+        objects: lazy,
+        store: checkpoints.store,
+        workspaceBundles,
+      });
+      const { checkpoint } = await upload(
+        manifest({
+          workspace: workspace({
+            bundle: { bytes: size, key: BUNDLE, sha256: digest },
+          }),
+        }),
+      );
+
+      expect(
+        await large.validateManifest({ checkpoint, sessionId }),
+      ).toMatchObject({ status: "verified" });
+      expect(pulled).toBe(Math.ceil(size / chunk));
+      // The verifier saw exactly the digested bytes, from a file of their own
+      // that is gone once it answered.
+      expect(seen).toEqual([{ bytes: size, digest }]);
+      expect(await readdir(spoolRoot)).toEqual([]);
+    } finally {
+      await rm(spoolRoot, { force: true, recursive: true });
+    }
+  }, 60_000);
+
+  test("stops reading a bundle the moment it outgrows the ceiling", async () => {
+    // A store that answered a small HEAD and then serves more: the read is
+    // cut at the ceiling rather than followed wherever the store leads.
+    let pulled = 0;
+    const lying = {
+      ...objects,
+      async stream(key: string, version?: string) {
+        if (key !== BUNDLE) return objects.stream(key, version);
+        return (async function* () {
+          for (;;) {
+            pulled += 1;
+            yield new Uint8Array(1024);
+          }
+        })();
+      },
+    };
+    const capped = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxWorkspaceBundleBytes: workspaceBundle.bytes.byteLength,
+      objectProtection: "unversioned",
+      objects: lying,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await capped.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `workspace bundle ${BUNDLE} delivered more than the ${workspaceBundle.bytes.byteLength} bytes the control plane will verify`,
+    });
+    expect(pulled).toBe(
+      Math.floor(workspaceBundle.bytes.byteLength / 1024) + 1,
+    );
+  });
+
+  test("calls a transcript part that serves more than it was stored with damage", async () => {
+    const padded = {
+      ...objects,
+      async stream(key: string, version?: string) {
+        const found = await objects.stream(key, version);
+        if (key !== ROOT_PART || found === undefined) return found;
+        return (async function* () {
+          yield* found;
+          yield encode("more\n");
+        })();
+      },
+    };
+    const strict = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects: padded,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    expect(
+      await strict.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: `manifest object ${ROOT_PART} delivered more than the ${ref(ROOT_PART).bytes} bytes it was stored with`,
+    });
   });
 
   test("refuses a manifest naming another session's transcript", async () => {

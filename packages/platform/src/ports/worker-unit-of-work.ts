@@ -46,6 +46,9 @@ export type WorkerBinding = {
   executionGeneration: number;
   authRevision: number;
   leaseExpiresAt: Date;
+  // The lease left on the database clock at an instant read after the claim
+  // arrived; what the worker tracks, on its own monotonic clock (94S-322).
+  leaseRemainingMs: number;
   profileId: string | null;
   // The session's owner partition, straight from the row; the claim hands
   // it to the worker as the checkpoint principal (94S-209).
@@ -53,6 +56,8 @@ export type WorkerBinding = {
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;
+  // What the session had spent when bound, read under the claim's row lock.
+  costUsd: number;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -155,7 +160,13 @@ export type HeartbeatInput = {
   transcript?: { persistedAt: Date | null; mirrorError: string | null };
 };
 export type HeartbeatResult =
-  | { outcome: "ok"; leaseExpiresAt: Date; authRevision: number }
+  | {
+      outcome: "ok";
+      leaseExpiresAt: Date;
+      // As in WorkerBinding: counted from after the heartbeat arrived.
+      leaseRemainingMs: number;
+      authRevision: number;
+    }
   | FenceRejection;
 
 export type CommitEventsInput = {

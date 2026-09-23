@@ -3,6 +3,7 @@ import {
   type CheckpointRef,
   checkpointBlockReasonSchema,
   type TerminalTurnStatus,
+  TURN_BUDGET_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@agent-platform/contracts";
@@ -199,6 +200,14 @@ type Fenced =
 // handed out — under a lease that ended mid-transaction.
 export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
+}
+
+// The worker may only ever be told less than it has. `at` came through a
+// Date, which drops the database's sub-millisecond part, so it may stand up
+// to 1ms before the instant actually read: counted from the next whole
+// millisecond instead.
+function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
+  return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
@@ -582,6 +591,26 @@ function isRunnable(
   );
 }
 
+function replayableBinding(
+  session: SessionRow,
+  attempt: AttemptRow,
+  launch: Pick<
+    typeof workerLaunches.$inferSelect,
+    "executionId" | "generation"
+  >,
+): boolean {
+  return (
+    LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
+    session.podId === launch.executionId &&
+    session.executionId === launch.executionId &&
+    session.executionGeneration === launch.generation &&
+    attempt.executionId === launch.executionId &&
+    session.leaseEpoch === attempt.leaseEpoch &&
+    session.executionGeneration === attempt.executionGeneration &&
+    session.authRevision === attempt.authRevision
+  );
+}
+
 // A row with no repository id predates the catalog and matches nothing.
 function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   if (runnable.length === 0) return sql`false`;
@@ -698,10 +727,13 @@ async function giveUpOnCatalogMismatch(
   return "catalog_mismatch";
 }
 
+// `at` is a database instant read after the worker sent its request, which
+// is what lets the worker count the remainder from its own send time.
 async function bindingOf(
   tx: Database,
   session: SessionRow,
   attempt: AttemptRow,
+  at: Date,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -710,6 +742,7 @@ async function bindingOf(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
+    leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
     ownerScope: session.ownerId,
     repository: {
@@ -718,6 +751,7 @@ async function bindingOf(
       branch: session.branch,
     },
     restore: await restoreRef(tx, session),
+    costUsd: session.costUsd,
   };
 }
 
@@ -820,6 +854,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!bound || bound.attempt.state !== "allocated") {
             return { outcome: "invalid_credential" };
           }
+          // Terminate, close, a pause with nothing to drain and the lease
+          // sweep fence this attempt by moving the session on, but leave it
+          // `allocated` until the execution is seen gone (94S-139). A replay
+          // is therefore judged as a new claim and the fence would judge it:
+          // still the session's binding, on its epoch, and claimable
+          // (94S-291). Refused before anything is written, so the tokens and
+          // lease stay as the exit observation expects to find them.
+          if (!replayableBinding(bound.session, bound.attempt, launch)) {
+            return { outcome: "invalid_credential" };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -856,7 +900,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, session, attempt),
+            binding: await bindingOf(tx, session, attempt, at),
           };
         }
         // Server-side selection: the worker never names a session. It is
@@ -999,7 +1043,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt),
+          binding: await bindingOf(tx, session, attempt, at),
         };
       });
     },
@@ -1236,6 +1280,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           leaseExpiresAt: beat.leaseExpiresAt,
+          leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
           authRevision: fenced.session.authRevision,
         };
       });
@@ -1520,7 +1565,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             error: succeeded
               ? null
               : {
-                  code: unknownOutcome ? "RECOVERY_REQUIRED" : "INTERNAL_ERROR",
+                  code: unknownOutcome
+                    ? "RECOVERY_REQUIRED"
+                    : input.terminal.status === "failed" &&
+                        input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
+                      ? "BUDGET_EXCEEDED"
+                      : "INTERNAL_ERROR",
                   message: input.terminal.reason ?? input.terminal.status,
                 },
             updatedAt: now,

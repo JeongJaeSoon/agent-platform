@@ -60,6 +60,8 @@ export type FakeWorkerGatewayOptions = {
   leaseTtlMs?: number;
   /** The owner partition the claim names as the checkpoint principal. */
   ownerScope?: string;
+  /** What the claim says the session has left to spend. */
+  remainingBudgetUsd?: number;
   restore?: CheckpointRef | null;
   runtime?: SessionRuntime;
   runtimeConfig?: RuntimeConfig;
@@ -148,6 +150,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       firstTurn: options.firstTurn ?? 1,
       leaseTtlMs: options.leaseTtlMs ?? 30_000,
       ownerScope: options.ownerScope ?? "fake-owner",
+      remainingBudgetUsd: options.remainingBudgetUsd ?? 25,
       restore: options.restore ?? null,
       runtime: options.runtime ?? {
         kind: "claude_agent_sdk",
@@ -277,6 +280,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       auth_revision: this.authRevision,
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       runtime: this.options.runtime,
       profile_fingerprint: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
@@ -289,6 +293,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       },
       principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
+      remaining_budget_usd: this.options.remainingBudgetUsd,
     };
   }
 
@@ -349,6 +354,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     }
     return {
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       auth_revision: this.authRevision,
       control_pending: this.control !== null,
     };

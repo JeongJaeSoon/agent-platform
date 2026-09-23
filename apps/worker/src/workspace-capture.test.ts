@@ -16,7 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGitBundleHeader } from "@agent-platform/runtime-core";
-import { GitOutputLimitError, runGitBytes } from "./workspace.ts";
+import {
+  GitOutputLimitError,
+  GitResourceLimitError,
+  type GitRunOptions,
+  runGitBytes,
+} from "./workspace.ts";
 import {
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
@@ -27,6 +32,7 @@ import {
 } from "./workspace-capture.ts";
 
 const procfs = existsSync("/proc/self/fd");
+const linux = process.platform === "linux";
 
 let scratch: string;
 let root: string;
@@ -74,6 +80,47 @@ async function commitFiles(files: Record<string, string>): Promise<string> {
   await git(root, "add", "--all");
   await git(root, "commit", "--quiet", "-m", "commit");
   return (await git(root, "rev-parse", "HEAD")).trim();
+}
+
+/**
+ * Puts `script` first on PATH as `git` until the returned function runs.
+ * `$REAL_GIT` in it names the git that was there before.
+ */
+async function fakeGit(script: string): Promise<() => void> {
+  const real = Bun.which("git");
+  if (real === null) throw new Error("no git on PATH");
+  const bin = await mkdtemp(join(scratch, "bin-"));
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh\nREAL_GIT=${real}\n${script}\n`,
+    { mode: 0o755 },
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path ?? ""}`;
+  return () => {
+    process.env.PATH = path;
+  };
+}
+
+/** The real git, except that a command naming `verb` dies as RLIMIT_FSIZE kills. */
+function killedOn(verb: string): string {
+  return `for arg; do [ "$arg" = ${verb} ] && kill -s XFSZ $$; done\nexec "$REAL_GIT" "$@"`;
+}
+
+/**
+ * Whether `pid` still runs. A killed helper whose parent died first is
+ * reparented to PID 1, and where that is this test runner (bun as a
+ * container's PID 1) nobody reaps it: it is dead, just still listed.
+ */
+async function running(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (!linux) return true;
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
+  return stat !== "" && !/^\d+ \(.*\) Z /.test(stat);
 }
 
 async function capture(
@@ -648,6 +695,32 @@ describe("captureWorkspace", () => {
       });
     });
 
+    test("a tracked file over the size a restore writes, changed or not", async () => {
+      await commitFiles({ "a.txt": "a\n", "big.bin": "y".repeat(100) });
+
+      expect(await capture({ limits: { maxFileBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "big.bin is 100 bytes, over the 50 a checkpoint restores",
+      });
+      expect((await capture({ limits: { maxFileBytes: 100 } })).status).toBe(
+        "captured",
+      );
+    });
+
+    test("a git that runs out of its resource limits, as a refusal", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      const restorePath = await fakeGit(killedOn("bundle"));
+      try {
+        expect(await capture()).toEqual({
+          status: "refused",
+          reason: "git ran out of its resource limits: SIGXFSZ",
+        });
+      } finally {
+        restorePath();
+      }
+      // Every git in the capture goes through the stand-in's shell.
+    }, 30_000);
+
     test("an untracked file it cannot read without following paths", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await writeFile(join(root, "notes.md"), "n\n");
@@ -775,28 +848,257 @@ describe("runGitBytes", () => {
   });
 
   test("stops reading once git has exited, even with a helper still holding its pipes", async () => {
-    // A git that leaves a child behind on its stdout and stderr, the way a
-    // killed `bundle create` leaves `pack-objects`.
-    const bin = join(scratch, "bin");
-    await mkdir(bin);
-    await writeFile(join(bin, "git"), "#!/bin/sh\nsleep 6 &\nexit 3\n");
-    await chmod(join(bin, "git"), 0o755);
-    const path = process.env.PATH;
-    process.env.PATH = `${bin}:${path ?? ""}`;
+    // A git that leaves a child behind on its stdout and stderr, the way
+    // `bundle create` would leave `pack-objects` if it exited first.
+    const pidFile = join(scratch, "helper.pid");
+    const restorePath = await fakeGit(
+      `sleep 6 &\necho $! > ${pidFile}\nexit 3`,
+    );
     try {
       const began = performance.now();
-      const result = await runGitBytes(["status"], {
-        cwd: root,
-        network: null,
-        overrides: [],
-        redact: (text) => text,
-        signal: new AbortController().signal,
-      });
+      const result = await runGitBytes(["status"], options());
 
       expect(result.code).toBe(3);
       expect(performance.now() - began).toBeLessThan(5_000);
+      // Not signalled: once git has been reaped its group may be anyone's.
+      const helper = Number((await readFile(pidFile, "utf8")).trim());
+      expect(await running(helper)).toBe(true);
+      process.kill(helper, "SIGKILL");
     } finally {
-      process.env.PATH = path;
+      restorePath();
     }
   }, 10_000);
+
+  describe("kills git's whole process group, helpers included", () => {
+    // A git whose helper would outlive it if only git were killed.
+    const pidFile = () => join(scratch, "helper.pid");
+    const withHelper = (then: string) =>
+      fakeGit(`sleep 30 &\necho $! > ${pidFile()}\n${then}`);
+    const helper = async () =>
+      Number((await readFile(pidFile(), "utf8")).trim());
+    // A fresh script can take a while to start the first time (macOS scans
+    // it), so the tests wait for the helper rather than guess.
+    const helperStarted = async () => {
+      while (!existsSync(pidFile())) await Bun.sleep(20);
+    };
+
+    test("past its deadline", async () => {
+      const restorePath = await withHelper("wait");
+      try {
+        const began = performance.now();
+        const result = await runGitBytes(
+          ["status"],
+          options({ deadlineMs: 2_000 }),
+        );
+
+        expect(result.code).toBe(137);
+        expect(result.stderr).toEndWith("git ran past its 2000ms deadline");
+        expect(performance.now() - began).toBeLessThan(6_000);
+        await Bun.sleep(100);
+        expect(await running(await helper())).toBe(false);
+      } finally {
+        restorePath();
+      }
+    }, 10_000);
+
+    test("once the signal aborts", async () => {
+      const restorePath = await withHelper("wait");
+      try {
+        const controller = new AbortController();
+        const running_ = runGitBytes(
+          ["status"],
+          options({ signal: controller.signal }),
+        );
+        await helperStarted();
+        controller.abort();
+
+        await expect(running_).rejects.toThrow();
+        await Bun.sleep(100);
+        expect(await running(await helper())).toBe(false);
+      } finally {
+        restorePath();
+      }
+    }, 10_000);
+
+    test("once stdout runs past the limit", async () => {
+      const restorePath = await withHelper("head -c 1048576 /dev/zero\nwait");
+      try {
+        await expect(
+          runGitBytes(["status"], options({ maxStdoutBytes: 1024 })),
+        ).rejects.toBeInstanceOf(GitOutputLimitError);
+        await Bun.sleep(100);
+        expect(await running(await helper())).toBe(false);
+      } finally {
+        restorePath();
+      }
+    }, 10_000);
+  });
+
+  describe("under resource limits", () => {
+    test("a git that says it ran out of memory throws, and only with limits", async () => {
+      const restorePath = await fakeGit(
+        'echo "fatal: Out of memory, malloc failed (tried to allocate 1 bytes)" >&2\nexit 128',
+      );
+      try {
+        const unlimited = await runGitBytes(["status"], options());
+        expect(unlimited.code).toBe(128);
+        await expect(
+          runGitBytes(["status"], options({ limits: roomy })),
+        ).rejects.toThrow(
+          new GitResourceLimitError(
+            "fatal: Out of memory, malloc failed (tried to allocate 1 bytes)",
+          ),
+        );
+      } finally {
+        restorePath();
+      }
+    });
+
+    test("reads git's verdict from the end of stderr, however much came before it", async () => {
+      const restorePath = await fakeGit(
+        `head -c ${256 * 1024} /dev/zero | tr '\\0' 'w' | fold -w 99 >&2\necho >&2\necho "error: pack-objects died of signal 9" >&2\nexit 128`,
+      );
+      try {
+        await expect(
+          runGitBytes(["status"], options({ limits: roomy })),
+        ).rejects.toThrow(
+          new GitResourceLimitError("error: pack-objects died of signal 9"),
+        );
+        // What is kept starts on a whole line.
+        const result = await runGitBytes(["status"], options());
+        expect(result.stderr.length).toBeLessThanOrEqual(64 * 1024);
+        expect(result.stderr).toMatch(/^w{99}\n/);
+      } finally {
+        restorePath();
+      }
+    });
+
+    test("keeps no part of a line that was cut, and every line that was not", async () => {
+      // One line longer than what is kept: a cut inside it could land inside
+      // a credential, so none of it is kept.
+      let restorePath = await fakeGit(
+        `printf 'https://user:secret@example.test/' >&2\nhead -c ${96 * 1024} /dev/zero | tr '\\0' 'w' >&2\nexit 1`,
+      );
+      try {
+        expect((await runGitBytes(["status"], options())).stderr).toBe("");
+      } finally {
+        restorePath();
+      }
+      // 64-byte lines: the last 64 KiB starts exactly on one, which is kept.
+      restorePath = await fakeGit(
+        `head -c ${126 * 1024} /dev/zero | tr '\\0' 'w' | fold -w 63 >&2\necho >&2\nexit 1`,
+      );
+      try {
+        const { stderr } = await runGitBytes(["status"], options());
+        expect(stderr).toHaveLength(64 * 1024);
+        expect(stderr).toMatch(/^w{63}\n/);
+      } finally {
+        restorePath();
+      }
+    });
+
+    test("past its deadline, as a limit rather than an exit code", async () => {
+      const restorePath = await fakeGit("sleep 30");
+      try {
+        await expect(
+          runGitBytes(
+            ["status"],
+            options({ deadlineMs: 2_000, limits: roomy }),
+          ),
+        ).rejects.toThrow(
+          new GitResourceLimitError("git ran past its 2000ms deadline"),
+        );
+      } finally {
+        restorePath();
+      }
+    }, 10_000);
+
+    test("an ordinary failure is still an exit code", async () => {
+      const restorePath = await fakeGit(
+        'echo "fatal: not a git repository" >&2\nexit 128',
+      );
+      try {
+        const result = await runGitBytes(
+          ["status"],
+          options({ limits: roomy }),
+        );
+        expect(result.code).toBe(128);
+      } finally {
+        restorePath();
+      }
+    });
+
+    test.skipIf(!linux)("a file past fileSizeBytes throws", async () => {
+      const out = join(scratch, "written");
+      const restorePath = await fakeGit(
+        `exec head -c ${4 * 1024 * 1024} /dev/zero > ${out}`,
+      );
+      try {
+        await expect(
+          runGitBytes(
+            ["status"],
+            options({ limits: { ...roomy, fileSizeBytes: 1024 * 1024 } }),
+          ),
+        ).rejects.toThrow(new GitResourceLimitError("SIGXFSZ"));
+      } finally {
+        restorePath();
+      }
+    });
+
+    test.skipIf(!linux)(
+      "a git past cpuSeconds throws",
+      async () => {
+        const restorePath = await fakeGit("exec sh -c 'while :; do :; done'");
+        try {
+          await expect(
+            runGitBytes(
+              ["status"],
+              options({ limits: { ...roomy, cpuSeconds: 1 } }),
+            ),
+          ).rejects.toBeInstanceOf(GitResourceLimitError);
+        } finally {
+          restorePath();
+        }
+      },
+      30_000,
+    );
+
+    test.skipIf(!linux)(
+      "a real git past memoryBytes throws",
+      async () => {
+        await writeFile(
+          join(root, "big.bin"),
+          new Uint8Array(256 * 1024 * 1024),
+        );
+
+        await expect(
+          runGitBytes(
+            ["hash-object", "big.bin"],
+            options({ limits: { ...roomy, memoryBytes: 128 * 1024 * 1024 } }),
+          ),
+        ).rejects.toBeInstanceOf(GitResourceLimitError);
+      },
+      30_000,
+    );
+  });
 });
+
+/** Roomy enough that only the one limit a test tightens can bite. */
+const roomy = {
+  cpuSeconds: 60,
+  fileSizeBytes: 64 * 1024 * 1024,
+  memoryBytes: 512 * 1024 * 1024,
+};
+
+function options(
+  overrides: Partial<GitRunOptions & { maxStdoutBytes: number }> = {},
+): GitRunOptions & { maxStdoutBytes?: number } {
+  return {
+    cwd: root,
+    network: null,
+    overrides: [],
+    redact: (text) => text,
+    signal: new AbortController().signal,
+    ...overrides,
+  };
+}

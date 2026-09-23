@@ -29,8 +29,10 @@ export type S3RequestBounds = {
  *
  * `requestTimeout` runs from `send()` until the response *headers* arrive, the
  * upload included, and it does not care whether bytes are moving. The default
- * therefore has to cover the largest object this client carries — a 128 MiB
- * workspace bundle — which at five minutes means a floor of ~437 KiB/s. A
+ * therefore has to cover the largest object this client carries — a workspace
+ * bundle at the worker's 128 MiB capture limit — which at five minutes means
+ * a floor of ~437 KiB/s (the control plane would read up to 256 MiB, ~0.85
+ * MiB/s, should that limit rise). A
  * snappier value would abort healthy checkpoint uploads on a slow link, three
  * times over, and still fail. Reads do not upload anything and so do not wait
  * on that budget: they pass {@link BodyReadBounds.requestTimeoutMs} per
@@ -153,13 +155,14 @@ export type BodyReadBounds = {
  * Three bounds, because one cannot do the job:
  *
  * - `stallMs` is the fast one and the reason this exists: no bytes, no wait.
- *   It is deliberately not a budget for the whole read, since a 128 MiB bundle
- *   may legitimately take minutes on a healthy connection.
+ *   It is deliberately not a budget for the whole read, since a bundle of a
+ *   few hundred MiB may legitimately take minutes on a healthy connection.
  * - `maxReadMs` is the backstop a per-chunk bound cannot be: a peer dripping
  *   one byte just inside `stallMs` stays technically alive forever.
- * - `maxBytes` caps what a body can make this process hold. The checkpoint
- *   service's own 128 MiB gate is the meaningful limit; this one only keeps a
- *   lying `Content-Length` from growing the heap without end.
+ * - `maxBytes` caps what a body read whole (`get`) can make this process
+ *   hold, which keeps a lying `Content-Length` from growing the heap without
+ *   end. A streamed read (`streamObjectVersion`) holds nothing, so it leaves
+ *   the limit to its consumer.
  */
 export const DEFAULT_BODY_READ_BOUNDS: BodyReadBounds = {
   attempts: 3,
@@ -213,10 +216,7 @@ export async function bodyBytes(
   body: unknown,
   bounds: BodyReadBounds = DEFAULT_BODY_READ_BOUNDS,
 ): Promise<Uint8Array> {
-  // Iterating comes before `transformToByteArray()` even though SDK bodies
-  // offer both: chunk arrival is the only progress signal there is, and
-  // without it the bound would have to be a budget for the entire read, which
-  // a large object would trip on a perfectly healthy connection.
+  // See boundedChunks for why iterating wins over transformToByteArray().
   if (Symbol.asyncIterator in Object(body)) {
     return readIterable(body as AsyncIterable<Uint8Array | string>, bounds);
   }
@@ -271,17 +271,11 @@ export async function getObjectVersion(
   let lastError: unknown;
   for (let attempt = 1; attempt <= bounds.attempts; attempt += 1) {
     try {
-      const response = (await client.send(
-        new GetObjectCommand({
-          Bucket: bucket,
-          Key: key,
-          VersionId: options.version,
-        }),
-        { requestTimeout: bounds.requestTimeoutMs },
-      )) as { Body?: unknown; VersionId?: string };
-      if (response.Body === undefined) {
-        throw new Error(`S3 object has no body: ${key}`);
-      }
+      const response = await getObject(
+        client,
+        { Bucket: bucket, Key: key, VersionId: options.version },
+        bounds,
+      );
       const bytes = await bodyBytes(response.Body, bounds);
       const version = storedVersion(response.VersionId);
       return version === undefined ? { bytes } : { bytes, version };
@@ -297,6 +291,169 @@ export async function getObjectVersion(
   throw new Error(`S3 object body stalled ${bounds.attempts} times: ${key}`, {
     cause: lastError,
   });
+}
+
+/**
+ * `getObjectVersion` for a body too large to hold: resolves once the response
+ * headers say whether the object exists, and hands out the body chunk by
+ * chunk under the same stall and whole-read bounds. `maxBytes` does not
+ * apply — nothing accumulates here, so how much to read is the consumer's
+ * call.
+ *
+ * A stall cannot be retried from the top once chunks have gone out, so it is
+ * resumed instead: a ranged GetObject from the first byte not yet delivered,
+ * pinned to the object that answered first — its version when the bucket
+ * reports one, and its ETag through `If-Match` either way. Without the pin
+ * a resume could splice the tail of whatever the key holds by then onto the
+ * head of what it held before, and the consumer's digest would call that
+ * damage rather than a flaky connection. An object that changed, vanished,
+ * or answered without honouring the range fails the read instead.
+ */
+export async function streamObjectVersion(
+  client: S3ClientLike,
+  bucket: string,
+  key: string,
+  options: { bounds?: BodyReadBounds; version?: string } = {},
+): Promise<
+  { chunks: AsyncIterable<Uint8Array>; version?: string } | undefined
+> {
+  const bounds = options.bounds ?? DEFAULT_BODY_READ_BOUNDS;
+  const startedAt = Date.now();
+  let first: GetObjectResponse;
+  try {
+    first = await getObject(
+      client,
+      {
+        Bucket: bucket,
+        Key: key,
+        VersionId: options.version,
+      },
+      bounds,
+    );
+  } catch (error) {
+    if (isMissingObject(error)) return undefined;
+    if (options.version !== undefined && isUnreadableVersion(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+  const version = storedVersion(first.VersionId);
+  const etag = first.ETag;
+  const size = first.ContentLength;
+
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    let body = first.Body;
+    let offset = 0;
+    for (let stalls = 0; ; ) {
+      try {
+        for await (const bytes of boundedChunks(body, bounds, startedAt)) {
+          offset += bytes.byteLength;
+          yield bytes;
+        }
+        // A body that ends cleanly but short — a proxy's truncated range, a
+        // dropped connection read as an end — would otherwise reach the
+        // consumer's digest and be judged damage rather than a failed read.
+        if (size !== undefined && offset !== size) {
+          throw new Error(
+            `S3 object ${key} ended after ${offset} of its ${size} bytes`,
+          );
+        }
+        return;
+      } catch (error) {
+        if (!(error instanceof BodyStallError)) throw error;
+        stalls += 1;
+        if (stalls >= bounds.attempts) {
+          throw new Error(
+            `S3 object body stalled ${bounds.attempts} times: ${key}`,
+            { cause: error },
+          );
+        }
+        // Everything arrived and only the end of the stream went missing.
+        if (size !== undefined && offset === size) return;
+        if (etag === undefined && version === undefined) {
+          throw new Error(
+            `S3 object body stalled and ${key} carries nothing to resume it against`,
+            { cause: error },
+          );
+        }
+        body = await resume(offset);
+      }
+    }
+  }
+
+  async function resume(offset: number): Promise<unknown> {
+    let response: GetObjectResponse;
+    try {
+      response = await getObject(
+        client,
+        {
+          Bucket: bucket,
+          IfMatch: etag,
+          Key: key,
+          Range: `bytes=${offset}-`,
+          VersionId: version ?? options.version,
+        },
+        bounds,
+      );
+    } catch (error) {
+      if (isPreconditionFailed(error)) {
+        throw new Error(`S3 object ${key} changed while it was being read`, {
+          cause: error,
+        });
+      }
+      if (isMissingObject(error)) {
+        throw new Error(
+          `S3 object ${key} disappeared while it was being read`,
+          {
+            cause: error,
+          },
+        );
+      }
+      throw error;
+    }
+    const wanted =
+      size === undefined
+        ? `bytes ${offset}-`
+        : `bytes ${offset}-${size - 1}/${size}`;
+    const range = response.ContentRange;
+    if (
+      range === undefined ||
+      (size === undefined ? !range.startsWith(wanted) : range !== wanted)
+    ) {
+      // No error: nobody is iterating this body to receive one.
+      (response.Body as { destroy?: () => void }).destroy?.();
+      throw new Error(
+        `S3 answered a resume of ${key} from byte ${offset} with ${response.ContentRange ?? "the whole object"}`,
+      );
+    }
+    return response.Body;
+  }
+
+  return version === undefined
+    ? { chunks: chunks() }
+    : { chunks: chunks(), version };
+}
+
+type GetObjectResponse = {
+  Body?: unknown;
+  ContentLength?: number;
+  ContentRange?: string;
+  ETag?: string;
+  VersionId?: string;
+};
+
+async function getObject(
+  client: S3ClientLike,
+  input: ConstructorParameters<typeof GetObjectCommand>[0],
+  bounds: BodyReadBounds,
+): Promise<GetObjectResponse & { Body: unknown }> {
+  const response = (await client.send(new GetObjectCommand(input), {
+    requestTimeout: bounds.requestTimeoutMs,
+  })) as GetObjectResponse;
+  if (response.Body === undefined) {
+    throw new Error(`S3 object has no body: ${input.Key}`);
+  }
+  return response as GetObjectResponse & { Body: unknown };
 }
 
 /**
@@ -371,43 +528,92 @@ async function readIterable(
   body: AsyncIterable<Uint8Array | string>,
   bounds: BodyReadBounds,
 ): Promise<Uint8Array> {
-  const iterator = body[Symbol.asyncIterator]();
-  const startedAt = Date.now();
   const parts: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
-    const step = await withStallBound(
-      iterator.next(),
-      bounds.stallMs,
-      (error) => closeBody(body, error, iterator),
-    );
-    if (step.done === true) break;
-    const part = step.value;
-    const bytes =
-      typeof part === "string"
-        ? new TextEncoder().encode(part)
-        : new Uint8Array(part);
+  for await (const bytes of boundedChunks(body, bounds, Date.now())) {
     total += bytes.byteLength;
-    // Checked per chunk rather than on a timer: a body that keeps delivering
-    // never lets the stall bound fire, so this is the only place a drip is
-    // seen for what it is.
     if (total > bounds.maxBytes) {
-      throw overLimit(
-        body,
-        iterator,
+      // Leaving the loop closes the body (boundedChunks' finally).
+      throw new BodyLimitError(
         `S3 response body exceeded ${bounds.maxBytes} bytes`,
-      );
-    }
-    if (Date.now() - startedAt > bounds.maxReadMs) {
-      throw overLimit(
-        body,
-        iterator,
-        `S3 response body took longer than ${bounds.maxReadMs}ms`,
       );
     }
     parts.push(bytes);
   }
   return concatBytes(parts);
+}
+
+/**
+ * A body's chunks with the stall and whole-read bounds applied, and nothing
+ * accumulated. `startedAt` is when the read began, which for a resumed
+ * stream is the first request, not this one. The body is closed whichever
+ * way iteration ends before the peer finished it: a stall, the budget, or a
+ * consumer that stopped asking.
+ */
+async function* boundedChunks(
+  body: unknown,
+  bounds: BodyReadBounds,
+  startedAt: number,
+): AsyncGenerator<Uint8Array> {
+  // Iterating comes before `transformToByteArray()` even though SDK bodies
+  // offer both: chunk arrival is the only progress signal there is, and
+  // without it the bound would have to be a budget for the entire read, which
+  // a large object would trip on a perfectly healthy connection.
+  if (!(Symbol.asyncIterator in Object(body))) {
+    yield await bodyBytes(body, bounds);
+    return;
+  }
+  const iterator = (body as AsyncIterable<Uint8Array | string>)[
+    Symbol.asyncIterator
+  ]();
+  let ended = false;
+  try {
+    for (;;) {
+      const step = await withStallBound(
+        iterator.next(),
+        bounds.stallMs,
+        (error) => closeBody(body, error, iterator),
+      );
+      if (step.done === true) {
+        ended = true;
+        return;
+      }
+      const part = step.value;
+      const bytes =
+        typeof part === "string"
+          ? new TextEncoder().encode(part)
+          : new Uint8Array(part);
+      // Checked per chunk rather than on a timer: a body that keeps
+      // delivering never lets the stall bound fire, so this is the only place
+      // a drip is seen for what it is.
+      if (Date.now() - startedAt > bounds.maxReadMs) {
+        throw overLimit(
+          body,
+          iterator,
+          `S3 response body took longer than ${bounds.maxReadMs}ms`,
+        );
+      }
+      yield bytes;
+    }
+  } finally {
+    if (!ended) release(body, iterator);
+  }
+}
+
+/**
+ * Lets go of a body nobody will finish reading, without an error: a stream
+ * destroyed with one emits it, and here nobody is left listening.
+ */
+function release(
+  body: unknown,
+  iterator: AsyncIterator<Uint8Array | string>,
+): void {
+  try {
+    void Promise.resolve(iterator.return?.()).catch(() => undefined);
+    (body as { destroy?: () => void }).destroy?.();
+  } catch {
+    // Best effort, as in closeBody.
+  }
 }
 
 function overLimit(

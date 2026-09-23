@@ -168,15 +168,28 @@ export const profileFingerprintSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
+// The lease as the worker may track it (94S-322): what was left of it on the
+// database clock at an instant after the request was sent. Counted from its
+// own send time on a monotonic clock, it can only end early, never late,
+// whatever either side's wall clock says. `lease_expires_at` is that same
+// deadline as the database clock names it, for logs; no worker judges by it.
+export const leaseRemainingMsSchema = z.number().int().nonnegative();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
+  // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
+  // most this attempt's engine may spend before it ends the turn in flight
+  // (94S-279). A second line only; the gate stays the stored sum against the
+  // limit, checked before every turn.
+  remaining_budget_usd: z.number().nonnegative(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -191,6 +204,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     execution_generation: response.execution_generation,
     auth_revision: response.auth_revision,
     lease_expires_at: response.lease_expires_at,
+    lease_remaining_ms: response.lease_remaining_ms,
     runtime: response.runtime,
     profile_fingerprint: response.profile_fingerprint,
     model: response.runtime_config.model,
@@ -201,6 +215,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
+    remaining_budget_usd: response.remaining_budget_usd,
   };
 }
 
@@ -231,13 +246,15 @@ export const nextInputResponseSchema = z.object({
   reason: z.enum(["BUDGET_EXCEEDED"]).optional(),
 });
 
-// Why a run refuses to be checkpointed right now (runtime-core
-// CheckpointBlockReason, mirrored here so the wire schema is closed).
+// Why a run refuses to be checkpointed right now, or why the publisher
+// failed to (runtime-core CheckpointBlockReason, mirrored here so the wire
+// schema is closed).
 export const checkpointBlockReasonSchema = z.enum([
   "background_writer",
   "checkpoint_lease_held",
   "mirror_error",
   "no_engine_session",
+  "publish_failed",
   "tool_in_flight",
   "turn_in_flight",
 ]);
@@ -264,6 +281,7 @@ export const heartbeatRequestSchema = workerScopeSchema
   .strict();
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   auth_revision: epochSchema,
   control_pending: z.boolean(),
 });
@@ -525,6 +543,13 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
       .optional(),
   }),
 ]);
+
+/**
+ * The terminal reason of a turn the engine ended because the budget the claim
+ * gave it (`remaining_budget_usd`) ran out mid-turn. Its receipt fails with
+ * BUDGET_EXCEEDED rather than INTERNAL_ERROR.
+ */
+export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 
 export const finalizeRequestSchema = workerScopeSchema
   .extend({

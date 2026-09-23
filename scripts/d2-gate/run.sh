@@ -3,10 +3,11 @@
 #
 #   scripts/d2-gate/run.sh
 #
-# Builds the control-host and worker images from this checkout, starts the
-# compose product stack under a project of its own with the gate overlay
+# Builds the control-host, worker and egress-proxy images from this
+# checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
-# then runs tests/d2-gate.e2e.test.ts against it. The report (JSON and
+# then runs tests/d2-gate.e2e.test.ts and tests/d2-gate/reconciler-sweep.e2e.test.ts
+# against it. The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
@@ -16,7 +17,7 @@
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless D2_GATE_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
-# installation id, and the two images are removed on exit.
+# installation id, and the three images are removed on exit.
 set -euo pipefail
 # vars.sh and the logs carry the run's API key.
 umask 077
@@ -36,6 +37,7 @@ mkdir -p "$out"
 export EXECUTION_INSTALLATION_ID="d2g${run_id}"
 export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
+export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
@@ -54,7 +56,7 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
   echo "report: $out" >&2
   exit "$status"
@@ -62,7 +64,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-dc build api worker >"$out/build.log" 2>&1
+dc build api worker egress-proxy >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
@@ -83,7 +85,8 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-dc up -d --wait scheduler >>"$out/up.log" 2>&1
+# The reconciler runs as the product runs it, on its own loop (94S-320).
+dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
 echo "== gate" >&2
 export D2_GATE=1
@@ -107,4 +110,7 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
-bun test tests/d2-gate.e2e.test.ts --timeout 1800000 2>&1 | tee "$out/test.log"
+# The gate, then 94S-320's recovery sweep on the same stack: nothing in
+# the gate proves the reconciler service acts without a pass run by hand.
+bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  --timeout 1800000 2>&1 | tee "$out/test.log"

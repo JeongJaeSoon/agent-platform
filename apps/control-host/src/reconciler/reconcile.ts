@@ -102,6 +102,10 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     ended_count: leases.filter(({ action }) => action === "ended").length,
     fenced_count: leases.filter(({ action }) => action === "fenced").length,
+    // session_ids also names the ended ones; this says which were fenced.
+    fenced_session_ids: leases
+      .filter(({ action }) => action === "fenced")
+      .map(({ sessionId }) => sessionId),
     reconciled_count: leases.length,
     session_ids: leases.map(({ sessionId }) => sessionId),
   });

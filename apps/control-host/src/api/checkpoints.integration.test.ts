@@ -236,52 +236,52 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     return { claimed, principal, scope, turnId: next.input.turn_id };
   }
 
-  test("a checkpoint asked for while the lease is held is blocked and the pointer stays (94S-208)", async () => {
-    const { claimed, principal, scope } = await claimedSession();
-    const pointer = async () =>
-      (
-        await db
-          .select({
-            revision: schema.sessions.checkpointRevision,
-            pending: schema.sessions.checkpointPendingReason,
-          })
-          .from(schema.sessions)
-          .where(eq(schema.sessions.id, claimed.session_id))
-      )[0];
-    const before = await pointer();
+  test.each([
+    ["checkpoint_lease_held", "Another checkpoint holds the lease"],
+    // 94S-312: a ready run whose publish failed reports it the same way.
+    ["publish_failed", "workspace: 12000 untracked files, over the 10000"],
+  ] as const)(
+    "a checkpoint refused as %s is recorded and the pointer stays (94S-208)",
+    async (reason, detail) => {
+      const { claimed, principal, scope } = await claimedSession();
+      const pointer = async () =>
+        (
+          await db
+            .select({
+              revision: schema.sessions.checkpointRevision,
+              pending: schema.sessions.checkpointPendingReason,
+            })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, claimed.session_id))
+        )[0];
+      const before = await pointer();
 
-    expect(
-      await gateway.requestCheckpoint(principal, {
-        ...scope,
-        preparation: {
-          status: "rejected",
-          reason: "checkpoint_lease_held",
-          detail: "Another checkpoint holds the lease",
-        },
-      }),
-    ).toEqual({
-      status: "blocked",
-      reason: "checkpoint_lease_held",
-      detail: "Another checkpoint holds the lease",
-    });
-    // Nothing published: the pointer is where it was, and the refusal is
-    // what the session detail shows as its pending reason.
-    expect(await pointer()).toEqual({
-      revision: before?.revision ?? null,
-      pending: "checkpoint_lease_held",
-    });
-    // It holds nothing back: the next request is answered from that pointer.
-    expect(
-      await gateway.requestCheckpoint(principal, {
-        ...scope,
-        preparation: { status: "ready" },
-      }),
-    ).toEqual({
-      status: "ready",
-      revision: 0,
-      manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
-    });
-  }, 60_000);
+      expect(
+        await gateway.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "rejected", reason, detail },
+        }),
+      ).toEqual({ status: "blocked", reason, detail });
+      // Nothing published: the pointer is where it was, and the refusal is
+      // what the session detail shows as its pending reason.
+      expect(await pointer()).toEqual({
+        revision: before?.revision ?? null,
+        pending: reason,
+      });
+      // It holds nothing back: the next request is answered from that pointer.
+      expect(
+        await gateway.requestCheckpoint(principal, {
+          ...scope,
+          preparation: { status: "ready" },
+        }),
+      ).toEqual({
+        status: "ready",
+        revision: 0,
+        manifest_ref: mintedRef(claimed.session_id, 0, claimed.attempt_id),
+      });
+    },
+    60_000,
+  );
 
   test("a manifest refused at finalize leaves the key free to finalize the turn without one (94S-246)", async () => {
     const { principal, scope, turnId } = await claimedSession();

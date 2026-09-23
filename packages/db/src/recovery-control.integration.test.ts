@@ -830,6 +830,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     ["background_writer", true],
     ["tool_in_flight", true],
     ["checkpoint_lease_held", true],
+    ["publish_failed", true],
     ["mirror_error", false],
     ["reason_from_a_newer_build", false],
   ])(

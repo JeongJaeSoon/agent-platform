@@ -27,7 +27,6 @@ import type {
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 
-export const DEFAULT_EXECUTION_SLOT_LIMIT = 10;
 /** api.md: a kill not observed within this is reported unknown. */
 export const TERMINATE_DEADLINE_MS = 30_000;
 

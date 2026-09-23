@@ -9,7 +9,9 @@ import {
 
 export type ReadinessResult =
   | { ready: true }
-  | { ready: false; check: ReadinessCheck; reason: string };
+  // "shutdown" is the process withdrawing itself (shutdown.ts), not a
+  // failed dependency, so it is not one of the checks a ready answer lists.
+  | { ready: false; check: ReadinessCheck | "shutdown"; reason: string };
 
 export type ReadinessProbe = () => Promise<ReadinessResult>;
 

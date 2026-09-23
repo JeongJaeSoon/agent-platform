@@ -13,6 +13,9 @@ export const API_ERROR_CODE_VALUES = [
   // The installation's retained-content budget is spent; retrying does not
   // free any of it (94S-131).
   "STORAGE_LIMIT_EXCEEDED",
+  // A turn the engine ended because the session's cost budget ran out while
+  // it was running (94S-279).
+  "BUDGET_EXCEEDED",
   "INTERNAL_ERROR",
   "REVISION_CONFLICT",
   "IDEMPOTENCY_CONFLICT",

@@ -136,6 +136,7 @@ async function refusedStart(
       DATABASE_URL: databaseUrl,
       EXECUTION_SLOT_LIMIT: "10",
       MAX_TURN_SECONDS: "3600",
+      PROVIDER_MAX_RETRIES: "2",
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
@@ -223,6 +224,7 @@ integration("API server on PostgreSQL", () => {
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
           MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "2",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
@@ -238,6 +240,7 @@ integration("API server on PostgreSQL", () => {
       // leak assertion below.
       const serverStdout = new Response(server.stdout).text();
       const serverStderr = new Response(server.stderr).text();
+      let exitCode: number | undefined;
 
       try {
         const accepted = await waitForServer(server, serverStderr, {
@@ -337,10 +340,23 @@ integration("API server on PostgreSQL", () => {
         expect(admitted.status).toBeLessThan(500);
       } finally {
         server.kill("SIGTERM");
-        await server.exited;
+        exitCode = await server.exited;
       }
 
       const logs = `${await serverStdout}${await serverStderr}`;
+      // SIGTERM is a clean stop: readiness first, pools last (shutdown.ts).
+      expect(exitCode, logs).toBe(0);
+      const order = [
+        "Shutdown started; readiness withdrawn",
+        "Stopped accepting connections",
+        "In-flight requests drained",
+        "Connections closed; exiting",
+      ].map((message) => logs.indexOf(message));
+      expect(
+        order.every((at) => at >= 0),
+        logs,
+      ).toBe(true);
+      expect(order).toEqual([...order].sort((a, b) => a - b));
       expect(logs).not.toContain(plaintext);
       expect(logs).not.toContain("Authorization");
       expect(logs).not.toContain(PROVIDER_KEY);
@@ -392,6 +408,7 @@ integration("API server on PostgreSQL", () => {
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
           MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           // Blank counts as missing, and overrides whatever the runner has.
           SESSION_COST_LIMIT_USD: "",
@@ -419,6 +436,7 @@ integration("API server on PostgreSQL", () => {
         "Refusing to start: installation limits are invalid",
       );
       expect(logs).toContain("SESSION_COST_LIMIT_USD is required");
+      expect(logs).toContain("PROVIDER_MAX_RETRIES is required");
       expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,

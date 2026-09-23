@@ -46,5 +46,7 @@ EXPOSE 3000
 # base image's entrypoint stays in the chain so `docker run <image> <file>`
 # still means `bun <file>`.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
-# Reconciler: `docker run <image> bun run apps/control-host/src/main.ts reconciler`.
+# Reconciler: `bun run apps/control-host/src/reconciler/loop.ts` runs a pass every
+# RECONCILER_INTERVAL_SEC (compose's `reconciler` service);
+# `bun run apps/control-host/src/main.ts reconciler` runs one pass and exits.
 CMD ["bun", "run", "apps/control-host/src/main.ts", "api"]
