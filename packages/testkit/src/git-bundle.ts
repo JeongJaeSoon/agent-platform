@@ -21,13 +21,21 @@ export type GitBundleFixture = {
 };
 
 export async function createGitBundle(
-  options: { readonly branch?: string; readonly message?: string } = {},
+  options: {
+    readonly branch?: string;
+    /** What the one committed file holds; defaults to the message. */
+    readonly contents?: Uint8Array;
+    readonly message?: string;
+  } = {},
 ): Promise<GitBundleFixture> {
   const branch = options.branch ?? "main";
   const directory = await mkdtemp(join(tmpdir(), "testkit-bundle-"));
   try {
     await git(directory, "init", `--initial-branch=${branch}`, ".");
-    await writeFile(join(directory, "file.txt"), `${options.message ?? "x"}\n`);
+    await writeFile(
+      join(directory, "file.txt"),
+      options.contents ?? `${options.message ?? "x"}\n`,
+    );
     await git(directory, "add", "file.txt");
     await git(directory, "commit", "-m", options.message ?? "checkpoint");
     const commit = (await git(directory, "rev-parse", "HEAD")).trim();
