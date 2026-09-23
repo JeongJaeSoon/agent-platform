@@ -218,7 +218,7 @@ restore: done — project '$INTO'
   source's ports while Gitea keeps advertising these ones)
              RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
-             RESTORE_WORKER_NETWORK=$RESTORE_WORKER_NETWORK POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
+             POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
              docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d postgres localstack gitea
   tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
 EOF
