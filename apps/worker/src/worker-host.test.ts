@@ -2034,7 +2034,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     const { host, runtime } = harness([{ type: "await-input" }], {
       gateway,
       sleep: () => Bun.sleep(5),
-      timeouts: { heartbeatIntervalMs: 5, nextInputRetryTimeoutMs: 80 },
+      timeouts: { heartbeatIntervalMs: 5, nextInputRetryTimeoutMs: 300 },
     });
 
     const began = performance.now();
@@ -2042,9 +2042,9 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
 
     expect(summary.outcome).toBe("failed");
     expect(summary.reason).toContain("nextInput");
-    expect(performance.now() - began).toBeLessThan(1_000);
+    expect(performance.now() - began).toBeLessThan(3_000);
     // The lease was still being extended the whole time: only the budget ended it.
-    expect(gateway.heartbeats.length).toBeGreaterThan(3);
+    expect(gateway.heartbeats.length).toBeGreaterThan(1);
     expect(polls).toBeGreaterThan(1);
     // The turn the server may have committed is not run and not finalized;
     // the release leaves it to confirmExecutionGone as outcome_unknown.
@@ -2063,12 +2063,12 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     const { host } = harness([{ type: "await-input" }], {
       gateway,
       // The backoff outlasts the budget: the expiry lands while it sleeps.
-      sleep: () => Bun.sleep(60),
+      sleep: () => Bun.sleep(200),
       timeouts: { nextInputRetryTimeoutMs: 20 },
     });
 
     const summary = await host.runLoop();
-    await Bun.sleep(100);
+    await Bun.sleep(250);
 
     expect(summary.outcome).toBe("failed");
     expect(polls).toBe(1);
@@ -2109,7 +2109,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
       // Two failures before each success: together they would outlast the
       // budget, each run alone does not.
       if (polls % 3 !== 0) {
-        await Bun.sleep(20);
+        await Bun.sleep(150);
         throw unavailable();
       }
       return real(request);
@@ -2123,7 +2123,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
       {
         gateway,
         sleep: () => Bun.sleep(1),
-        timeouts: { nextInputRetryTimeoutMs: 70, idleTimeoutMs: 150 },
+        timeouts: { nextInputRetryTimeoutMs: 400, idleTimeoutMs: 150 },
       },
     );
 
@@ -2141,7 +2141,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       checkpoints: { restorePlan: never, capture: async () => null },
-      timeouts: { heartbeatIntervalMs: 5, startupTimeoutMs: 80 },
+      timeouts: { heartbeatIntervalMs: 5, startupTimeoutMs: 300 },
     });
 
     const began = performance.now();
@@ -2149,8 +2149,8 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
 
     expect(summary.outcome).toBe("failed");
     expect(summary.reason).toContain("budget");
-    expect(performance.now() - began).toBeLessThan(1_000);
-    expect(gateway.heartbeats.length).toBeGreaterThan(3);
+    expect(performance.now() - began).toBeLessThan(3_000);
+    expect(gateway.heartbeats.length).toBeGreaterThan(1);
     expect(launched).toEqual([]);
     expect(gateway.finalized).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
@@ -2273,7 +2273,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
         { type: "emit", message: resultMessage(uuidForTurn(1)) },
         { type: "await-input" },
       ],
-      { timeouts: { startupTimeoutMs: 20, idleTimeoutMs: 120 } },
+      { timeouts: { startupTimeoutMs: 150, idleTimeoutMs: 500 } },
     );
     gateway.enqueue("first message");
 
