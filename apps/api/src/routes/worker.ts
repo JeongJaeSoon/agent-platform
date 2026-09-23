@@ -9,6 +9,10 @@ import {
   heartbeatResponseSchema,
   nextInputRequestSchema,
   nextInputResponseSchema,
+  pendingControlRequestSchema,
+  pendingControlResponseSchema,
+  registerPendingRequestSchema,
+  registerPendingResponseSchema,
   releaseRequestSchema,
   releaseResponseSchema,
 } from "@agent-platform/contracts";
@@ -108,6 +112,18 @@ export function registerWorkerRoutes(
     appendEventsRequestSchema,
     appendEventsResponseSchema,
     (principal, body) => gateway.appendEvents(principal, body),
+  );
+  call(
+    "/register-pending",
+    registerPendingRequestSchema,
+    registerPendingResponseSchema,
+    (principal, body) => gateway.registerPending(principal, body),
+  );
+  call(
+    "/pending-control",
+    pendingControlRequestSchema,
+    pendingControlResponseSchema,
+    (principal, body) => gateway.pendingControl(principal, body),
   );
   call(
     "/finalize",

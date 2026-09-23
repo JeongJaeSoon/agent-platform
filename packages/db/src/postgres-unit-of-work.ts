@@ -30,13 +30,14 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
 } from "@agent-platform/platform";
-import { and, asc, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import {
   decodeEventCursor,
   encodeEventCursor,
   InvalidCursorError,
 } from "./event-cursor.ts";
+import { countActionablePending } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -44,7 +45,6 @@ import {
   events,
   executions,
   idempotencyKeys,
-  pendingRequests,
   receipts,
   sessions,
   turns,
@@ -563,15 +563,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
             .where(eq(executions.sessionId, sessionId))
             .orderBy(desc(executions.generation))
             .limit(1),
-          db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(pendingRequests)
-            .where(
-              and(
-                eq(pendingRequests.sessionId, sessionId),
-                isNull(pendingRequests.resolvedAt),
-              ),
-            ),
+          countActionablePending(db, sessionId),
           db
             .select({ sequence: max(turns.sequence) })
             .from(turns)

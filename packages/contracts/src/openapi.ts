@@ -194,7 +194,7 @@ const routes: Route[] = [
     summary: "Open permission and question requests",
     scope: "read",
     success: { status: 200, schema: "ListPendingRequestsResponse" },
-    errors: [401, 404],
+    errors: [401, 404, 503],
   },
   {
     method: "post",
@@ -204,7 +204,7 @@ const routes: Route[] = [
     scope: "approve",
     body: "PostSessionAnswerRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    errors: [...CONFLICTS, 413, 503],
   },
   {
     method: "post",

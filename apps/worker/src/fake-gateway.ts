@@ -13,7 +13,10 @@ import type {
   NextInputResponse,
   PendingControlRequest,
   PendingControlResponse,
+  PendingSettlement,
   PostSessionAnswerRequest,
+  RegisterPendingRequest,
+  RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
   RuntimeConfig,
@@ -54,6 +57,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly finalized: FinalizeRequest[] = [];
   readonly heartbeats: HeartbeatRequest[] = [];
   readonly releases: ReleaseRequest[] = [];
+  /** Every registration that landed, in order, keyed by nothing: replays repeat. */
+  readonly registrations: RegisterPendingRequest[] = [];
+  /** How each registered request ended, as the worker reported it. */
+  readonly settled: PendingSettlement[] = [];
   credential: string | undefined;
   /** Set to make the next heartbeat answer with this code. */
   heartbeatFailure: ApiErrorCode | undefined;
@@ -74,6 +81,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   private readonly answers: Array<{
     answer: PostSessionAnswerRequest;
     sequence: number;
+    input_hash: string;
   }> = [];
   private readonly options: Required<
     Omit<FakeWorkerGatewayOptions, "restore">
@@ -119,9 +127,42 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     return turnId;
   }
 
-  /** Makes an answer available to the next `pendingControl` poll. */
+  /**
+   * Makes an answer available to the next `pendingControl` poll, bound to
+   * the arguments the request was registered with, as the real one is.
+   */
   answer(answer: PostSessionAnswerRequest): void {
-    this.answers.push({ answer, sequence: this.answers.length + 1 });
+    const registered = this.registrations.find(
+      (entry) => entry.request_id === answer.request_id,
+    );
+    this.answers.push({
+      answer,
+      sequence: this.answers.length + 1,
+      input_hash: registered?.input_hash ?? "0".repeat(64),
+    });
+  }
+
+  /** The id the worker gave the callback the engine raised for this tool use. */
+  requestIdFor(toolUseId: string): string {
+    const event = this.questions().find(
+      (candidate) =>
+        candidate.event === "question" &&
+        candidate.data.tool_use_id === toolUseId,
+    );
+    if (event?.event !== "question") {
+      throw new Error(`No question event for ${toolUseId}`);
+    }
+    return event.data.request_id;
+  }
+
+  /** The registrations the worker made, newest last, without replays. */
+  registered(): RegisterPendingRequest[] {
+    return this.registrations.filter(
+      (entry, index) =>
+        this.registrations.findIndex(
+          (other) => other.request_id === entry.request_id,
+        ) === index,
+    );
   }
 
   /** The `question` events this attempt registered, in stream order. */
@@ -238,14 +279,36 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     };
   }
 
+  async registerPending(
+    request: RegisterPendingRequest,
+  ): Promise<RegisterPendingResponse> {
+    this.calls.push("registerPending");
+    this.registrations.push(request);
+    return {
+      request_id: request.request_id,
+      expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+      expires_in_ms: 30 * 60_000,
+    };
+  }
+
   async pendingControl(
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
     this.calls.push("pendingControl");
+    for (const item of request.settled ?? []) {
+      if (!this.settled.some((done) => done.request_id === item.request_id)) {
+        this.settled.push(item);
+      }
+    }
     return {
       control: null,
+      // Like the real gateway, a settled request is no longer handed out.
       answers: this.answers.filter(
-        (entry) => entry.sequence > request.answers_after,
+        (entry) =>
+          entry.sequence > request.answers_after &&
+          !this.settled.some(
+            (done) => done.request_id === entry.answer.request_id,
+          ),
       ),
     };
   }

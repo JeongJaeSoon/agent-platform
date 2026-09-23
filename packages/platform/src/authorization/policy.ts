@@ -2,7 +2,8 @@ export type Principal = { ownerId: string };
 export type SessionAction =
   | "sessions:read"
   | "sessions:write"
-  | "sessions:control";
+  | "sessions:control"
+  | "sessions:approve";
 
 export interface AuthorizationPolicy {
   authorize(

@@ -13,6 +13,10 @@ import type {
   HeartbeatResponse,
   NextInputRequest,
   NextInputResponse,
+  PendingControlRequest,
+  PendingControlResponse,
+  RegisterPendingRequest,
+  RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
   RuntimeConfig,
@@ -21,6 +25,7 @@ import type {
 } from "@agent-platform/contracts";
 import { executionBackendSchema } from "@agent-platform/contracts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
+import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
   FenceRejection,
@@ -64,6 +69,11 @@ export type WorkerGatewayOptions = {
   sessionTokenTtlMs?: number;
   /** Lifetime of a launch nonce registered through registerLaunch. */
   nonceTtlMs?: number;
+  /**
+   * How long a registered permission or question takes answers (DESIGN
+   * §6.4: 30 minutes). The worker is told what is left, never a deadline.
+   */
+  pendingTtlMs?: number;
   /** Upper bound on nextInput long-polling. */
   maxWaitMs?: number;
   pollIntervalMs?: number;
@@ -74,6 +84,7 @@ export type WorkerGatewayOptions = {
 export const DEFAULT_LEASE_TTL_MS = 30_000;
 const DEFAULT_SESSION_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 export const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_PENDING_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_WAIT_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
@@ -161,9 +172,12 @@ export function createWorkerGateway(deps: {
   work: WorkerUnitOfWork;
   catalog: SessionCatalog;
   checkpoints: CheckpointVerifier;
+  // Absent, the pending routes answer 404 and the worker denies what it
+  // cannot put to anyone; heartbeat then never reports an answer waiting.
+  pending?: WorkerPendingStore;
   options: WorkerGatewayOptions;
 }) {
-  const { work, catalog, checkpoints } = deps;
+  const { work, catalog, checkpoints, pending } = deps;
   const now = deps.options.now ?? (() => new Date());
   const sleep =
     deps.options.sleep ??
@@ -172,6 +186,7 @@ export function createWorkerGateway(deps: {
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
   const nonceTtlMs = deps.options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
+  const pendingTtlMs = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -265,6 +280,17 @@ export function createWorkerGateway(deps: {
     // The token's own view can still be stale against the row; the fenced
     // SQL below is what decides that.
     return fence;
+  }
+
+  function requirePending(): WorkerPendingStore {
+    if (!pending) {
+      throw new WorkerGatewayError(
+        404,
+        "NOT_FOUND",
+        "This gateway does not serve pending requests",
+      );
+    }
+    return pending;
   }
 
   return {
@@ -456,8 +482,10 @@ export function createWorkerGateway(deps: {
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
         auth_revision: result.authRevision,
-        // Control intents arrive with 94S-127/128; nothing is pending yet.
-        control_pending: false,
+        // A hint, read after the fenced write: the worker's pendingControl
+        // poll is what actually hands anything over. Control intents join
+        // it with 94S-128.
+        control_pending: (await pending?.hasUndelivered(fence)) ?? false,
       };
     },
 
@@ -504,6 +532,62 @@ export function createWorkerGateway(deps: {
       return {
         accepted_through: result.acceptedThrough,
         cursor: result.cursor,
+      };
+    },
+
+    async registerPending(
+      principal: WorkerPrincipal,
+      request: RegisterPendingRequest,
+    ): Promise<RegisterPendingResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().registerAtomic({
+        fence,
+        turnId: request.turn_id,
+        requestId: request.request_id,
+        inputHash: request.input_hash,
+        request: request.request,
+        ttlMs: pendingTtlMs,
+      });
+      if (result.outcome === "turn_not_found") {
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "Unknown turn_id, or the turn is not running on this attempt",
+        );
+      }
+      if (result.outcome === "conflict") {
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "request_id is already registered for a different or settled request",
+        );
+      }
+      if (!("expiresAt" in result)) return rejected(result);
+      return {
+        request_id: request.request_id,
+        expires_at: result.expiresAt.toISOString(),
+        expires_in_ms: result.expiresInMs,
+      };
+    },
+
+    async pendingControl(
+      principal: WorkerPrincipal,
+      request: PendingControlRequest,
+    ): Promise<PendingControlResponse> {
+      const fence = requireScope(principal, request);
+      const result = await requirePending().pendingControlAtomic({
+        fence,
+        answersAfter: request.answers_after,
+        settled: request.settled ?? [],
+      });
+      if (result.outcome !== "ok") return rejected(result);
+      return {
+        control: null,
+        answers: result.answers.map((item) => ({
+          sequence: item.sequence,
+          answer: item.answer,
+          input_hash: item.inputHash,
+        })),
       };
     },
 

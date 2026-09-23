@@ -1,13 +1,16 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createPostgresPendingRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  createPendingRequestService,
   createSessionService,
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
@@ -23,6 +26,7 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerEventRoutes } from "./routes/events.ts";
+import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -59,9 +63,15 @@ const sessions = createSessionService({
   reader: createPostgresSessionReader(db),
   catalog,
 });
+const pendingRequests = createPendingRequestService({
+  authorization: ownerScopedPolicy,
+  store: createPostgresPendingRequests(db),
+});
 // Seconds so an operator can shorten it in a test deployment; the worker
 // heartbeats at a fraction of this.
 const heartbeatTtlSec = Number(process.env.HEARTBEAT_TTL_SEC);
+// How long a permission or question takes answers; unset keeps 30 minutes.
+const pendingTtlSec = Number(process.env.PENDING_REQUEST_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
@@ -70,11 +80,15 @@ const workers = createWorkerGateway({
   // a checkpoint is refused rather than promoted unread. Turns without a
   // checkpoint finalize normally.
   checkpoints: rejectUnverifiedCheckpoints,
+  pending: createPostgresWorkerPendingStore(db),
   options: {
     leaseTtlMs:
       Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
         ? heartbeatTtlSec * 1000
         : DEFAULT_LEASE_TTL_MS,
+    ...(Number.isFinite(pendingTtlSec) && pendingTtlSec > 0
+      ? { pendingTtlMs: pendingTtlSec * 1000 }
+      : {}),
   },
 });
 // An unset or malformed value keeps the route's default rather than
@@ -100,6 +114,7 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerSessionRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
+    registerPendingRoutes(router, pendingRequests);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
