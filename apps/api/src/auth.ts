@@ -222,6 +222,67 @@ export async function bootstrapGateFromEnv(
 
 export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 
+// Each argon2id verify holds ~64 MiB and a core for tens of milliseconds,
+// and an unknown email still runs one against the dummy hash, so rotating
+// addresses walks straight past the per-email lockout. This bounds the
+// work one process admits no matter how many addresses are tried.
+// Per-client (IP) and cross-replica limits need the ingress's view of the
+// client and are left to the deployment; see the 94S-264 comment.
+export const PASSWORD_WORK_CONCURRENCY = 4;
+export const PASSWORD_WORK_QUEUE = 64;
+
+/**
+ * At most `limit` holders at once and `maxQueued` waiting; anything beyond
+ * that is refused immediately instead of piling up.
+ */
+export class WorkGate {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(
+    private readonly limit = PASSWORD_WORK_CONCURRENCY,
+    private readonly maxQueued = PASSWORD_WORK_QUEUE,
+  ) {}
+
+  get running(): number {
+    return this.active;
+  }
+
+  get queued(): number {
+    return this.waiters.length;
+  }
+
+  /** A promise of the release function, or null when the queue is full. */
+  tryAcquire(): Promise<() => void> | null {
+    if (this.active < this.limit) {
+      this.active += 1;
+      return Promise.resolve(this.releaser());
+    }
+    if (this.waiters.length >= this.maxQueued) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      this.waiters.push(() => resolve(this.releaser()));
+    });
+  }
+
+  private releaser(): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.waiters.shift();
+      // The slot passes straight to the next waiter, so `active` only drops
+      // when nobody is queued.
+      if (next) {
+        next();
+      } else {
+        this.active -= 1;
+      }
+    };
+  }
+}
+
 /**
  * Per-email failure window, in process memory. Two replicas keep two
  * windows, so the effective limit is attempts × replicas; a shared store is

@@ -26,6 +26,7 @@ import {
   LoginLockout,
   legacyApiKeyPrincipal,
   WEB_SESSION_TTL_MS,
+  WorkGate,
 } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -177,7 +178,13 @@ const PASSWORD = "correct horse battery staple";
 const WRONG = "not the password at all";
 const API_KEY = "csp_test-key";
 
-function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
+function harness(
+  options: {
+    authMode?: string;
+    lockout?: LoginLockout;
+    passwordWork?: WorkGate;
+  } = {},
+) {
   const identity = new MemoryIdentityStore();
   const sink = new MemoryLogSink();
   const logger = new StructuredLogger({ sinks: [sink] });
@@ -187,6 +194,7 @@ function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
     bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
     logger,
     ...(options.lockout ? { lockout: options.lockout } : {}),
+    ...(options.passwordWork ? { passwordWork: options.passwordWork } : {}),
   };
   const app = createApiApp({
     authMode: options.authMode ?? "api-key",
@@ -567,10 +575,10 @@ describe("login lockout", () => {
         Array.from({ length: 12 }, () => h.login("owner@example.com", WRONG)),
       )
     ).map((r) => r.status);
-    // Admitted attempts are 503 and give their slot back; only those that
-    // arrived while five were in flight saw the window closed.
-    expect(outage.filter((s) => s === 503)).toHaveLength(5);
-    expect(outage.filter((s) => s === 429)).toHaveLength(7);
+    // Every attempt is 503 and gives its reservation back; the password
+    // work gate keeps fewer than five in flight, so none sees the window
+    // closed either.
+    expect(outage).toEqual(Array.from({ length: 12 }, () => 503));
     expect(lockout.size).toBe(0);
 
     h.identity.findUserForLogin = findUserForLogin;
@@ -578,6 +586,63 @@ describe("login lockout", () => {
       expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
     }
     expect((await h.login()).status).toBe(429);
+  });
+
+  test("distinct unknown emails cannot run more password work than the gate admits", async () => {
+    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const h = harness({ lockout, passwordWork: new WorkGate(1, 2) });
+    await h.bootstrap();
+    let inFlight = 0;
+    let peak = 0;
+    let lookups = 0;
+    const findUserForLogin = h.identity.findUserForLogin.bind(h.identity);
+    h.identity.findUserForLogin = async (email: string) => {
+      lookups += 1;
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await Bun.sleep(5);
+      try {
+        return await findUserForLogin(email);
+      } finally {
+        inFlight -= 1;
+      }
+    };
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        h.login(`nobody-${i}@example.com`, WRONG),
+      ),
+    );
+    const statuses = responses.map((r) => r.status);
+    // One running and two queued; the other seven are shed before any
+    // lookup or hash, and do not count against their address.
+    expect(statuses.filter((s) => s === 401)).toHaveLength(3);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(7);
+    expect(peak).toBe(1);
+    expect(lookups).toBe(3);
+    expect(lockout.size).toBe(3);
+    const shed = responses.find((r) => r.status === 429);
+    expect(shed?.headers.get("Retry-After")).toBe("1");
+    // Slots come back: the owner can log in afterwards.
+    expect((await h.login()).status).toBe(200);
+  });
+
+  test("WorkGate admits up to its limit, queues up to maxQueued, refuses the rest", async () => {
+    const gate = new WorkGate(2, 1);
+    const first = await gate.tryAcquire();
+    const second = await gate.tryAcquire();
+    const third = gate.tryAcquire();
+    expect(third).not.toBeNull();
+    expect(gate.tryAcquire()).toBeNull();
+    expect(gate.running).toBe(2);
+    expect(gate.queued).toBe(1);
+    first?.();
+    first?.();
+    const releaseThird = await third;
+    expect(gate.running).toBe(2);
+    expect(gate.queued).toBe(0);
+    second?.();
+    releaseThird?.();
+    expect(gate.running).toBe(0);
   });
 
   test("release gives back only its own attempt and is a no-op after clear", () => {

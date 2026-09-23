@@ -12,6 +12,7 @@ import {
 } from "@agent-platform/contracts";
 import { BootstrapDoneError, type WorkspaceRow } from "@agent-platform/db";
 import type { StructuredLogger } from "@agent-platform/observability";
+import type { Context } from "hono";
 import { z } from "zod";
 import {
   ApiHttpError,
@@ -33,6 +34,7 @@ import {
   setWebSessionCookie,
   verifyPassword,
   WEB_SESSION_TTL_MS,
+  WorkGate,
   webSessionCookie,
 } from "../auth.ts";
 
@@ -49,6 +51,7 @@ export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
   lockout?: LoginLockout;
+  passwordWork?: WorkGate;
   logger?: StructuredLogger;
 }
 
@@ -61,6 +64,20 @@ const INVALID_CREDENTIALS = "Invalid email or password";
 const bootstrapTokenOnlySchema = z.looseObject({
   bootstrap_token: z.unknown().optional(),
 });
+
+function rateLimited(
+  context: Context,
+  retryAfterMs: number,
+  what: string,
+): ApiHttpError {
+  context.header("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+  return new ApiHttpError(
+    429,
+    "RATE_LIMITED",
+    `${what}, try again later`,
+    true,
+  );
+}
 
 async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -89,6 +106,7 @@ export function registerPublicAuthRoutes(
   deps: AuthRouteDeps,
 ) {
   const lockout = deps.lockout ?? new LoginLockout();
+  const passwordWork = deps.passwordWork ?? new WorkGate();
 
   router.post("/auth/bootstrap", ingestThenStopClock, async (context) => {
     // Done is answered before the token is looked at: once the first owner
@@ -154,50 +172,70 @@ export function registerPublicAuthRoutes(
   router.post("/auth/login", ingestThenStopClock, async (context) => {
     const body = await parseJsonBody(context, loginRequestSchema);
     const email = normalizeEmail(body.email);
-    // Counted as a failure before the password is checked, in the same
-    // synchronous step as the lockout check: a burst of concurrent guesses
-    // cannot all see the window open while their hashes are still running.
-    // Success clears it below.
-    const reservation = lockout.reserve(email);
-    if (reservation.retryAfterMs > 0) {
-      context.header(
-        "Retry-After",
-        String(Math.ceil(reservation.retryAfterMs / 1000)),
-      );
-      throw new ApiHttpError(
-        429,
-        "RATE_LIMITED",
-        "Too many failed logins, try again later",
-        true,
-      );
+    const lockedFor = lockout.retryAfterMs(email);
+    if (lockedFor > 0) {
+      throw rateLimited(context, lockedFor, "Too many failed logins");
     }
-    let user: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
-    let verified: boolean;
-    let membership: Awaited<ReturnType<IdentityStore["findLiveMembership"]>>;
+    // Shed before any lookup or hash: the per-email lockout alone does not
+    // bound work when every attempt names a new address.
+    const slot = passwordWork.tryAcquire();
+    if (!slot) {
+      throw rateLimited(context, 1000, "Too many logins in progress");
+    }
+    const releaseSlot = await slot;
+    let user: NonNullable<
+      Awaited<ReturnType<IdentityStore["findUserForLogin"]>>
+    >;
+    let membership: NonNullable<
+      Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
+    >;
     try {
-      user = await storageMapped(() => deps.identity.findUserForLogin(email));
-      verified = await verifyPassword(
-        body.password,
-        user?.passwordHash ?? null,
-      );
-      const found = user;
-      membership =
-        verified && found
-          ? await storageMapped(() =>
-              deps.identity.findLiveMembership(found.id),
-            )
-          : null;
-    } catch (error) {
-      // An outage is not a guess: without this, five 503s in a row would
-      // lock the account out for the whole window after the DB recovers.
-      reservation.release();
-      throw error;
-    }
-    if (!user || !verified || !membership) {
-      // A user with no live workspace fails like a wrong password; the
-      // reservation above already counted it, so probing is bounded.
-      deps.logger?.warn("Login failed", { has_user: user !== null });
-      throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
+      // Counted as a failure before the password is checked, in the same
+      // synchronous step as the lockout check: a burst of concurrent
+      // guesses cannot all see the window open while their hashes are
+      // still running. Success clears it below.
+      const reservation = lockout.reserve(email);
+      if (reservation.retryAfterMs > 0) {
+        throw rateLimited(
+          context,
+          reservation.retryAfterMs,
+          "Too many failed logins",
+        );
+      }
+      let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
+      let verified: boolean;
+      let live: Awaited<ReturnType<IdentityStore["findLiveMembership"]>>;
+      try {
+        found = await storageMapped(() =>
+          deps.identity.findUserForLogin(email),
+        );
+        verified = await verifyPassword(
+          body.password,
+          found?.passwordHash ?? null,
+        );
+        const candidate = found;
+        live =
+          verified && candidate
+            ? await storageMapped(() =>
+                deps.identity.findLiveMembership(candidate.id),
+              )
+            : null;
+      } catch (error) {
+        // An outage is not a guess: without this, five 503s in a row would
+        // lock the account out for the whole window after the DB recovers.
+        reservation.release();
+        throw error;
+      }
+      if (!found || !verified || !live) {
+        // A user with no live workspace fails like a wrong password; the
+        // reservation above already counted it, so probing is bounded.
+        deps.logger?.warn("Login failed", { has_user: found !== null });
+        throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
+      }
+      user = found;
+      membership = live;
+    } finally {
+      releaseSlot();
     }
     lockout.clear(email);
     const token = generateWebSessionToken();
