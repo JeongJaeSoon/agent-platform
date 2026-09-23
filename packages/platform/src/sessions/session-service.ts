@@ -375,7 +375,7 @@ export function createSessionService(deps: {
         case "checkpoint_unavailable":
           throw new SessionServiceError(
             "CHECKPOINT_UNAVAILABLE",
-            "No committed checkpoint to resume from; close the session or create a new one",
+            "No committed checkpoint the session can be restored from; close it through a recovery decision or create a new session",
           );
         case "unsupported":
           throw new SessionServiceError(

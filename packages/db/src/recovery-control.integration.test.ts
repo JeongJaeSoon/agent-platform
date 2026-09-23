@@ -555,6 +555,61 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(abandoned.outcome).toBe("accepted");
   });
 
+  test("a durable checkpoint blocker leaves no restore point: confirm_completed refused, resume refused, close allowed", async () => {
+    const { session, row, claimed } = await unknownSession("mirror-error", {
+      checkpointRevision: 3,
+      checkpointCoversTurn1: true,
+    });
+    // The run that took that checkpoint also dropped a transcript mirror
+    // batch (94S-201), so the pointer may be missing entries.
+    await db
+      .update(sessions)
+      .set({
+        checkpointPendingReason: "mirror_error",
+        checkpointPendingAttemptId: claimed.attempt_id,
+      })
+      .where(eq(sessions.id, session.session_id));
+
+    expect(
+      await decide(session, {
+        decision: "confirm_completed",
+        expected_revision: row.revision,
+        target_turn_id: "1",
+        evidence_ref: "s3://audit/turn-1",
+        reason: "work was done",
+      }),
+    ).toEqual({ outcome: "checkpoint_not_covering" });
+
+    const abandoned = await decide(session, {
+      decision: "abandon",
+      expected_revision: row.revision,
+      target_turn_id: "1",
+      reason: "reviewed",
+    });
+    if (abandoned.outcome !== "accepted") throw new Error(abandoned.outcome);
+    expect((await receiptRow(abandoned.response.receipt_id)).result).toEqual({
+      resulting_admission_state: "stopped",
+      checkpoint_revision: 3,
+      resumable: false,
+    });
+
+    // Resuming would leave an idle session whose appends stay refused while
+    // the blocker stands; close is the way out.
+    const stopped = await sessionRow(session.session_id);
+    expect(await resume(session, stopped.revision)).toEqual({
+      outcome: "checkpoint_unavailable",
+    });
+    const closed = await decide(session, {
+      decision: "close",
+      expected_revision: stopped.revision,
+      reason: "untrusted checkpoint",
+    });
+    expect(closed.outcome).toBe("accepted");
+    expect((await sessionRow(session.session_id)).admissionState).toBe(
+      "closed",
+    );
+  });
+
   test("abandon and confirm_completed refuse a turn that is not unknown, a wrong revision and an unconfirmed exit", async () => {
     const { session, row } = await unknownSession("refuse", {
       queuedBehind: true,

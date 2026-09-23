@@ -50,7 +50,7 @@ export type RecoveryDecisionResult =
   | { outcome: "turn_not_unknown"; turnStatus: string | null }
   // Legacy pod binding: no execution to confirm gone, no kill path.
   | { outcome: "unsupported" }
-  // confirm_completed with no committed checkpoint that reaches the target
+  // confirm_completed with no trusted committed checkpoint that reaches the target
   // turn: the session could only resume from a state that lacks the work
   // being confirmed, so the decision is refused (abandon or close instead).
   | { outcome: "checkpoint_not_covering" }
@@ -85,6 +85,8 @@ export type ResumeSessionResult =
   // An unknown turn or an unconfirmed exit still needs an operator.
   | { outcome: "recovery_required"; unconfirmedTurnId: string | null }
   // No committed checkpoint to restore; the client closes or starts anew.
+  // No committed checkpoint, or one a durable checkpoint blocker leaves
+  // untrusted (checkpoint_pending_reason).
   | { outcome: "checkpoint_unavailable" }
   // Legacy pod binding, as for terminate.
   | { outcome: "unsupported" };

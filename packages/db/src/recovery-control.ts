@@ -63,11 +63,34 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
 }
 
 /**
+ * Whether the checkpoint the session points at can be restored from. A
+ * durable blocker (94S-201: a dropped transcript mirror batch) means the
+ * pointer may have been taken by the run whose mirror is missing entries, so
+ * it is not trusted until a later run commits past it.
+ *
+ * Deliberately coarse: a pointer committed by an earlier, healthy run would
+ * be safe, but checkpoints do not record their attempt. If that case shows
+ * up in practice, key the check on the pointer's attempt against
+ * checkpoint_pending_attempt_id instead.
+ */
+function hasRestorePoint<
+  T extends {
+    checkpointRevision: number | null;
+    checkpointPendingReason: string | null;
+  },
+>(session: T): session is T & { checkpointRevision: number } {
+  return (
+    session.checkpointRevision !== null &&
+    session.checkpointPendingReason === null
+  );
+}
+
+/**
  * Where a recovery close applies: a session waiting on an operator
  * (recovery_required), one whose terminate is still waiting on the kill
- * (stopping), and a stopped one that cannot be resumed — no committed
- * checkpoint, or an unknown turn left. Anything else is an ordinary close,
- * which this endpoint must not stand in for.
+ * (stopping), and a stopped one that cannot be resumed — no restore point,
+ * or an unknown turn left. Anything else is an ordinary close, which this
+ * endpoint must not stand in for.
  */
 async function closableByRecovery(
   tx: Database,
@@ -81,7 +104,7 @@ async function closableByRecovery(
   }
   if (session.admissionState !== "stopped") return false;
   return (
-    session.checkpointRevision === null ||
+    !hasRestorePoint(session) ||
     (await earliestUnknownTurn(tx, session.id)) !== null
   );
 }
@@ -98,7 +121,7 @@ async function checkpointCovers(
   session: SessionRow,
   turnSequence: number,
 ): Promise<boolean> {
-  if (session.checkpointRevision === null) return false;
+  if (!hasRestorePoint(session)) return false;
   const [row] = await tx
     .select({ sequence: turns.sequence })
     .from(checkpoints)
@@ -358,6 +381,7 @@ export function decideRecoveryAtomic(
       .select({
         admissionState: sessions.admissionState,
         checkpointRevision: sessions.checkpointRevision,
+        checkpointPendingReason: sessions.checkpointPendingReason,
       })
       .from(sessions)
       .where(eq(sessions.id, sessionId));
@@ -368,7 +392,7 @@ export function decideRecoveryAtomic(
       checkpoint_revision: after.checkpointRevision,
       resumable:
         after.admissionState === "stopped" &&
-        after.checkpointRevision !== null &&
+        hasRestorePoint(after) &&
         unknownLeft === null,
     };
     await recordAudit(tx, {
@@ -618,7 +642,10 @@ export function resumeAtomic(
     if (unknown !== null) {
       return { outcome: "recovery_required", unconfirmedTurnId: unknown };
     }
-    if (session.checkpointRevision === null) {
+    // Resuming onto an untrusted pointer would also wedge an idle session:
+    // appends stay refused while the blocker stands, and only a new run's
+    // checkpoint clears it. Close is the way out instead.
+    if (!hasRestorePoint(session)) {
       return { outcome: "checkpoint_unavailable" };
     }
     if (session.podId !== null) return { outcome: "unsupported" };
