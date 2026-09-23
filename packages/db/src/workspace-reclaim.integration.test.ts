@@ -117,6 +117,7 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
         }));
       },
       removeWorkspace: remove,
+      resolveImage: unused,
       terminate: unused,
     };
   }

@@ -1391,6 +1391,7 @@ describe("PostgresSchedulerStore", () => {
   test("a stopped session whose launch still holds its slot is not claimed", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
+      ...SPEC,
       backend: "local_docker",
       now: NOW,
       sessionId,

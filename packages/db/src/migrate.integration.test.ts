@@ -205,7 +205,7 @@ integrationTest(
       const { logger, sink } = captureLogger();
       const first = await migrateDatabase(testUrl.toString(), { logger });
       const second = await migrateDatabase(testUrl.toString(), { logger });
-      expect(first).toEqual({ adopted: 0, applied: 19, total: 19 });
+      expect(first).toEqual({ adopted: 0, applied: 20, total: 20 });
       expect(second).toEqual({ adopted: 0, applied: 0, total: 20 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
