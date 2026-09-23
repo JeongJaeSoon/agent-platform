@@ -1209,6 +1209,50 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       });
     });
 
+    test("stays held when a retry is refused after an earlier attempt went unanswered", async () => {
+      let run: AgentRun | undefined;
+      let calls = 0;
+      class TimedOutThenRefused extends FakeWorkerGateway {
+        override async finalize(): Promise<FinalizeResponse> {
+          calls += 1;
+          if (calls === 1) {
+            // The server may still be verifying and committing this one.
+            throw new WorkerGatewayRequestError(
+              0,
+              null,
+              "POST /finalize did not reach the gateway: timed out",
+              true,
+            );
+          }
+          throw new WorkerGatewayRequestError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            "Checkpoint manifest rejected: verifier unavailable",
+            false,
+          );
+        }
+      }
+      const gateway = new TimedOutThenRefused();
+      const { host } = harness(oneTurn, {
+        checkpoints: committed,
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      gateway.enqueue("a turn whose first finalize times out");
+
+      await host.runLoop();
+      await Bun.sleep(5);
+
+      expect(calls).toBe(2);
+      // The refusal answers the retry, not the request that timed out.
+      expect(await run?.prepareCheckpoint()).toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
+
     test("is released when the gateway refuses the finalize outright", async () => {
       let run: AgentRun | undefined;
       const gateway = new FakeWorkerGateway();

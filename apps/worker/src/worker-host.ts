@@ -664,6 +664,10 @@ export class WorkerHost {
     // it does not stop the request, and a pointer CAS that lands after
     // writers were let back in would commit a capture they have changed.
     let outstanding: Promise<unknown> | undefined;
+    // Set once any finalize attempt fails without an answer that decides it
+    // (no answer, a 5xx): that request may still commit, whatever a later
+    // retry is told, until one succeeds and the idempotent key settles both.
+    let undecided = false;
     try {
       let checkpoint: CheckpointRef | null = null;
       if (settlement.synthetic !== true) {
@@ -684,19 +688,24 @@ export class WorkerHost {
       if (this.ownerLost) return;
       const finalizing = this.withRetry(
         () =>
-          this.options.gateway.finalize({
-            ...this.scope,
-            turn_id: turnId,
-            finalize_key: `${this.scope.attempt_id}:${turnId}`,
-            final_source_sequence: finalSourceSequence,
-            terminal: {
-              status: settlement.status,
-              reason: settlement.reason,
-              result: settlement.result ?? null,
-              usage: settlement.usage ?? null,
-            },
-            checkpoint,
-          }),
+          this.options.gateway
+            .finalize({
+              ...this.scope,
+              turn_id: turnId,
+              finalize_key: `${this.scope.attempt_id}:${turnId}`,
+              final_source_sequence: finalSourceSequence,
+              terminal: {
+                status: settlement.status,
+                reason: settlement.reason,
+                result: settlement.result ?? null,
+                usage: settlement.usage ?? null,
+              },
+              checkpoint,
+            })
+            .catch((error: unknown) => {
+              if (isRetryable(error)) undecided = true;
+              throw error;
+            }),
         () => this.abandonedNow,
       );
       outstanding = finalizing;
@@ -721,11 +730,11 @@ export class WorkerHost {
         else
           outstanding.then(
             () => lease.release(),
-            // A retryable failure (no answer, a 5xx) leaves the CAS
-            // undecided; the run ends with the lease still held rather than
-            // let a writer in ahead of a commit that may yet land.
-            (error) => {
-              if (!isRetryable(error)) lease.release();
+            // Only a refusal of a request that was the only one out decides
+            // the CAS; otherwise the run ends with the lease still held
+            // rather than let a writer in ahead of a commit that may yet land.
+            () => {
+              if (!undecided) lease.release();
             },
           );
       }
