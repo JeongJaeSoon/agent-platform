@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RuntimeConfig } from "@agent-platform/contracts";
+import type {
+  RuntimeConfig,
+  WorkspaceDescriptor,
+} from "@agent-platform/contracts";
 import { ClaudeSdkRuntime } from "@agent-platform/runtime-claude";
-import type { AgentFrame } from "@agent-platform/runtime-core";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -21,7 +23,7 @@ import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
 import { WorkerHost, type WorkerLogger } from "./worker-host.ts";
-import { noWorkspace } from "./workspace.ts";
+import { GitWorkspace } from "./workspace.ts";
 
 const MODEL = "claude-sonnet-4-5";
 const INSTRUCTIONS = "REPOSITORY_RULE_94S_258: run bun test before committing.";
@@ -70,27 +72,48 @@ afterEach(async () => {
   server = undefined;
 });
 
-/**
- * A checkout that carries both halves of the repository's project settings:
- * a CLAUDE.md, and a settings.json whose hooks touch a marker file outside
- * the checkout the moment the engine would run them.
- */
-async function repositoryWithProjectSettings(): Promise<{
+function git(args: string[], cwd: string): void {
+  const result = Bun.spawnSync(
+    ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", ...args],
+    { cwd, stderr: "pipe", stdout: "pipe" },
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+  }
+}
+
+type Repository = {
+  descriptor: WorkspaceDescriptor;
   home: string;
   markers: string[];
+  publish(claudeMd: string): Promise<void>;
   workspace: string;
-}> {
+};
+
+/**
+ * A repository whose branch commits both halves of its Claude project
+ * settings: a CLAUDE.md, and a settings.json whose hooks touch a marker
+ * file outside the checkout the moment the engine would run them. The
+ * worker's checkout of it starts empty, as a backend's mount does.
+ */
+async function repositoryWithProjectSettings(): Promise<Repository> {
   isolated = await createIsolatedWorkspace({ prefix: "94s-258-" });
   const { home, root, workspace } = isolated;
+  await rm(workspace, { force: true, recursive: true });
+  await mkdir(workspace);
+  const origin = join(root, "origin.git");
+  const seed = join(root, "seed");
   const markers = ["session-start", "prompt-submit"].map((name) =>
     join(root, `${name}.marker`),
   );
   const command = (marker: string) => ({
     hooks: [{ type: "command", command: `touch '${marker}'` }],
   });
-  await writeFile(join(workspace, "CLAUDE.md"), `${INSTRUCTIONS}\n`);
+  git(["init", "--quiet", "--bare", "--initial-branch=main", origin], root);
+  git(["clone", "--quiet", origin, seed], root);
+  await mkdir(join(seed, ".claude"));
   await writeFile(
-    join(workspace, ".claude", "settings.json"),
+    join(seed, ".claude", "settings.json"),
     JSON.stringify({
       hooks: {
         SessionStart: [command(markers[0] ?? "")],
@@ -98,7 +121,20 @@ async function repositoryWithProjectSettings(): Promise<{
       },
     }),
   );
-  return { home, markers, workspace };
+  const publish = async (claudeMd: string) => {
+    await writeFile(join(seed, "CLAUDE.md"), claudeMd);
+    git(["add", "-A"], seed);
+    git(["commit", "--quiet", "-m", "publish"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+  };
+  await publish(`${INSTRUCTIONS}\n`);
+  return {
+    descriptor: { repository: { id: "sample", url: origin, branch: "main" } },
+    home,
+    markers,
+    publish,
+    workspace,
+  };
 }
 
 function claimedConfig(endpoint: string, claudeMd: boolean): RuntimeConfig {
@@ -118,7 +154,7 @@ function claimedConfig(endpoint: string, claudeMd: boolean): RuntimeConfig {
 
 /** One turn through the worker exactly as composition wires it. */
 async function runOneTurn(
-  paths: { home: string; workspace: string },
+  repository: Repository,
   runtimeConfig: RuntimeConfig,
   checkpoints = checkpointsFrom({ mode: "new" }),
   turn = 1,
@@ -127,13 +163,14 @@ async function runOneTurn(
     runtimeConfig,
     sessionId: "33333333-3333-4333-8333-333333333333",
     firstTurn: turn,
+    workspace: repository.descriptor,
   });
   gateway.enqueue(`message ${turn}`);
   const config = {
     runtime: {
-      claudeConfigDir: paths.home,
-      cwd: paths.workspace,
-      home: paths.home,
+      claudeConfigDir: repository.home,
+      cwd: repository.workspace,
+      home: repository.home,
     },
   } as WorkerConfig;
   const engines = new EngineProcesses();
@@ -145,8 +182,7 @@ async function runOneTurn(
     logger: silent,
     runtimes: claudeRuntimeRegistry(config, engines),
     timeouts,
-    // The fixture is already the checkout the workspace step would leave.
-    workspace: noWorkspace,
+    workspace: new GitWorkspace(repository.workspace),
   });
   const summary = await host.runLoop();
   expect(summary.turns).toEqual([
@@ -154,21 +190,29 @@ async function runOneTurn(
   ]);
 }
 
+function firedMarkers(repository: Repository): string[] {
+  return repository.markers.filter((marker) => existsSync(marker));
+}
+
 describe("the repository's own Claude project settings, under the claim's profile", () => {
   test("the fixture's hooks are live when the engine loads the project source itself", async () => {
     // Negative control: without it, a marker that never appears would prove
     // only that these hooks cannot fire, not that the worker stops them.
-    const paths = await repositoryWithProjectSettings();
+    const repository = await repositoryWithProjectSettings();
+    git(
+      ["clone", "--quiet", repository.descriptor.repository.url, "."],
+      repository.workspace,
+    );
     server = startFakeAnthropicServer(() => textReply("ok"));
     const run = new ClaudeSdkRuntime({
       endpoints: [server.url],
       models: [MODEL],
     }).start(
       {
-        claudeConfigDir: paths.home,
+        claudeConfigDir: repository.home,
         correlationId: "control",
-        cwd: paths.workspace,
-        home: paths.home,
+        cwd: repository.workspace,
+        home: repository.home,
         maxTurns: 2,
         mode: "new",
         model: MODEL,
@@ -185,42 +229,40 @@ describe("the repository's own Claude project settings, under the claim's profil
         onPermission: async () => ({ behavior: "deny", message: "none" }),
       },
     );
-    const frames: AgentFrame[] = [];
     const consume = (async () => {
-      for await (const frame of run) frames.push(frame);
+      for await (const _frame of run) {
+      }
     })();
     run.send({ message: "hello", uuid: crypto.randomUUID() });
     run.finishInput();
     await consume;
 
     expect(server.requests.length).toBeGreaterThan(0);
-    expect(paths.markers.filter((marker) => existsSync(marker))).toEqual(
-      paths.markers,
-    );
+    expect(firedMarkers(repository)).toEqual(repository.markers);
     expect(JSON.stringify(server.requests[0]?.body)).toContain(INSTRUCTIONS);
   }, 60_000);
 
   test("a profile that keeps CLAUDE.md out runs no repository hook and sends no repository text", async () => {
-    const paths = await repositoryWithProjectSettings();
+    const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));
 
-    await runOneTurn(paths, claimedConfig(server.url, false));
+    await runOneTurn(repository, claimedConfig(server.url, false));
 
     expect(server.requests).toHaveLength(1);
-    expect(paths.markers.filter((marker) => existsSync(marker))).toEqual([]);
+    expect(firedMarkers(repository)).toEqual([]);
     expect(JSON.stringify(server.requests[0]?.body)).not.toContain(
       INSTRUCTIONS,
     );
   }, 60_000);
 
   test("a profile that lets CLAUDE.md in puts it in the system prompt and still runs no hook", async () => {
-    const paths = await repositoryWithProjectSettings();
+    const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));
 
-    await runOneTurn(paths, claimedConfig(server.url, true));
+    await runOneTurn(repository, claimedConfig(server.url, true));
 
     expect(server.requests).toHaveLength(1);
-    expect(paths.markers.filter((marker) => existsSync(marker))).toEqual([]);
+    expect(firedMarkers(repository)).toEqual([]);
     const system = JSON.stringify(server.requests[0]?.body.system);
     expect(system).toContain("Contents of CLAUDE.md at the root");
     expect(system).toContain(INSTRUCTIONS);
@@ -230,22 +272,38 @@ describe("the repository's own Claude project settings, under the claim's profil
     );
   }, 60_000);
 
-  test("a resumed session keeps the instructions it started with, whatever the checkout says now", async () => {
+  test("a fresh attempt after one that edited CLAUDE.md gets the branch's text, not the edit", async () => {
+    const repository = await repositoryWithProjectSettings();
+    server = startFakeAnthropicServer(() => textReply("ok"));
+    await runOneTurn(repository, claimedConfig(server.url, true));
+    // What the first attempt's engine could have left before dying, with no
+    // checkpoint for the retry to restore.
+    await writeFile(
+      join(repository.workspace, "CLAUDE.md"),
+      "PLANTED_RULE_94S_258\n",
+    );
+
+    await runOneTurn(repository, claimedConfig(server.url, true));
+
+    expect(server.requests).toHaveLength(2);
+    const system = JSON.stringify(server.requests[1]?.body.system);
+    expect(system).toContain(INSTRUCTIONS);
+    expect(system).not.toContain("PLANTED_RULE_94S_258");
+  }, 90_000);
+
+  test("a resumed session keeps the instructions it started with, whatever the branch says now", async () => {
     // The fingerprint deliberately ignores the text; this is why that is
     // safe: the engine replays the system prompt it recorded.
-    const paths = await repositoryWithProjectSettings();
+    const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));
     const first = checkpointsFrom({ mode: "new" });
-    await runOneTurn(paths, claimedConfig(server.url, true), first);
+    await runOneTurn(repository, claimedConfig(server.url, true), first);
     const resume = first.resumeHandle;
     if (resume === undefined) throw new Error("No engine session was captured");
+    await repository.publish("PUBLISHED_LATER_94S_258\n");
 
-    await writeFile(
-      join(paths.workspace, "CLAUDE.md"),
-      "EDITED_RULE_94S_258\n",
-    );
     await runOneTurn(
-      paths,
+      repository,
       claimedConfig(server.url, true),
       checkpointsFrom({ mode: "resume", resume, localTranscriptResume: true }),
       2,
@@ -258,7 +316,7 @@ describe("the repository's own Claude project settings, under the claim's profil
     );
     const system = JSON.stringify(server.requests[1]?.body.system);
     expect(system).toContain(INSTRUCTIONS);
-    expect(system).not.toContain("EDITED_RULE_94S_258");
-    expect(paths.markers.filter((marker) => existsSync(marker))).toEqual([]);
+    expect(system).not.toContain("PUBLISHED_LATER_94S_258");
+    expect(firedMarkers(repository)).toEqual([]);
   }, 90_000);
 });

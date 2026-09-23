@@ -899,6 +899,7 @@ describe("WorkerHost before the engine starts", () => {
           error: (event, fields) => logged.push(event, JSON.stringify(fields)),
         },
         workspace: {
+          committedClaudeMd: () => null,
           async prepare({ descriptor }) {
             order.push(`prepare ${descriptor.repository.branch}`);
             expect(runtime.inputs).toHaveLength(0);
@@ -921,6 +922,7 @@ describe("WorkerHost before the engine starts", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
+        committedClaudeMd: () => null,
         async prepare() {
           throw new Error("Workspace /workspace refused: not a git checkout");
         },
@@ -946,6 +948,7 @@ describe("WorkerHost before the engine starts", () => {
     const { host, launched } = harness([{ type: "await-input" }], {
       gateway,
       workspace: {
+        committedClaudeMd: () => null,
         prepare: ({ signal }) =>
           new Promise((_, reject) => {
             started();

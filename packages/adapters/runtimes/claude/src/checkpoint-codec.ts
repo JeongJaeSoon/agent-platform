@@ -52,9 +52,9 @@ export function claudeProfileFingerprint(
         profile: publicProfile(config.profile),
         // Only when on, so a run that never let CLAUDE.md in keeps the
         // digest its checkpoints were taken under before this switch existed.
-        ...(config.repositoryClaudeMd === true
-          ? { repositoryClaudeMd: true }
-          : {}),
+        ...(config.repositoryClaudeMd === undefined
+          ? {}
+          : { repositoryClaudeMd: true }),
         settingSources: config.settingSources ?? ["project"],
         tools: [...config.tools].sort(),
       }),

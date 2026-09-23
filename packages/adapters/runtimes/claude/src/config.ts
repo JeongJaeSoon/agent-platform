@@ -79,20 +79,20 @@ export type ClaudeRuntimeConfig = RuntimeConfig & {
   plugins?: RuntimePlugin[];
   profile: RuntimeProfile;
   /**
-   * Let the checked-out repository's root CLAUDE.md into the system prompt,
-   * read by the adapter rather than the engine. The engine only reads it
-   * together with the rest of the project source — settings.json with its
-   * hooks, env and permission rules — so this requires `settingSources: []`.
-   * The checkpoint fingerprint takes the switch, not the text: a restored
-   * workspace can carry a CLAUDE.md the agent itself edited, and that must
-   * not make its own checkpoint unresumable. What is trusted is the file in
-   * the checkout the session works in, not one revision of it: the engine
-   * replays the system prompt it recorded (`snapshot`), so a resumed run
-   * keeps the text it started with until the conversation is compacted, and
-   * after that it carries the file as this process read it — the same point
-   * at which the engine rereads its own CLAUDE.md.
+   * The repository's own CLAUDE.md, let into the system prompt by the caller
+   * rather than loaded by the engine: the engine only reads it together with
+   * the rest of the project source — settings.json with its hooks, env and
+   * permission rules — so this requires `settingSources: []`. `contents` is
+   * whatever the caller read (null when the repository has none); where it
+   * reads it from is the trust decision, and it is the caller's.
+   *
+   * The checkpoint fingerprint takes the switch, not the text, so a branch
+   * that changed its CLAUDE.md does not make a session's checkpoints
+   * unresumable. A resumed run keeps the text it started with anyway: the
+   * engine replays the system prompt it recorded (`snapshot`) until the
+   * conversation is compacted, and after that carries this run's `contents`.
    */
-  repositoryClaudeMd?: boolean;
+  repositoryClaudeMd?: { contents: string | null };
   /**
    * Where the engine mirrors root and subagent transcripts. Without it the
    * transcript lives only on the container's disk, which no checkpoint can

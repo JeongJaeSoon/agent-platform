@@ -96,13 +96,13 @@ describe("runtime profiles", () => {
   test("lets the repository's CLAUDE.md in only with the project source left out", () => {
     const isolated = {
       ...baseConfig,
-      repositoryClaudeMd: true,
+      repositoryClaudeMd: { contents: "rules" },
       settingSources: [] as [],
     };
     expect(validateRuntimeConfig(isolated, policy)).toBe(isolated);
     expect(() =>
       validateRuntimeConfig(
-        { ...baseConfig, repositoryClaudeMd: true },
+        { ...baseConfig, repositoryClaudeMd: { contents: null } },
         policy,
       ),
     ).toThrow(/needs settingSources: \[\]/);
@@ -110,7 +110,7 @@ describe("runtime profiles", () => {
       validateRuntimeConfig(
         {
           ...baseConfig,
-          repositoryClaudeMd: true,
+          repositoryClaudeMd: { contents: "rules" },
           settingSources: ["project"],
         },
         policy,

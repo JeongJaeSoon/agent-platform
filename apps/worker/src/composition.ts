@@ -77,7 +77,13 @@ export function claudeRuntimeRegistry(
 ): RuntimeRegistry {
   const launcher: RuntimeLauncher = {
     start(launch, hooks) {
-      const { correlationId, principal, runtimeConfig, ...plan } = launch;
+      const {
+        committedClaudeMd,
+        correlationId,
+        principal,
+        runtimeConfig,
+        ...plan
+      } = launch;
       // The claim is the only source of what to run, so the adapter's
       // allowlist is that one endpoint and model. Left out: an allowlist
       // baked into the image to check the server against — worth adding
@@ -106,10 +112,12 @@ export function claudeRuntimeRegistry(
           // None of the repository's own Claude settings: its hooks would run
           // commands no permission callback sees, with the provider key in
           // reach, and the claim's profile is the only policy reviewed. Its
-          // CLAUDE.md comes back only when that profile says so, read by the
-          // adapter apart from the rest (`projectSettingsSchema`).
-          repositoryClaudeMd:
-            runtimeConfig.project_settings?.claude_md === true,
+          // CLAUDE.md comes back only when that profile says so, as committed
+          // on the branch rather than as the checkout now reads
+          // (`projectSettingsSchema`).
+          ...(runtimeConfig.project_settings?.claude_md === true
+            ? { repositoryClaudeMd: { contents: committedClaudeMd() } }
+            : {}),
           settingSources: [],
           tools: runtimeConfig.tools,
           ...plan,

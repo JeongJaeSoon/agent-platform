@@ -57,11 +57,11 @@ export function validateRuntimeConfig(
   // reason instead of a checkpoint that quietly never commits.
   describeComponents(config);
   if (
-    config.repositoryClaudeMd === true &&
+    config.repositoryClaudeMd !== undefined &&
     (config.settingSources ?? ["project"]).length > 0
   ) {
     throw new Error(
-      "repositoryClaudeMd reads CLAUDE.md without the project settings; it needs settingSources: []",
+      "repositoryClaudeMd lets CLAUDE.md in without the project settings; it needs settingSources: []",
     );
   }
   if (

@@ -47,6 +47,8 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
  * partitions on one provider resume each other's checkpoints.
  */
 export type RuntimeLaunch = RuntimeResumePlan & {
+  /** The workspace's, read only when the profile lets the file in. */
+  committedClaudeMd: () => string | null;
   correlationId: string;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
@@ -275,6 +277,7 @@ export class WorkerHost {
         run = launcher.start(
           {
             ...plan,
+            committedClaudeMd: () => this.options.workspace.committedClaudeMd(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             principal: claim.principal,
             runtimeConfig: claim.runtime_config,
