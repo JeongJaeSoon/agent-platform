@@ -26,8 +26,9 @@ RUN bun install --frozen-lockfile --production \
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
+# tini: see ENTRYPOINT.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
+  && apt-get install -y --no-install-recommends ca-certificates git tini \
   && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 is what LocalDockerBackend runs the container as
 # (DEFAULT_WORKER_USER); the base image already owns it as user `bun`, so
@@ -50,6 +51,13 @@ RUN target="$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/
 USER 1000:1000
 ENV NODE_ENV=production
 VOLUME ["/workspace"]
+# An init as PID 1, as in apps/api/Dockerfile: a git the workspace code
+# kills at its deadline and the tool processes Claude Code leaves behind are
+# reparented to PID 1, and bun never reaps children it did not spawn, so
+# under bun each stays a zombie for the session's life. tini reaps them and
+# forwards the SIGTERM that starts the drain. `-s` keeps it the subreaper
+# when something else (`docker run --init`) holds PID 1.
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
 # The scheduler passes bootstrap identity through env (WORKER_EXECUTION_ID,
 # WORKER_BOOTSTRAP_NONCE, WORKER_GATEWAY_URL, ...) and may override Cmd.
 CMD ["bun", "run", "apps/worker/src/main.ts"]
