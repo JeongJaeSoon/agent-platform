@@ -40,6 +40,13 @@ describe("readRepositoryClaudeMd", () => {
     expect(readRepositoryClaudeMd(workspace)).toBe("shared rules");
   });
 
+  test("a name that merely starts with two dots is still inside", async () => {
+    await mkdir(join(workspace, "..shared"));
+    await writeFile(join(workspace, "..shared", "CLAUDE.md"), "dotted");
+    await symlink("..shared/CLAUDE.md", join(workspace, "CLAUDE.md"));
+    expect(readRepositoryClaudeMd(workspace)).toBe("dotted");
+  });
+
   test("a link to nothing is no instructions", async () => {
     await symlink("missing.md", join(workspace, "CLAUDE.md"));
     expect(readRepositoryClaudeMd(workspace)).toBeUndefined();

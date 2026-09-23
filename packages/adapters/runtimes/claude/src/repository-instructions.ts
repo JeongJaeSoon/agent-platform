@@ -6,7 +6,7 @@ import {
   readSync,
   realpathSync,
 } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 /**
  * Past this the run is refused rather than handed part of the file: a cut can
@@ -43,7 +43,12 @@ export function readRepositoryClaudeMd(cwd: string): string | undefined {
     throw error;
   }
   const inside = relative(root, target);
-  if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
+  if (
+    inside === "" ||
+    inside === ".." ||
+    inside.startsWith(`..${sep}`) ||
+    isAbsolute(inside)
+  ) {
     throw new Error("Repository CLAUDE.md resolves outside the workspace");
   }
   // Non-blocking so a FIFO planted under the name cannot hang the start.
