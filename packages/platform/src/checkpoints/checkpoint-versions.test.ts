@@ -4,6 +4,7 @@ import type { CheckpointRef } from "@agent-platform/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
+  CheckpointObjectStore,
   ObjectRef,
   RuntimeFingerprint,
 } from "@agent-platform/runtime-core";
@@ -377,7 +378,7 @@ describe("locked (the default)", () => {
     expect(checkpoints.pointer()).toBeNull();
   });
 
-  test("does not re-read a version the committed pointer already proved, but still holds it", async () => {
+  test("does not re-read a version the committed pointer already proved, and holds the new ones", async () => {
     const first = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
     await finalize((await publish(0, [first])).checkpoint);
 
@@ -391,6 +392,230 @@ describe("locked (the default)", () => {
     expect(objects.reads()).not.toContain(first.key);
     expect(objects.reads()).toContain(grown.key);
     expect(await objects.head(grown.key, grown.version)).toMatchObject({
+      held: true,
+    });
+  });
+});
+
+/**
+ * 94S-342: a pointer committed with its versions held vouches that they are
+ * still stored and held, so finalize spends requests only on what the turn
+ * added — not on every part the session ever wrote.
+ */
+describe("finalize trusts what a held pointer already proved", () => {
+  /** A service over `objects` that records the key of every request. */
+  function counting(store: CheckpointStore = checkpoints.store) {
+    const calls = {
+      head: [] as string[],
+      hold: [] as string[],
+      stream: [] as string[],
+    };
+    const hold = objects.hold?.bind(objects) as NonNullable<
+      typeof objects.hold
+    >;
+    const counted: CheckpointObjectStore = {
+      ...objects,
+      head(key, version) {
+        calls.head.push(key);
+        return objects.head(key, version);
+      },
+      hold(key, version) {
+        calls.hold.push(key);
+        return hold(key, version);
+      },
+      stream(key, version) {
+        calls.stream.push(key);
+        return objects.stream(key, version);
+      },
+    };
+    return {
+      calls,
+      service: createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objects: counted,
+        store,
+        workspaceBundles: structuralBundleVerifier,
+      }),
+    };
+  }
+
+  function finalizeWith(
+    target: ReturnType<typeof createCheckpointService>,
+    checkpoint: CheckpointRef,
+  ) {
+    return target.finalize({
+      checkpoint,
+      fence,
+      now: new Date("2026-09-23T00:00:00.000Z"),
+      sessionId,
+      turnId: null,
+    });
+  }
+
+  async function parts(from: number, count: number): Promise<ObjectRef[]> {
+    const refs: ObjectRef[] = [];
+    for (let index = from; index < from + count; index += 1) {
+      refs.push(
+        await upload(
+          `${prefix}mirror/part-${index}.jsonl`,
+          encode(`${index}\n`),
+        ),
+      );
+    }
+    return refs;
+  }
+
+  const sorted = (keys: readonly string[]) => [...new Set(keys)].sort();
+
+  test("requests only the turn's new parts, manifest and bundle, not the 1,000 it inherited", async () => {
+    const inherited = await parts(0, 1_000);
+    await finalize((await publish(0, inherited)).checkpoint);
+    const added = await parts(1_000, 3);
+    const { checkpoint, manifest } = await publish(1, [...inherited, ...added]);
+    const { calls, service: watched } = counting();
+
+    expect(await finalizeWith(watched, checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 1,
+    });
+    const fresh = [
+      ...added.map((ref) => ref.key),
+      manifest.workspace.bundle.key,
+      ...manifest.workspace.untracked.map((ref) => ref.key),
+    ];
+    expect(sorted(calls.head)).toEqual(
+      sorted([...fresh, checkpoint.manifest_ref]),
+    );
+    expect(sorted(calls.stream)).toEqual(sorted(fresh));
+    expect(sorted(calls.hold)).toEqual(
+      sorted([...fresh, checkpoint.manifest_ref]),
+    );
+    expect(checkpoints.pointer()).toMatchObject({
+      revision: 1,
+      versionsHeld: true,
+    });
+  });
+
+  test("a pointer committed without its versions held vouches for nothing", async () => {
+    const inherited = await parts(0, 5);
+    const locked = service;
+    service = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    await finalize((await publish(0, inherited)).checkpoint);
+    service = locked;
+    const { checkpoint } = await publish(1, [
+      ...inherited,
+      ...(await parts(5, 1)),
+    ]);
+    const { calls, service: watched } = counting();
+
+    expect(await finalizeWith(watched, checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    for (const ref of inherited) {
+      expect(calls.head).toContain(ref.key);
+      expect(calls.stream).toContain(ref.key);
+      expect(calls.hold).toContain(ref.key);
+    }
+  });
+
+  test("a pointer that cannot be read vouches for nothing", async () => {
+    const inherited = await parts(0, 5);
+    await finalize((await publish(0, inherited)).checkpoint);
+    const { checkpoint } = await publish(1, [
+      ...inherited,
+      ...(await parts(5, 1)),
+    ]);
+    const { calls, service: watched } = counting({
+      ...checkpoints.store,
+      async readPointer() {
+        throw new Error("connection reset");
+      },
+    });
+
+    expect(await finalizeWith(watched, checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    for (const ref of inherited) {
+      expect(calls.head).toContain(ref.key);
+      expect(calls.stream).toContain(ref.key);
+    }
+  });
+
+  test("a pointer whose manifest does not match its digest vouches for nothing", async () => {
+    const inherited = await parts(0, 5);
+    await finalize((await publish(0, inherited)).checkpoint);
+    const { checkpoint } = await publish(1, [
+      ...inherited,
+      ...(await parts(5, 1)),
+    ]);
+    const { calls, service: watched } = counting({
+      ...checkpoints.store,
+      async readPointer(id) {
+        const pointer = await checkpoints.store.readPointer(id);
+        return pointer && { ...pointer, manifestSha256: "0".repeat(64) };
+      },
+    });
+
+    expect(await finalizeWith(watched, checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    for (const ref of inherited) {
+      expect(calls.head).toContain(ref.key);
+      expect(calls.stream).toContain(ref.key);
+    }
+  });
+
+  test("an inherited part named with a different size is checked, not trusted", async () => {
+    const [first] = await parts(0, 1);
+    const part = first as ObjectRef;
+    await finalize((await publish(0, [part])).checkpoint);
+    const { checkpoint } = await publish(1, [
+      { ...part, bytes: part.bytes + 1 },
+    ]);
+
+    expect(await finalize(checkpoint)).toEqual({
+      outcome: "rejected",
+      reason: `manifest object ${part.key} is ${part.bytes} bytes, not ${part.bytes + 1}`,
+    });
+  });
+
+  test("a trusted part destroyed after the commit fails the restore instead of passing it", async () => {
+    const [first] = await parts(0, 1);
+    const part = first as ObjectRef;
+    await finalize((await publish(0, [part])).checkpoint);
+    const added = await parts(1, 1);
+    await finalize((await publish(1, [part, ...added])).checkpoint);
+    // Only an operator gets here: nothing in the platform releases a version
+    // the live pointer names.
+    objects.releaseHold(part.key, part.version as string);
+    objects.purgeVersion(part.key, part.version as string);
+
+    expect(await service.getRestorePlan({ runtime, sessionId })).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining(
+        `manifest references a missing object: ${part.key} (version ${part.version})`,
+      ),
+    });
+  });
+
+  test("a trusted part whose hold was lifted is held again before a restore hands it out", async () => {
+    const [first] = await parts(0, 1);
+    const part = first as ObjectRef;
+    await finalize((await publish(0, [part])).checkpoint);
+    const added = await parts(1, 1);
+    await finalize((await publish(1, [part, ...added])).checkpoint);
+    objects.releaseHold(part.key, part.version as string);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({ status: "ready", plan: { revision: 1 } });
+    expect(await objects.head(part.key, part.version)).toMatchObject({
       held: true,
     });
   });

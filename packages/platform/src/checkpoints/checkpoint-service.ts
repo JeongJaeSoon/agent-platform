@@ -392,6 +392,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * re-download a transcript that grows with the session.
      */
     verified?: ReadonlySet<string>;
+    /**
+     * Finalize only: `verified` also speaks for those versions still being
+     * stored and held (`verifiedRefs`), so they are skipped without a
+     * request. A restore passes none and HEADs them all: it is where a
+     * version that went anyway is caught.
+     */
+    held?: boolean;
   }): Promise<Judgement> {
     const { checkpoint, sessionId } = input;
     const version = pinnedVersion(checkpoint.manifest_version);
@@ -453,6 +460,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.verified,
       input.pinned,
       input.confined === true,
+      input.held === true,
     );
     if (bad !== undefined) {
       return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
@@ -487,8 +495,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * restore — by which point the pointer has already superseded the last
    * healthy checkpoint and the session is unresumable. Hashing here is what
    * makes "committed" mean "restorable". Parts already hashed under the
-   * previous pointer are skipped, because parts are write-once: without that,
-   * every checkpoint would re-download the whole transcript.
+   * previous pointer are not hashed again, because parts are write-once:
+   * without that, every checkpoint would re-download the whole transcript.
+   * With `held` they are not even HEADed, or finalize would still cost a
+   * request per part the session ever wrote (94S-342).
    *
    * *The workspace commit.* Same idea one level up: an object that hashes
    * correctly is still the wrong object if it does not carry the commit the
@@ -501,6 +511,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verified: ReadonlySet<string> = new Set(),
     pinned?: PinnedVersions,
     confined = false,
+    held = false,
   ): Promise<Problem | undefined> {
     const refs = [
       ...manifest.transcripts.root.parts,
@@ -572,6 +583,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // thousands of parts and firing a request per part at once turns a valid
     // checkpoint into a throttled one.
     const problems = await inBatches(refs, 32, async (ref) => {
+      const token = refToken(ref);
+      const known = token !== undefined && verified.has(token);
+      if (known && held) return undefined;
       const head = await objects.head(ref.key, ref.version);
       if (head === undefined) {
         return broken(
@@ -584,8 +598,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         );
       }
       if (ref.version !== undefined) pinned?.note(ref.key, ref.version, head);
-      const token = refToken(ref);
-      if (token !== undefined && verified.has(token)) return undefined;
+      if (known) return undefined;
       const body = await digestObject(objects, ref.key, ref.version, ref.bytes);
       if (body === undefined) {
         return broken(
@@ -747,6 +760,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * would let a same-length stranger through. The hold state cannot stand in
    * for the record: any later candidate may name an old manifest as one of
    * its own objects and get it held without ever committing.
+   *
+   * Such a pointer also vouches that those versions are still stored and
+   * held, which is what lets finalize skip them without a request
+   * (`held`). Its finalize held every one before it committed (`holdAll`),
+   * and nothing releases a version the live pointer names: garbage
+   * collection keeps every version the pointer and its fallback window
+   * name and never touches transcript parts (checkpoint-collector.ts,
+   * 94S-281), and transcript reclaim releases only parts no retained
+   * checkpoint names (94S-326). The pointer read here is still the pointer
+   * when the finalize commits, or the pointer CAS refuses the commit. A
+   * version released or destroyed by hand anyway is caught by the next
+   * restore, which HEADs every version of the pointer's checkpoint.
    */
   async function verifiedRefs(sessionId: string): Promise<Set<string>> {
     const tokens = new Set<string>();
@@ -823,6 +848,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const verdict = await validateManifest({
       checkpoint: input.checkpoint,
       confined: true,
+      held: protection === "locked",
       pinned,
       sessionId,
       verified: await verifiedRefs(sessionId),
@@ -835,9 +861,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   }
 
   /**
-   * Holds every version a verified checkpoint names that is not held yet —
-   * including ones the verified set let skip a re-hash, since that cache
-   * speaks for the bytes, not for their protection. Awaited in full before
+   * Holds every version a verified checkpoint names that is not held yet.
+   * The ones finalize skipped as the pointer's are not among them: a
+   * `versionsHeld` pointer speaks for their protection as well as their
+   * bytes (`verifiedRefs`). A restore's verified set speaks only for the
+   * bytes, so a restore holds whatever its HEADs found unheld. Awaited in full before
    * finalize may answer "verified": a failure throws, the caller reports the
    * store as unavailable, and the pointer stays where it was. Holds that did
    * land are left in place — a retry needs them, and another checkpoint may
@@ -1317,11 +1345,12 @@ async function writeFully(
 // Only a versioned ref has one. Key and digest alone are not enough: an
 // unversioned key can be overwritten with different bytes of the same length,
 // which passes the HEAD that still runs and would then skip the hash. A
-// version cannot be rewritten, so its token stays true.
+// version cannot be rewritten, so its token stays true. The size is in it
+// because a finalize that matches the token skips the HEAD that checks it.
 function refToken(ref: ObjectRef): string | undefined {
   return ref.version === undefined
     ? undefined
-    : JSON.stringify([ref.key, ref.sha256, ref.version]);
+    : JSON.stringify([ref.key, ref.sha256, ref.version, ref.bytes]);
 }
 
 function versionSuffix(version: string | undefined): string {
