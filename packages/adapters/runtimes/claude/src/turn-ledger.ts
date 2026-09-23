@@ -1,4 +1,5 @@
 import type {
+  CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
 } from "@agent-platform/runtime-core";
@@ -25,21 +26,41 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
  * come back successful. The mirrored transcript is missing entries nobody can
  * name, so nothing this run captures is safely resumable, and it refuses to
  * prepare a checkpoint until a fresh run re-mirrors from the local file.
+ *
+ * A turn boundary is not quiescence (DESIGN §6.3.1). A tool the engine let
+ * through the PreToolUse gate is in flight until a hook or its tool_result
+ * settles it, a permission callback is a tool about to run, and a background
+ * task (a backgrounded Bash, a subagent) keeps writing after the turn's result.
+ * The ledger refuses a checkpoint while any of them is outstanding, and a
+ * checkpoint lease, once taken, refuses every new tool and input until it is
+ * released.
+ *
+ * What this proves is the engine's own view: tools it runs and tasks it
+ * tracks. A process a command detached from the engine, a server a project
+ * hook started, or a sibling hook command that runs beside a refused tool is
+ * invisible here and can still write.
  */
 export class TurnLedger {
+  private backgroundTasks: string[] = [];
   private consumed = false;
+  private lease: object | undefined;
   private mirrorError: string | undefined;
   private readonly pending = new Set<string>();
+  private permissionCallbacks = 0;
   /** Every uuid that reached the engine on this run, settled or not. */
   private readonly sent = new Set<string>();
   private sessionId: string | undefined;
   private streaming = false;
+  private readonly toolsInFlight = new Set<string>();
 
   constructor(resume?: string) {
     this.sessionId = resume;
   }
 
   queued(uuid: string): void {
+    if (this.lease !== undefined) {
+      throw new Error(`A checkpoint is being captured; input ${uuid} waits`);
+    }
     if (this.pending.has(uuid)) {
       throw new Error(`Input uuid is already queued: ${uuid}`);
     }
@@ -70,6 +91,15 @@ export class TurnLedger {
     if (message.type === "system" && message.subtype === "mirror_error") {
       this.mirrorError ??= mirrorErrorDetail(message);
     }
+    if (
+      message.type === "system" &&
+      message.subtype === "background_tasks_changed"
+    ) {
+      this.backgroundTasks = liveTaskIds(message);
+    }
+    if (message.type === "user") {
+      for (const id of toolResultIds(message)) this.toolsInFlight.delete(id);
+    }
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
       return;
@@ -85,8 +115,40 @@ export class TurnLedger {
     for (const uuid of consumedUuids(message)) this.pending.delete(uuid);
   }
 
+  /**
+   * Tools and tasks stay outstanding: the end of the stream does not prove
+   * the engine or anything it started has exited, so a run that lost its
+   * stream mid-tool stays unfit to checkpoint.
+   */
   streamEnded(): void {
     this.streaming = false;
+  }
+
+  /**
+   * PreToolUse: the engine waits on this answer before it runs the tool, in
+   * the main thread and in every subagent alike, so a lease taken between two
+   * calls here holds against all of them.
+   */
+  toolStarting(toolUseId: string): ToolAdmission {
+    if (this.lease !== undefined) return leasedAdmission;
+    this.toolsInFlight.add(toolUseId);
+    return { allowed: true };
+  }
+
+  /** PostToolUse, PostToolUseFailure, PermissionDenied, or a permission denial. */
+  toolSettled(toolUseId: string): void {
+    this.toolsInFlight.delete(toolUseId);
+  }
+
+  /** A permission callback opened; pair an admitted one with permissionSettled(). */
+  permissionStarting(): ToolAdmission {
+    if (this.lease !== undefined) return leasedAdmission;
+    this.permissionCallbacks += 1;
+    return { allowed: true };
+  }
+
+  permissionSettled(): void {
+    this.permissionCallbacks = Math.max(0, this.permissionCallbacks - 1);
   }
 
   claimConsumer(): void {
@@ -111,6 +173,28 @@ export class TurnLedger {
         detail: "A turn is still running",
       };
     }
+    if (this.lease !== undefined) {
+      return {
+        status: "rejected",
+        reason: "checkpoint_lease_held",
+        detail: "Another checkpoint holds the lease",
+      };
+    }
+    const tools = this.toolsInFlight.size + this.permissionCallbacks;
+    if (tools > 0) {
+      return {
+        status: "rejected",
+        reason: "tool_in_flight",
+        detail: `${tools} tool call(s) still running`,
+      };
+    }
+    if (this.backgroundTasks.length > 0) {
+      return {
+        status: "rejected",
+        reason: "background_writer",
+        detail: `Background task(s) still running: ${this.backgroundTasks.join(", ")}`,
+      };
+    }
     if (this.sessionId === undefined) {
       return {
         status: "rejected",
@@ -127,7 +211,36 @@ export class TurnLedger {
       },
     };
   }
+
+  /**
+   * Judges the run and, when it is quiescent, takes the lease in the same
+   * synchronous step: no hook answer can land between the two.
+   */
+  leaseCheckpoint(): CheckpointLeaseGrant {
+    const preparation = this.prepareCheckpoint();
+    if (preparation.status === "rejected") return { lease: null, preparation };
+    const held = {};
+    this.lease = held;
+    return {
+      preparation,
+      lease: {
+        release: () => {
+          if (this.lease === held) this.lease = undefined;
+        },
+      },
+    };
+  }
 }
+
+export type ToolAdmission =
+  | { allowed: true }
+  | { allowed: false; message: string };
+
+const leasedAdmission: ToolAdmission = {
+  allowed: false,
+  message:
+    "A checkpoint is being saved; no tool may start until it is committed",
+};
 
 function mirrorErrorDetail(message: NativeSdkMessage): string {
   const error =
@@ -138,6 +251,27 @@ function mirrorErrorDetail(message: NativeSdkMessage): string {
   const target =
     typeof key?.subpath === "string" ? `subagent ${key.subpath}` : "root";
   return `Transcript mirror dropped a ${target} batch: ${error}`;
+}
+
+/** Replace semantics: the level signal names every live task after a change. */
+function liveTaskIds(message: NativeSdkMessage): string[] {
+  if (!Array.isArray(message.tasks)) return [];
+  return message.tasks.flatMap((task: unknown) => {
+    const id = (task as { task_id?: unknown } | null)?.task_id;
+    return typeof id === "string" ? [id] : [];
+  });
+}
+
+function toolResultIds(message: NativeSdkMessage): string[] {
+  const content = (message.message as { content?: unknown } | undefined)
+    ?.content;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block: unknown) => {
+    const part = block as { tool_use_id?: unknown; type?: unknown } | null;
+    return part?.type === "tool_result" && typeof part.tool_use_id === "string"
+      ? [part.tool_use_id]
+      : [];
+  });
 }
 
 function consumedUuids(message: NativeSdkMessage): string[] {

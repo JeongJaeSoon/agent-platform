@@ -188,3 +188,184 @@ describe("turn ledger", () => {
     );
   });
 });
+
+describe("checkpoint quiescence", () => {
+  test("a tool the gate admitted blocks a checkpoint until a hook settles it", () => {
+    const ledger = new TurnLedger("s1");
+    expect(ledger.toolStarting("toolu_1")).toEqual({ allowed: true });
+    expect(ledger.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "tool_in_flight",
+      detail: "1 tool call(s) still running",
+    });
+    ledger.toolSettled("toolu_1");
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a tool_result settles a tool no hook reported the end of", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.toolStarting("toolu_1");
+    ledger.toolStarting("toolu_2");
+    ledger.observe({
+      type: "user",
+      parent_tool_use_id: "toolu_task",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_1", is_error: true },
+        ],
+      },
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "tool_in_flight",
+    });
+    ledger.observe({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_2" }],
+      },
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("an open permission callback is a tool about to run", () => {
+    const ledger = new TurnLedger("s1");
+    expect(ledger.permissionStarting()).toEqual({ allowed: true });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "tool_in_flight",
+    });
+    ledger.permissionSettled();
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a background task keeps writing after the turn's result", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.observe({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [{ task_id: "bash_1", task_type: "local_bash", description: "" }],
+    });
+    ledger.observe({ type: "result", session_id: "s1", user_message_uuid: "a" });
+    expect(ledger.prepareCheckpoint()).toEqual({
+      status: "rejected",
+      reason: "background_writer",
+      detail: "Background task(s) still running: bash_1",
+    });
+    // Replace semantics: the next level names every task still alive.
+    ledger.observe({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [],
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a lost stream proves nothing about the tools and tasks it left", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.toolStarting("toolu_1");
+    ledger.streamEnded();
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "tool_in_flight",
+    });
+    ledger.toolSettled("toolu_1");
+    ledger.observe({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [{ task_id: "agent_1", task_type: "local_agent", ambient: true }],
+    });
+    ledger.streamEnded();
+    // Ambient only means "not activity"; it says nothing about writing.
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "background_writer",
+    });
+  });
+
+  test("a backgrounded tool's placeholder result settles the call, not its task", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.toolStarting("toolu_bg");
+    ledger.observe({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: [{ task_id: "bash_1", task_type: "local_bash" }],
+    });
+    ledger.observe({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_bg" }],
+      },
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "background_writer",
+    });
+  });
+});
+
+describe("checkpoint lease", () => {
+  test("refuses every new tool, permission and input while it is held", () => {
+    const ledger = new TurnLedger("s1");
+    const grant = ledger.leaseCheckpoint();
+    expect(grant.preparation).toEqual(ready);
+    const refused = {
+      allowed: false,
+      message:
+        "A checkpoint is being saved; no tool may start until it is committed",
+    };
+    expect(ledger.toolStarting("toolu_1")).toEqual(refused);
+    expect(ledger.permissionStarting()).toEqual(refused);
+    expect(() => ledger.queued("next")).toThrow(
+      "A checkpoint is being captured; input next waits",
+    );
+    grant.lease?.release();
+    expect(ledger.toolStarting("toolu_1")).toEqual({ allowed: true });
+  });
+
+  test("is not granted while the run is not quiescent", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.toolStarting("toolu_1");
+    expect(ledger.leaseCheckpoint()).toEqual({
+      lease: null,
+      preparation: {
+        status: "rejected",
+        reason: "tool_in_flight",
+        detail: "1 tool call(s) still running",
+      },
+    });
+    // A refused lease leaves nothing held: the tool that is running can end
+    // and another can start.
+    ledger.toolSettled("toolu_1");
+    expect(ledger.toolStarting("toolu_2")).toEqual({ allowed: true });
+  });
+
+  test("a second checkpoint is blocked while the first holds the lease", () => {
+    const ledger = new TurnLedger("s1");
+    const first = ledger.leaseCheckpoint();
+    const held = {
+      status: "rejected" as const,
+      reason: "checkpoint_lease_held" as const,
+      detail: "Another checkpoint holds the lease",
+    };
+    expect(ledger.leaseCheckpoint()).toEqual({
+      lease: null,
+      preparation: held,
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(held);
+    first.lease?.release();
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a stale grant's release does not release a later lease", () => {
+    const ledger = new TurnLedger("s1");
+    const first = ledger.leaseCheckpoint();
+    first.lease?.release();
+    const second = ledger.leaseCheckpoint();
+    first.lease?.release();
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "checkpoint_lease_held",
+    });
+    second.lease?.release();
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+});

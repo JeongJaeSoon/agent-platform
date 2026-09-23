@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AgentRun,
   AgentRuntime,
+  CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
   PermissionDecision,
@@ -16,7 +17,7 @@ import {
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
-import { TurnLedger } from "./turn-ledger.ts";
+import { type ToolAdmission, TurnLedger } from "./turn-ledger.ts";
 
 export type FakeStep =
   /** Hold until one more input has been sent, the way a real engine waits. */
@@ -24,7 +25,11 @@ export type FakeStep =
   | { delayMs: number; type: "delay" }
   | { message: NativeSdkMessage; type: "emit" }
   | { error: Error; type: "error" }
-  | { requests: Omit<PermissionRequest, "signal">[]; type: "permissions" };
+  | { requests: Omit<PermissionRequest, "signal">[]; type: "permissions" }
+  /** A tool asking the PreToolUse gate to start, the way the real hook does. */
+  | { toolUseId: string; type: "tool-start" }
+  /** PostToolUse for a tool that started. */
+  | { toolUseId: string; type: "tool-end" };
 
 export type FakeRuntimeOptions = {
   /**
@@ -41,6 +46,11 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
   /** Every input the host sent, including ones the engine deduplicated. */
   readonly inputs: AgentInput[] = [];
   readonly permissionDecisions: PermissionDecision[] = [];
+  /** What the tool gate answered each tool-start step, in order. */
+  readonly toolAdmissions: Array<{
+    admission: ToolAdmission;
+    toolUseId: string;
+  }> = [];
 
   constructor(
     private readonly steps: FakeStep[],
@@ -136,6 +146,10 @@ class FakeRun implements AgentRun {
     this.abort();
   }
 
+  async leaseCheckpoint(): Promise<CheckpointLeaseGrant> {
+    return this.ledger.leaseCheckpoint();
+  }
+
   async prepareCheckpoint(): Promise<CheckpointPreparation> {
     return this.ledger.prepareCheckpoint();
   }
@@ -169,15 +183,19 @@ class FakeRun implements AgentRun {
             const decisions = await raceAbort(
               Promise.all(
                 step.requests.map((request) =>
-                  this.onPermission({
-                    ...request,
-                    signal: controlSignal,
-                  }),
+                  this.askPermission({ ...request, signal: controlSignal }),
                 ),
               ),
               controlSignal,
             );
             this.runtime.permissionDecisions.push(...decisions);
+          } else if (step.type === "tool-start") {
+            this.runtime.toolAdmissions.push({
+              toolUseId: step.toolUseId,
+              admission: this.ledger.toolStarting(step.toolUseId),
+            });
+          } else if (step.type === "tool-end") {
+            this.ledger.toolSettled(step.toolUseId);
           } else {
             this.ledger.observe(step.message);
             yield frameFromNativeMessage(
@@ -202,6 +220,26 @@ class FakeRun implements AgentRun {
       }
     } finally {
       this.ledger.streamEnded();
+    }
+  }
+
+  /** The same gate the real canUseTool goes through. */
+  private async askPermission(
+    request: PermissionRequest,
+  ): Promise<PermissionDecision> {
+    const admission = this.ledger.permissionStarting();
+    if (!admission.allowed) {
+      this.ledger.toolSettled(request.toolUseId);
+      return { behavior: "deny", message: admission.message };
+    }
+    let allowed = false;
+    try {
+      const decision = await this.onPermission(request);
+      allowed = decision.behavior === "allow";
+      return decision;
+    } finally {
+      this.ledger.permissionSettled();
+      if (!allowed) this.ledger.toolSettled(request.toolUseId);
     }
   }
 

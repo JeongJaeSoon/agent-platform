@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentFrame, TranscriptKey } from "@agent-platform/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
@@ -13,8 +13,12 @@ import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
 } from "@agent-platform/testkit/workspace";
-import { ClaudeSdkRuntime } from "./runtime.ts";
+import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
+import type { ClaudeRuntimeConfig } from "./config.ts";
+import { InputStream } from "./run.ts";
+import { buildSdkOptions, ClaudeSdkRuntime } from "./runtime.ts";
 import { ClaudeSessionStore } from "./session-store.ts";
+import { TurnLedger } from "./turn-ledger.ts";
 
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
@@ -785,6 +789,162 @@ async function aborted(signal: AbortSignal): Promise<void> {
     signal.addEventListener("abort", () => resolve(), { once: true });
   });
 }
+
+describe("checkpoint quiescence against the actual SDK (94S-208)", () => {
+  const bashConfig = (
+    workspace: string,
+    home: string,
+    url: string,
+  ): ClaudeRuntimeConfig => ({
+    claudeConfigDir: home,
+    correlationId: "actual-quiescence",
+    mode: "new",
+    cwd: workspace,
+    home,
+    maxTurns: 3,
+    model: "claude-sonnet-4-5",
+    profile: {
+      kind: "anthropic",
+      endpoint: url,
+      auth: { kind: "api_key", value: "placeholder-local" },
+      principal: { ownerScope: "owner-a" },
+    },
+    settingSources: ["project"],
+    tools: ["Bash"],
+  });
+
+  test("every tool the engine runs is settled by the time its turn ends", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-208-" });
+    const { home, workspace } = isolated;
+    const target = join(workspace, "written.txt");
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply(
+            "Bash",
+            { command: `printf ok > ${JSON.stringify(target)}` },
+            "toolu_write",
+          )
+        : textReply("written"),
+    );
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const run = runtime.start(bashConfig(workspace, home, server.url), {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const consume = (async () => {
+      for await (const frame of run) {
+        if (frame.envelope.message.type === "result") run.finishInput();
+      }
+    })();
+    run.send({ message: "write a file", uuid: crypto.randomUUID() });
+    await withTimeout(consume, 20_000, "The tool turn did not settle");
+
+    expect((await stat(target)).isFile()).toBe(true);
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+  }, 30_000);
+
+  test("a backgrounded command holds checkpoints back after the turn's result", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-208-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply(
+            "Bash",
+            { command: "sleep 8", run_in_background: true },
+            "toolu_background",
+          )
+        : textReply("started in the background"),
+    );
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const run = runtime.start(bashConfig(workspace, home, server.url), {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    let resulted: (() => void) | undefined;
+    const result = new Promise<void>((resolve) => {
+      resulted = resolve;
+    });
+    const consume = (async () => {
+      for await (const frame of run) {
+        if (frame.envelope.message.type === "result") resulted?.();
+      }
+    })();
+    run.send({ message: "start a server", uuid: crypto.randomUUID() });
+    await withTimeout(result, 20_000, "The background turn did not settle");
+
+    expect(await run.prepareCheckpoint()).toMatchObject({
+      status: "rejected",
+      reason: "background_writer",
+    });
+    expect((await run.leaseCheckpoint()).lease).toBeNull();
+    run.close();
+    await consume.catch(() => {});
+  }, 30_000);
+
+  test("a tool that asks to start under a checkpoint lease never runs", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-208-" });
+    const { home, workspace } = isolated;
+    const target = join(workspace, "under-lease.txt");
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply(
+            "Bash",
+            { command: `printf leaked > ${JSON.stringify(target)}` },
+            "toolu_leased",
+          )
+        : textReply("refused"),
+    );
+    // The host never sends input under a lease (the ledger refuses it), so
+    // this drives the engine directly to put a tool call in front of a held
+    // lease and see what the pinned CLI does with the gate's refusal.
+    const ledger = new TurnLedger("seeded");
+    const grant = ledger.leaseCheckpoint();
+    expect(grant.preparation.status).toBe("ready");
+    const input = new InputStream();
+    const abortController = new AbortController();
+    let permissionAsked = false;
+    const options: Options = buildSdkOptions(
+      bashConfig(workspace, home, server.url),
+      {
+        onPermission: async () => {
+          permissionAsked = true;
+          return { behavior: "allow" };
+        },
+      },
+      ledger,
+      abortController,
+    );
+    const sdkQuery = query({ prompt: input, options });
+    const results: unknown[] = [];
+    const consume = (async () => {
+      for await (const message of sdkQuery) {
+        if (message.type === "user") {
+          const content = (message.message as { content?: unknown }).content;
+          if (Array.isArray(content)) results.push(...content);
+        }
+        if (message.type === "result") input.finish();
+      }
+    })();
+    input.push({ message: "write under the lease", uuid: crypto.randomUUID() });
+    await withTimeout(consume, 20_000, "The leased turn did not settle");
+    grant.lease?.release();
+
+    expect(await stat(target).catch(() => null)).toBeNull();
+    expect(permissionAsked).toBe(false);
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        type: "tool_result",
+        tool_use_id: "toolu_leased",
+        is_error: true,
+      }),
+    );
+    expect(JSON.stringify(results)).toContain("A checkpoint is being saved");
+  }, 30_000);
+});
 
 async function withTimeout<T>(
   operation: Promise<T>,
