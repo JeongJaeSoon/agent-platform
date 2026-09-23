@@ -6,6 +6,11 @@ name: main push run
 # a push run of ci.yml, and opens an issue for each one that does not. `spikes`
 # runs only on main pushes, so a dropped run is also a commit with no spike
 # signal at all.
+#
+# For the push runs that do exist it then reads the `spikes` job's conclusion.
+# The issue step inside that job misses exactly the failures that stop it: a
+# timeout or a cancellation, and a failed `gh` call hidden behind
+# continue-on-error (94S-257).
 on:
   schedule:
     # Twice a day, judging a 36-hour window each time (see the script), so a
@@ -17,6 +22,16 @@ on:
         description: 'A single commit to check instead of the recent window. 70139eb is a known missing case, 10e58fb a normal one.'
         required: false
         default: ''
+      run_id:
+        description: 'Judge only the spikes job of this ci.yml run (any event), skipping the commit check.'
+        required: false
+        default: ''
+
+# A scheduled and a manual check running at once would both find the same
+# unreported run and both report it.
+concurrency:
+  group: main-push-run
+  cancel-in-progress: false
 
 permissions:
   actions: read
@@ -26,13 +41,18 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Measured 75s for a 36-hour window of 64 commits (about 190 serial API
+    # calls); the ceiling leaves an order of magnitude for a busier main or a
+    # slow API.
+    timeout-minutes: 15
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - env:
+      - name: Push run of each main commit
+        if: github.event.inputs.run_id == ''
+        env:
           SHA: ${{ github.event.inputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         # The script's exit 1 means "something is missing", not an error; any
@@ -42,11 +62,11 @@ jobs:
         run: |
           rc=0
           verdicts=$(.github/scripts/check-main-push-run.sh "$SHA") || rc=$?
-          echo "$verdicts"
+          echo "$verdicts" | tee verdicts.txt
           [ "$rc" -le 1 ] || exit "$rc"
           # A quiet window prints nothing and is fine; a lookup that could
           # not happen already left with exit 2 above.
-          while read -r verdict short; do
+          while read -r verdict short _; do
             [ "$verdict" = missing ] || continue
             {
               echo "<!-- ci-missing-push-run -->"
@@ -61,3 +81,42 @@ jobs:
             .github/scripts/upsert-ci-issue.sh --by-title ci-missing-push-run \
               "CI: main commit ${short} has no push run" body.md
           done <<<"$verdicts"
+      - name: Spikes job of each push run
+        # Also after the commit check failed: the verdicts it did reach still
+        # name push runs to judge.
+        if: '!cancelled()'
+        env:
+          ONLY_RUN: ${{ github.event.inputs.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # One run that could not be judged does not stop the others from being
+        # reported; the step still fails at the end so the gap is seen.
+        run: |
+          if [ -n "$ONLY_RUN" ]; then
+            run_ids=$ONLY_RUN
+          else
+            # Oldest first: if the job is cut short, what is lost is the newest
+            # runs, which the next check sees again; the oldest are about to
+            # leave the window for good.
+            run_ids=$(awk '$1 == "present" { print $3 }' verdicts.txt 2>/dev/null | tac || true)
+          fi
+          failed=0
+          for run_id in $run_ids; do
+            verdict=$(.github/scripts/check-spikes-job.sh "$run_id") || {
+              failed=1
+              continue
+            }
+            echo "run ${run_id}: ${verdict}"
+            read -r state conclusion spikes_run_url head_sha <<<"$verdict"
+            [ "$state" = unreported ] || continue
+            # The run URL in this body is what marks the run as reported for
+            # the next check, closed issue or not.
+            {
+              echo "<!-- ci-spikes-failure -->"
+              echo "\`spikes\` concluded \`${conclusion}\` @ \`${head_sha}\` ([run ${run_id}](${spikes_run_url})), and no issue named that run: the job's own issue step never ran (a timeout or a cancellation) or failed. Found by [run ${GITHUB_RUN_ID}](${RUN_URL})."
+              echo
+              echo "Close this issue once the failure is understood; the next failure reopens a new one."
+            } >body.md
+            .github/scripts/upsert-ci-issue.sh ci-spikes-failure \
+              "CI: spikes failed (non-blocking job)" body.md || failed=1
+          done
+          exit "$failed"

@@ -14,9 +14,10 @@
 # seen twice is reported once.
 #
 # Prints one line per commit, `<verdict> <short-sha>`, where the verdict is
-# `present`, `missing` or `too-recent`. Exits 1 when any commit is missing and
-# 2 when GitHub could not be asked, so a caller can tell "found a gap" from
-# "could not look" — the lines already printed are then a partial answer.
+# `present`, `missing` or `too-recent`; a `present` line ends with the push
+# run's id. Exits 1 when any commit is missing and 2 when GitHub could not be
+# asked, so a caller can tell "found a gap" from "could not look" — the lines
+# already printed are then a partial answer.
 #
 # usage: check-main-push-run.sh [sha]
 #   sha  a single commit to judge instead of the window (fixture runs)
@@ -78,10 +79,12 @@ while read -r sha committed_at; do
     continue
   fi
 
-  runs=$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?event=push&head_sha=${sha}&per_page=1" \
-    --jq '.total_count') || api_failed "runs for ${short}"
+  # The newest push run; its id lets a caller read that run's jobs.
+  found=$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?event=push&head_sha=${sha}&per_page=1" \
+    --jq '"\(.total_count) \(.workflow_runs[0].id // "")"') || api_failed "runs for ${short}"
+  read -r runs run_id <<<"$found"
   if [ "$runs" -gt 0 ]; then
-    echo "present ${short}"
+    echo "present ${short} ${run_id}"
   else
     echo "missing ${short}"
     status=1
