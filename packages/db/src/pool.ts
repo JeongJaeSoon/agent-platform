@@ -44,9 +44,14 @@ export const JOB_POOL_TIMEOUTS: PoolTimeouts = {
 // not queryable, which makes pg-pool discard it on release.
 const QUERY_READ_TIMEOUT = "Query read timeout";
 
+interface Checkout {
+  readonly release: (error?: Error) => void;
+  done: boolean;
+  unhold?: () => void;
+}
+
 export class EvictOnReadTimeoutClient extends Client {
-  private pendingRelease: ((error?: Error) => void) | undefined;
-  private unhold: (() => void) | undefined;
+  private checkout: Checkout | undefined;
   private evicted = false;
 
   constructor(...args: ConstructorParameters<typeof Client>) {
@@ -65,26 +70,40 @@ export class EvictOnReadTimeoutClient extends Client {
   // twice. Eviction hands the client back itself (drizzle runs BEGIN before
   // the try/finally that releases, so a timed-out BEGIN would otherwise leak
   // the slot for good), and the caller's own release() must then be a no-op.
+  // Each checkout gets its own handle: one captured during an earlier
+  // checkout must not release the client from under its next holder.
   set release(fn: ((error?: Error) => void) | undefined) {
-    this.pendingRelease = fn;
+    if (!fn) {
+      this.checkout = undefined;
+      return;
+    }
+    const checkout: Checkout = {
+      release: (error?: Error) => {
+        if (checkout.done) {
+          return;
+        }
+        checkout.done = true;
+        checkout.unhold?.();
+        fn(error);
+      },
+      done: false,
+    };
+    this.checkout = checkout;
   }
 
   get release(): (error?: Error) => void {
-    return (error?: Error) => {
-      this.unhold?.();
-      this.unhold = undefined;
-      const fn = this.pendingRelease;
-      this.pendingRelease = undefined;
-      fn?.(error);
-    };
+    return this.checkout?.release ?? (() => {});
   }
 
   // Checked out under a request deadline: evicted if the deadline expires
   // while this checkout is still open.
   holdFor(deadline: RequestDeadline): void {
-    this.unhold = deadline.hold(() =>
-      this.evict(new RequestDeadlineExceededError()),
-    );
+    const checkout = this.checkout;
+    if (checkout && !checkout.done) {
+      checkout.unhold = deadline.hold(() =>
+        this.evict(new RequestDeadlineExceededError()),
+      );
+    }
   }
 
   private evictOnReadTimeout(error: unknown): void {
