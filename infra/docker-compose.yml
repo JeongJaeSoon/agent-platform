@@ -301,16 +301,15 @@ services:
   # bound — and a killed pass counts as a failure too, since Docker never
   # restarts a container for being unhealthy.
   scheduler:
-    build:
-      context: ..
-      dockerfile: apps/control-host/Dockerfile
     image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
-    # The control-host image's scheduler role. Root on purpose: the process
-    # owns the Docker socket, and whoever holds that socket is root on the
-    # daemon host anyway. The socket's group id differs per daemon
-    # (Desktop, colima, Linux), so a fixed non-root uid would only work on
-    # some of them while buying no isolation on any.
+    # The control-host image's scheduler role. `api` builds that image, and
+    # depends_on a healthy api orders the build before this container.
+    # Root on purpose: the process owns the Docker socket, and whoever
+    # holds that socket is root on the daemon host anyway. The socket's
+    # group id differs per daemon (Desktop, colima, Linux), so a fixed
+    # non-root uid would only work on some of them while buying no
+    # isolation on any.
     user: "0:0"
     command:
       - sh

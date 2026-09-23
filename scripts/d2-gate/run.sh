@@ -3,7 +3,7 @@
 #
 #   scripts/d2-gate/run.sh
 #
-# Builds the api, scheduler and worker images from this checkout, starts the
+# Builds the control-host and worker images from this checkout, starts the
 # compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
 # then runs tests/d2-gate.e2e.test.ts against it. The report (JSON and
@@ -16,7 +16,7 @@
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless D2_GATE_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
-# installation id, and the three images are removed on exit.
+# installation id, and the two images are removed on exit.
 set -euo pipefail
 # vars.sh and the logs carry the run's API key.
 umask 077
@@ -62,7 +62,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-dc build api scheduler worker >"$out/build.log" 2>&1
+dc build api worker >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1

@@ -254,13 +254,20 @@ sub(dockerfile, r"# API image: .*?with 94S-117 by changing the paths below\.\n",
 
 compose = "infra/docker-compose.yml"
 replace(compose, "image: ${API_IMAGE:-agent-platform-api:dev}", "image: ${API_IMAGE:-agent-platform-control-host:dev}")
-replace(compose, "    image: ${SCHEDULER_IMAGE:-agent-platform-scheduler:dev}\n    profiles: [\"apps\"]\n",
+# Only `api` builds the shared image: two services building one tag race on
+# export ("image already exists"). The scheduler already waits for a healthy
+# api, so `up --build` has the image before the scheduler is created.
+replace(compose, "  scheduler:\n    build:\n      context: ..\n      dockerfile: apps/control-host/Dockerfile\n"
+        "    image: ${SCHEDULER_IMAGE:-agent-platform-scheduler:dev}\n    profiles: [\"apps\"]\n",
+        "  scheduler:\n"
         "    image: ${API_IMAGE:-agent-platform-control-host:dev}\n    profiles: [\"apps\"]\n"
-        "    # The control-host image's scheduler role. Root on purpose: the process\n"
-        "    # owns the Docker socket, and whoever holds that socket is root on the\n"
-        "    # daemon host anyway. The socket's group id differs per daemon\n"
-        "    # (Desktop, colima, Linux), so a fixed non-root uid would only work on\n"
-        "    # some of them while buying no isolation on any.\n"
+        "    # The control-host image's scheduler role. `api` builds that image, and\n"
+        "    # depends_on a healthy api orders the build before this container.\n"
+        "    # Root on purpose: the process owns the Docker socket, and whoever\n"
+        "    # holds that socket is root on the daemon host anyway. The socket's\n"
+        "    # group id differs per daemon (Desktop, colima, Linux), so a fixed\n"
+        "    # non-root uid would only work on some of them while buying no\n"
+        "    # isolation on any.\n"
         "    user: \"0:0\"\n")
 
 
@@ -302,12 +309,28 @@ sub(images_test, r'for \(const app of \["api", "scheduler"(, [^\]]*)?\] as const
     lambda m: 'for (const app of ["control-host"' + (m.group(1) or "") + '] as const)')
 sub(images_test, r"basePins\.api\.source", 'basePins["control-host"].source', count=2)
 sub(images_test, r'("app: \[)([^\]]*)\]"', lambda m: without_scheduler(m) + '"')
+replace(images_test,
+        '  test("the scheduler loop surfaces persistent failure", () => {\n',
+        '  test("one service builds the shared control-host image", () => {\n'
+        '    // Two services building one tag race on export: "already exists".\n'
+        '    expect(compose.match(/dockerfile: apps\\/control-host\\/Dockerfile/g)).toHaveLength(1);\n'
+        '    const schedulerBlock = compose.slice(compose.indexOf("\\n  scheduler:"));\n'
+        '    expect(schedulerBlock).toContain(\n'
+        '      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",\n'
+        '    );\n'
+        '  });\n\n'
+        '  test("the scheduler loop surfaces persistent failure", () => {\n')
 
 # --- the D2 gate (94S-247) runs the product images: one control-host image now ----
 run_sh = "scripts/d2-gate/run.sh"
 replace(run_sh, 'export API_IMAGE="agent-platform-api:${project}"\nexport SCHEDULER_IMAGE="agent-platform-scheduler:${project}"\n',
         'export API_IMAGE="agent-platform-control-host:${project}"\n')
 replace(run_sh, '"$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE"', '"$API_IMAGE" "$WORKER_IMAGE"')
+replace(run_sh, "dc build api scheduler worker ", "dc build api worker ")
+replace(run_sh, "# Builds the api, scheduler and worker images from this checkout",
+        "# Builds the control-host and worker images from this checkout")
+replace(run_sh, "installation id, and the three images are removed on exit.",
+        "installation id, and the two images are removed on exit.")
 sub("tests/d2-gate/harness.ts", r"\n  schedulerImage: string;", "")
 sub("tests/d2-gate/harness.ts", r'\n    schedulerImage: need\("SCHEDULER_IMAGE"\),', "")
 sub("tests/d2-gate.e2e.test.ts", r"\n    scheduler_image: `[^\n]*`,", "")

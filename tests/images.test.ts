@@ -59,6 +59,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
   });
 
+  test("one service builds the shared control-host image", () => {
+    // Two services building one tag race on export: "already exists".
+    expect(
+      compose.match(/dockerfile: apps\/control-host\/Dockerfile/g),
+    ).toHaveLength(1);
+    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
+    expect(schedulerBlock).toContain(
+      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",
+    );
+  });
+
   test("the scheduler loop surfaces persistent failure", () => {
     const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
     expect(schedulerBlock).toContain("SCHEDULER_MAX_CONSECUTIVE_FAILURES");
