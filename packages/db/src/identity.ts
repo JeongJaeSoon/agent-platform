@@ -8,6 +8,7 @@ import {
   isNull,
   lt,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -177,6 +178,9 @@ export async function createWebSession(
         id: input.id,
         userId: input.userId,
         tokenHash: input.tokenHash,
+        // Not the column default now(): that is the transaction start, and
+        // a login that waited longest for the user lock would sort oldest.
+        createdAt: DB_NOW,
         expiresAt: fromDbNow(input.ttlMs),
         lastSeenAt: DB_NOW,
         userAgent: input.userAgent,
@@ -185,17 +189,21 @@ export async function createWebSession(
     if (!row) {
       throw new Error("web session insert returned no row");
     }
+    // The new session always stays; the others compete for the rest.
     const keep = tx
       .select({ id: webSessions.id })
       .from(webSessions)
-      .where(eq(webSessions.userId, input.userId))
+      .where(
+        and(eq(webSessions.userId, input.userId), ne(webSessions.id, input.id)),
+      )
       .orderBy(desc(webSessions.createdAt), desc(webSessions.id))
-      .limit(input.maxLive);
+      .limit(Math.max(0, input.maxLive - 1));
     await tx
       .delete(webSessions)
       .where(
         and(
           eq(webSessions.userId, input.userId),
+          ne(webSessions.id, input.id),
           notInArray(webSessions.id, keep),
         ),
       );

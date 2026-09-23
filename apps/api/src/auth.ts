@@ -211,9 +211,22 @@ export async function bootstrapGateFromEnv(
     return createBootstrapGate(parsed.data);
   }
   const token = generateBootstrapToken();
-  if ((await store.countUsers()) === 0) {
+  let users: number | null;
+  try {
+    users = await store.countUsers();
+  } catch (error) {
+    // The API starts without its database and answers readiness 503
+    // (94S-256), so an unreachable database cannot stop startup here. The
+    // count is unknown; print anyway, since the value only ever works while
+    // users is 0.
+    users = null;
+    logger.warn("BOOTSTRAP_TOKEN not set and users could not be counted", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+  }
+  if (users === null || users === 0) {
     logger.warn(
-      "BOOTSTRAP_TOKEN not set; a token for this process was printed to stderr",
+      "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
     );
     print(`BOOTSTRAP_TOKEN=${token}`);
   }

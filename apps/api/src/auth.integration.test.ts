@@ -375,5 +375,14 @@ integration("auth API on PostgreSQL", () => {
     expect(await status(cookies[2] ?? "")).toBe(401);
     expect(await status(cookies[3] ?? "")).toBe(200);
     expect(await status(cookies.at(-1) ?? "")).toBe(200);
+
+    // A login whose row would sort oldest (it waited longest for the user
+    // lock) still keeps the session it hands out.
+    await db
+      .update(webSessions)
+      .set({ createdAt: sql`clock_timestamp() + interval '1 hour'` });
+    const late = cookieOf(await login());
+    expect(await status(late)).toBe(200);
+    expect(await db.$count(webSessions)).toBe(WEB_SESSIONS_PER_USER);
   });
 });

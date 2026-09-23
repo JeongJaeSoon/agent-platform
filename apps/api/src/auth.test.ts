@@ -391,6 +391,28 @@ describe("bootstrap", () => {
     ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
   });
 
+  test("an unreachable database does not stop startup; the value is printed since users is unknown", async () => {
+    const identity = new MemoryIdentityStore();
+    identity.countUsers = async () => {
+      throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
+        code: "ECONNREFUSED",
+      });
+    };
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const printed: string[] = [];
+    const gate = await bootstrapGateFromEnv(
+      undefined,
+      identity,
+      logger,
+      (line) => printed.push(line),
+    );
+    expect(printed).toHaveLength(1);
+    const value = printed[0]?.replace("BOOTSTRAP_TOKEN=", "") ?? "";
+    expect(JSON.stringify(sink.records)).not.toContain(value);
+    expect(gate.matches(value)).toBe(true);
+  });
+
   test("an empty BOOTSTRAP_TOKEN refuses to start instead of generating one", async () => {
     const identity = new MemoryIdentityStore();
     let counted = 0;
