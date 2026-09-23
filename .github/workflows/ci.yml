@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
       - name: Project-quota filesystem
@@ -154,7 +154,7 @@ jobs:
             -e DOCKER_TLS_CERTDIR= \
             -v /mnt/xfs:/var/lib/docker \
             -v /tmp/apq:/sock \
-            docker:27-dind --host=unix:///sock/docker.sock
+            docker:28-dind --host=unix:///sock/docker.sock
           for _ in $(seq 1 60); do
             docker exec apq docker version >/dev/null 2>&1 && break
             sleep 2

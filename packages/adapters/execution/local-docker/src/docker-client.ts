@@ -130,6 +130,8 @@ export type NetworkInspect = {
   Internal: boolean;
   Labels?: Record<string, string> | null;
   Name: string;
+  /** Driver options as the daemon recorded them, known to it or not. */
+  Options?: Record<string, string> | null;
 };
 
 export type NetworkCreateBody = {
@@ -138,6 +140,7 @@ export type NetworkCreateBody = {
   Internal: boolean;
   Labels?: Record<string, string>;
   Name: string;
+  Options?: Record<string, string>;
 };
 
 export type ContainerSummary = {
