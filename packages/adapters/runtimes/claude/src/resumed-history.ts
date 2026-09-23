@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import type {
   TranscriptEntry,
   TranscriptMirror,
@@ -44,14 +44,18 @@ export class ResumedHistory {
     sessionId: string,
   ): ResumedHistory {
     const history = new ResumedHistory();
-    const path = join(
-      claudeConfigDir,
-      "projects",
-      cwd.replaceAll(/[^a-zA-Z0-9]/g, "-"),
-      `${sessionId}.jsonl`,
-    );
     void (async () => {
       try {
+        // The CLI names the directory after the canonical cwd, not the
+        // string it was handed: a trailing slash or a symlink would
+        // otherwise point at a file that does not exist.
+        const canonical = (await realpath(resolve(cwd))).normalize("NFC");
+        const path = join(
+          claudeConfigDir,
+          "projects",
+          canonical.replaceAll(/[^a-zA-Z0-9]/g, "-"),
+          `${sessionId}.jsonl`,
+        );
         const text = await readFile(path, "utf8");
         history.#settle.resolve(
           uuidsOf(

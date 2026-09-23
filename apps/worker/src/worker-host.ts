@@ -540,7 +540,11 @@ export class WorkerHost {
    * input its outcome is unknown: it was recorded, not proven finished.
    */
   private async deliver(run: AgentRun, turn: Turn, message: string) {
-    const held = await this.untilAbandoned(run.holdsInput(turn.uuid));
+    // Raced with the turn too: the deadline has to end a check that hangs.
+    const held = await Promise.race([
+      this.untilAbandoned(run.holdsInput(turn.uuid)),
+      turn.settled.then(() => undefined),
+    ]);
     // The check awaited: the deadline, the lease or the engine may be gone.
     if (held === undefined || turn.closed) return;
     if (this.stopKind === "failed" || this.stopKind === "lost") return;
@@ -738,7 +742,9 @@ export class WorkerHost {
           : terminalOf(native)
         : {
             status: "outcome_unknown",
-            reason: "The engine reported a result it attributed to no input",
+            reason: turn.timedOut
+              ? "turn_timeout"
+              : "The engine reported a result it attributed to no input",
             result: resultPayload(native),
             usage: native.usage ?? null,
           },

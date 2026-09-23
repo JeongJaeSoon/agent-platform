@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -78,18 +85,23 @@ describe("resumed history", () => {
     await expect(history.uuids()).rejects.toThrow("before it loaded");
   });
 
-  test("reads a local resume from the CLI's own transcript file", async () => {
-    scratch = await mkdtemp(join(tmpdir(), "94s-242-"));
-    const cwd = "/work/space.one";
-    const dir = join(scratch, "projects", "-work-space-one");
+  test("reads a local resume from the CLI's own transcript file, under the canonical cwd", async () => {
+    scratch = await realpath(await mkdtemp(join(tmpdir(), "94s-242-")));
+    const cwd = join(scratch, "space.one");
+    await mkdir(cwd);
+    const linked = join(scratch, "linked");
+    await symlink(cwd, linked);
+    const dir = join(scratch, "projects", cwd.replaceAll(/[^a-zA-Z0-9]/g, "-"));
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, "s1.jsonl"),
       `${JSON.stringify({ type: "user", uuid: "input-1" })}\n${JSON.stringify({ type: "summary" })}\n`,
     );
 
-    const history = ResumedHistory.fromLocalDisk(scratch, cwd, "s1");
-    expect(await history.uuids()).toEqual(new Set(["input-1"]));
+    for (const spelling of [cwd, `${cwd}/`, linked]) {
+      const history = ResumedHistory.fromLocalDisk(scratch, spelling, "s1");
+      expect(await history.uuids()).toEqual(new Set(["input-1"]));
+    }
 
     const absent = ResumedHistory.fromLocalDisk(scratch, cwd, "s2");
     await expect(absent.uuids()).rejects.toThrow("could not be read");

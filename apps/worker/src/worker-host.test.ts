@@ -1355,6 +1355,35 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
+  test("a transcript check that hangs is ended by the turn deadline, not the drain budget", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose transcript never loads");
+    const began = Date.now();
+
+    const summary = await host.runLoop();
+
+    expect(Date.now() - began).toBeLessThan(10_000);
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.releases).toHaveLength(1);
+  }, 15_000);
+
   test("an engine that swallows the input is closed by the turn deadline, not left leased", async () => {
     // What the fix guards against, reproduced: the check is bypassed, the
     // engine deduplicates the send and answers nothing — not even the
