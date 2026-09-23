@@ -151,7 +151,16 @@ export function validConfig(value: unknown): SoakConfig {
       "probes.slowStepMs must outlast targets.interruptEffectMs, or a slow step ending on its own reads as an interrupt",
     );
   }
-  positive("readyz.intervalMs", config.readyz?.intervalMs);
+  const readyz = config.readyz;
+  if (
+    !Number.isInteger(readyz?.intervalMs) ||
+    readyz.intervalMs < 1000 ||
+    !(readyz.timeoutMs > 0 && readyz.timeoutMs < readyz.intervalMs)
+  ) {
+    problems.push(
+      "readyz.intervalMs must be an integer >= 1000 and readyz.timeoutMs within (0, intervalMs)",
+    );
+  }
   positive("invariants.intervalMin", config.invariants?.intervalMin);
   positive("invariants.slotLimit", config.invariants?.slotLimit);
   positive("sampleIntervalSec", config.sampleIntervalSec);
@@ -563,20 +572,22 @@ async function readyzLoop(soak: Soak, clock: Clock): Promise<void> {
     status: 0,
     wallMs: 0,
   });
+  // How late a probe may start and still stand for its slot.
+  const grace = Math.min(1000, interval / 2);
   let slot = Date.now();
   while (!clock.stopping) {
-    const t = new Date().toISOString();
-    record(
-      await readyzProbe(env.apiUrl, config.readyz.timeoutMs).then(
-        (probe) => ({ t, ...probe }),
-        (error) => failed(Date.now(), `probe did not run: ${String(error)}`),
-      ),
-    );
-    slot += interval;
-    while (Date.now() >= slot + interval) {
+    if (Date.now() > slot + grace) {
       record(failed(slot, "slot missed: the runner did not get to it"));
-      slot += interval;
+    } else {
+      const t = new Date().toISOString();
+      record(
+        await readyzProbe(env.apiUrl, config.readyz.timeoutMs).then(
+          (probe) => ({ t, ...probe }),
+          (error) => failed(Date.now(), `probe did not run: ${String(error)}`),
+        ),
+      );
     }
+    slot += interval;
     while (!clock.stopping && Date.now() < slot) {
       await Bun.sleep(Math.min(1000, slot - Date.now()));
     }
@@ -759,10 +770,22 @@ export function judge(
       : Number.POSITIVE_INFINITY,
   );
   // A restarted loop writes a new loopStartedAt, whatever its pass count.
-  const restarts =
-    new Set(
-      reconcilerSamples.map((sample) => sample.status?.loopStartedAt ?? ""),
-    ).size - 1;
+  // The last reading before steady is the baseline, and a loop that started
+  // inside the window is a restart even when no earlier reading shows the
+  // one it replaced (its fresh status also clears lastFailureAt).
+  const baseline = soak.reconciler
+    .filter((sample) => steadyKnown && Date.parse(sample.t) < steadyFrom)
+    .at(-1)?.status?.loopStartedAt;
+  const loopIds = new Set(
+    [
+      baseline,
+      ...reconcilerSamples.map((sample) => sample.status?.loopStartedAt),
+    ].filter((id): id is string => typeof id === "string"),
+  );
+  const startedInSteady = [...loopIds].some(
+    (id) => Date.parse(id) >= steadyFrom,
+  );
+  const restarts = Math.max(loopIds.size - 1, startedInSteady ? 1 : 0);
   const targets = config.targets;
   const accepted = (endpoint: TurnRecord["endpoint"]) =>
     distribution(
