@@ -1415,6 +1415,39 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
     ]);
   }, 15_000);
 
+  test("a check that fails only after the deadline leaves the timeout to finalize", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") {
+                return () =>
+                  Bun.sleep(80).then(() => {
+                    throw new Error("The transcript store went away");
+                  });
+              }
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose check fails too late");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+  }, 15_000);
+
   test("a drain budget shorter than the interrupt grace still gets the timeout finalized", async () => {
     const { gateway, host } = harness(
       [{ type: "await-input" }, { type: "await-input" }],

@@ -543,9 +543,15 @@ export class WorkerHost {
    * input its outcome is unknown: it was recorded, not proven finished.
    */
   private async deliver(run: AgentRun, turn: Turn, message: string) {
+    const check = run.holdsInput(turn.uuid).catch((error: unknown) => {
+      // Past the deadline the timeout owns the terminal; a check failing
+      // now must not unwind the turn before it is finalized.
+      if (turn.timedOut) return undefined;
+      throw error;
+    });
     // Raced with the turn too: the deadline has to end a check that hangs.
     const held = await Promise.race([
-      this.untilAbandoned(run.holdsInput(turn.uuid)),
+      this.untilAbandoned(check),
       turn.settled.then(() => undefined),
     ]);
     // The check awaited: the deadline, the lease or the engine may be gone.
