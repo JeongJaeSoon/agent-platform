@@ -19,6 +19,7 @@ import type {
   CheckpointPointer,
   CheckpointStore,
 } from "../ports/checkpoint-store.ts";
+import { serviceCheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
   createCheckpointService,
@@ -465,7 +466,8 @@ describe("finalize trusts what a held pointer already proved", () => {
     return refs;
   }
 
-  const sorted = (keys: readonly string[]) => [...new Set(keys)].sort();
+  // Not deduplicated: a second request for the same object is a regression.
+  const sorted = (keys: readonly string[]) => [...keys].sort();
 
   test("requests only the turn's new parts, manifest and bundle, not the 1,000 it inherited", async () => {
     const inherited = await parts(0, 1_000);
@@ -474,10 +476,15 @@ describe("finalize trusts what a held pointer already proved", () => {
     const { checkpoint, manifest } = await publish(1, [...inherited, ...added]);
     const { calls, service: watched } = counting();
 
-    expect(await finalizeWith(watched, checkpoint)).toEqual({
-      outcome: "committed",
-      revision: 1,
-    });
+    // The path a turn's finalize (and so an interrupt) takes.
+    expect(
+      await serviceCheckpointVerifier(watched).verify({
+        at: new Date("2026-09-23T00:00:00.000Z"),
+        checkpoint,
+        fence,
+        turnId: "turn-1",
+      }),
+    ).toEqual({ status: "verified", versionsHeld: true });
     const fresh = [
       ...added.map((ref) => ref.key),
       manifest.workspace.bundle.key,
@@ -490,10 +497,26 @@ describe("finalize trusts what a held pointer already proved", () => {
     expect(sorted(calls.hold)).toEqual(
       sorted([...fresh, checkpoint.manifest_ref]),
     );
-    expect(checkpoints.pointer()).toMatchObject({
-      revision: 1,
-      versionsHeld: true,
-    });
+  });
+
+  test("a pointer that is not the candidate's parent vouches for nothing", async () => {
+    const inherited = await parts(0, 5);
+    await finalize((await publish(0, inherited)).checkpoint);
+    // Revision 2 while the pointer is at 0: revision 1 may commit in between,
+    // so revision 0 is not the pointer this candidate would commit after.
+    const { checkpoint } = await publish(2, [
+      ...inherited,
+      ...(await parts(5, 1)),
+    ]);
+    const { calls, service: watched } = counting();
+
+    expect(
+      await watched.verifyAttemptManifest({ checkpoint, fence }),
+    ).toMatchObject({ status: "verified" });
+    for (const ref of inherited) {
+      expect(calls.head).toContain(ref.key);
+      expect(calls.stream).toContain(ref.key);
+    }
   });
 
   test("a pointer committed without its versions held vouches for nothing", async () => {

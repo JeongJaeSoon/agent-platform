@@ -50,8 +50,10 @@ export type ManifestVerdict =
       status: "verified";
       /**
        * Set by a `locked` finalize once every version the checkpoint names
-       * was hashed by version and held. The pointer records it, and it is the
-       * only thing that lets a later read trust those versions unhashed.
+       * was hashed by version and held — by this finalize, or, for what it
+       * inherited, by the finalizes behind the pointer it follows
+       * (`verifiedRefs`). The pointer records it, and it is the only thing
+       * that lets a later read trust those versions unhashed.
        */
       versionsHeld?: true;
     }
@@ -767,17 +769,24 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * and nothing releases a version the live pointer names: garbage
    * collection keeps every version the pointer and its fallback window
    * name and never touches transcript parts (checkpoint-collector.ts,
-   * 94S-281), and transcript reclaim releases only parts no retained
+   * 94S-281), and transcript reclaim must release only parts no retained
    * checkpoint names (94S-326). The pointer read here is still the pointer
-   * when the finalize commits, or the pointer CAS refuses the commit. A
-   * version released or destroyed by hand anyway is caught by the next
-   * restore, which HEADs every version of the pointer's checkpoint.
+   * when the finalize commits: finalize passes the revision just below its
+   * candidate as `parent`, the commit takes the candidate only as the next
+   * revision, and the pointer advances one revision at a time, so a pointer
+   * that moved in between leaves the candidate not next. A version released
+   * or destroyed by hand anyway is caught by the next restore, which HEADs
+   * every version of the pointer's checkpoint.
    */
-  async function verifiedRefs(sessionId: string): Promise<Set<string>> {
+  async function verifiedRefs(
+    sessionId: string,
+    parent?: number,
+  ): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
       const pointer = await store.readPointer(sessionId);
       if (pointer === null) return tokens;
+      if (parent !== undefined && pointer.revision !== parent) return tokens;
       if (protection === "locked" && pointer.versionsHeld !== true) {
         return tokens;
       }
@@ -851,7 +860,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       held: protection === "locked",
       pinned,
       sessionId,
-      verified: await verifiedRefs(sessionId),
+      verified: await verifiedRefs(sessionId, input.checkpoint.revision - 1),
     });
     if (verdict.status === "verified" && protection === "locked") {
       await holdAll(pinned.unheld());
