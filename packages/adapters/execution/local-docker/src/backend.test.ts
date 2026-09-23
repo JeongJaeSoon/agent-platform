@@ -2993,7 +2993,7 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
   test("the isolation stamp tracks where objects go and which key, never the secret", () => {
     const base = configFor("tcp://127.0.0.1:1");
     const stamp = isolationStampFor(base);
-    expect(stamp.startsWith("6:")).toBe(true);
+    expect(stamp.startsWith("7:")).toBe(true);
     expect(stamp).not.toContain(base.objectStore.secretAccessKey);
     // A secret rotated under the same key id is not a new boundary: the
     // container keeps running, and the operator replaces it deliberately.
@@ -3297,6 +3297,18 @@ describe("LocalDockerBackend workspace inode limit (94S-224)", () => {
     await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
       "the helper image has no xfsprogs",
     );
+  });
+
+  test("a replacement is refused before teardown when the workspace cannot take the limit", async () => {
+    // The labels and the size option all match; only setting the limit can
+    // tell, and it has to tell while the old worker is still there.
+    await backend.ensureExecution(intentFor());
+    const running = docker.containers.size;
+    docker.inodeHelperExit = 12;
+    await expect(backend.assertReplaceable(intentFor())).rejects.toThrow(
+      "has no inode limit: the volume has no xfs project of its own",
+    );
+    expect(docker.containers.size).toBe(running);
   });
 
   test("an opted-out host runs no helper", async () => {

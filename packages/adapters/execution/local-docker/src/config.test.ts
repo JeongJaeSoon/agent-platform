@@ -70,6 +70,19 @@ describe("localDockerConfigFromEnv", () => {
     ).toMatchObject({ inodes: 20_000 });
   });
 
+  test("a workspace path mountinfo would escape is refused", () => {
+    // The inode helper finds the volume by this path in /proc/self/mountinfo,
+    // where a space reads \040 and would never match.
+    for (const dir of ["/work space", "/work\tspace", "/work\\space"]) {
+      expect(() =>
+        localDockerConfigFromEnv({
+          ...base,
+          EXECUTION_DOCKER_WORKSPACE_DIR: dir,
+        }),
+      ).toThrow("must not contain whitespace or backslashes");
+    }
+  });
+
   test("an inode limit of zero, or none a number, is refused", () => {
     for (const value of ["0", "-1", "1.5", "lots"]) {
       expect(() =>

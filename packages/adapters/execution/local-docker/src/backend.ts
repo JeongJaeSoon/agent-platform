@@ -186,8 +186,11 @@ export function noProxyValueFor(
  *    egress proxy, so workers no longer reach one another (94S-216).
  * 6: that network gives the host no address on it, so a host process
  *    listening on a wildcard address is out of reach too (94S-274).
+ * 7: the workspace volume carries an inode ceiling beside its byte one
+ *    (94S-224). A version, not only the fingerprint, so a host rolled back
+ *    past it reads these workers as newer and leaves them be.
  */
-export const ISOLATION_CONTRACT = 6;
+export const ISOLATION_CONTRACT = 7;
 
 /** The first contract whose workers each sit on a network of their own. */
 const PER_EXECUTION_NETWORK_CONTRACT = 5;
@@ -1526,9 +1529,15 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   /**
-   * The workspace half of `assertReplaceable`, read-only like all of it.
-   * Answers with the volume the replacement must come back to, or null when
-   * the session has none and the replacement is free to make one.
+   * The workspace half of `assertReplaceable`. Answers with the volume the
+   * replacement must come back to, or null when the session has none and
+   * the replacement is free to make one.
+   *
+   * It sets the inode ceiling too, rather than only reading labels: whether
+   * the volume can carry one is only answered by setting it, and a volume
+   * that cannot must fail here, while the old worker still runs, not in the
+   * `ensureExecution` that follows its teardown. Setting it is idempotent,
+   * and the launch sets it again.
    */
   private async assertWorkspaceReplaceable(
     sessionId: string,
@@ -1537,6 +1546,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     if (volume === null) return null;
     const problem = workspaceVolumeProblem(volume, sessionId, this.config);
     if (problem !== null) throw new WorkspaceQuotaError(volume.Name, problem);
+    await this.requireInodeLimit(volume.Name);
     return volume.Name;
   }
 

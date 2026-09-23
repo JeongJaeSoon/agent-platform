@@ -320,6 +320,13 @@ export function validateLocalDockerConfig(
   if (config.homeDir === config.workspaceDir) {
     throw new Error("homeDir and workspaceDir must differ");
   }
+  // The inode helper finds the volume in /proc/self/mountinfo, which escapes
+  // exactly these characters; a path holding one would never match there.
+  if (/[\s\\]/.test(config.workspaceDir)) {
+    throw new Error(
+      `workspaceDir ${JSON.stringify(config.workspaceDir)} must not contain whitespace or backslashes`,
+    );
+  }
   if (!INSTALLATION_ID.test(config.installationId)) {
     throw new Error(
       `EXECUTION_INSTALLATION_ID ${config.installationId} must be a short label-safe id`,
