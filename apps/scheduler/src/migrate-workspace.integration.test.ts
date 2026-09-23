@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@agent-platform/db";
-import { sessions, unassignedSessions } from "@agent-platform/db";
+import {
+  sessions,
+  unassignedSessions,
+  workerLaunches,
+} from "@agent-platform/db";
 import {
   DEFAULT_MIGRATION_HELPER_IMAGE,
   DockerClient,
@@ -12,6 +16,7 @@ import {
   startStandInProxy,
 } from "@agent-platform/execution-local-docker/testing";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { main } from "./main.ts";
@@ -180,6 +185,12 @@ integration("a legacy session relaunched after migrate-workspace", () => {
     ]);
     expect(copy?.Labels?.[LABELS.migratedFrom]).toBe(legacy);
 
+    // The refused launch is in its retry backoff (94S-207); spend it on the
+    // DB clock rather than waiting it out.
+    await db
+      .update(workerLaunches)
+      .set({ launchRetryAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(workerLaunches.sessionId, sessionId));
     const relaunched = await main(environment());
     expect(relaunched.failedLaunches).toEqual([]);
     const [worker] = await workers();
