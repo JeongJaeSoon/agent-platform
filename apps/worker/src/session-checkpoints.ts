@@ -266,6 +266,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
 
     const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => ({
       ...refOf(`${directory}untracked/${sha256(file.bytes)}`, file.bytes),
+      ...(file.executable ? { executable: true } : {}),
       path: file.path,
     }));
     const distinct = new Map<string, Uint8Array>();

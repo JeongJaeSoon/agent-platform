@@ -159,7 +159,7 @@ describe("the worker's checkpoint publisher against the control plane's service"
     };
 
     const command = procfs
-      ? "printf 'edited\\n' > README.md && printf 'fresh\\n' > notes.txt"
+      ? "printf 'edited\\n' > README.md && printf 'fresh\\n' > notes.txt && chmod +x notes.txt"
       : "printf 'edited\\n' > README.md";
     server = startFakeAnthropicServer((_request, index) =>
       index === 0
@@ -321,9 +321,12 @@ describe("the worker's checkpoint publisher against the control plane's service"
       (artifact) => artifact.kind === "workspace_untracked",
     );
     if (procfs) {
-      expect(untracked?.objects.map((object) => object.path)).toEqual([
-        "notes.txt",
-      ]);
+      expect(
+        untracked?.objects.map((object) => [
+          (object as { path?: string }).path,
+          (object as { executable?: true }).executable,
+        ]),
+      ).toEqual([["notes.txt", true]]);
     } else {
       expect(untracked).toBeUndefined();
     }

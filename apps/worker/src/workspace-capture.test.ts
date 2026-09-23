@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -13,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGitBundleHeader } from "@agent-platform/runtime-core";
-
+import { GitOutputLimitError, runGitBytes } from "./workspace.ts";
 import {
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_WORKTREE_REF,
@@ -171,6 +172,19 @@ describe("captureWorkspace", () => {
     expect(
       (await git(restored, "rev-parse", `${CHECKPOINT_WORKTREE_REF}^`)).trim(),
     ).toBe(head);
+  });
+
+  test("stages a chmod even in a checkout told to ignore modes", async () => {
+    await commitFiles({ "run.sh": "#!/bin/sh\n" });
+    await git(root, "config", "core.fileMode", "false");
+    await chmod(join(root, "run.sh"), 0o755);
+
+    const result = await captured();
+
+    const restored = await unbundle(result.bundle);
+    expect(await git(restored, "ls-tree", "HEAD", "run.sh")).toStartWith(
+      "100755 ",
+    );
   });
 
   test("bundles no branch for a detached HEAD", async () => {
@@ -341,11 +355,30 @@ describe("captureWorkspace", () => {
       await commitFiles({ "a.txt": "a\n" });
       expect(await capture({ limits: { maxBundleBytes: 10 } })).toMatchObject({
         status: "refused",
-        reason: expect.stringMatching(
-          /^the workspace bundle is \d+ bytes, over the 10/,
-        ),
+        reason:
+          "the workspace bundle is over the 10 bytes the control plane verifies",
       });
     });
+
+    // Linux keeps a name's bytes as they are; macOS refuses a name that is
+    // not UTF-8 before git ever sees it.
+    test.skipIf(process.platform !== "linux")(
+      "an untracked name that is not UTF-8, even beside the ignored file a lossy decode would name",
+      async () => {
+        await commitFiles({ ".gitignore": "bad\ufffd\n", "a.txt": "a\n" });
+        const raw = Buffer.concat([
+          Buffer.from(join(root, "bad")),
+          Buffer.from([0xff]),
+        ]);
+        await writeFile(raw, "untracked\n");
+        await writeFile(join(root, "bad\ufffd"), "ignored secret\n");
+
+        expect(await capture()).toEqual({
+          status: "refused",
+          reason: "an untracked file's name is not valid UTF-8",
+        });
+      },
+    );
 
     test("an untracked file it cannot read without following paths", async () => {
       await commitFiles({ "a.txt": "a\n" });
@@ -385,6 +418,21 @@ describe("captureWorkspace", () => {
       ]);
     });
 
+    test("keeps whether an untracked file is executable", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await writeFile(join(root, "tool"), "#!/bin/sh\n", { mode: 0o755 });
+      await writeFile(join(root, "data"), "x\n", { mode: 0o644 });
+
+      const result = await captured();
+
+      expect(
+        result.untracked.map(({ executable, path }) => [path, executable]),
+      ).toEqual([
+        ["data", false],
+        ["tool", true],
+      ]);
+    });
+
     test("refuses an untracked symlink rather than reading what it points at", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await writeFile(join(scratch, "worker-secret"), "secret\n");
@@ -406,5 +454,40 @@ describe("captureWorkspace", () => {
         reason: 'untracked file "y" is 5 bytes, over the 3 left',
       });
     });
+  });
+});
+
+describe("runGitBytes", () => {
+  test("kills git once it writes past the limit instead of buffering it all", async () => {
+    await commitFiles({ "big.bin": "x".repeat(4 * 1024 * 1024) });
+    const blob = (await git(root, "rev-parse", "HEAD:big.bin")).trim();
+
+    const reading = runGitBytes(["cat-file", "blob", blob], {
+      cwd: root,
+      maxStdoutBytes: 64 * 1024,
+      network: null,
+      overrides: [],
+      redact: (text) => text,
+      signal: new AbortController().signal,
+    });
+
+    await expect(reading).rejects.toBeInstanceOf(GitOutputLimitError);
+  });
+
+  test("hands back the exact bytes git wrote under the limit", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    const blob = (await git(root, "rev-parse", "HEAD:a.txt")).trim();
+
+    const result = await runGitBytes(["cat-file", "blob", blob], {
+      cwd: root,
+      maxStdoutBytes: 2,
+      network: null,
+      overrides: [],
+      redact: (text) => text,
+      signal: new AbortController().signal,
+    });
+
+    expect(result.code).toBe(0);
+    expect(new TextDecoder().decode(result.stdout)).toBe("a\n");
   });
 });

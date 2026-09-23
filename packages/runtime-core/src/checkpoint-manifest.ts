@@ -56,6 +56,11 @@ export type RuntimeFingerprint = {
  * reconstructed from a storage key.
  */
 export type WorkspaceArtifact = ObjectRef & {
+  /**
+   * Restored with the execute bits on. Absent rather than false, so a
+   * manifest without executables keeps the digest it had before this field.
+   */
+  readonly executable?: true;
   /** Destination relative to the workspace root; never absolute, never `..`. */
   readonly path: string;
 };

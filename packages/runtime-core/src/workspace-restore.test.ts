@@ -402,6 +402,14 @@ describe("readWorkspaceFile", () => {
       }
     });
 
+    test("says whether any execute bit is set", async () => {
+      await writeFile(join(root, "tool"), "#!/bin/sh\n", { mode: 0o750 });
+      await writeFile(join(root, "data"), "x", { mode: 0o644 });
+
+      expect(await read("tool")).toMatchObject({ executable: true });
+      expect(await read("data")).toMatchObject({ executable: false });
+    });
+
     test("never follows a leaf symlink, so the worker's own files stay out", async () => {
       await symlink(join(outside, "secret"), join(root, "planted"));
       // What the engine would plant to read the capturing process itself.

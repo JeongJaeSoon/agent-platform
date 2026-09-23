@@ -244,7 +244,12 @@ export async function writeWorkspaceFile(input: {
 }
 
 export type WorkspaceFileRead =
-  | { bytes: Uint8Array; status: "read" }
+  | {
+      bytes: Uint8Array;
+      /** Any execute bit set, as fstat saw it; the one mode bit restored. */
+      executable: boolean;
+      status: "read";
+    }
   | { reason: string; status: "refused" };
 
 // Non-blocking so a FIFO planted at the path opens at once and is refused by
@@ -329,7 +334,11 @@ export async function readWorkspaceFile(input: {
         filled += bytesRead;
       }
       if (filled !== info.size) return refused("changed while it was read");
-      return { status: "read", bytes: buffer.subarray(0, filled) };
+      return {
+        status: "read",
+        bytes: buffer.subarray(0, filled),
+        executable: (info.mode & 0o111) !== 0,
+      };
     } finally {
       await file.close().catch(() => undefined);
     }

@@ -631,17 +631,51 @@ function gitEnvironment(
   return env;
 }
 
+export type GitRunOptions = {
+  cwd: string;
+  extra?: GitExtras;
+  network: Remote | null;
+  overrides: Array<[string, string]>;
+  redact: (text: string) => string;
+  signal: AbortSignal;
+};
+
+/** Git wrote more to stdout than the caller would hold; the child was killed. */
+export class GitOutputLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`git wrote more than ${limit} bytes`);
+    this.name = "GitOutputLimitError";
+  }
+}
+
+/**
+ * What git says on stderr is kept only up to this: enough for the last lines
+ * a failure is reported with, and not a buffer a hostile repository fills.
+ */
+const STDERR_LIMIT_BYTES = 64 * 1024;
+
 export async function runGit(
   args: string[],
-  options: {
-    cwd: string;
-    extra?: GitExtras;
-    network: Remote | null;
-    overrides: Array<[string, string]>;
-    redact: (text: string) => string;
-    signal: AbortSignal;
-  },
+  options: GitRunOptions,
 ): Promise<GitResult> {
+  const result = await runGitBytes(args, options);
+  return {
+    code: result.code,
+    stdout: new TextDecoder().decode(result.stdout),
+    stderr: result.stderr,
+  };
+}
+
+/**
+ * `runGit` with stdout as the bytes git wrote, for output that is not text
+ * (a bundle) or whose names must not be decoded lossily. Past `maxStdoutBytes`
+ * the child is killed and `GitOutputLimitError` thrown, so a limit is enforced
+ * while git runs rather than after it has filled memory.
+ */
+export async function runGitBytes(
+  args: string[],
+  options: GitRunOptions & { maxStdoutBytes?: number },
+): Promise<{ code: number; stderr: string; stdout: Uint8Array }> {
   const { network, redact, signal } = options;
   signal.throwIfAborted();
   const child = Bun.spawn(["git", ...args], {
@@ -654,13 +688,61 @@ export async function runGit(
     stdin: "ignore",
     stdout: "pipe",
   });
+  const limit = options.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
   const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    collect(child.stdout, limit, () => child.kill("SIGKILL")),
+    collect(child.stderr, STDERR_LIMIT_BYTES),
     child.exited,
   ]);
   signal.throwIfAborted();
-  return { code, stdout, stderr: redact(stderr) };
+  if (stdout.overflowed) throw new GitOutputLimitError(limit);
+  return {
+    code,
+    stdout: stdout.bytes,
+    stderr: redact(new TextDecoder().decode(stderr.bytes)),
+  };
+}
+
+/**
+ * Reads a pipe up to `limit` bytes. Without `onOverflow` the rest is drained
+ * and dropped, so the writer never blocks on a full pipe; with it, reading
+ * stops and the writer is expected to be killed.
+ */
+async function collect(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+  onOverflow?: () => void,
+): Promise<{ bytes: Uint8Array; overflowed: boolean }> {
+  const chunks: Uint8Array[] = [];
+  let held = 0;
+  let overflowed = false;
+  const reader = stream.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (overflowed) continue;
+    if (held + value.byteLength > limit) {
+      overflowed = true;
+      const room = limit - held;
+      if (room > 0) chunks.push(value.subarray(0, room));
+      held = limit;
+      if (onOverflow !== undefined) {
+        onOverflow();
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+      continue;
+    }
+    chunks.push(value);
+    held += value.byteLength;
+  }
+  const bytes = new Uint8Array(held);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, overflowed };
 }
 
 export async function check(

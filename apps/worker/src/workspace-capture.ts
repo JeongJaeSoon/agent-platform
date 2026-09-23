@@ -1,14 +1,5 @@
 import { constants } from "node:fs";
-import {
-  lstat,
-  mkdtemp,
-  open,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { lstat, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkspaceFile } from "@agent-platform/runtime-core";
@@ -18,8 +9,9 @@ import {
   filterOverrides,
   type Git,
   type GitExtras,
+  GitOutputLimitError,
   type GitResult,
-  runGit,
+  runGitBytes,
 } from "./workspace.ts";
 
 /**
@@ -30,7 +22,7 @@ export type WorkspaceCapture = {
   bundle: Uint8Array;
   /** The snapshot commit, `refs/checkpoint/worktree` in the bundle. */
   gitCommit: string;
-  untracked: Array<{ bytes: Uint8Array; path: string }>;
+  untracked: Array<{ bytes: Uint8Array; executable: boolean; path: string }>;
 };
 
 export type WorkspaceCaptureResult =
@@ -63,10 +55,22 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 // settings: the restore runs in a fresh repository that has none. With
 // autocrlf off only `.gitattributes` converts, and it travels in the tree;
 // safecrlf refuses a conversion that would not come back byte for byte.
+// fileMode on, so a chmod the engine made is staged even in a checkout that
+// was told to ignore modes.
 const CAPTURE_CONFIG: Array<[string, string]> = [
   ["core.autocrlf", "false"],
+  ["core.fileMode", "true"],
   ["core.safecrlf", "true"],
 ];
+
+/**
+ * What any one git call in a capture may print before it is killed: the
+ * tracked-file listings grow with the repository, and nothing else bounds
+ * them.
+ */
+const OUTPUT_LIMIT_BYTES = 256 * 1024 * 1024;
+/** The longest path Linux hands back, plus its NUL. */
+const PATH_BYTES = 4096 + 1;
 
 const SNAPSHOT_IDENTITY = {
   GIT_AUTHOR_EMAIL: "checkpoint@agent-platform.invalid",
@@ -125,15 +129,27 @@ export async function captureWorkspace(input: {
   try {
     const repository = join(scratch, "checkpoint.git");
     const neutralized: Array<[string, string]> = [];
-    const run = (args: string[], env: Record<string, string>) =>
-      runGit(args, {
+    const runBytes = (
+      args: string[],
+      env: Record<string, string>,
+      maxStdoutBytes = OUTPUT_LIMIT_BYTES,
+    ) =>
+      runGitBytes(args, {
         cwd: root,
         extra: { config: CAPTURE_CONFIG, env },
+        maxStdoutBytes,
         network: null,
         overrides: neutralized,
         redact: (text) => text,
         signal,
       });
+    const run = async (
+      args: string[],
+      env: Record<string, string>,
+    ): Promise<GitResult> => {
+      const result = await runBytes(args, env);
+      return { ...result, stdout: new TextDecoder().decode(result.stdout) };
+    };
     const workspace: Git = (args) =>
       run(args, { GIT_DIR: gitDirectory, GIT_WORK_TREE: root });
     neutralized.push(...(await filterOverrides(workspace)));
@@ -202,10 +218,33 @@ export async function captureWorkspace(input: {
             )
           ).trim();
 
-    const others = await required(
-      stage(["ls-files", "-z", "--others", "--exclude-standard"]),
-      "ls-files",
-    );
+    // Bytes, decoded strictly: a lossy decode turns an untracked `a\xff`
+    // into `a\ufffd`, which may be another file entirely — an ignored one.
+    let listed: Uint8Array;
+    try {
+      const others = await runBytes(
+        ["ls-files", "-z", "--others", "--exclude-standard"],
+        staging,
+        (limits.maxUntrackedFiles + 1) * PATH_BYTES,
+      );
+      if (others.code !== 0) {
+        throw new Error(
+          `git ls-files failed (exit ${others.code}): ${others.stderr.trim()}`,
+        );
+      }
+      listed = others.stdout;
+    } catch (error) {
+      if (!(error instanceof GitOutputLimitError)) throw error;
+      return refused(
+        `more untracked files than the ${limits.maxUntrackedFiles} a checkpoint carries`,
+      );
+    }
+    let others: string;
+    try {
+      others = new TextDecoder("utf-8", { fatal: true }).decode(listed);
+    } catch {
+      return refused("an untracked file's name is not valid UTF-8");
+    }
     const paths = others.split("\0").filter((path) => path !== "");
     const nested = paths.find((path) => path.endsWith("/"));
     if (nested !== undefined) {
@@ -236,24 +275,27 @@ export async function captureWorkspace(input: {
     for (const [name, oid] of refs) {
       await check(bundling(["update-ref", name, oid]), "update-ref");
     }
-    const bundlePath = join(scratch, "workspace.bundle");
-    await check(
-      bundling([
-        "bundle",
-        "create",
-        "--quiet",
-        bundlePath,
-        ...refs.map(([name]) => name),
-      ]),
-      "bundle create",
-    );
-    const size = (await stat(bundlePath)).size;
-    if (size > limits.maxBundleBytes) {
+    // Written to stdout and cut off at the limit, so an oversized history
+    // costs the limit in memory and nothing on disk.
+    let bundle: Uint8Array;
+    try {
+      const created = await runBytes(
+        ["bundle", "create", "--quiet", "-", ...refs.map(([name]) => name)],
+        { GIT_DIR: repository },
+        limits.maxBundleBytes,
+      );
+      if (created.code !== 0) {
+        throw new Error(
+          `git bundle create failed (exit ${created.code}): ${created.stderr.trim()}`,
+        );
+      }
+      bundle = created.stdout;
+    } catch (error) {
+      if (!(error instanceof GitOutputLimitError)) throw error;
       return refused(
-        `the workspace bundle is ${size} bytes, over the ${limits.maxBundleBytes} the control plane verifies`,
+        `the workspace bundle is over the ${limits.maxBundleBytes} bytes the control plane verifies`,
       );
     }
-    const bundle = new Uint8Array(await readFile(bundlePath));
 
     const untracked: WorkspaceCapture["untracked"] = [];
     let left = limits.maxUntrackedBytes;
@@ -268,7 +310,7 @@ export async function captureWorkspace(input: {
       });
       if (read.status === "refused") return refused(read.reason);
       left -= read.bytes.byteLength;
-      untracked.push({ bytes: read.bytes, path });
+      untracked.push({ bytes: read.bytes, executable: read.executable, path });
     }
     return { status: "captured", capture: { bundle, gitCommit, untracked } };
   } finally {
