@@ -241,6 +241,51 @@ describe("Heartbeat", () => {
     ]);
   });
 
+  test("a stop does not drop a beat owed for a mirror error, and says once one landed", async () => {
+    let mirrorError: string | null = null;
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beats: HeartbeatRequest[] = [];
+    const beat = new Heartbeat({
+      gateway: {
+        heartbeat: async (request) => {
+          beats.push(request);
+          if (beats.length === 1) await held;
+          return {
+            lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+            auth_revision: scope.auth_revision,
+            control_pending: false,
+          };
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 60_000,
+      leaseExpiresAt: new Date(Date.now() + 30_000),
+      onLost: () => {},
+      transcript: () => ({ persisted_at: null, mirror_error: mirrorError }),
+    });
+    beat.beatNow();
+    beat.start();
+    for (let waited = 0; beats.length === 0 && waited < 1_000; waited += 1) {
+      await Bun.sleep(1);
+    }
+    // The beat in flight carries no error; the drain starts before it lands.
+    mirrorError = "Transcript mirror dropped a batch";
+    beat.beatNow();
+    const stopping = beat.stop();
+    release();
+    await stopping;
+
+    expect(beats.map((request) => request.transcript?.mirror_error)).toEqual([
+      null,
+      "Transcript mirror dropped a batch",
+    ]);
+    expect(beat.mirrorErrorRecorded).toBe(true);
+  });
+
   test("stops beating once it has lost ownership", async () => {
     const { beats, heartbeat: beat } = heartbeat(async () => {
       throw new WorkerGatewayRequestError(409, "STALE_EPOCH", "gone", false);

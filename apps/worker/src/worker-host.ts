@@ -1461,6 +1461,7 @@ export class WorkerHost {
     // No durable write survives owner loss: not the event tail, not the
     // in-flight turn, not the release.
     if (this.reportedOwnerLost()) return;
+    if (!(await this.mirrorErrorRecorded())) return;
     const flushed = await this.untilAbandoned(
       (this.publisher?.idle() ?? Promise.resolve()).then(
         () => true,
@@ -1513,6 +1514,29 @@ export class WorkerHost {
         reason: "The stop grace ran out before the gateway answered",
       });
     }
+  }
+
+  /**
+   * A latched `mirror_error` is recorded before the session is handed back:
+   * released without it, the next attempt resumes a checkpoint the gateway
+   * still trusts, missing the batch that was lost. One more beat is tried;
+   * failing that the lease is left to lapse rather than released as if this
+   * attempt had left the session in order.
+   */
+  private async mirrorErrorRecorded(): Promise<boolean> {
+    const heartbeat = this.heartbeat;
+    if (this.mirrorError === undefined || heartbeat === undefined) return true;
+    if (!heartbeat.mirrorErrorRecorded) {
+      await settledWithin(
+        heartbeat.beatOnce(),
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      );
+    }
+    if (heartbeat.mirrorErrorRecorded) return true;
+    this.logger.error("worker.mirror_error.unrecorded", {
+      reason: this.mirrorError,
+    });
+    return false;
   }
 
   private reportedOwnerLost(): boolean {

@@ -3,6 +3,7 @@ import type {
   ClaimPrincipal,
   FinalizeRequest,
   FinalizeResponse,
+  HeartbeatRequest,
   RuntimeConfig,
 } from "@agent-platform/contracts";
 import {
@@ -2597,6 +2598,57 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
         (beat) => beat.transcript?.mirror_error?.includes("bucket") === true,
       ),
     ).toBe(true);
+  });
+
+  test("a mirror error the gateway never recorded leaves the session unreleased", async () => {
+    // Up, but refusing every beat that carries the error.
+    const gateway = new (class extends FakeWorkerGateway {
+      override async heartbeat(request: HeartbeatRequest) {
+        if (request.transcript?.mirror_error != null) {
+          this.heartbeats.push(request);
+          throw new WorkerGatewayRequestError(503, null, "restarting", true);
+        }
+        return super.heartbeat(request);
+      }
+    })();
+    const errors: string[] = [];
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "mirror_error",
+            session_id: "fake-session",
+            error: "bucket unreachable",
+          },
+        },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: { ...publishing, mirror: () => ({ persistedAt: null }) },
+        gateway,
+        logger: {
+          info: () => {},
+          warn: () => {},
+          error: (event) => errors.push(event),
+        },
+        timeouts: { heartbeatIntervalMs: 60_000 },
+      },
+    );
+    gateway.enqueue("first");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(
+      gateway.heartbeats.filter((beat) => beat.transcript?.mirror_error != null)
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(errors).toContain("worker.mirror_error.unrecorded");
+    expect(gateway.releases).toEqual([]);
   });
 
   test("a port without a mirror heartbeats as before", async () => {

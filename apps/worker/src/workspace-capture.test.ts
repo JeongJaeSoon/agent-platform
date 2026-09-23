@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -185,6 +187,32 @@ describe("captureWorkspace", () => {
     expect(await git(restored, "ls-tree", "HEAD", "run.sh")).toStartWith(
       "100755 ",
     );
+  });
+
+  test("stages a file that replaced a tracked symlink in a checkout told not to make links", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    await symlink("a.txt", join(root, "link"));
+    await git(root, "add", "--all");
+    await git(root, "commit", "--quiet", "-m", "link");
+    await git(root, "config", "core.symlinks", "false");
+    await rm(join(root, "link"));
+    await git(root, "checkout", "--", "link");
+    expect((await lstat(join(root, "link"))).isFile()).toBe(true);
+
+    const restored = await unbundle((await captured()).bundle);
+
+    expect((await lstat(join(restored, "link"))).isFile()).toBe(true);
+    expect(await readFile(join(restored, "link"), "utf8")).toBe("a.txt");
+  });
+
+  test("lists an untracked name that differs from a tracked one only in case", async () => {
+    // Needs a filesystem that tells `a` from `A`, which the Linux runs have.
+    if (process.platform !== "linux") return;
+    await commitFiles({ a: "tracked\n" });
+    await git(root, "config", "core.ignoreCase", "true");
+    await writeFile(join(root, "A"), "untracked\n");
+
+    expect((await captured()).untracked.map(({ path }) => path)).toEqual(["A"]);
   });
 
   test("bundles no branch for a detached HEAD", async () => {
@@ -380,6 +408,56 @@ describe("captureWorkspace", () => {
       },
     );
 
+    test("a tracked name that is not UTF-8, before its size is measured", async () => {
+      if (process.platform !== "linux") return;
+      await commitFiles({ "a.txt": "a\n" });
+      const raw = Buffer.concat([
+        Buffer.from(join(root, "bad")),
+        Buffer.from([0xff]),
+      ]);
+      await writeFile(raw, "tracked\n");
+      await git(root, "add", "--all");
+      await git(root, "commit", "--quiet", "-m", "raw name");
+      await writeFile(raw, "x".repeat(100));
+
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason: "a tracked file's name is not valid UTF-8",
+      });
+    });
+
+    test("line endings the checkout's own config wrote, which a restore would not", async () => {
+      await commitFiles({ ".gitattributes": "*.txt text\n", "a.txt": "a\n" });
+      await git(root, "config", "core.eol", "crlf");
+      await rm(join(root, "a.txt"));
+      await git(root, "checkout", "--", "a.txt");
+      expect(await readFile(join(root, "a.txt"), "utf8")).toBe("a\r\n");
+      // Older than the index, so git trusts its stat data instead of
+      // re-reading a file it would call racily clean.
+      const past = new Date(Date.now() - 3_600_000);
+      await utimes(join(root, "a.txt"), past, past);
+      await git(root, "update-index", "--refresh");
+
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason:
+          "a.txt has crlf line endings on disk, and a restore would write lf",
+      });
+      // A `.gitattributes` edited since the files were written, the other way.
+      await git(root, "config", "--unset", "core.eol");
+      await rm(join(root, "a.txt"));
+      await git(root, "checkout", "--", "a.txt");
+      await writeFile(join(root, ".gitattributes"), "*.txt text eol=crlf\n");
+      // Refused by safecrlf while staging or by the check after it, depending
+      // on whether git re-reads the file.
+      expect(await capture()).toMatchObject({
+        status: "refused",
+        reason: expect.stringMatching(
+          /(LF would be replaced by CRLF in|has lf line endings on disk).*a\.txt|a\.txt has lf/,
+        ),
+      });
+    });
+
     test("an index over the limit, before any git command reads it", async () => {
       await commitFiles({ "a.txt": "a\n" });
 
@@ -404,6 +482,13 @@ describe("captureWorkspace", () => {
       expect((await capture({ limits: { maxStagedBytes: 0 } })).status).toBe(
         "captured",
       );
+      // Measured under the name git listed, BOM and all.
+      await commitFiles({ "\ufefflarge.bin": "small\n" });
+      await writeFile(join(root, "\ufefflarge.bin"), "x".repeat(100));
+      expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "the tracked changes are over the 50 bytes a checkpoint stages",
+      });
     });
 
     test("an untracked file it cannot read without following paths", async () => {

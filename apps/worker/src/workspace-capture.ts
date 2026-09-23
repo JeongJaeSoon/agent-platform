@@ -61,16 +61,21 @@ export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
 export const CHECKPOINT_HEAD_REF = "refs/checkpoint/head";
 export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 
-// Neither side of a checkpoint may depend on the repository's own EOL
-// settings: the restore runs in a fresh repository that has none. With
-// autocrlf off only `.gitattributes` converts, and it travels in the tree;
-// safecrlf refuses a conversion that would not come back byte for byte.
-// fileMode on, so a chmod the engine made is staged even in a checkout that
-// was told to ignore modes.
+// Neither side of a checkpoint may depend on the repository's own config:
+// the restore runs in a fresh repository that has none, on Linux. With
+// autocrlf off and eol at lf only `.gitattributes` converts, and it travels
+// in the tree; safecrlf refuses a conversion that would not come back byte
+// for byte. fileMode on, so a chmod the engine made is staged even in a
+// checkout that was told to ignore modes. ignoreCase off, so an untracked `A`
+// beside a tracked `a` is listed; symlinks on, so a file that replaced a
+// tracked link is staged as the file it is.
 const CAPTURE_CONFIG: Array<[string, string]> = [
   ["core.autocrlf", "false"],
+  ["core.eol", "lf"],
   ["core.fileMode", "true"],
+  ["core.ignoreCase", "false"],
   ["core.safecrlf", "true"],
+  ["core.symlinks", "true"],
 ];
 
 /**
@@ -185,7 +190,16 @@ export async function captureWorkspace(input: {
       });
     const problem = await unrepresentable(indexed, gitDirectory);
     if (problem !== undefined) return refused(problem);
-    const staged = await stagedBytes(indexed, root, limits.maxStagedBytes);
+    const staged = await stagedBytes(
+      (args) =>
+        runBytes(args, {
+          GIT_DIR: gitDirectory,
+          GIT_INDEX_FILE: index,
+          GIT_WORK_TREE: root,
+        }),
+      root,
+      limits.maxStagedBytes,
+    );
     if (staged !== undefined) return refused(staged);
     await check(
       run(["init", "--quiet", "--bare", repository], {}),
@@ -197,6 +211,10 @@ export async function captureWorkspace(input: {
     );
     // Stages into the copy and writes objects into the scratch repository;
     // the workspace's own index and object store are only read.
+    // `--renormalize` re-reads every tracked file rather than trusting the
+    // index's stat data, which an edit that kept size and mtime slips past.
+    // Deliberately simple: every capture hashes the whole tree; revisit with
+    // 94S-227 if that shows in turn latency.
     const staging: GitExtras["env"] = {
       GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDirectory, "objects"),
       GIT_DIR: gitDirectory,
@@ -206,10 +224,15 @@ export async function captureWorkspace(input: {
     };
     const stage = (args: string[], env: Record<string, string> = {}) =>
       run(args, { ...staging, ...env });
-    const added = await stage(["add", "--update", "--", "."]);
+    let added = await stage(["add", "--update", "--", "."]);
+    if (added.code === 0) {
+      added = await stage(["add", "--renormalize", "--", "."]);
+    }
     if (added.code !== 0) {
       return refused(`the working tree cannot be staged: ${lastLine(added)}`);
     }
+    const endings = await lineEndingProblem((args) => runBytes(args, staging));
+    if (endings !== undefined) return refused(endings);
     const tree = (await required(stage(["write-tree"]), "write-tree")).trim();
     const headTree = (
       await required(
@@ -258,15 +281,8 @@ export async function captureWorkspace(input: {
         `more untracked files than the ${limits.maxUntrackedFiles} a checkpoint carries`,
       );
     }
-    let others: string;
-    try {
-      // ignoreBOM: a leading U+FEFF is part of the name (`\ufeff.env` is
-      // not `.env`), not a byte-order mark to drop.
-      others = new TextDecoder("utf-8", {
-        fatal: true,
-        ignoreBOM: true,
-      }).decode(listed);
-    } catch {
+    const others = namesOf(listed);
+    if (others === undefined) {
       return refused("an untracked file's name is not valid UTF-8");
     }
     const paths = others.split("\0").filter((path) => path !== "");
@@ -398,14 +414,22 @@ async function unrepresentable(
  * upper bound on the loose objects they become). Refused past `limit`.
  */
 async function stagedBytes(
-  git: Git,
+  git: (
+    args: string[],
+  ) => Promise<{ code: number; stderr: string; stdout: Uint8Array }>,
   root: string,
   limit: number,
 ): Promise<string | undefined> {
-  const modified = await required(
-    git(["ls-files", "-z", "--modified"]),
-    "ls-files",
-  );
+  const listed = await git(["ls-files", "-z", "--modified"]);
+  if (listed.code !== 0) {
+    throw new Error(
+      `git ls-files failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+    );
+  }
+  // Decoded as strictly as the untracked names, or lstat measures a
+  // different file than the one `add -u` is about to write.
+  const modified = namesOf(listed.stdout);
+  if (modified === undefined) return "a tracked file's name is not valid UTF-8";
   let total = 0;
   for (const path of new Set(modified.split("\0"))) {
     if (path === "") continue;
@@ -464,6 +488,77 @@ async function copyIndex(
     return undefined;
   } finally {
     await handle.close().catch(() => undefined);
+  }
+}
+
+/**
+ * A tracked file whose line endings on disk are not what checking out its
+ * staged blob writes under `CAPTURE_CONFIG`, which is how a restore writes
+ * it. Staging normalizes a text file's line endings into the blob, so a file
+ * the engine's own config wrote with CRLF (`core.eol`, `core.autocrlf`), or
+ * one a `.gitattributes` edit since left stale, would come back different
+ * without anything failing. `ls-files --eol` reads the working tree itself
+ * rather than trusting the index's stat data.
+ */
+async function lineEndingProblem(
+  git: (
+    args: string[],
+  ) => Promise<{ code: number; stderr: string; stdout: Uint8Array }>,
+): Promise<string | undefined> {
+  const listed = await git(["ls-files", "--eol", "-z"]);
+  if (listed.code !== 0) {
+    throw new Error(
+      `git ls-files failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+    );
+  }
+  const entries = namesOf(listed.stdout);
+  if (entries === undefined) return "a tracked file's name is not valid UTF-8";
+  for (const entry of entries.split("\0")) {
+    if (entry === "") continue;
+    const tab = entry.indexOf("\t");
+    const info = /^i\/(\S*)\s+w\/(\S*)\s+attr\/(.*)$/.exec(entry.slice(0, tab));
+    if (tab < 0 || info === null) {
+      throw new Error(`git ls-files --eol printed ${JSON.stringify(entry)}`);
+    }
+    const [, staged, disk, attributes] = info as unknown as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    const attribute = attributes.trim().split(/\s+/);
+    // `eol` implies `text`; `text=auto` converts only what git calls text.
+    const converted =
+      !attribute.includes("-text") &&
+      (attribute.includes("text") ||
+        attribute.some((value) => value.startsWith("eol=")) ||
+        (attribute.includes("text=auto") && staged !== "-text"));
+    if (!converted) continue;
+    const written = attribute.includes("eol=crlf") ? "crlf" : "lf";
+    const differs =
+      written === "lf"
+        ? disk === "crlf" || disk === "mixed"
+        : disk === "lf" || disk === "mixed";
+    if (differs) {
+      return `${entry.slice(tab + 1)} has ${disk} line endings on disk, and a restore would write ${written}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * NUL-separated names as git listed them, or undefined when they are not
+ * UTF-8. Strict, because a lossy decode turns `a\xff` into `a\ufffd`, which
+ * may be another file entirely; and a leading U+FEFF is part of the name
+ * (`\ufeff.env` is not `.env`), not a byte-order mark to drop.
+ */
+function namesOf(listed: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      listed,
+    );
+  } catch {
+    return undefined;
   }
 }
 

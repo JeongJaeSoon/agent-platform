@@ -207,6 +207,14 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // Whatever stopped the publish, a mirror that lost a batch is recorded
     // before the turn can be finalized without a checkpoint.
     lost ??= bound.store.unsettled ? UNSETTLED : undefined;
+    if (lost === undefined) {
+      // The run's verdict as of now: a batch the SDK gave up on after the
+      // ready one, which a later append may have left the store settled on.
+      const now = await context.recheck();
+      if (now.status === "rejected" && now.reason === "mirror_error") {
+        lost = now.detail;
+      }
+    }
     if (lost !== undefined) {
       await this.#report(
         { status: "rejected", reason: "mirror_error", detail: lost },

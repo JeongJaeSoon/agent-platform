@@ -347,6 +347,34 @@ describe("SessionCheckpoints", () => {
     });
   });
 
+  test("a mirror error the run reports is recorded however early the publish stopped", async () => {
+    const h = harness({
+      captureWorkspace: async () => ({
+        status: "refused",
+        reason: "bundle too large",
+      }),
+    });
+    const { claim } = await opened(h);
+
+    expect(
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ({
+          status: "rejected",
+          reason: "mirror_error",
+          detail: "late loss",
+        }),
+      }),
+    ).toBeNull();
+
+    expect(
+      h.gateway.checkpointRequests.map((request) => request.preparation),
+    ).toEqual([
+      { status: "ready" },
+      { status: "rejected", reason: "mirror_error", detail: "late loss" },
+    ]);
+  });
+
   test("a lost mirror the gateway could not be told about fails the capture", async () => {
     const gateway = new FakeWorkerGateway({
       checkpoints: {
