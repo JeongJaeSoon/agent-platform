@@ -465,13 +465,13 @@ CI가 받는 서드파티 이미지는 Docker Hub가 아니라 `ghcr.io/jeongjae
 - suite 파일이 읽는 `process.env.*_IMAGE`는 전부 `integration-domain`의 `env`에서 mirror로 설정돼 있다. 기본값이 문자열이면 mirror 항목의 upstream `name:tag`와 같아야 한다(로컬과 CI가 같은 버전을 돈다).
 - busybox 항목에 `DEFAULT_MIGRATION_HELPER_IMAGE`의 digest가, bun 항목에 앱 Dockerfile `BUN_IMAGE`의 digest가 있다.
 
-정적 검사는 코드가 이미지를 부르는 모양을 다 알 수 없다. 그래서 Docker를 쓰는 job은 마지막에 **daemon이 실제로 가진 이미지**를 본다. `integration-domain`의 모든 job과 `workspace-quota`(runner daemon과 중첩 daemon 둘 다)가 그렇다. `.github/scripts/assert-mirror-images.sh`가 `docker images`에 mirror가 아닌 이미지가 하나라도 있으면 그 이름을 `::error::`로 찍고 job을 실패시킨다. 테스트가 실패한 job에서도 돈다. 새 `docker run alpine`이든, 환경 변수 없이 Engine API로 받는 suite든, 받은 경로와 상관없이 잡힌다.
+정적 검사는 코드가 이미지를 부르는 모양을 다 알 수 없다. 그래서 Docker를 쓰는 job은 마지막에 **daemon이 실제로 가진 이미지**를 본다. `integration-domain`의 모든 job과 `workspace-quota`(runner daemon과 중첩 daemon 둘 다)가 그렇다. `.github/scripts/assert-no-docker-hub-images.sh`가 `docker images`에 Docker Hub 이미지가 하나라도 있으면 그 이름을 `::error::`로 찍고 job을 실패시킨다. 판정은 Docker의 이름 규칙 그대로다. 첫 경로 성분에 `.`·`:`가 없거나 `localhost`가 아니면, 또는 `docker.io`면 Docker Hub다. "미러만"이 아니라 "Docker Hub 아님"으로 거는 이유는 runner 이미지에 원래 들어 있는 이미지(`ghcr.io/github/…`, `ghcr.io/dependabot/…`) 때문이다. 아무 step도 받지 않았는데 daemon에 있다. 테스트가 실패한 job에서도 돈다. 새 `docker run alpine`이든, 환경 변수 없이 Engine API로 받는 suite든, 받은 경로와 상관없이 잡힌다.
 
 **미러 갱신 절차**(digest를 올리거나 이미지를 더할 때). mirror job은 `main`에서만 돌므로 PR 두 개로 나뉜다.
 
 1. 새 digest를 확인한다: `docker buildx imagetools inspect <upstream>:<tag> --format '{{json .Manifest}}' | jq -r .digest`
 2. **PR 1**: `ci-image-mirror.yml` matrix에 새 항목을 **더한다**. 기존 digest 항목은 지우지 않는다. 같은 `name`에 digest 두 개가 있어도 된다. 머지하면 `main` push의 `CI image mirror` run이 새 digest를 ghcr에 올린다. run의 `mirror (<name>:<tag>)` job이 초록인지 확인한다.
-3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Only mirror images were pulled` step이 실패한다.
+3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Nothing pulled from Docker Hub` step이 실패한다.
 4. 새 이미지의 ghcr package는 이 public 저장소에 연결되어 public으로 생긴다(첫 mirror run의 여섯 package가 모두 그랬다). 서비스 컨테이너와 Engine API로 받는 suite는 인증 없이 받으므로 public이어야 한다. private으로 생기면 mirror job이 로그아웃 뒤 익명 조회에서 실패한다. 그때는 GitHub의 package 설정(Package settings → Danger Zone → Change visibility)에서 public으로 바꾸고 그 job을 다시 돌린다.
 5. 목록을 바꾸지 않고 다시 복사하려면 `gh workflow run 'CI image mirror'`를 쓴다(`main`에서만 돈다). 이미 있는 blob은 건너뛴다.
 

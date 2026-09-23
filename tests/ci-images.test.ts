@@ -82,8 +82,8 @@ describe("the mirror list", () => {
   });
 });
 
-describe("assert-mirror-images.sh", () => {
-  const script = join(root, ".github/scripts/assert-mirror-images.sh");
+describe("assert-no-docker-hub-images.sh", () => {
+  const script = join(root, ".github/scripts/assert-no-docker-hub-images.sh");
   /** Runs the check against a fake `docker images` that prints `listing`. */
   const check = (listing: string, fake = 'printf "%s" "$LISTING"') => {
     const result = Bun.spawnSync(["bash", script, "bash", "-c", fake, "_"], {
@@ -91,24 +91,39 @@ describe("assert-mirror-images.sh", () => {
     });
     return { code: result.exitCode, out: result.stdout.toString() };
   };
-  const pinned = `${MIRROR}busybox@sha256:${"a".repeat(64)}`;
-
-  test("passes a daemon holding mirror images only, or none", () => {
-    expect(
-      check(`${pinned}\n${MIRROR}postgres@sha256:${"b".repeat(64)}`).code,
-    ).toBe(0);
+  test("passes the mirror and the runner's own images, or none", () => {
+    const listing = [
+      `${MIRROR}busybox`,
+      `${MIRROR}postgres`,
+      "ghcr.io/github/gh-aw-firewall/squid",
+      "localhost:5000/scratch",
+      "<none>",
+    ].join("\n");
+    expect(check(listing).code).toBe(0);
     expect(check("").code).toBe(0);
   });
 
-  test("fails on any image pulled from elsewhere, naming it", () => {
+  test("fails on every Docker Hub name, naming it", () => {
     const { code, out } = check(
-      `${pinned}\nalpine@<none>\nbusybox@sha256:${"c".repeat(64)}`,
+      [
+        `${MIRROR}busybox`,
+        "alpine",
+        "localstack/localstack",
+        "docker.io/library/postgres",
+        // Looks like the mirror, but without a dot it is a Docker Hub user.
+        "ghcr-io/jeongjaesoon/agent-platform-ci/busybox",
+      ].join("\n"),
     );
     expect(code).toBe(1);
-    expect(out).toContain("::error::alpine did not come from the CI mirror");
-    expect(out).toContain("::error::busybox did not come from the CI mirror");
-    // A mirror path is matched as a prefix, not anywhere in the name.
-    expect(check(`docker.io/x/${MIRROR}y@sha256:1`).code).toBe(1);
+    for (const name of [
+      "alpine",
+      "localstack/localstack",
+      "docker.io/library/postgres",
+      "ghcr-io/jeongjaesoon/agent-platform-ci/busybox",
+    ]) {
+      expect(out).toContain(`::error::${name} came from Docker Hub`);
+    }
+    expect(out).not.toContain(`::error::${MIRROR}`);
   });
 
   test("fails when the daemon cannot be listed", () => {
@@ -118,7 +133,7 @@ describe("assert-mirror-images.sh", () => {
   test("runs after the tests in every Docker job", () => {
     const steps = (job: string) =>
       JSON.stringify(ci.jobs[job]?.steps ?? []).includes(
-        "assert-mirror-images.sh",
+        "assert-no-docker-hub-images.sh",
       );
     expect(steps("integration-domain")).toBe(true);
     expect(steps("workspace-quota")).toBe(true);
