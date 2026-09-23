@@ -192,10 +192,12 @@ export async function bootstrapGateFromEnv(
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
 ): Promise<BootstrapGate> {
-  if (value) {
+  if (value !== undefined) {
     // The request schema bounds the token; a configured value outside it
     // could never be presented, which would leave the install impossible to
-    // bootstrap with no error anywhere. Refuse to start instead.
+    // bootstrap with no error anywhere. Refuse to start instead. An empty
+    // value is a secret injection that failed, not a request to generate
+    // one and print it to a log the operator meant to keep it out of.
     const parsed = bootstrapTokenSchema.safeParse(value);
     if (!parsed.success) {
       throw new Error(
@@ -390,8 +392,15 @@ export function createAuthenticator(
             }
           : null;
       }
-      const token = bearerToken(context.req.header("Authorization"));
-      if (token) {
+      const authorization = context.req.header("Authorization");
+      if (authorization !== undefined) {
+        // Any Authorization header commits the request to the API key path:
+        // an empty, malformed or non-Bearer one fails here rather than
+        // falling back to whatever cookie session this browser holds.
+        const token = bearerToken(authorization);
+        if (!token) {
+          return null;
+        }
         const keyHash = hashApiKey(token);
         const ownerId = await keyStore.findOwner(keyHash);
         return ownerId

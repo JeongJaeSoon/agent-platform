@@ -358,9 +358,25 @@ describe("bootstrap", () => {
 
     // A configured token the request schema would refuse can never be
     // presented, so it is a startup error rather than a silent dead install.
-    expect(
+    await expect(
       bootstrapGateFromEnv("short", identity, logger, print),
     ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
+  });
+
+  test("an empty BOOTSTRAP_TOKEN refuses to start instead of generating one", async () => {
+    const identity = new MemoryIdentityStore();
+    let counted = 0;
+    identity.countUsers = async () => {
+      counted += 1;
+      return 0;
+    };
+    const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
+    const printed: string[] = [];
+    await expect(
+      bootstrapGateFromEnv("", identity, logger, (line) => printed.push(line)),
+    ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
+    expect(counted).toBe(0);
+    expect(printed).toHaveLength(0);
   });
 });
 
@@ -639,6 +655,21 @@ describe("principal middleware", () => {
       headers: { Authorization: "Bearer csp_wrong", Cookie: cookie },
     });
     expect(badBearer.status).toBe(401);
+
+    // A present but empty, malformed or non-Bearer header is not a missing
+    // one: the cookie must not stand in for it.
+    for (const authorization of [
+      "",
+      "Basic dXNlcjpwYXNz",
+      "Bearer",
+      "Bearer ",
+      `Bearer ${API_KEY} extra`,
+    ]) {
+      const response = await h.app.request("/v1/whoami", {
+        headers: { Authorization: authorization, Cookie: cookie },
+      });
+      expect(response.status, JSON.stringify(authorization)).toBe(401);
+    }
 
     expect((await h.app.request("/v1/whoami")).status).toBe(401);
     expect(
