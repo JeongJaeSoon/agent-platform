@@ -470,10 +470,12 @@ describe("git workspace bundle verifier", () => {
       ]),
     );
     // index-pack reads the recomputed trailer as the missing object, so what
-    // it says depends on those twenty bytes: usually a premature end of the
-    // pack (unusable), but git 2.47 on Linux sometimes aborts on
-    // `BUG: git-zlib.c:58: total_in mismatch` instead, which reaches us as
-    // "index-pack died of signal 6" — a crash, so a retryable throw.
+    // it says depends on those twenty bytes, which differ with every fixture:
+    // usually a premature end of the pack (unusable), but git 2.47 on Linux
+    // sometimes aborts on `BUG: git-zlib.c:58: total_in mismatch` instead
+    // ("index-pack died of signal 6"), and where the bytes declare a huge
+    // object the memory cap refuses the allocation ("Out of memory"). Both
+    // are retryable throws.
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const outcome = await verifier
       .verify({ bytes, commit: bundle.commit, key: "k" })
@@ -482,7 +484,9 @@ describe("git workspace bundle verifier", () => {
         (error: Error) => error.message,
       );
     expect(outcome).not.toBe("restorable");
-    if (outcome !== "unusable") expect(outcome).toContain("died of signal");
+    if (outcome !== "unusable") {
+      expect(outcome).toMatch(/died of signal|Out of memory/);
+    }
     expect(await readdir(tempRoot)).toEqual([]);
   });
 

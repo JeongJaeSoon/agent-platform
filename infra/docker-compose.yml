@@ -116,11 +116,28 @@ services:
       dockerfile: apps/api/Dockerfile
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
-    # An init as PID 1, not bun: the checkpoint verifier kills a git that
-    # outlives its timeout by process group, and the helpers that orphans
-    # (index-pack) are reparented to PID 1. bun never waits for children it
-    # did not spawn, so each would stay a zombie for the container's life.
-    init: true
+    # No `init: true`: the image's own ENTRYPOINT is tini (apps/api/Dockerfile),
+    # so the git helpers the checkpoint verifier orphans are reaped wherever
+    # the image runs, not only here.
+    #
+    # Memory budget, as an upper bound rather than a measurement. Up to 2
+    # bundles are verified at once (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).
+    # Each has git fetch and its index-pack alive together, each capped at
+    # CHECKPOINT_GIT_MEMORY_MB of address space (fsck runs after them, not
+    # beside), while the service holds the bundle about twice over
+    # (2 x 128 MiB). So:
+    #   2 x (2 x 1536 + 256) MiB = 6656 MiB for verification
+    #   + 512 MiB for the API itself           = 7168 MiB
+    # Measured far below it: two concurrent verifications of 94S-259's worst
+    # honest bundle (480 MiB file, one edit) peaked at 3.5 GiB including page
+    # cache, which the kernel reclaims before it OOM-kills anything. A crafted
+    # delta can drive index-pack to the cap, so the bound, not the measurement,
+    # sets the limit.
+    # Change the two values together: raising the cap without the limit
+    # hands the choice of what dies to the OOM killer (94S-259 saw it kill
+    # index-pack under 1 GiB), and lowering the limit without the cap does
+    # the same. A cap below 256 MiB is refused at startup.
+    mem_limit: ${API_MEMORY_MB:-7168}m
     ports:
       # Loopback only; a local development listener has no business on
       # other hosts' interfaces even in api-key mode.
@@ -154,6 +171,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
+      # Sized with mem_limit above.
+      CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
       # SESSION_CATALOG_JSON is deliberately not defaulted: the API parses an
       # empty string as JSON and refuses to start. Put it in ../.env when
       # sessions should be creatable; unset, POST /v1/sessions answers 422.

@@ -16,12 +16,18 @@ import {
   createCheckpointObjectStore,
   createGitWorkspaceBundleVerifier,
   createStorageS3Client,
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
+  type GitCommandRunner,
 } from "@agent-platform/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
   CheckpointServiceDependencies,
   "codecs" | "objects" | "store"
 > & {
+  /** Tests observe the git the verifier starts; the product path never passes this. */
+  readonly gitRunner?: GitCommandRunner;
+  /** Address space per verifying git process; unset keeps the verifier's default. */
+  readonly maxGitMemoryBytes?: number;
   /** Tests substitute a spy; the product path never passes this. */
   readonly workspaceBundles?: CheckpointServiceDependencies["workspaceBundles"];
 };
@@ -42,8 +48,47 @@ export function createApiCheckpointService(
     objects: deps.objects,
     store: deps.store,
     workspaceBundles:
-      deps.workspaceBundles ?? createGitWorkspaceBundleVerifier(),
+      deps.workspaceBundles ??
+      createGitWorkspaceBundleVerifier({
+        ...(deps.gitRunner === undefined ? {} : { gitRunner: deps.gitRunner }),
+        ...(deps.maxGitMemoryBytes === undefined
+          ? {}
+          : { maxGitMemoryBytes: deps.maxGitMemoryBytes }),
+      }),
   });
+}
+
+/**
+ * Smallest cap accepted: twice what a bundle near the service's size ceiling
+ * needed in the API image (one incompressible 120 MiB file: refused at
+ * 96 MiB, verified at 128 MiB). A cap below what ordinary bundles need fails
+ * every verification, so no checkpoint would ever commit; refusing to start
+ * says that once instead of on every turn.
+ */
+export const MIN_CHECKPOINT_GIT_MEMORY_MB = 256;
+
+/**
+ * `CHECKPOINT_GIT_MEMORY_MB`: the address space, in MiB, each git process
+ * verifying a workspace bundle may use. Unset or blank keeps
+ * `DEFAULT_MAX_GIT_MEMORY_BYTES`. It exists so the value can be sized
+ * together with the container's memory limit: up to
+ * `DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS` verifications run at once,
+ * each with git fetch and index-pack alive together under this cap apiece
+ * (see infra/docker-compose.yml).
+ */
+export function checkpointGitMemoryBytesFromEnv(
+  environment: CheckpointStorageEnvironment,
+): number {
+  const raw = environment.CHECKPOINT_GIT_MEMORY_MB?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_MAX_GIT_MEMORY_BYTES;
+  const mb = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
+  const bytes = mb * 1024 * 1024;
+  if (!Number.isSafeInteger(bytes) || mb < MIN_CHECKPOINT_GIT_MEMORY_MB) {
+    throw new Error(
+      `CHECKPOINT_GIT_MEMORY_MB must be a whole number of MiB, at least ${MIN_CHECKPOINT_GIT_MEMORY_MB}, not ${raw}`,
+    );
+  }
+  return bytes;
 }
 
 /** The engines this control plane can read a manifest for. */
@@ -138,6 +183,7 @@ export type ApiCheckpoints = {
 export function createApiCheckpoints(
   db: Database,
   config: CheckpointStorageConfig | "disabled",
+  maxGitMemoryBytes?: number,
 ): ApiCheckpoints {
   if (config === "disabled") {
     return { verifier: rejectUnverifiedCheckpoints, protocol: undefined };
@@ -154,6 +200,7 @@ export function createApiCheckpoints(
     codecs: API_CHECKPOINT_CODECS,
     objects: createCheckpointObjectStore({ bucket: config.bucket, client }),
     store: createPostgresCheckpointStore(db),
+    ...(maxGitMemoryBytes === undefined ? {} : { maxGitMemoryBytes }),
   });
   return { verifier: serviceCheckpointVerifier(service), protocol: service };
 }

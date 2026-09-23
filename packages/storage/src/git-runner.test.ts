@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -164,18 +164,24 @@ describe("defaultGitRunner", () => {
   test.skipIf(linux)(
     "where limits cannot be enforced git still runs, and says so once",
     async () => {
-      const warn = spyOn(console, "warn").mockImplementation(() => {});
-      try {
-        const env = await fakeGit("echo ran");
-        const first = await defaultGitRunner(["x"], { env, limits: roomy });
-        const second = await defaultGitRunner(["x"], { env, limits: roomy });
-        expect(first.stdout).toBe("ran\n");
-        expect(second.stdout).toBe("ran\n");
-        expect(warn).toHaveBeenCalledTimes(1);
-        expect(String(warn.mock.calls[0]?.[0])).toContain("not enforced");
-      } finally {
-        warn.mockRestore();
-      }
+      // In a fresh process: the warning is once per process, and any test
+      // file that ran a limited git earlier in this one has already spent it.
+      await fakeGit("echo ran");
+      const script = `
+        const { defaultGitRunner } = await import(${JSON.stringify(join(import.meta.dir, "git-runner.ts"))});
+        const options = { env: { PATH: ${JSON.stringify(bin)} }, limits: ${JSON.stringify(roomy)} };
+        const first = await defaultGitRunner(["x"], options);
+        const second = await defaultGitRunner(["x"], options);
+        console.log(JSON.stringify([first.stdout, second.stdout]));
+      `;
+      const child = Bun.spawnSync([process.execPath, "-e", script]);
+      expect(child.exitCode).toBe(0);
+      expect(JSON.parse(child.stdout.toString())).toEqual(["ran\n", "ran\n"]);
+      const warnings = child.stderr
+        .toString()
+        .split("\n")
+        .filter((line) => line.includes("not enforced"));
+      expect(warnings).toHaveLength(1);
     },
   );
 });

@@ -24,8 +24,9 @@ FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
 # repository (94S-228); without the executable every checkpoint finalize
 # fails with ENOENT and no pointer ever advances. The smoke test checks it.
+# tini: see ENTRYPOINT.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git \
+  && apt-get install -y --no-install-recommends git tini \
   && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000
@@ -34,5 +35,15 @@ COPY --from=deps --chown=1000:1000 /app /app
 USER 1000:1000
 ENV NODE_ENV=production
 EXPOSE 3000
+# An init as PID 1 wherever the image runs, not only under compose's
+# `init: true`: the checkpoint verifier kills a git that outlives its timeout
+# by process group, and the helpers that orphans are reparented to PID 1. bun
+# never waits for children it did not spawn, so under bun each would stay a
+# zombie for the container's life. `-s` makes tini the subreaper too when
+# something else (`docker run --init`) already holds PID 1. It also forwards
+# SIGTERM, which bun as PID 1 ignored until the stop timeout killed it. The
+# base image's entrypoint stays in the chain so `docker run <image> <file>`
+# still means `bun <file>`.
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
 # Reconciler: `docker run <image> bun run apps/reconciler/src/main.ts`.
 CMD ["bun", "run", "apps/api/src/server.ts"]
