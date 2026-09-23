@@ -954,6 +954,41 @@ describe("runGitBytes", () => {
       }
     });
 
+    test("reads git's verdict from the end of stderr, however much came before it", async () => {
+      const restorePath = await fakeGit(
+        `head -c ${256 * 1024} /dev/zero | tr '\\0' 'w' | fold -w 99 >&2\necho >&2\necho "error: pack-objects died of signal 9" >&2\nexit 128`,
+      );
+      try {
+        await expect(
+          runGitBytes(["status"], options({ limits: roomy })),
+        ).rejects.toThrow(
+          new GitResourceLimitError("error: pack-objects died of signal 9"),
+        );
+        // What is kept starts on a whole line.
+        const result = await runGitBytes(["status"], options());
+        expect(result.stderr.length).toBeLessThanOrEqual(64 * 1024);
+        expect(result.stderr).toMatch(/^w{99}\n/);
+      } finally {
+        restorePath();
+      }
+    });
+
+    test("past its deadline, as a limit rather than an exit code", async () => {
+      const restorePath = await fakeGit("sleep 30");
+      try {
+        await expect(
+          runGitBytes(
+            ["status"],
+            options({ deadlineMs: 2_000, limits: roomy }),
+          ),
+        ).rejects.toThrow(
+          new GitResourceLimitError("git ran past its 2000ms deadline"),
+        );
+      } finally {
+        restorePath();
+      }
+    }, 10_000);
+
     test("an ordinary failure is still an exit code", async () => {
       const restorePath = await fakeGit(
         'echo "fatal: not a git repository" >&2\nexit 128',

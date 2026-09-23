@@ -104,7 +104,8 @@ export type InstructionsPin = { commit: string; objects?: string };
 //
 // One pack thread, for `checkpointGitLimits`: each thread takes a malloc
 // arena of its own out of the address space, and left alone git starts one
-// per host CPU whatever the container's CPU share.
+// per host CPU whatever the container's CPU share. `index-pack` reads the
+// same setting, so a restore's delta resolution is one thread too.
 export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
   ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
@@ -120,13 +121,15 @@ export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
 ];
 
 /**
- * Address space for each capture or restore git: room for a file at
- * `maxFileBytes` mapped whole and converted once, inside the worker's
- * container. Deliberately fixed rather than sized from the container's
- * memory; make it configurable once a deployment raises `WORKER_MEMORY_MB`
- * for sessions whose files need more.
+ * Address space for each capture or restore git: resolving a delta of a file
+ * near `maxFileBytes` holds base and result at once (a 480 MiB file with one
+ * edit peaked at 964 MiB resident; see the control plane's
+ * `DEFAULT_MAX_GIT_MEMORY_BYTES`, which this matches), and so does staging
+ * one that needs converting. Deliberately fixed rather than sized from the
+ * container's memory; make it configurable once a deployment changes
+ * `WORKER_MEMORY_MB` enough that the two disagree.
  */
-const CHECKPOINT_GIT_MEMORY_BYTES = 1024 * 1024 * 1024;
+const CHECKPOINT_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
 /** Compression's worst case on top of the largest file: zlib adds ~0.03%. */
 const FILE_SIZE_SLACK_BYTES = 16 * 1024 * 1024;
 

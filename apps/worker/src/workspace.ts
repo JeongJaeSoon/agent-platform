@@ -727,9 +727,9 @@ export class GitOutputLimitError extends Error {
 }
 
 /**
- * A git run under `GitRunOptions.limits` ran out of memory, file size or
- * CPU. Thrown rather than returned as an exit code, so that callers which
- * read a failed probe as an answer do not read this one as one.
+ * A git run under `GitRunOptions.limits` ran out of memory, file size, CPU
+ * or its deadline. Thrown rather than returned as an exit code, so that
+ * callers which read a failed probe as an answer do not read this one as one.
  */
 export class GitResourceLimitError extends Error {
   constructor(detail: string) {
@@ -739,8 +739,9 @@ export class GitResourceLimitError extends Error {
 }
 
 /**
- * What git says on stderr is kept only up to this: enough for the last lines
- * a failure is reported with, and not a buffer a hostile repository fills.
+ * What git says on stderr is kept only up to this, from the end: enough for
+ * the last lines a failure is reported and classified with, and not a buffer
+ * a hostile repository fills.
  */
 const STDERR_LIMIT_BYTES = 64 * 1024;
 
@@ -819,11 +820,11 @@ export async function runGitBytes(
   signal.addEventListener("abort", stop);
   const limit = options.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
   const abandon = child.exited.then(() => Bun.sleep(PIPE_GRACE_MS));
-  let collected: [Collected, Collected, number];
+  let collected: [Collected, string, number];
   try {
     collected = await Promise.all([
       collect(child.stdout, limit, abandon, stop),
-      collect(child.stderr, STDERR_LIMIT_BYTES, abandon),
+      collectTail(child.stderr, STDERR_LIMIT_BYTES, abandon),
       child.exited,
     ]);
   } finally {
@@ -833,15 +834,28 @@ export async function runGitBytes(
   const [stdout, stderr, code] = collected;
   signal.throwIfAborted();
   if (stdout.overflowed) throw new GitOutputLimitError(limit);
-  let said = redact(new TextDecoder().decode(stderr.bytes));
-  if (options.limits !== undefined && !stopped && code !== 0) {
-    const last = said.trim().split("\n").slice(-2).join("\n");
-    const killedBy = child.signalCode ?? "";
-    if (LIMIT_SIGNALS.has(killedBy)) throw new GitResourceLimitError(killedBy);
-    if (LIMIT_MESSAGES.test(last)) throw new GitResourceLimitError(last);
+  const said = redact(stderr);
+  const late = `git ran past its ${deadlineMs}ms deadline`;
+  if (options.limits !== undefined) {
+    if (timedOut) throw new GitResourceLimitError(late);
+    if (!stopped && code !== 0) {
+      const killedBy = child.signalCode ?? "";
+      if (LIMIT_SIGNALS.has(killedBy)) {
+        throw new GitResourceLimitError(killedBy);
+      }
+      const verdict = said
+        .trim()
+        .split("\n")
+        .slice(-2)
+        .find((line) => LIMIT_MESSAGES.test(line));
+      if (verdict !== undefined) throw new GitResourceLimitError(verdict);
+    }
   }
-  if (timedOut) said += `\ngit ran past its ${deadlineMs}ms deadline`;
-  return { code, stdout: stdout.bytes, stderr: said };
+  return {
+    code,
+    stdout: stdout.bytes,
+    stderr: timedOut ? `${said}\n${late}` : said,
+  };
 }
 
 /**
@@ -896,6 +910,51 @@ async function collect(
     offset += chunk.byteLength;
   }
   return { bytes, overflowed };
+}
+
+/**
+ * The last `limit` bytes of a pipe, as whole lines: once anything has been
+ * dropped the first, partial line goes too, so no cut lands inside a URL or
+ * credential the redaction would then no longer recognise.
+ */
+async function collectTail(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+  abandon: Promise<void>,
+): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let held = 0;
+  let dropped = false;
+  const reader = stream.getReader();
+  const abandoned = abandon.then(() => ABANDONED);
+  for (;;) {
+    const next = await Promise.race([reader.read(), abandoned]);
+    if (typeof next === "symbol") {
+      await reader.cancel().catch(() => undefined);
+      break;
+    }
+    const { done, value } = next;
+    if (done) break;
+    chunks.push(value);
+    held += value.byteLength;
+    while (held - (chunks[0]?.byteLength ?? 0) >= limit) {
+      held -= chunks.shift()?.byteLength ?? 0;
+      dropped = true;
+    }
+  }
+  const bytes = new Uint8Array(held);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let kept = bytes;
+  if (held > limit) {
+    kept = bytes.subarray(held - limit);
+    dropped = true;
+  }
+  if (dropped) kept = kept.subarray(kept.indexOf(0x0a) + 1);
+  return new TextDecoder().decode(kept);
 }
 
 export async function check(
