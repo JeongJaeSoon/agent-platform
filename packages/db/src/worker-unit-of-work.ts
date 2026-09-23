@@ -8,6 +8,7 @@ import {
 } from "@agent-platform/contracts";
 import {
   budgetExceeded,
+  CHECKPOINT_ROOT_PARENT,
   type CheckpointPointer,
   type CheckpointStateInput,
   type CheckpointStateResult,
@@ -427,6 +428,26 @@ async function restoreRef(
  * proves. An advisory reason (the run was not quiescent) is cleared by any
  * commit: a checkpoint that committed is exactly what it was missing.
  */
+/**
+ * What the committing attempt's state was built on: the fallback's revision
+ * when the row records one for this very attempt, the pointer otherwise.
+ * Another attempt's fallback says nothing about what this one restored. A
+ * base at or below the revision a start_fresh decision retired (94S-288) is
+ * no base at all: the engine session started empty, and a fallback past this
+ * checkpoint must not restore the history the operator gave up.
+ */
+function parentRevisionOf(session: SessionRow, attemptId: string) {
+  const base =
+    (session.checkpointRestoreAttemptId === attemptId
+      ? session.checkpointFallbackRevision
+      : null) ?? session.checkpointRevision;
+  return base !== null &&
+    session.contextResetCheckpointRevision !== null &&
+    base <= session.contextResetCheckpointRevision
+    ? CHECKPOINT_ROOT_PARENT
+    : base;
+}
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -455,14 +476,8 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
-    // The attempt committing ran on what its restore handed it: the
-    // fallback's revision when the row records one for this very attempt,
-    // the pointer otherwise. Another attempt's fallback says nothing about
-    // what this one restored.
-    parentRevision:
-      (input.session.checkpointRestoreAttemptId === input.fence.attemptId
-        ? input.session.checkpointFallbackRevision
-        : null) ?? input.session.checkpointRevision,
+    // The attempt committing ran on what its restore handed it.
+    parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
     turnId: input.turnRowId,
     committedAt: input.now,
   });

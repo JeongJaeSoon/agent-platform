@@ -14,12 +14,13 @@ import {
 } from "@agent-platform/testkit/checkpoint-objects";
 import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 
-import type {
-  CheckpointFence,
-  CheckpointPointer,
-  CheckpointStore,
-  CommitCheckpointInput,
-  CommitCheckpointResult,
+import {
+  CHECKPOINT_ROOT_PARENT,
+  type CheckpointFence,
+  type CheckpointPointer,
+  type CheckpointStore,
+  type CommitCheckpointInput,
+  type CommitCheckpointResult,
 } from "../ports/checkpoint-store.ts";
 import {
   structuralBundleVerifier,
@@ -1605,6 +1606,21 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
         revision: 1,
         fallback: { pointerRevision: 3, skipped: [{ revision: 3 }] },
       },
+    });
+  });
+
+  test("never walks past a checkpoint that starts a history (94S-288 start_fresh)", async () => {
+    const [, second] = await commitRevisions(1);
+    // Revision 1 was the first checkpoint after an operator retired
+    // revision 0 and started a new engine session.
+    const built = checkpoints.history.find((row) => row.revision === 1);
+    if (built === undefined) throw new Error("revision 1 was not committed");
+    built.parentRevision = CHECKPOINT_ROOT_PARENT;
+    objects.remove(second?.manifest_ref as string);
+
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
     });
   });
 

@@ -1,5 +1,8 @@
 import type { CheckpointRef } from "@agent-platform/contracts";
 
+/** CheckpointPointer.parentRevision of a checkpoint that starts a history. */
+export const CHECKPOINT_ROOT_PARENT = -1;
+
 export type CheckpointPointer = {
   committedAt: Date;
   manifestRef: string;
@@ -15,7 +18,9 @@ export type CheckpointPointer = {
    * The revision this checkpoint's state was built on: the pointer before
    * it, or the earlier revision a fallback restored (94S-204). Null or
    * absent for revision 0 and for rows committed before it was recorded,
-   * which read as the revision before.
+   * which read as the revision before. CHECKPOINT_ROOT_PARENT for the first
+   * checkpoint after a start_fresh decision (94S-288): it was built on no
+   * earlier state, and a fallback must never walk into the retired history.
    */
   parentRevision?: number | null;
   revision: number;

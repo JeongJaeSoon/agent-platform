@@ -5,6 +5,7 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import {
+  CHECKPOINT_ROOT_PARENT,
   createWorkerGateway,
   type WorkerGateway,
   WorkerGatewayError,
@@ -25,6 +26,7 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  checkpoints,
   events,
   executions,
   receipts,
@@ -662,6 +664,18 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("active");
     expect(after.checkpointRevision).toBe(1);
+    // Built on no earlier state: a fallback past it stops instead of
+    // restoring the retired revision 0.
+    const [first] = await db
+      .select({ parent: checkpoints.parentRevision })
+      .from(checkpoints)
+      .where(
+        and(
+          eq(checkpoints.sessionId, session.session_id),
+          eq(checkpoints.revision, 1),
+        ),
+      );
+    expect(first?.parent).toBe(CHECKPOINT_ROOT_PARENT);
     const next = await claim(await launch(session));
     expect(next.restore).toEqual(checkpointAt(1));
   });
