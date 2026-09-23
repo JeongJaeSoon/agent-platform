@@ -66,7 +66,8 @@ export interface CreateApiAppOptions {
   registerRoutes?: (router: ApiRouter) => void;
   // Mounted under /v1 ahead of the auth middleware: the public allowlist
   // (bootstrap, login, invite accept). Anything not registered here still
-  // falls through to the authenticated router and answers 401.
+  // falls through to the authenticated router and answers 401. Each route
+  // attaches ingestThenStopClock itself.
   registerPublicRoutes?: (router: ApiRouter) => void;
   // Mounted under /internal, outside the /v1 API-key middleware; each
   // internal route family brings its own authentication.
@@ -245,8 +246,11 @@ async function ingestBody(
 }
 
 // Body under the clock, then the clock off for the handler: what every
-// router outside the /v1 principal middleware does.
-async function ingestThenStopClock(
+// route outside the /v1 principal middleware does. Public /v1 routes attach
+// it per route, never as a `*` middleware: that router is mounted ahead of
+// the authenticated one, so a wildcard there would read every /v1 body
+// before authentication and undo the auth-before-body rule.
+export async function ingestThenStopClock(
   context: Context<ApiEnvironment>,
   next: () => Promise<void>,
 ): Promise<Response | undefined> {
@@ -369,10 +373,8 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   v1.get("/", rootHandler);
   options.registerRoutes?.(v1);
   if (options.registerPublicRoutes) {
+    // No middleware here: see ingestThenStopClock.
     const publicV1 = new Hono<ApiEnvironment>({ strict: false });
-    // Same clock discipline as the authenticated router, minus the
-    // principal: these handlers authenticate by what is in the body.
-    publicV1.use("*", ingestThenStopClock);
     options.registerPublicRoutes(publicV1);
     app.route("/v1", publicV1);
   }

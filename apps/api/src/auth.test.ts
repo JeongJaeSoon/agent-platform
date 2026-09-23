@@ -15,7 +15,7 @@ import type {
   WorkspaceRow,
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { createApiApp } from "./app.ts";
+import { BODY_IDLE_TIMEOUT_SECONDS, createApiApp } from "./app.ts";
 import {
   bootstrapGateFromEnv,
   createBootstrapGate,
@@ -148,9 +148,9 @@ class MemoryIdentityStore implements IdentityStore {
     sessionId: string,
     ttlMs: number,
     renewAfterMs: number,
-  ) {
+  ): Promise<Date | null> {
     const session = this.sessions.find((s) => s.id === sessionId);
-    if (!session || session.revokedAt !== null) return;
+    if (!session || session.revokedAt !== null) return null;
     if (
       session.lastSeenAt === null ||
       session.lastSeenAt.getTime() < this.now() - renewAfterMs
@@ -158,7 +158,9 @@ class MemoryIdentityStore implements IdentityStore {
       session.expiresAt = new Date(this.now() + ttlMs);
       session.lastSeenAt = new Date(this.now());
       session.renewals += 1;
+      return session.expiresAt;
     }
+    return null;
   }
   async revokeWebSession(tokenHash: Uint8Array) {
     const hex = Buffer.from(tokenHash).toString("hex");
@@ -179,6 +181,7 @@ function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
   const identity = new MemoryIdentityStore();
   const sink = new MemoryLogSink();
   const logger = new StructuredLogger({ sinks: [sink] });
+  const hooks: { beforeReauth?: () => void } = {};
   const auth = {
     identity,
     bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
@@ -208,6 +211,11 @@ function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
       router.post("/mutate", (context) =>
         context.json({ owner_id: context.get("ownerId") }, 201),
       );
+      // What SSE does on its clock: re-check the admitted credential.
+      router.get("/reauth", async (context) => {
+        hooks.beforeReauth?.();
+        return context.json({ ok: await context.get("reauthenticate")() });
+      });
     },
   });
   const json = (path: string, body: unknown, headers: HeadersInit = {}) =>
@@ -228,7 +236,7 @@ function harness(options: { authMode?: string; lockout?: LoginLockout } = {}) {
     });
   const login = (email = "owner@example.com", password = PASSWORD) =>
     json("/v1/auth/login", { email, password });
-  return { app, identity, sink, json, bootstrap, login };
+  return { app, identity, sink, json, bootstrap, login, hooks };
 }
 
 function cookieOf(response: Response): string {
@@ -286,14 +294,38 @@ describe("bootstrap", () => {
     expect((await h.bootstrap()).status).toBe(201);
   });
 
-  test("validates the body only after the token", async () => {
+  test("answers 401 before 400: the token is checked before the body", async () => {
     const h = harness();
-    const bad = await h.bootstrap({ password: "short" });
-    expect(bad.status).toBe(400);
-    // The token was consumed by the failed request? No: consume happens
-    // after the schema check for the rest of the body would be wrong; the
-    // 400 must leave the token usable.
+    const invalidBody = { password: "x", workspace_slug: "Not A Slug" };
+    // Wrong, missing or non-string token with an invalid body: 401, not 400.
+    expect(
+      (await h.bootstrap({ ...invalidBody, bootstrap_token: "y".repeat(40) }))
+        .status,
+    ).toBe(401);
+    expect(
+      (await h.bootstrap({ ...invalidBody, bootstrap_token: undefined }))
+        .status,
+    ).toBe(401);
+    expect(
+      (await h.bootstrap({ ...invalidBody, bootstrap_token: 42 })).status,
+    ).toBe(401);
+    // Right token, invalid body: 400, and the token is not spent.
+    expect((await h.bootstrap(invalidBody)).status).toBe(400);
     expect((await h.bootstrap()).status).toBe(201);
+    // Done beats everything, including a wrong token and an invalid body.
+    expect(
+      (await h.bootstrap({ ...invalidBody, bootstrap_token: "y".repeat(40) }))
+        .status,
+    ).toBe(409);
+  });
+
+  test("two concurrent bootstraps with the right token create one owner", async () => {
+    const h = harness();
+    const statuses = (await Promise.all([h.bootstrap(), h.bootstrap()]))
+      .map((r) => r.status)
+      .sort();
+    expect(statuses).toEqual([201, 409]);
+    expect(h.identity.users).toHaveLength(1);
   });
 
   test("a generated token is printed once, only while users are 0", async () => {
@@ -452,9 +484,17 @@ describe("login, logout, me", () => {
     expect(session.expiresAt.getTime()).toBe(
       start + 2 * 60 * 60 * 1000 + WEB_SESSION_TTL_MS,
     );
-    // A second hit inside the renew window writes nothing.
-    await h.app.request("/v1/auth/me", { headers: { Cookie: cookie } });
+    // The browser's copy slides too: same token, the row's new Expires.
+    const reissued = later.headers.get("Set-Cookie") ?? "";
+    expect(reissued.split(";")[0]).toBe(cookie);
+    expect(reissued).toContain(`Expires=${session.expiresAt.toUTCString()}`);
+    expect(reissued).toContain("HttpOnly");
+    // A second hit inside the renew window writes nothing and sets nothing.
+    const quiet = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookie },
+    });
     expect(session.renewals).toBe(1);
+    expect(quiet.headers.get("Set-Cookie")).toBeNull();
 
     h.identity.now = () => session.expiresAt.getTime() + 1;
     const expired = await h.app.request("/v1/auth/me", {
@@ -482,6 +522,19 @@ describe("login lockout", () => {
     expect(lockout.retryAfterMs("b")).toBe(0); // b restarted from zero
     for (let i = 0; i < 4; i += 1) lockout.recordFailure("a");
     expect(lockout.retryAfterMs("a")).toBeGreaterThan(0); // a kept its two
+  });
+
+  test("a concurrent burst cannot run more guesses than the limit", async () => {
+    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const h = harness({ lockout });
+    await h.bootstrap();
+    const statuses = (
+      await Promise.all(
+        Array.from({ length: 12 }, () => h.login("owner@example.com", WRONG)),
+      )
+    ).map((r) => r.status);
+    expect(statuses.filter((s) => s === 401)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(7);
   });
 
   test("the sixth failed attempt inside the window is 429, and success clears it", async () => {
@@ -564,6 +617,90 @@ describe("principal middleware", () => {
     // not public just by prefix.
     expect((await h.login("x@example.com", "p".repeat(12))).status).toBe(401);
     expect((await h.app.request("/v1/auth/other")).status).toBe(401);
+  });
+
+  test("an unauthenticated POST to a protected route is refused before its body is read", async () => {
+    const h = harness();
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+    let pulled = 0;
+    // A body that never finishes: reading it would hang the request.
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled === 1) controller.enqueue(new TextEncoder().encode("{"));
+      },
+    });
+    const response = await h.app.request(
+      "/v1/mutate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit,
+      env,
+    );
+    expect(response.status).toBe(401);
+    // Clock off for the auth lookup, never re-armed for a body.
+    expect(calls).toEqual([0]);
+    expect(pulled).toBeLessThanOrEqual(1);
+  });
+
+  test("public routes read their body under the idle clock, then stop it", async () => {
+    const h = harness();
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+    const response = await h.app.request(
+      "/v1/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "a@example.com", password: WRONG }),
+      },
+      env,
+    );
+    expect(response.status).toBe(401);
+    expect(calls).toEqual([BODY_IDLE_TIMEOUT_SECONDS, 0]);
+  });
+
+  test("reauthenticate follows the cookie session: logout, disable and role change end it", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const reauth = async () =>
+      (
+        (await (
+          await h.app.request("/v1/reauth", { headers: { Cookie: cookie } })
+        ).json()) as { ok: boolean }
+      ).ok;
+    expect(await reauth()).toBe(true);
+
+    const membership = h.identity.memberships[0];
+    const session = h.identity.sessions[0];
+    if (!membership || !session) throw new Error("bootstrap left no rows");
+    h.hooks.beforeReauth = () => {
+      membership.role = "member";
+    };
+    expect(await reauth()).toBe(false);
+    membership.role = "owner";
+    h.hooks.beforeReauth = () => {
+      membership.disabledAt = new Date();
+    };
+    expect(await reauth()).toBe(false);
+    membership.disabledAt = null;
+    h.hooks.beforeReauth = () => {
+      session.revokedAt = new Date();
+    };
+    expect(await reauth()).toBe(false);
+  });
+
+  test("reauthenticate follows the API key", async () => {
+    const h = harness();
+    const response = await h.app.request("/v1/reauth", {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+    expect(await response.json()).toEqual({ ok: true });
   });
 
   test("AUTH_MODE=none keeps trusting X-Owner-Id and ignores cookies", async () => {

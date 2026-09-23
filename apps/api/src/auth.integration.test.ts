@@ -273,6 +273,35 @@ integration("auth API on PostgreSQL", () => {
     expect((await login()).status).toBe(200);
   });
 
+  test("a session idle past the renew window slides in the DB and in the cookie", async () => {
+    const fresh = cookieOf(await login());
+    const hash = hashWebSessionToken(fresh.slice(11));
+    await db
+      .update(webSessions)
+      .set({
+        lastSeenAt: sql`clock_timestamp() - interval '2 hours'`,
+        expiresAt: sql`clock_timestamp() + interval '1 day'`,
+      })
+      .where(eq(webSessions.tokenHash, hash));
+    const me = await app.request("/v1/auth/me", { headers: { Cookie: fresh } });
+    expect(me.status).toBe(200);
+    const [row] = await db
+      .select({ expiresAt: webSessions.expiresAt })
+      .from(webSessions)
+      .where(eq(webSessions.tokenHash, hash));
+    const days =
+      ((row?.expiresAt.getTime() ?? 0) - Date.now()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeGreaterThan(13.9);
+    const reissued = me.headers.get("Set-Cookie") ?? "";
+    expect(reissued.split(";")[0]).toBe(fresh);
+    expect(reissued).toContain(`Expires=${row?.expiresAt.toUTCString()}`);
+    // Just renewed: the next request writes nothing and sets nothing.
+    const again = await app.request("/v1/auth/me", {
+      headers: { Cookie: fresh },
+    });
+    expect(again.headers.get("Set-Cookie")).toBeNull();
+  });
+
   test("an expired row is refused by the database clock; logout revokes", async () => {
     await db
       .update(webSessions)

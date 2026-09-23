@@ -203,14 +203,16 @@ export async function resolveWebSession(
 /**
  * Sliding expiry. Only rows whose last touch is older than `renewAfterMs`
  * are written, so a busy tab does not turn every request into an UPDATE.
+ * Returns the new expiry when the row was written, so the caller can move
+ * the cookie's own Expires with it; null when nothing changed.
  */
 export async function renewWebSession(
   db: Database,
   sessionId: string,
   ttlMs: number,
   renewAfterMs: number,
-): Promise<void> {
-  await db
+): Promise<Date | null> {
+  const [row] = await db
     .update(webSessions)
     .set({ expiresAt: fromDbNow(ttlMs), lastSeenAt: DB_NOW })
     .where(
@@ -225,7 +227,9 @@ export async function renewWebSession(
           ),
         ),
       ),
-    );
+    )
+    .returning({ expiresAt: webSessions.expiresAt });
+  return row?.expiresAt ?? null;
 }
 
 export async function revokeWebSession(

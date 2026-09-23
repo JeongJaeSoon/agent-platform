@@ -16,6 +16,7 @@ import { z } from "zod";
 import {
   ApiHttpError,
   type ApiRouter,
+  ingestThenStopClock,
   isStorageUnavailable,
   jsonWithSchema,
   parseJsonBody,
@@ -53,10 +54,12 @@ export interface AuthRouteDeps {
 
 const INVALID_CREDENTIALS = "Invalid email or password";
 
-// The token is checked before the rest of the body is validated so a caller
-// without it learns nothing about the schema, and gets 401 rather than 400.
-const bootstrapBodySchema = bootstrapRequestSchema.extend({
-  bootstrap_token: z.string().optional(),
+// The token is read on its own and checked before the rest of the body is
+// validated, so a caller without it learns nothing about the schema and gets
+// 401 rather than 400. A body that is not a JSON object cannot carry a
+// token at all and stays a 400.
+const bootstrapTokenOnlySchema = z.looseObject({
+  bootstrap_token: z.unknown().optional(),
 });
 
 async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
@@ -87,19 +90,28 @@ export function registerPublicAuthRoutes(
 ) {
   const lockout = deps.lockout ?? new LoginLockout();
 
-  router.post("/auth/bootstrap", async (context) => {
+  router.post("/auth/bootstrap", ingestThenStopClock, async (context) => {
     // Done is answered before the token is looked at: once the first owner
     // exists the token has nothing left to protect, and 409 is not a hint.
     if ((await storageMapped(() => deps.identity.countUsers())) > 0) {
       throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
     }
-    const body = await parseJsonBody(context, bootstrapBodySchema);
-    if (
-      !body.bootstrap_token ||
-      !deps.bootstrap.consume(body.bootstrap_token)
-    ) {
+    const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
+    const token =
+      typeof raw.bootstrap_token === "string" ? raw.bootstrap_token : null;
+    if (token === null || !deps.bootstrap.matches(token)) {
       deps.logger?.warn("Bootstrap refused: token mismatch");
       throw new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+    }
+    const parsed = bootstrapRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      // The token stays unspent: a typo in the form is not a used install.
+      throw new ApiHttpError(400, "BAD_REQUEST", "Request body is invalid");
+    }
+    const body = parsed.data;
+    if (!deps.bootstrap.consume(token)) {
+      // A concurrent request with the same token got there first.
+      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
     }
     try {
       const passwordHash = await hashPassword(body.password);
@@ -139,10 +151,14 @@ export function registerPublicAuthRoutes(
     }
   });
 
-  router.post("/auth/login", async (context) => {
+  router.post("/auth/login", ingestThenStopClock, async (context) => {
     const body = await parseJsonBody(context, loginRequestSchema);
     const email = normalizeEmail(body.email);
-    const retryAfterMs = lockout.retryAfterMs(email);
+    // Counted as a failure before the password is checked, in the same
+    // synchronous step as the lockout check: a burst of concurrent guesses
+    // cannot all see the window open while their hashes are still running.
+    // Success clears it below.
+    const retryAfterMs = lockout.reserve(email);
     if (retryAfterMs > 0) {
       context.header("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
       throw new ApiHttpError(
@@ -165,8 +181,7 @@ export function registerPublicAuthRoutes(
         : null;
     if (!user || !verified || !membership) {
       // A user with no live workspace fails like a wrong password; the
-      // lockout counts it too, so probing for such accounts is bounded.
-      lockout.recordFailure(email);
+      // reservation above already counted it, so probing is bounded.
       deps.logger?.warn("Login failed", { has_user: user !== null });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }

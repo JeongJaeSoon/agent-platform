@@ -64,7 +64,7 @@ export interface IdentityStore {
     sessionId: string,
     ttlMs: number,
     renewAfterMs: number,
-  ): Promise<void>;
+  ): Promise<Date | null>;
   revokeWebSession(tokenHash: Uint8Array): Promise<void>;
 }
 
@@ -143,6 +143,11 @@ export async function verifyPassword(
 // ---------------------------------------------------------------------------
 
 export interface BootstrapGate {
+  /**
+   * Whether the candidate is the token, spent or not; does not spend it. A
+   * right token that a concurrent request already spent is a 409, not a 401.
+   */
+  matches(candidate: string): boolean;
   /** True once, for the matching token; false afterwards and for any other. */
   consume(candidate: string): boolean;
   /** Undo a consume whose bootstrap did not complete. */
@@ -152,16 +157,14 @@ export interface BootstrapGate {
 export function createBootstrapGate(token: string): BootstrapGate {
   let pending: string | null = token;
   const expected = Buffer.from(token, "utf8");
+  const matches = (candidate: string) => {
+    const given = Buffer.from(candidate, "utf8");
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  };
   return {
+    matches,
     consume(candidate) {
-      if (pending === null) return false;
-      const given = Buffer.from(candidate, "utf8");
-      if (
-        given.length !== expected.length ||
-        !timingSafeEqual(given, expected)
-      ) {
-        return false;
-      }
+      if (pending === null || !matches(candidate)) return false;
       pending = null;
       return true;
     },
@@ -288,6 +291,19 @@ export class LoginLockout {
     this.failures.set(key, kept);
   }
 
+  /**
+   * Check and count one attempt in a single synchronous step: 0 means the
+   * attempt was admitted and already counted as a failure (clear() on
+   * success), anything else is the wait and nothing was counted.
+   */
+  reserve(key: string): number {
+    const wait = this.retryAfterMs(key);
+    if (wait === 0) {
+      this.recordFailure(key);
+    }
+    return wait;
+  }
+
   clear(key: string): void {
     this.failures.delete(key);
   }
@@ -393,11 +409,16 @@ export function createAuthenticator(
           current.role === session.role
         );
       };
-      await identity.renewWebSession(
+      const renewed = await identity.renewWebSession(
         session.sessionId,
         WEB_SESSION_TTL_MS,
         WEB_SESSION_RENEW_AFTER_MS,
       );
+      if (renewed) {
+        // The browser drops the cookie at its own Expires, so it has to
+        // slide with the row or an active user is logged out at day 14.
+        setWebSessionCookie(context, cookie, renewed);
+      }
       return {
         principal: {
           kind: "user",
