@@ -12,11 +12,19 @@ if ! awslocal s3api head-bucket --bucket claude-sessions >/dev/null 2>&1; then
 fi
 
 # A bucket left in the localstack-data volume by an older compose file has
-# neither. Both calls are idempotent; objects written before them stay
-# unversioned, and a locked API refuses the checkpoints that name them.
-awslocal s3api put-bucket-versioning \
+# neither. Only then turn both on: once Object Lock is configured, S3 refuses
+# any PutBucketVersioning, even one that changes nothing. Objects written
+# before this stay unversioned, and a locked API refuses the checkpoints that
+# name them.
+lock=$(awslocal s3api get-object-lock-configuration \
   --bucket claude-sessions \
-  --versioning-configuration Status=Enabled
-awslocal s3api put-object-lock-configuration \
-  --bucket claude-sessions \
-  --object-lock-configuration ObjectLockEnabled=Enabled
+  --query ObjectLockConfiguration.ObjectLockEnabled \
+  --output text 2>/dev/null || true)
+if [ "$lock" != "Enabled" ]; then
+  awslocal s3api put-bucket-versioning \
+    --bucket claude-sessions \
+    --versioning-configuration Status=Enabled
+  awslocal s3api put-object-lock-configuration \
+    --bucket claude-sessions \
+    --object-lock-configuration ObjectLockEnabled=Enabled
+fi
