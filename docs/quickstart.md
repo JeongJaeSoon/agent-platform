@@ -16,11 +16,12 @@ way: a block a reader should not run as-is is ```sh or ```text.
 
 private alpha는 **신뢰된 내부 인원만** 쓴다. 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 다음에 접근할 수 있고, 이것은 알려진 제약이다.
 
-- 공유 provider key와 저장소 credential ([94S-252](https://linear.app/94soon/issue/94S-252))
 - object store bucket 전체에 미치는 credential ([94S-251](https://linear.app/94soon/issue/94S-251))
 - 카탈로그가 바뀐 뒤의 재claim ([94S-253](https://linear.app/94soon/issue/94S-253))
 
-외부 사용자·멀티 테넌트·공유 환경에 열기 전에 위 세 티켓을 닫아야 한다.
+provider key와 저장소 credential 값은 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252)). 다만 attempt가 살아 있는 동안은 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소를 부를 수 있다.
+
+외부 사용자·멀티 테넌트·공유 환경에 열기 전에 위 두 티켓을 닫아야 한다.
 
 ## 요구 사항
 

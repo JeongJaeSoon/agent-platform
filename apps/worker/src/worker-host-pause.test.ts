@@ -10,6 +10,7 @@ import {
 import type { NativeSdkMessage } from "@agent-platform/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
+import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
@@ -98,10 +99,11 @@ function harness(
             cwd: "/tmp/fake/workspace",
             home: "/tmp/fake/home",
             model: runtimeConfig.model,
-            profile: {
-              ...runtimeConfig.provider,
-              principal: { ownerScope: principal.owner_scope },
-            },
+            profile: engineProfile(
+              runtimeConfig.provider,
+              principal.owner_scope,
+              "http://egress-proxy.test:3129",
+            ),
             tools: runtimeConfig.tools,
             ...launch,
           },

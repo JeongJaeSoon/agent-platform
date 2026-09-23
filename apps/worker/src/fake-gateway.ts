@@ -164,7 +164,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         provider: {
           kind: "anthropic",
           endpoint: "http://127.0.0.1:4000",
-          auth: { kind: "api_key", value: "placeholder" },
+          auth: { kind: "egress_token", token: "placeholder" },
         },
       },
       sessionId: options.sessionId ?? "11111111-1111-4111-8111-111111111111",

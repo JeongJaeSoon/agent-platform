@@ -16,6 +16,7 @@ describe("localDockerConfigFromEnv", () => {
     expect(localDockerConfigFromEnv(base)).toEqual({
       apiVersion: "v1.44",
       dockerHost: "unix:///var/run/docker.sock",
+      egressCredentialPort: 3129,
       egressProxyUrl: "http://egress-proxy:3128",
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
@@ -333,5 +334,28 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_DOCKER_TMPFS_SIZE_MB: "x",
       }),
     ).toThrow("EXECUTION_DOCKER_TMPFS_SIZE_MB");
+  });
+});
+
+describe("the egress credential port (94S-252)", () => {
+  test("defaults to 3129 on the proxy's host and refuses the proxy's own port", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_EGRESS_CREDENTIAL_PORT: "4000",
+      }).egressCredentialPort,
+    ).toBe(4000);
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_EGRESS_CREDENTIAL_PORT: "3128",
+      }),
+    ).toThrow("other than the proxy's own");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_EGRESS_CREDENTIAL_PORT: "http",
+      }),
+    ).toThrow("is not a port");
   });
 });

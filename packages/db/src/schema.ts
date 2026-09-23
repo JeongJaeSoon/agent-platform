@@ -945,7 +945,11 @@ export const workerLaunches = pgTable(
   ],
 );
 
-// Session credential handed out by bootstrapClaim; only its hash is stored.
+// Tokens handed out by bootstrapClaim; only their hashes are stored. Each
+// attempt holds one live token per purpose: `gateway` authenticates the
+// worker's own calls, `provider` and `repository` the egress proxy's
+// credential routes (94S-252). All three are issued, extended and revoked
+// together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
   {
@@ -953,6 +957,12 @@ export const workerCredentials = pgTable(
     attemptId: text("attempt_id")
       .notNull()
       .references(() => attempts.id),
+    purpose: text("purpose").notNull().default("gateway"),
+    // What an egress token was issued against: the profile fingerprint or
+    // the repository binding at claim time. A catalog entry that moved since
+    // (a restart with an edited config) no longer matches, and the proxy is
+    // refused rather than sent somewhere the attempt never agreed to.
+    binding: text("binding"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -965,6 +975,17 @@ export const workerCredentials = pgTable(
     index("worker_credentials_live_idx")
       .on(table.attemptId)
       .where(sql`${table.revokedAt} IS NULL`),
+    uniqueIndex("worker_credentials_live_purpose_idx")
+      .on(table.attemptId, table.purpose)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "worker_credentials_purpose_check",
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository')`,
+    ),
+    check(
+      "worker_credentials_binding_check",
+      sql`(${table.purpose} = 'gateway') = (${table.binding} IS NULL)`,
+    ),
   ],
 );
 

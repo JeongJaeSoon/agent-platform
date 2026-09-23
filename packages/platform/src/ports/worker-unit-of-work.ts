@@ -83,6 +83,10 @@ export type ClaimInput = {
   executionGeneration: number;
   attemptId: string;
   credentialHash: Uint8Array;
+  // The attempt's egress tokens (94S-252), issued, extended and revoked with
+  // the session credential. `bindingsOf` names what the claimed session runs
+  // at this moment, which each token is then held to.
+  egress: EgressIssue;
   // Lifetimes, not deadlines: the storage clock is the one authority on when
   // a lease or token has ended, so the caller says how long, never until when.
   // `now` only stamps audit columns.
@@ -90,6 +94,33 @@ export type ClaimInput = {
   leaseTtlMs: number;
   now: Date;
 };
+
+export type EgressPurpose = "provider" | "repository";
+
+export type EgressIssue = {
+  providerHash: Uint8Array;
+  repositoryHash: Uint8Array;
+  bindingsOf(session: {
+    profileId: string | null;
+    repositoryId: string | null;
+  }): Record<EgressPurpose, string>;
+};
+
+// What an egress token stands for once the attempt it belongs to still owns
+// its session: the proxy is told where to go from this, never from anything
+// the worker says.
+export type EgressAuthorization =
+  | {
+      outcome: "ok";
+      sessionId: string;
+      attemptId: string;
+      binding: string;
+      profileId: string | null;
+      repository: { id: string | null; url: string; branch: string };
+    }
+  // Unknown, revoked, expired, or presented for another purpose.
+  | { outcome: "invalid_token" }
+  | FenceRejection;
 
 export type ClaimResult =
   | { outcome: "claimed" | "replayed"; binding: WorkerBinding }
@@ -364,6 +395,14 @@ export interface WorkerUnitOfWork {
   claimAtomic(input: ClaimInput): Promise<ClaimResult>;
   // Expiry is judged on the storage clock, so no caller time is taken.
   resolveCredential(tokenHash: Uint8Array): Promise<ResolvedCredential>;
+  // The egress proxy's check, on every request: the token is live for this
+  // purpose and its attempt holds the lease under the session's current
+  // fence. The first one also closes the claim replay, like any other
+  // accepted call.
+  authorizeEgressAtomic(input: {
+    tokenHash: Uint8Array;
+    purpose: EgressPurpose;
+  }): Promise<EgressAuthorization>;
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;

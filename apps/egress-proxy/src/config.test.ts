@@ -17,6 +17,7 @@ describe("egressProxyConfigFromEnv", () => {
         { host: "github.com", port: 443 },
       ],
       allowPrivate: [{ host: "host.docker.internal", port: 3000 }],
+      credential: null,
       hostname: "127.0.0.1",
       logLevel: "warn",
       port: 8080,
@@ -43,5 +44,52 @@ describe("egressProxyConfigFromEnv", () => {
         EGRESS_PROXY_PORT: "70000",
       }),
     ).toThrow("EGRESS_PROXY_PORT");
+  });
+
+  test("the credential routes need the authorizer's address and token together", () => {
+    const base = { EGRESS_ALLOWLIST: "a.test:443" };
+    const token = "authorizer-token-for-tests-0123456789";
+    expect(
+      egressProxyConfigFromEnv({
+        ...base,
+        EGRESS_AUTHORIZER_URL: "http://api:3100",
+        EGRESS_AUTHORIZER_TOKEN: token,
+      }).credential,
+    ).toEqual({
+      authorizerToken: token,
+      authorizerUrl: "http://api:3100/",
+      port: 3129,
+    });
+    expect(
+      egressProxyConfigFromEnv({
+        ...base,
+        EGRESS_AUTHORIZER_URL: "http://api:3100",
+        EGRESS_AUTHORIZER_TOKEN: token,
+        EGRESS_CREDENTIAL_PORT: "4000",
+      }).credential?.port,
+    ).toBe(4000);
+    expect(() =>
+      egressProxyConfigFromEnv({
+        ...base,
+        EGRESS_AUTHORIZER_URL: "http://api:3100",
+      }),
+    ).toThrow("set together");
+    expect(() =>
+      egressProxyConfigFromEnv({ ...base, EGRESS_AUTHORIZER_TOKEN: token }),
+    ).toThrow("set together");
+    expect(() =>
+      egressProxyConfigFromEnv({
+        ...base,
+        EGRESS_AUTHORIZER_URL: "http://api:3100",
+        EGRESS_AUTHORIZER_TOKEN: "short",
+      }),
+    ).toThrow("at least 32");
+    expect(() =>
+      egressProxyConfigFromEnv({
+        ...base,
+        EGRESS_AUTHORIZER_URL: "file:///x",
+        EGRESS_AUTHORIZER_TOKEN: token,
+      }),
+    ).toThrow("http or https");
   });
 });

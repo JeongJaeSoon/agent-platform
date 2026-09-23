@@ -243,6 +243,59 @@ describe("runtime profiles", () => {
     });
   });
 
+  test("an egress token talks to the proxy's route and holds only the token (94S-252)", () => {
+    const egress = {
+      ...baseConfig,
+      profile: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.com",
+        auth: {
+          kind: "egress_token" as const,
+          token: "wep_attempt-token",
+          transport: "http://egress-proxy:3129/provider/",
+        },
+        principal: { ownerScope: "owner-a" },
+      },
+    };
+    // Policy still judges the upstream, not the proxy.
+    expect(validateRuntimeConfig(egress, policy)).toBe(egress);
+    const environment = runtimeEnvironment(egress, {
+      PATH: "/bin",
+      HTTPS_PROXY: "http://egress-proxy:3128",
+      NO_PROXY: "localhost",
+    });
+    expect(environment.ANTHROPIC_BASE_URL).toBe(
+      "http://egress-proxy:3129/provider",
+    );
+    expect(environment.ANTHROPIC_API_KEY).toBe("wep_attempt-token");
+    expect(environment.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(environment.NO_PROXY).toBe("localhost,egress-proxy");
+    expect("no_proxy" in environment).toBe(false);
+    // With no bypass list on the host, both spellings carry the same one.
+    const bare = runtimeEnvironment(egress, { PATH: "/bin" });
+    expect(bare.NO_PROXY).toBe("egress-proxy");
+    expect(bare.no_proxy).toBe("egress-proxy");
+    // The token and where the proxy listens stay out of the fingerprint.
+    expect(publicProfile(egress.profile)).toEqual({
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth_kind: "egress_token",
+      principal: { ownerScope: "owner-a" },
+    });
+    expect(() =>
+      validateRuntimeConfig(
+        {
+          ...egress,
+          profile: {
+            ...egress.profile,
+            auth: { ...egress.profile.auth, transport: "file:///proxy" },
+          },
+        },
+        policy,
+      ),
+    ).toThrow(/http or https/);
+  });
+
   test("a profile has to say who it acts for", () => {
     const { principal: _principal, ...anonymous } = baseConfig.profile;
 

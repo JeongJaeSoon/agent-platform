@@ -240,10 +240,15 @@ describe("/internal/worker", () => {
       id: "sample-app",
       url: "https://example.invalid/app.git",
       branch: "main",
+      access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
     });
-    expect(binding.runtime_config.provider.auth.value).toBe(
-      "catalog-provider-key",
-    );
+    // The provider key never crosses this route (94S-252); the worker holds
+    // a token only the egress proxy's authorizer can turn into it.
+    expect(binding.runtime_config.provider.auth).toEqual({
+      kind: "egress_token",
+      token: expect.stringMatching(/^wep_/),
+    });
+    expect(JSON.stringify(binding)).not.toContain("catalog-provider-key");
     // The seeded session's owner rides the claim as the checkpoint principal.
     expect(binding.principal).toEqual({ owner_scope: "owner-a" });
 

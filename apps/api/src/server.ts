@@ -37,6 +37,10 @@ import {
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
 } from "./checkpoints.ts";
+import {
+  createEgressAuthorizer,
+  egressAuthorizerConfigFromEnv,
+} from "./egress-authorizer.ts";
 import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
@@ -158,6 +162,34 @@ const workers = createWorkerGateway({
       : {}),
   },
 });
+// The egress proxy's authorizer (94S-252), on a port of its own that no
+// worker allowlist names. Read before anything listens, so a half-set pair
+// stops the process instead of starting an API whose workers cannot reach
+// their provider.
+const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
+const authorizerListener =
+  egressAuthorizer === null
+    ? undefined
+    : Bun.serve({
+        hostname: egressAuthorizer.hostname,
+        port: egressAuthorizer.port,
+        fetch: createEgressAuthorizer({
+          gateway: workers,
+          logger,
+          token: egressAuthorizer.token,
+        }),
+      });
+if (authorizerListener === undefined) {
+  logger.warn(
+    "Egress authorizer is off (EGRESS_AUTHORIZER_PORT unset); workers cannot reach their provider or repository",
+    {},
+  );
+} else {
+  logger.info("Egress authorizer listening", {
+    port: authorizerListener.port,
+  });
+}
+
 // An unset or malformed value keeps the route's default rather than
 // disabling the cap.
 function positiveEnv<K extends string>(
@@ -257,7 +289,11 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     void shutdown.run(
       signal,
-      [server],
+      // The authorizer drains with the API: a proxy exchange mid-regrant
+      // gets its answer, and one refused after the stop rides its grace.
+      authorizerListener === undefined
+        ? [server]
+        : [server, authorizerListener],
       [
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },

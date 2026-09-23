@@ -210,6 +210,7 @@ jobs:
             paths:
               - apps/egress-proxy/
               - packages/adapters/execution/local-docker/src/egress.
+              - tests/credential-routes.
               - tests/sdk-egress-proxy.
           # What runs inside a worker, none of it needing a service: the worker
           # process, runtime adapters, platform services — and the repository's

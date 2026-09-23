@@ -38,6 +38,11 @@ import {
 } from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { PendingRequestRegistry } from "./pending-requests.ts";
+import {
+  claimSecrets,
+  SecretScrubber,
+  scrubbingGateway,
+} from "./secret-scrubber.ts";
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
@@ -112,6 +117,11 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Absent for engines that spawn no process, like the fake. */
   engines?: EngineExitWatch;
+  /**
+   * Secrets this process holds besides the ones the claim brings, kept out
+   * of events by value (`SecretScrubber`): the object store key, say.
+   */
+  secrets?: readonly string[];
 };
 
 /**
@@ -278,8 +288,16 @@ export class WorkerHost {
       restore_revision: claim.restore?.revision ?? null,
     });
 
+    // Everything this process holds that the engine's tools could print.
+    const scrubbed = scrubbingGateway(
+      this.options.gateway,
+      new SecretScrubber([
+        ...claimSecrets(claim, this.options.execution.bootstrapNonce),
+        ...(this.options.secrets ?? []),
+      ]),
+    );
     const publisher = new EventPublisher({
-      gateway: this.options.gateway,
+      gateway: scrubbed,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
       onFailed: (error) => {
@@ -295,7 +313,7 @@ export class WorkerHost {
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
-      gateway: this.options.gateway,
+      gateway: scrubbed,
       eventsStored: (toolUseId) =>
         publisher.toolUseStored(
           toolUseId,

@@ -81,6 +81,7 @@ function setup(
     config: {
       bootstrapNonce: "wln_test",
       executionGeneration: 1,
+      egressCredentialUrl: endpoint.replace(/\/$/, ""),
       executionId: "exec-1",
       gatewayUrl: "http://127.0.0.1:9",
       objectStore: {
@@ -106,7 +107,7 @@ function setup(
       provider: {
         kind: "anthropic",
         endpoint,
-        auth: { kind: "api_key", value: "placeholder-local" },
+        auth: { kind: "egress_token", token: "placeholder-local" },
       },
     },
   };

@@ -86,7 +86,7 @@ describe("HttpWorkerGatewayClient", () => {
           provider: {
             kind: "litellm",
             endpoint: "http://litellm:4000",
-            auth: { kind: "api_key", value: "placeholder" },
+            auth: { kind: "egress_token", token: "placeholder" },
           },
         },
         workspace: {

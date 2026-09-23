@@ -991,7 +991,7 @@ function describe(destination: { host: string; port: number }): string {
   return `${destination.host}:${destination.port}`;
 }
 
-const systemResolver: EgressResolver = async (host) => {
+export const systemResolver: EgressResolver = async (host) => {
   const entries = await lookup(host, { all: true, verbatim: true });
   return entries.map((entry) => entry.address);
 };

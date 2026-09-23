@@ -14,6 +14,7 @@ import {
 export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   HOME?: string | undefined;
   WORKER_BOOTSTRAP_NONCE?: string | undefined;
+  WORKER_EGRESS_CREDENTIAL_URL?: string | undefined;
   WORKER_EXECUTION_GENERATION?: string | undefined;
   WORKER_EXECUTION_ID?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
@@ -116,6 +117,12 @@ export type WorkerRuntimeSettings = {
 
 export type WorkerConfig = {
   bootstrapNonce: string;
+  /**
+   * The egress proxy's credential routes (94S-252): where the engine's
+   * Messages calls and the workspace's git fetches go with the tokens the
+   * claim hands out, and pick up the credentials this process never holds.
+   */
+  egressCredentialUrl: string;
   executionGeneration: number;
   executionId: string;
   gatewayUrl: string;
@@ -147,6 +154,13 @@ export function workerConfigFromEnv(
     executionId: required(
       environment.WORKER_EXECUTION_ID,
       "WORKER_EXECUTION_ID",
+    ),
+    egressCredentialUrl: url(
+      required(
+        environment.WORKER_EGRESS_CREDENTIAL_URL,
+        "WORKER_EGRESS_CREDENTIAL_URL",
+      ),
+      "WORKER_EGRESS_CREDENTIAL_URL",
     ),
     gatewayUrl: url(
       required(environment.WORKER_GATEWAY_URL, "WORKER_GATEWAY_URL"),

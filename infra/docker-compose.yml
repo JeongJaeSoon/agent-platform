@@ -4,6 +4,13 @@ name: agent-platform
 # start without them, and read them with one parser, so both services take
 # this one block. These are local defaults, not recommendations: size them
 # per installation.
+# The egress proxy asks the API what a worker's route token stands for
+# (94S-252), over the API's second listener, which only the proxy is given.
+# The same value on both sides. The default serves the local stack only:
+# anything that can present it gets the catalog's provider and repository
+# credentials back, so set your own in ../.env anywhere else.
+x-egress-authorizer-token: &egress-authorizer-token ${EGRESS_AUTHORIZER_TOKEN:-local-egress-authorizer-token-0123456789}
+
 x-installation-limits: &installation-limits
   EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
   QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
@@ -188,6 +195,14 @@ services:
       # `secrets` is deliberately absent.
       EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,localstack:4566,fake-messages:4010}
       EGRESS_PROXY_PORT: "3128"
+      # The credential routes (94S-252): workers send their provider and git
+      # calls here with an attempt-scoped token, and the proxy puts the
+      # catalog's credential on them. The authorizer is the compose-run API's
+      # second listener; for an API on the host, use
+      # http://host.docker.internal:3100.
+      EGRESS_CREDENTIAL_PORT: "3129"
+      EGRESS_AUTHORIZER_URL: ${EGRESS_AUTHORIZER_URL:-http://api:3100}
+      EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
       # The worker gateway runs on the host; only the proxy may reach it.
@@ -269,6 +284,12 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # The egress proxy's authorizer (94S-252). Not published and not on
+      # any worker allowlist: only the proxy, on this compose network, calls
+      # it. Without both the API starts, and every worker's provider and
+      # repository call is refused.
+      EGRESS_AUTHORIZER_PORT: "3100"
+      EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       # The operator catalog (94S-132): config/ mounted below. The image
       # carries none, so an API without a mounted catalog does not start.
       PLATFORM_CONFIG_DIR: /app/config
