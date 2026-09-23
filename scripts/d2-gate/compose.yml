@@ -1,0 +1,72 @@
+# Overlay on infra/docker-compose.yml for the D2 gate (94S-247); run.sh is
+# the only intended caller. Paths are relative to infra/, the project
+# directory of the base file.
+#
+# What changes against the product stack, and why:
+# - host ports are ephemeral and loopback-only, so a gate run never collides
+#   with a developer stack or another run;
+# - the API reads the gate's catalog (scripts/d2-gate/config);
+# - workers are handed gate-chaos (as gate-gateway and gate-s3) for their
+#   gateway and object store, and the egress proxy allows nothing else of
+#   ours, so every write a worker makes passes the fault injector — and
+#   cannot go around it;
+# - the scheduler loops faster, which only shortens waits.
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1::5432"
+  localstack:
+    ports: !override
+      - "127.0.0.1::4566"
+  secrets:
+    ports: !override []
+  gitea:
+    ports: !override
+      - "127.0.0.1::3000"
+  egress-proxy:
+    environment:
+      EGRESS_ALLOWLIST: "api.anthropic.com:443"
+      EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000,gate-s3:4566,gate-messages:4010,gitea:3000"
+  api:
+    ports: !override
+      - "127.0.0.1::3000"
+    volumes: !override
+      - ../scripts/d2-gate/config:/app/config:ro
+    environment:
+      GATE_PROVIDER_KEY: gate-placeholder-not-a-credential
+  scheduler:
+    environment:
+      WORKER_GATEWAY_URL: http://gate-gateway:3000
+      AWS_ENDPOINT_URL: http://gate-s3:4566
+      SCHEDULER_INTERVAL_SEC: "2"
+  gate-chaos:
+    image: oven/bun:1.3.10
+    command: ["bun", "run", "/app/scripts/d2-gate/chaos.ts"]
+    # One name per upstream, as the product has (api, localstack), so the
+    # egress proxy sees the same host:port pairs it would in production.
+    networks:
+      default:
+        aliases: [gate-gateway, gate-s3]
+    volumes:
+      - ..:/app:ro
+    ports:
+      - "127.0.0.1::8099"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:8099/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+  gate-messages:
+    image: oven/bun:1.3.10
+    command: ["bun", "run", "/app/scripts/d2-gate/fake-messages.ts"]
+    volumes:
+      - ..:/app:ro
+    ports:
+      - "127.0.0.1::4011"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4011/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s

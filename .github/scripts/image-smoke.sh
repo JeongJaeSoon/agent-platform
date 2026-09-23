@@ -45,7 +45,7 @@ console.log(zombies);
 # 94S-272: the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
-  local image="$1" cid pid1 server_ppid zombies control
+  local image="$1" cid
   # The image carries no catalog (94S-132): without one mounted the API must
   # refuse to start rather than run someone's example profiles.
   local refused status
@@ -110,13 +110,21 @@ YAML
     echo "API container exited" >&2
     exit 1
   fi
+  assert_init_reaps "$image" "$cid"
+}
+
+# 94S-272 for the API, 94S-247 for the worker: tini is PID 1, the app is its
+# child, and the orphans a timed-out git leaves behind are reaped. `cid` is a
+# running container of the image started with its own ENTRYPOINT.
+assert_init_reaps() {
+  local image="$1" cid="$2" pid1 app_ppid zombies control
   pid1="$(docker exec "$cid" cat /proc/1/comm)"
   echo "PID 1: $pid1"
   [ "$pid1" = tini ] || { echo "expected tini as PID 1, not $pid1" >&2; exit 1; }
-  # The server is the only bun in the container at this point.
-  server_ppid="$(docker exec "$cid" sh -c 'for d in /proc/[0-9]*; do awk "/^Name:/ { n = \$2 } /^PPid:/ && n == \"bun\" { print \$2 }" "$d/status" 2>/dev/null; done')"
-  echo "server parent: $server_ppid"
-  [ "$server_ppid" = 1 ] || { echo "expected the server to be tini's child" >&2; exit 1; }
+  # The app is the only bun in the container at this point.
+  app_ppid="$(docker exec "$cid" sh -c 'for d in /proc/[0-9]*; do awk "/^Name:/ { n = \$2 } /^PPid:/ && n == \"bun\" { print \$2 }" "$d/status" 2>/dev/null; done')"
+  echo "app parent: $app_ppid"
+  [ "$app_ppid" = 1 ] || { echo "expected the app to be tini's child" >&2; exit 1; }
   zombies="$(docker exec "$cid" bun -e "$zombie_probe")"
   echo "zombies after 5 git timeouts under tini: $zombies"
   [ "$zombies" = 0 ] || { echo "expected no zombies" >&2; exit 1; }
@@ -138,6 +146,10 @@ case "$app" in
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
+    # Its own ENTRYPOINT, a command standing in for the worker's: the
+    # scheduler overrides Cmd only, never the entrypoint.
+    assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \
+      "$image" bun -e 'setInterval(() => {}, 1 << 30)')"
     ;;
   api)
     # git: the checkpoint bundle verifier spawns it (94S-201).

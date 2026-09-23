@@ -226,12 +226,27 @@ jobs:
               - packages/testkit/src/fake-anthropic.
               - packages/testkit/src/workspace.
               - tests/architecture.
+              - tests/d2-gate
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/retry-flaky.
               - tests/test-files.
               - tests/unit-part.
               - tests/workspace.
+            skips:
+              # The D2 gate (94S-247) needs the whole compose stack and the
+              # images built from the checkout; scripts/d2-gate/run.sh runs it.
+              # (unnamed) is its beforeAll/afterAll.
+              - file: tests/d2-gate.e2e.test.ts
+                test: "(unnamed)"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "B: a publish that fails at the manifest is never promoted"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "C: a transcript mirror error blocks the checkpoint and new input"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "D: a worker that loses its lease mid-turn promotes nothing"
     # An empty image skips the service, so each job starts only its own.
     services:
       postgres:
