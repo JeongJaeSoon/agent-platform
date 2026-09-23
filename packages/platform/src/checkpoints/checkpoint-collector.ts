@@ -167,6 +167,10 @@ export function createCheckpointCollector(
     // covers that commit. The other order loses it: the pointer is read,
     // the attempt commits the next revision and is released, and its fresh
     // pointer's directory then reads as a fenced attempt's garbage.
+    // A fallback base recorded after this read needs nothing more: a locked
+    // restore falls back one hop at most (`judgeEarlier` refuses damage), so
+    // that base is the pointer's parent, and a commit built on it can reach
+    // no further back than the pointer's own window already keeps.
     const fences = await store.readCollectionFences(sessionId);
     if (fences === null) {
       return { status: "skipped", reason: "session does not exist" };
