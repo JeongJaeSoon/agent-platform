@@ -2626,8 +2626,14 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
         restorePlan: async () => ({ status: "none" }),
       },
     });
+    const recorded: Array<{ detail: string; turn: string | null }> = [];
     const { host } = harness(oneTurn, {
-      checkpoints: publishing,
+      checkpoints: {
+        ...publishing,
+        finalizeRefused: async (detail, scope) => {
+          recorded.push({ detail, turn: scope.turn_id });
+        },
+      },
       gateway,
       logger: { ...silent, warn: (event) => warnings.push(event) },
     });
@@ -2641,6 +2647,13 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(gateway.finalized.map((call) => call.checkpoint)).toEqual([null]);
     expect(gateway.calls.filter((call) => call === "finalize").length).toBe(2);
     expect(warnings).toContain("worker.checkpoint.failed");
+    // The session shows the turn went without its checkpoint (94S-312).
+    expect(recorded).toEqual([
+      {
+        detail: "Checkpoint manifest rejected: bundle digest mismatch",
+        turn: "1",
+      },
+    ]);
   });
 
   test("a refusal after an unanswered finalize is not retried without the checkpoint", async () => {
@@ -2664,13 +2677,24 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
       }
     }
     const gateway = new Undecided();
-    const { host } = harness(oneTurn, { checkpoints: publishing, gateway });
+    let recorded = 0;
+    const { host } = harness(oneTurn, {
+      checkpoints: {
+        ...publishing,
+        finalizeRefused: async () => {
+          recorded += 1;
+        },
+      },
+      gateway,
+    });
     gateway.enqueue("a turn whose finalize goes unanswered first");
 
     const summary = await host.runLoop();
 
     expect(summary.outcome).toBe("failed");
     expect(sent.every((checkpoint) => checkpoint !== null)).toBe(true);
+    // The first request may yet commit it: nothing says it went without.
+    expect(recorded).toBe(0);
   });
 
   test("a tool the engine starts while the checkpoint publishes is refused", async () => {

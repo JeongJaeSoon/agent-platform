@@ -1130,6 +1130,9 @@ export class WorkerHost {
         // Nothing can commit the capture any more; the fallback carries no
         // checkpoint to wait on.
         captured?.lease?.release();
+        await this.checkpoints.finalizeRefused?.(describe(error), {
+          ...this.scope,
+        });
         // An interrupted turn is `interrupted` only with its checkpoint.
         terminal = interrupted ? unconfirm() : settlement;
         finalized = await finalize(terminal, null);

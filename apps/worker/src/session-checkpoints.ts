@@ -118,7 +118,11 @@ export class RestoreRefused extends Error {
   }
 }
 
-/** A publish that stopped short; logged, never thrown past the port. */
+/**
+ * A publish that stopped short. Never thrown past the port: it is logged and
+ * reported as the advisory `publish_failed`, so the session shows that its
+ * last turn went without a checkpoint.
+ */
 class PublishFailure extends Error {
   constructor(
     readonly stage: string,
@@ -130,9 +134,9 @@ class PublishFailure extends Error {
 
 /**
  * The transcript is missing entries nobody can name. Unlike the other
- * failures this outlives the publish: the session must not report a turn
- * complete without a checkpoint, so the gateway is told before the port
- * answers.
+ * failures this outlives the publish and is blocking: the session must not
+ * report a turn complete without a checkpoint, so the gateway is told before
+ * the port answers.
  */
 class MirrorLost extends PublishFailure {
   constructor(reason: string) {
@@ -466,6 +470,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     let revision: number | null = null;
     let manifestRef: string | null = null;
     let lost: string | undefined;
+    let failed: string | undefined;
     try {
       const answer = await this.#options.gateway.requestCheckpoint({
         ...context.scope,
@@ -487,29 +492,51 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       }
     } catch (error) {
       if (isOwnershipLost(error)) throw error;
+      const failedAt = error instanceof PublishFailure ? error.stage : stage;
       this.#options.logger.warn("worker.checkpoint.failed", {
-        stage: error instanceof PublishFailure ? error.stage : stage,
+        stage: failedAt,
         category: error instanceof PublishFailure ? "refused" : "error",
         reason: describe(error),
         revision,
         manifest_ref: manifestRef,
       });
       if (error instanceof MirrorLost) lost = error.message;
+      else failed = `${failedAt}: ${describe(error)}`;
     }
-    await this.#reportLostMirror(bound, context, lost);
+    const mirrorLost = await this.#reportLostMirror(bound, context, lost);
+    // A ready run whose checkpoint went unwritten looks, from the session,
+    // exactly like one that wrote it until something needs it. A lost mirror
+    // already says more, and outranks it.
+    if (failed !== undefined && !mirrorLost) {
+      await this.#report(
+        { status: "rejected", reason: "publish_failed", detail: failed },
+        context.scope,
+      );
+    }
     return null;
+  }
+
+  async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
+    await this.#report(
+      {
+        status: "rejected",
+        reason: "publish_failed",
+        detail: `finalize: ${detail}`,
+      },
+      scope,
+    );
   }
 
   /**
    * Whatever left the turn without a checkpoint — a refusal, a blocked
    * request, a failed publish — a mirror that lost a batch is recorded
-   * before the turn can be finalized without one.
+   * before the turn can be finalized without one. Answers whether it was.
    */
   async #reportLostMirror(
     bound: Bound,
     context: CheckpointCaptureContext,
     known: string | undefined,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let lost = known ?? (bound.store.unsettled ? UNSETTLED : undefined);
     if (lost === undefined) {
       // The run's verdict as of now: a batch the SDK gave up on after the
@@ -520,12 +547,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         lost = now.detail;
       }
     }
-    if (lost !== undefined) {
-      await this.#report(
-        { status: "rejected", reason: "mirror_error", detail: lost },
-        context.scope,
-      );
-    }
+    if (lost === undefined) return false;
+    await this.#report(
+      { status: "rejected", reason: "mirror_error", detail: lost },
+      context.scope,
+    );
+    return true;
   }
 
   /**

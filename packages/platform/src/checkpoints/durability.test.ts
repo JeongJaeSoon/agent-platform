@@ -55,6 +55,7 @@ describe("a run that was not quiescent", () => {
     ["tool_in_flight", "1 tool call(s) still running"],
     ["background_writer", "Background task(s) still running: bash_1"],
     ["checkpoint_lease_held", "Another checkpoint holds the lease"],
+    ["publish_failed", "workspace: 12000 untracked files, over the 10000"],
   ] as const;
 
   test.each(refusals)("surfaces %s as the pending reason", (reason, detail) => {
@@ -93,6 +94,9 @@ describe("a run that was not quiescent", () => {
     );
     expect(nextPendingReason(null, "checkpoint_lease_held")).toBe(
       "checkpoint_lease_held",
+    );
+    expect(nextPendingReason("mirror_error", "publish_failed")).toBe(
+      "mirror_error",
     );
   });
 });

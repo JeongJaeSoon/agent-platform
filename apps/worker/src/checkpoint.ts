@@ -75,6 +75,12 @@ export interface WorkerCheckpointPort {
     context: CheckpointCaptureContext,
   ): Promise<CheckpointRef | null>;
   /**
+   * The gateway refused at finalize the manifest a capture produced, and the
+   * turn goes on without it; recorded like a publish that failed. Throws only
+   * when the attempt no longer owns the session.
+   */
+  finalizeRefused?(detail: string, scope: WorkerScope): Promise<void>;
+  /**
    * When the transcript mirror last took a write, for the heartbeat; absent
    * while no mirror is bound.
    */

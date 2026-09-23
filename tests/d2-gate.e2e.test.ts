@@ -785,9 +785,12 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const orphans = orphanDirectory
       ? await bucket.versions(orphanDirectory)
       : [];
+    const failedRow = await sessionRow(sessionId);
     const afterFailure = {
-      pointer: (await sessionRow(sessionId)).checkpoint_revision,
+      pointer: failedRow.checkpoint_revision,
       checkpoints: (await checkpointRows(sessionId)).length,
+      // 94S-312: the session shows the turn went without its checkpoint.
+      pending_reason: failedRow.checkpoint_pending_reason,
     };
     report.check({
       id: "B-01",
@@ -796,7 +799,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "a publish whose manifest PUT fails leaves no checkpoint and no pointer",
       input: "fail every PUT of this session's manifest.json",
       expected:
-        "turn completed without a revision; worker.checkpoint.failed; bundle uploaded but no manifest; no checkpoints row",
+        "turn completed without a revision; worker.checkpoint.failed; bundle uploaded but no manifest; no checkpoints row; checkpoint_pending_reason publish_failed",
       actual: {
         status: turn1.status,
         turn_revision: turn1.checkpoint_revision,
@@ -813,7 +816,8 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         orphans.length > 0 &&
         orphans.every((o) => !o.key.endsWith("manifest.json")) &&
         afterFailure.pointer === null &&
-        afterFailure.checkpoints === 0,
+        afterFailure.checkpoints === 0 &&
+        afterFailure.pending_reason === "publish_failed",
     });
 
     const spec2 = {
@@ -835,16 +839,18 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "the next publish commits in a directory of its own, and only it is pointed at",
       input: "fault removed, turn 2",
       expected:
-        "one checkpoint (revision 0, turn 2) outside the failed directory; digests match",
+        "one checkpoint (revision 0, turn 2) outside the failed directory; digests match; the publish_failed reason cleared by the commit",
       actual: {
         status: turn2.status,
         checkpoints: checkpoints.map((c) => `${c.revision}:${c.manifest_ref}`),
         failed_directory: orphanDirectory,
         pointer: (await sessionRow(sessionId)).checkpoint_revision,
+        pending_reason: (await sessionRow(sessionId)).checkpoint_pending_reason,
         problems: verified?.problems ?? ["none committed"],
       },
       pass:
         turn2.status === "completed" &&
+        (await sessionRow(sessionId)).checkpoint_pending_reason === null &&
         checkpoints.length === 1 &&
         committed?.revision === 0 &&
         (await sessionRow(sessionId)).checkpoint_revision === 0 &&
