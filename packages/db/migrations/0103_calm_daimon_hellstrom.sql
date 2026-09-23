@@ -1,0 +1,2 @@
+ALTER TABLE "worker_launches" DROP CONSTRAINT "worker_launches_replacement_reason_check";--> statement-breakpoint
+ALTER TABLE "worker_launches" ADD CONSTRAINT "worker_launches_replacement_reason_check" CHECK ("worker_launches"."replacement_reason" IS NULL OR "worker_launches"."replacement_reason" IN ('credential_mismatch', 'nonce_expired', 'stale_isolation'));

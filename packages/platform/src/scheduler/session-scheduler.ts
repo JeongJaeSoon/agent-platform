@@ -6,6 +6,7 @@ import type {
   LaunchIntent,
   ManagedWorkspace,
   TerminateExecutionResult,
+  TerminateOptions,
 } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
@@ -288,6 +289,8 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
   const { backend, logger, store } = options;
   const intentOf = (stored: StoredLaunchIntent): LaunchIntent => ({
+    bootstrapCredentialState: () =>
+      store.bootstrapCredentialState(refOf(stored)),
     executionId: stored.executionId,
     generation: stored.generation,
     image: options.image,
@@ -381,7 +384,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
           session_id: execution.sessionId,
           state: observed.state,
         });
-        await replace(execution, "nonce_expired", observed);
+        // The revoke just emptied the registry; that is the state the
+        // record is fenced on, not the snapshot read before it.
+        await replace(execution, "nonce_expired", observed, null);
         return;
       }
       // A worker came through the door while this pass was inspecting. It
@@ -392,6 +397,36 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         provider_ref: observed.providerRef,
         session_id: execution.sessionId,
       });
+    }
+    if (
+      up &&
+      !execution.claimed &&
+      observed.credentialFingerprint != null &&
+      observed.credentialFingerprint !== execution.nonceFingerprint
+    ) {
+      // The resource holds a credential the registry rotated past — a
+      // create that landed after a later pass had already issued anew, and
+      // whose pass never got to judge it (94S-231). `ensureExecution` catches
+      // this when it is the one adopting; this catches what it did not get
+      // to. A launch that accepts no credential at all (a replacement
+      // recorded by a pass that died before its teardown, a revoke whose
+      // replace never ran) lands here too: what is up under it is the old
+      // resource, not the replacement — the pending branch below must not
+      // settle it. `replace` records the request with a write fenced on this
+      // very fingerprint, so a credential issued anew since the snapshot is
+      // never the one it shuts the door on. A resource without the label is
+      // not judged here at all.
+      logger.warn(
+        "Execution resource holds a credential the launch no longer accepts",
+        {
+          ...fieldsOf(ref),
+          provider_ref: observed.providerRef,
+          session_id: execution.sessionId,
+          state: observed.state,
+        },
+      );
+      await replace(execution, "credential_mismatch", observed);
+      return;
     }
     const running = up && observed.state !== "pending";
     // A replacement an earlier pass committed to and did not get to finish:
@@ -445,7 +480,10 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       });
       let outcome: TerminateExecutionResult;
       try {
-        outcome = await backend.terminate(ref);
+        // Pinned to the exited resource that was inspected, like `teardown`:
+        // under the same name there may by now be a replacement another
+        // pass built, and reclaiming that would also release its binding.
+        outcome = await backend.terminate(ref, pinnedTo(observed));
       } catch (error) {
         logger.error("Reclaiming exited execution resource failed", {
           ...fieldsOf(ref),
@@ -455,17 +493,18 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         summary.reclaimFailed.push(ref);
         return;
       }
-      if (outcome.outcome === "generation_mismatch") {
+      if (outcome.outcome !== "terminated" && outcome.outcome !== "absent") {
         // The resource was left untouched, so the slot stays occupied; the
-        // row remains `terminating` and the next pass tries again.
-        logger.error(
-          "Reclaiming exited execution resource hit a generation mismatch",
-          {
-            ...fieldsOf(ref),
-            found_generation: outcome.foundGeneration,
-            session_id: execution.sessionId,
-          },
-        );
+        // row remains `terminating` and the next pass tries again — and for
+        // a replacement, judges it on its own merits.
+        logger.error("Reclaiming exited execution resource left it in place", {
+          ...fieldsOf(ref),
+          ...(outcome.outcome === "generation_mismatch"
+            ? { found_generation: outcome.foundGeneration }
+            : { found_provider_ref: outcome.foundProviderRef }),
+          outcome: outcome.outcome,
+          session_id: execution.sessionId,
+        });
         summary.reclaimFailed.push(ref);
         return;
       }
@@ -563,6 +602,11 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     execution: ActiveExecution,
     reason: ReplaceReason,
     observed: ExecutionObservation,
+    // The credential the launch accepted when this was judged. The record
+    // is fenced on it: `ensureExecution` on another pass issues anew without
+    // counting a replacement, so the count alone would let a stale
+    // judgement shut the door on that fresh credential (94S-231).
+    acceptedFingerprint: string | null = execution.nonceFingerprint,
   ): Promise<void> {
     const ref = refOf(execution);
     const stored = storedIntentOf(execution);
@@ -631,6 +675,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
       ref,
       reason,
       execution.replacementCount,
+      acceptedFingerprint,
     );
     if (attempts === null) {
       // A worker claimed, the launch gave its slot back, or another pass
@@ -663,7 +708,12 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     if (!observed.found) return true;
     let outcome: TerminateExecutionResult;
     try {
-      outcome = await backend.terminate(ref);
+      // Pinned to the resource this pass inspected. The name it would
+      // otherwise resolve is deterministic, so a pass that lost its lock
+      // could find a replacement another pass has since built and whose
+      // worker has since bound; that one is refused, the row is left as is,
+      // and the next pass judges the replacement on its own merits.
+      outcome = await backend.terminate(ref, pinnedTo(observed));
     } catch (error) {
       summary.reconcileFailed.push(ref);
       logger.error("Replacing an execution resource failed", {
@@ -784,7 +834,9 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
     });
     let outcome: TerminateExecutionResult;
     try {
-      outcome = await backend.terminate(refOf(resource));
+      outcome = await backend.terminate(refOf(resource), {
+        providerRef: resource.providerRef,
+      });
     } catch (error) {
       // One stuck resource must not stop the rest of the pass; it still
       // occupies the host, so it is counted against capacity below.
@@ -801,7 +853,7 @@ async function pass(options: SchedulerOptions): Promise<SchedulerRunSummary> {
         ...fieldsOf(refOf(resource)),
         outcome: outcome.outcome,
       });
-      if (outcome.outcome === "generation_mismatch") {
+      if (outcome.outcome !== "absent") {
         summary.orphansUnresolved.push(refOf(resource));
       }
       continue;
@@ -918,6 +970,13 @@ function storedIntentOf(execution: ActiveExecution): StoredLaunchIntent | null {
     operationId: execution.operationId,
     sessionId: execution.sessionId,
   };
+}
+
+/** The terminate option that pins a teardown to the resource inspected. */
+function pinnedTo(observed: ExecutionObservation): TerminateOptions {
+  return observed.providerRef === null
+    ? {}
+    : { providerRef: observed.providerRef };
 }
 
 function refOf(ref: ExecutionRef): ExecutionRef {

@@ -6,11 +6,14 @@ import {
   type ExecutionBackendCapabilities,
   type ExecutionObservation,
   type ExecutionRef,
+  hashWorkerToken,
   type LaunchIntent,
+  launchNonceFingerprint,
   type ManagedExecution,
   type ManagedWorkspace,
   sessionObjectPrefix,
   type TerminateExecutionResult,
+  type TerminateOptions,
   type WorkspaceRemovalResult,
 } from "@agent-platform/platform";
 import {
@@ -28,6 +31,12 @@ import {
 } from "./docker-client.ts";
 
 export const LABELS = {
+  /**
+   * `launchNonceFingerprint` of the credential in the container's env. Never
+   * the credential: the label is what lets a pass tell whether the container
+   * it is about to adopt holds the nonce the registry currently accepts.
+   */
+  bootstrapFingerprint: "agent-platform.bootstrap-fingerprint",
   executionId: "agent-platform.session-execution-id",
   generation: "agent-platform.generation",
   /** Which isolation contract the container was created under. */
@@ -488,11 +497,21 @@ export class LocalDockerBackend implements ExecutionBackend {
             existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
           );
         }
-        if (verdict === "current") return this.adopt(intent, existing);
-        // Same intent, older isolation: adopting it would carry the weaker
-        // container forward, so it is removed and created again. Another
-        // operation's container is still a conflict, never ours to destroy.
+        // Ownership first: a container that is not this launch's is a
+        // conflict whatever else is wrong with it, never ours to destroy.
         this.assertSameLaunch(intent, existing);
+        if (
+          verdict === "current" &&
+          (await this.holdsAcceptedCredential(intent, existing))
+        ) {
+          return this.adopt(intent, existing);
+        }
+        // Same intent, but either older isolation or a credential the
+        // registry no longer accepts — a create that lost the name race to
+        // an earlier attempt, or landed late from a previous pass, after the
+        // hash had already been rotated. Adopting either would carry a
+        // container forward that can never bind, so it is removed and
+        // created again; only the create path mints the replacement nonce.
         await this.client.stopAndRemoveContainer(
           existing.Id,
           this.config.stopTimeoutSeconds,
@@ -554,6 +573,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     const state = stateOf(container.State.Status);
     return {
       ...(state === "terminated" ? { exitCode: container.State.ExitCode } : {}),
+      credentialFingerprint: credentialFingerprintOf(container),
       found: true,
       observedAt,
       providerRef: container.Id,
@@ -603,7 +623,10 @@ export class LocalDockerBackend implements ExecutionBackend {
     return managed;
   }
 
-  async terminate(ref: ExecutionRef): Promise<TerminateExecutionResult> {
+  async terminate(
+    ref: ExecutionRef,
+    options: TerminateOptions = {},
+  ): Promise<TerminateExecutionResult> {
     const name = containerNameFor(ref, this.config.installationId);
     const container = await this.client.inspectContainer(name);
     if (!container) {
@@ -627,6 +650,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     const labelled = Number(container.Config.Labels?.[LABELS.generation]);
     if (labelled !== ref.generation) {
       return { foundGeneration: labelled, outcome: "generation_mismatch" };
+    }
+    if (
+      options.providerRef !== undefined &&
+      container.Id !== options.providerRef
+    ) {
+      return { foundProviderRef: container.Id, outcome: "provider_mismatch" };
     }
     await this.client.stopAndRemoveContainer(
       container.Id,
@@ -873,11 +902,35 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
   }
 
+  /**
+   * Whether the credential this container was created with is the one the
+   * registry accepts for the launch right now. Judged by label against the
+   * registry, never by reading the env. There is no window to lose on a
+   * mismatch: a label that differs from the registry names a nonce that can
+   * never claim, and once a worker has claimed the registry says so and the
+   * label stops mattering. A registry with no credential to accept —
+   * never issued, or revoked — accepts nothing, so nothing matches it.
+   *
+   * A container with no label predates the label. It cannot be judged, and
+   * replacing it on that alone would race a worker that may be claiming
+   * with a perfectly good nonce, so it is adopted the way it always was and
+   * left to the expiry path if its credential is in fact wrong.
+   */
+  private async holdsAcceptedCredential(
+    intent: LaunchIntent,
+    container: ContainerInspect,
+  ): Promise<boolean> {
+    const held = credentialFingerprintOf(container);
+    if (held === null) return true;
+    const accepted = await intent.bootstrapCredentialState();
+    if (accepted.claimed) return true;
+    return accepted.fingerprint !== null && held === accepted.fingerprint;
+  }
+
   private async adopt(
     intent: LaunchIntent,
     container: ContainerInspect,
   ): Promise<EnsureExecutionResult> {
-    this.assertSameLaunch(intent, container);
     let state = stateOf(container.State.Status);
     if (state === "pending") {
       // Created and never started, which is also what a create leaves behind
@@ -956,6 +1009,9 @@ export class LocalDockerBackend implements ExecutionBackend {
       },
       Image: image,
       Labels: {
+        [LABELS.bootstrapFingerprint]: launchNonceFingerprint(
+          hashWorkerToken(bootstrapNonce),
+        ),
         [LABELS.executionId]: intent.executionId,
         [LABELS.generation]: String(intent.generation),
         [LABELS.installation]: config.installationId,
@@ -1103,6 +1159,11 @@ function contractVerdictOf(
   if (!Number.isInteger(version) || version < 1) return "stale";
   if (version > ISOLATION_CONTRACT) return "newer";
   return stamp === isolationStampFor(config) ? "current" : "stale";
+}
+
+/** The fingerprint label, or null on a container from before the label. */
+function credentialFingerprintOf(container: ContainerInspect): string | null {
+  return container.Config.Labels?.[LABELS.bootstrapFingerprint] ?? null;
 }
 
 function messageOf(error: unknown): string {

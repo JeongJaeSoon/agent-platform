@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { launchNonceFingerprint } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -272,6 +273,7 @@ describe("PostgresSchedulerStore", () => {
         generation: 1,
         nonceExpired: false,
         nonceExpiresAt: null,
+        nonceFingerprint: null,
         observedState: "pending",
         operationId: intent.operationId,
         pendingReplacement: null,
@@ -287,6 +289,7 @@ describe("PostgresSchedulerStore", () => {
         generation: 1,
         nonceExpired: false,
         nonceExpiresAt: null,
+        nonceFingerprint: null,
         observedState: "running",
         operationId: null,
         pendingReplacement: null,
@@ -468,6 +471,78 @@ describe("PostgresSchedulerStore", () => {
     );
   });
 
+  test("bootstrapCredentialState follows the stored hash, the claim, and the slot", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    // Reserved, nothing issued: nothing can match.
+    expect(await store.bootstrapCredentialState(intent)).toEqual({
+      claimed: false,
+      fingerprint: null,
+    });
+
+    const nonce = await store.issueBootstrapNonce(intent);
+    const state = await store.bootstrapCredentialState(intent);
+    // The fingerprint is a function of the column alone, so a backend that
+    // labels its container with the same function of the plaintext's hash
+    // can be judged against the registry without either side holding the
+    // plaintext — and the value is neither the plaintext nor the column.
+    expect(state).toEqual({
+      claimed: false,
+      fingerprint: launchNonceFingerprint(sha256(nonce)),
+    });
+    if (state.claimed) throw new Error("unreachable");
+    expect(state.fingerprint).not.toContain(nonce);
+    expect(state.fingerprint).not.toBe(
+      Buffer.from(sha256(nonce)).toString("hex"),
+    );
+    // Rotation moves it; the old fingerprint stops matching.
+    const rotated = await store.issueBootstrapNonce(intent);
+    expect(await store.bootstrapCredentialState(intent)).toEqual({
+      claimed: false,
+      fingerprint: launchNonceFingerprint(sha256(rotated)),
+    });
+    // What the scheduler holds a running resource's label against.
+    const [active] = await store.listActiveExecutions("local_docker");
+    expect(active?.nonceFingerprint).toBe(
+      launchNonceFingerprint(sha256(rotated)),
+    );
+    // Another generation is another launch, and not one the registry holds.
+    await expect(
+      store.bootstrapCredentialState({ ...intent, generation: 9 }),
+    ).rejects.toThrow("released or unknown");
+
+    // Once a worker has bound, the label no longer decides anything.
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: intent.generation,
+      executionId: intent.executionId,
+      id: "att-state",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-state" })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(await store.bootstrapCredentialState(intent)).toEqual({
+      claimed: true,
+    });
+
+    // A launch that gave its slot back is not one to replace a resource for.
+    await store.confirmExecutionGone(intent.executionId, NOW);
+    await expect(store.bootstrapCredentialState(intent)).rejects.toThrow(
+      "released or unknown",
+    );
+  });
+
   test("revokeBootstrapNonce shuts the door only while it is still open", async () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
@@ -593,18 +668,51 @@ describe("PostgresSchedulerStore", () => {
     expect(
       await store.requestReplacement(intent, "nonce_expired", 0),
     ).toBeNull();
+    // Fenced on the credential: the door is shut, so only "no credential"
+    // matches; a fingerprint from before the shut is refused.
+    expect(
+      await store.requestReplacement(
+        intent,
+        "credential_mismatch",
+        1,
+        launchNonceFingerprint(new Uint8Array(32)),
+      ),
+    ).toBeNull();
+    expect((await launchRow())?.replacementCount).toBe(1);
+    const reissued = await store.issueBootstrapNonce(intent);
+    const reissuedFingerprint = launchNonceFingerprint(
+      createHash("sha256").update(reissued).digest(),
+    );
+    expect(
+      await store.requestReplacement(intent, "credential_mismatch", 1, null),
+    ).toBeNull();
+    expect(
+      await store.requestReplacement(
+        intent,
+        "credential_mismatch",
+        1,
+        reissuedFingerprint,
+      ),
+    ).toBe(2);
+    expect((await launchRow())?.nonceHash).toBeNull();
+    // Back to the unfenced path for the rest.
+    await store.settleReplacement(intent);
+    expect(await active()).toMatchObject({
+      pendingReplacement: null,
+      replacementCount: 2,
+    });
     // A second request counts again and carries the latest reason.
-    expect(await store.requestReplacement(intent, "nonce_expired", 1)).toBe(2);
+    expect(await store.requestReplacement(intent, "nonce_expired", 2)).toBe(3);
     expect(await active()).toMatchObject({
       pendingReplacement: "nonce_expired",
-      replacementCount: 2,
+      replacementCount: 3,
     });
 
     // Settling clears the reason and keeps the count.
     await store.settleReplacement(intent);
     expect(await active()).toMatchObject({
       pendingReplacement: null,
-      replacementCount: 2,
+      replacementCount: 3,
     });
 
     // A stale generation is not this launch.
@@ -612,15 +720,15 @@ describe("PostgresSchedulerStore", () => {
       await store.requestReplacement(
         { ...intent, generation: 9 },
         "stale_isolation",
-        2,
+        3,
       ),
     ).toBeNull();
     // Neither is one whose slot went back.
     await store.confirmExecutionGone(intent.executionId, NOW);
     expect(
-      await store.requestReplacement(intent, "stale_isolation", 2),
+      await store.requestReplacement(intent, "stale_isolation", 3),
     ).toBeNull();
-    expect((await launchRow())?.replacementCount).toBe(2);
+    expect((await launchRow())?.replacementCount).toBe(3);
 
     // Nor one that bound a worker: its resource is not to be rebuilt.
     const claimedSession = await insertUnassigned();

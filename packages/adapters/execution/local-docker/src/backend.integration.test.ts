@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { LaunchIntent } from "@agent-platform/platform";
+import {
+  hashWorkerToken,
+  type LaunchIntent,
+  launchNonceFingerprint,
+} from "@agent-platform/platform";
 import {
   ENV,
   LABELS,
@@ -33,9 +37,28 @@ async function defaultDockerHost(): Promise<string> {
 
 const RESOURCES = { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 };
 
+function fingerprintOf(nonce: string): string {
+  return launchNonceFingerprint(hashWorkerToken(nonce));
+}
+
+function envOf(
+  container: { Config: { Env: string[] | null } } | null,
+  key: string,
+): string {
+  const found = (container?.Config.Env ?? []).find((entry) =>
+    entry.startsWith(`${key}=`),
+  );
+  if (!found) throw new Error(`${key} is not set on the container`);
+  return found.slice(key.length + 1);
+}
+
 function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
   const suffix = crypto.randomUUID();
   return {
+    bootstrapCredentialState: async () => ({
+      claimed: false,
+      fingerprint: fingerprintOf(`wln-${suffix}`),
+    }),
     executionId: `exec-${suffix}`,
     generation: 1,
     image: IMAGE,
@@ -231,6 +254,65 @@ integration("LocalDockerBackend against a real daemon", () => {
     ]);
     expect(JSON.stringify(inspected)).not.toContain("docker.sock");
   }, 60_000);
+
+  test("a container holding a credential the registry rotated past is replaced, not adopted (94S-231)", async () => {
+    // The registry as the scheduler sees it: whatever was issued last is
+    // what bootstrapClaim would accept.
+    const suffix = crypto.randomUUID();
+    let issued = 0;
+    let accepted: string | null = null;
+    const intent = intentFor({
+      bootstrapCredentialState: async () => ({
+        claimed: false,
+        fingerprint: accepted === null ? null : fingerprintOf(accepted),
+      }),
+      executionId: `exec-${suffix}`,
+      issueBootstrapNonce: async () => {
+        issued += 1;
+        accepted = `wln-${suffix}-${issued}`;
+        return accepted;
+      },
+    });
+    const name = `ap-worker-${installationId}-${intent.executionId}-g1`;
+
+    // The container that sits under the name before the pass under test: a
+    // create from an earlier pass that landed late, built with nonce 1.
+    const first = await backend.ensureExecution(intent);
+    expect(first.created).toBe(true);
+    const stale = await client.inspectContainer(name);
+    expect(envOf(stale, ENV.bootstrapNonce)).toBe(`wln-${suffix}-1`);
+
+    // The pass under test rotates to nonce 2 before its create loses the
+    // name. From here the registry only accepts nonce 2.
+    accepted = `wln-${suffix}-2`;
+    issued = 2;
+
+    const second = await backend.ensureExecution(intent);
+
+    expect(second.created).toBe(true);
+    expect(second.providerRef).not.toBe(first.providerRef);
+    expect(await client.inspectContainer(first.providerRef)).toBeNull();
+    const replaced = await client.inspectContainer(name);
+    if (!replaced) throw new Error("no replacement container");
+    // The replacement was created, so it minted: nonce 3 is what it holds,
+    // what the registry now accepts, and what the label fingerprints.
+    const held = envOf(replaced, ENV.bootstrapNonce);
+    expect(held).toBe(`wln-${suffix}-3`);
+    expect(accepted).toBe(held);
+    const labels = replaced.Config.Labels ?? {};
+    expect(labels[LABELS.bootstrapFingerprint]).toBe(fingerprintOf(held));
+    expect(JSON.stringify(labels)).not.toContain(held);
+    expect(JSON.stringify(labels)).not.toContain(`wln-${suffix}-1`);
+
+    // Adopt, now that label and registry agree: nothing minted, nothing replaced.
+    const third = await backend.ensureExecution(intent);
+    expect(third).toEqual({
+      created: false,
+      providerRef: second.providerRef,
+      state: "running",
+    });
+    expect(issued).toBe(3);
+  }, 120_000);
 
   test("a removed container is re-created from the same intent", async () => {
     const intent = intentFor();
