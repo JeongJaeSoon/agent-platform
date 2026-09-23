@@ -725,8 +725,9 @@ export class Workers {
 // ---------------------------------------------------------------- gate services
 
 export type ChaosRule = {
-  action: "fail" | "lose_response";
+  action: "corrupt" | "delay" | "fail" | "lose_response";
   bodyContains?: string;
+  delayMs?: number;
   method?: string;
   path: string;
   times: number;

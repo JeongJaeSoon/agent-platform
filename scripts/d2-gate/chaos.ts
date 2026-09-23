@@ -10,6 +10,9 @@
  * - `lose_response`: forward, let the upstream commit, answer the worker a
  *   bare 502 — the response lost on the way back.
  * - `fail`: answer an S3-style 500 without forwarding.
+ * - `delay`: hold the request `delayMs` before forwarding it (94S-135 races).
+ * - `corrupt`: forward, then flip a byte in the middle of the answer's body,
+ *   status and headers kept — damage only a digest check can catch.
  * Each rule matches a method, a path pattern and optionally a substring of
  * the body, and fires `times` times (-1: until removed).
  */
@@ -17,8 +20,9 @@
 type Upstream = "gateway" | "s3";
 
 type Rule = {
-  action: "fail" | "lose_response";
+  action: "corrupt" | "delay" | "fail" | "lose_response";
   bodyContains?: string;
+  delayMs?: number;
   fired: number;
   id: string;
   method?: string;
@@ -61,6 +65,10 @@ const UPSTREAMS: Record<Upstream, { listen: number; target: string }> = {
 
 const rules: Rule[] = [];
 const log: Entry[] = [];
+// A soak runs for a day, so it keeps only the newest entries; `index` still
+// counts every request, which keeps a `since` cursor valid.
+const LOG_MAX = Number(process.env.CHAOS_LOG_MAX ?? "0");
+let received = 0;
 const SESSION_IN_BODY = /"session_id"\s*:\s*"([0-9a-f-]{36})"/;
 const SESSION_IN_PATH = /sessions\/([0-9a-f-]{36})\//;
 // Keys the proxy must not copy onto the upstream request as-is.
@@ -124,7 +132,7 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     at: new Date().toISOString(),
     batch: upstream === "gateway" ? batchOf(url.pathname, body) : null,
     bodyBytes: bytes.byteLength,
-    index: log.length,
+    index: received++,
     method: request.method,
     path,
     rule: rule?.id ?? null,
@@ -137,6 +145,8 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     upstreamStatus: null,
   };
   log.push(entry);
+  if (LOG_MAX > 0 && log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+  if (rule?.action === "delay") await Bun.sleep(rule.delayMs ?? 0);
   if (rule?.action === "fail") {
     entry.status = 500;
     return s3Error();
@@ -166,6 +176,12 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("transfer-encoding");
+  if (rule?.action === "corrupt") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const at = bytes.byteLength >> 1;
+    if (bytes.byteLength > 0) bytes[at] = (bytes[at] ?? 0) ^ 0xff;
+    return new Response(bytes, { headers: out, status: response.status });
+  }
   return new Response(response.body, {
     headers: out,
     status: response.status,
