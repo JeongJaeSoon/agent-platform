@@ -1,9 +1,12 @@
 # Claude Code 세션 컨트롤 플레인 설계안
 
 > **보관본이다. 현재 설계 정본이 아니다.** rename 이전 프로젝트의 계획이며 티켓 번호도
-> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`
-> (`architecture.md`·`module-design.md`·`delivery-plan.md`)이고 티켓은 Linear P-94S-5
-> (94S-108~147)다. 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
+> 옛 체계(94S-7~94)다. 현재 정본은 Obsidian `Private/Project/agent-platform`의
+> 다섯 문서다. 목적·불변식·알파 완료 정의는 `final-design.md`, 모듈·포트·프로세스는
+> `module-design.md`, API 계약은 `api.md`, 배포·권한·이미지는 `deployment.md`, 게이트
+> 체인과 티켓 의존은 `delivery-plan.md`가 정한다(2026-09-24 정렬, 94S-325). `architecture.md`는
+> `final-design.md`로 대체된 보관본이다. 티켓은 Linear P-94S-5(94S-108 이후)다.
+> 이 문서의 단계·티켓·EKS 전제를 현재 작업 지시로 읽지 않는다.
 > 남겨 둔 이유는 SDK·저장소 gate의 조사 근거와 결정 이력이다.
 
 > 상태: v0.5 방향성 반영 · G1 v0.4/M0 완료 이력 유지 · G2 SDK 재검증 대기
@@ -58,7 +61,7 @@ SDK의 기본 prompt는 CLI preset과 다르므로 preset을 명시한다. `sett
 
 ### 1.3 개정의 완료 경계
 
-94S-8의 SDK 0.3.265/CLI 2.1.265 실측과 G1·M0 완료는 과거 범위의 증거로 보존한다. 2026-09-15 changelog의 0.3.270/2.1.270은 비교 후보이며 아직 채택·검증하지 않았다. 94S-91·94S-92가 실제 runtime 계약과 저장 방식을 닫고, 94S-18·94S-93이 구현한 뒤 94S-32·94S-33에서 통합 검증한다. 이번 문서 개정 자체가 SDK 호환성·CI·실행 QA 완료를 뜻하지 않는다.
+94S-8의 SDK 0.3.265/CLI 2.1.265 실측과 G1·M0 완료는 과거 범위의 증거로 보존한다. 2026-09-15 changelog의 0.3.270/2.1.270은 비교 후보이며 아직 채택·검증하지 않았다(개정 당시 기준이다. 이후 94S-91이 0.3.270/2.1.270을 고정했다. 아래 SDK 실측 절과 현재 `package.json` 참고). 94S-91·94S-92가 실제 runtime 계약과 저장 방식을 닫고, 94S-18·94S-93이 구현한 뒤 94S-32·94S-33에서 통합 검증한다. 이번 문서 개정 자체가 SDK 호환성·CI·실행 QA 완료를 뜻하지 않는다.
 
 현재 제품 코드는 `packages/contracts`, `packages/db`, `packages/queue`, `packages/storage`, `packages/observability`와 M0 의존 인프라다. SDK 의존성·`apps/worker`·API app·SDK 실행 루프는 아직 없다. 아래 API·워커·이미지·배포·E2E 설명은 별도 완료 이력이 명시된 M0 항목을 제외하면 **구현 목표**다. 현재 실행 가능한 명령은 [README](../README.md)를 따른다.
 
