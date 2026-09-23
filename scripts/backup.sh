@@ -150,9 +150,9 @@ EMPTY_REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea
 log "backup: repos/ $(printf '%s' "$REPOS_JSON" | jq length) bundled, $(printf '%s' "$EMPTY_REPOS_JSON" | jq length) empty"
 
 # --- images ----------------------------------------------------------------
-# api/worker/scheduler are null until the installation runs them (94S-125);
-# restore does not need them, but a resume check after 94S-129 compares the
-# worker digest here with the one that produced the checkpoint.
+# api/worker/scheduler are null until the installation runs them. Restore
+# does not need them; tests/e2e/restore-resume.sh compares the worker's here
+# with the image of the worker that produced the checkpoint (94S-324).
 IMAGES_JSON='{}'
 for service in postgres localstack gitea egress-proxy api worker scheduler; do
   cid="$(compose "$PROJECT" ps -aq "$service" 2>/dev/null | head -n1 || true)"

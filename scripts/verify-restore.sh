@@ -225,8 +225,9 @@ if [ "$PLAN_STATUS" -ne 0 ] && { [ "$PLAN_STATUS" -ne "$EXIT_VERIFY_FAILED" ] ||
   fail "restore plan check exited $PLAN_STATUS before finishing"
 fi
 
-echo "SKIP resume continues the same native session — verified after 94S-129 (pause/resume)"
-echo "SKIP worker image digest matches manifest.json images.worker — verified after 94S-125 (images)"
+# Both need a running stack, not just the restored stores; the e2e runs them.
+echo "SKIP resume continues the same native session — tests/e2e/restore-resume.sh (94S-324)"
+echo "SKIP worker image digest matches manifest.json images.worker — tests/e2e/restore-resume.sh (94S-324)"
 echo "checkpoints=$ROWS passed=$PASSED failed=$FAILED"
 [ "$ROWS" -gt 0 ] || log "verify: warning — no checkpoint rows in project '$PROJECT'; nothing was compared"
 [ "$FAILED" -eq 0 ] || exit "$EXIT_VERIFY_FAILED"

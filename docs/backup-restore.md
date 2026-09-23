@@ -103,10 +103,10 @@ scripts/verify-restore.sh --project ap-restore-1
 
 하나라도 실패하면 exit 5.
 
-두 항목은 지금 검증할 수 없어 `SKIP`으로만 출력한다.
+두 항목은 복원된 저장소만으로는 볼 수 없어 이 스크립트에서는 `SKIP`으로 출력한다. 둘 다 스택을 실제로 띄워야 하므로 `tests/e2e/restore-resume.sh`가 확인한다(아래 "실스택에서 복원 뒤 재개 확인").
 
-- **resume이 같은 native session으로 이어짐** — D3 pause/resume(94S-129) 뒤 direct-local e2e로 확인한다.
-- **worker image digest** — 94S-125 이미지가 생기면 `manifest.json`의 `images.worker`와 checkpoint를 만든 worker의 digest를 대조한다.
+- **resume이 같은 native session으로 이어짐** — 새 worker가 복원한 checkpoint에서 같은 Claude session을 이어 가는지 본다.
+- **worker image digest** — `manifest.json`의 `images.worker`가 checkpoint를 만든 worker의 image와 같은지 본다.
 
 ## checkpoint 객체의 version: 복원 뒤 재고정 (94S-282)
 
@@ -128,9 +128,53 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229)
 
 재고정 뒤 복원본의 API는 기본값 `locked`로 뜬다. `unversioned`는 versioning이 꺼진 bucket에서만 쓴다.
 
+## 실스택에서 복원 뒤 재개 확인 (94S-324)
+
+```bash
+tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2e/restore-resume.sh
+```
+
+`tests/e2e/run.sh`와 같은 이미지·overlay로 제품 스택(`apps` profile)을 띄워 다음을 한 번에 끝까지 수행한다. 기록은 `RR_OUT`(기본값은 새 임시 디렉터리)에 남는다. 기록에는 tested SHA, image id, SDK·Claude Code 버전, 단계별 JSON, 두 project의 checkpoint 행과 manifest, restore·verify 로그, compose 로그, worker 로그, 대조표가 들어간다. backup 디렉터리는 Gitea secret과 API key 해시를 담으므로 `manifest.json`만 남기고 지운다.
+
+1. 원본 project에서 세션을 만들고 turn 2개를 실제 Claude Code로 돌린다. turn 1은 `echo alpha > hello.txt`, turn 2는 `echo beta >> hello.txt`이다. 그다음 pause로 checkpoint를 커밋하고 worker를 내린다.
+2. api·scheduler·reconciler를 멈추고 `scripts/backup.sh`를 뜬다. 그다음 원본 project와 그 installation 라벨이 붙은 container·network·volume(worker workspace volume 포함)을 모두 지운다. 세션을 넘기는 것은 backup뿐이다.
+3. `scripts/restore.sh`로 새 project에 복원하고 `scripts/verify-restore.sh`를 돈다. 그 위에 restore override를 겹친 채 같은 이미지로 apps를 띄운다. 이때 restore가 띄운 localstack이 다시 만들어지면 실패로 친다. LocalStack은 컨테이너를 다시 만들면 S3 상태를 잃는다.
+4. 원본에서 발급한 API key로 공개 API의 `resume`를 부른다. key 해시도 복원된 DB에 있다. 새 worker가 checkpoint를 복원하고 ready를 보고하면 turn 3(`cat hello.txt`)을 보낸다.
+5. 대조한다.
+   - turn 3이 `alpha\nbeta`를 한 번씩만 읽는다. 입력이 다시 실행됐다면 beta가 둘이 되고, workspace가 복원되지 않았다면 파일이 없다.
+   - 복원본의 fake Messages API는 새 prompt(`rr3`)만 받는다. 그 요청의 history에는 `rr1`, `rr2`, `rr3`가 순서대로 있다. 엔진이 새 대화를 연 것이 아니라 이전 대화를 이어 갔다는 뜻이다.
+   - turn 3 뒤 새 checkpoint의 manifest를 원본 manifest와 대조한다. 다음이 모두 같아야 한다.
+     - engine session id(`resume`)
+     - transcript part(key·sha256)가 앞부분으로 그대로 이어지는지. 새 part는 다음 generation 아래에 붙는다.
+     - workspace commit과 untracked 파일의 sha256
+   - worker 로그의 `worker.checkpoint.restored`가 원본 revision과 commit을 가리킨다.
+   - `manifest.json`의 `images.worker`가 원본 worker 컨테이너의 image와 같고, 복원본 worker의 image와도 같다.
+
+knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
+
+engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session_id` 컬럼은 아무 코드도 쓰지 않는다.
+
+### 결과 (2026-09-24, `fc495b83`)
+
+`RR_PROJECT=it324 RR_INSTALLATION_ID=it324`. Docker Engine 29.1.3, compose 5.0.0, claude-agent-sdk 0.3.270, Claude Code 2.1.270, worker image `sha256:2b5b8012…83eb8`.
+
+| 항목 | 원본 r1 | 복원본 r1 | resume 뒤 r2 | 결과 |
+|---|---|---|---|---|
+| engine session id(`resume`) | `d4f13b9f…be16` | 같음 | 같음 | PASS |
+| transcript part | 6개, entry 32 | 같은 sha256 6개, version만 새것 | 앞 6개 그대로 + generation 2의 2개, entry 42 | PASS |
+| part-list digest | `d77fb22a…0155` | 같음 | — | PASS |
+| workspace commit | `4d457562…a713` | 같음 | 같음 | PASS |
+| untracked `hello.txt` sha256 | `e49c81e2…78ee` | — | 같음 | PASS |
+| 새 worker 복원 | — | `worker.checkpoint.restored` r1, 같은 commit, `worker.resume.ready` | — | PASS |
+| turn 3 `cat hello.txt` | — | — | `alpha\nbeta`, turn 1·2는 completed 그대로 | PASS |
+| 모델 호출 | `rr1`, `rr2` | 없음(새 스택) | `rr3`만, history `[rr1, rr2, rr3]` | PASS |
+| worker image | backup `images.worker` = 원본 worker | — | 복원본 worker와 같음 | PASS |
+
+verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 원본은 backup 뒤 container·volume·network가 하나도 남지 않았다.
+
 ## 로컬에서 끝까지 돌려 보기
 
-제품에는 아직 checkpoint를 쓰는 경로가 없다(94S-201·246). `scripts/dev/seed-checkpoint.ts`가 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).
+위 e2e는 worker가 실제로 커밋한 checkpoint로 돈다(94S-246). 세션을 돌리지 않은 설치에서 스크립트만 시험할 때는 `scripts/dev/seed-checkpoint.ts`를 쓴다. 이 스크립트는 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).
 
 ```bash
 # 1. 원본 설치(예: agent-platform 프로젝트)에 fixture 심기
