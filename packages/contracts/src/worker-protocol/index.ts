@@ -533,7 +533,9 @@ export const finalizeRequestSchema = workerScopeSchema
       result: z.unknown().nullable(),
       usage: z.unknown().nullable(),
       // What the engine says this turn cost, in USD; an estimate, not a bill.
-      // Absent or null when it said nothing, which counts as zero spent.
+      // Absent or null when it gave no usable figure: nothing is added to
+      // the session's spend and the turn reads as unreported (94S-275). A
+      // turn known to have cost nothing sends 0.
       cost_usd: z
         .number()
         .nonnegative()

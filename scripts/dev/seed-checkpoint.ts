@@ -24,7 +24,12 @@ import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
 } from "@agent-platform/runtime-claude";
-import type { CheckpointManifest } from "@agent-platform/runtime-core";
+import type {
+  CheckpointManifest,
+  CheckpointTranscripts,
+  ObjectRef,
+  TranscriptRevision,
+} from "@agent-platform/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
@@ -70,8 +75,36 @@ await mirror.append({ ...root, subpath: "agents/reviewer" }, [
   { type: "user", uuid: randomUUID(), message: { content: "review" } },
 ]);
 
-const transcripts = await mirror.captureTranscripts(engineSession);
-if (transcripts === null) throw new Error("root transcript was not captured");
+const captured = await mirror.captureTranscripts(engineSession);
+if (captured === null) throw new Error("root transcript was not captured");
+
+// Every ref names the version it was written as, as a locked finalize
+// requires (94S-229). The mirror does not report part versions yet (94S-246),
+// so each part's current version is read back; nothing else writes these keys.
+async function withVersion<T extends ObjectRef>(ref: T): Promise<T> {
+  const head = await objects.head(ref.key);
+  if (head?.version === undefined) {
+    throw new Error(`${ref.key} has no version; the bucket needs versioning`);
+  }
+  return { ...ref, version: head.version };
+}
+const pinRevision = async (
+  revision: TranscriptRevision,
+): Promise<TranscriptRevision> => ({
+  ...revision,
+  parts: await Promise.all(revision.parts.map(withVersion)),
+});
+const transcripts: CheckpointTranscripts = {
+  root: await pinRevision(captured.root),
+  subagents: Object.fromEntries(
+    await Promise.all(
+      Object.entries(captured.subagents).map(
+        async ([subpath, revision]) =>
+          [subpath, await pinRevision(revision)] as const,
+      ),
+    ),
+  ),
+};
 
 // A publish id like the one requestCheckpoint mints, so the key has the
 // shape the gateway verifies.
@@ -85,8 +118,8 @@ const attemptPrefix = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
 const bundle = await createGitBundle({ message: `seed ${sessionId}` });
 const bundleKey = `${attemptPrefix}workspace.bundle`;
 const bundlePut = await objects.putImmutable(bundleKey, bundle.bytes);
-if (bundlePut.outcome !== "created") {
-  throw new Error(`bundle upload: ${bundlePut.outcome}`);
+if (bundlePut.outcome !== "created" || bundlePut.version === undefined) {
+  throw new Error(`bundle upload: ${bundlePut.outcome}, no version`);
 }
 
 const manifest: CheckpointManifest = {
@@ -107,6 +140,7 @@ const manifest: CheckpointManifest = {
       bytes: bundle.bytes.byteLength,
       key: bundleKey,
       sha256: bundle.sha256,
+      version: bundlePut.version,
     },
     gitCommit: bundle.commit,
     untracked: [],
@@ -114,8 +148,21 @@ const manifest: CheckpointManifest = {
 };
 const sealed = claudeCheckpointCodec.encode(manifest);
 const manifestPut = await objects.putImmutable(manifestRef, sealed.bytes);
-if (manifestPut.outcome !== "created") {
-  throw new Error(`manifest upload: ${manifestPut.outcome}`);
+if (manifestPut.outcome !== "created" || manifestPut.version === undefined) {
+  throw new Error(`manifest upload: ${manifestPut.outcome}, no version`);
+}
+// What a locked finalize does before it moves the pointer, so the row below
+// may say versions_held.
+const hold = objects.hold;
+if (hold === undefined) throw new Error("object store cannot hold versions");
+for (const ref of [
+  ...transcripts.root.parts,
+  ...Object.values(transcripts.subagents).flatMap((revision) => revision.parts),
+  manifest.workspace.bundle,
+  { key: manifestRef, version: manifestPut.version },
+]) {
+  if (ref.version === undefined) throw new Error(`${ref.key} has no version`);
+  await hold(ref.key, ref.version);
 }
 
 const pool = new Pool({ connectionString: databaseUrl, max: 1 });
@@ -127,9 +174,9 @@ try {
     [sessionId, revision],
   );
   await pool.query(
-    `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256)
-     VALUES ($1, $2, $3, $4)`,
-    [sessionId, revision, manifestRef, sealed.sha256],
+    `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256, manifest_version, versions_held)
+     VALUES ($1, $2, $3, $4, $5, true)`,
+    [sessionId, revision, manifestRef, sealed.sha256, manifestPut.version],
   );
   await pool.query("COMMIT");
 } catch (error) {
@@ -145,6 +192,7 @@ console.log(
     revision,
     manifestRef,
     manifestSha256: sealed.sha256,
+    manifestVersion: manifestPut.version,
     bundleKey,
     gitCommit: bundle.commit,
   }),

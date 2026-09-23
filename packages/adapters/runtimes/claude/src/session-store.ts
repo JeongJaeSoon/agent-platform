@@ -4,6 +4,7 @@ import type {
   CheckpointObjectStore,
   CheckpointTranscripts,
   ObjectRef,
+  PutImmutableResult,
   TranscriptEntry,
   TranscriptKey,
   TranscriptMirror,
@@ -83,6 +84,12 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * its history again on every turn.
    */
   readonly #parts = new Map<string, Promise<Uint8Array>>();
+  /**
+   * The store's version of each part this store wrote, as `putImmutable`
+   * answered it; a checkpoint names parts by version (94S-229). Absent on a
+   * store without versions.
+   */
+  readonly #versions = new Map<string, string>();
   /**
    * One append at a time per transcript. Two appends racing for the same
    * slot would be ordered by whichever PUT landed first, which is not the
@@ -197,14 +204,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const bytes = new TextEncoder().encode(body);
     for (let attempt = 0; attempt < SLOT_ATTEMPTS; attempt += 1) {
       const key = `${prefix}part-${pad(await this.#nextIndex(prefix))}.jsonl`;
-      let outcome: string;
+      let written: PutImmutableResult;
       try {
-        ({ outcome } = await this.#objects.putImmutable(key, bytes));
+        written = await this.#objects.putImmutable(key, bytes);
       } catch (error) {
         this.#appendFailures += 1;
         throw error;
       }
-      if (outcome !== "created") {
+      if (written.outcome !== "created") {
         // Taken — and "duplicate" counts as taken. A slot holding these exact
         // bytes is not proof that *this* call put them there: two workers
         // appending an identical uuid-less batch, say a `{"type":"title"}`
@@ -217,6 +224,8 @@ export class ClaudeSessionStore implements TranscriptMirror {
         continue;
       }
       this.#parts.set(key, Promise.resolve(bytes));
+      if (written.version !== undefined)
+        this.#versions.set(key, written.version);
       return;
     }
     this.#appendFailures += 1;
@@ -239,6 +248,27 @@ export class ClaudeSessionStore implements TranscriptMirror {
       ...own.map((part) => this.#cached(part)),
     ]);
     return deduplicate(bodies.flatMap(parseEntries));
+  }
+
+  /**
+   * Fetches, checks and parses every part this store adopted, one at a time,
+   * so a restore can refuse a checkpoint whose transcript is gone or was
+   * edited while the workspace it would replace is still untouched. The
+   * verified bytes stay cached for the engine's first `load`. Stops between
+   * parts once `signal` aborts.
+   */
+  async verifyInherited(signal?: AbortSignal): Promise<void> {
+    await this.#opened;
+    for (const parts of this.#inherit?.parts.values() ?? []) {
+      const bodies: Uint8Array[] = [];
+      for (const part of parts) {
+        signal?.throwIfAborted();
+        bodies.push(await this.#adoptedBody(part));
+      }
+      // Throws on a line that is not JSON and on one uuid with two bodies,
+      // the two ways a pinned transcript fails only once the engine reads it.
+      deduplicate(bodies.flatMap(parseEntries));
+    }
   }
 
   async listSubkeys(key: {
@@ -322,9 +352,10 @@ export class ClaudeSessionStore implements TranscriptMirror {
     adopted: readonly ObjectRef[],
     own: readonly string[],
   ): Promise<TranscriptRevision> {
-    const [adoptedBodies, ownBodies] = await Promise.all([
+    const [adoptedBodies, ownBodies, ownVersions] = await Promise.all([
       Promise.all(adopted.map((part) => this.#adoptedBody(part))),
       Promise.all(own.map((part) => this.#cached(part))),
+      Promise.all(own.map((part) => this.#versionOf(part))),
     ]);
     // Adopted parts keep the refs the checkpoint pinned rather than ones
     // recomputed here: they are the claim a restore will check the bytes
@@ -333,7 +364,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
       ...adopted,
       ...own.map((part, index) => {
         const body = ownBodies[index] ?? new Uint8Array();
-        return { bytes: body.byteLength, key: part, sha256: sha256(body) };
+        const version = ownVersions[index];
+        return {
+          bytes: body.byteLength,
+          key: part,
+          sha256: sha256(body),
+          ...(version === undefined ? {} : { version }),
+        };
       }),
     ];
     return {
@@ -345,6 +382,20 @@ export class ClaudeSessionStore implements TranscriptMirror {
     };
   }
 
+  /**
+   * The version a part of this generation was written as. A PUT whose answer
+   * was lost stored the part all the same, and a checkpoint that names it
+   * without a version is one a locked store refuses, every time after. The
+   * key is create-only, so the one version it holds is the one written.
+   */
+  async #versionOf(key: string): Promise<string | undefined> {
+    const known = this.#versions.get(key);
+    if (known !== undefined) return known;
+    const version = (await this.#objects.head(key))?.version;
+    if (version !== undefined) this.#versions.set(key, version);
+    return version;
+  }
+
   /** Restores exactly the parts the revision names, or throws. */
   async loadRevision(revision: TranscriptRevision): Promise<TranscriptEntry[]> {
     await this.#opened;
@@ -353,7 +404,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     }
     const bodies = await Promise.all(
       revision.parts.map(async (part) => {
-        const body = await this.#read(part.key);
+        const body = await this.#read(part.key, part.version);
         if (sha256(body) !== part.sha256) {
           throw new Error(`Transcript revision integrity failure: ${part.key}`);
         }
@@ -397,8 +448,8 @@ export class ClaudeSessionStore implements TranscriptMirror {
       .sort();
   }
 
-  async #read(key: string): Promise<Uint8Array> {
-    const bytes = await this.#objects.get(key);
+  async #read(key: string, version?: string): Promise<Uint8Array> {
+    const bytes = await this.#objects.get(key, version);
     if (bytes === undefined) throw new Error(`Missing transcript part: ${key}`);
     return bytes;
   }
@@ -428,7 +479,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   #adoptedBody(part: ObjectRef): Promise<Uint8Array> {
     const hit = this.#adopted.get(part.key);
     if (hit !== undefined) return hit;
-    const pending = this.#read(part.key)
+    const pending = this.#read(part.key, part.version)
       .then((body) => {
         if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
           throw new Error(`Inherited transcript part changed: ${part.key}`);
@@ -530,10 +581,11 @@ function inheritance(
   for (const [subpath, revision] of pinned) {
     const label = subpath === "" ? "root" : subpath;
     if (subpath !== "") safeSubpath(subpath);
-    const refs = revision.parts.map(({ bytes, key, sha256 }) => ({
+    const refs = revision.parts.map(({ bytes, key, sha256, version }) => ({
       bytes,
       key,
       sha256,
+      ...(version === undefined ? {} : { version }),
     }));
     if (digestParts(refs) !== revision.sha256) {
       throw new Error(

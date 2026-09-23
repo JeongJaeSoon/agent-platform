@@ -3,6 +3,8 @@
 # Everything that talks to PostgreSQL, S3 or git runs inside the compose
 # containers, so the host needs only docker (compose v2.24+),
 # git, jq and a sha256 tool. Compose merges with `!override`, so v2.24+.
+# The exception is `checkpoint_pins`, which runs this checkout's bun against
+# the published ports.
 
 set -euo pipefail
 
@@ -75,6 +77,54 @@ psql_in() {
   user="$(container_env "$project" postgres POSTGRES_USER)"
   db="$(container_env "$project" postgres POSTGRES_DB)"
   compose "$project" exec -T postgres psql -v ON_ERROR_STOP=1 -X -q -U "$user" -d "$db" "$@"
+}
+
+# The published host port of one service's container port, as a number.
+published_port() {
+  local project="$1" service="$2" port="$3" found
+  found="$(compose "$project" port "$service" "$port" </dev/null)" || return 1
+  printf '%s' "${found##*:}"
+}
+
+# `checkpoint_pins <project> <bucket> <command> [args]`: runs
+# scripts/lib/checkpoint-pins-cli.ts on the host against the project's
+# published postgres and localstack ports, with the credentials those
+# containers were started with. It is the one step that needs the production
+# codec and object store adapter, which only this checkout's bun has.
+checkpoint_pins() {
+  local project="$1" bucket="$2"
+  shift 2
+  local pg_port s3_port pg_user pg_db pg_password
+  pg_port="$(published_port "$project" postgres 5432)" || die "postgres of '$project' publishes no port"
+  s3_port="$(published_port "$project" localstack 4566)" || die "localstack of '$project' publishes no port"
+  pg_user="$(container_env "$project" postgres POSTGRES_USER)"
+  pg_db="$(container_env "$project" postgres POSTGRES_DB)"
+  pg_password="$(container_env "$project" postgres POSTGRES_PASSWORD)"
+  # bun leaves the pipes it wrote to non-blocking. Handed the caller's own
+  # stdout or stderr, and the caller merging them into one pipe (`2>&1 |`),
+  # the script's next write larger than the pipe has room for fails with
+  # EAGAIN and the whole run exits 1. So bun only ever gets descriptors of
+  # its own: a file for stdout, a pipe that cat drains for stderr.
+  local out status=0
+  out="$(mktemp)"
+  if DATABASE_URL="postgresql://$(uri_escape "$pg_user"):$(uri_escape "$pg_password")@127.0.0.1:${pg_port}/$(uri_escape "$pg_db")" \
+    AWS_ENDPOINT_URL="http://127.0.0.1:${s3_port}" \
+    AWS_REGION="$(container_env "$project" localstack AWS_DEFAULT_REGION)" \
+    AWS_ACCESS_KEY_ID="$(container_env "$project" localstack AWS_ACCESS_KEY_ID)" \
+    AWS_SECRET_ACCESS_KEY="$(container_env "$project" localstack AWS_SECRET_ACCESS_KEY)" \
+    S3_BUCKET="$bucket" \
+    bun run "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@" </dev/null >"$out" 2> >(cat >&2); then
+    status=0
+  else
+    status=$?
+  fi
+  cat "$out"
+  rm -f "$out"
+  return "$status"
+}
+
+uri_escape() {
+  jq -rn --arg value "$1" '$value | @uri'
 }
 
 # The migrations this checkout expects, one `<hash> <when> <tag>` per line in

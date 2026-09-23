@@ -260,6 +260,38 @@ function versionOnWire(object: { version?: string }): { version?: string } {
   return object.version === undefined ? {} : { version: object.version };
 }
 
+/** The service's restore plan as the worker protocol answers it. */
+export function restorePlanOnWire(
+  result: RestorePlanResult,
+): RestorePlanResponse {
+  switch (result.status) {
+    case "none":
+      return { status: "none" };
+    case "unavailable":
+      return {
+        status: "unavailable",
+        code: result.code,
+        reason: result.reason,
+      };
+    case "incompatible":
+      return {
+        status: "incompatible",
+        code: result.code,
+        mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
+        ...(result.fallback === undefined
+          ? {}
+          : {
+              fallback: {
+                ...fallbackOnWire(result.fallback),
+                revision: result.fallback.revision,
+              },
+            }),
+      };
+    default:
+      return planOnWire(result.plan);
+  }
+}
+
 function planOnWire(plan: RestorePlan): RestorePlanResponse {
   return {
     status: "ready",
@@ -934,32 +966,7 @@ export function createWorkerGateway(deps: {
           pointer: state.pointer,
         }),
       );
-      switch (result.status) {
-        case "none":
-          return { status: "none" };
-        case "unavailable":
-          return {
-            status: "unavailable",
-            code: result.code,
-            reason: result.reason,
-          };
-        case "incompatible":
-          return {
-            status: "incompatible",
-            code: result.code,
-            mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
-            ...(result.fallback === undefined
-              ? {}
-              : {
-                  fallback: {
-                    ...fallbackOnWire(result.fallback),
-                    revision: result.fallback.revision,
-                  },
-                }),
-          };
-        default:
-          break;
-      }
+      if (result.status !== "ready") return restorePlanOnWire(result);
       // A ready plan exists only with a pointer: "none" answered above.
       const pointerRevision = state.pointer?.revision ?? result.plan.revision;
       const fallback = result.plan.fallback;
@@ -974,7 +981,7 @@ export function createWorkerGateway(deps: {
       });
       switch (recorded.outcome) {
         case "ok":
-          return planOnWire(result.plan);
+          return restorePlanOnWire(result);
         case "pointer_moved":
           throw new WorkerGatewayError(
             409,

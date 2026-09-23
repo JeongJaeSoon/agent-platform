@@ -31,6 +31,11 @@ export interface WorkspacePreparer {
    * that `prepare` fetched nothing to read it from (a restore).
    */
   committedClaudeMd(): string | null;
+  /**
+   * The commit `committedClaudeMd` was read from, which checkpoints carry
+   * forward (`CHECKPOINT_INSTRUCTIONS_REF`); null when nothing was fetched.
+   */
+  instructionsCommit(): string | null;
 }
 
 /** For hosts whose engine never touches a repository, like the fake. */
@@ -39,6 +44,7 @@ export const noWorkspace: WorkspacePreparer = {
     return "reuse";
   },
   committedClaudeMd: () => null,
+  instructionsCommit: () => null,
 };
 
 /**
@@ -48,10 +54,35 @@ export const noWorkspace: WorkspacePreparer = {
  */
 export const COMMITTED_CLAUDE_MD_MAX_BYTES = 64 * 1024;
 
-type CommittedClaudeMd =
+export type CommittedClaudeMd =
   | { kind: "text"; text: string }
   | { kind: "absent" }
   | { kind: "refused"; reason: string };
+
+/** CLAUDE.md as read, and the commit it was read from. */
+export type PinnedInstructions = {
+  claudeMd: CommittedClaudeMd;
+  commit: string | null;
+};
+
+const NOTHING_PINNED: PinnedInstructions = {
+  claudeMd: { kind: "absent" },
+  commit: null,
+};
+
+/** How `committedClaudeMd` answers for what `pinInstructions` found. */
+export function committedClaudeMdOf(
+  claudeMd: CommittedClaudeMd,
+): string | null {
+  switch (claudeMd.kind) {
+    case "text":
+      return claudeMd.text;
+    case "absent":
+      return null;
+    case "refused":
+      throw new Error(`Repository CLAUDE.md refused: ${claudeMd.reason}`);
+  }
+}
 
 export type GitResult = { code: number; stdout: string; stderr: string };
 export type Git = (
@@ -86,21 +117,16 @@ export type Git = (
  * Revisit when clone time starts eating the claim's lease budget.
  */
 export class GitWorkspace implements WorkspacePreparer {
-  private claudeMd: CommittedClaudeMd = { kind: "absent" };
+  private instructions: PinnedInstructions = NOTHING_PINNED;
 
   constructor(private readonly root: string) {}
 
   committedClaudeMd(): string | null {
-    switch (this.claudeMd.kind) {
-      case "text":
-        return this.claudeMd.text;
-      case "absent":
-        return null;
-      case "refused":
-        throw new Error(
-          `Repository CLAUDE.md refused: ${this.claudeMd.reason}`,
-        );
-    }
+    return committedClaudeMdOf(this.instructions.claudeMd);
+  }
+
+  instructionsCommit(): string | null {
+    return this.instructions.commit;
   }
 
   async prepare(input: {
@@ -121,32 +147,40 @@ export class GitWorkspace implements WorkspacePreparer {
         redact,
         signal: input.signal,
       });
-    this.claudeMd = { kind: "absent" };
+    this.instructions = NOTHING_PINNED;
+    if (input.restore !== null) {
+      // Decided before anything reads the checkout: the restorer replaces it
+      // whole, and a half-restored one (a stopped earlier attempt) may have a
+      // config `observe` cannot even read. Nothing was fetched, so there is
+      // no commit to read instructions from here; the restorer reads them
+      // from the one the checkpoint pinned (`RuntimeResumePlan`). Refused
+      // rather than absent, so a port that does not would fail the claim
+      // instead of resuming without them.
+      this.instructions = {
+        claudeMd: {
+          kind: "refused",
+          reason:
+            "a restored workspace has no freshly fetched commit behind it",
+        },
+        commit: null,
+      };
+      return "restore";
+    }
     const plan = planWorkspacePreparation({
       workspace: input.descriptor,
-      restore: input.restore,
+      restore: null,
       observed: await this.observe(git, neutralized),
     });
     switch (plan.action) {
       case "restore":
-        // Nothing here was fetched by this process, so there is no commit to
-        // read instructions from, and the restored checkout is the last
-        // engine's. Refused rather than absent: a session whose profile lets
-        // CLAUDE.md in would otherwise resume without it and nobody would
-        // see. The restore path (94S-246) has to pin the commit to lift this.
-        this.claudeMd = {
-          kind: "refused",
-          reason:
-            "a restored workspace has no freshly fetched commit behind it",
-        };
-        return plan.action;
+        throw new Error("A workspace with no checkpoint planned a restore");
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
         await this.empty();
         await this.clone(git, remote.url, plan.branch);
         // A fresh clone nothing has run in yet.
-        this.claudeMd = await readCommittedClaudeMd(
+        this.instructions = await pinInstructions(
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
@@ -156,7 +190,7 @@ export class GitWorkspace implements WorkspacePreparer {
       case "clone":
         await this.clone(git, remote.url, plan.branch);
         // A fresh clone nothing has run in yet.
-        this.claudeMd = await readCommittedClaudeMd(
+        this.instructions = await pinInstructions(
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
@@ -299,7 +333,8 @@ export class GitWorkspace implements WorkspacePreparer {
       // From the mirror, not the checkout: the last attempt's engine could
       // have edited the working tree, committed on the branch, or planted
       // objects in `.git` that a fetch would not overwrite.
-      this.claudeMd = await readCommittedClaudeMd(
+      // The commit is also in the checkout now, under origin's refs.
+      this.instructions = await pinInstructions(
         git,
         mirror,
         `refs/heads/${branch}`,
@@ -337,7 +372,34 @@ const MAX_LINK_TARGET_BYTES = 4096;
  * imports — each is another path to resolve the same way, worth adding when
  * a repository the platform serves depends on one.
  */
-async function readCommittedClaudeMd(
+/**
+ * Resolves `rev` to the commit it names now and reads CLAUDE.md from that
+ * commit, so the text and the commit a checkpoint later pins are the same.
+ */
+export async function pinInstructions(
+  git: Git,
+  cwd: string,
+  rev: string,
+  signal: AbortSignal,
+): Promise<PinnedInstructions> {
+  const resolved = await git(
+    ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`],
+    { cwd },
+  );
+  if (resolved.code !== 0) {
+    return {
+      claudeMd: { kind: "refused", reason: `${rev} names no commit` },
+      commit: null,
+    };
+  }
+  const commit = resolved.stdout.trim();
+  return {
+    claudeMd: await readCommittedClaudeMd(git, cwd, commit, signal),
+    commit,
+  };
+}
+
+export async function readCommittedClaudeMd(
   git: Git,
   cwd: string,
   rev: string,
@@ -494,6 +556,11 @@ function splitSecret(url: string): Remote {
   parsed.username = "";
   parsed.password = "";
   return { url: parsed.toString(), protocol, secret };
+}
+
+/** The repository URL as git may store it: without the credential. */
+export function storableRepositoryUrl(url: string): string {
+  return splitSecret(url).url;
 }
 
 /** What git needs from the host: its binary, a HOME, and the egress proxy. */

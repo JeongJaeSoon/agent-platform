@@ -54,6 +54,7 @@ describe("OpenAPI document", () => {
         "/v1/auth/login",
         "/v1/auth/logout",
         "/v1/auth/me",
+        "/v1/limits",
         "/v1/receipts/{id}",
         "/v1/sessions",
         "/v1/sessions/{id}",
@@ -68,6 +69,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/terminate",
         "/v1/sessions/{id}/turns",
         "/v1/sessions/{id}/turns/{turn_id}",
+        "/v1/sessions/{id}/usage",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();

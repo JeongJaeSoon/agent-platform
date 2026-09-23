@@ -6,3 +6,4 @@ export * from "./pending.ts";
 export * from "./receipt.ts";
 export * from "./session.ts";
 export * from "./turn.ts";
+export * from "./usage.ts";

@@ -6,6 +6,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   createPostgresTurnInterrupts,
+  createPostgresUsageReader,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
 } from "@agent-platform/db";
@@ -15,6 +16,7 @@ import {
   createInterruptService,
   createPendingRequestService,
   createSessionService,
+  createUsageService,
   createWorkerGateway,
   InstallationConfigError,
   installationLimitProblems,
@@ -47,6 +49,7 @@ import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -118,6 +121,13 @@ const sessions = createSessionService({
   catalog,
   limits,
 });
+// The same parsed limits admission and dispatch run under, so what this
+// reports is what the gates enforce.
+const usage = createUsageService({
+  authorization: ownerScopedPolicy,
+  reader: createPostgresUsageReader(db),
+  limits,
+});
 const pendingRequests = createPendingRequestService({
   authorization: ownerScopedPolicy,
   store: createPostgresPendingRequests(db),
@@ -184,6 +194,7 @@ const app = createApiApp({
     registerSessionRoutes(router, sessions);
     registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
+    registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
     registerEventRoutes(router, sessions, {

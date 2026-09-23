@@ -15,12 +15,14 @@ import type {
   RuntimeFingerprint,
 } from "@agent-platform/runtime-core";
 
-import { checkpointsOn, type WorkerCheckpointPort } from "./checkpoint.ts";
+import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { createWorkerObjectStore } from "./object-store.ts";
+import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
+  consoleLogger,
   type RuntimeLaunch,
   type RuntimeLauncher,
   type RuntimeRegistry,
@@ -51,27 +53,39 @@ export function createWorkerHost(
   overrides: WorkerComposition = {},
 ): WorkerHost {
   const engines = overrides.engines ?? new EngineProcesses();
-  const objectStore =
-    overrides.objectStore ?? createWorkerObjectStore(config.objectStore);
+  const logger = overrides.logger ?? consoleLogger;
+  const gateway =
+    overrides.gateway ??
+    new HttpWorkerGatewayClient({
+      baseUrl: config.gatewayUrl,
+      credential: config.bootstrapNonce,
+      requestTimeoutMs: config.timeouts.requestTimeoutMs,
+    });
+  const workspace = overrides.workspace ?? new GitWorkspace(config.runtime.cwd);
   return new WorkerHost({
-    checkpoints: overrides.checkpoints ?? checkpointsOn(objectStore),
+    checkpoints:
+      overrides.checkpoints ??
+      new SessionCheckpoints({
+        fingerprint: claudeClaimFingerprint(config),
+        gateway,
+        instructionsCommit: () => workspace.instructionsCommit(),
+        logger,
+        objectPrefix: config.objectStore.scope,
+        objects:
+          overrides.objectStore ?? createWorkerObjectStore(config.objectStore),
+        workspaceRoot: config.runtime.cwd,
+      }),
     engines,
     execution: {
       bootstrapNonce: config.bootstrapNonce,
       generation: config.executionGeneration,
       id: config.executionId,
     },
-    gateway:
-      overrides.gateway ??
-      new HttpWorkerGatewayClient({
-        baseUrl: config.gatewayUrl,
-        credential: config.bootstrapNonce,
-        requestTimeoutMs: config.timeouts.requestTimeoutMs,
-      }),
+    gateway,
+    logger,
     runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
     timeouts: config.timeouts,
-    workspace: overrides.workspace ?? new GitWorkspace(config.runtime.cwd),
-    ...(overrides.logger === undefined ? {} : { logger: overrides.logger }),
+    workspace,
   });
 }
 
@@ -92,6 +106,8 @@ export function claudeRuntimeRegistry(
         correlationId,
         // Read by claudeRunConfig; kept out of the resume plan spread below.
         principal: _principal,
+        // The host's to report, not the engine's to read.
+        restoredRevision: _restoredRevision,
         runtimeConfig,
         ...plan
       } = launch;

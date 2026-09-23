@@ -210,6 +210,21 @@ describe("writeWorkspaceFile", () => {
       expect((await stat(join(root, "src/deep"))).mode & 0o777).toBe(0o700);
     });
 
+    test("sets the execute bit only for a file captured as executable", async () => {
+      expect(
+        await writeWorkspaceFile({
+          bytes,
+          executable: true,
+          path: "run.sh",
+          workspaceRoot: root,
+        }),
+      ).toBeUndefined();
+      expect(await write("plain.txt")).toBeUndefined();
+
+      expect((await stat(join(root, "run.sh"))).mode & 0o777).toBe(0o700);
+      expect((await stat(join(root, "plain.txt"))).mode & 0o777).toBe(0o600);
+    });
+
     test("writes into directories the checkout already made", async () => {
       await mkdir(join(root, "src"));
       expect(await write("src/notes.md")).toBeUndefined();

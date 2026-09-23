@@ -1,3 +1,5 @@
+import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@agent-platform/contracts";
+
 /**
  * The limits an installation runs under (94S-131). Every control process
  * reads them with this one parser, so the API that admits input, the gateway
@@ -39,7 +41,7 @@ export type InstallationLimitsEnvironment = {
  * are not in it — refusing an event batch would strand the turn that wrote
  * it, and a worker's disk has its own quota (94S-215).
  */
-export const STORAGE_ACCOUNTED_CONTENT = ["input_messages"] as const;
+export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 
 export const DEFAULT_PROVIDER_MAX_RETRIES = 2;
 /** Past this the engine clamps it anyway, and each retry backs off longer. */

@@ -60,6 +60,19 @@ export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
 /** The refs a checkpoint bundle carries; the restorer reads them back. */
 export const CHECKPOINT_HEAD_REF = "refs/checkpoint/head";
 export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
+/**
+ * The commit the session's repository CLAUDE.md is read from (94S-258): the
+ * branch commit the first worker fetched, carried unchanged from checkpoint
+ * to checkpoint so a resumed engine gets the instructions it started with.
+ */
+export const CHECKPOINT_INSTRUCTIONS_REF = "refs/checkpoint/instructions";
+
+/**
+ * The instructions commit a capture pins, and where its objects are kept
+ * when the workspace may no longer have them (a restore keeps them in a
+ * repository of its own, outside the engine's reach).
+ */
+export type InstructionsPin = { commit: string; objects?: string };
 
 // Neither side of a checkpoint may depend on the repository's own config:
 // the restore runs in a fresh repository that has none, on Linux. With
@@ -76,7 +89,7 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
 // only one rewritten within the second its index entry was refreshed slips
 // through (git keeps whole-second ctimes unless built with USE_NSEC), and
 // what that stages is bounded by the tracked bytes the workspace quota holds.
-const CAPTURE_CONFIG: Array<[string, string]> = [
+export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
   ["core.attributesFile", "/dev/null"],
   ["core.autocrlf", "false"],
   ["core.checkStat", "default"],
@@ -119,6 +132,8 @@ const SNAPSHOT_IDENTITY = {
  *   of HEAD when it differs and HEAD itself when it does not. This is the
  *   manifest's `gitCommit`.
  * - `refs/heads/<branch>`: HEAD's branch, when HEAD is on one.
+ * - `refs/checkpoint/instructions`: the `instructions` commit, when given.
+ *   It comes from the caller's memory, never from a ref the engine can move.
  *
  * so a restore can put the same branch at the same commit and leave the
  * uncommitted edits uncommitted, rather than handing the engine a history
@@ -145,6 +160,7 @@ export async function captureWorkspace(input: {
   root: string;
   signal: AbortSignal;
   limits?: WorkspaceCaptureLimits;
+  instructions?: InstructionsPin;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
 }): Promise<WorkspaceCaptureResult> {
@@ -170,7 +186,7 @@ export async function captureWorkspace(input: {
     ) =>
       runGitBytes(args, {
         cwd: root,
-        extra: { config: CAPTURE_CONFIG, env },
+        extra: { config: CHECKPOINT_GIT_CONFIG, env },
         maxStdoutBytes,
         network: null,
         overrides: neutralized,
@@ -224,9 +240,13 @@ export async function captureWorkspace(input: {
       run(["init", "--quiet", "--bare", repository], {}),
       "init scratch",
     );
+    const pin = input.instructions;
     await writeFile(
       join(repository, "objects", "info", "alternates"),
-      `${join(gitDirectory, "objects")}\n`,
+      [join(gitDirectory, "objects"), pin?.objects]
+        .filter((directory) => directory !== undefined)
+        .map((directory) => `${directory}\n`)
+        .join(""),
     );
     // Stages into the copy and writes objects into the scratch repository;
     // the workspace's own index and object store are only read. The scratch
@@ -354,6 +374,20 @@ export async function captureWorkspace(input: {
       refs.push([name, headCommit]);
     }
     const bundling = (args: string[]) => run(args, { GIT_DIR: repository });
+    if (pin !== undefined) {
+      // Gone once the engine pruned what no ref of its own still reached.
+      const present = await bundling([
+        "cat-file",
+        "-e",
+        `${pin.commit}^{commit}`,
+      ]);
+      if (present.code !== 0) {
+        return refused(
+          `the instructions commit ${pin.commit} is no longer in the repository`,
+        );
+      }
+      refs.push([CHECKPOINT_INSTRUCTIONS_REF, pin.commit]);
+    }
     for (const [name, oid] of refs) {
       await check(bundling(["update-ref", name, oid]), "update-ref");
     }
@@ -554,7 +588,7 @@ async function copyIndex(
 
 /**
  * A tracked file whose line endings on disk are not what checking out its
- * staged blob writes under `CAPTURE_CONFIG`, which is how a restore writes
+ * staged blob writes under `CHECKPOINT_GIT_CONFIG`, which is how a restore writes
  * it. Staging normalizes a text file's line endings into the blob, so a file
  * the engine's own config wrote with CRLF (`core.eol`, `core.autocrlf`), or
  * one a `.gitattributes` edit since left stale, would come back different
@@ -623,7 +657,7 @@ function namesOf(listed: Uint8Array): string | undefined {
   }
 }
 
-async function required(
+export async function required(
   result: Promise<GitResult>,
   step: string,
 ): Promise<string> {

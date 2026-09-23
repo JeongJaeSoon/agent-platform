@@ -8,6 +8,7 @@ import {
   getSessionResponseSchema,
   getTurnResponseSchema,
   healthResponseSchema,
+  installationLimitsResponseSchema,
   interruptSessionRequestSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
@@ -24,6 +25,7 @@ import {
   resumeSessionRequestSchema,
   sessionDurabilitySchema,
   sessionSummarySchema,
+  sessionUsageResponseSchema,
   sseEventSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
@@ -84,6 +86,8 @@ const responseComponents = {
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
   AuthMeResponse: authMeResponseSchema,
+  InstallationLimitsResponse: installationLimitsResponseSchema,
+  SessionUsageResponse: sessionUsageResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
 type ComponentName =
@@ -215,6 +219,15 @@ const routes: Route[] = [
     errors: [401, 404, 503],
   },
   {
+    method: "get",
+    path: "/v1/sessions/{id}/usage",
+    operationId: "getSessionUsage",
+    summary: "Estimated cost of a session and whether every turn reported it",
+    scope: "read",
+    success: { status: 200, schema: "SessionUsageResponse" },
+    errors: [401, 404, 503],
+  },
+  {
     method: "post",
     path: "/v1/sessions/{id}/messages",
     operationId: "appendSessionMessage",
@@ -331,6 +344,15 @@ const routes: Route[] = [
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/limits",
+    operationId: "getInstallationLimits",
+    summary: "Installation limits and installation-wide usage",
+    scope: "read",
+    success: { status: 200, schema: "InstallationLimitsResponse" },
+    errors: [401, 503],
   },
   {
     method: "get",
