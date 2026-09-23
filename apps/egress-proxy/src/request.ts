@@ -195,6 +195,8 @@ export type BodyFramer = {
   take(
     chunk: Uint8Array,
   ): { forward: Uint8Array; dropped: number } | { error: string };
+  /** The body has ended; everything taken from here on is dropped. */
+  readonly complete: boolean;
 };
 
 /** A chunk-size line or a trailer field longer than this is refused. */
@@ -207,8 +209,10 @@ const MAX_TRAILER_BYTES = 16 * 1024;
  * sends past it — a pipelined request, or one written on a connection it was
  * told to close — reaches the upstream judged for this one (94S-299). Such a
  * request could carry another destination's credentials. The bytes are
- * dropped rather than answered: the client has its `connection: close`
- * (response.ts) and closes once it has read the answer.
+ * dropped rather than answered: the proxy ends the connection once the
+ * answer is complete (response.ts), and a client that had reused it sends
+ * that request again on a fresh one. The answer's body is counted with the
+ * same framer.
  *
  * Chunked bodies are framed rather than refused: git over http sends one
  * whenever a request outgrows its `http.postBuffer`.
@@ -217,6 +221,9 @@ export function createBodyFramer(body: RequestBody): BodyFramer {
   if (body.kind === "length") {
     let left = body.bytes;
     return {
+      get complete() {
+        return left === 0;
+      },
       take(chunk) {
         const take = Math.min(left, chunk.byteLength);
         left -= take;
@@ -233,6 +240,9 @@ export function createBodyFramer(body: RequestBody): BodyFramer {
   let line: number[] = [];
   let trailerBytes = 0;
   return {
+    get complete() {
+      return state === "done";
+    },
     take(chunk) {
       let at = 0;
       while (at < chunk.byteLength && state !== "done") {

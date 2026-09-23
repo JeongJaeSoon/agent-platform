@@ -15,10 +15,7 @@ import {
   type ProxyRequest,
   parseRequestHead,
 } from "./request.ts";
-import {
-  createResponseHeadRewriter,
-  type ResponseHeadRewriter,
-} from "./response.ts";
+import { createResponseRewriter, type ResponseRewriter } from "./response.ts";
 import {
   type ClientHelloCursor,
   MAX_CLIENT_HELLO_BYTES,
@@ -444,7 +441,9 @@ export async function startEgressProxy(
           request.port,
           budget,
           request.kind === "forward"
-            ? createResponseHeadRewriter(MAX_HEAD_BYTES)
+            ? createResponseRewriter(MAX_HEAD_BYTES, {
+                headOnly: request.head.startsWith("HEAD "),
+              })
             : null,
         );
       } catch (error) {
@@ -659,15 +658,15 @@ export async function startEgressProxy(
   }
 
   /**
-   * `answer` reads the head of a forwarded exchange on its way to the
-   * client (response.ts); a tunnel's bytes are TLS and pass untouched.
+   * `answer` reads a forwarded exchange's answer on its way to the client
+   * (response.ts); a tunnel's bytes are TLS and pass untouched.
    */
   function connectUpstream(
     client: Socket<ClientState>,
     address: string,
     port: number,
     timeoutMs: number,
-    answer: ResponseHeadRewriter | null,
+    answer: ResponseRewriter | null,
   ): Promise<UpstreamAttempt> {
     // The client socket lives in this closure rather than in `socket.data`:
     // a connection that fails before `open` never gets its data assigned,
@@ -688,7 +687,7 @@ export async function startEgressProxy(
     const refuseAnswer = (reason: string): void => {
       // The upstream's close after our own 502 comes back through here.
       if (client.data.phase === "closed") return;
-      logger.warn("Dropping a forwarded response whose head failed", {
+      logger.warn("Dropping a forwarded response that failed its framing", {
         reason,
       });
       upstream?.end();
@@ -706,21 +705,33 @@ export async function startEgressProxy(
         refuseAnswer(result.error);
         return true;
       }
-      if (result.bytes.byteLength === 0) return true;
-      return push(client, client.data.toClient, result.bytes, maxBuffered);
+      const keepingUp =
+        result.bytes.byteLength === 0 ||
+        push(client, client.data.toClient, result.bytes, maxBuffered);
+      if (!answer.complete) return keepingUp;
+      // The exchange is over whether or not the upstream agrees; ending it
+      // here is what stops a client that ignores `connection: close` from
+      // waiting on this socket for an answer to its next request.
+      upstream?.end();
+      endClient();
+      return true;
+    };
+    /** Ends the client once whatever it is still owed has been written. */
+    const endClient = (): void => {
+      if (client.data.toClient.chunks.length > 0) {
+        client.data.closeWhenDrained = true;
+        return;
+      }
+      client.end();
     };
     const onClose = (): void => {
       if (answer !== null && !answer.done) {
         refuseAnswer("closed before its response head was complete");
         return;
       }
-      // The upstream closing is how a forwarded response ends — but the
-      // tail of that response may still be queued for a slow client.
-      if (client.data.toClient.chunks.length > 0) {
-        client.data.closeWhenDrained = true;
-        return;
-      }
-      client.end();
+      // The upstream closing is how a close-delimited response ends — but
+      // the tail of that response may still be queued for a slow client.
+      endClient();
     };
     const onError = (error: Error): void => {
       logger.warn("Upstream connection failed", { error: error.message });

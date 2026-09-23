@@ -1,24 +1,35 @@
 /**
- * The response heads of a forwarded (absolute-form) exchange, rewritten so
- * the client closes the connection after the one answer it gets.
+ * The answer to a forwarded (absolute-form) exchange: its heads rewritten so
+ * the client closes the connection, and its body counted so the proxy knows
+ * when the exchange is over.
  *
- * The proxy forwards exactly one request per client connection and pipes the
- * answer without framing it. It asks the upstream to close (`rewrite` in
- * request.ts), but an upstream may not: Bun.serve keeps a connection open
- * after any answer its handler produced asynchronously, and says nothing in
- * the head. A client that reads such a head as keep-alive pools the proxy
- * connection and sends its next request — to whatever origin — down it, and
- * those bytes reach the upstream judged for the first request. That is how a
- * worker's S3 list after its gateway claim landed on the API (94S-299).
+ * The proxy forwards exactly one request per client connection. It asks the
+ * upstream to close (`rewrite` in request.ts), but an upstream may not:
+ * Bun.serve keeps a connection open after any answer its handler produced
+ * asynchronously, and says nothing in the head. A client that reads such a
+ * head as keep-alive pools the proxy connection and sends its next request —
+ * to whatever origin — down it. That is how a worker's S3 list after its
+ * gateway claim landed on the API (94S-299).
  *
  * So the final head the client sees always says `connection: close`,
  * whatever the upstream said; interim 1xx heads only lose their hop-by-hop
- * fields. Only heads are read; the body is still piped, and it ends when
- * either side closes. The request side of the same contract — nothing past
- * the one request reaches the upstream — is `createBodyFramer` in request.ts.
+ * fields. That is not enough on its own: Bun's node:http reuses a
+ * connection after a non-2xx answer even when told to close, so the
+ * transcript mirror's PUT after a 404 GET came down the same socket. The
+ * body is therefore framed as well, and `complete` tells the proxy to end
+ * the connection the moment the answer is over; a client that had already
+ * sent another request on it gets an EOF and sends it again on a fresh one.
+ * The request side — nothing past the one request reaches the upstream —
+ * is `createBodyFramer` in request.ts.
  */
 
-import { headEnd, parseField } from "./request.ts";
+import {
+  type BodyFramer,
+  createBodyFramer,
+  headEnd,
+  parseField,
+  type RequestBody,
+} from "./request.ts";
 
 /** Hop-by-hop headers of the upstream's hop, none of which reach the client. */
 const HOP_BY_HOP: ReadonlySet<string> = new Set([
@@ -29,12 +40,18 @@ const HOP_BY_HOP: ReadonlySet<string> = new Set([
 
 const CRLF = new Uint8Array([13, 10]);
 const CLOSE = new TextEncoder().encode("connection: close\r\n\r\n");
+const NOTHING = new Uint8Array(0);
 
-export type ResponseHeadRewriter = {
+export type ResponseRewriter = {
   /** Bytes for the client, possibly none yet; an error ends the exchange. */
   push(chunk: Uint8Array): { bytes: Uint8Array } | { error: string };
   /** The final head has gone through; the rest is body. */
   readonly done: boolean;
+  /**
+   * The whole answer has gone through. Stays false for a body delimited by
+   * the upstream closing, which only that close ends.
+   */
+  readonly complete: boolean;
   /** Something has been handed to the client (a head, interim or final). */
   readonly started: boolean;
 };
@@ -42,16 +59,32 @@ export type ResponseHeadRewriter = {
 /**
  * `maxHeadBytes` bounds every head the answer starts with together, interim
  * ones included, so an upstream cannot keep the client busy with 1xx heads.
+ * `headOnly` is a HEAD request's answer, which has no body whatever its
+ * Content-Length says.
  */
-export function createResponseHeadRewriter(
+export function createResponseRewriter(
   maxHeadBytes: number,
-): ResponseHeadRewriter {
-  let buffer: Uint8Array = new Uint8Array(0);
+  { headOnly }: { headOnly: boolean },
+): ResponseRewriter {
+  let buffer: Uint8Array = NOTHING;
   /** Head bytes already handed on: the interim heads before this one. */
   let consumed = 0;
   let done = false;
   let started = false;
+  /** Null until the final head, and for a close-delimited body. */
+  let body: BodyFramer | null = null;
+  /** Anything past the body is the upstream's, and nobody's to receive. */
+  const bodyBytes = (bytes: Uint8Array): Uint8Array | { error: string } => {
+    if (body === null) return bytes;
+    const taken = body.take(bytes);
+    return "error" in taken
+      ? { error: `response ${taken.error}` }
+      : taken.forward;
+  };
   return {
+    get complete() {
+      return body?.complete ?? false;
+    },
     get done() {
       return done;
     },
@@ -59,7 +92,10 @@ export function createResponseHeadRewriter(
       return started;
     },
     push(chunk) {
-      if (done) return { bytes: chunk };
+      if (done) {
+        const bytes = bodyBytes(chunk);
+        return bytes instanceof Uint8Array ? { bytes } : bytes;
+      }
       // Only what is returned reaches the client: heads assembled in a push
       // that then fails never do, and must not count as started.
       const handOver = (out: Uint8Array[]) => {
@@ -78,7 +114,7 @@ export function createResponseHeadRewriter(
         }
         if (end < 0) return handOver(out);
         const lines = splitLines(buffer.subarray(0, end - 4));
-        const status = statusOf(lines[0] ?? new Uint8Array(0));
+        const status = statusOf(lines[0] ?? NOTHING);
         if (status === null) return { error: "malformed response status line" };
         // The request's Upgrade never reaches the upstream, so a switch is
         // an answer to something nobody asked for.
@@ -91,13 +127,58 @@ export function createResponseHeadRewriter(
           out.push(kept, CRLF);
           continue;
         }
-        out.push(kept, CLOSE, buffer);
-        buffer = new Uint8Array(0);
+        const framing = framingOf(lines, status, headOnly);
+        if (typeof framing === "string") return { error: framing };
+        body = framing.kind === "close" ? null : createBodyFramer(framing);
+        const rest = bodyBytes(buffer);
+        if (!(rest instanceof Uint8Array)) return rest;
+        out.push(kept, CLOSE, rest);
+        buffer = NOTHING;
         done = true;
         return handOver(out);
       }
     },
   };
+}
+
+/**
+ * Where the answer's body ends (RFC 9112 §6.3): nowhere for a HEAD answer,
+ * a 204 or a 304; at the last chunk; after Content-Length bytes; or, with
+ * neither, when the upstream closes. Both framings at once, or a length
+ * that is not plain digits, are two readings of that point and refused.
+ */
+function framingOf(
+  lines: Uint8Array[],
+  status: number,
+  headOnly: boolean,
+): RequestBody | { kind: "close" } | string {
+  if (headOnly || status === 204 || status === 304) {
+    return { bytes: 0, kind: "length" };
+  }
+  const fields = lines.slice(1).map((line) => fieldOf(line));
+  const lengths = fields.filter((field) => field?.name === "content-length");
+  const codings = fields.filter((field) => field?.name === "transfer-encoding");
+  if (codings.length > 0 && lengths.length > 0) {
+    return "response has both transfer-encoding and content-length";
+  }
+  if (codings.length > 0) {
+    const last = codings
+      .flatMap((field) => field?.value.split(",") ?? [])
+      .at(-1)
+      ?.trim()
+      .toLowerCase();
+    return last === "chunked" ? { kind: "chunked" } : { kind: "close" };
+  }
+  const values = new Set(lengths.map((field) => field?.value));
+  if (values.size === 0) return { kind: "close" };
+  const [length] = values;
+  const bytes = Number(length);
+  return values.size === 1 &&
+    length !== undefined &&
+    /^\d+$/.test(length) &&
+    Number.isSafeInteger(bytes)
+    ? { bytes, kind: "length" }
+    : "malformed response content-length";
 }
 
 /**

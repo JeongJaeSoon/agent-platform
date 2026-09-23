@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createResponseHeadRewriter } from "./response.ts";
+import { createResponseRewriter } from "./response.ts";
 
 const MAX = 1024;
 
 function rewrite(...chunks: Array<string | Uint8Array>): string {
-  const rewriter = createResponseHeadRewriter(MAX);
+  const rewriter = createResponseRewriter(MAX, { headOnly: false });
   let out = "";
   for (const chunk of chunks) {
     const result = rewriter.push(
@@ -67,7 +67,7 @@ describe("response head rewriter", () => {
   });
 
   test("the body after the head passes as it is", () => {
-    const rewriter = createResponseHeadRewriter(MAX);
+    const rewriter = createResponseRewriter(MAX, { headOnly: false });
     rewriter.push(latin1("HTTP/1.1 200 OK\r\n\r\n"));
     expect(rewriter.done).toBe(true);
     const body = latin1("HTTP/1.1 500 not a head\r\n\r\n");
@@ -75,13 +75,13 @@ describe("response head rewriter", () => {
   });
 
   test("heads that never reached the client do not count as started", () => {
-    const rewriter = createResponseHeadRewriter(MAX);
+    const rewriter = createResponseRewriter(MAX, { headOnly: false });
     const result = rewriter.push(
       latin1("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nBad\r\n\r\n"),
     );
     expect(result).toEqual({ error: "malformed response header field" });
     expect(rewriter.started).toBe(false);
-    const sent = createResponseHeadRewriter(MAX);
+    const sent = createResponseRewriter(MAX, { headOnly: false });
     sent.push(latin1("HTTP/1.1 100 Continue\r\n\r\n"));
     expect(sent.started).toBe(true);
   });
@@ -109,5 +109,84 @@ describe("response head rewriter", () => {
     ],
   ])("%# is refused", (answer, error) => {
     expect(rewrite(answer)).toStartWith(`error: ${error}`);
+  });
+
+  describe("the end of the answer", () => {
+    const answer = (headOnly = false) =>
+      createResponseRewriter(MAX, { headOnly });
+    const text = (result: ReturnType<ReturnType<typeof answer>["push"]>) =>
+      "error" in result
+        ? `error: ${result.error}`
+        : String.fromCharCode(...result.bytes);
+
+    test("a Content-Length body ends at its length, and the upstream's extra bytes go nowhere", () => {
+      const rewriter = answer();
+      expect(
+        text(
+          rewriter.push(
+            latin1("HTTP/1.1 404 Not Found\r\nContent-Length: 4\r\n\r\nno"),
+          ),
+        ),
+      ).toEndWith("\r\n\r\nno");
+      expect(rewriter.complete).toBe(false);
+      expect(text(rewriter.push(latin1("peHTTP/1.1 200 OK\r\n\r\n")))).toBe(
+        "pe",
+      );
+      expect(rewriter.complete).toBe(true);
+    });
+
+    test("a chunked body ends after its last chunk", () => {
+      const rewriter = answer();
+      rewriter.push(
+        latin1(
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nok\r\n",
+        ),
+      );
+      expect(rewriter.complete).toBe(false);
+      expect(text(rewriter.push(latin1("0\r\n\r\n")))).toBe("0\r\n\r\n");
+      expect(rewriter.complete).toBe(true);
+    });
+
+    test.each([
+      ["a HEAD answer", "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n", true],
+      ["a 204", "HTTP/1.1 204 No Content\r\n\r\n", false],
+      [
+        "a 304",
+        "HTTP/1.1 304 Not Modified\r\nContent-Length: 10\r\n\r\n",
+        false,
+      ],
+      ["an empty body", "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", false],
+    ])("%s is complete at its head", (_name, head, headOnly) => {
+      const rewriter = answer(headOnly as boolean);
+      rewriter.push(latin1(head as string));
+      expect(rewriter.complete).toBe(true);
+    });
+
+    test("a body with no framing lasts until the upstream closes", () => {
+      const rewriter = answer();
+      rewriter.push(latin1("HTTP/1.1 200 OK\r\n\r\nall of it"));
+      expect(rewriter.done).toBe(true);
+      expect(rewriter.complete).toBe(false);
+    });
+
+    test.each([
+      [
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n",
+        "both",
+      ],
+      [
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\n",
+        "content-length",
+      ],
+      ["HTTP/1.1 200 OK\r\nContent-Length: -1\r\n\r\n", "content-length"],
+      [
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+        "malformed chunk size",
+      ],
+    ])("an answer whose end has two readings is refused: %#", (head, error) => {
+      expect(text(answer().push(latin1(head as string)))).toContain(
+        error as string,
+      );
+    });
   });
 });

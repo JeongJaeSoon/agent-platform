@@ -425,6 +425,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
       `/containers/create?name=${gatewayName}`,
       {
         Cmd: ["bun", "run", "/gateway/gateway.ts"],
+        Env: [`OBJECT_STORE_UPSTREAM=http://${localstackName}:4566`],
         HostConfig: {
           Binds: [`${join(probeDir, "gateway.ts")}:/gateway/gateway.ts:ro`],
           NetworkMode: outerNetwork,
@@ -844,25 +845,44 @@ console.log("TLS " + response.status + " " + (await response.text()));
   // 94S-299: every new session's worker died here. Its gateway claim left
   // the pooled proxy connection open (Bun.serve ignores `connection: close`
   // after an await), and the session store's first S3 list went down it to
-  // the gateway, whose JSON answer the SDK failed to parse as XML.
-  test("a new session's first object call after a gateway call reaches the object store", async () => {
-    const sessionId = crypto.randomUUID();
-    const result = await objectProbe(
-      [...workerEnv(sessionId), `GATEWAY_PROBE_URL=http://${gatewayName}:3000`],
-      [],
-      SESSION_START_PROBE,
-    );
-    expect(result.output).toContain("PROBE ");
-    const report = JSON.parse(
-      result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
-    ) as Record<string, unknown>;
-    expect(report).toEqual({
-      claim: "gateway /internal/worker/bootstrap-claim",
-      fresh: "ok",
-      heartbeat: "gateway /internal/worker/heartbeat",
-    });
-    expect(result.exitCode).toBe(0);
-  }, 300_000);
+  // the gateway, whose JSON answer the SDK failed to parse as XML. Then the
+  // first transcript append hung behind an object store that, like the
+  // gateway, keeps its connection open: Bun's node:http reuses a connection
+  // after a 404 even when told to close, so the PUT after the slot read went
+  // down a hop the proxy had stopped forwarding and was never answered.
+  test.each([
+    ["the object store", () => undefined],
+    [
+      "a relay in front of the object store",
+      () => `http://${gatewayName}:3000`,
+    ],
+  ])(
+    "a new session's first object calls after a gateway call reach %s",
+    async (_name, endpoint) => {
+      const sessionId = crypto.randomUUID();
+      const result = await objectProbe(
+        [
+          ...workerEnv(sessionId, endpoint()),
+          `GATEWAY_PROBE_URL=http://${gatewayName}:3000`,
+        ],
+        [],
+        SESSION_START_PROBE,
+      );
+      expect(result.output).toContain("PROBE ");
+      const report = JSON.parse(
+        result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
+      ) as Record<string, unknown>;
+      expect(report).toEqual({
+        append: "ok",
+        claim: "gateway /internal/worker/bootstrap-claim",
+        fresh: "ok",
+        heartbeat: "gateway /internal/worker/heartbeat",
+        load: 1,
+      });
+      expect(result.exitCode).toBe(0);
+    },
+    300_000,
+  );
 
   test("without the proxy variables the same object store reaches nothing", async () => {
     // A refusal by the wrapper looks nothing like this: the request leaves
@@ -1471,26 +1491,73 @@ const store = new ClaudeSessionStore({
   objects: createWorkerObjectStore(objectStoreConfigFromEnv(process.env)),
   prefix: process.env.WORKER_OBJECT_PREFIX + "transcripts",
 });
-try {
+const settle = async (work) => {
+  try {
+    return await Promise.race([
+      work(),
+      Bun.sleep(20_000).then(() => {
+        throw new Error("no answer in 20s");
+      }),
+    ]);
+  } catch (error) {
+    return String(error?.message ?? error).split("\\n")[0];
+  }
+};
+report.fresh = await settle(async () => {
   await store.ready();
-  report.fresh = "ok";
-} catch (error) {
-  report.fresh = String(error?.message ?? error).split("\\n")[0];
-}
-report.heartbeat = await call("/internal/worker/heartbeat");
+  return "ok";
+});
+// The first append reads its slot (404) and then PUTs the part. Bun's
+// node:http sends the PUT down the connection the 404 came back on, so the
+// proxy has to have ended it or the PUT is never answered.
+const key = { projectKey: "p", sessionId: "s" };
+report.append = await settle(async () => {
+  await store.append(key, [
+    { message: "x".repeat(7_000), type: "user", uuid: "u-1" },
+  ]);
+  return "ok";
+});
+report.load = await settle(async () => (await store.load(key))?.length ?? 0);
+report.heartbeat = await settle(() => call("/internal/worker/heartbeat"));
 console.log("PROBE " + JSON.stringify(report));
+// A stalled request would otherwise hold the process open.
+process.exit(0);
 `;
 
+// Also relays everything outside /internal/ to the object store, as the D2
+// gate's fault-injection front does: an upstream that answers after an await
+// and so never closes, whatever the request asked.
 const GATEWAY = `
+const upstream = process.env.OBJECT_STORE_UPSTREAM;
 Bun.serve({
   hostname: "0.0.0.0",
+  // Bun's default of 10s would close the idle hop and let a stalled client
+  // retry; a stall has to outlast the probe's 20s to count as one.
+  idleTimeout: 120,
   port: 3000,
   async fetch(request) {
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith("/internal/")) {
+      const headers = new Headers(request.headers);
+      for (const name of ["connection", "content-length", "host"]) headers.delete(name);
+      const body = ["GET", "HEAD"].includes(request.method)
+        ? undefined
+        : await request.arrayBuffer();
+      const answer = await fetch(upstream + url.pathname + url.search, {
+        body,
+        headers,
+        method: request.method,
+      });
+      const bytes = request.method === "HEAD" ? null : await answer.arrayBuffer();
+      const back = new Headers(answer.headers);
+      for (const name of ["connection", "content-encoding", "content-length", "transfer-encoding"]) back.delete(name);
+      return new Response(bytes, { headers: back, status: answer.status });
+    }
     await request.text();
     // The real gateway answers after its database; the await is what makes
     // Bun keep the connection open.
     await Bun.sleep(10);
-    return Response.json({ answer: "gateway " + new URL(request.url).pathname });
+    return Response.json({ answer: "gateway " + url.pathname });
   },
 });
 console.log("gateway listening");

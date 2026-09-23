@@ -78,6 +78,10 @@ describe("egress proxy", () => {
         // Answered after a timer, as the API answers after its database: Bun
         // then leaves the connection open despite the `connection: close`.
         if (url.pathname === "/claim") await Bun.sleep(10);
+        if (url.pathname === "/missing") {
+          await Bun.sleep(10);
+          return new Response("missing", { status: 404 });
+        }
         return new Response(`upstream ${url.pathname} ${await request.text()}`);
       },
       hostname: "127.0.0.1",
@@ -193,14 +197,14 @@ describe("egress proxy", () => {
   // request — to any origin — down the same socket, and the proxy used to
   // pipe it to the first upstream. The worker's S3 list after its gateway
   // claim reached the API and failed as an XML parse error.
-  test("a client's pooled proxy connection never carries its next request to the last upstream", async () => {
+  /** Runs `testing/pooled-client.ts` against the proxy; one line per request. */
+  async function pooledClient(...requests: string[]): Promise<string[]> {
     const via = `http://127.0.0.1:${proxy.port}`;
     const client = Bun.spawn(
       [
         process.execPath,
         new URL("./testing/pooled-client.ts", import.meta.url).pathname,
-        `http://gateway.test:${upstreamPort}/claim`,
-        `http://other.test:${other.port}/list`,
+        ...requests,
       ],
       {
         env: { ...process.env, HTTP_PROXY: via, http_proxy: via },
@@ -214,9 +218,47 @@ describe("egress proxy", () => {
       client.exited,
     ]);
     expect({ code, err }).toEqual({ code: 0, err: "" });
-    expect(out.trim().split("\n")).toEqual([
-      "upstream /claim x",
-      "other /list",
+    return out.trim().split("\n");
+  }
+
+  test("a client's pooled proxy connection never carries its next request to the last upstream", async () => {
+    expect(
+      await pooledClient(
+        "fetch",
+        "POST",
+        `http://gateway.test:${upstreamPort}/claim`,
+        "http",
+        "GET",
+        `http://other.test:${other.port}/list`,
+      ),
+    ).toEqual(["200 upstream /claim x", "200 other /list"]);
+  });
+
+  // Bun's node:http keeps a connection after a non-2xx answer even when the
+  // head says close: the transcript mirror's PUT after a 404 GET came down
+  // the same socket, was discarded, and waited for an answer that never
+  // came. The proxy now ends the connection when the answer is complete.
+  test("a request sent on a connection after a 404 still gets its own answer", async () => {
+    expect(
+      await pooledClient(
+        "http",
+        "GET",
+        `http://gateway.test:${upstreamPort}/missing`,
+        "http",
+        "PUT",
+        `http://other.test:${other.port}/part`,
+        "http",
+        "GET",
+        `http://gateway.test:${upstreamPort}/missing`,
+        "http",
+        "PUT",
+        `http://other.test:${other.port}/part`,
+      ),
+    ).toEqual([
+      "404 missing",
+      "200 other /part",
+      "404 missing",
+      "200 other /part",
     ]);
   });
 
@@ -271,6 +313,7 @@ describe("egress proxy", () => {
   });
 
   test("nothing a client sends past its request reaches the upstream", async () => {
+    const closed = scriptedClosed;
     const talk = await connect(proxy.port);
     // One write: the second request rides in the same segment as the first.
     talk.send(
@@ -285,10 +328,9 @@ describe("egress proxy", () => {
         ),
     );
     await talk.waitFor("\r\n\r\nok");
-    // The upstream's connection ends only after the client's: everything
-    // the proxy was ever going to send it has arrived by then.
-    const closed = scriptedClosed;
-    talk.close();
+    // The answer is complete, so the proxy ends both sides itself; by the
+    // upstream's close everything it was ever going to be sent has arrived.
+    expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
     expect(await waitFor(() => scriptedClosed > closed, 2_000)).toBe(true);
     expect(scriptedHeard).toContain("POST /keep-alive HTTP/1.1");
     expect(scriptedHeard).toContain("hello");
