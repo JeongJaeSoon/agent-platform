@@ -114,8 +114,9 @@ export async function applyInodeLimit(
     ],
     Env: [],
     HostConfig: {
-      // SYS_ADMIN for quotactl, MKNOD for the device node. The device cgroup
-      // still refuses to open the node; quotactl only looks it up.
+      // SYS_ADMIN for quotactl, MKNOD for the device node. Docker's default
+      // device rules let any container make a node (`b *:* m`) but not open
+      // one, and quotactl never opens it: it only looks the path up.
       CapAdd: ["MKNOD", "SYS_ADMIN"],
       CapDrop: ["ALL"],
       Memory: 64 * 1024 * 1024,
