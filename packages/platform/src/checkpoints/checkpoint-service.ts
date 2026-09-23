@@ -110,7 +110,27 @@ export type RestorePlan = {
    */
   objectKeys: readonly string[];
   resume: string;
+  /** The revision this plan restores, which is the pointer's unless `fallback`. */
   revision: number;
+  /**
+   * Present only when the pointer's own checkpoint did not verify and an
+   * earlier revision is restored instead: the resumed session is then older
+   * than the one the pointer recorded, and whoever resumes it must be able
+   * to tell.
+   */
+  fallback?: RestoreFallback;
+};
+
+export type RestoreFallbackSkip = { reason: string; revision: number };
+
+export type RestoreFallback = {
+  /** The revision the session pointer names, and could not be restored. */
+  pointerRevision: number;
+  /**
+   * Every revision tried and refused before the restored one, newest first,
+   * starting with the pointer's.
+   */
+  skipped: readonly RestoreFallbackSkip[];
 };
 
 export type RestorePlanResult =
@@ -144,6 +164,13 @@ export type CheckpointServiceDependencies = {
    */
   maxManifestBytes?: number;
   maxManifestObjects?: number;
+  /**
+   * How many committed revisions below the pointer a restore may try when
+   * the pointer's own checkpoint does not verify. Each one tried is read and
+   * hashed in full, bundle included, so this bounds what one restore can
+   * cost; 0 turns fallback off.
+   */
+  maxRestoreFallbacks?: number;
   /**
    * Largest workspace bundle the control plane will read, in bytes.
    *
@@ -201,6 +228,7 @@ export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
+export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
 
 /**
  * Every publish attempt gets its own key.
@@ -245,6 +273,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     deps.maxConcurrentBundleVerifications ??
       DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
   );
+  const maxRestoreFallbacks =
+    deps.maxRestoreFallbacks ?? DEFAULT_MAX_RESTORE_FALLBACKS;
+  if (!Number.isInteger(maxRestoreFallbacks) || maxRestoreFallbacks < 0) {
+    throw new Error(
+      `maxRestoreFallbacks must be a non-negative integer: ${maxRestoreFallbacks}`,
+    );
+  }
   const protection = deps.objectProtection ?? "locked";
   if (protection === "locked" && objects.hold === undefined) {
     throw new Error(
@@ -628,6 +663,74 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     await inBatches(versions, 32, ({ key, version }) => hold(key, version));
   }
 
+  /**
+   * An earlier revision is judged like the pointer, with two differences.
+   * Nothing is trusted from a cache — `verifiedRefs` speaks for the pointer's
+   * checkpoint, not this one — so every object is hashed again. And in
+   * `locked` every version it names must still be held: a hold that is gone
+   * means garbage collection has released that generation and may be
+   * deleting it, and holding it again here would race that deletion rather
+   * than stop it. A fallback is only ever to a generation still protected.
+   */
+  async function fallbackProblem(
+    candidate: CheckpointPointer,
+    sessionId: string,
+  ): Promise<string | { manifest: CheckpointManifest }> {
+    const pinned = pinnedVersions();
+    const verdict = await validateManifest({
+      checkpoint: checkpointRefOf(candidate),
+      pinned,
+      sessionId,
+    });
+    if (verdict.status === "rejected") return verdict.reason;
+    if (protection === "locked") {
+      const released = pinned.unheld()[0];
+      if (released !== undefined) {
+        return `version ${released.version} of ${released.key} is no longer held`;
+      }
+    }
+    return { manifest: verdict.manifest };
+  }
+
+  /**
+   * The verified manifest as a plan, once the runtime asking can resume it.
+   * `protect` runs only when the plan is about to be handed out.
+   */
+  async function restoreFrom(
+    manifest: CheckpointManifest,
+    checkpoint: CheckpointPointer,
+    runtime: RuntimeFingerprint,
+    protect: () => Promise<void> | undefined,
+    fallback?: RestoreFallback,
+  ): Promise<RestorePlanResult> {
+    const codec = own(codecs, manifest.engine);
+    if (codec === undefined) {
+      return {
+        status: "unavailable",
+        code: "CHECKPOINT_UNAVAILABLE",
+        reason: `no codec for checkpoint engine: ${manifest.engine}`,
+      };
+    }
+    const compatibility = codec.validateCompatibility(manifest, runtime);
+    if (compatibility.status === "incompatible") {
+      return {
+        status: "incompatible",
+        code: "INCOMPATIBLE_CHECKPOINT",
+        mismatches: compatibility.mismatches,
+      };
+    }
+    await protect();
+    const plan = planOf(
+      manifest,
+      checkpoint.manifestRef,
+      pinnedVersion(checkpoint.manifestVersion),
+    );
+    return {
+      status: "ready",
+      plan: fallback === undefined ? plan : { ...plan, fallback },
+    };
+  }
+
   return {
     /**
      * Answers a checkpoint trigger: the runtime's own verdict decides whether
@@ -739,6 +842,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * approximated, so the worker fails its claim instead of quietly starting
      * a fresh conversation.
      */
+    /**
+     * When the pointer's own checkpoint no longer verifies — its manifest or
+     * an object it names was deleted or damaged after the commit — the
+     * committed revisions below it are tried newest first, up to
+     * `maxRestoreFallbacks` of them, and the first that verifies in full is
+     * restored instead. The plan then says so (`fallback`), because resuming
+     * from an older generation loses whatever the newer ones recorded.
+     *
+     * Only a verdict falls back. A store that throws is an outage, not a
+     * missing object: the error goes to the caller as retryable, so a
+     * restore never settles for an older checkpoint because S3 blinked.
+     */
     async getRestorePlan(input: {
       runtime: RuntimeFingerprint;
       sessionId: string;
@@ -753,62 +868,69 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const pinned = pinnedVersions();
       const verdict = await validateManifest({
         pinned,
-        checkpoint: {
-          manifest_ref: pointer.manifestRef,
-          manifest_sha256: pointer.manifestSha256,
-          ...(pointer.manifestVersion == null
-            ? {}
-            : { manifest_version: pointer.manifestVersion }),
-          revision: pointer.revision,
-        },
+        checkpoint: checkpointRefOf(pointer),
         sessionId: input.sessionId,
         // These are the objects finalize already hashed on the way in, and the
         // worker hashes them again as it downloads them. Re-reading the whole
         // transcript here would only add a round trip between the two.
         verified: await verifiedRefs(input.sessionId),
       });
-      if (verdict.status === "rejected") {
-        return {
-          status: "unavailable",
-          code: "CHECKPOINT_UNAVAILABLE",
-          reason: verdict.reason,
-        };
+      if (verdict.status === "verified") {
+        // A no-op for a checkpoint a locked finalize committed. Any other was
+        // just hashed version by version above, since `verifiedRefs` trusts
+        // none of it, and is held before any worker is told to download it.
+        // The pointer keeps saying it was not, so the next restore hashes it
+        // again: restore does not write the pointer.
+        return restoreFrom(verdict.manifest, pointer, input.runtime, () =>
+          protection === "locked" ? holdAll(pinned.unheld()) : undefined,
+        );
       }
-      const { manifest } = verdict;
-      const codec = own(codecs, manifest.engine);
-      if (codec === undefined) {
-        return {
-          status: "unavailable",
-          code: "CHECKPOINT_UNAVAILABLE",
-          reason: `no codec for checkpoint engine: ${manifest.engine}`,
-        };
+      const skipped: RestoreFallbackSkip[] = [
+        { revision: pointer.revision, reason: verdict.reason },
+      ];
+      const candidates =
+        maxRestoreFallbacks === 0
+          ? []
+          : await store.listCheckpoints(input.sessionId, {
+              belowRevision: pointer.revision,
+              limit: maxRestoreFallbacks,
+            });
+      for (const candidate of candidates) {
+        const reason = await fallbackProblem(candidate, input.sessionId);
+        if (typeof reason === "string") {
+          skipped.push({ revision: candidate.revision, reason });
+          continue;
+        }
+        return restoreFrom(reason.manifest, candidate, input.runtime, noop, {
+          pointerRevision: pointer.revision,
+          skipped,
+        });
       }
-      const compatibility = codec.validateCompatibility(
-        manifest,
-        input.runtime,
-      );
-      if (compatibility.status === "incompatible") {
-        return {
-          status: "incompatible",
-          code: "INCOMPATIBLE_CHECKPOINT",
-          mismatches: compatibility.mismatches,
-        };
-      }
-      // A no-op for a checkpoint a locked finalize committed. Any other was
-      // just hashed version by version above, since `verifiedRefs` trusts
-      // none of it, and is held here before any worker is told to download
-      // it. The pointer keeps saying it was not, so the next restore hashes
-      // it again: restore does not write the pointer.
-      if (protection === "locked") await holdAll(pinned.unheld());
       return {
-        status: "ready",
-        plan: planOf(
-          manifest,
-          pointer.manifestRef,
-          pinnedVersion(pointer.manifestVersion),
-        ),
+        status: "unavailable",
+        code: "CHECKPOINT_UNAVAILABLE",
+        reason:
+          candidates.length === 0
+            ? verdict.reason
+            : `${verdict.reason}; none of the ${candidates.length} earlier revisions tried verified either`,
       };
     },
+  };
+
+}
+
+function noop() {
+  return undefined;
+}
+
+function checkpointRefOf(checkpoint: CheckpointPointer): CheckpointRef {
+  return {
+    manifest_ref: checkpoint.manifestRef,
+    manifest_sha256: checkpoint.manifestSha256,
+    ...(checkpoint.manifestVersion == null
+      ? {}
+      : { manifest_version: checkpoint.manifestVersion }),
+    revision: checkpoint.revision,
   };
 }
 

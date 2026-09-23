@@ -21,6 +21,11 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
    * object nothing locks. Throws for a held version, as S3 answers 403.
    */
   purgeVersion(key: string, version: string): void;
+  /**
+   * Lifts the legal hold on one version, as garbage collection does to a
+   * superseded checkpoint before it deletes it.
+   */
+  releaseHold(key: string, version: string): void;
   /** Keys whose bodies were fetched since the last reset, in call order. */
   reads(): string[];
   resetReads(): void;
@@ -167,6 +172,11 @@ export function createMemoryCheckpointObjectStore(
         (candidate) => candidate.id !== version,
       );
       if (slot.current?.id === version) slot.current = slot.versions.at(-1);
+    },
+
+    releaseHold(key, version) {
+      const found = lookup(key, version);
+      if (found !== undefined) found.held = false;
     },
 
     reads() {

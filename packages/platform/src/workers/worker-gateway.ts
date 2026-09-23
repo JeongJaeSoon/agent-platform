@@ -290,6 +290,17 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
             },
       ),
       object_keys: [...plan.objectKeys],
+      ...(plan.fallback === undefined
+        ? {}
+        : {
+            fallback: {
+              pointer_revision: plan.fallback.pointerRevision,
+              skipped: plan.fallback.skipped.map((skip) => ({
+                revision: skip.revision,
+                reason: skip.reason,
+              })),
+            },
+          }),
     },
   };
 }

@@ -63,4 +63,16 @@ export type CommitCheckpointResult =
 export interface CheckpointStore {
   commitAtomic(input: CommitCheckpointInput): Promise<CommitCheckpointResult>;
   readPointer(sessionId: string): Promise<CheckpointPointer | null>;
+  /**
+   * The committed checkpoints below `belowRevision`, newest first, at most
+   * `limit` of them: the generations a restore may fall back to when the
+   * pointer's own checkpoint no longer verifies. Each entry is recorded the
+   * way the pointer is, with the manifest version that revision committed.
+   * Bounded on purpose — a session accumulates a row per checkpoint, and a
+   * restore must not walk its whole history.
+   */
+  listCheckpoints(
+    sessionId: string,
+    options: { belowRevision: number; limit: number },
+  ): Promise<CheckpointPointer[]>;
 }

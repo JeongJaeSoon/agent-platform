@@ -725,6 +725,32 @@ describe("WorkerGateway", () => {
       },
     });
 
+    // An earlier revision restored in the pointer's place says so on the
+    // wire too (94S-204).
+    if (answer.status !== "ready") throw new Error("expected a plan");
+    answer = {
+      status: "ready",
+      plan: {
+        ...answer.plan,
+        fallback: {
+          pointerRevision: 1,
+          skipped: [{ revision: 1, reason: "manifest object is missing" }],
+        },
+      },
+    };
+    expect(
+      await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).toMatchObject({
+      status: "ready",
+      plan: {
+        revision: 0,
+        fallback: {
+          pointer_revision: 1,
+          skipped: [{ revision: 1, reason: "manifest object is missing" }],
+        },
+      },
+    });
+
     answer = {
       status: "incompatible",
       code: "INCOMPATIBLE_CHECKPOINT",

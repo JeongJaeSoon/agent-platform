@@ -74,10 +74,17 @@ function attemptDirectory(revision: number): string {
 /** The pointer store, recording the version the way the database does. */
 function memoryCheckpointStore() {
   let pointer: CheckpointPointer | null = null;
+  const history: CheckpointPointer[] = [];
   let commits = 0;
   const store: CheckpointStore = {
     async readPointer() {
       return pointer;
+    },
+    async listCheckpoints(_sessionId, { belowRevision, limit }) {
+      return history
+        .filter((row) => row.revision < belowRevision)
+        .sort((left, right) => right.revision - left.revision)
+        .slice(0, limit);
     },
     async commitAtomic(input) {
       if (pointer !== null && input.checkpoint.revision <= pointer.revision) {
@@ -93,6 +100,7 @@ function memoryCheckpointStore() {
         turnId: input.turnId,
         versionsHeld: input.versionsHeld === true,
       };
+      history.push(pointer);
       return { outcome: "committed", revision: input.checkpoint.revision };
     },
   };
@@ -377,6 +385,111 @@ describe("locked (the default)", () => {
     expect(objects.reads()).toContain(grown.key);
     expect(await objects.head(grown.key, grown.version)).toMatchObject({
       held: true,
+    });
+  });
+});
+
+describe("locked fallback to an earlier revision (94S-204)", () => {
+  /**
+   * What only garbage collection or a privileged operator can do to a held
+   * version: lift the hold, then destroy the version.
+   */
+  function destroy(ref: ObjectRef) {
+    objects.releaseHold(ref.key, ref.version as string);
+    objects.purgeVersion(ref.key, ref.version as string);
+  }
+
+  async function twoRevisions() {
+    const first = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const older = await publish(0, [first]);
+    expect(await finalize(older.checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    const second = await upload(`${prefix}mirror/part-1.jsonl`, encode("b\n"));
+    const newer = await publish(1, [first, second]);
+    expect(await finalize(newer.checkpoint)).toMatchObject({
+      outcome: "committed",
+    });
+    return { first, older, second };
+  }
+
+  test("restores the earlier revision by the version its row recorded, whatever its key holds now", async () => {
+    const { first, older, second } = await twoRevisions();
+    destroy(second);
+    // The earlier manifest's key is rewritten and its part's key deleted;
+    // the versions revision 0 committed are untouched.
+    await objects.put(older.checkpoint.manifest_ref, encode("{}\n"));
+    objects.remove(first.key);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "ready",
+      plan: {
+        manifestRef: older.checkpoint.manifest_ref,
+        manifestVersion: older.checkpoint.manifest_version,
+        revision: 0,
+        fallback: {
+          pointerRevision: 1,
+          skipped: [
+            {
+              revision: 1,
+              reason: `manifest references a missing object: ${second.key} (version ${second.version})`,
+            },
+          ],
+        },
+      },
+    });
+    if (result.status !== "ready") return;
+    expect(result.plan.artifacts[0]?.objects).toEqual([first]);
+  });
+
+  test("an earlier revision whose hold was released is not a restore point", async () => {
+    const { first, older, second } = await twoRevisions();
+    destroy(second);
+    // Garbage collection has released revision 0 but not yet deleted it.
+    objects.releaseHold(
+      older.checkpoint.manifest_ref,
+      older.checkpoint.manifest_version,
+    );
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+    // Nor does looking at it put the hold back: that would race the delete.
+    expect(
+      await objects.head(
+        older.checkpoint.manifest_ref,
+        older.checkpoint.manifest_version,
+      ),
+    ).not.toHaveProperty("held");
+    expect(await objects.head(first.key, first.version)).toMatchObject({
+      held: true,
+    });
+  });
+
+  test("an earlier revision committed without a manifest version is not a restore point", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const older = await publish(0, [part]);
+    const { manifest_version: _version, ...unpinned } = older.checkpoint;
+    // As an `unversioned` deployment commits it, straight through the store.
+    await checkpoints.store.commitAtomic({
+      checkpoint: unpinned,
+      fence,
+      now: new Date("2026-09-23T00:00:00.000Z"),
+      sessionId,
+      turnId: null,
+    });
+    const second = await upload(`${prefix}mirror/part-1.jsonl`, encode("b\n"));
+    const newer = await publish(1, [part, second]);
+    await finalize(newer.checkpoint);
+    destroy(second);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
     });
   });
 });

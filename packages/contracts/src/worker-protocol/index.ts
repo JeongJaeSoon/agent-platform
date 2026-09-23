@@ -443,6 +443,20 @@ export const restorePlanSchema = z.object({
   git_commit: z.string().regex(/^[0-9a-f]{40}$/),
   artifacts: z.array(restoreArtifactSchema),
   object_keys: z.array(z.string().min(1)),
+  // Present only when the pointer's own checkpoint did not verify and the
+  // plan restores an earlier revision (`revision` above) instead (94S-204).
+  // The resumed session is then older than the pointer says, so the worker
+  // must not treat this as the checkpoint its claim named.
+  fallback: z
+    .object({
+      pointer_revision: revisionSchema,
+      skipped: z
+        .array(
+          z.object({ revision: revisionSchema, reason: z.string().min(1) }),
+        )
+        .min(1),
+    })
+    .optional(),
 });
 // `none` is a new session. `unavailable` and `incompatible` are refusals the
 // worker must fail its claim on: starting a fresh engine session on top of a

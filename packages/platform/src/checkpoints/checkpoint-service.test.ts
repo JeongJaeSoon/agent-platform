@@ -175,10 +175,17 @@ function workspace(
  */
 function memoryCheckpointStore(owner: CheckpointFence = fence()) {
   let pointer: CheckpointPointer | null = null;
+  const history: CheckpointPointer[] = [];
   const committed: CommitCheckpointInput[] = [];
   const store: CheckpointStore = {
     async readPointer() {
       return pointer;
+    },
+    async listCheckpoints(_sessionId, { belowRevision, limit }) {
+      return history
+        .filter((row) => row.revision < belowRevision)
+        .sort((left, right) => right.revision - left.revision)
+        .slice(0, limit);
     },
     async commitAtomic(input): Promise<CommitCheckpointResult> {
       if (
@@ -204,6 +211,7 @@ function memoryCheckpointStore(owner: CheckpointFence = fence()) {
         revision: input.checkpoint.revision,
         turnId: input.turnId,
       };
+      history.push(pointer);
       return { outcome: "committed", revision: pointer.revision };
     },
   };
@@ -1355,6 +1363,240 @@ describe("getRestorePlan", () => {
     objects.remove(ROOT_PART);
 
     expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+  });
+});
+
+describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
+  const LATER_PART = `${sessionObjectPrefix(sessionId)}mirror/root-1.jsonl`;
+
+  /** Commits revisions 0..last, each adding one transcript part. */
+  async function commitRevisions(last: number) {
+    const committed = [];
+    for (let revision = 0; revision <= last; revision += 1) {
+      await objects.put(
+        bundleKeyFor(revision, attemptId),
+        workspaceBundle.bytes,
+      );
+      const parts = [ref(ROOT_PART)];
+      if (revision > 0) {
+        const key = `${sessionObjectPrefix(sessionId)}mirror/root-${revision}.jsonl`;
+        const body = `{"type":"user","uuid":"r${revision + 1}"}\n`;
+        await objects.put(key, encode(body));
+        parts.push({
+          bytes: encode(body).byteLength,
+          key,
+          sha256: sha256(body),
+        });
+      }
+      const { checkpoint } = await upload(
+        manifest({
+          resume: `engine-session-${revision}`,
+          revision,
+          transcripts: {
+            root: { entryCount: 2, parts, sha256: "c".repeat(64) },
+            subagents: {},
+          },
+        }),
+      );
+      expect(
+        await service.finalize({
+          checkpoint,
+          fence: fence(),
+          now: new Date(),
+          sessionId,
+          turnId: String(revision + 1),
+        }),
+      ).toMatchObject({ outcome: "committed", revision });
+      committed.push(checkpoint);
+    }
+    return committed;
+  }
+
+  test("the store lists committed revisions below the one asked, newest first, bounded", async () => {
+    await commitRevisions(3);
+    const listed = await checkpoints.store.listCheckpoints(sessionId, {
+      belowRevision: 3,
+      limit: 2,
+    });
+    expect(listed.map((row) => row.revision)).toEqual([2, 1]);
+    expect(listed[0]).toMatchObject({
+      manifestRef: manifestRefFor(sessionId, 2, attemptId),
+      turnId: "3",
+    });
+    expect(
+      await checkpoints.store.listCheckpoints(sessionId, {
+        belowRevision: 0,
+        limit: 5,
+      }),
+    ).toEqual([]);
+  });
+
+  test("restores revision 0 when an artifact of revision 1 has gone missing, and says so", async () => {
+    await commitRevisions(1);
+    objects.remove(LATER_PART);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "ready",
+      plan: {
+        manifestRef: manifestRefFor(sessionId, 0, attemptId),
+        resume: "engine-session-0",
+        revision: 0,
+        fallback: {
+          pointerRevision: 1,
+          skipped: [
+            {
+              revision: 1,
+              reason: `manifest references a missing object: ${LATER_PART}`,
+            },
+          ],
+        },
+      },
+    });
+    if (result.status !== "ready") return;
+    expect(result.plan.objectKeys).not.toContain(LATER_PART);
+  });
+
+  test("falls back past a pointer whose manifest itself is gone", async () => {
+    const [, latest] = await commitRevisions(1);
+    objects.remove(latest?.manifest_ref as string);
+
+    expect(await service.getRestorePlan({ runtime, sessionId })).toMatchObject(
+      {
+        status: "ready",
+        plan: {
+          revision: 0,
+          fallback: { pointerRevision: 1, skipped: [{ revision: 1 }] },
+        },
+      },
+    );
+  });
+
+  test("walks down past every broken revision and lists each one it skipped", async () => {
+    const [, second, third] = await commitRevisions(2);
+    objects.remove(third?.manifest_ref as string);
+    objects.remove(second?.manifest_ref as string);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "ready",
+      plan: { revision: 0, fallback: { pointerRevision: 2 } },
+    });
+    if (result.status !== "ready") return;
+    expect(result.plan.fallback?.skipped.map((skip) => skip.revision)).toEqual(
+      [2, 1],
+    );
+  });
+
+  test("a plan from a healthy pointer carries no fallback", async () => {
+    await commitRevisions(1);
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({ status: "ready", plan: { revision: 1 } });
+    if (result.status !== "ready") return;
+    expect(result.plan).not.toHaveProperty("fallback");
+  });
+
+  test("is CHECKPOINT_UNAVAILABLE when no revision verifies", async () => {
+    const [first, second] = await commitRevisions(1);
+    objects.remove(first?.manifest_ref as string);
+    objects.remove(second?.manifest_ref as string);
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+    if (result.status !== "unavailable") return;
+    expect(result.reason).toContain(
+      `manifest object is missing: ${second?.manifest_ref}`,
+    );
+    expect(result.reason).toContain("none of the 1 earlier revisions");
+  });
+
+  test("tries no more earlier revisions than it is allowed to", async () => {
+    const [, second, third] = await commitRevisions(2);
+    objects.remove(third?.manifest_ref as string);
+    objects.remove(second?.manifest_ref as string);
+    const limited = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxRestoreFallbacks: 1,
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    expect(
+      await limited.getRestorePlan({ runtime, sessionId }),
+    ).toMatchObject({ status: "unavailable", code: "CHECKPOINT_UNAVAILABLE" });
+  });
+
+  test("with fallback turned off, a broken pointer is unavailable and nothing earlier is listed", async () => {
+    const [, second] = await commitRevisions(1);
+    objects.remove(second?.manifest_ref as string);
+    let listed = 0;
+    const off = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxRestoreFallbacks: 0,
+      objectProtection: "unversioned",
+      objects,
+      store: {
+        ...checkpoints.store,
+        listCheckpoints(...args) {
+          listed += 1;
+          return checkpoints.store.listCheckpoints(...args);
+        },
+      },
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    expect(await off.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "unavailable",
+    });
+    expect(listed).toBe(0);
+    expect(() =>
+      createCheckpointService({
+        codecs: {},
+        maxRestoreFallbacks: -1,
+        objectProtection: "unversioned",
+        objects,
+        store: checkpoints.store,
+      }),
+    ).toThrow(/maxRestoreFallbacks/);
+  });
+
+  test("an object store that throws is an outage, not a reason to restore something older", async () => {
+    await commitRevisions(1);
+    const flaky = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects: {
+        ...objects,
+        async head(key, version) {
+          if (key === LATER_PART) throw new Error("S3 is down");
+          return objects.head(key, version);
+        },
+      },
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+
+    await expect(
+      flaky.getRestorePlan({ runtime, sessionId }),
+    ).rejects.toThrow(/S3 is down/);
+  });
+
+  test("an earlier revision is hashed in full rather than trusted", async () => {
+    await commitRevisions(1);
+    objects.remove(LATER_PART);
+    // Same length, different bytes: only a hash tells them apart.
+    await objects.put(ROOT_PART, encode('{"type":"user","uuid":"XX"}\n'));
+
+    const result = await service.getRestorePlan({ runtime, sessionId });
+    expect(result).toMatchObject({
       status: "unavailable",
       code: "CHECKPOINT_UNAVAILABLE",
     });

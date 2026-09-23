@@ -3111,4 +3111,77 @@ integration("worker gateway on PostgreSQL", () => {
       .where(eq(checkpoints.sessionId, session.session_id));
     expect(row?.version).toBe("v1");
   });
+
+  test("listCheckpoints returns the revisions below the one asked, newest first, bounded (94S-204)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const store = createPostgresCheckpointStore(db);
+    for (const revision of [0, 1, 2, 3]) {
+      expect(
+        await store.commitAtomic({
+          checkpoint: {
+            revision,
+            manifest_ref: `s3://bucket/listed-${revision}.json`,
+            manifest_sha256: String(revision).repeat(64),
+            ...(revision === 1 ? {} : { manifest_version: `v${revision}` }),
+          },
+          fence: fenceOf(claimed),
+          now: clock,
+          sessionId: session.session_id,
+          turnId: null,
+          versionsHeld: revision !== 2,
+        }),
+      ).toEqual({ outcome: "committed", revision });
+    }
+    const listed = await store.listCheckpoints(session.session_id, {
+      belowRevision: 3,
+      limit: 2,
+    });
+    expect(listed).toEqual([
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-2.json",
+        manifestSha256: "2".repeat(64),
+        manifestVersion: "v2",
+        revision: 2,
+        turnId: null,
+        versionsHeld: false,
+      },
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-1.json",
+        manifestSha256: "1".repeat(64),
+        manifestVersion: null,
+        revision: 1,
+        turnId: null,
+        versionsHeld: true,
+      },
+    ]);
+    expect(
+      (
+        await store.listCheckpoints(session.session_id, {
+          belowRevision: 10,
+          limit: 10,
+        })
+      ).map((row) => row.revision),
+    ).toEqual([3, 2, 1, 0]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 0,
+        limit: 10,
+      }),
+    ).toEqual([]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 3,
+        limit: 0,
+      }),
+    ).toEqual([]);
+    // Another session's rows never leak into this one's list.
+    expect(
+      await store.listCheckpoints(crypto.randomUUID(), {
+        belowRevision: 10,
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
 });
