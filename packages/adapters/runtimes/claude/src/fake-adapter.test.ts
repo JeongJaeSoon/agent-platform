@@ -315,6 +315,46 @@ describe("fake agent runtime", () => {
     ).toEqual(["u2", "u3"]);
   });
 
+  test("an interrupt in the last turn settles its tools before the terminal is read", async () => {
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "tool-start", toolUseId: "toolu_last" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "tool-end", toolUseId: "toolu_last" },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const iterator = run[Symbol.asyncIterator]();
+    run.send({ message: "one", uuid: "u1" });
+    const first = iterator.next();
+    await waitFor(() => runtime.toolAdmissions.length === 1);
+    await run.interrupt();
+    expect((await first).done).toBe(false);
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+    expect((await iterator.next()).done).toBe(true);
+  });
+
+  test("an input sent after the interrupt terminal is delivered survives into the next turn", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const run = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u2" } },
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
+    const iterator = run[Symbol.asyncIterator]();
+    run.send({ message: "one", uuid: "u1" });
+    const first = iterator.next();
+    await Bun.sleep(5);
+    await run.interrupt();
+    await first;
+    // Sent while the generator is suspended on the terminal it just yielded.
+    run.send({ message: "two", uuid: "u2" });
+    const second = await within(iterator.next(), 200);
+    expect(second.done).toBe(false);
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {

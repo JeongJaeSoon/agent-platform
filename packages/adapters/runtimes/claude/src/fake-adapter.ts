@@ -172,7 +172,7 @@ class FakeRun implements AgentRun {
         let interrupted = false;
         if (this.terminal === "aborted") throw abortError();
         if (this.terminal === "interrupted") {
-          yield this.interruptedFrame(`fake:${cursor}`);
+          yield this.interruptedFrame(`fake:${cursor}`, index);
           interrupted = true;
         } else {
           try {
@@ -190,7 +190,7 @@ class FakeRun implements AgentRun {
           }
           if (this.terminal === "aborted") throw abortError();
           if (this.terminal === "interrupted") {
-            yield this.interruptedFrame(`fake:${cursor}:interrupted`);
+            yield this.interruptedFrame(`fake:${cursor}:interrupted`, index);
             interrupted = true;
           }
         }
@@ -203,14 +203,6 @@ class FakeRun implements AgentRun {
             position > index && candidate.type === "await-input",
         );
         if (next === -1) return;
-        // What the interrupt ended goes with it: its tools stop, and the
-        // inputs its terminal named are dropped rather than run next turn.
-        for (const skipped of this.steps.slice(index + 1, next)) {
-          if (skipped.type === "tool-end") {
-            this.ledger.toolSettled(skipped.toolUseId);
-          }
-        }
-        this.consumedInputs = this.acceptedInputs;
         this.terminal = undefined;
         this.interruptController = new AbortController();
         index = next - 1;
@@ -279,7 +271,17 @@ class FakeRun implements AgentRun {
     this.consumedInputs += 1;
   }
 
-  private interruptedFrame(cursor: string): AgentFrame {
+  /**
+   * What the interrupt ended goes with it, before anyone sees the terminal:
+   * the turn's tools stop, and the inputs the terminal names are dropped
+   * rather than run by the next turn. Inputs sent after it are kept.
+   */
+  private interruptedFrame(cursor: string, index: number): AgentFrame {
+    for (const step of this.steps.slice(index)) {
+      if (step.type === "await-input") break;
+      if (step.type === "tool-end") this.ledger.toolSettled(step.toolUseId);
+    }
+    this.consumedInputs = this.acceptedInputs;
     const message = interruptedMessage(this.ledger.pendingUuids());
     this.ledger.observe(message);
     return frameFromNativeMessage(message, this.correlationId, cursor);
