@@ -8,6 +8,7 @@ import type {
   LaunchIntent,
   ManagedExecution,
   ManagedWorkspace,
+  NetworkReconcileResult,
   TerminateExecutionResult,
   TerminateOptions,
   WorkspaceRemovalResult,
@@ -346,6 +347,7 @@ class FakeBackend implements ExecutionBackend {
   failRemoveWorkspaceFor = new Set<string>();
   listWorkspaces?: () => Promise<ManagedWorkspace[]>;
   removeWorkspace?: (id: string) => Promise<WorkspaceRemovalResult>;
+  reconcileNetworks?: () => Promise<NetworkReconcileResult>;
 
   /** `workspaceGc: false` is a backend that does not own its workspaces. */
   constructor(options: { workspaceGc?: boolean } = {}) {
@@ -2057,6 +2059,78 @@ describe("reclaimWorkspaces", () => {
     backend.failListWorkspaces = true;
 
     expect((await reclaim()).workspaceScanFailed).toBe(true);
+  });
+});
+
+describe("runScheduler worker network reconcile", () => {
+  test("a backend without isolation resources is never asked", async () => {
+    const { backend, run } = harness();
+    expect(backend.reconcileNetworks).toBeUndefined();
+
+    const summary = await run();
+
+    expect(summary.networksReclaimed).toEqual([]);
+    expect(summary.networkScanFailed).toBe(false);
+  });
+
+  test("runs after orphans are terminated and before any slot is filled", async () => {
+    const { backend, run, store } = harness();
+    const order: string[] = [];
+    backend.containers.set("exec-orphan#1", {
+      exited: false,
+      generation: 1,
+      operationId: "op-orphan",
+      sessionId: "session-orphan",
+    });
+    backend.duringTerminate = () => order.push("terminate");
+    backend.duringEnsure = () => order.push("ensure");
+    backend.reconcileNetworks = async () => {
+      order.push("reconcile");
+      return { failed: [], removed: [], repaired: [] };
+    };
+    store.addUnassigned(1);
+
+    await run();
+
+    // Admission creates networks; a leak it could have waited behind is
+    // cleared first.
+    expect(order).toEqual(["terminate", "reconcile", "ensure"]);
+  });
+
+  test("what the backend reports lands in the summary and the log", async () => {
+    const { backend, records, run } = harness();
+    backend.reconcileNetworks = async () => ({
+      failed: [{ error: "still has members", id: "ap-net-stuck" }],
+      removed: ["ap-net-gone"],
+      repaired: ["ap-net-cut"],
+    });
+
+    const summary = await run();
+
+    expect(summary.networksReclaimed).toEqual(["ap-net-gone"]);
+    expect(summary.networksRepaired).toEqual(["ap-net-cut"]);
+    expect(summary.networksFailed).toEqual(["ap-net-stuck"]);
+    expect(
+      records.some(
+        (record) =>
+          record.level === "error" &&
+          (record.fields as { network_id?: string } | undefined)?.network_id ===
+            "ap-net-stuck",
+      ),
+    ).toBe(true);
+  });
+
+  test("a failed listing is a scan failure and does not stop the pass", async () => {
+    const { backend, run, store } = harness();
+    backend.reconcileNetworks = async () => {
+      throw new Error("daemon unreachable");
+    };
+    store.addUnassigned(1);
+
+    const summary = await run();
+
+    expect(summary.networkScanFailed).toBe(true);
+    expect(summary.launched).toHaveLength(1);
   });
 });
 

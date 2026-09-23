@@ -1,0 +1,85 @@
+/**
+ * Fixtures for integration tests against a real daemon. Not part of the
+ * backend: nothing in `src/index.ts` re-exports this module.
+ */
+import { LABELS } from "./backend.ts";
+import { DockerClient, parseDockerHost } from "./docker-client.ts";
+
+/**
+ * A container the backend will accept as an installation's egress proxy:
+ * running and labelled for it. It forwards nothing, so a worker launched
+ * next to it has no route out at all; suites that need real egress run
+ * `apps/egress-proxy` instead (see `egress.integration.test.ts`). It also
+ * carries the installation label, so a suite's label-scoped cleanup of its
+ * own containers takes it too.
+ */
+export async function startStandInProxy(options: {
+  dockerHost: string;
+  image: string;
+  installationId: string;
+}): Promise<string> {
+  const name = `ap-it-proxy-${options.installationId}`;
+  const response = await rawRequest(
+    options.dockerHost,
+    "POST",
+    `/containers/create?name=${encodeURIComponent(name)}`,
+    {
+      Cmd: ["sleep", "3600"],
+      Image: options.image,
+      Labels: {
+        [LABELS.egressProxy]: options.installationId,
+        [LABELS.installation]: options.installationId,
+      },
+    },
+  );
+  if (response.status !== 201) {
+    throw new Error(
+      `stand-in proxy ${name} was not created: ${response.status} ${await response.text()}`,
+    );
+  }
+  await new DockerClient(options.dockerHost).startContainer(name);
+  return name;
+}
+
+/**
+ * Removes the worker networks the backend made for `installationId`. Run
+ * after the suite's containers are gone: a network with a member left on
+ * it cannot be removed, and the failure is left to the caller to report.
+ */
+export async function removeWorkerNetworks(
+  client: DockerClient,
+  installationId: string,
+): Promise<void> {
+  const networks = await client.listNetworks([
+    `${LABELS.workerNetwork}=true`,
+    `${LABELS.installation}=${installationId}`,
+  ]);
+  const removals = await Promise.allSettled(
+    networks.map((network) => client.removeNetwork(network.Id)),
+  );
+  const failed = removals.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failed.length > 0) {
+    throw new Error(
+      `${failed.length} worker network(s) of ${installationId} were not removed: ${failed.map((r) => String(r.reason)).join("; ")}`,
+    );
+  }
+}
+
+async function rawRequest(
+  dockerHost: string,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<Response> {
+  const endpoint = parseDockerHost(dockerHost);
+  const base = endpoint.kind === "unix" ? "http://docker" : endpoint.baseUrl;
+  return fetch(`${base}/v1.44${path}`, {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+    method,
+    signal: AbortSignal.timeout(60_000),
+    ...(endpoint.kind === "unix" ? { unix: endpoint.socketPath } : {}),
+  } as RequestInit);
+}

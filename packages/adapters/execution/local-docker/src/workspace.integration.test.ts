@@ -11,6 +11,7 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
+import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
 
 /**
  * Workspace volumes against a real daemon: the ceiling, the labels GC reads,
@@ -48,14 +49,13 @@ async function defaultDockerHost(): Promise<string> {
 integration("workspace volumes against a real daemon", () => {
   const client = new DockerClient(dockerHost);
   const installationId = `wsit-${crypto.randomUUID().slice(0, 8)}`;
-  const workerNetwork = `ap-ws-net-${crypto.randomUUID().slice(0, 8)}`;
   const sessionIds: string[] = [];
   /** Volumes made outside the backend, so cleanup knows about them too. */
   const strayVolumes: string[] = [];
   let supportsQuota = false;
+  let proxy: string | undefined;
 
   const backendConfig = (): LocalDockerBackendConfig => ({
-    allowedNetworks: [workerNetwork],
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
@@ -63,7 +63,6 @@ integration("workspace volumes against a real daemon", () => {
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId,
-    network: workerNetwork,
     objectStore: {
       accessKeyId: "test",
       bucket: "claude-sessions",
@@ -108,10 +107,14 @@ integration("workspace volumes against a real daemon", () => {
 
   beforeAll(async () => {
     await client.version();
-    await client.createNetwork({ Internal: true, Name: workerNetwork });
     await new DockerClient(dockerHost, "v1.44", {
       timeoutMs: 110_000,
     }).pullImage(IMAGE);
+    proxy = await startStandInProxy({
+      dockerHost,
+      image: IMAGE,
+      installationId,
+    });
     supportsQuota = await probeQuotaSupport();
   }, 120_000);
 
@@ -132,7 +135,8 @@ integration("workspace volumes against a real daemon", () => {
     for (const name of strayVolumes) {
       await client.removeVolume(name).catch(() => {});
     }
-    await client.removeNetwork(workerNetwork).catch(() => {});
+    if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
+    await removeWorkerNetworks(client, installationId).catch(() => {});
   }, 60_000);
 
   /** This session's workspace, found the way the backend finds it. */

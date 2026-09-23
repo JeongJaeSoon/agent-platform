@@ -5,10 +5,11 @@
 #
 # A restore is a second installation on the same daemon, so everything the
 # base file fixes per host has to move: published ports are re-bound from
-# RESTORE_* variables (loopback only), Gitea's external address follows them,
-# and the worker network takes a project-scoped name instead of the shared
-# default. `!override` replaces the
-# base list instead of merging into it; it needs compose v2.24+.
+# RESTORE_* variables (loopback only) and Gitea's external address follows
+# them. Worker networks need no counterpart: the scheduler names each one
+# after its installation and execution. The restore starts no egress proxy,
+# so its label cannot collide with the live installation's. `!override`
+# replaces the base list instead of merging into it; it needs compose v2.24+.
 #
 # The postgres init mounts are dropped too. The base file applies the legacy
 # M0 SQL on first start, which would leave tables the restored dump then
@@ -39,8 +40,3 @@ services:
       GITEA__server__DOMAIN: 127.0.0.1
       GITEA__server__SSH_DOMAIN: 127.0.0.1
       GITEA__server__SSH_PORT: ${RESTORE_GITEA_SSH_PORT:?}
-
-networks:
-  worker:
-    name: ${RESTORE_WORKER_NETWORK:?}
-    internal: true

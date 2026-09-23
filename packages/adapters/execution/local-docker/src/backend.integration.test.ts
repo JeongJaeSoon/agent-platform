@@ -9,10 +9,12 @@ import {
   LABELS,
   LocalDockerBackend,
   NO_PROXY_VALUE,
+  networkNameFor,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
+import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
 
 /**
  * Talks to a real Docker daemon. Opt in with `DOCKER_BACKEND_TEST=1`; the
@@ -73,11 +75,7 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
 integration("LocalDockerBackend against a real daemon", () => {
   const client = new DockerClient(dockerHost);
   const installationId = `it-${crypto.randomUUID().slice(0, 8)}`;
-  // Workers only ever run on an internal network; the backend refuses
-  // anything else, so the fixture has to build one.
-  const workerNetwork = `ap-it-net-${crypto.randomUUID().slice(0, 8)}`;
   const backendConfig = (): LocalDockerBackendConfig => ({
-    allowedNetworks: [workerNetwork],
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
@@ -85,7 +83,6 @@ integration("LocalDockerBackend against a real daemon", () => {
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId,
-    network: workerNetwork,
     objectStore: {
       accessKeyId: "test",
       bucket: "claude-sessions",
@@ -108,11 +105,13 @@ integration("LocalDockerBackend against a real daemon", () => {
 
   beforeAll(async () => {
     await client.version();
-    await client.createNetwork({ Internal: true, Name: workerNetwork });
     // Pull once so create does not 404 on a fresh daemon.
     await new DockerClient(dockerHost, "v1.44", {
       timeoutMs: 110_000,
     }).pullImage(IMAGE);
+    // Every worker network gets this installation's proxy; the backend
+    // refuses to launch without one.
+    await startStandInProxy({ dockerHost, image: IMAGE, installationId });
   }, 120_000);
 
   afterAll(async () => {
@@ -139,8 +138,9 @@ integration("LocalDockerBackend against a real daemon", () => {
         client.removeVolume(v.Name),
       ),
     );
+    // After the containers: a network with a member left cannot go.
     const network = await Promise.allSettled([
-      client.removeNetwork(workerNetwork),
+      removeWorkerNetworks(client, installationId),
     ]);
     const failed = [
       containers,
@@ -231,7 +231,13 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(host.Memory).toBe(RESOURCES.memoryBytes);
     expect(host.PidsLimit).toBe(RESOURCES.pidsLimit);
     expect(host.NanoCpus).toBe(500_000_000);
-    expect(host.NetworkMode).toBe(workerNetwork);
+    // Its own network, created for it and internal.
+    const network = await client.inspectNetwork(String(host.NetworkMode));
+    expect(network).toMatchObject({
+      EnableIPv6: false,
+      Internal: true,
+      Name: networkNameFor(intent, installationId),
+    });
     // No route around the proxy to the daemon host.
     expect(host.ExtraHosts ?? null).toBeNull();
     expect(host.CapDrop).toEqual(["ALL"]);
@@ -383,11 +389,21 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(observed.state).toBe("running");
   }, 60_000);
 
-  test("the worker network the backend launches onto is internal", async () => {
-    const network = await client.inspectNetwork(workerNetwork);
-    expect(network).toMatchObject({ Internal: true, Name: workerNetwork });
+  test("the preflight finds this installation's proxy", async () => {
     await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
   }, 30_000);
+
+  test("terminate takes the worker's network with it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const name = networkNameFor(intent, installationId);
+    expect(await client.inspectNetwork(name)).not.toBeNull();
+
+    expect(await backend.terminate(intent)).toMatchObject({
+      outcome: "terminated",
+    });
+    expect(await client.inspectNetwork(name)).toBeNull();
+  }, 60_000);
 
   test("listManaged sees every container this backend made", async () => {
     const intent = intentFor();

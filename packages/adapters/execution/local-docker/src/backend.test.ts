@@ -13,7 +13,9 @@ import {
   isolationStampFor,
   LABELS,
   LocalDockerBackend,
+  NetworkIsolationError,
   NO_PROXY_VALUE,
+  networkNameFor,
   stateOf,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
@@ -33,6 +35,25 @@ type FakeContainer = {
   exitCode: number;
 };
 
+type FakeNetwork = {
+  /** Endpoints made by `connect`, keyed by container id. */
+  attached: Map<string, { aliases: string[] }>;
+  driver: string;
+  id: string;
+  ipv6: boolean;
+  internal: boolean;
+  labels: Record<string, string>;
+  name: string;
+};
+
+/** A container that is not a worker: the egress proxy, or a stranger. */
+type FakeProxy = {
+  id: string;
+  labels: Record<string, string>;
+  name: string;
+  status: string;
+};
+
 type FakeVolume = {
   createdAt: string;
   labels: Record<string, string>;
@@ -47,8 +68,14 @@ type FakeVolume = {
  */
 class FakeDocker {
   readonly containers = new Map<string, FakeContainer>();
-  /** name -> whether the network is `internal`. */
-  readonly networks = new Map<string, boolean>([["ap-workers", true]]);
+  /** By name. Ids are `net-<name>`, so two fakes agree on them. */
+  readonly networks = new Map<string, FakeNetwork>();
+  /** Containers other than workers, by id: proxies and strangers. */
+  readonly others = new Map<string, FakeProxy>();
+  /** Every network connect answers 403 without attaching anything. */
+  refuseConnects = false;
+  /** The next network create answers 409 as if a racer had just made it. */
+  networkCreateRace: FakeNetwork | null = null;
   readonly requests: Array<{ method: string; path: string; query: string }> =
     [];
   /** Image name → the `VOLUME` paths it declares. */
@@ -72,6 +99,97 @@ class FakeDocker {
   createReturnsLabels: Record<string, string> | null = null;
   /** The next create fails with 400 and quotes the request body back. */
   echoNextCreate = false;
+
+  constructor() {
+    this.addOther("egress-proxy-a", { [LABELS.egressProxy]: "test-a" });
+    this.addOther("egress-proxy-b", { [LABELS.egressProxy]: "test-b" });
+  }
+
+  addOther(
+    name: string,
+    labels: Record<string, string>,
+    status = "running",
+  ): FakeProxy {
+    const other = { id: `id-${name}`, labels, name, status };
+    this.others.set(other.id, other);
+    return other;
+  }
+
+  addNetwork(
+    name: string,
+    overrides: Partial<Omit<FakeNetwork, "name">> = {},
+  ): FakeNetwork {
+    const network: FakeNetwork = {
+      attached: new Map(),
+      driver: "bridge",
+      id: `net-${name}`,
+      internal: true,
+      ipv6: false,
+      labels: {},
+      name,
+      ...overrides,
+    };
+    this.networks.set(name, network);
+    return network;
+  }
+
+  networkByIdOrName(key: string): FakeNetwork | undefined {
+    return (
+      this.networks.get(key) ??
+      [...this.networks.values()].find((n) => n.id === key)
+    );
+  }
+
+  /** Running members, the way a network inspect lists them. */
+  membersOf(network: FakeNetwork): Record<string, { Name: string }> {
+    const members: Record<string, { Name: string }> = {};
+    for (const container of this.containers.values()) {
+      const mode = container.body.HostConfig.NetworkMode;
+      if (
+        container.status === "running" &&
+        (mode === network.id || mode === network.name)
+      ) {
+        members[container.id] = { Name: container.name };
+      }
+    }
+    for (const [id] of network.attached) {
+      const other = this.others.get(id);
+      const worker = [...this.containers.values()].find((c) => c.id === id);
+      if (other?.status === "running" || worker?.status === "running") {
+        members[id] = { Name: other?.name ?? worker?.name ?? id };
+      }
+    }
+    return members;
+  }
+
+  /** What a container inspect reports under `NetworkSettings.Networks`. */
+  attachmentsOf(
+    id: string,
+    networkMode?: string,
+  ): Record<string, { Aliases: string[] | null; NetworkID: string }> {
+    const attachments: Record<
+      string,
+      { Aliases: string[] | null; NetworkID: string }
+    > = {};
+    if (networkMode !== undefined) {
+      const network = this.networkByIdOrName(networkMode);
+      const name = network?.name ?? networkMode.replace(/^net-/, "");
+      attachments[name] = {
+        Aliases: null,
+        NetworkID: network?.id ?? networkMode,
+      };
+    }
+    for (const network of this.networks.values()) {
+      const endpoint = network.attached.get(id);
+      if (endpoint) {
+        attachments[network.name] = {
+          Aliases: endpoint.aliases,
+          NetworkID: network.id,
+        };
+      }
+    }
+    return attachments;
+  }
 
   get host(): string {
     if (!this.server) throw new Error("not started");
@@ -169,14 +287,23 @@ class FakeDocker {
       const matching = [...this.containers.values()].filter((c) =>
         wanted.every(([k, v]) => c.body.Labels[k] === v),
       );
-      return json(
-        matching.map((c) => ({
+      const others = [...this.others.values()].filter((o) =>
+        wanted.every(([k, v]) => o.labels[k] === v),
+      );
+      return json([
+        ...matching.map((c) => ({
           Id: c.id,
           Labels: c.body.Labels,
           Names: [`/${c.name}`],
           State: c.status,
         })),
-      );
+        ...others.map((o) => ({
+          Id: o.id,
+          Labels: o.labels,
+          Names: [`/${o.name}`],
+          State: o.status,
+        })),
+      ]);
     }
     const asVolume = (volume: FakeVolume) => ({
       CreatedAt: volume.createdAt,
@@ -263,25 +390,141 @@ class FakeDocker {
         Id: `sha256:${name.replace(/[^a-z0-9]/g, "")}`,
       });
     }
-    const network = path.match(/^\/networks\/([^/]+)$/);
-    if (request.method === "GET" && network) {
-      const name = decodeURIComponent(network[1] ?? "");
-      const internal = this.networks.get(name);
-      if (internal === undefined) {
-        return json({ message: `network ${name} not found` }, 404);
+    const asNetwork = (network: FakeNetwork, withMembers: boolean) => ({
+      Containers: withMembers ? this.membersOf(network) : {},
+      Driver: network.driver,
+      EnableIPv6: network.ipv6,
+      Id: network.id,
+      Internal: network.internal,
+      Labels: network.labels,
+      Name: network.name,
+    });
+    if (request.method === "POST" && path === "/networks/create") {
+      const body = (await request.json()) as {
+        Driver?: string;
+        EnableIPv6?: boolean;
+        Internal: boolean;
+        Labels?: Record<string, string>;
+        Name: string;
+      };
+      if (this.networkCreateRace !== null) {
+        const racer = this.networkCreateRace;
+        this.networkCreateRace = null;
+        this.networks.set(racer.name, racer);
       }
-      return json({
-        Containers: {},
-        Driver: "bridge",
-        Id: `net-${name}`,
-        Internal: internal,
-        Name: name,
+      if (this.networks.has(body.Name)) {
+        return json(
+          { message: `network with name ${body.Name} already exists` },
+          409,
+        );
+      }
+      const created = this.addNetwork(body.Name, {
+        driver: body.Driver ?? "bridge",
+        internal: body.Internal,
+        // A daemon with IPv6 on by default: only an explicit false turns it off.
+        ipv6: body.EnableIPv6 ?? true,
+        labels: body.Labels ?? {},
       });
+      return json({ Id: created.id, Warning: "" }, 201);
+    }
+    if (request.method === "GET" && path === "/networks") {
+      const filters = JSON.parse(url.searchParams.get("filters") ?? "{}") as {
+        label?: string[];
+      };
+      const wanted = (filters.label ?? []).map(
+        (l) => l.split("=") as [string, string],
+      );
+      return json(
+        [...this.networks.values()]
+          .filter((n) => wanted.every(([k, v]) => n.labels[k] === v))
+          .map((n) => asNetwork(n, false)),
+      );
+    }
+    const networkAction = path.match(
+      /^\/networks\/([^/]+)\/(connect|disconnect)$/,
+    );
+    if (request.method === "POST" && networkAction) {
+      const network = this.networkByIdOrName(
+        decodeURIComponent(networkAction[1] ?? ""),
+      );
+      const body = (await request.json()) as {
+        Container: string;
+        EndpointConfig?: { Aliases?: string[] };
+      };
+      const target =
+        this.others.get(body.Container) ??
+        [...this.others.values()].find((o) => o.name === body.Container) ??
+        this.byIdOrName(body.Container);
+      if (!target) {
+        return json({ message: `No such container: ${body.Container}` }, 404);
+      }
+      if (!network) return json({ message: "network not found" }, 404);
+      if (networkAction[2] === "connect") {
+        if (this.refuseConnects || network.attached.has(target.id)) {
+          return json(
+            {
+              message: `endpoint with name ${target.name} already exists in network ${network.name}`,
+            },
+            403,
+          );
+        }
+        network.attached.set(target.id, {
+          aliases: body.EndpointConfig?.Aliases ?? [],
+        });
+        return new Response(null, { status: 200 });
+      }
+      if (!network.attached.delete(target.id)) {
+        return json(
+          {
+            message: `container ${target.id} is not connected to network ${network.name}`,
+          },
+          500,
+        );
+      }
+      return new Response(null, { status: 200 });
+    }
+    const network = path.match(/^\/networks\/([^/]+)$/);
+    if (network) {
+      const found = this.networkByIdOrName(
+        decodeURIComponent(network[1] ?? ""),
+      );
+      if (!found) return json({ message: "network not found" }, 404);
+      if (request.method === "GET") return json(asNetwork(found, true));
+      if (request.method === "DELETE") {
+        if (Object.keys(this.membersOf(found)).length > 0) {
+          return json(
+            {
+              message: `error while removing network: network ${found.name} has active endpoints`,
+            },
+            403,
+          );
+        }
+        this.networks.delete(found.name);
+        return new Response(null, { status: 204 });
+      }
     }
     const match = path.match(/^\/containers\/([^/]+)(?:\/(start|stop|json))?$/);
     if (!match) return json({ message: "not found" }, 404);
     const key = decodeURIComponent(match[1] ?? "");
     const action = match[2];
+    const other =
+      this.others.get(key) ??
+      [...this.others.values()].find((o) => o.name === key);
+    if (other && request.method === "GET" && action === "json") {
+      return json({
+        Config: { Env: [], Labels: other.labels, User: "" },
+        HostConfig: {},
+        Id: other.id,
+        Mounts: [],
+        Name: `/${other.name}`,
+        NetworkSettings: { Networks: this.attachmentsOf(other.id) },
+        State: {
+          ExitCode: 0,
+          Running: other.status === "running",
+          Status: other.status,
+        },
+      });
+    }
     const container = this.byIdOrName(key);
     if (!container) return json({ message: `No such container: ${key}` }, 404);
     if (request.method === "POST" && action === "start") {
@@ -313,6 +556,12 @@ class FakeDocker {
           Type: mount.Type,
         })),
         Name: `/${container.name}`,
+        NetworkSettings: {
+          Networks: this.attachmentsOf(
+            container.id,
+            container.body.HostConfig.NetworkMode,
+          ),
+        },
         State: {
           ExitCode: container.exitCode,
           Running: container.status === "running",
@@ -368,14 +617,12 @@ let backend: LocalDockerBackend;
 
 function configFor(host: string): LocalDockerBackendConfig {
   return {
-    allowedNetworks: ["ap-workers", "ap-workers-2"],
     apiVersion: "v1.44",
     dockerHost: host,
     egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
     installationId: "test-a",
-    network: "ap-workers",
     objectStore: {
       accessKeyId: "AKIATEST",
       bucket: "claude-sessions",
@@ -514,7 +761,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
         },
       ],
       NanoCpus: 1_500_000_000,
-      NetworkMode: "ap-workers",
+      NetworkMode: `net-${networkNameFor(intent, "test-a")}`,
       PidsLimit: 512,
       ReadonlyRootfs: true,
       RestartPolicy: { Name: "no" },
@@ -793,12 +1040,12 @@ describe("LocalDockerBackend.ensureExecution", () => {
   });
 
   test("a container built on other isolation settings is replaced too", async () => {
-    // Same contract version, but the network moved: the label has to notice.
+    // Same contract version, but the proxy moved: the label has to notice.
     const intent = intentFor();
     const body = await createBodyOf(intent);
     body.Labels[LABELS.isolation] = isolationStampFor({
       ...configFor(docker.host),
-      network: "ap-workers-2",
+      egressProxyUrl: "http://egress-proxy-2:3128",
     });
     const stale = docker.add(containerNameFor(intent, "test-a"), body);
 
@@ -1339,6 +1586,356 @@ describe("a daemon that accepts the connection but never answers", () => {
   });
 });
 
+describe("LocalDockerBackend worker networks", () => {
+  const PROXY = "id-egress-proxy-a";
+
+  function networkOf(intent: LaunchIntent, installationId = "test-a") {
+    return docker.networks.get(networkNameFor(intent, installationId));
+  }
+
+  test("each execution gets an internal network of its own with the proxy on it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+
+    const network = networkOf(intent);
+    expect(network).toMatchObject({
+      driver: "bridge",
+      internal: true,
+      ipv6: false,
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workerNetwork]: "true",
+      },
+    });
+    if (!network) throw new Error("no network");
+    // Under the name the worker's HTTP_PROXY dials, or DNS cannot answer it.
+    expect(network.attached.get(PROXY)).toEqual({ aliases: ["egress-proxy"] });
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    // Created against the id, so a network recreated under the same name in
+    // between cannot stand in for the one that was checked.
+    expect(worker?.body.HostConfig.NetworkMode).toBe(network.id);
+    expect(Object.values(docker.membersOf(network)).map((m) => m.Name)).toEqual(
+      [containerNameFor(intent, "test-a"), "egress-proxy-a"],
+    );
+  });
+
+  test("two workers never share a network", async () => {
+    const first = intentFor();
+    const second = intentFor({
+      executionId: "exec-second",
+      operationId: "op-2",
+      sessionId: "ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee",
+    });
+    await backend.ensureExecution(first);
+    await backend.ensureExecution(second);
+
+    const a = networkOf(first);
+    const b = networkOf(second);
+    if (!a || !b) throw new Error("missing network");
+    expect(a.id).not.toBe(b.id);
+    expect(Object.keys(docker.membersOf(a))).not.toContain(
+      docker.containers.get(containerNameFor(second, "test-a"))?.id,
+    );
+  });
+
+  test("the same intent again reuses its network instead of making another", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const before = docker.networks.size;
+    await backend.ensureExecution(intent);
+
+    expect(docker.networks.size).toBe(before);
+    expect(
+      docker.requests.filter((r) => r.path === "/networks/create"),
+    ).toHaveLength(1);
+  });
+
+  test("a network under this execution's name that is not what this host would make is refused", async () => {
+    const intent = intentFor();
+    const ours = {
+      [LABELS.executionId]: intent.executionId,
+      [LABELS.generation]: "1",
+      [LABELS.installation]: "test-a",
+      [LABELS.workerNetwork]: "true",
+    };
+    const cases: Array<[Partial<FakeNetwork>, string]> = [
+      [{ internal: false, labels: ours }, "is not internal"],
+      [{ ipv6: true, labels: ours }, "IPv6"],
+      [{ driver: "macvlan", labels: ours }, "driver macvlan"],
+      [
+        { labels: { ...ours, [LABELS.installation]: "test-b" } },
+        "is not this execution's",
+      ],
+      [{ labels: {} }, "is not this execution's"],
+    ];
+    for (const [overrides, message] of cases) {
+      docker.networks.clear();
+      docker.addNetwork(networkNameFor(intent, "test-a"), overrides);
+      const attempt = backend.ensureExecution(intent);
+      await expect(attempt).rejects.toBeInstanceOf(NetworkIsolationError);
+      await expect(attempt).rejects.toThrow(message);
+    }
+    expect(docker.containers.size).toBe(0);
+    expect(nonceIssues).toBe(0);
+  });
+
+  test("a network that gained a stranger is not launched onto", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    await backend.terminate(intent);
+    await backend.ensureExecution(intent);
+    const stranger = docker.addOther("snooper", {});
+    networkOf(intent)?.attached.set(stranger.id, { aliases: [] });
+    docker.containers.clear();
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "has members other than its worker and the egress proxy (snooper)",
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a create race is judged by the network the racer left behind", async () => {
+    const intent = intentFor();
+    docker.networkCreateRace = {
+      attached: new Map(),
+      driver: "bridge",
+      id: `net-${networkNameFor(intent, "test-a")}`,
+      internal: false,
+      ipv6: false,
+      labels: {
+        [LABELS.executionId]: intent.executionId,
+        [LABELS.generation]: "1",
+        [LABELS.installation]: "test-a",
+        [LABELS.workerNetwork]: "true",
+      },
+      name: networkNameFor(intent, "test-a"),
+    };
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "is not internal",
+    );
+  });
+
+  test("a proxy that joined without its alias is given it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    networkOf(intent)?.attached.set(PROXY, { aliases: [] });
+
+    await backend.ensureExecution(intent);
+
+    expect(networkOf(intent)?.attached.get(PROXY)).toEqual({
+      aliases: ["egress-proxy"],
+    });
+  });
+
+  test("an attach is judged by what the proxy reports, not by the status code", async () => {
+    const intent = intentFor();
+    docker.refuseConnects = true;
+    // 403 and nothing attached: the worker would have no route out at all.
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "could not be given the egress proxy",
+    );
+    expect(docker.containers.size).toBe(0);
+
+    // 403 because it is already there: nothing to do.
+    networkOf(intent)?.attached.set(PROXY, { aliases: ["egress-proxy"] });
+    await expect(backend.ensureExecution(intent)).resolves.toMatchObject({
+      created: true,
+    });
+  });
+
+  test("a worker attached to another network besides its own is not adopted", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (!worker) throw new Error("no worker");
+    docker.addNetwork("somewhere-else").attached.set(worker.id, {
+      aliases: [],
+    });
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "is not the only network",
+    );
+    // Refused, not destroyed: whoever attached it has to be asked why.
+    expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
+  });
+
+  test("no proxy means no launch, and nothing is created on the way", async () => {
+    docker.others.delete(PROXY);
+    const intent = intentFor();
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "No running container",
+    );
+    expect(docker.networks.size).toBe(0);
+    expect(docker.volumes.size).toBe(0);
+    expect(nonceIssues).toBe(0);
+  });
+
+  test("a replacement is refused before the teardown when there is no proxy", async () => {
+    docker.others.delete(PROXY);
+    await expect(backend.assertReplaceable(intentFor())).rejects.toThrow(
+      "No running container",
+    );
+  });
+
+  test("terminate takes the network with the container", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+
+    expect(await backend.terminate(intent)).toMatchObject({
+      outcome: "terminated",
+    });
+    expect(networkOf(intent)).toBeUndefined();
+  });
+
+  test("terminate leaves a network something else still holds, and still terminates", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const stranger = docker.addOther("snooper", {});
+    networkOf(intent)?.attached.set(stranger.id, { aliases: [] });
+
+    expect(await backend.terminate(intent)).toMatchObject({
+      outcome: "terminated",
+    });
+    // The proxy stays too: nothing is forced off a network that is kept.
+    expect(networkOf(intent)?.attached.has(PROXY)).toBe(true);
+  });
+});
+
+describe("LocalDockerBackend.reconcileNetworks", () => {
+  const PROXY = "id-egress-proxy-a";
+
+  test("the network of a container that was force-removed is removed", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.containers.clear();
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result).toEqual({
+      failed: [],
+      removed: [networkNameFor(intent, "test-a")],
+      repaired: [],
+    });
+    expect(docker.networks.size).toBe(0);
+  });
+
+  test("a network whose container still exists is kept, even if it has stopped", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const worker = docker.containers.get(containerNameFor(intent, "test-a"));
+    if (worker) worker.status = "exited";
+
+    expect(await backend.reconcileNetworks()).toEqual({
+      failed: [],
+      removed: [],
+      repaired: [],
+    });
+    expect(docker.networks.has(networkNameFor(intent, "test-a"))).toBe(true);
+  });
+
+  test("a recreated proxy is put back on every live worker's network", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    // `compose up` recreating the proxy: new id, attached to none of them.
+    docker.others.delete(PROXY);
+    docker.addOther("egress-proxy-a-new", { [LABELS.egressProxy]: "test-a" });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.repaired).toEqual([networkNameFor(intent, "test-a")]);
+    expect(
+      docker.networks
+        .get(networkNameFor(intent, "test-a"))
+        ?.attached.get("id-egress-proxy-a-new"),
+    ).toEqual({ aliases: ["egress-proxy"] });
+  });
+
+  test("another installation's networks are neither removed nor repaired", async () => {
+    const intent = intentFor();
+    const other = new LocalDockerBackend({
+      ...configFor(docker.host),
+      installationId: "test-b",
+    });
+    await other.ensureExecution(intent);
+    docker.containers.clear();
+
+    expect(await backend.reconcileNetworks()).toEqual({
+      failed: [],
+      removed: [],
+      repaired: [],
+    });
+    expect(docker.networks.has(networkNameFor(intent, "test-b"))).toBe(true);
+  });
+
+  test("an orphan with a stranger on it is kept and reported, the proxy left on", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    docker.containers.clear();
+    const stranger = docker.addOther("snooper", {});
+    const network = docker.networks.get(networkNameFor(intent, "test-a"));
+    network?.attached.set(stranger.id, { aliases: [] });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.removed).toEqual([]);
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("snooper"),
+        id: networkNameFor(intent, "test-a"),
+      },
+    ]);
+    expect(network?.attached.has(PROXY)).toBe(true);
+  });
+
+  test("a labelled network that names no execution is reported, not guessed at", async () => {
+    docker.addNetwork("ap-net-test-a-mystery", {
+      labels: {
+        [LABELS.installation]: "test-a",
+        [LABELS.workerNetwork]: "true",
+      },
+    });
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("names no execution"),
+        id: "ap-net-test-a-mystery",
+      },
+    ]);
+    expect(docker.networks.has("ap-net-test-a-mystery")).toBe(true);
+  });
+
+  test("without a proxy, orphans are still removed and live networks reported", async () => {
+    const live = intentFor();
+    const gone = intentFor({
+      executionId: "exec-gone",
+      operationId: "op-gone",
+      sessionId: "ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee",
+    });
+    await backend.ensureExecution(live);
+    await backend.ensureExecution(gone);
+    docker.containers.delete(containerNameFor(gone, "test-a"));
+    docker.others.delete(PROXY);
+    for (const network of docker.networks.values()) network.attached.clear();
+
+    const result = await backend.reconcileNetworks();
+
+    expect(result.removed).toEqual([networkNameFor(gone, "test-a")]);
+    expect(result.failed).toEqual([
+      {
+        error: expect.stringContaining("No running container"),
+        id: networkNameFor(live, "test-a"),
+      },
+    ]);
+  });
+});
+
 describe("names", () => {
   test("container and volume names are deterministic and validated", () => {
     expect(
@@ -1371,30 +1968,38 @@ async function createBodyOf(
 }
 
 describe("LocalDockerBackend.verifyNetworkIsolation", () => {
-  test("an internal worker network passes", async () => {
+  test("one running proxy labelled for this installation passes", async () => {
     await expect(backend.verifyNetworkIsolation()).resolves.toBeUndefined();
   });
 
-  test("a network that does not exist refuses the launch", async () => {
-    docker.networks.delete("ap-workers");
+  test("no proxy of this installation refuses the launch", async () => {
+    docker.others.delete("id-egress-proxy-a");
+    // Another installation's proxy is no stand-in: its allowlist is not ours.
     await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
-      "does not exist",
+      `No running container carries ${LABELS.egressProxy}=test-a`,
     );
   });
 
-  test("a routable network refuses the launch", async () => {
-    // The allowlist only vouches for the name; only the daemon knows whether
-    // that network can actually reach the host.
-    docker.networks.set("ap-workers", false);
+  test("a stopped proxy is no proxy", async () => {
+    const proxy = docker.others.get("id-egress-proxy-a");
+    if (!proxy) throw new Error("fixture has no proxy");
+    proxy.status = "exited";
     await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
-      "is not internal",
+      "No running container",
+    );
+  });
+
+  test("two proxies for one installation refuse the launch", async () => {
+    docker.addOther("egress-proxy-a2", { [LABELS.egressProxy]: "test-a" });
+    await expect(backend.verifyNetworkIsolation()).rejects.toThrow(
+      "exactly one proxy",
     );
   });
 
   test("the isolation stamp tracks where objects go and which key, never the secret", () => {
     const base = configFor("tcp://127.0.0.1:1");
     const stamp = isolationStampFor(base);
-    expect(stamp.startsWith("4:")).toBe(true);
+    expect(stamp.startsWith("5:")).toBe(true);
     expect(stamp).not.toContain(base.objectStore.secretAccessKey);
     // A secret rotated under the same key id is not a new boundary: the
     // container keeps running, and the operator replaces it deliberately.

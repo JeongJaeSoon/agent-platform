@@ -17,9 +17,11 @@ import {
   clientHello,
 } from "../../../../../apps/egress-proxy/src/testing/client-hello.ts";
 import {
+  containerNameFor,
   ENV,
   LABELS,
   LocalDockerBackend,
+  networkNameFor,
   workerEnvironmentFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
@@ -80,6 +82,9 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const s3TlsName = `ap-it-s3tls-${suffix}`;
   const proxyUrl = `http://${proxyName}:3128`;
   const localstackName = `ap-it-localstack-${suffix}`;
+  /** A second installation on the same daemon, with a proxy of its own. */
+  const otherInstallationId = `eg2-${suffix}`;
+  const otherProxyName = `ap-it-proxy2-${suffix}`;
   const created: string[] = [];
   const volumes: string[] = [];
   let bucket: LocalstackBucket;
@@ -88,7 +93,6 @@ integration("worker egress is confined to the proxy allowlist", () => {
   // Built once the bucket exists, since its name is part of the config.
   let backend: LocalDockerBackend;
   const configFor = (bucketName: string): LocalDockerBackendConfig => ({
-    allowedNetworks: [workerNetwork],
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
@@ -96,7 +100,6 @@ integration("worker egress is confined to the proxy allowlist", () => {
     gatewayUrl: `http://${allowedName}:8080`,
     homeDir: "/home/worker",
     installationId,
-    network: workerNetwork,
     objectStore: {
       accessKeyId: "test",
       bucket: bucketName,
@@ -142,6 +145,15 @@ integration("worker egress is confined to the proxy allowlist", () => {
       await raw("DELETE", `/volumes/${volume}?force=true`).catch(
         () => undefined,
       );
+    }
+    // What the backends made for their workers, now empty of containers.
+    for (const owner of [installationId, otherInstallationId]) {
+      const owned = await client
+        .listNetworks([`${LABELS.installation}=${owner}`])
+        .catch(() => []);
+      for (const network of owned) {
+        await client.removeNetwork(network.Id).catch(() => undefined);
+      }
     }
     for (const network of [workerNetwork, outerNetwork]) {
       await client.removeNetwork(network).catch(() => undefined);
@@ -484,10 +496,13 @@ console.log("TLS " + response.status + " " + (await response.text()));
         NetworkMode: outerNetwork,
       },
       Image: PROXY_IMAGE,
+      // How the backend finds it to attach to each worker network it makes.
+      Labels: { [LABELS.egressProxy]: installationId },
     });
     expect(response.status).toBe(201);
-    // Two networks: the outer one to reach upstreams, the internal one to be
-    // reachable by workers. Only the second can be given at create time.
+    // Two networks: the outer one to reach upstreams, the fixture's internal
+    // one to be reachable by the probes below. Only the first can be given
+    // at create time.
     const connected = await raw("POST", `/networks/${workerNetwork}/connect`, {
       Container: proxyName,
     });
@@ -832,7 +847,261 @@ console.log("TLS " + response.status + " " + (await response.text()));
       `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     );
     expect(JSON.stringify(inspected?.HostConfig)).not.toContain("host-gateway");
+    // On a network of its own, not the fixture's shared one.
+    expect(Object.keys(inspected?.NetworkSettings?.Networks ?? {})).toEqual([
+      networkNameFor(intent, installationId),
+    ]);
   }, 180_000);
+
+  /**
+   * 94S-216: workers launched by the backend, each on the network it made
+   * for them. B serves HTTP; A and a worker of another installation, C, try
+   * to reach it. Every refusal below is paired with a positive control, so a
+   * dead server, a wrong address or a failed lookup cannot pass as isolation.
+   */
+  describe("workers do not reach one another", () => {
+    const lateral = {
+      a: intentOf("a"),
+      b: intentOf("b"),
+      c: intentOf("c"),
+    };
+    let bAddress = "";
+    let proxyAddresses: string[] = [];
+    let other: LocalDockerBackend;
+
+    function intentOf(tag: string): LaunchIntent {
+      return {
+        bootstrapCredentialState: async () => ({
+          claimed: false,
+          fingerprint: launchNonceFingerprint(
+            hashWorkerToken(`wln-${tag}-${suffix}`),
+          ),
+        }),
+        executionId: `exec-${tag}-${suffix}`,
+        generation: 1,
+        image: IMAGE,
+        issueBootstrapNonce: async () => `wln-${tag}-${suffix}`,
+        operationId: `op-${tag}-${suffix}`,
+        resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },
+        sessionId: crypto.randomUUID(),
+      };
+    }
+
+    beforeAll(async () => {
+      const serving = new LocalDockerBackend(
+        {
+          ...configFor(bucket.bucket),
+          // The worker image is busybox here; its httpd is the open port.
+          command: [
+            "sh",
+            "-c",
+            "echo lateral-target > /tmp/index.html && exec httpd -f -p 8080 -h /tmp",
+          ],
+        },
+        client,
+      );
+      // The other installation's proxy only has to exist to be attached;
+      // nothing below goes through it.
+      created.push(otherProxyName);
+      const response = await raw(
+        "POST",
+        `/containers/create?name=${otherProxyName}`,
+        {
+          Cmd: ["sleep", "600"],
+          Image: IMAGE,
+          Labels: { [LABELS.egressProxy]: otherInstallationId },
+        },
+      );
+      expect(response.status).toBe(201);
+      await client.startContainer(otherProxyName);
+      other = new LocalDockerBackend(
+        { ...configFor(bucket.bucket), installationId: otherInstallationId },
+        client,
+      );
+      for (const [owner, intent] of [
+        [backend, lateral.a],
+        [serving, lateral.b],
+        [other, lateral.c],
+      ] as const) {
+        created.push((await owner.ensureExecution(intent)).providerRef);
+      }
+      const b = await client.inspectContainer(
+        containerNameFor(lateral.b, installationId),
+      );
+      bAddress =
+        b?.NetworkSettings?.Networks?.[
+          networkNameFor(lateral.b, installationId)
+        ]?.IPAddress ?? "";
+      expect(bAddress).not.toBe("");
+      const proxy = await client.inspectContainer(proxyName);
+      proxyAddresses = Object.values(proxy?.NetworkSettings?.Networks ?? {})
+        .map((endpoint) => endpoint.IPAddress ?? "")
+        .filter((address) => address !== "");
+      // Its own network, one for each of this installation's workers, and
+      // the fixture's.
+      expect(proxyAddresses.length).toBeGreaterThanOrEqual(3);
+      const deadline = Date.now() + 30_000;
+      while (
+        (await execIn(lateral.b, "wget -q -Y off -O - http://127.0.0.1:8080/"))
+          .exitCode !== 0
+      ) {
+        if (Date.now() > deadline) throw new Error("worker B never served");
+        await Bun.sleep(250);
+      }
+    }, 300_000);
+
+    /** Runs `command` inside a launched worker; the worker's own env applies. */
+    async function execIn(
+      intent: LaunchIntent,
+      command: string,
+      owner = installationId,
+    ): Promise<{ exitCode: number; output: string }> {
+      const created = (await (
+        await raw(
+          "POST",
+          `/containers/${containerNameFor(intent, owner)}/exec`,
+          {
+            AttachStderr: true,
+            AttachStdout: true,
+            Cmd: ["sh", "-c", command],
+            Tty: true,
+          },
+        )
+      ).json()) as { Id: string };
+      const output = await (
+        await raw("POST", `/exec/${created.Id}/start`, {
+          Detach: false,
+          Tty: true,
+        })
+      ).text();
+      const inspected = (await (
+        await raw("GET", `/exec/${created.Id}/json`)
+      ).json()) as { ExitCode: number };
+      return { exitCode: inspected.ExitCode, output };
+    }
+
+    test("B's port is open to anything that shares its network", async () => {
+      // The positive control for every refusal below: the address is right
+      // and the server answers it.
+      const name = `ap-it-sibling-${suffix}`;
+      await raw("POST", `/containers/create?name=${name}`, {
+        Cmd: ["sh", "-c", `wget -T 5 -q -O - http://${bAddress}:8080/`],
+        HostConfig: {
+          NetworkMode: networkNameFor(lateral.b, installationId),
+        },
+        Image: IMAGE,
+        Tty: true,
+      });
+      try {
+        await client.startContainer(name);
+        const waited = (await (
+          await raw("POST", `/containers/${name}/wait`)
+        ).json()) as { StatusCode: number };
+        expect(waited.StatusCode).toBe(0);
+        expect(await logsOf(name)).toContain("lateral-target");
+      } finally {
+        await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
+      }
+    }, 60_000);
+
+    test("worker A reaches no port of worker B, by address or by name", async () => {
+      const scan = await execIn(lateral.a, `nc -z -w 3 ${bAddress} 8080`);
+      expect(scan.exitCode).not.toBe(0);
+      const direct = await execIn(
+        lateral.a,
+        `wget -T 3 -q -Y off -O - http://${bAddress}:8080/`,
+      );
+      expect(direct.exitCode).not.toBe(0);
+      expect(direct.output).not.toContain("lateral-target");
+      const byName = await execIn(
+        lateral.a,
+        `wget -T 3 -q -Y off -O - http://${containerNameFor(lateral.b, installationId)}:8080/`,
+      );
+      expect(byName.exitCode).not.toBe(0);
+      // Nor through the proxy, which refuses private addresses it was not
+      // told about.
+      const relayed = await execIn(
+        lateral.a,
+        `wget -T 5 -q -O - http://${bAddress}:8080/`,
+      );
+      expect(relayed.output).not.toContain("lateral-target");
+    }, 120_000);
+
+    test("worker A still reaches the allowlist through the proxy", async () => {
+      const allowed = await execIn(
+        lateral.a,
+        `wget -T 10 -q -O - http://${allowedName}:8080/`,
+      );
+      expect(allowed.output).toContain("allowed-upstream");
+      expect(allowed.exitCode).toBe(0);
+    }, 60_000);
+
+    test("another installation's worker reaches neither our workers nor our proxy", async () => {
+      const toWorker = await execIn(
+        lateral.c,
+        `wget -T 3 -q -Y off -O - http://${bAddress}:8080/`,
+        otherInstallationId,
+      );
+      expect(toWorker.exitCode).not.toBe(0);
+      expect(toWorker.output).not.toContain("lateral-target");
+      for (const address of proxyAddresses) {
+        const toProxy = await execIn(
+          lateral.c,
+          `nc -z -w 3 ${address} 3128`,
+          otherInstallationId,
+        );
+        expect(toProxy.exitCode).not.toBe(0);
+      }
+      // Its network carries its own installation's proxy, not ours.
+      const network = await client.inspectNetwork(
+        networkNameFor(lateral.c, otherInstallationId),
+      );
+      expect(
+        Object.values(network?.Containers ?? {})
+          .map((member) => member.Name)
+          .sort(),
+      ).toEqual(
+        [
+          containerNameFor(lateral.c, otherInstallationId),
+          otherProxyName,
+        ].sort(),
+      );
+    }, 120_000);
+
+    test("a proxy that lost its attachment is given it back by the reconcile", async () => {
+      const network = networkNameFor(lateral.a, installationId);
+      await client.disconnectNetwork(network, proxyName);
+      const cut = await execIn(
+        lateral.a,
+        `wget -T 3 -q -O - http://${allowedName}:8080/`,
+      );
+      expect(cut.output).not.toContain("allowed-upstream");
+
+      const result = await backend.reconcileNetworks();
+
+      expect(result.repaired).toContain(network);
+      expect(result.failed).toEqual([]);
+      const restored = await execIn(
+        lateral.a,
+        `wget -T 10 -q -O - http://${allowedName}:8080/`,
+      );
+      expect(restored.output).toContain("allowed-upstream");
+    }, 120_000);
+
+    test("the network of a force-removed worker is gone after one reconcile", async () => {
+      const network = networkNameFor(lateral.c, otherInstallationId);
+      await raw(
+        "DELETE",
+        `/containers/${containerNameFor(lateral.c, otherInstallationId)}?force=true`,
+      );
+      expect(await client.inspectNetwork(network)).not.toBeNull();
+
+      const result = await other.reconcileNetworks();
+
+      expect(result.removed).toEqual([network]);
+      expect(await client.inspectNetwork(network)).toBeNull();
+    }, 60_000);
+  });
 });
 
 /** Answers one line over TLS; written to the fixture directory at run time. */

@@ -77,9 +77,12 @@ services:
       retries: 12
       start_period: 10s
 
-  # The only member of the worker network with a route off it. Workers are
-  # handed it as HTTP_PROXY/HTTPS_PROXY; the two allowlists below are the
-  # whole of what a worker can reach.
+  # The only route off every worker network. The scheduler gives each worker
+  # an internal network of its own and attaches this container to it under
+  # the name in EXECUTION_EGRESS_PROXY_URL (94S-216); workers are handed it as
+  # HTTP_PROXY/HTTPS_PROXY, and the two allowlists below are the whole of
+  # what a worker can reach. The label is how the scheduler finds it, so each
+  # installation on a daemon labels its own proxy with its own id.
   egress-proxy:
     image: oven/bun:1.3.10
     command: ["bun", "run", "/app/src/main.ts"]
@@ -94,9 +97,8 @@ services:
     extra_hosts:
       # The worker gateway runs on the host; only the proxy may reach it.
       - "host.docker.internal:host-gateway"
-    networks:
-      - default
-      - worker
+    labels:
+      agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
     volumes:
       - ../apps/egress-proxy:/app:ro
     healthcheck:
@@ -274,8 +276,6 @@ services:
       WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
       WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
-      EXECUTION_DOCKER_NETWORK: ${EXECUTION_DOCKER_NETWORK:-agent-platform-worker}
-      EXECUTION_DOCKER_NETWORK_ALLOWLIST: ${EXECUTION_DOCKER_NETWORK_ALLOWLIST:-agent-platform-worker}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
       EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
       # Docker Desktop cannot carry a project quota, so the local stack opts out
@@ -312,18 +312,9 @@ services:
         condition: service_healthy
 
 networks:
+  # Worker networks are not declared here: the scheduler creates one per
+  # worker (internal, IPv6 off) and removes it with the worker.
   default:
-  # Worker containers only ever join this one. `internal` is what makes the
-  # egress policy enforceable: Docker installs no route off it, so the proxy
-  # is the only way out and the scheduler refuses to launch if this flag is
-  # ever lost (`verifyNetworkIsolation`).
-  worker:
-    # Daemon-global, so two installations on one daemon must not share it: a
-    # worker on a shared network reaches the other installation's proxy and
-    # its allowlist. Each installation overrides this to match its own
-    # EXECUTION_DOCKER_NETWORK.
-    name: ${EXECUTION_DOCKER_NETWORK:-agent-platform-worker}
-    internal: true
 
 volumes:
   postgres-data:

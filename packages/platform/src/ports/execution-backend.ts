@@ -174,4 +174,21 @@ export interface ExecutionBackend {
   listWorkspaces?(): Promise<ManagedWorkspace[]>;
   /** Removes it only if it is still this installation's and unused. */
   removeWorkspace?(id: string): Promise<WorkspaceRemovalResult>;
+  /**
+   * Brings the per-execution isolation resources the backend created back in
+   * line with the executions that still exist: removes the ones whose
+   * execution is gone, repairs the ones whose attachments were lost.
+   * Optional: a backend with no such resources leaves it out. Throws only
+   * when it could not even list them.
+   */
+  reconcileNetworks?(): Promise<NetworkReconcileResult>;
 }
+
+export type NetworkReconcileResult = {
+  /** Resources removed because nothing uses them any more. */
+  removed: string[];
+  /** Resources whose attachments had to be restored. */
+  repaired: string[];
+  /** Resources left as they are because the repair or removal failed. */
+  failed: Array<{ id: string; error: string }>;
+};

@@ -14,14 +14,12 @@ const base = {
 describe("localDockerConfigFromEnv", () => {
   test("applies the documented defaults", () => {
     expect(localDockerConfigFromEnv(base)).toEqual({
-      allowedNetworks: ["agent-platform-worker"],
       apiVersion: "v1.44",
       dockerHost: "unix:///var/run/docker.sock",
       egressProxyUrl: "http://egress-proxy:3128",
       gatewayUrl: "http://host.docker.internal:3000",
       homeDir: "/home/worker",
       installationId: "local",
-      network: "agent-platform-worker",
       objectStore: {
         accessKeyId: "test",
         bucket: "claude-sessions",
@@ -226,36 +224,30 @@ describe("localDockerConfigFromEnv", () => {
     }
   });
 
-  test("the network must be on the allowlist", () => {
-    expect(() =>
-      localDockerConfigFromEnv({
-        ...base,
-        EXECUTION_DOCKER_NETWORK: "ap-workers",
-      }),
-    ).toThrow("allowlist");
-    expect(
-      localDockerConfigFromEnv({
-        ...base,
-        EXECUTION_DOCKER_NETWORK: "ap-workers",
-        EXECUTION_DOCKER_NETWORK_ALLOWLIST: "ap-workers, ap-workers-2",
-      }),
-    ).toMatchObject({
-      allowedNetworks: ["ap-workers", "ap-workers-2"],
-      network: "ap-workers",
-    });
+  test("the shared worker network settings stop startup instead of being ignored", () => {
+    for (const name of [
+      "EXECUTION_DOCKER_NETWORK",
+      "EXECUTION_DOCKER_NETWORK_ALLOWLIST",
+    ]) {
+      expect(() =>
+        localDockerConfigFromEnv({ ...base, [name]: "agent-platform-worker" }),
+      ).toThrow(`${name} is no longer read`);
+      // An empty line left in an env file asks for nothing.
+      expect(() =>
+        localDockerConfigFromEnv({ ...base, [name]: " " }),
+      ).not.toThrow();
+    }
   });
 
-  test("a network that can never be internal is refused even if allowlisted", () => {
-    // An allowlist entry only says the operator meant this name; these four
-    // can never satisfy the isolation contract whatever the operator meant.
-    for (const network of ["bridge", "default", "host", "none"]) {
+  test("the proxy has to be named, because it has a different address on every worker network", () => {
+    for (const url of [
+      "http://172.18.0.2:3128",
+      "http://[fd00::2]:3128",
+      "http://localhost:3128",
+    ]) {
       expect(() =>
-        localDockerConfigFromEnv({
-          ...base,
-          EXECUTION_DOCKER_NETWORK: network,
-          EXECUTION_DOCKER_NETWORK_ALLOWLIST: network,
-        }),
-      ).toThrow("never allowed");
+        localDockerConfigFromEnv({ ...base, EXECUTION_EGRESS_PROXY_URL: url }),
+      ).toThrow("host name");
     }
   });
 

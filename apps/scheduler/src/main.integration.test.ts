@@ -5,8 +5,19 @@ import {
   containerNameFor,
   DockerClient,
   LABELS,
+  LocalDockerBackend,
+  localDockerConfigFromEnv,
+  networkNameFor,
   workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
+import {
+  removeWorkerNetworks,
+  startStandInProxy,
+} from "@agent-platform/execution-local-docker/testing";
+import {
+  hashWorkerToken,
+  launchNonceFingerprint,
+} from "@agent-platform/platform";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -36,7 +47,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
   const client = new DockerClient(dockerHost);
   const sessionIds: string[] = [];
   const runLabel = `it-${crypto.randomUUID()}`;
-  const workerNetwork = `ap-it-net-${crypto.randomUUID().slice(0, 8)}`;
+  let proxy: string | undefined;
 
   const environment = () => ({
     ...process.env,
@@ -49,8 +60,6 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
     EXECUTION_INSTALLATION_ID: runLabel,
     EXECUTION_DOCKER_COMMAND: "sleep 600",
-    EXECUTION_DOCKER_NETWORK: workerNetwork,
-    EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
     EXECUTION_SLOT_LIMIT: "10",
     // The runner's data root is on ext4, so the daemon cannot carry a
     // volume quota; the quota itself is covered by workspace.integration.test.ts.
@@ -67,7 +76,11 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
     await new DockerClient(dockerHost, "v1.44", {
       timeoutMs: 110_000,
     }).pullImage(IMAGE);
-    await client.createNetwork({ Internal: true, Name: workerNetwork });
+    proxy = await startStandInProxy({
+      dockerHost,
+      image: IMAGE,
+      installationId: runLabel,
+    });
     database = await createTempDatabase({ prefix: "scheduler_it" });
     pool = new Pool({ connectionString: database.url });
     db = drizzle(pool, { schema });
@@ -110,7 +123,17 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         } as RequestInit).catch(() => undefined);
       }
     }
-    await client.removeNetwork(workerNetwork).catch(() => undefined);
+    for (const container of await client
+      .listContainers([`${LABELS.installation}=${runLabel}`])
+      .catch(() => [])) {
+      await client
+        .stopAndRemoveContainer(container.Id, 1)
+        .catch(() => undefined);
+    }
+    if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
+    await removeWorkerNetworks(client, runLabel).catch((error: unknown) => {
+      console.warn("[scheduler.integration] worker networks left", error);
+    });
     await pool.end();
     await database.drop();
   }, 120_000);
@@ -152,6 +175,76 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       const key = `${container.Labels?.[LABELS.executionId]}#${container.Labels?.[LABELS.generation]}`;
       expect(rowKeys.has(key)).toBe(true);
     }
+    // One network per worker, none shared.
+    const networks = await client.listNetworks([
+      `${LABELS.workerNetwork}=true`,
+      `${LABELS.installation}=${runLabel}`,
+    ]);
+    expect(networks.map((n) => n.Name).sort()).toEqual(
+      rows
+        .map((r) =>
+          networkNameFor(
+            { executionId: r.id, generation: r.generation },
+            runLabel,
+          ),
+        )
+        .sort(),
+    );
+  }, 180_000);
+
+  test("a force-removed worker that is re-ensured keeps its one network", async () => {
+    const [row] = await db
+      .select({ id: executions.id, generation: executions.generation })
+      .from(executions)
+      .where(inArray(executions.sessionId, sessionIds));
+    if (!row) throw new Error("no execution row");
+    const ref = { executionId: row.id, generation: row.generation };
+    const before = await client.inspectNetwork(networkNameFor(ref, runLabel));
+    await client.stopAndRemoveContainer(containerNameFor(ref, runLabel), 1);
+
+    const summary = await main(environment());
+
+    expect(summary.reensured).toContainEqual(ref);
+    expect(summary.networksReclaimed).toEqual([]);
+    const after = await client.inspectNetwork(networkNameFor(ref, runLabel));
+    expect(after?.Id).toBe(before?.Id);
+  }, 180_000);
+
+  test("the network of a worker nothing will relaunch is gone after one pass", async () => {
+    // A worker with no launch intent behind it — what a force-removed
+    // container leaves when its execution is already finished. With the
+    // container gone, only the network is left to find.
+    const backend = new LocalDockerBackend(
+      localDockerConfigFromEnv(environment()),
+    );
+    const ref = { executionId: crypto.randomUUID(), generation: 1 };
+    await backend.ensureExecution({
+      ...ref,
+      bootstrapCredentialState: async () => ({
+        claimed: false,
+        fingerprint: launchNonceFingerprint(hashWorkerToken("wln-orphan")),
+      }),
+      image: IMAGE,
+      issueBootstrapNonce: async () => "wln-orphan",
+      operationId: crypto.randomUUID(),
+      resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },
+      sessionId: crypto.randomUUID(),
+    });
+    await fetch(
+      `http://docker/v1.44/containers/${containerNameFor(ref, runLabel)}?force=true`,
+      {
+        method: "DELETE",
+        unix: dockerHost.replace("unix://", ""),
+      } as RequestInit,
+    );
+    const name = networkNameFor(ref, runLabel);
+    expect(await client.inspectNetwork(name)).not.toBeNull();
+
+    const summary = await main(environment());
+
+    expect(summary.networksReclaimed).toEqual([name]);
+    expect(summary.networksFailed).toEqual([]);
+    expect(await client.inspectNetwork(name)).toBeNull();
   }, 180_000);
 
   test("a refused quota preflight still reclaims the workspaces it can", async () => {

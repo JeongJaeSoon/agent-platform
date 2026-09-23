@@ -9,6 +9,10 @@ const clean: SchedulerRunSummary = {
   killFailed: [],
   killed: [],
   launched: [],
+  networkScanFailed: false,
+  networksFailed: [],
+  networksReclaimed: [],
+  networksRepaired: [],
   orphansTerminated: [],
   orphansUnresolved: [],
   reclaimFailed: [],
@@ -39,6 +43,18 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, replacementsExhausted: [ref] })).toBe(1);
+  });
+
+  test("a worker network left leaking or cut off exits 1; one reclaimed or repaired does not", () => {
+    expect(exitCodeFor({ ...clean, networkScanFailed: true })).toBe(1);
+    expect(exitCodeFor({ ...clean, networksFailed: ["ap-net-1"] })).toBe(1);
+    expect(
+      exitCodeFor({
+        ...clean,
+        networksReclaimed: ["ap-net-1"],
+        networksRepaired: ["ap-net-2"],
+      }),
+    ).toBe(0);
   });
 
   test("a GC fault exits 1, a GC judgement does not", () => {

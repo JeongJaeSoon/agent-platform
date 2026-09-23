@@ -85,7 +85,6 @@ export RESTORE_POSTGRES_PORT="$PORT_BASE"
 export RESTORE_LOCALSTACK_PORT="$((PORT_BASE + 1))"
 export RESTORE_GITEA_HTTP_PORT="$((PORT_BASE + 2))"
 export RESTORE_GITEA_SSH_PORT="$((PORT_BASE + 3))"
-export RESTORE_WORKER_NETWORK="${INTO}-worker"
 
 # --- fresh services ----------------------------------------------------------
 log "restore: starting postgres, localstack, gitea as project '$INTO' (ports ${RESTORE_POSTGRES_PORT}..${RESTORE_GITEA_SSH_PORT})"
