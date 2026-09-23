@@ -168,9 +168,17 @@ export const profileFingerprintSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
+// The lease as the worker may track it (94S-322): what was left of it on the
+// database clock at an instant after the request was sent. Counted from its
+// own send time on a monotonic clock, it can only end early, never late,
+// whatever either side's wall clock says. `lease_expires_at` is that same
+// deadline as the database clock names it, for logs; no worker judges by it.
+export const leaseRemainingMsSchema = z.number().int().nonnegative();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
@@ -196,6 +204,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     execution_generation: response.execution_generation,
     auth_revision: response.auth_revision,
     lease_expires_at: response.lease_expires_at,
+    lease_remaining_ms: response.lease_remaining_ms,
     runtime: response.runtime,
     profile_fingerprint: response.profile_fingerprint,
     model: response.runtime_config.model,
@@ -272,6 +281,7 @@ export const heartbeatRequestSchema = workerScopeSchema
   .strict();
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   auth_revision: epochSchema,
   control_pending: z.boolean(),
 });

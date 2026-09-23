@@ -28,7 +28,7 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import type { WorkerTimeouts } from "./config.ts";
+import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import {
@@ -253,8 +253,8 @@ export class WorkerHost {
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
-    const claim = await this.claim();
-    if (claim === null) {
+    const claimed = await this.claim();
+    if (claimed === null) {
       return {
         outcome: "unclaimed",
         reason:
@@ -262,6 +262,7 @@ export class WorkerHost {
         turns: [],
       };
     }
+    const { claim } = claimed;
     this.options.gateway.useCredential(claim.session_credential);
     this.scopeValue = {
       session_id: claim.session_id,
@@ -311,11 +312,12 @@ export class WorkerHost {
       scope: () => this.scope,
       attemptState: () => this.attemptState,
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
-      leaseExpiresAt: new Date(claim.lease_expires_at),
+      lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
+      safetyMarginMs:
+        this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
       onLost: (reason) => this.lose(reason),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
-      ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
     let run: AgentRun | undefined;
@@ -561,12 +563,17 @@ export class WorkerHost {
     this.pending?.stop();
   }
 
-  private async claim(): Promise<BootstrapClaimResponse | null> {
+  /** The claim, with the monotonic instant the request that won it went out. */
+  private async claim(): Promise<{
+    claim: BootstrapClaimResponse;
+    sentAt: number;
+  } | null> {
     const deadline =
       this.now().getTime() + this.options.timeouts.claimTimeoutMs;
     let retriedUnauthorized = false;
     for (;;) {
       if (this.stopping !== undefined) return null;
+      const sentAt = performance.now();
       try {
         const claimed = await this.untilStopGraceSpent(
           this.options.gateway.bootstrapClaim({
@@ -586,7 +593,7 @@ export class WorkerHost {
           });
           return null;
         }
-        return claimed;
+        return { claim: claimed, sentAt };
       } catch (error) {
         if (!(error instanceof WorkerGatewayRequestError)) throw error;
         // Two claims racing leave one holding the revoked token; before this

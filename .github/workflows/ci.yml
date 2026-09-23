@@ -166,6 +166,7 @@ jobs:
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/interrupt-flow.
+              - tests/lease-clock.
           # Object storage: checkpoint objects, the S3 transport and its bounds.
           - domain: storage
             postgres: false

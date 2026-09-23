@@ -13,6 +13,7 @@ import {
   finalizeResponseSchema,
   getSessionResponseSchema,
   heartbeatRequestSchema,
+  heartbeatResponseSchema,
   listSessionsQuerySchema,
   loggableBootstrapClaim,
   nextInputRequestSchema,
@@ -525,6 +526,26 @@ describe("worker protocol", () => {
     auth_revision: 1,
   };
 
+  test("a heartbeat answer carries the lease as time remaining on the database clock (94S-322)", () => {
+    const answer = {
+      lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
+      auth_revision: 1,
+      control_pending: false,
+    };
+    expect(heartbeatResponseSchema.parse(answer)).toEqual(answer);
+    const { lease_remaining_ms: _r, ...withoutRemaining } = answer;
+    expect(heartbeatResponseSchema.safeParse(withoutRemaining).success).toBe(
+      false,
+    );
+    for (const lease_remaining_ms of [-1, 1.5, Number.POSITIVE_INFINITY]) {
+      expect(
+        heartbeatResponseSchema.safeParse({ ...answer, lease_remaining_ms })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   test("fences every post-claim request with the same identity", () => {
     expect(workerScopeSchema.parse(scope)).toEqual(scope);
     expect(nextInputRequestSchema.safeParse(scope).success).toBe(true);
@@ -620,6 +641,7 @@ describe("worker protocol", () => {
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -672,6 +694,12 @@ describe("worker protocol", () => {
       false,
     );
     // The fingerprint names the exact profile the claim resolved (94S-132).
+    // The lease a worker tracks is the remaining time, not the deadline
+    // (94S-322): a claim without it could only be judged by a wall clock.
+    const { lease_remaining_ms: _r, ...withoutRemaining } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutRemaining).success,
+    ).toBe(false);
     const { profile_fingerprint: _f, ...withoutFingerprint } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutFingerprint).success,
@@ -729,6 +757,7 @@ describe("worker protocol", () => {
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -768,6 +797,7 @@ describe("worker protocol", () => {
       execution_generation: scope.execution_generation,
       auth_revision: scope.auth_revision,
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: claim.runtime,
       profile_fingerprint: `sha256:${"b".repeat(64)}`,
       model: "claude-sonnet-5",
