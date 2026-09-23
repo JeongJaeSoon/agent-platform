@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   CheckpointRequestResponse,
@@ -13,13 +13,17 @@ import {
   type CheckpointPointer,
   type CheckpointStore,
   createCheckpointService,
+  restorePlanOnWire,
 } from "@agent-platform/platform";
 import { claudeCheckpointCodec } from "@agent-platform/runtime-claude";
 import {
   createGitWorkspaceBundleVerifier,
   scopedCheckpointObjectStore,
 } from "@agent-platform/storage";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+import {
+  createMemoryCheckpointObjectStore,
+  type MemoryCheckpointObjectStore,
+} from "@agent-platform/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
@@ -40,7 +44,10 @@ import type {
   WorkerTimeouts,
 } from "../apps/worker/src/config.ts";
 import { EngineProcesses } from "../apps/worker/src/engine-processes.ts";
-import { FakeWorkerGateway } from "../apps/worker/src/fake-gateway.ts";
+import {
+  type FakeCheckpointProtocol,
+  FakeWorkerGateway,
+} from "../apps/worker/src/fake-gateway.ts";
 import { WorkerGatewayRequestError } from "../apps/worker/src/gateway-client.ts";
 import { SessionCheckpoints } from "../apps/worker/src/session-checkpoints.ts";
 import {
@@ -50,11 +57,11 @@ import {
 import { GitWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
- * One turn through the worker as composition will wire it once the restorer
- * lands: the real Agent SDK against a fake Anthropic endpoint, a real clone,
- * the publisher on a session-scoped store, and a gateway whose checkpoint
- * half is the control plane's own CheckpointService — so the manifest the
- * worker writes is the one finalize verifies and a restore plan is read from.
+ * Workers as the composition root wires them: the real Agent SDK against a
+ * fake Anthropic endpoint, a real clone, checkpoints on a session-scoped
+ * store, and a gateway whose checkpoint half is the control plane's own
+ * CheckpointService — so the manifest one worker writes is the one finalize
+ * verifies and the next worker restores from.
  */
 
 const SESSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -118,8 +125,10 @@ function memoryPointerStore(): CheckpointStore & {
         committedAt: input.now,
         manifestRef: input.checkpoint.manifest_ref,
         manifestSha256: input.checkpoint.manifest_sha256,
+        manifestVersion: input.checkpoint.manifest_version ?? null,
         revision,
         turnId: input.turnId,
+        versionsHeld: input.versionsHeld === true,
       };
       return { outcome: "committed" as const, revision };
     },
@@ -142,8 +151,134 @@ class ApprovingGateway extends FakeWorkerGateway {
   }
 }
 
-describe("the worker's checkpoint publisher against the control plane's service", () => {
-  test("a turn that edits the checkout commits a checkpoint a restore plan can be read from", async () => {
+/** The control plane's checkpoint half, as the Worker Gateway serves it. */
+function servedBy(
+  service: ReturnType<typeof createCheckpointService>,
+): FakeCheckpointProtocol {
+  return {
+    async requestCheckpoint(request): Promise<CheckpointRequestResponse> {
+      const decision = await service.requestCheckpoint({
+        attemptId: request.attempt_id,
+        preparation: request.preparation,
+        sessionId: request.session_id,
+      });
+      return decision.status === "ready"
+        ? {
+            status: "ready",
+            revision: decision.request.revision,
+            manifest_ref: decision.request.manifestRef,
+          }
+        : decision;
+    },
+    async commit(request) {
+      const result = await service.finalize({
+        checkpoint: request.checkpoint,
+        fence: {
+          attemptId: request.attempt_id,
+          authRevision: request.auth_revision,
+          executionGeneration: request.execution_generation,
+          leaseEpoch: request.lease_epoch,
+          sessionId: request.session_id,
+        },
+        now: new Date(),
+        sessionId: request.session_id,
+        turnId: request.turn_id,
+      });
+      if (result.outcome === "rejected") {
+        throw new WorkerGatewayRequestError(
+          409,
+          "CHECKPOINT_UNAVAILABLE",
+          `Checkpoint manifest rejected: ${result.reason}`,
+          false,
+        );
+      }
+      if (result.outcome !== "committed") {
+        throw new Error(`unexpected commit outcome ${result.outcome}`);
+      }
+    },
+    async restorePlan(request) {
+      return restorePlanOnWire(
+        await service.getRestorePlan({
+          runtime: {
+            cliVersion: request.runtime.cli_version,
+            engine: request.runtime.engine,
+            profileSha256: request.runtime.profile_sha256,
+            sdkVersion: request.runtime.sdk_version,
+          },
+          sessionId: request.session_id,
+        }),
+      );
+    },
+  };
+}
+
+type Recorded = {
+  errors: string[];
+  failures: unknown[];
+  logger: WorkerLogger;
+};
+
+function recorder(): Recorded {
+  const errors: string[] = [];
+  const failures: unknown[] = [];
+  return {
+    errors,
+    failures,
+    logger: {
+      info: () => {},
+      warn: (event, fields) => {
+        if (event === "worker.checkpoint.failed") failures.push(fields);
+      },
+      error: (event, fields) => {
+        errors.push(event);
+        failures.push({ event, fields });
+      },
+    },
+  };
+}
+
+/** One execution of the worker, wired the way the composition root wires it. */
+function workerOn(input: {
+  bucket: MemoryCheckpointObjectStore;
+  gateway: FakeWorkerGateway;
+  generation: number;
+  home: string;
+  logger: WorkerLogger;
+  workspace: string;
+}): WorkerHost {
+  const { gateway, home, logger, workspace } = input;
+  const config = {
+    runtime: { claudeConfigDir: home, cwd: workspace, home },
+  } as WorkerConfig;
+  const engines = new EngineProcesses();
+  const prepared = new GitWorkspace(workspace);
+  const prefix = `sessions/${SESSION_ID}/`;
+  return new WorkerHost({
+    checkpoints: new SessionCheckpoints({
+      fingerprint: claudeClaimFingerprint(config),
+      gateway,
+      instructionsCommit: () => prepared.instructionsCommit(),
+      logger,
+      objectPrefix: prefix,
+      objects: scopedCheckpointObjectStore(input.bucket, prefix),
+      workspaceRoot: workspace,
+    }),
+    engines,
+    execution: {
+      bootstrapNonce: "wln_local",
+      generation: input.generation,
+      id: `exec-${input.generation}`,
+    },
+    gateway,
+    logger,
+    runtimes: claudeRuntimeRegistry(config, engines),
+    timeouts,
+    workspace: prepared,
+  });
+}
+
+describe("the worker's checkpoints against the control plane's service", () => {
+  test("a replacement worker restores the checkpoint a turn committed, and one for another partition is refused", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-246-" });
     const { home, root, workspace } = isolated;
     await rm(workspace, { force: true, recursive: true });
@@ -179,169 +314,132 @@ describe("the worker's checkpoint publisher against the control plane's service"
       },
     };
 
-    const bucket = createMemoryCheckpointObjectStore();
+    // Versioned, and the service in its default `locked` mode: every object
+    // the worker names must carry the version it wrote (94S-229).
+    const bucket = createMemoryCheckpointObjectStore({ versioned: true });
     const pointers = memoryPointerStore();
     const service = createCheckpointService({
       codecs: { claude: claudeCheckpointCodec },
-      // The mirror does not record part versions yet; the restorer half of
-      // 94S-246 carries them.
-      objectProtection: "unversioned",
       objects: bucket,
       store: pointers,
       workspaceBundles: createGitWorkspaceBundleVerifier(),
     });
-    const gateway = new ApprovingGateway({
+    const session = {
+      checkpoints: servedBy(service),
       runtimeConfig,
       sessionId: SESSION_ID,
       workspace: descriptor,
-      checkpoints: {
-        async requestCheckpoint(request): Promise<CheckpointRequestResponse> {
-          const decision = await service.requestCheckpoint({
-            attemptId: request.attempt_id,
-            preparation: request.preparation,
-            sessionId: request.session_id,
-          });
-          return decision.status === "ready"
-            ? {
-                status: "ready",
-                revision: decision.request.revision,
-                manifest_ref: decision.request.manifestRef,
-              }
-            : decision;
-        },
-        async commit(request) {
-          const result = await service.finalize({
-            checkpoint: request.checkpoint,
-            fence: {
-              attemptId: request.attempt_id,
-              authRevision: request.auth_revision,
-              executionGeneration: request.execution_generation,
-              leaseEpoch: request.lease_epoch,
-              sessionId: request.session_id,
-            },
-            now: new Date(),
-            sessionId: request.session_id,
-            turnId: request.turn_id,
-          });
-          if (result.outcome === "rejected") {
-            throw new WorkerGatewayRequestError(
-              409,
-              "CHECKPOINT_UNAVAILABLE",
-              `Checkpoint manifest rejected: ${result.reason}`,
-              false,
-            );
-          }
-          if (result.outcome !== "committed") {
-            throw new Error(`unexpected commit outcome ${result.outcome}`);
-          }
-        },
-        async restorePlan() {
-          return { status: "none" };
-        },
-      },
-    });
-    gateway.enqueue("edit the readme");
-
-    const config = {
-      runtime: { claudeConfigDir: home, cwd: workspace, home },
-    } as WorkerConfig;
-    const failures: unknown[] = [];
-    const logger: WorkerLogger = {
-      info: () => {},
-      warn: (event, fields) => {
-        if (event === "worker.checkpoint.failed") failures.push(fields);
-      },
-      error: (event, fields) => failures.push({ event, fields }),
     };
-    const fingerprint = claudeClaimFingerprint(config);
-    const engines = new EngineProcesses();
-    const host = new WorkerHost({
-      checkpoints: new SessionCheckpoints({
-        fingerprint,
-        gateway,
-        logger,
-        objectPrefix: `sessions/${SESSION_ID}/`,
-        objects: scopedCheckpointObjectStore(bucket, `sessions/${SESSION_ID}/`),
-        workspaceRoot: workspace,
-      }),
-      engines,
-      execution: { bootstrapNonce: "wln_local", generation: 1, id: "exec-1" },
-      gateway,
-      logger,
-      runtimes: claudeRuntimeRegistry(config, engines),
-      timeouts,
-      workspace: new GitWorkspace(workspace),
-    });
 
-    const summary = await host.runLoop();
+    // Generation 1: one turn, checkpointed.
+    const first = new ApprovingGateway(session);
+    first.enqueue("edit the readme");
+    const one = recorder();
+    const summary = await workerOn({
+      bucket,
+      gateway: first,
+      generation: 1,
+      home,
+      logger: one.logger,
+      workspace,
+    }).runLoop();
 
-    expect(failures).toEqual([]);
+    expect(one.failures).toEqual([]);
     expect(summary.turns).toEqual([
       { turnId: "1", status: "completed", reason: null },
     ]);
-    const committed = gateway.finalized[0]?.checkpoint;
-    expect(committed?.revision).toBe(0);
-    expect(pointers.pointer()?.manifestRef).toBe(
-      committed?.manifest_ref as string,
-    );
-    expect(pointers.pointer()?.manifestSha256).toBe(
-      committed?.manifest_sha256 as string,
-    );
+    const committed = first.finalized[0]?.checkpoint;
+    if (committed == null) throw new Error("turn 1 committed no checkpoint");
+    expect(committed.revision).toBe(0);
+    expect(committed.manifest_version).toBeDefined();
+    expect(pointers.pointer()?.manifestRef).toBe(committed.manifest_ref);
+    expect(pointers.pointer()?.manifestSha256).toBe(committed.manifest_sha256);
     // The heartbeat that ended the run reported the mirror as written.
-    expect(gateway.heartbeats.at(-1)?.transcript).toMatchObject({
+    expect(first.heartbeats.at(-1)?.transcript).toMatchObject({
       mirror_error: null,
     });
-
-    const claim = await gateway.bootstrapClaim({
-      execution_id: "exec-2",
-      execution_generation: 2,
-      credential: { kind: "launch_nonce", nonce: "nonce" },
-    });
-    const restore = await service.getRestorePlan({
-      runtime: fingerprint(claim),
-      sessionId: SESSION_ID,
-    });
-    if (restore.status !== "ready") {
-      throw new Error(`expected a plan, got ${JSON.stringify(restore)}`);
-    }
-    const bundle = restore.plan.artifacts.find(
-      (artifact) => artifact.kind === "workspace_bundle",
-    )?.objects[0];
-    if (bundle === undefined) throw new Error("the plan names no bundle");
-    const bytes = await bucket.get(bundle.key);
-    if (bytes === undefined) throw new Error("the bundle is missing");
-    const bundlePath = join(root, "restore.bundle");
-    await writeFile(bundlePath, bytes);
-    const restored = join(root, "restored");
-    git(["init", "--quiet", restored], root);
-    git(["fetch", "--quiet", bundlePath, "refs/*:refs/bundle/*"], restored);
-    git(["checkout", "--quiet", "--detach", restore.plan.gitCommit], restored);
-    expect(await readFile(join(restored, "README.md"), "utf8")).toBe(
-      "edited\n",
-    );
     // What the engine left committed on the branch is untouched: the capture
     // commit is the checkpoint's, not the session's history.
     expect(git(["rev-list", "--count", "HEAD"], workspace).trim()).toBe("1");
-    const untracked = restore.plan.artifacts.find(
-      (artifact) => artifact.kind === "workspace_untracked",
+    const modelRequests = server.requests.length;
+
+    // Another partition on the same endpoint (94S-261): refused before the
+    // engine starts, the workspace as it was.
+    await writeFile(join(workspace, "sentinel.txt"), "left behind\n");
+    const stranger = new ApprovingGateway({
+      ...session,
+      ownerScope: "owner-b",
+      restore: committed,
+    });
+    stranger.enqueue("edit the readme");
+    const two = recorder();
+    const strangerHome = join(root, "home-2");
+    await mkdir(strangerHome);
+    const refused = await workerOn({
+      bucket,
+      gateway: stranger,
+      generation: 2,
+      home: strangerHome,
+      logger: two.logger,
+      workspace,
+    }).runLoop();
+
+    expect(refused.outcome).toBe("failed");
+    expect(refused.reason).toContain("INCOMPATIBLE_CHECKPOINT");
+    expect(two.errors).toContain("worker.checkpoint.restore_refused");
+    expect(await readFile(join(workspace, "sentinel.txt"), "utf8")).toBe(
+      "left behind\n",
+    );
+    expect(server.requests.length).toBe(modelRequests);
+
+    // The owner again, on a volume that kept nothing and a home that never
+    // saw the transcript, redelivered the input turn 1 already took (94S-242).
+    await rm(workspace, { force: true, recursive: true });
+    await mkdir(workspace);
+    const ownerHome = join(root, "home-3");
+    await mkdir(ownerHome);
+    const owner = new ApprovingGateway({ ...session, restore: committed });
+    owner.enqueue("edit the readme");
+    const three = recorder();
+    const resumed = await workerOn({
+      bucket,
+      gateway: owner,
+      generation: 3,
+      home: ownerHome,
+      logger: three.logger,
+      workspace,
+    }).runLoop();
+
+    expect(three.errors).toEqual([]);
+    expect(owner.restorePlans).toHaveLength(1);
+    expect(resumed.turns).toEqual([
+      {
+        turnId: "1",
+        status: "outcome_unknown",
+        reason: "input_already_consumed",
+      },
+    ]);
+    // Held, not sent again: the model saw nothing from the restored engine.
+    expect(server.requests.length).toBe(modelRequests);
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "edited\n",
+    );
+    expect(git(["rev-list", "--count", "HEAD"], workspace).trim()).toBe("1");
+    expect(git(["symbolic-ref", "HEAD"], workspace).trim()).toBe(
+      "refs/heads/main",
     );
     if (procfs) {
-      expect(
-        untracked?.objects.map((object) => [
-          (object as { path?: string }).path,
-          (object as { executable?: true }).executable,
-        ]),
-      ).toEqual([["notes.txt", true]]);
+      expect(await readFile(join(workspace, "notes.txt"), "utf8")).toBe(
+        "fresh\n",
+      );
+      expect((await stat(join(workspace, "notes.txt"))).mode & 0o100).toBe(
+        0o100,
+      );
+      expect(git(["status", "--porcelain"], workspace)).toBe(
+        " M README.md\n?? notes.txt\n",
+      );
     } else {
-      expect(untracked).toBeUndefined();
+      expect(git(["status", "--porcelain"], workspace)).toBe(" M README.md\n");
     }
-    expect(restore.plan.cwd).toBe(workspace);
-
-    // Another partition on the same endpoint resumes nothing of this one.
-    const stranger = await service.getRestorePlan({
-      runtime: fingerprint({ ...claim, principal: { owner_scope: "owner-b" } }),
-      sessionId: SESSION_ID,
-    });
-    expect(stranger.status).toBe("incompatible");
-  }, 120_000);
+  }, 180_000);
 });

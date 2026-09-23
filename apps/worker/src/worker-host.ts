@@ -200,6 +200,8 @@ export class WorkerHost {
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
+  /** The restore in flight or done, settled either way; see `shutdown`. */
+  private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -318,7 +320,10 @@ export class WorkerHost {
         run = launcher.start(
           {
             ...plan,
-            committedClaudeMd: () => this.options.workspace.committedClaudeMd(),
+            committedClaudeMd:
+              plan.mode === "resume" && plan.committedClaudeMd !== undefined
+                ? plan.committedClaudeMd
+                : () => this.options.workspace.committedClaudeMd(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             principal: claim.principal,
             runtimeConfig: claim.runtime_config,
@@ -394,7 +399,17 @@ export class WorkerHost {
       repository_id: claim.workspace.repository.id,
       branch: claim.workspace.repository.branch,
     });
-    return this.untilStopped(this.checkpoints.restorePlan(claim));
+    const restoring = this.checkpoints
+      .restorePlan(claim, this.preparation.signal)
+      .catch((error: unknown) => {
+        if (this.preparation.signal.aborted) return undefined;
+        throw error;
+      });
+    this.restoring = restoring.then(
+      () => {},
+      () => {},
+    );
+    return this.untilStopped(restoring);
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -897,23 +912,35 @@ export class WorkerHost {
     try {
       let checkpoint: CheckpointRef | null = null;
       if (settlement.synthetic !== true) {
-        // Bounded like the waits around it: a capture that never returns must
-        // not hold the process past the drain budget either.
         const capturing = this.capture(run);
         outstanding = capturing;
-        captured = await this.untilAbandoned(
-          // Someone is waiting on an interrupt's receipt: a capture that
-          // fails or hangs gives it an unknown outcome (below) instead of
-          // none. Any other turn fails the worker as before, and keeps the
-          // drain as its only bound.
-          interrupted
-            ? this.withinInterruptGrace(
-                capturing,
-                turnId,
-                this.turn?.interruptDeadline,
-              )
-            : capturing,
-        );
+        // The heartbeat keeps the lease while a capture runs, so one that
+        // never returns needs a bound of its own. It moves the workspace out
+        // as the startup moved it in, and gets the same budget; a knob of its
+        // own waits until the two need different bounds.
+        const budget = interrupted
+          ? undefined
+          : this.stageBudget(
+              "Checkpointing the turn",
+              this.options.timeouts.startupTimeoutMs,
+            );
+        try {
+          captured = await this.untilAbandoned(
+            // Someone is waiting on an interrupt's receipt: a capture that
+            // fails or hangs gives it an unknown outcome (below) instead of
+            // none. Any other turn fails the worker, and its budget above
+            // starts the drain that ends the wait.
+            interrupted
+              ? this.withinInterruptGrace(
+                  capturing,
+                  turnId,
+                  this.turn?.interruptDeadline,
+                )
+              : capturing,
+          );
+        } finally {
+          budget?.disarm();
+        }
         if (captured === undefined) {
           capturing.then(
             ({ lease }) => lease?.release(),
@@ -1472,6 +1499,23 @@ export class WorkerHost {
       );
     }
     await this.confirmEngineExit();
+    // A restore still replacing the workspace should not outlive the
+    // release: the next attempt restores into the same root. The abort
+    // reaches it at its next step, and the port starts no file work after
+    // it, so this waits out only a step already under way. One still out
+    // past that is waiting on the network, not writing; the process exits
+    // right after the release, which ends it either way.
+    if (
+      this.restoring !== undefined &&
+      !(await settledWithin(
+        this.restoring,
+        this.withinGrace(this.options.timeouts.requestTimeoutMs),
+      ))
+    ) {
+      this.logger.warn("worker.restore.unsettled", {
+        reason: "the restore had not stopped by the release",
+      });
+    }
     if (this.heartbeat !== undefined) {
       await settledWithin(
         this.heartbeat.stop(),
@@ -1818,7 +1862,7 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const consoleLogger: WorkerLogger = {
+export const consoleLogger: WorkerLogger = {
   info: (event, fields) => log("info", event, fields),
   warn: (event, fields) => log("warn", event, fields),
   error: (event, fields) => log("error", event, fields),

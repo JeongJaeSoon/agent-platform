@@ -355,7 +355,23 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **transcript 정착.** mirror batch 하나라도 실패한 채 다시 쓰이지 않았으면(`unsettled`) 또는 lease를 잡은 뒤 `mirror_error`가 왔으면 manifest를 쓰지 않는다. 이때 publish가 어느 단계에서 멈췄든 `requestCheckpoint(rejected: mirror_error)`로 blocking 사유를 먼저 기록하고, 기록이 실패하면 capture가 던져 turn을 열어 둔다. checkpoint 없는 completed finalize는 blocking 사유가 기록되기 전까지는 받아들여지기 때문이다. 거절된 preparation(advisory 사유 포함)으로 checkpoint 없이 끝나는 경로도 같은 재확인을 거친다. latch되는 순간 heartbeat를 바로 보내고 그 자리에서 drain을 시작한다 — 이미 기다리고 있는 poll이 checkpoint할 수 없는 turn을 받아 가지 않게. pause도 flush 중에 latch되면 pause release를 하지 않고 drain의 release 장벽을 따른다. heartbeat는 mirror가 마지막으로 쓴 시각과 run에 latch된 `mirror_error`를 `transcript`로 싣는다. 종료 중인 heartbeat도 요청받은 beat를 버리지 않는다. latch된 `mirror_error`를 실은 beat에 gateway가 답하기 전에는 release하지 않고, 끝내 기록하지 못하면 lease가 만료되게 둔다(`worker.mirror_error.unrecorded`).
 - **실패는 turn 실패가 아니다.** publish가 도중에 실패하면 `worker.checkpoint.failed`(stage·reason·revision·manifest_ref)를 남기고 checkpoint 없이 finalize한다. 소유권 상실만 던진다. checkpoint를 실은 finalize가 결정적 `CHECKPOINT_UNAVAILABLE`(manifest 검증 거절)을 받고 앞서 결말 모를 시도가 없었으면, 같은 finalize key로 checkpoint 없이 한 번 더 finalize한다. 거절된 요청은 아무것도 commit하지 않았기 때문이다.
 - **엔진 밖 writer (한계).** lease는 엔진이 실행하는 tool만 막는다. 명령이 detach한 프로세스처럼 엔진 밖에서 쓰는 writer가 capture 도중 workspace를 바꾸면 bundle과 transcript가 어긋난 generation이 commit될 수 있다. v0.1은 이 한계를 받아들인다(Codex 판정 (c)). 막으려면 workspace를 snapshot 가능한 파일시스템에 두거나 capture 동안 컨테이너 전체를 freeze해야 하며, 둘 다 execution backend의 일이다.
-- **복원은 publish와 함께 켠다.** composition은 restorer가 들어오기 전까지 `unwiredCheckpoints`를 쓴다. publish만 켜면 첫 checkpoint가 commit된 순간부터 교체 워커가 claim에서 전부 실패하기 때문이다.
+- **version을 싣는다(94S-229).** 업로드가 돌려준 object version을 bundle·untracked·transcript part ref와 `CheckpointRef.manifest_version`에 싣는다. 그래서 기본 `locked` 모드의 finalize가 그대로 받는다. version이 없는 저장소에서는 ref에서 빠진다.
+- **복원은 publish와 함께 켠다.** composition은 publisher와 restorer를 한 `SessionCheckpoints`로 묶는다. gateway·logger·workspace는 host와 같은 인스턴스를 쓴다. `unwiredCheckpoints`는 object store 없이 host를 도는 테스트에만 남긴다.
+
+**워커 restorer 규칙 (94S-246, 2026-09-23).** claim의 `restore`가 가리키는 checkpoint를 엔진 시작 전에 되살린다(`SessionCheckpoints.restorePlan(claim, signal)`, git 작업은 `apps/worker/src/checkpoint-restore.ts`).
+
+- **거절할 수 있는 것은 전부 workspace를 건드리기 전에 한다.** 순서는 다음과 같다.
+  1. 워커가 claim으로 **다시 계산한** fingerprint로 gateway `/restore-plan`을 부른다. `ready`여야 하고, plan의 revision·manifest_ref가 claim과 같아야 한다.
+  2. claim이 digest로 고정한 manifest를 plan이 준 version으로 읽어 sha256을 대조한다. 이 manifest가 이후 모든 판단의 근거다. plan에서는 어느 version을 읽을지만 받는다.
+  3. manifest의 sessionId·revision, 이 워커 runtime과의 호환성(gateway가 `ready`라고 해도 다시 본다), `cwd`가 provision된 workspace root인지(`restoreCwdRefusal`), untracked 경로 규칙(`workspacePathsProblem`), 모든 key가 세션 prefix 안에 있는지를 확인한다.
+  4. 상속 transcript store를 만들고 모든 part를 읽어 parse한다(`verifyInherited`).
+  5. bundle과 untracked를 크기·sha256으로 검증하며 scratch에 한 번에 여덟 개씩 내려받는다.
+  6. bundle을 워커 소유 bare 저장소에 `fsckObjects`로 fetch한다. ref는 capture가 쓰는 것만 허용한다: head·worktree·instructions와 branch 하나이고, branch는 head와 같아야 하며 worktree는 manifest `gitCommit`이어야 한다.
+- **그다음에만 바꾼다.** root의 내용을 비우고(root 자체는 mount point라 남긴다) 새 저장소를 만든다. 이전 엔진의 config·hook·remote는 남기지 않는다. 그 저장소에 branch(또는 detached HEAD)를 세우고, worktree commit으로 작업 트리를 쓴 뒤 index를 HEAD로 돌린다(`reset --mixed -N`). 커밋되지 않았던 수정은 다시 커밋되지 않은 상태가 되고, 새 파일은 intent-to-add로 남아 다음 capture가 다시 담는다. origin은 자격 증명을 뺀 URL로 둔다. untracked 파일은 `writeWorkspaceFile`로 쓴다 — 링크를 따라가지 않고, 실행 비트가 있던 파일만 0700이다.
+- **CLAUDE.md는 고정된 commit에서.** publisher는 workspace preparer가 CLAUDE.md를 읽은 commit을 bundle의 `refs/checkpoint/instructions`로 싣는다. 그 SHA는 워커 메모리에서 오고, 엔진이 고칠 수 있는 ref에서 오지 않는다. 복원은 그 commit에서 CLAUDE.md를 읽어 `RuntimeResumePlan.committedClaudeMd`로 넘긴다. ref가 없으면 없는 것으로 보지 않고 refused로 넘겨, 파일을 요구하는 profile이 CLAUDE.md 없이 재개되지 않게 한다. 워커 소유 저장소는 복원 뒤에도 남아 이후 capture의 object 출처(alternate)가 된다. 엔진이 자기 사본을 prune해도 instructions commit을 계속 bundle할 수 있다.
+- **거절은 claim 실패다.** `RestoreRefused`(`CHECKPOINT_UNAVAILABLE`·`INCOMPATIBLE_CHECKPOINT`)를 던지고 `worker.checkpoint.restore_refused`를 남긴다. `requestCheckpoint`로 보고하지 않는다. 다른 파티션(94S-261)은 엔진이 시작되기 전에 이렇게 끝나고 workspace는 그대로다.
+- **취소.** signal은 매 await 앞뒤로 본다. abort 뒤에 끝난 다운로드가 파일 작업을 시작하지는 않는다. 중간에 멈춘 복원은 다음 attempt가 처음부터 다시 한다. host는 abort를 실패가 아니라 drain으로 다룬다. release 전에 복원이 멈추기를 요청 timeout 안에서 기다리고, 그래도 안 끝났으면 `worker.restore.unsettled`를 남기고 release한다. 남은 것은 네트워크를 기다리는 단계뿐이고, 프로세스가 release 직후 끝나기 때문이다.
+- **turn 뒤 capture의 기한.** heartbeat는 capture가 도는 동안에도 lease를 늘리므로, interrupt가 아닌 turn의 capture는 시작 단계와 같은 예산(`WORKER_STARTUP_TIMEOUT_SEC`)을 받는다. 넘기면 워커를 failed로 멈추고 drain 예산이 기다림을 끝낸다. workspace를 들여오는 단계와 내보내는 단계라 같은 상한을 쓰고, 둘이 다른 상한을 필요로 할 때 따로 둔다(94S-269에서 넘겨받은 지적).
 
 1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
 
