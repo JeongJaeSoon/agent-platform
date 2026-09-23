@@ -276,3 +276,22 @@ export function parseExecutionResources(value: unknown): ExecutionResources {
     pidsLimit: pidsLimit as number,
   };
 }
+
+/**
+ * The resource under this launch's name was built from another image or
+ * other limits than the launch was reserved with. It is refused rather than
+ * adopted, and not removed here: it may hold a credential a worker is
+ * presenting right now, and only the scheduler's fenced replacement can
+ * take it away without racing that claim.
+ */
+export class LaunchSpecMismatchError extends Error {
+  constructor(
+    readonly ref: ExecutionRef,
+    readonly found: string,
+  ) {
+    super(
+      `Resource for execution ${ref.executionId} generation ${ref.generation} carries launch spec ${found}, not the one its launch was reserved with; left for the scheduler to replace`,
+    );
+    this.name = "LaunchSpecMismatchError";
+  }
+}

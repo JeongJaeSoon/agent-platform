@@ -3,6 +3,7 @@ import {
   type ExecutionResources,
   hashWorkerToken,
   type LaunchIntent,
+  LaunchSpecMismatchError,
   launchNonceFingerprint,
   launchSpecFingerprint,
 } from "@agent-platform/platform";
@@ -14,7 +15,6 @@ import {
   IsolationContractError,
   isolationStampFor,
   LABELS,
-  LaunchSpecMismatchError,
   LocalDockerBackend,
   NetworkIsolationError,
   NO_PROXY_VALUE,

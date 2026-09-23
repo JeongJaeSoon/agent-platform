@@ -8,6 +8,7 @@ import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
+  LaunchSpecMismatchError,
   launchNonceFingerprint,
   type ManagedExecution,
   type ManagedWorkspace,
@@ -406,25 +407,6 @@ export class IsolationContractError extends Error {
       `Container for execution ${ref.executionId} generation ${ref.generation} carries isolation ${found}, newer than this control host's ${ISOLATION_CONTRACT}; roll forward or remove it deliberately`,
     );
     this.name = "IsolationContractError";
-  }
-}
-
-/**
- * The container under this launch's name was built from another image or
- * other limits than the launch was reserved with. It is refused rather than
- * adopted, and not removed here: it may hold a credential a worker is
- * presenting right now, and only the scheduler's fenced replacement can
- * take it away without racing that claim.
- */
-export class LaunchSpecMismatchError extends Error {
-  constructor(
-    readonly ref: ExecutionRef,
-    readonly found: string,
-  ) {
-    super(
-      `Container for execution ${ref.executionId} generation ${ref.generation} carries launch spec ${found}, not the one its launch was reserved with; left for the scheduler to replace`,
-    );
-    this.name = "LaunchSpecMismatchError";
   }
 }
 
