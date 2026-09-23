@@ -12,6 +12,7 @@ import {
   type Receipt,
   type ReceiptSessionTarget,
   receiptSchema,
+  type SessionStatus,
   SSE_SCHEMA_VERSION,
   sessionIdSchema,
   sseEventSchema,
@@ -35,7 +36,18 @@ import {
   checkpointReasonHoldsWork,
   projectDurability,
 } from "@agent-platform/platform";
-import { and, asc, desc, eq, gt, inArray, max, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  max,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import {
   decodeEventCursor,
@@ -44,7 +56,13 @@ import {
 } from "./event-cursor.ts";
 import { admitInput } from "./input-limits.ts";
 import { pauseAttention } from "./pause-control.ts";
-import { countActionablePending } from "./pending-requests.ts";
+import {
+  actionableOfSession,
+  actionableOfTurn,
+  IN_FLIGHT_STATUSES,
+  isInFlight,
+  publicStatus,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -400,12 +418,13 @@ function resultParts(resultJson: unknown): {
 
 function summarizeTurn(
   row: TurnRow,
+  awaitingInput: boolean,
   checkpointRevision: number | null,
 ): TurnSummary {
   return {
     turn_id: String(row.sequence),
     session_id: row.sessionId,
-    status: turnStatusSchema.parse(row.status),
+    status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
     message: row.message,
     terminal_reason: row.terminalReason,
     checkpoint_revision: checkpointRevision,
@@ -492,9 +511,32 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     );
   }
 
-  async function summarize(rows: SessionRow[]): Promise<SessionRecord[]> {
+  // Reads a turn with whether it is waiting on a person, in one statement.
+  const turnWithInput = () =>
+    db
+      .select({
+        turn: turns,
+        awaitingInput: sql<boolean>`exists (${actionableOfTurn(db)})`,
+      })
+      .from(turns);
+
+  // `?status=` filters on what the list shows, not on the stored column.
+  function publicStatusIs(status: SessionStatus) {
+    if (!isInFlight(status)) {
+      return eq(sessions.status, status);
+    }
+    const waiting = actionableOfSession(db);
+    return and(
+      inArray(sessions.status, IN_FLIGHT_STATUSES),
+      status === "needs_input" ? exists(waiting) : notExists(waiting),
+    );
+  }
+
+  async function summarize(
+    rows: { session: SessionRow; awaitingInput: boolean }[],
+  ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
-    const ids = rows.map((row) => row.id);
+    const ids = rows.map(({ session }) => session.id);
     const openTurns = await db
       .select({
         sessionId: turns.sessionId,
@@ -517,7 +559,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       lastEvents.map((row) => [row.sessionId, row.at]),
     );
 
-    return rows.map((row) => {
+    return rows.map(({ session: row, awaitingInput }) => {
       const mine = openTurns.filter((turn) => turn.sessionId === row.id);
       const current = mine
         .filter((turn) => turn.status !== "queued")
@@ -526,7 +568,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         id: row.id,
         revision: row.revision,
         admission_state: row.admissionState,
-        status: row.status,
+        status: publicStatus(row.status, awaitingInput),
         profile_id: row.profileId,
         repository_id: row.repositoryId,
         current_turn_id: current ? String(current.sequence) : null,
@@ -543,12 +585,16 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     async listSessions(ownerId: string, query: ListSessionsQuery) {
       const cursor = query.cursor ? decodeCursor(query.cursor) : null;
       const rows = await db
-        .select({ session: sessions, cursorAt: CREATED_AT_TEXT })
+        .select({
+          session: sessions,
+          cursorAt: CREATED_AT_TEXT,
+          awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
+        })
         .from(sessions)
         .where(
           and(
             eq(sessions.ownerId, ownerId),
-            query.status ? eq(sessions.status, query.status) : undefined,
+            query.status ? publicStatusIs(query.status) : undefined,
             cursor
               ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
@@ -568,7 +614,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: await summarize(page.map((row) => row.session)),
+        items: await summarize(page),
         next_cursor:
           rows.length > query.limit && last
             ? encodeCursor({ created_at: last.cursorAt, id: last.session.id })
@@ -580,52 +626,55 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       ownerId: string,
       sessionId: string,
     ): Promise<SessionDetailRecord | null> {
-      const [row] = await db
-        .select()
+      // The count and the status it projects come from one statement, so
+      // the detail never says needs_input beside a count of zero.
+      const [read] = await db
+        .select({
+          session: sessions,
+          pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(db)}) AS actionable)`,
+        })
         .from(sessions)
         .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
         .limit(1);
-      if (!row) return null;
-      const [summary] = await summarize([row]);
+      if (!read) return null;
+      const row = read.session;
+      const [summary] = await summarize([
+        { session: row, awaitingInput: read.pendingCount > 0 },
+      ]);
       if (!summary) return null;
-      const [[execution], [pending], [completed], [checkpoint]] =
-        await Promise.all([
-          db
-            .select({
-              backend: executions.backend,
-              state: executions.observedState,
-              observed_at: executions.observedAt,
-            })
-            .from(executions)
-            .where(eq(executions.sessionId, sessionId))
-            .orderBy(desc(executions.generation))
-            .limit(1),
-          countActionablePending(db, sessionId),
-          db
-            .select({ sequence: max(turns.sequence) })
-            .from(turns)
-            .where(
-              and(
-                eq(turns.sessionId, sessionId),
-                eq(turns.status, "completed"),
-              ),
-            ),
-          // The turn the *pointer's* checkpoint closed, not the newest
-          // checkpoint row: the two agree only while nothing is committing.
-          row.checkpointRevision === null
-            ? Promise.resolve([undefined])
-            : db
-                .select({ sequence: turns.sequence })
-                .from(checkpoints)
-                .innerJoin(turns, eq(turns.id, checkpoints.turnId))
-                .where(
-                  and(
-                    eq(checkpoints.sessionId, sessionId),
-                    eq(checkpoints.revision, row.checkpointRevision),
-                  ),
-                )
-                .limit(1),
-        ]);
+      const [[execution], [completed], [checkpoint]] = await Promise.all([
+        db
+          .select({
+            backend: executions.backend,
+            state: executions.observedState,
+            observed_at: executions.observedAt,
+          })
+          .from(executions)
+          .where(eq(executions.sessionId, sessionId))
+          .orderBy(desc(executions.generation))
+          .limit(1),
+        db
+          .select({ sequence: max(turns.sequence) })
+          .from(turns)
+          .where(
+            and(eq(turns.sessionId, sessionId), eq(turns.status, "completed")),
+          ),
+        // The turn the *pointer's* checkpoint closed, not the newest
+        // checkpoint row: the two agree only while nothing is committing.
+        row.checkpointRevision === null
+          ? Promise.resolve([undefined])
+          : db
+              .select({ sequence: turns.sequence })
+              .from(checkpoints)
+              .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+              .where(
+                and(
+                  eq(checkpoints.sessionId, sessionId),
+                  eq(checkpoints.revision, row.checkpointRevision),
+                ),
+              )
+              .limit(1),
+      ]);
       return {
         ...summary,
         execution: execution
@@ -635,7 +684,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
             })
           : null,
         checkpoint_revision: row.checkpointRevision,
-        pending_request_count: pending?.count ?? 0,
+        pending_request_count: read.pendingCount,
         attention: await pauseAttention(db, row),
         cost_usd: row.costUsd,
         durability: projectDurability({
@@ -657,9 +706,7 @@ export function createPostgresSessionReader(db: Database): SessionReader {
     async listTurns(ownerId: string, sessionId: string, query: ListTurnsQuery) {
       const cursor = query.cursor ? decodeTurnCursor(query.cursor) : null;
       if (!(await ownedSession(ownerId, sessionId))) return null;
-      const rows = await db
-        .select()
-        .from(turns)
+      const rows = await turnWithInput()
         .where(
           and(
             eq(turns.sessionId, sessionId),
@@ -670,14 +717,16 @@ export function createPostgresSessionReader(db: Database): SessionReader {
         .limit(query.limit + 1);
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
-      const revisions = await checkpointRevisions(page.map((row) => row.id));
+      const revisions = await checkpointRevisions(
+        page.map(({ turn }) => turn.id),
+      );
       return {
-        items: page.map((row) =>
-          summarizeTurn(row, revisions.get(row.id) ?? null),
+        items: page.map(({ turn, awaitingInput }) =>
+          summarizeTurn(turn, awaitingInput, revisions.get(turn.id) ?? null),
         ),
         next_cursor:
           rows.length > query.limit && last
-            ? encodeTurnCursor({ sequence: last.sequence })
+            ? encodeTurnCursor({ sequence: last.turn.sequence })
             : null,
       };
     },
@@ -691,14 +740,13 @@ export function createPostgresSessionReader(db: Database): SessionReader {
       if (sequence === null) return null;
       const session = await ownedSession(ownerId, sessionId);
       if (!session) return null;
-      const [row] = await db
-        .select()
-        .from(turns)
+      const [read] = await turnWithInput()
         .where(
           and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
         )
         .limit(1);
-      if (!row) return null;
+      if (!read) return null;
+      const row = read.turn;
       const revisions = await checkpointRevisions([row.id]);
       const parts = resultParts(row.resultJson);
       const attemptRows = row.attemptId
@@ -709,7 +757,11 @@ export function createPostgresSessionReader(db: Database): SessionReader {
             .limit(1)
         : [];
       return {
-        ...summarizeTurn(row, revisions.get(row.id) ?? null),
+        ...summarizeTurn(
+          row,
+          read.awaitingInput,
+          revisions.get(row.id) ?? null,
+        ),
         result: parts.result,
         usage: parts.usage,
         attempts: attemptRows.map((attempt) => ({

@@ -507,7 +507,7 @@ API는 라우팅 시 heartbeat를 확인하지 않는다(§7.1). v0.1에서는 A
 | 새 세션 첫 메시지 | 없음 → 워커 획득 | 미배정 → running |
 | 매핑된 세션에 메시지 | 유지 | idle → running |
 | 턴 종료 | 유지 | running → idle |
-| 질문 대기 | 유지 | running → needs_input |
+| 질문 대기 | 유지 | running → needs_input (저장하지 않고 조회 시 파생, §6.4) |
 | 유휴 타이머 만료 | 삭제 | 종료 |
 | heartbeat 소실 | 삭제(reconciler) | 이미 없음 |
 | 클레임 실패가 타임아웃까지 반복 | 없음 | `exit 0` |
@@ -536,7 +536,7 @@ ScaledJob은 "부족하면 만든다"만 하고 "남으면 지운다"는 하지 
 
 | 저장소 | 내용 | 쓰는 주체 | 성격 |
 |--------|------|-----------|------|
-| Postgres `sessions` | `status`, `pod_id` | 워커(획득·전이·해제), reconciler(고아 정리). API는 읽기와 `queued` 전이만 | **정본**. 클라이언트가 보는 세션 상태 |
+| Postgres `sessions` | `status`, `pod_id` | 워커(획득·전이·해제), reconciler(고아 정리). API는 읽기와 `queued` 전이만 | **정본**. 클라이언트가 보는 세션 상태의 기반. `needs_input`은 저장하지 않고, `running`이면서 답할 수 있는 pending request가 있을 때 읽는 시점에 파생한다(§6.4) |
 | Postgres `workers.last_seen` | 마지막 heartbeat 시각 | 워커 10초 주기, reconciler stale 기준 30초 | 최근 생존의 증거이며 현재 소유권 자체를 보장하지 않음 |
 | Kubernetes Job/Pod | Running / Complete / Failed | kubelet | 인프라 수준. 세션 상태와 직접 연결하지 않음 |
 
@@ -557,8 +557,8 @@ let pendingRequests: Map<string, PendingRequest>;
 | `booting → claiming` | 기동 | heartbeat 루프 시작, `unassigned_sessions` 후보 조회 |
 | `claiming → running` | DB UPDATE 성공 | 검증된 manifest로 transcript·repo 복원, 해당 session의 `queue_messages` 소비 시작. 실패면 `claiming` 유지 |
 | `claiming → exit` | `CLAIM_TIMEOUT_SEC` 경과 | 자기 heartbeat lease 해제, `exit 0`. 저장할 것이 없으므로 drain을 거치지 않는다 |
-| `running → running` | permission/question 진입 | pending map에 추가하고 `question` 발행. pending이 있으면 session status만 `needs_input`으로 projection |
-| `running → running` | request별 답변/타임아웃 | 해당 request만 종결. pending이 비면 session status를 `running`으로 projection |
+| `running → running` | permission/question 진입 | pending map에 추가하고 `question` 발행. 답할 수 있는 pending이 있으면 session과 그 turn의 공개 status만 `needs_input`으로 projection |
+| `running → running` | request별 답변/타임아웃 | 해당 request만 종결. pending이 비면 session과 그 turn의 공개 status를 `running`으로 projection |
 | `running → interrupting → idle` | `/stop` | 현재 turn interrupt, durable `interrupted`/`stopped` 기록 후 best-effort checkpoint. 저장 실패와 무관하게 재실행 금지, 다음 메시지 대기 |
 | `running → idle/failed/stopped` | terminal `result` 판정 | subtype별 상태 결정. 성공은 checkpoint publish 후 ACK·idle, 실패와 interrupt는 각 정책 적용 |
 | `idle → running` | 세션 큐에 메시지 | 타이머 취소, 다음 턴 시작 |
