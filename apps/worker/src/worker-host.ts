@@ -546,7 +546,9 @@ export class WorkerHost {
       turn.settled.then(() => undefined),
     ]);
     // The check awaited: the deadline, the lease or the engine may be gone.
-    if (held === undefined || turn.closed) return;
+    // Past the deadline nothing is sent, even with the terminal still to
+    // come: the interrupt has already been asked for and would miss it.
+    if (held === undefined || turn.closed || turn.timedOut) return;
     if (this.stopKind === "failed" || this.stopKind === "lost") return;
     if (held) {
       this.logger.warn("worker.turn.already_consumed", {

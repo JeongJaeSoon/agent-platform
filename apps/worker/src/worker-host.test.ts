@@ -1384,6 +1384,37 @@ describe("WorkerHost with a resumed engine session (94S-242)", () => {
     expect(gateway.releases).toHaveLength(1);
   }, 15_000);
 
+  test("an input whose check answers only after the deadline is never sent", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") {
+                return () => Bun.sleep(80).then(() => false);
+              }
+              // The interrupt is asked for and never lands, so nothing
+              // closes the turn before the late check answers.
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose check comes back too late");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+  }, 15_000);
+
   test("an engine that swallows the input is closed by the turn deadline, not left leased", async () => {
     // What the fix guards against, reproduced: the check is bypassed, the
     // engine deduplicates the send and answers nothing — not even the
