@@ -29,6 +29,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -39,7 +40,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
-import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   executions,
@@ -81,13 +82,12 @@ const PASS_LOCK_KEY = "scheduler:pass";
 const DESIRED_RUNNING = "running";
 
 /**
- * The one admission state a session never comes back from. Everything else,
- * `stopped` included, is resumed into the *same* workspace — the API's resume
- * takes only an expected revision, so the session id, and with it the volume
- * name, is unchanged. Reclaiming a stopped session's workspace would hand the
- * resume an empty working tree. A stopped session therefore keeps its disk
- * until it is closed; expiring those deliberately needs a claim serialized
- * with resume, which is 94S-225.
+ * The one admission state a session never comes back from. Everything else
+ * is resumed into the same session, and its workspace is kept — `stopped`
+ * only until its TTL runs out, and then only through
+ * `claimWorkspaceReclaim`, which resume waits for. A stopped session resumes
+ * from its checkpoint, which the worker restores over whatever the volume
+ * held, so its volume is a cache past that point, not the session's work.
  */
 const FINAL_ADMISSION_STATES: Array<
   (typeof sessions.admissionState.enumValues)[number]
@@ -567,7 +567,10 @@ export function createPostgresSchedulerStore(
       );
     },
 
-    async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+    async filterRetainedSessions(
+      sessionIds: string[],
+      options: { stoppedTtlMs: number },
+    ): Promise<string[]> {
       if (sessionIds.length === 0) return [];
       // Binding a non-uuid to a uuid column is an error, not a miss, and a
       // thrown query would take the whole GC step down. They are also
@@ -582,7 +585,13 @@ export function createPostgresSchedulerStore(
           and(
             inArray(sessions.id, judgeable),
             or(
-              notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+              and(
+                notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
+                or(
+                  sql`${sessions.admissionState} <> 'stopped'`,
+                  sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
+                ),
+              ),
               // A launch holds its session until `confirmExecutionGone`, so
               // that is also how long the workspace may still be mounted.
               exists(
@@ -597,6 +606,109 @@ export function createPostgresSchedulerStore(
           ),
         );
       return [...unjudgeable, ...rows.map((row) => row.id)];
+    },
+
+    async claimWorkspaceReclaim({ sessionId, workspaceId, stoppedTtlMs }) {
+      if (!UUID.test(sessionId)) return { kind: "retained" };
+      return db.transaction(async (tx) => {
+        // Resume's order (`lockSessionForControl`): the bound launch first,
+        // then the session. Taking them the other way round would deadlock
+        // against a resume waiting on the session with the launch in hand.
+        const [peek] = await tx
+          .select({ executionId: sessions.executionId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1);
+        if (!peek) return { kind: "unclaimed" };
+        if (peek.executionId !== null) {
+          await tx
+            .select({ executionId: workerLaunches.executionId })
+            .from(workerLaunches)
+            .where(eq(workerLaunches.executionId, peek.executionId))
+            .limit(1)
+            .for("update");
+        }
+        const [session] = await tx
+          .select({
+            admissionState: sessions.admissionState,
+            executionId: sessions.executionId,
+            pendingClaim: sessions.workspaceReclaimId,
+            updatedAt: sessions.updatedAt,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1)
+          .for("update");
+        // Rebound between the peek and the lock: judged again next pass.
+        if (!session || session.executionId !== peek.executionId) {
+          return { kind: "retained" };
+        }
+        const [slot] = await tx
+          .select({ one: sql`1` })
+          .from(workerLaunches)
+          .where(and(eq(workerLaunches.sessionId, sessionId), holdsSlot()))
+          .limit(1);
+        if (slot) return { kind: "retained" };
+        if (session.admissionState === "closed") return { kind: "unclaimed" };
+        if (session.admissionState !== "stopped") return { kind: "retained" };
+        // One claim at a time; a pending one is finished by the sweep.
+        if (session.pendingClaim !== null) return { kind: "retained" };
+        const now = await dbNow(tx);
+        if (session.updatedAt.getTime() > now.getTime() - stoppedTtlMs) {
+          return { kind: "retained" };
+        }
+        const claim = randomUUID();
+        await tx
+          .update(sessions)
+          .set({
+            workspaceReclaimClaimedAt: now,
+            workspaceReclaimId: claim,
+            workspaceReclaimWorkspaceId: workspaceId,
+          })
+          .where(eq(sessions.id, sessionId));
+        return { kind: "claimed", claimId: claim };
+      });
+    },
+
+    async finishWorkspaceReclaim({ sessionId, claimId: claim, outcome }) {
+      // `updated_at` is left alone: it is the stop's clock, and a released
+      // claim must not restart the TTL it was judged by.
+      await db
+        .update(sessions)
+        .set({
+          workspaceReclaimClaimedAt: null,
+          workspaceReclaimId: null,
+          workspaceReclaimWorkspaceId: null,
+          ...(outcome === "removed" ? { workspaceReclaimedAt: DB_NOW } : {}),
+        })
+        .where(
+          and(
+            eq(sessions.id, sessionId),
+            eq(sessions.workspaceReclaimId, claim),
+          ),
+        );
+    },
+
+    async listPendingWorkspaceReclaims() {
+      const rows = await db
+        .select({
+          claim: sessions.workspaceReclaimId,
+          sessionId: sessions.id,
+          workspaceId: sessions.workspaceReclaimWorkspaceId,
+        })
+        .from(sessions)
+        .where(
+          and(
+            isNotNull(sessions.workspaceReclaimId),
+            isNotNull(sessions.workspaceReclaimWorkspaceId),
+          ),
+        )
+        .orderBy(asc(sessions.workspaceReclaimClaimedAt));
+      return rows.flatMap(({ claim, sessionId, workspaceId }) =>
+        claim === null || workspaceId === null
+          ? []
+          : [{ claimId: claim, sessionId, workspaceId }],
+      );
     },
 
     async recordObservation(

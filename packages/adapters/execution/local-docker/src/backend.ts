@@ -544,7 +544,10 @@ export class LocalDockerBackend implements ExecutionBackend {
     return workspaces;
   }
 
-  async removeWorkspace(id: string): Promise<WorkspaceRemovalResult> {
+  async removeWorkspace(
+    id: string,
+    owner?: { sessionId: string },
+  ): Promise<WorkspaceRemovalResult> {
     // Re-checked against the daemon rather than trusted from the listing:
     // between the two calls the volume may have been remade for a new
     // session, and the id alone carries no proof of ownership.
@@ -553,7 +556,8 @@ export class LocalDockerBackend implements ExecutionBackend {
     const labels = volume.Labels ?? {};
     if (
       labels[LABELS.managed] !== "true" ||
-      labels[LABELS.installation] !== this.config.installationId
+      labels[LABELS.installation] !== this.config.installationId ||
+      (owner !== undefined && labels[LABELS.sessionId] !== owner.sessionId)
     ) {
       return { outcome: "not_ours" };
     }

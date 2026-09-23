@@ -4,6 +4,7 @@ import {
   localDockerConfigFromEnv,
 } from "@agent-platform/execution-local-docker";
 import {
+  DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ExecutionResources,
   type InstallationLimits,
   type InstallationLimitsEnvironment,
@@ -13,6 +14,7 @@ import {
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     DATABASE_URL?: string | undefined;
+    EXECUTION_WORKSPACE_STOPPED_TTL_SEC?: string | undefined;
     LOG_LEVEL?: string | undefined;
     QUEUE_DATABASE_URL?: string | undefined;
     WORKER_CPUS?: string | undefined;
@@ -29,6 +31,7 @@ export type SchedulerConfig = {
   logLevel: string | undefined;
   resources: ExecutionResources;
   slotLimit: number;
+  stoppedWorkspaceTtlMs: number;
 };
 
 export function schedulerConfigFromEnv(
@@ -76,6 +79,14 @@ export function schedulerConfigFromEnv(
       ),
     },
     slotLimit: limits.executionSlotLimit,
+    // Zero is a real setting: a stopped session's workspace goes on the
+    // next pass, and a resume restores from the checkpoint.
+    stoppedWorkspaceTtlMs:
+      nonNegativeInteger(
+        environment.EXECUTION_WORKSPACE_STOPPED_TTL_SEC ??
+          String(DEFAULT_STOPPED_WORKSPACE_TTL_MS / 1_000),
+        "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+      ) * 1_000,
   };
 }
 
@@ -94,6 +105,14 @@ function positiveNumber(value: string, name: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive number`);
+  }
+  return parsed;
+}
+
+function nonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
 }

@@ -16,10 +16,12 @@ import type {
 import { launchSpecFingerprint } from "../ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  PendingWorkspaceReclaim,
   ReplaceReason,
   ReserveLaunchInput,
   SchedulerStore,
   StoredLaunchIntent,
+  WorkspaceReclaimClaim,
 } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 import {
@@ -27,6 +29,7 @@ import {
   launchNonceFingerprint,
 } from "../workers/worker-gateway.ts";
 import {
+  DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   reclaimNetworks,
   reclaimWorkspaces,
   runScheduler,
@@ -335,11 +338,70 @@ class MemoryStore implements SchedulerStore {
   /** What GC asked about, in order, so the ordering can be asserted. */
   readonly retainedQueries: string[][] = [];
   failRetained = false;
+  /** What each filter was asked with, for the TTL it carried. */
+  readonly retainedTtls: number[] = [];
 
-  async filterRetainedSessions(sessionIds: string[]): Promise<string[]> {
+  async filterRetainedSessions(
+    sessionIds: string[],
+    options: { stoppedTtlMs: number },
+  ): Promise<string[]> {
     this.retainedQueries.push([...sessionIds]);
+    this.retainedTtls.push(options.stoppedTtlMs);
     if (this.failRetained) throw new Error("database down");
     return sessionIds.filter((id) => this.retainedSessions.has(id));
+  }
+
+  /**
+   * The verdict a claim gets under the session lock, per session; absent is
+   * a finished session, which needs no claim.
+   */
+  readonly claimVerdicts = new Map<string, "claimed" | "retained">();
+  readonly pendingClaims = new Map<string, PendingWorkspaceReclaim>();
+  readonly settledClaims: Array<{
+    claimId: string;
+    outcome: "removed" | "released";
+  }> = [];
+  failClaim = false;
+  failFinish = false;
+
+  async claimWorkspaceReclaim(input: {
+    sessionId: string;
+    workspaceId: string;
+    stoppedTtlMs: number;
+  }): Promise<WorkspaceReclaimClaim> {
+    if (this.failClaim) throw new Error("database down");
+    const verdict = this.claimVerdicts.get(input.sessionId);
+    if (verdict === undefined) return { kind: "unclaimed" };
+    if (verdict === "retained" || this.pendingClaims.has(input.sessionId)) {
+      return { kind: "retained" };
+    }
+    const claimId = `claim-${crypto.randomUUID()}`;
+    this.pendingClaims.set(input.sessionId, {
+      claimId,
+      sessionId: input.sessionId,
+      workspaceId: input.workspaceId,
+    });
+    return { kind: "claimed", claimId };
+  }
+
+  async finishWorkspaceReclaim(input: {
+    claimId: string;
+    sessionId: string;
+    outcome: "removed" | "released";
+  }): Promise<void> {
+    if (this.failFinish) throw new Error("database down");
+    if (this.pendingClaims.get(input.sessionId)?.claimId !== input.claimId) {
+      return;
+    }
+    this.pendingClaims.delete(input.sessionId);
+    this.settledClaims.push({
+      claimId: input.claimId,
+      outcome: input.outcome,
+    });
+  }
+
+  async listPendingWorkspaceReclaims(): Promise<PendingWorkspaceReclaim[]> {
+    return [...this.pendingClaims.values()];
   }
 }
 
@@ -411,7 +473,10 @@ class FakeBackend implements ExecutionBackend {
   failListWorkspaces = false;
   failRemoveWorkspaceFor = new Set<string>();
   listWorkspaces?: () => Promise<ManagedWorkspace[]>;
-  removeWorkspace?: (id: string) => Promise<WorkspaceRemovalResult>;
+  removeWorkspace?: (
+    id: string,
+    owner?: { sessionId: string },
+  ) => Promise<WorkspaceRemovalResult>;
   reconcileNetworks?: () => Promise<NetworkReconcileResult>;
 
   /** `workspaceGc: false` is a backend that does not own its workspaces. */
@@ -425,12 +490,15 @@ class FakeBackend implements ExecutionBackend {
         sessionId,
       }));
     };
-    this.removeWorkspace = async (id) => {
+    this.removeWorkspace = async (id, owner) => {
       if (this.failRemoveWorkspaceFor.has(id)) {
         throw new Error("volume remove failed");
       }
       if (this.workspacesInUse.has(id)) return { outcome: "in_use" };
       if (!this.workspaces.has(id)) return { outcome: "absent" };
+      if (owner && this.workspaces.get(id) !== owner.sessionId) {
+        return { outcome: "not_ours" };
+      }
       this.workspaces.delete(id);
       return { outcome: "removed" };
     };
@@ -625,7 +693,10 @@ function recordingLogger() {
   return { logger, records };
 }
 
-function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
+function harness(
+  slotLimit = 10,
+  options: { stoppedWorkspaceTtlMs?: number; workspaceGc?: boolean } = {},
+) {
   const store = new MemoryStore();
   const backend = new FakeBackend(options);
   const { logger, records } = recordingLogger();
@@ -636,6 +707,9 @@ function harness(slotLimit = 10, options: { workspaceGc?: boolean } = {}) {
       logger,
       resources: RESOURCES,
       slotLimit,
+      ...(options.stoppedWorkspaceTtlMs === undefined
+        ? {}
+        : { stoppedWorkspaceTtlMs: options.stoppedWorkspaceTtlMs }),
       store,
     });
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
@@ -2598,9 +2672,9 @@ describe("runScheduler workspace GC", () => {
       return listed();
     };
     const filter = store.filterRetainedSessions.bind(store);
-    store.filterRetainedSessions = async (ids) => {
+    store.filterRetainedSessions = async (ids, options) => {
       order.push("query");
-      return filter(ids);
+      return filter(ids, options);
     };
 
     await run();
@@ -2683,6 +2757,157 @@ describe("runScheduler workspace GC", () => {
 
     expect(summary.workspacesReclaimed).toEqual([]);
     expect(store.retainedQueries).toEqual([]);
+  });
+
+  test("a stopped session past its TTL loses its workspace through a claim", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+    store.claimVerdicts.set("session-stopped", "claimed");
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-stopped"]);
+    expect(backend.workspaces.has("ap-ws-stopped")).toBe(false);
+    expect(store.settledClaims.map((claim) => claim.outcome)).toEqual([
+      "removed",
+    ]);
+    expect(store.pendingClaims.size).toBe(0);
+    expect(store.retainedTtls).toEqual([DEFAULT_STOPPED_WORKSPACE_TTL_MS]);
+  });
+
+  test("the configured TTL is the one the store judges by", async () => {
+    const { backend, run, store } = harness(10, { stoppedWorkspaceTtlMs: 0 });
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+
+    await run();
+
+    expect(store.retainedTtls).toEqual([0]);
+  });
+
+  test("the verdict under the session lock wins over the listing's", async () => {
+    // Between the listing and the claim the session was resumed: its
+    // workspace is the one the next launch mounts.
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-resumed", "session-resumed");
+    store.claimVerdicts.set("session-resumed", "retained");
+
+    const summary = await run();
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspacesUnresolved).toEqual([]);
+    expect(backend.workspaces.has("ap-ws-resumed")).toBe(true);
+  });
+
+  test("a claimed removal that throws keeps the claim until a later pass settles it", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+    store.claimVerdicts.set("session-stopped", "claimed");
+    backend.failRemoveWorkspaceFor.add("ap-ws-stopped");
+
+    const first = await run();
+
+    expect(first.workspacesFailed).toEqual(["ap-ws-stopped"]);
+    // Whether the volume went is unknown, so resume stays refused.
+    expect(store.pendingClaims.has("session-stopped")).toBe(true);
+    expect(store.settledClaims).toEqual([]);
+
+    // The removal did go through; the daemon just never said so.
+    backend.failRemoveWorkspaceFor.clear();
+    backend.workspaces.delete("ap-ws-stopped");
+    const second = await run();
+
+    expect(second.workspacesReclaimed).toEqual(["ap-ws-stopped"]);
+    expect(store.settledClaims.map((claim) => claim.outcome)).toEqual([
+      "removed",
+    ]);
+    expect(store.pendingClaims.size).toBe(0);
+  });
+
+  test("a pending claim is not claimed twice while its workspace is still listed", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+    store.claimVerdicts.set("session-stopped", "claimed");
+    backend.failRemoveWorkspaceFor.add("ap-ws-stopped");
+    await run();
+
+    const again = await run();
+
+    // Once from the sweep; the listing's second look is turned away.
+    expect(again.workspacesFailed).toEqual(["ap-ws-stopped"]);
+    expect(store.pendingClaims.size).toBe(1);
+  });
+
+  test("a pending claim never removes a name that now holds another session's workspace", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+    store.claimVerdicts.set("session-stopped", "claimed");
+    backend.failRemoveWorkspaceFor.add("ap-ws-stopped");
+    await run();
+
+    // Between the passes the name came to carry someone else's workspace.
+    backend.failRemoveWorkspaceFor.clear();
+    backend.workspaces.set("ap-ws-stopped", "session-other");
+    store.retainedSessions.add("session-other");
+    const summary = await run();
+
+    expect(backend.workspaces.get("ap-ws-stopped")).toBe("session-other");
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspacesUnresolved).toEqual(["ap-ws-stopped"]);
+    expect(store.settledClaims.map((claim) => claim.outcome)).toEqual([
+      "released",
+    ]);
+  });
+
+  test("a mounted claimed workspace gives its claim back", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-busy", "session-busy");
+    backend.workspacesInUse.add("ap-ws-busy");
+    store.claimVerdicts.set("session-busy", "claimed");
+
+    const summary = await run();
+
+    expect(summary.workspacesUnresolved).toEqual(["ap-ws-busy"]);
+    expect(store.settledClaims.map((claim) => claim.outcome)).toEqual([
+      "released",
+    ]);
+    expect(store.pendingClaims.size).toBe(0);
+  });
+
+  test("a claim that cannot be settled is a failure and stays pending", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+    store.claimVerdicts.set("session-stopped", "claimed");
+    store.failFinish = true;
+
+    const summary = await run();
+
+    expect(summary.workspacesFailed).toEqual(["ap-ws-stopped"]);
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(store.pendingClaims.has("session-stopped")).toBe(true);
+  });
+
+  test("a claim the store cannot make leaves the workspace and fails the pass", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.failClaim = true;
+
+    const summary = await run();
+
+    expect(summary.workspacesFailed).toEqual(["ap-ws-done"]);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
+  });
+
+  test("pending claims that cannot be listed stop GC as a scan failure", async () => {
+    const { backend, run, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.listPendingWorkspaceReclaims = async () => {
+      throw new Error("database down");
+    };
+
+    const summary = await run();
+
+    expect(summary.workspaceScanFailed).toBe(true);
+    expect(backend.workspaces.has("ap-ws-done")).toBe(true);
   });
 
   test("a workspace whose volume is already gone counts as reclaimed", async () => {
