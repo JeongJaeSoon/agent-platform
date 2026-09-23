@@ -54,7 +54,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 4. `infra/docker-compose.restore.yml`을 겹쳐 postgres·localstack·gitea를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순), worker network 이름을 project별로 바꾸며, postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
 5. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 6. bucket이 비어 있는지 확인한 뒤 `awslocal s3 sync`. object 수가 manifest와 같아야 한다. 이미 있는 object를 덮어쓰는 경로는 없다.
-7. gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작.
+7. gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작. `app.ini`는 secret(`SECRET_KEY`·`INTERNAL_TOKEN`·`[oauth2] JWT_SECRET`)을 지키려고 통째로 복사하므로 `[server]`의 외부 주소는 원본 것이다. restore override가 gitea에 `GITEA__server__ROOT_URL`·`DOMAIN`·`SSH_DOMAIN`·`SSH_PORT`를 주고, Gitea 이미지 entrypoint의 `environment-to-ini`가 기동할 때마다 이 네 키만 복원 주소(`http://127.0.0.1:<port-base+2>/`, ssh `<port-base+3>`)로 덮어쓴다. 나머지 키와 섹션은 백업본 그대로다. 컨테이너 안 포트인 `HTTP_PORT`(3000)·`SSH_LISTEN_PORT`(22)는 건드리지 않는다. 재시작 뒤 네 값이 실제로 들어갔는지 확인하고, 아니면 실패한다.
 8. `migrate` 서비스를 한 번 돌려 `db.migrate.noop`을 확인한다.
 
 끝나면 접속 정보와 정리 명령(`docker compose -p <project> -f infra/docker-compose.yml down -v`)을 출력한다.
