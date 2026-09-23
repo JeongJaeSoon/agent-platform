@@ -2488,6 +2488,43 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(sent.every((checkpoint) => checkpoint !== null)).toBe(true);
   });
 
+  test("a tool the engine starts while the checkpoint publishes is refused", async () => {
+    const slowPublish: WorkerCheckpointPort = {
+      restorePlan: async () => ({ mode: "new" }),
+      capture: async (preparation) => {
+        // Long enough for the engine's next step to land mid-publish.
+        await Bun.sleep(150);
+        return publishing.capture(preparation, {
+          scope: {} as never,
+          recheck: async () => preparation,
+        });
+      },
+    };
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "delay", delayMs: 50 },
+        { type: "tool-start", toolUseId: "toolu_mid_publish" },
+        { type: "await-input" },
+      ],
+      { checkpoints: slowPublish, gateway },
+    );
+    gateway.enqueue("a turn whose publish is slow");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns[0]?.status).toBe("completed");
+    expect(gateway.finalized[0]?.checkpoint?.revision).toBe(0);
+    expect(runtime.toolAdmissions).toEqual([
+      {
+        toolUseId: "toolu_mid_publish",
+        admission: { allowed: false, message: expect.any(String) },
+      },
+    ]);
+  });
+
   test("the heartbeat carries when the mirror last wrote and the error it latched", async () => {
     const persistedAt = new Date("2026-09-23T01:02:03.000Z");
     const gateway = new FakeWorkerGateway();

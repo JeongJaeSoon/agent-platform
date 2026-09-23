@@ -88,7 +88,7 @@ class PublishFailure extends Error {
  * finalize can commit.
  *
  * A publish follows the server's answer, never this worker's memory: the
- * revision and the manifest key come from `requestCheckpoint`, the
+ * revision and the manifest key are what `requestCheckpoint` answered, the
  * workspace is committed and bundled, the untracked files and the pinned
  * transcripts go up beside it, and only then the manifest, create-only,
  * under the key it was handed. Every object is written into that publish's
