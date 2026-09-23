@@ -499,6 +499,24 @@ describe("captureWorkspace", () => {
       });
     });
 
+    test("a changed file whose $Id$ a restore would rewrite", async () => {
+      await commitFiles({ ".gitattributes": "*.txt ident\n" });
+      await writeFile(join(root, "a.txt"), "$Id$\nline\n");
+      await git(root, "add", "a.txt");
+      await git(root, "commit", "--quiet", "-m", "ident");
+      await rm(join(root, "a.txt"));
+      await git(root, "checkout", "--", "a.txt");
+      const expanded = await readFile(join(root, "a.txt"), "utf8");
+      expect(expanded).toMatch(/^\$Id: [0-9a-f]{40} \$/);
+      await writeFile(join(root, "a.txt"), `${expanded}more\n`);
+
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason:
+          "a.txt has the ident attribute and changed, and a restore would rewrite its $Id$",
+      });
+    });
+
     test("an index over the limit, before any git command reads it", async () => {
       await commitFiles({ "a.txt": "a\n" });
 
@@ -526,6 +544,17 @@ describe("captureWorkspace", () => {
       // Measured under the name git listed, BOM and all.
       await commitFiles({ "\ufefflarge.bin": "small\n" });
       await writeFile(join(root, "\ufefflarge.bin"), "x".repeat(100));
+      expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "the tracked changes are over the 50 bytes a checkpoint stages",
+      });
+    });
+
+    test("unchanged files a changed .gitattributes would renormalize, before they are written", async () => {
+      await commitFiles({ "big.txt": "y".repeat(100) });
+      await mkdir(join(root, "sub"));
+      await writeFile(join(root, "sub", ".gitattributes"), "*.txt text\n");
+
       expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
         status: "refused",
         reason: "the tracked changes are over the 50 bytes a checkpoint stages",
@@ -657,4 +686,30 @@ describe("runGitBytes", () => {
     expect(result.code).toBe(0);
     expect(new TextDecoder().decode(result.stdout)).toBe("a\n");
   });
+
+  test("stops reading once git has exited, even with a helper still holding its pipes", async () => {
+    // A git that leaves a child behind on its stdout and stderr, the way a
+    // killed `bundle create` leaves `pack-objects`.
+    const bin = join(scratch, "bin");
+    await mkdir(bin);
+    await writeFile(join(bin, "git"), "#!/bin/sh\nsleep 6 &\nexit 3\n");
+    await chmod(join(bin, "git"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ""}`;
+    try {
+      const began = performance.now();
+      const result = await runGitBytes(["status"], {
+        cwd: root,
+        network: null,
+        overrides: [],
+        redact: (text) => text,
+        signal: new AbortController().signal,
+      });
+
+      expect(result.code).toBe(3);
+      expect(performance.now() - began).toBeLessThan(5_000);
+    } finally {
+      process.env.PATH = path;
+    }
+  }, 10_000);
 });

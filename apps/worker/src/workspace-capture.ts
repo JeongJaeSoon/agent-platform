@@ -244,6 +244,26 @@ export async function captureWorkspace(input: {
     }
     const endings = await lineEndingProblem((args) => runBytes(args, staging));
     if (endings !== undefined) return refused(endings);
+    // `ident` collapses `$Id: <blob> $` as it stages, and a checkout expands
+    // it to the new blob's id: a changed file would come back with other
+    // bytes than it had.
+    const expanded = await required(
+      stage([
+        "diff-index",
+        "--cached",
+        "--name-only",
+        headCommit,
+        "--",
+        ":(attr:ident)",
+      ]),
+      "diff-index",
+    );
+    const identFile = expanded.split("\n").find((path) => path !== "");
+    if (identFile !== undefined) {
+      return refused(
+        `${identFile} has the ident attribute and changed, and a restore would rewrite its $Id$`,
+      );
+    }
     const tree = (await required(stage(["write-tree"]), "write-tree")).trim();
     const headTree = (
       await required(
@@ -422,9 +442,11 @@ async function unrepresentable(
 }
 
 /**
- * What `add -u` would write into the scratch object store: the tracked files
+ * What staging would write into the scratch object store: the tracked files
  * whose disk content differs from the index, by their size on disk (an
- * upper bound on the loose objects they become). Refused past `limit`.
+ * upper bound on the loose objects they become). Once a `.gitattributes` has
+ * changed, `--renormalize` may rewrite any tracked file, so every one counts.
+ * Refused past `limit`.
  */
 async function stagedBytes(
   git: (
@@ -433,15 +455,27 @@ async function stagedBytes(
   root: string,
   limit: number,
 ): Promise<string | undefined> {
-  const listed = await git(["ls-files", "-z", "--modified"]);
-  if (listed.code !== 0) {
-    throw new Error(
-      `git ls-files failed (exit ${listed.code}): ${listed.stderr.trim()}`,
-    );
-  }
+  const listing = async (args: string[]) => {
+    const listed = await git(["ls-files", "-z", ...args]);
+    if (listed.code !== 0) {
+      throw new Error(
+        `git ls-files failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+      );
+    }
+    return listed.stdout;
+  };
+  const rules = await listing([
+    "--modified",
+    "--others",
+    "--exclude-standard",
+    "--",
+    ":(glob)**/.gitattributes",
+  ]);
   // Decoded as strictly as the untracked names, or lstat measures a
   // different file than the one `add -u` is about to write.
-  const modified = namesOf(listed.stdout);
+  const modified = namesOf(
+    await listing(rules.byteLength > 0 ? ["--cached"] : ["--modified"]),
+  );
   if (modified === undefined) return "a tracked file's name is not valid UTF-8";
   let total = 0;
   for (const path of new Set(modified.split("\0"))) {

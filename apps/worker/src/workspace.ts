@@ -654,6 +654,15 @@ export class GitOutputLimitError extends Error {
  */
 const STDERR_LIMIT_BYTES = 64 * 1024;
 
+/**
+ * How long the pipes are read once git itself has exited. A helper it forked
+ * (`pack-objects`, `index-pack`) shares them, and one that outlives a killed
+ * git would otherwise hold the read open for as long as it runs. Only the
+ * leader is killed, so such a helper runs on until its next write fails;
+ * killing the whole process group is 94S-289.
+ */
+const PIPE_GRACE_MS = 2_000;
+
 export async function runGit(
   args: string[],
   options: GitRunOptions,
@@ -689,9 +698,10 @@ export async function runGitBytes(
     stdout: "pipe",
   });
   const limit = options.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
+  const abandon = child.exited.then(() => Bun.sleep(PIPE_GRACE_MS));
   const [stdout, stderr, code] = await Promise.all([
-    collect(child.stdout, limit, () => child.kill("SIGKILL")),
-    collect(child.stderr, STDERR_LIMIT_BYTES),
+    collect(child.stdout, limit, abandon, () => child.kill("SIGKILL")),
+    collect(child.stderr, STDERR_LIMIT_BYTES, abandon),
     child.exited,
   ]);
   signal.throwIfAborted();
@@ -706,19 +716,29 @@ export async function runGitBytes(
 /**
  * Reads a pipe up to `limit` bytes. Without `onOverflow` the rest is drained
  * and dropped, so the writer never blocks on a full pipe; with it, reading
- * stops and the writer is expected to be killed.
+ * stops and the writer is expected to be killed. Reading also stops once
+ * `abandon` settles, whoever still holds the pipe.
  */
+const ABANDONED = Symbol("abandoned");
+
 async function collect(
   stream: ReadableStream<Uint8Array>,
   limit: number,
+  abandon: Promise<void>,
   onOverflow?: () => void,
 ): Promise<{ bytes: Uint8Array; overflowed: boolean }> {
   const chunks: Uint8Array[] = [];
   let held = 0;
   let overflowed = false;
   const reader = stream.getReader();
+  const abandoned = abandon.then(() => ABANDONED);
   for (;;) {
-    const { done, value } = await reader.read();
+    const next = await Promise.race([reader.read(), abandoned]);
+    if (typeof next === "symbol") {
+      await reader.cancel().catch(() => undefined);
+      break;
+    }
+    const { done, value } = next;
     if (done) break;
     if (overflowed) continue;
     if (held + value.byteLength > limit) {
