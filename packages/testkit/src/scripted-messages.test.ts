@@ -5,6 +5,7 @@ import {
   planOf,
   replyFor,
   SPEC_MARKER,
+  specIdsIn,
 } from "./scripted-messages.ts";
 
 const spec = {
@@ -108,5 +109,27 @@ describe("scripted Messages API", () => {
     );
     expect(side.content).toEqual([{ type: "text", text: "ok" }]);
     expect(recorded.map((entry) => entry.specId)).toEqual([null, null]);
+  });
+
+  test("lists every prompt's spec the conversation replays, oldest first", () => {
+    const prompt = (id: string) =>
+      SPEC_MARKER + JSON.stringify({ ...spec, id });
+    const nested =
+      SPEC_MARKER +
+      JSON.stringify({
+        ...spec,
+        id: "outer",
+        steps: [{ tool: "Agent", input: { prompt: prompt("inner") } }],
+      });
+    expect(
+      specIdsIn([
+        { role: "user", content: prompt("q1") },
+        { role: "assistant", content: [{ type: "text", text: prompt("no") }] },
+        toolResult("t0"),
+        { role: "user", content: [{ type: "text", text: nested }] },
+        { role: "user", content: prompt("q2") },
+      ]),
+    ).toEqual(["q1", "outer", "q2"]);
+    expect(specIdsIn([{ role: "user", content: "hi" }])).toEqual([]);
   });
 });
