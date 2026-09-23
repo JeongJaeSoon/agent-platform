@@ -230,18 +230,23 @@ integration("claim replay against the session's current binding", () => {
       .where(eq(attempts.id, attemptId));
     const tokens = await db
       .select({
+        purpose: workerCredentials.purpose,
         tokenHash: workerCredentials.tokenHash,
         revokedAt: workerCredentials.revokedAt,
       })
       .from(workerCredentials)
       .where(eq(workerCredentials.attemptId, attemptId))
-      .orderBy(asc(workerCredentials.createdAt));
+      .orderBy(
+        asc(workerCredentials.createdAt),
+        asc(workerCredentials.purpose),
+      );
     return {
       sessionAuthRevision: session.authRevision,
       attemptAuthRevision: attempt?.authRevision,
       attemptState: attempt?.state,
       leaseExpiresAt: attempt?.leaseExpiresAt.getTime(),
       tokens: tokens.map((token) => ({
+        purpose: token.purpose,
         tokenHash: Buffer.from(token.tokenHash).toString("hex"),
         revoked: token.revokedAt !== null,
       })),
@@ -373,11 +378,15 @@ integration("claim replay against the session's current binding", () => {
         session.session_id,
         claimed.attempt_id,
       );
-      // The first claim's token is the only one, and the auth revision is
-      // the one that claim handed out.
-      expect(footprint.tokens).toEqual([
-        { tokenHash: expect.any(String), revoked: false },
-      ]);
+      // The first claim's tokens, one per purpose, are the only ones, and
+      // the auth revision is the one that claim handed out.
+      expect(footprint.tokens).toEqual(
+        ["gateway", "provider", "repository"].map((purpose) => ({
+          purpose,
+          tokenHash: expect.any(String),
+          revoked: false,
+        })),
+      );
       expect(footprint.sessionAuthRevision).toBe(claimed.auth_revision);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
         "stopping",

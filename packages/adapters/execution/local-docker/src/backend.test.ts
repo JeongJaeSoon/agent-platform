@@ -20,6 +20,8 @@ import {
   NO_PROXY_VALUE,
   networkNameFor,
   stateOf,
+  WorkspaceQuotaError,
+  WorkspaceQuotaUnsupportedError,
   workerEnvironmentFor,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
@@ -30,11 +32,14 @@ import {
   DockerClient,
   DockerTimeoutError,
 } from "./docker-client.ts";
+import { INODE_HELPER_LABEL } from "./workspace-inodes.ts";
 
 const GATEWAY_MODE_OPTION = "com.docker.network.bridge.gateway_mode_ipv4";
 
 type FakeContainer = {
   body: ContainerCreateBody;
+  /** Unix seconds; absent means just now. */
+  created?: number;
   id: string;
   name: string;
   status: string;
@@ -125,6 +130,12 @@ class FakeDocker {
   refuseStarts = false;
   /** Every start waits this long before it answers, and then takes. */
   stallStartsMs = 0;
+  /** What every inode helper exits with; 0 is "limit read back in force". */
+  inodeHelperExit = 0;
+  /** Every inode helper started, in order. */
+  readonly inodeHelperRuns: ContainerCreateBody[] = [];
+  /** Ids of every inode helper ever created, removed or not. */
+  readonly inodeHelperIds = new Set<string>();
 
   constructor() {
     this.addOther("egress-proxy-a", { [LABELS.egressProxy]: "test-a" });
@@ -240,7 +251,7 @@ class FakeDocker {
 
   add(name: string, body: ContainerCreateBody, status = "running") {
     const id = `${String(this.nextId++).padStart(4, "0")}${"a".repeat(60)}`;
-    const container = { body, exitCode: 0, id, name, status };
+    const container: FakeContainer = { body, exitCode: 0, id, name, status };
     this.containers.set(name, container);
     return container;
   }
@@ -275,6 +286,14 @@ class FakeDocker {
 
     if (request.method === "POST" && path === "/containers/create") {
       const name = url.searchParams.get("name") ?? "";
+      // The knobs below stage races over a worker's name; the inode helper
+      // takes a fresh name each run and is never part of one.
+      const peek = (await request.clone().json()) as ContainerCreateBody;
+      if (peek.Labels[INODE_HELPER_LABEL] !== undefined) {
+        const helper = this.add(name, peek, "created");
+        this.inodeHelperIds.add(helper.id);
+        return json({ Id: helper.id, Warnings: [] }, 201);
+      }
       if (this.pruneVolumesOnCreate) this.volumes.clear();
       if (this.conflictEveryCreate) {
         return json({ message: "Conflict. Lost the create race" }, 409);
@@ -338,6 +357,7 @@ class FakeDocker {
       );
       return json([
         ...matching.map((c) => ({
+          Created: c.created ?? Math.floor(Date.now() / 1000),
           Id: c.id,
           Labels: c.body.Labels,
           Names: [`/${c.name}`],
@@ -581,7 +601,9 @@ class FakeDocker {
         return new Response(null, { status: 204 });
       }
     }
-    const match = path.match(/^\/containers\/([^/]+)(?:\/(start|stop|json))?$/);
+    const match = path.match(
+      /^\/containers\/([^/]+)(?:\/(start|stop|json|wait))?$/,
+    );
     if (!match) return json({ message: "not found" }, 404);
     const key = decodeURIComponent(match[1] ?? "");
     const action = match[2];
@@ -605,8 +627,9 @@ class FakeDocker {
     }
     const container = this.byIdOrName(key);
     if (!container) return json({ message: `No such container: ${key}` }, 404);
+    const isHelper = container.body.Labels[INODE_HELPER_LABEL] !== undefined;
     if (request.method === "POST" && action === "start") {
-      if (this.refuseStarts) {
+      if (this.refuseStarts && !isHelper) {
         return json(
           {
             message:
@@ -615,11 +638,29 @@ class FakeDocker {
           500,
         );
       }
-      if (this.stallStartsMs > 0) await Bun.sleep(this.stallStartsMs);
+      if (this.stallStartsMs > 0 && !isHelper) {
+        await Bun.sleep(this.stallStartsMs);
+      }
       if (container.status === "running")
         return new Response(null, { status: 304 });
+      if (isHelper) {
+        // The helper does its work and exits before anyone waits on it.
+        this.inodeHelperRuns.push(container.body);
+        container.status = "exited";
+        container.exitCode = this.inodeHelperExit;
+        return new Response(null, { status: 204 });
+      }
       container.status = "running";
       return new Response(null, { status: 204 });
+    }
+    if (request.method === "POST" && action === "wait") {
+      if (container.status === "running") {
+        return json(
+          { message: "the fake only waits on exited containers" },
+          501,
+        );
+      }
+      return json({ StatusCode: container.exitCode });
     }
     if (request.method === "POST" && action === "stop") {
       if (container.status !== "running")
@@ -667,6 +708,22 @@ class FakeDocker {
 
 const RESOURCES = { cpus: 1.5, memoryBytes: 2 * 1024 ** 3, pidsLimit: 512 };
 
+/** Container creates for workers: every launch also runs an inode helper. */
+function workerCreates(docker: FakeDocker) {
+  return docker.requests.filter(
+    (r) => r.path === "/containers/create" && !r.query.includes("ap-inodes-"),
+  );
+}
+
+/** DELETEs of anything but an inode helper, which removes itself each run. */
+function workerRemovals(docker: FakeDocker) {
+  return docker.requests.filter(
+    (r) =>
+      r.method === "DELETE" &&
+      !docker.inodeHelperIds.has(r.path.replace(/^\/containers\//, "")),
+  );
+}
+
 /** How often the registry was asked for a credential; only creating asks. */
 let nonceIssues = 0;
 
@@ -700,6 +757,7 @@ function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
 }
 
 const QUOTA_BYTES = 4 * 1024 * 1024 * 1024;
+const QUOTA_INODES = 250_000;
 
 let docker: FakeDocker;
 let backend: LocalDockerBackend;
@@ -708,6 +766,7 @@ function configFor(host: string): LocalDockerBackendConfig {
   return {
     apiVersion: "v1.44",
     dockerHost: host,
+    egressCredentialPort: 3129,
     egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
@@ -725,7 +784,12 @@ function configFor(host: string): LocalDockerBackendConfig {
     user: "1000:1000",
     workspaceDir: "/workspace",
     workspaceGcMinAgeMs: 0,
-    workspaceQuota: { mode: "enforced", sizeBytes: QUOTA_BYTES },
+    workspaceQuota: {
+      helperImage: "worker:test",
+      inodes: QUOTA_INODES,
+      mode: "enforced",
+      sizeBytes: QUOTA_BYTES,
+    },
   };
 }
 
@@ -803,6 +867,27 @@ test("hands the worker the installation's turn and retry limits when they are se
   ]);
 });
 
+test("a container started under another inode limit, or before one, is stale (94S-224)", () => {
+  // Not for the volume's sake — the limit is set in place — but because
+  // only a launch sets it, and replacing the container is what launches.
+  const base = configFor("unix:///fake.sock");
+  const quota = base.workspaceQuota;
+  if (quota.mode !== "enforced") throw new Error("fixture must be enforced");
+  expect(
+    isolationStampFor({
+      ...base,
+      workspaceQuota: { ...quota, inodes: quota.inodes + 1 },
+    }),
+  ).not.toBe(isolationStampFor(base));
+  // Which image runs the helper is not part of the worker's boundary.
+  expect(
+    isolationStampFor({
+      ...base,
+      workspaceQuota: { ...quota, helperImage: "worker:next" },
+    }),
+  ).toBe(isolationStampFor(base));
+});
+
 test("a container started under other worker limits, or none, is stale (94S-131)", () => {
   const base = configFor("unix:///fake.sock");
   const limited = {
@@ -844,12 +929,13 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.executionGeneration}=1`,
         `${ENV.executionId}=${intent.executionId}`,
         `${ENV.gatewayUrl}=http://host.docker.internal:3000`,
+        `${ENV.egressCredentialUrl}=http://egress-proxy:3129`,
         `${ENV.httpProxy}=http://egress-proxy:3128`,
         `${ENV.httpProxyLower}=http://egress-proxy:3128`,
         `${ENV.httpsProxy}=http://egress-proxy:3128`,
         `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
-        `${ENV.noProxy}=${NO_PROXY_VALUE}`,
-        `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+        `${ENV.noProxy}=${NO_PROXY_VALUE},egress-proxy`,
+        `${ENV.noProxyLower}=${NO_PROXY_VALUE},egress-proxy`,
         `${ENV.objectAccessKeyId}=AKIATEST`,
         `${ENV.objectBucket}=claude-sessions`,
         `${ENV.objectEndpoint}=http://localstack:4566`,
@@ -914,9 +1000,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     // running holds the first one, and issuing would invalidate it.
     expect(nonceIssues).toBe(1);
     expect(docker.containers.size).toBe(1);
-    expect(
-      docker.requests.filter((r) => r.path === "/containers/create"),
-    ).toHaveLength(1);
+    expect(workerCreates(docker)).toHaveLength(1);
   });
 
   test("a create that loses the name race adopts the winner instead of failing", async () => {
@@ -925,9 +1009,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
     expect(docker.containers.size).toBe(1);
-    expect(
-      docker.requests.filter((r) => r.path === "/containers/create"),
-    ).toHaveLength(1);
+    expect(workerCreates(docker)).toHaveLength(1);
   });
 
   test("the winner of a create race is judged by the isolation contract too", async () => {
@@ -967,9 +1049,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     );
     // Only creates mint: one for the lost attempt, one for the replacement.
     expect(nonceIssues - before).toBe(2);
-    expect(
-      docker.requests.filter((r) => r.method === "DELETE").map((r) => r.path),
-    ).toHaveLength(1);
+    expect(workerRemovals(docker).map((r) => r.path)).toHaveLength(1);
   });
 
   test("a race winner is adopted when its credential is the accepted one", async () => {
@@ -979,9 +1059,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     docker.conflictNextCreate = true;
     const result = await backend.ensureExecution(intent);
     expect(result).toMatchObject({ created: false, state: "running" });
-    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
-      0,
-    );
+    expect(workerRemovals(docker)).toHaveLength(0);
   });
 
   test("a container from before the fingerprint label is adopted as before", async () => {
@@ -1020,9 +1098,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       "released or unknown",
     );
     expect(docker.containers.size).toBe(1);
-    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
-      0,
-    );
+    expect(workerRemovals(docker)).toHaveLength(0);
   });
 
   test("inspect reports the fingerprint label for the scheduler to judge", async () => {
@@ -1080,9 +1156,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       state: "running",
     });
     expect(nonceIssues).toBe(before);
-    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
-      0,
-    );
+    expect(workerRemovals(docker)).toHaveLength(0);
   });
 
   test("a credential mismatch on a container that is not ours is a conflict", async () => {
@@ -1151,9 +1225,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     await expect(backend.ensureExecution(intent)).rejects.toThrow(
       "taken by another launcher",
     );
-    expect(
-      docker.requests.filter((r) => r.path === "/containers/create"),
-    ).toHaveLength(2);
+    expect(workerCreates(docker)).toHaveLength(2);
   });
 
   test("a container with the same name but another operation id is a conflict, not adopted", async () => {
@@ -1580,9 +1652,7 @@ describe("LocalDockerBackend.inspect", () => {
       LaunchSpecMismatchError,
     );
     expect(docker.containers.size).toBe(1);
-    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
-      0,
-    );
+    expect(workerRemovals(docker)).toHaveLength(0);
     expect(nonceIssues).toBe(before);
   });
 
@@ -1641,7 +1711,7 @@ describe("LocalDockerBackend.inspect", () => {
 
     await backend.terminate(intent);
 
-    const removal = docker.requests.find((r) => r.method === "DELETE");
+    const removal = workerRemovals(docker)[0];
     // Named volumes are untouched by `v`, so the workspace still outlives it.
     expect(removal?.query).toContain("v=true");
     expect(workspaceNameOf(docker, intent.sessionId, "test-a")).toBeDefined();
@@ -1784,7 +1854,7 @@ describe("LocalDockerBackend.terminate", () => {
       outcome: "generation_mismatch",
     });
     expect(container.status).toBe("running");
-    expect(docker.requests.some((r) => r.method === "DELETE")).toBe(false);
+    expect(workerRemovals(docker)).toHaveLength(0);
   });
 
   test("a terminate pinned to a provider id refuses a container that replaced it", async () => {
@@ -2923,7 +2993,7 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
   test("the isolation stamp tracks where objects go and which key, never the secret", () => {
     const base = configFor("tcp://127.0.0.1:1");
     const stamp = isolationStampFor(base);
-    expect(stamp.startsWith("6:")).toBe(true);
+    expect(stamp.startsWith("7:")).toBe(true);
     expect(stamp).not.toContain(base.objectStore.secretAccessKey);
     // A secret rotated under the same key id is not a new boundary: the
     // container keeps running, and the operator replaces it deliberately.
@@ -3144,6 +3214,145 @@ describe("LocalDockerBackend workspace volumes", () => {
   });
 });
 
+describe("LocalDockerBackend workspace inode limit (94S-224)", () => {
+  const sessionId = intentFor().sessionId;
+
+  test("every launch sets the limit on its workspace before the worker exists", async () => {
+    await backend.ensureExecution(intentFor());
+    const workspace = workspaceNameOf(docker, sessionId, "test-a");
+    expect(docker.inodeHelperRuns).toHaveLength(1);
+    const helper = docker.inodeHelperRuns[0] as ContainerCreateBody;
+    // Mounted where the worker mounts it and never seeding it: the image's
+    // `VOLUME /workspace` gets no anonymous twin, and the worker's first
+    // mount still copies the directory's ownership in.
+    expect(helper.HostConfig.Mounts).toEqual([
+      {
+        Source: workspace ?? "",
+        Target: "/workspace",
+        Type: "volume",
+        VolumeOptions: { NoCopy: true },
+      },
+    ]);
+    expect(helper.Entrypoint?.slice(-2)).toEqual([
+      String(QUOTA_INODES),
+      "/workspace",
+    ]);
+    // quotactl and the device node, nothing else, and no way out.
+    expect(helper.HostConfig.CapDrop).toEqual(["ALL"]);
+    expect(helper.HostConfig.CapAdd).toEqual(["MKNOD", "SYS_ADMIN"]);
+    expect(helper.HostConfig.NetworkMode).toBe("none");
+    expect(helper.HostConfig.ReadonlyRootfs).toBe(true);
+    expect("Privileged" in helper.HostConfig).toBe(false);
+    // From the configured image, by the id it was inspected as.
+    expect(helper.Image).toBe(imageIdOf("worker:test"));
+    // And it removed itself; only the worker is left.
+    expect(docker.containers.size).toBe(1);
+    const paths = docker.requests.map((r) => r.path + r.query);
+    expect(paths.findIndex((p) => p.includes("name=ap-inodes-"))).toBeLessThan(
+      paths.findIndex((p) => p.includes("name=ap-worker-")),
+    );
+  });
+
+  test("the helper runs from the scheduler's image, never the launch's", async () => {
+    // A launch's image comes from a catalog entry; the helper holds
+    // CAP_SYS_ADMIN, so which image gets that is not the catalog's call.
+    docker.images.set("catalog:other", []);
+    await backend.ensureExecution(intentFor({ image: "catalog:other" }));
+    expect(docker.inodeHelperRuns[0]?.Image).toBe(imageIdOf("worker:test"));
+  });
+
+  test("a workspace from before the limit gets it on its next launch", async () => {
+    // Its label only ever recorded bytes, which is all it had; the inode
+    // limit can be set in place, so the volume is not refused for lacking it.
+    docker.addVolume(
+      `${workspaceVolumePrefixFor(sessionId, "test-a")}0ld0ld00`,
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      { size: String(QUOTA_BYTES) },
+    );
+    await backend.ensureExecution(intentFor());
+    expect(
+      docker.inodeHelperRuns.map((run) => run.HostConfig.Mounts[0]?.Source),
+    ).toEqual([`${workspaceVolumePrefixFor(sessionId, "test-a")}0ld0ld00`]);
+  });
+
+  test("a limit that does not hold refuses the launch and starts no worker", async () => {
+    docker.inodeHelperExit = 14;
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      WorkspaceQuotaError,
+    );
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "has no inode limit: xfs_quota did not leave the limit in force",
+    );
+    expect(docker.containers.size).toBe(0);
+    expect(workerCreates(docker)).toHaveLength(0);
+  });
+
+  test("an image without xfsprogs is named as the reason", async () => {
+    docker.inodeHelperExit = 127;
+    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
+      "the helper image has no xfsprogs",
+    );
+  });
+
+  test("a replacement is refused before teardown when the workspace cannot take the limit", async () => {
+    // The labels and the size option all match; only setting the limit can
+    // tell, and it has to tell while the old worker is still there.
+    await backend.ensureExecution(intentFor());
+    const running = docker.containers.size;
+    docker.inodeHelperExit = 12;
+    await expect(backend.assertReplaceable(intentFor())).rejects.toThrow(
+      "has no inode limit: the volume has no xfs project of its own",
+    );
+    expect(docker.containers.size).toBe(running);
+  });
+
+  test("an opted-out host runs no helper", async () => {
+    await new LocalDockerBackend({
+      ...configFor(docker.host),
+      workspaceQuota: { mode: "off" },
+    }).ensureExecution(intentFor());
+    expect(docker.inodeHelperRuns).toHaveLength(0);
+  });
+
+  test("a helper a dead process left behind is removed once it is old, not before", async () => {
+    const helper = (name: string, created: number) => {
+      const body = {
+        Env: [],
+        HostConfig: {
+          CapDrop: ["ALL"],
+          Memory: 0,
+          Mounts: [],
+          NanoCpus: 0,
+          NetworkMode: "none",
+          PidsLimit: 0,
+          ReadonlyRootfs: true,
+          RestartPolicy: { Name: "no" as const },
+          SecurityOpt: [],
+          Tmpfs: {},
+        },
+        Image: imageIdOf("worker:test"),
+        Labels: { [INODE_HELPER_LABEL]: "test-a" },
+        User: "0:0",
+      };
+      const added = docker.add(name, body, "exited");
+      added.created = created;
+      return added;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    helper("ap-inodes-test-a-old00000", now - 3600);
+    // Young: another process's helper, still in the middle of its run.
+    helper("ap-inodes-test-a-young000", now - 5);
+    await backend.ensureExecution(intentFor());
+    expect(docker.containers.has("ap-inodes-test-a-old00000")).toBe(false);
+    expect(docker.containers.has("ap-inodes-test-a-young000")).toBe(true);
+  });
+});
+
 describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
   const probePrefix = "ap-quota-probe-test-a-";
   const probesLeft = () =>
@@ -3151,6 +3360,37 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
 
   test("a quota-capable daemon passes and keeps no probe volume", async () => {
     await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(probesLeft()).toEqual([]);
+  });
+
+  test("the probe proves the inode limit too, on the probe volume", async () => {
+    await backend.verifyWorkspaceQuota();
+    expect(docker.inodeHelperRuns).toHaveLength(1);
+    expect(docker.inodeHelperRuns[0]?.HostConfig.Mounts[0]?.Source).toStartWith(
+      probePrefix,
+    );
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a daemon that cannot hold the inode limit refuses to start, naming the opt-out", async () => {
+    docker.inodeHelperExit = 1;
+    const refusal = backend.verifyWorkspaceQuota();
+    await expect(refusal).rejects.toBeInstanceOf(
+      WorkspaceQuotaUnsupportedError,
+    );
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      /inode limit: .*CAP_SYS_ADMIN.*EXECUTION_WORKSPACE_QUOTA=off/,
+    );
+    // Refused or not, the probe does not outlive the check.
+    expect(probesLeft()).toEqual([]);
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test("a helper image this daemon does not have refuses to start", async () => {
+    docker.images.delete("worker:test");
+    await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
+      "Image worker:test is not on this daemon",
+    );
     expect(probesLeft()).toEqual([]);
   });
 
@@ -3174,7 +3414,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
       { size: String(QUOTA_BYTES) },
     );
     await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
-      "cannot put a size quota",
+      "cannot put a size and inode quota",
     );
     expect(probesLeft()).toEqual([]);
   });

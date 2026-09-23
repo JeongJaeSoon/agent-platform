@@ -101,6 +101,14 @@ class ClaimingBackend implements ExecutionBackend {
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
         credentialTtlMs: 60_000,
+        egress: {
+          providerHash: hashWorkerToken(`wep-${randomUUID()}`),
+          repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+          bindingsOf: () => ({
+            provider: "provider",
+            repository: "repository",
+          }),
+        },
         leaseTtlMs: 60_000,
         now: new Date(),
       });
@@ -364,6 +372,11 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
       attemptId: `att_${randomUUID()}`,
       credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
       credentialTtlMs: 60_000,
+      egress: {
+        providerHash: hashWorkerToken(`wep-${randomUUID()}`),
+        repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+        bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+      },
       leaseTtlMs: 60_000,
       now: new Date(),
     });
@@ -428,6 +441,11 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
       attemptId: `att_${randomUUID()}`,
       credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
       credentialTtlMs: 60_000,
+      egress: {
+        providerHash: hashWorkerToken(`wep-${randomUUID()}`),
+        repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+        bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+      },
       leaseTtlMs: 60_000,
       now: new Date(),
     });
@@ -491,6 +509,14 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(`tok-${randomUUID()}`),
         credentialTtlMs: 60_000,
+        egress: {
+          providerHash: hashWorkerToken(`wep-${randomUUID()}`),
+          repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+          bindingsOf: () => ({
+            provider: "provider",
+            repository: "repository",
+          }),
+        },
         leaseTtlMs: 60_000,
         now: new Date(),
       });

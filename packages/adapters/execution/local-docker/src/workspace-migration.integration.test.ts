@@ -11,7 +11,11 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
-import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
+import {
+  quotaForTestDaemon,
+  removeWorkerNetworks,
+  startStandInProxy,
+} from "./testing.ts";
 import {
   DEFAULT_MIGRATION_HELPER_IMAGE,
   MIGRATION_HELPER_LABEL,
@@ -69,15 +73,17 @@ integration("workspace migration against a real daemon", () => {
   let proxy: string | undefined;
 
   function quota(): WorkspaceQuota {
-    return supportsQuota
-      ? { mode: "enforced", sizeBytes: QUOTA_BYTES }
-      : { mode: "off" };
+    return quotaForTestDaemon(supportsQuota, {
+      inodes: 10_000,
+      sizeBytes: QUOTA_BYTES,
+    });
   }
 
   const config = (): LocalDockerBackendConfig => ({
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
+    egressCredentialPort: 3129,
     egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
@@ -344,6 +350,36 @@ integration("workspace migration against a real daemon", () => {
     expect(await run(VERIFY, legacy)).toBe(0);
 
     await client.stopAndRemoveContainer(holder, 1);
+    expect((await migrate(sessionId)).outcome).toBe("migrated");
+  }, 180_000);
+
+  test("a tree with more files than the inode limit fails the copy and keeps the source (94S-224)", async () => {
+    if (!supportsQuota) {
+      // No quota here, so no limit for the copy to meet.
+      expect(supportsQuota).toBe(false);
+      return;
+    }
+    const { legacy, sessionId } = await legacySession();
+    // SEED's tree is six inodes, root included. The limit goes on the copy
+    // before anything is copied into it, so the copy runs out part-way.
+    const tight: LocalDockerBackendConfig = {
+      ...config(),
+      workspaceQuota: quotaForTestDaemon(true, {
+        inodes: 3,
+        sizeBytes: QUOTA_BYTES,
+      }),
+    };
+    await expect(
+      new WorkspaceMigrator(tight, client).migrate({
+        deadlineMs: 60_000,
+        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        pollMs: 200,
+        sessionId,
+      }),
+    ).rejects.toThrow("the copy failed part-way");
+    expect(await run(VERIFY, legacy)).toBe(0);
+
+    // Under a limit the tree fits in, a re-run starts over and lands.
     expect((await migrate(sessionId)).outcome).toBe("migrated");
   }, 180_000);
 

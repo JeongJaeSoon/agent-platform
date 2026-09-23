@@ -7,5 +7,6 @@ export * from "./event-publisher.ts";
 export * from "./gateway-client.ts";
 export * from "./heartbeat.ts";
 export * from "./pending-requests.ts";
+export * from "./secret-scrubber.ts";
 export * from "./worker-host.ts";
 export * from "./workspace.ts";

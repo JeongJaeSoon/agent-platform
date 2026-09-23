@@ -19,6 +19,7 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
+import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
@@ -119,10 +120,11 @@ function harness(
               cwd: "/tmp/fake/workspace",
               home: "/tmp/fake/home",
               model: runtimeConfig.model,
-              profile: {
-                ...runtimeConfig.provider,
-                principal: { ownerScope: principal.owner_scope },
-              },
+              profile: engineProfile(
+                runtimeConfig.provider,
+                principal.owner_scope,
+                "http://egress-proxy.test:3129",
+              ),
               tools: runtimeConfig.tools,
               ...launch,
             },
@@ -558,6 +560,26 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.calls.lastIndexOf("appendEvents")).toBeLessThan(
       gateway.calls.lastIndexOf("heartbeat"),
     );
+  });
+
+  // 94S-321: an operator's execution revocation revokes the token, so the
+  // beat that follows is refused before it reaches any fence.
+  test("stops the running turn without finalizing once its token is revoked", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "UNAUTHORIZED";
+    const { host, runtime } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      { gateway, timeouts: { heartbeatIntervalMs: 5 } },
+    );
+    gateway.enqueue("a turn whose execution authority is revoked");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("UNAUTHORIZED");
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toEqual([]);
+    expect(runtime.inputs).toHaveLength(1);
   });
 
   test("waits for the engine process to exit, and kills one that lingers", async () => {
@@ -1134,7 +1156,7 @@ describe("WorkerHost before the engine starts", () => {
         provider: {
           kind: "litellm",
           endpoint: "http://litellm.internal:4000",
-          auth: { kind: "bearer", value: "claimed" },
+          auth: { kind: "egress_token", token: "claimed" },
         },
       },
     });
@@ -1160,7 +1182,7 @@ describe("WorkerHost before the engine starts", () => {
         provider: {
           kind: "litellm",
           endpoint: "http://litellm.internal:4000",
-          auth: { kind: "bearer", value: "claimed" },
+          auth: { kind: "egress_token", token: "claimed" },
         },
       },
     ]);
@@ -3071,5 +3093,90 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(
       gateway.heartbeats.every((beat) => beat.transcript === undefined),
     ).toBe(true);
+  });
+});
+
+describe("secrets in what the engine prints (94S-252)", () => {
+  test("a Bash that dumps the environment and the remote leaves no secret in events", async () => {
+    const providerHeld = "wep_provider-attempt-one";
+    const repositoryHeld = "wep_repository-attempt-one";
+    const gateway = new FakeWorkerGateway({
+      runtimeConfig: {
+        model: "fake-model",
+        tools: ["Bash"],
+        permission_mode: "default",
+        provider: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          auth: { kind: "egress_token", token: providerHeld },
+        },
+      },
+      workspace: {
+        repository: {
+          id: "sample-app",
+          url: "https://git.example.test/sample.git",
+          branch: "main",
+          access: { kind: "egress_token", token: repositoryHeld },
+        },
+      },
+    });
+    const claim = await new FakeWorkerGateway().bootstrapClaim({
+      execution_id: "exec-1",
+      execution_generation: 1,
+      credential: { kind: "launch_nonce", nonce: "wln_test" },
+    });
+    const sessionHeld = claim.session_credential;
+    // What `env; git remote -v` prints inside the engine: its own key, and
+    // whatever it can read of the worker's environment through /proc.
+    const dump = [
+      `ANTHROPIC_API_KEY=${providerHeld}`,
+      "ANTHROPIC_BASE_URL=http://egress-proxy.test:3129/provider",
+      "WORKER_BOOTSTRAP_NONCE=wln_test",
+      // A header line would be dropped whole by the mapper's own patterns;
+      // a bare value is what only the scrubber catches.
+      `GIT_REPOSITORY_ACCESS=${repositoryHeld}`,
+      `session=${sessionHeld}`,
+      "origin\thttps://git.example.test/sample.git (fetch)",
+    ].join("\n");
+    const toolResult: NativeSdkMessage = {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_env", content: dump },
+        ],
+      },
+      parent_tool_use_id: null,
+      session_id: "fake-session",
+    };
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: toolResult },
+        // The model saw the real values and may repeat them.
+        { type: "emit", message: assistantMessage(`key is ${providerHeld}`) },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("print your environment");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toHaveLength(1);
+    const stored = JSON.stringify(gateway.events);
+    expect(stored).toContain("tool_result");
+    expect(stored).toContain("<redacted>");
+    // Nothing that is not a secret is lost with them.
+    expect(stored).toContain("https://git.example.test/sample.git");
+    for (const held of [
+      providerHeld,
+      repositoryHeld,
+      sessionHeld,
+      "wln_test",
+    ]) {
+      expect(stored).not.toContain(held);
+    }
   });
 });

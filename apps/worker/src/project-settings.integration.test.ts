@@ -147,7 +147,7 @@ function claimedConfig(endpoint: string, claudeMd: boolean): RuntimeConfig {
     provider: {
       kind: "anthropic",
       endpoint,
-      auth: { kind: "api_key", value: "placeholder-local" },
+      auth: { kind: "egress_token", token: "placeholder-local" },
     },
     // Off is left out, as the gateway leaves it out.
     ...(claudeMd ? { project_settings: { claude_md: true } } : {}),
@@ -169,6 +169,7 @@ async function runOneTurn(
   });
   gateway.enqueue(`message ${turn}`);
   const config = {
+    egressCredentialUrl: runtimeConfig.provider.endpoint.replace(/\/$/, ""),
     runtime: {
       claudeConfigDir: repository.home,
       cwd: repository.workspace,

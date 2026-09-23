@@ -20,6 +20,8 @@ import {
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
   checkpointReasonHoldsWork,
+  type EgressAuthorization,
+  type EgressPurpose,
   type FailResumeInput,
   type FailResumeResult,
   type FenceRejection,
@@ -63,12 +65,16 @@ import {
 } from "drizzle-orm";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
+  ENDED_ATTEMPT_STATES,
   hasRestorePoint,
+  INPUT_RECEIPT_OPERATIONS,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
+  parseTurnSequence,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
+  KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
@@ -106,8 +112,6 @@ import {
 import { recordEvent, recordStatus } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
-const ENDED_ATTEMPT_STATES = ["exited", "lost"];
-
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a
 // late "starting" cannot walk a running attempt backwards for readers.
@@ -116,12 +120,6 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   running: 1,
   draining: 2,
 };
-export { OPEN_TURN_STATUSES };
-const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
-const TURN_ID = /^[1-9]\d{0,9}$/;
-// turns.sequence is a PostgreSQL integer; a larger id cannot exist and must
-// not reach the query, where it would fail with 22003 instead of not-found.
-const SEQUENCE_MAX = 2_147_483_647;
 
 // finalize never reports `cancelled`: that terminal comes from an operator
 // recovery decision, not from the worker.
@@ -200,6 +198,14 @@ type Fenced =
 // handed out — under a lease that ended mid-transaction.
 export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
+}
+
+// The worker may only ever be told less than it has. `at` came through a
+// Date, which drops the database's sub-millisecond part, so it may stand up
+// to 1ms before the instant actually read: counted from the next whole
+// millisecond instead.
+function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
+  return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
 
 // Locks the session and attempt rows and classifies why the fence does not
@@ -290,7 +296,7 @@ async function probeFinalize(
   | { state: "open"; turn: typeof turns.$inferSelect; terminalHash: string }
   | { state: "settled"; result: FinalizeResult }
 > {
-  const sequence = parseTurnId(input.turnId);
+  const sequence = parseTurnSequence(input.turnId);
   const query = sequence
     ? tx
         .select()
@@ -383,12 +389,6 @@ async function contiguousThrough(
       ),
     );
   return end?.through ?? 0;
-}
-
-export function parseTurnId(turnId: string): number | null {
-  if (!TURN_ID.test(turnId)) return null;
-  const sequence = Number(turnId);
-  return sequence <= SEQUENCE_MAX ? sequence : null;
 }
 
 /**
@@ -593,6 +593,9 @@ function replayableBinding(
 ): boolean {
   return (
     LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
+    // An operator's revocation (94S-321) must not see a token rotated in
+    // after it, whatever state it left the session in.
+    session.executionRevokedAt === null &&
     session.podId === launch.executionId &&
     session.executionId === launch.executionId &&
     session.executionGeneration === launch.generation &&
@@ -719,10 +722,13 @@ async function giveUpOnCatalogMismatch(
   return "catalog_mismatch";
 }
 
+// `at` is a database instant read after the worker sent its request, which
+// is what lets the worker count the remainder from its own send time.
 async function bindingOf(
   tx: Database,
   session: SessionRow,
   attempt: AttemptRow,
+  at: Date,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -731,6 +737,7 @@ async function bindingOf(
     executionGeneration: attempt.executionGeneration,
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
+    leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
     ownerScope: session.ownerId,
     repository: {
@@ -743,15 +750,36 @@ async function bindingOf(
   };
 }
 
-async function issueCredential(
+async function issueCredentials(
   tx: Database,
-  input: Pick<ClaimInput, "attemptId" | "credentialHash" | "credentialTtlMs">,
+  input: Pick<ClaimInput, "credentialHash" | "credentialTtlMs" | "egress">,
+  attemptId: string,
+  session: Pick<SessionRow, "profileId" | "repositoryId">,
 ) {
-  await tx.insert(workerCredentials).values({
-    tokenHash: input.credentialHash,
-    attemptId: input.attemptId,
-    expiresAt: fromDbNow(input.credentialTtlMs),
-  });
+  const expiresAt = fromDbNow(input.credentialTtlMs);
+  const bindings = input.egress.bindingsOf(session);
+  await tx.insert(workerCredentials).values([
+    {
+      tokenHash: input.credentialHash,
+      attemptId,
+      purpose: "gateway",
+      expiresAt,
+    },
+    {
+      tokenHash: input.egress.providerHash,
+      attemptId,
+      purpose: "provider",
+      binding: bindings.provider,
+      expiresAt,
+    },
+    {
+      tokenHash: input.egress.repositoryHash,
+      attemptId,
+      purpose: "repository",
+      binding: bindings.repository,
+      expiresAt,
+    },
+  ]);
 }
 
 async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
@@ -860,11 +888,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "profile_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
-          await issueCredential(tx, {
-            attemptId: bound.attempt.id,
-            credentialHash: input.credentialHash,
-            credentialTtlMs,
-          });
+          await issueCredentials(
+            tx,
+            { ...input, credentialTtlMs },
+            bound.attempt.id,
+            bound.session,
+          );
           // Revoking the old token does not stop a request that authenticated
           // before it: the auth revision moves so anything already in flight
           // fails its fence, and only the new holder can write.
@@ -888,7 +917,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           if (!attempt) return { outcome: "invalid_credential" };
           return {
             outcome: "replayed",
-            binding: await bindingOf(tx, session, attempt),
+            binding: await bindingOf(tx, session, attempt, at),
           };
         }
         // Server-side selection: the worker never names a session. It is
@@ -904,6 +933,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               eq(unassignedSessions.partition, launch.partition),
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+              isNull(sessions.executionRevokedAt),
               runnableCondition(input.runnable),
               lt(sessions.costUsd, input.costLimitUsd),
               ...(launch.sessionId === null
@@ -942,7 +972,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         if (
           !locked ||
           locked.podId !== null ||
-          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState)
+          !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
+          locked.executionRevokedAt !== null
         ) {
           return { outcome: "no_session" };
         }
@@ -1021,7 +1052,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               observedAt: input.now,
             },
           });
-        await issueCredential(tx, input);
+        await issueCredentials(tx, input, attempt.id, session);
         await tx
           .update(workerLaunches)
           .set({ claimedAttemptId: attempt.id })
@@ -1031,7 +1062,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt),
+          binding: await bindingOf(tx, session, attempt, at),
         };
       });
     },
@@ -1052,6 +1083,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         .where(
           and(
             eq(workerCredentials.tokenHash, tokenHash),
+            // An egress token authorizes the proxy's routes and nothing
+            // here, whatever else about it is valid.
+            eq(workerCredentials.purpose, "gateway"),
             isNull(workerCredentials.revokedAt),
             gt(workerCredentials.expiresAt, DB_NOW),
             notInArray(attempts.state, ENDED_ATTEMPT_STATES),
@@ -1065,6 +1099,56 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         .where(eq(workerLaunches.nonceHash, tokenHash))
         .limit(1);
       return launch ? { kind: "bootstrap" } : null;
+    },
+
+    authorizeEgressAtomic(input: {
+      tokenHash: Uint8Array;
+      purpose: EgressPurpose;
+    }): Promise<EgressAuthorization> {
+      return db.transaction(async (tx) => {
+        const [token] = await tx
+          .select({
+            binding: workerCredentials.binding,
+            sessionId: attempts.sessionId,
+            attemptId: attempts.id,
+            leaseEpoch: attempts.leaseEpoch,
+            executionGeneration: attempts.executionGeneration,
+            authRevision: attempts.authRevision,
+          })
+          .from(workerCredentials)
+          .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+          .where(
+            and(
+              eq(workerCredentials.tokenHash, input.tokenHash),
+              eq(workerCredentials.purpose, input.purpose),
+              isNull(workerCredentials.revokedAt),
+              gt(workerCredentials.expiresAt, DB_NOW),
+            ),
+          )
+          .limit(1);
+        if (!token || token.binding === null) {
+          return { outcome: "invalid_token" };
+        }
+        // The attempt's own numbers as the fence: what has to hold is that
+        // the session still names this attempt and its lease has not run
+        // out, not merely that the token is unexpired. A token outlives a
+        // lost lease until the reconciler gets to it; the proxy must not.
+        const { binding, ...fence } = token;
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        return {
+          outcome: "ok",
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+          binding,
+          profileId: fenced.session.profileId,
+          repository: {
+            id: fenced.session.repositoryId,
+            url: fenced.session.repoUrl,
+            branch: fenced.session.branch,
+          },
+        };
+      });
     },
 
     nextInputAtomic(input: NextInputInput): Promise<NextInputResult> {
@@ -1268,6 +1352,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         return {
           outcome: "ok",
           leaseExpiresAt: beat.leaseExpiresAt,
+          leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
           authRevision: fenced.session.authRevision,
         };
       });
@@ -1298,7 +1383,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         let turnRowId: number | null = null;
         let turnStatus: string | null = null;
         if (input.turnId !== null) {
-          const sequence = parseTurnId(input.turnId);
+          const sequence = parseTurnSequence(input.turnId);
           // Only the turn this attempt is running: the fence alone would let
           // a live worker write history onto a queued or foreign turn.
           const [turn] = sequence
@@ -2222,7 +2307,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             })
             .where(openPauseReceipt(session.id));
         }
-        // The terminate receipt succeeds only here, on the observed absence;
+        // The terminate receipt, and an execution revocation's (94S-321),
+        // succeeds only here, on the observed absence;
         // one that already went `unknown` past its deadline is upgraded. The
         // turn it names is the earliest still unknown, whether it became so
         // just now or in an earlier exit the session is still recovering from.
@@ -2239,7 +2325,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           })
           .where(
             and(
-              eq(receipts.operation, "terminate"),
+              inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
               inArray(receipts.status, ["accepted", "unknown"]),
               sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
             ),

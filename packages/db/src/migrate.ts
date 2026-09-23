@@ -6,7 +6,8 @@ import {
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
+import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
 
 const migrationsFolder = join(import.meta.dir, "../migrations");
 const expectedLegacyTables = [
@@ -29,8 +30,19 @@ export interface MigrationSummary {
   readonly total: number;
 }
 
+// Bounded so a frozen database fails the one-shot migrate instead of holding
+// `up` forever, and loose enough for a DDL statement that rewrites a table
+// or waits out a lock held by a running API. Raise it, or make it a setting,
+// once a migration needs longer.
+export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
+  connectMs: 5_000,
+  statementMs: 300_000,
+  queryMs: 330_000,
+};
+
 export interface MigrateDatabaseOptions {
   readonly logger?: StructuredLogger;
+  readonly timeouts?: PoolTimeouts;
 }
 
 export async function migrateDatabase(
@@ -38,7 +50,12 @@ export async function migrateDatabase(
   options: MigrateDatabaseOptions = {},
 ): Promise<MigrationSummary> {
   const logger = options.logger ?? createLogger();
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = createEnforcedPool(
+    databaseUrl,
+    logger,
+    "migrate",
+    options.timeouts ?? MIGRATION_POOL_TIMEOUTS,
+  );
   try {
     const adopted = await adoptLegacyM0Schema(pool);
     const before = await countJournal(pool);

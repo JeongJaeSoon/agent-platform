@@ -5,6 +5,8 @@ import {
 } from "@agent-platform/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
+  ClaimInput,
+  EgressAuthorization,
   FailResumeInput,
   NextInputInput,
   ReadyInput,
@@ -12,7 +14,13 @@ import type {
   RestoreBaseResult,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import { profileFingerprint } from "../sessions/catalog.ts";
+import {
+  type CatalogProfile,
+  type CatalogRepository,
+  profileFingerprint,
+  repositoryBinding,
+  type SessionCatalog,
+} from "../sessions/catalog.ts";
 import {
   type CheckpointProtocol,
   createWorkerGateway,
@@ -52,6 +60,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     registerLaunchAtomic: unimplemented,
     claimAtomic: unimplemented,
     resolveCredential: unimplemented,
+    authorizeEgressAtomic: unimplemented,
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
     commitEventsAtomic: unimplemented,
@@ -388,6 +397,7 @@ describe("WorkerGateway", () => {
       executionGeneration: 1,
       authRevision: 0,
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
       ownerScope: "owner-a",
       repository: {
@@ -416,10 +426,12 @@ describe("WorkerGateway", () => {
       project_settings: { claude_md: true },
     };
     const runnable: unknown[] = [];
+    const issued: ClaimInput["egress"][] = [];
     const instance = createWorkerGateway({
       work: work({
         claimAtomic: async (input) => {
           runnable.push(input.runnable);
+          issued.push(input.egress);
           return { outcome: "claimed", binding };
         },
       }),
@@ -450,7 +462,16 @@ describe("WorkerGateway", () => {
       { kind: "bootstrap" },
       request,
     );
-    expect(claimed.workspace).toEqual({ repository: binding.repository });
+    // The repository comes from the row, with the attempt's token for the
+    // proxy's read-only route beside it — never a credential for the host.
+    expect(claimed.workspace).toEqual({
+      repository: {
+        ...binding.repository,
+        access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
+      },
+    });
+    // The worker tracks the remainder the store measured, not the deadline.
+    expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
     // it registers now (94S-258): one entry per allowed pair, nothing else.
     expect(runnable).toEqual([
@@ -483,7 +504,9 @@ describe("WorkerGateway", () => {
       version: "0.3.270",
       profile_id: "claude-coding-v1",
     });
-    // The credential rides; where the catalog found it does not.
+    // Neither the provider key nor where the catalog found it rides
+    // (94S-252): the worker gets the upstream to name and a token for the
+    // proxy, whose hash is what the claim stored.
     expect(claimed.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read"],
@@ -491,9 +514,31 @@ describe("WorkerGateway", () => {
       provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.invalid",
-        auth: { kind: "api_key", value: "provider-key" },
+        auth: { kind: "egress_token", token: expect.stringMatching(/^wep_/) },
       },
       project_settings: { claude_md: true },
+    });
+    expect(JSON.stringify(claimed)).not.toContain("provider-key");
+    const [egress] = issued;
+    if (!egress) throw new Error("claim was not asked to issue egress tokens");
+    expect(egress.providerHash).toEqual(
+      hashWorkerToken(claimed.runtime_config.provider.auth.token),
+    );
+    expect(egress.repositoryHash).toEqual(
+      hashWorkerToken(claimed.workspace.repository.access?.token ?? ""),
+    );
+    expect(
+      egress.bindingsOf({
+        profileId: "claude-coding-v1",
+        repositoryId: "sample-app",
+      }),
+    ).toEqual({
+      provider: profileFingerprint(profile),
+      repository: repositoryBinding("sample-app", {
+        url: "https://example.invalid/app.git",
+        branch: "main",
+        profiles: ["claude-coding-v1", "other"],
+      }),
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
     expect(claimed.profile_fingerprint).not.toContain("provider-key");
@@ -1124,14 +1169,16 @@ describe("WorkerGateway", () => {
         return {
           outcome: "ok",
           leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          leaseRemainingMs: 29_990,
           authRevision: 0,
         };
       },
     });
-    await instance.heartbeat(principal, {
+    const beat = await instance.heartbeat(principal, {
       ...scope,
       attempt_state: "running",
     });
+    expect(beat.lease_remaining_ms).toBe(29_990);
     expect(seen[0]).not.toHaveProperty("transcript");
     await instance.heartbeat(principal, {
       ...scope,
@@ -1249,6 +1296,7 @@ describe("WorkerGateway", () => {
       heartbeatAtomic: async () => ({
         outcome: "ok",
         leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+        leaseRemainingMs: 60_000,
         authRevision: 0,
       }),
     });
@@ -1268,5 +1316,218 @@ describe("WorkerGateway", () => {
       attempt_state: "running",
     });
     expect(beat.control_pending).toBe(false);
+  });
+});
+
+describe("authorizeEgress (94S-252)", () => {
+  const profile: CatalogProfile = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "claude-sonnet-5",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "litellm",
+      endpoint: "https://litellm.invalid/anthropic",
+      auth: {
+        kind: "bearer",
+        value: "provider-key",
+        ref: { value_env: "PROVIDER_KEY" },
+      },
+    },
+  };
+  const repository: CatalogRepository = {
+    url: "https://git.invalid/team/app.git",
+    branch: "main",
+    profiles: ["p"],
+    auth: {
+      kind: "basic",
+      username: "reader",
+      value: "repo-token",
+      ref: { secret_id: "repo" },
+    },
+  };
+  const granted = (binding: string): EgressAuthorization => ({
+    outcome: "ok",
+    sessionId: scope.session_id,
+    attemptId: "att_1",
+    binding,
+    profileId: "p",
+    repository: { id: "app", url: repository.url, branch: "main" },
+  });
+
+  function authorizer(
+    answer: EgressAuthorization,
+    catalog: SessionCatalog = {
+      profiles: { p: profile },
+      repositories: { app: repository },
+    },
+  ) {
+    const asked: Array<{ tokenHash: Uint8Array; purpose: string }> = [];
+    const instance = createWorkerGateway({
+      work: work({
+        authorizeEgressAtomic: async (input) => {
+          asked.push(input);
+          return answer;
+        },
+      }),
+      catalog,
+      checkpoints: acceptAllCheckpoints,
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    return { asked, instance };
+  }
+
+  test("a provider token is answered with the endpoint and the key to inject", async () => {
+    const { asked, instance } = authorizer(
+      granted(profileFingerprint(profile)),
+    );
+    const grant = await instance.authorizeEgress({
+      token: "wep_x",
+      purpose: "provider",
+    });
+    expect(asked).toEqual([
+      { tokenHash: hashWorkerToken("wep_x"), purpose: "provider" },
+    ]);
+    expect(grant).toEqual({
+      session_id: scope.session_id,
+      attempt_id: "att_1",
+      upstream: {
+        url: "https://litellm.invalid/anthropic",
+        headers: [["authorization", "Bearer provider-key"]],
+      },
+    });
+    const apiKey: CatalogProfile = {
+      ...profile,
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key",
+          value: "anthropic-key",
+          ref: { value_env: "K" },
+        },
+      },
+    };
+    const anthropic = authorizer(granted(profileFingerprint(apiKey)), {
+      profiles: { p: apiKey },
+      repositories: { app: repository },
+    });
+    expect(
+      (
+        await anthropic.instance.authorizeEgress({
+          token: "wep_x",
+          purpose: "provider",
+        })
+      ).upstream.headers,
+    ).toEqual([["x-api-key", "anthropic-key"]]);
+  });
+
+  test("a repository token is answered with the row's repository and its login", async () => {
+    const { instance } = authorizer(
+      granted(repositoryBinding("app", repository)),
+    );
+    const grant = await instance.authorizeEgress({
+      token: "wer_x",
+      purpose: "repository",
+    });
+    expect(grant.upstream).toEqual({
+      url: repository.url,
+      headers: [
+        [
+          "authorization",
+          `Basic ${Buffer.from("reader:repo-token").toString("base64")}`,
+        ],
+      ],
+    });
+    // A repository anyone may read gets nothing injected.
+    const { auth: _auth, ...open } = repository;
+    const public_ = authorizer(granted(repositoryBinding("app", open)), {
+      profiles: { p: profile },
+      repositories: { app: open },
+    });
+    expect(
+      (
+        await public_.instance.authorizeEgress({
+          token: "wer_x",
+          purpose: "repository",
+        })
+      ).upstream.headers,
+    ).toEqual([]);
+  });
+
+  test("an unknown token is 401 and an attempt that lost its session is 403", async () => {
+    await expect(
+      authorizer({ outcome: "invalid_token" }).instance.authorizeEgress({
+        token: "wep_x",
+        purpose: "provider",
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+    for (const outcome of ["stale_epoch", "lease_expired"] as const) {
+      await expect(
+        authorizer({ outcome }).instance.authorizeEgress({
+          token: "wep_x",
+          purpose: "provider",
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+    }
+  });
+
+  test("a catalog that moved since the claim is refused, a rotated value is not", async () => {
+    const binding = profileFingerprint(profile);
+    const moved: CatalogProfile = {
+      ...profile,
+      provider: { ...profile.provider, endpoint: "https://elsewhere.invalid" },
+    };
+    await expect(
+      authorizer(granted(binding), {
+        profiles: { p: moved },
+        repositories: { app: repository },
+      }).instance.authorizeEgress({ token: "wep_x", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    const rotated: CatalogProfile = {
+      ...profile,
+      provider: {
+        ...profile.provider,
+        auth: { ...profile.provider.auth, value: "rotated-key" },
+      },
+    } as CatalogProfile;
+    expect(
+      (
+        await authorizer(granted(binding), {
+          profiles: { p: rotated },
+          repositories: { app: repository },
+        }).instance.authorizeEgress({ token: "wep_x", purpose: "provider" })
+      ).upstream.headers,
+    ).toEqual([["authorization", "Bearer rotated-key"]]);
+
+    const repoBinding = repositoryBinding("app", repository);
+    for (const repositories of [
+      // Re-pointed at another URL, or another branch.
+      { app: { ...repository, url: "https://git.invalid/other.git" } },
+      { app: { ...repository, branch: "dev" } },
+      // The pair is no longer allowed.
+      { app: { ...repository, profiles: ["someone-else"] } },
+      // Another credential reference behind the same id.
+      {
+        app: {
+          ...repository,
+          auth: {
+            kind: "bearer" as const,
+            value: "repo-token",
+            ref: { value_env: "OTHER" },
+          },
+        },
+      },
+      // Gone.
+      {},
+    ]) {
+      await expect(
+        authorizer(granted(repoBinding), {
+          profiles: { p: profile },
+          repositories,
+        }).instance.authorizeEgress({ token: "wer_x", purpose: "repository" }),
+      ).rejects.toMatchObject({ status: 409 });
+    }
   });
 });

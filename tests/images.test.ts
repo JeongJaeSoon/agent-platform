@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@agent-platform/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
+import {
+  SHUTDOWN_CLOSE_MS,
+  SHUTDOWN_DRAIN_MS,
+} from "../apps/api/src/shutdown.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -58,6 +62,12 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(/^USER 1000:1000$/m);
   });
 
+  // The scheduler runs the worker image as the workspace inode helper
+  // (94S-224); image-smoke.sh runs the tools themselves.
+  test("the worker carries xfsprogs for the inode helper", () => {
+    expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
     for (const app of ["api", "scheduler"] as const) {
@@ -73,6 +83,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test.each(apps)("compose builds %s from apps/%s/Dockerfile", (app) => {
     expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
+  });
+
+  test("compose gives the API longer to stop than its drain takes", () => {
+    const apiBlock = compose.slice(compose.indexOf("\n  api:"));
+    const graceSeconds = Number(
+      apiBlock.match(/^ {4}stop_grace_period: (\d+)s$/m)?.[1],
+    );
+    expect(graceSeconds * 1000).toBeGreaterThan(
+      SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS,
+    );
   });
 
   test("the scheduler loop surfaces persistent failure", () => {
@@ -125,11 +145,55 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(example).toContain("CHECKPOINT_GIT_MEMORY_MB=1536");
   });
 
+  const reconcilerBlock = compose.slice(
+    compose.indexOf("\n  reconciler:"),
+    compose.indexOf("\nnetworks:"),
+  );
+
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
-    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
+    const schedulerBlock = compose.slice(
+      compose.indexOf("\n  scheduler:"),
+      compose.indexOf("\n  reconciler:"),
+    );
     expect(schedulerBlock).toContain("/var/run/docker.sock:");
+    // The reconciler records intent in the database; the scheduler acts on
+    // it (94S-320). Neither a mount nor a DOCKER_HOST gives it the daemon.
+    expect(reconcilerBlock).not.toContain("docker.sock");
+    expect(reconcilerBlock).not.toContain("DOCKER_HOST");
+    expect(reconcilerBlock).not.toMatch(/^ {4}volumes:/m);
+  });
+
+  test("the reconciler runs by default as a supervised loop in the apps profile", () => {
+    expect(reconcilerBlock.length).toBeGreaterThan(0);
+    expect(reconcilerBlock).toContain('profiles: ["apps"]');
+    // It runs the image the api service builds rather than building the
+    // same tag a second time, which races the api build on export.
+    const { api, reconciler } = composeServices("infra/docker-compose.yml");
+    expect(api?.build?.dockerfile).toBe("apps/api/Dockerfile");
+    expect(reconciler?.build).toBeUndefined();
+    expect(reconciler?.image).toBe(api?.image);
+    expect(reconcilerBlock).toContain(
+      'command: ["bun", "run", "apps/reconciler/src/loop.ts"]',
+    );
+    expect(reconcilerBlock).toContain("restart: unless-stopped");
+    expect(reconcilerBlock).toContain(
+      'test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]',
+    );
+    for (const name of [
+      "RECONCILER_INTERVAL_SEC",
+      "RECONCILER_PASS_TIMEOUT_SEC",
+      "RECONCILER_MAX_CONSECUTIVE_FAILURES",
+      "RECONCILER_HEALTH_STALE_SEC",
+    ]) {
+      expect(reconcilerBlock).toContain(`${name}: $` + `{${name}:-`);
+    }
+    // It refuses to start with HEARTBEAT_TTL_SEC set, which an env file
+    // shared with the API would hand it; nor does it listen on anything.
+    expect(reconcilerBlock).not.toContain("env_file");
+    expect(reconcilerBlock).not.toContain("HEARTBEAT_TTL_SEC:");
+    expect(reconcilerBlock).not.toMatch(/^ {4}ports:/m);
   });
 
   test("images.yml builds every app and pushes only on tags", () => {
@@ -238,6 +302,11 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
   });
 
   test("every image is built here or pinned by index digest", () => {
+    const builtImages = new Set(
+      Object.values(services)
+        .filter((service) => service.build)
+        .map((service) => service.image),
+    );
     for (const [name, service] of Object.entries(services)) {
       if (service.build) {
         // Built images are released by digest through images.yml.
@@ -251,6 +320,7 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
         expect(apps).toContain(app as (typeof apps)[number]);
         continue;
       }
+      if (builtImages.has(service.image)) continue;
       expect({ name, image: service.image }).toEqual({
         name,
         image: expect.stringMatching(/^[^@\s]+@sha256:[0-9a-f]{64}$/),

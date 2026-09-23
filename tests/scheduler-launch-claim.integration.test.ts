@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { createApiApp } from "@agent-platform/api/src/app.ts";
+import { createEgressAuthorizer } from "@agent-platform/api/src/egress-authorizer.ts";
 import { registerWorkerRoutes } from "@agent-platform/api/src/routes/worker.ts";
 import * as schema from "@agent-platform/db";
 import {
@@ -16,6 +17,7 @@ import {
   workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
 import { removeWorkerNetworks } from "@agent-platform/execution-local-docker/testing";
+import { createLogger } from "@agent-platform/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
@@ -23,6 +25,11 @@ import {
 } from "@agent-platform/platform";
 import { main } from "@agent-platform/scheduler/src/main.ts";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import {
+  type FakeAnthropicServer,
+  startFakeAnthropicServer,
+  textReply,
+} from "@agent-platform/testkit/fake-anthropic";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -68,6 +75,7 @@ async function defaultDockerHost(): Promise<string> {
  * backend put in the container.
  */
 const PROVIDER_KEY_VALUE = `provider-${crypto.randomUUID()}`;
+const AUTHORIZER_BEARER = `authorizer-${crypto.randomUUID()}`;
 
 const WORKER_SCRIPT = `
 const gateway = process.env.WORKER_GATEWAY_URL;
@@ -95,15 +103,31 @@ const claimed = await post("bootstrap-claim", nonce, {
   credential: { kind: "launch_nonce", nonce },
 });
 console.log("CLAIMED " + claimed.session_id + " " + claimed.attempt_id);
-// Only a digest: the provider key arrives here and nowhere else (94S-132).
+// The claim carries a token for the credential route, never the key
+// (94S-252); the route is on the proxy's own name, which NO_PROXY exempts.
 console.log(
-  "CREDENTIAL " +
-    new Bun.CryptoHasher("sha256")
-      .update(claimed.runtime_config.provider.auth.value)
-      .digest("hex") +
+  "PROVIDER " +
+    claimed.runtime_config.provider.auth.kind +
     " " +
     claimed.profile_fingerprint,
 );
+const reply = await fetch(
+  process.env.WORKER_EGRESS_CREDENTIAL_URL + "/provider/v1/messages",
+  {
+    method: "POST",
+    headers: {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "x-api-key": claimed.runtime_config.provider.auth.token,
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 16,
+      messages: [{ role: "user", content: "hello" }],
+    }),
+  },
+);
+console.log("MESSAGES " + reply.status + " " + (await reply.text()).length);
 
 const next = await post("next-input", claimed.session_credential, {
   session_id: claimed.session_id,
@@ -137,6 +161,9 @@ integration(
     let pool: Pool;
     let db: NodePgDatabase<typeof schema>;
     let server: ReturnType<typeof Bun.serve>;
+    let authorizer: ReturnType<typeof Bun.serve>;
+    let messages: FakeAnthropicServer;
+    const claimBodies: string[] = [];
     let sessionId: string;
     let gatewayUrl: string;
 
@@ -179,6 +206,12 @@ integration(
       database = await createTempDatabase({ prefix: "launch_claim_it" });
       pool = new Pool({ connectionString: database.url });
       db = drizzle(pool, { schema });
+      // The Messages upstream, on the host: only the proxy's credential
+      // route reaches it, and only with the catalog's key on the request.
+      messages = startFakeAnthropicServer(textReply("through the route"), {
+        listen: { hostname: "0.0.0.0", port: 0 },
+      });
+      const messagesPort = Number(new URL(messages.url).port);
 
       // The real gateway, on the host. Only the proxy may reach it, and only
       // because the allowlist below names it.
@@ -194,7 +227,7 @@ integration(
               permission_mode: "default",
               provider: {
                 kind: "litellm",
-                endpoint: "https://litellm.invalid",
+                endpoint: `http://host.docker.internal:${messagesPort}`,
                 auth: {
                   kind: "api_key",
                   value: PROVIDER_KEY_VALUE,
@@ -219,10 +252,30 @@ integration(
         registerInternalRoutes: (router) =>
           registerWorkerRoutes(router, gateway),
       });
-      server = Bun.serve({ fetch: app.fetch, hostname: "0.0.0.0", port: 0 });
+      server = Bun.serve({
+        // Every claim body is kept, to show the key is in none of them.
+        async fetch(request) {
+          const response = await app.fetch(request);
+          if (new URL(request.url).pathname.endsWith("/bootstrap-claim")) {
+            claimBodies.push(await response.clone().text());
+          }
+          return response;
+        },
+        hostname: "0.0.0.0",
+        port: 0,
+      });
       gatewayUrl = `http://host.docker.internal:${server.port}`;
+      authorizer = Bun.serve({
+        fetch: createEgressAuthorizer({
+          gateway,
+          logger: createLogger({ sinks: [] }),
+          token: AUTHORIZER_BEARER,
+        }),
+        hostname: "0.0.0.0",
+        port: 0,
+      });
 
-      await startProxy(server.port);
+      await startProxy(server.port, authorizer.port, messagesPort);
 
       const accepted = await createPostgresSessionUnitOfWork(
         db,
@@ -254,6 +307,8 @@ integration(
 
     afterAll(async () => {
       server?.stop(true);
+      authorizer?.stop(true);
+      messages?.stop();
       for (const name of created) {
         await client.stopAndRemoveContainer(name, 1).catch(() => undefined);
       }
@@ -281,13 +336,18 @@ integration(
       const log = await waitForLog(containerName, "INPUT ");
       expect(log).toContain(`CLAIMED ${sessionId} `);
       expect(log).toContain(`"message":"${MESSAGE}"`);
-      // The provider key reached the worker through the nonce-authenticated
-      // claim, with the profile's fingerprint beside it.
-      expect(log).toMatch(
-        new RegExp(
-          `CREDENTIAL ${new Bun.CryptoHasher("sha256").update(PROVIDER_KEY_VALUE).digest("hex")} sha256:[0-9a-f]{64}`,
-        ),
+      // The claim handed the worker a route token, not the key (94S-252),
+      // and a Messages call through the route reached the upstream with the
+      // catalog's key on it.
+      expect(log).toMatch(/PROVIDER egress_token sha256:[0-9a-f]{64}/);
+      expect(log).toMatch(/MESSAGES 200 \d+/);
+      expect(messages.requests).toHaveLength(1);
+      expect(messages.requests[0]?.headers["x-api-key"]).toBe(
+        PROVIDER_KEY_VALUE,
       );
+      expect(claimBodies).toHaveLength(1);
+      expect(claimBodies.join("\n")).not.toContain(PROVIDER_KEY_VALUE);
+      expect(log).not.toContain(PROVIDER_KEY_VALUE);
 
       // The binding landed on the session the scheduler reserved the launch
       // for, and the launch row is the thing that records it.
@@ -345,7 +405,11 @@ integration(
      * The real proxy, labelled for this installation so the backend attaches
      * it to the worker's network, exactly as the deployed one runs.
      */
-    async function startProxy(port: number): Promise<void> {
+    async function startProxy(
+      port: number,
+      authorizerPort: number,
+      messagesPort: number,
+    ): Promise<void> {
       created.push(proxyName);
       const response = await raw(
         "POST",
@@ -355,8 +419,10 @@ integration(
           Env: [
             // The gateway is on the daemon host, which is a private address: it
             // has to be named here or the proxy refuses to forward to it.
-            `EGRESS_PRIVATE_ALLOWLIST=host.docker.internal:${port}`,
+            `EGRESS_PRIVATE_ALLOWLIST=host.docker.internal:${port},host.docker.internal:${messagesPort}`,
             "EGRESS_PROXY_PORT=3128",
+            `EGRESS_AUTHORIZER_URL=http://host.docker.internal:${authorizerPort}`,
+            `EGRESS_AUTHORIZER_TOKEN=${AUTHORIZER_BEARER}`,
           ],
           HostConfig: {
             Binds: [`${PROXY_SOURCE}:/app:ro`],
@@ -371,8 +437,13 @@ integration(
       await client.startContainer(proxyName);
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline) {
-        if ((await logsOf(proxyName)).includes("Egress proxy listening"))
+        const log = await logsOf(proxyName);
+        if (
+          log.includes("Egress proxy listening") &&
+          log.includes("Credential routes listening")
+        ) {
           return;
+        }
         await Bun.sleep(500);
       }
       throw new Error(`proxy never came up:\n${await logsOf(proxyName)}`);

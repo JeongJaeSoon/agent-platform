@@ -295,6 +295,16 @@ describe("API authentication", () => {
     ],
     ["pg client query_timeout", new Error("Query read timeout")],
     [
+      "database host that stopped resolving",
+      Object.assign(new Error("getaddrinfo ENOTFOUND db"), {
+        code: "ENOTFOUND",
+      }),
+    ],
+    [
+      "network that went down",
+      Object.assign(new Error("connect ENETDOWN"), { code: "ENETDOWN" }),
+    ],
+    [
       "statement queued behind an evicted client",
       new Error(
         "Client has encountered a connection error and is not queryable",

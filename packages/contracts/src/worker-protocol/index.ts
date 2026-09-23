@@ -19,6 +19,7 @@ import {
   requiredUnknownSchema,
   revisionSchema,
   sessionIdSchema,
+  sha256HexSchema,
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
@@ -75,6 +76,16 @@ export const bootstrapClaimRequestSchema = z
 // that lost. Before its first accepted call a worker that is answered 401
 // claims again: while the attempt has not used a token, the same binding
 // comes back with a working credential.
+
+// A capability for one of the egress proxy's credential routes (94S-252),
+// never an upstream credential: the proxy asks the gateway what it stands
+// for on every request and injects the provider key or repository
+// credential itself. It lives exactly as long as the attempt's session
+// credential and authorizes nothing on the gateway.
+export const egressTokenAuthSchema = z
+  .object({ kind: z.literal("egress_token"), token: z.string().min(1) })
+  .strict();
+
 // What the session was created against. It is copied from the session row,
 // not looked up in the catalog at claim time, so a repository that has since
 // left the catalog still describes the workspace this session lives in.
@@ -82,11 +93,16 @@ export const workspaceRepositorySchema = z
   .object({
     // Catalog key at creation; null for rows that predate the catalog (94S-147).
     id: z.string().min(1).nullable(),
-    // Verbatim, userinfo included: stripping it would break the private
-    // clones that have no other credential path yet. The worker treats the
-    // whole URL as a secret. Credential delivery proper is a separate ticket.
+    // As the session row holds it. The catalog refuses a URL that carries a
+    // credential (94S-132), but a row from before it may still hold one, so
+    // the worker never stores this in a checkout unstripped.
     url: z.string().min(1),
     branch: z.string().min(1),
+    // How the worker reaches the repository over the network (94S-252): an
+    // attempt-scoped token for the egress proxy's read-only repository
+    // route, which injects the upstream credential the worker never sees.
+    // Absent when the URL is not http(s), which only tests use.
+    access: egressTokenAuthSchema.optional(),
   })
   .strict();
 export const workspaceDescriptorSchema = z
@@ -103,25 +119,22 @@ export const claimPrincipalSchema = z
   .object({ owner_scope: z.string().min(1) })
   .strict();
 
-const apiKeyAuthSchema = z
-  .object({ kind: z.literal("api_key"), value: z.string().min(1) })
-  .strict();
-const bearerAuthSchema = z
-  .object({ kind: z.literal("bearer"), value: z.string().min(1) })
-  .strict();
+// `endpoint` is the upstream the proxy will call, not where the worker sends
+// its requests: it names the provider for the checkpoint fingerprint and
+// the adapter's allowlist, while the traffic goes to the proxy's route.
 export const runtimeProviderSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("anthropic"),
       endpoint: z.url(),
-      auth: apiKeyAuthSchema,
+      auth: egressTokenAuthSchema,
     })
     .strict(),
   z
     .object({
       kind: z.literal("litellm"),
       endpoint: z.url(),
-      auth: z.discriminatedUnion("kind", [apiKeyAuthSchema, bearerAuthSchema]),
+      auth: egressTokenAuthSchema,
     })
     .strict(),
 ]);
@@ -145,11 +158,11 @@ export const projectSettingsSchema = z
 
 // Everything the engine needs beyond the identity in `runtime`: resolved by
 // the server from the profile the session was created with. The provider
-// credential rides here. The claim that carries it can be replayed only
-// until the attempt's first accepted call, and it is the platform's write
-// fence that is scoped to the binding, not the credential's own validity:
-// a shared provider key handed out this way is still a shared key. Nothing
-// here may reach an event, a manifest or a log — see `loggableBootstrapClaim`.
+// key does not ride here (94S-252): the egress proxy injects it, and what the
+// worker holds is a token that is worthless off the worker network and dies
+// with the attempt. That token is still a secret for as long as it lives, so
+// nothing here may reach an event, a manifest or a log — see
+// `loggableBootstrapClaim`.
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
@@ -168,9 +181,17 @@ export const profileFingerprintSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
+// The lease as the worker may track it (94S-322): what was left of it on the
+// database clock at an instant after the request was sent. Counted from its
+// own send time on a monotonic clock, it can only end early, never late,
+// whatever either side's wall clock says. `lease_expires_at` is that same
+// deadline as the database clock names it, for logs; no worker judges by it.
+export const leaseRemainingMsSchema = z.number().int().nonnegative();
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
@@ -185,9 +206,9 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
-// the whole response minus the secrets. The session token, the provider
-// credential and the repository URL (which may embed one) are what a leak
-// would consist of.
+// the whole response minus the secrets. The session token, the egress tokens
+// and the repository URL (which may embed a credential) are what a leak would
+// consist of.
 export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
   return {
     session_id: response.session_id,
@@ -196,6 +217,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     execution_generation: response.execution_generation,
     auth_revision: response.auth_revision,
     lease_expires_at: response.lease_expires_at,
+    lease_remaining_ms: response.lease_remaining_ms,
     runtime: response.runtime,
     profile_fingerprint: response.profile_fingerprint,
     model: response.runtime_config.model,
@@ -272,6 +294,7 @@ export const heartbeatRequestSchema = workerScopeSchema
   .strict();
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
+  lease_remaining_ms: leaseRemainingMsSchema,
   auth_revision: epochSchema,
   control_pending: z.boolean(),
 });
@@ -308,8 +331,6 @@ export const appendEventsResponseSchema = z.object({
   accepted_through: z.number().int().nonnegative(),
   cursor: opaqueCursorSchema,
 });
-
-const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 // A permission or question the attempt is holding a live callback for. The
 // worker registers it before anyone is told about it, so every request a
@@ -382,7 +403,7 @@ export const pendingControlRequestSchema = workerScopeSchema
   .strict();
 export const controlIntentSchema = z.object({
   control_id: z.string().min(1),
-  kind: z.enum(["interrupt", "pause", "terminate"]),
+  kind: z.enum(["interrupt", "pause"]),
   target_turn_id: turnIdSchema.nullable(),
   issued_at: timestampSchema,
 });

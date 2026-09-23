@@ -8,8 +8,10 @@
     "./checkpoint-objects": "./src/checkpoint-objects.ts",
     "./fake-anthropic": "./src/fake-anthropic.ts",
     "./git-bundle": "./src/git-bundle.ts",
+    "./git-http": "./src/git-http.ts",
     "./localstack": "./src/localstack.ts",
     "./postgres": "./src/postgres.ts",
+    "./scripted-messages": "./src/scripted-messages.ts",
     "./workspace": "./src/workspace.ts"
   },
   "scripts": {

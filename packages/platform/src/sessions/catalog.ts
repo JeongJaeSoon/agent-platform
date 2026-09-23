@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import {
   canonicalJson,
   permissionModeSchema,
@@ -19,6 +20,14 @@ import { z } from "zod";
 // Only Claude profiles exist: the config block below is the Claude engine's
 // shape, and a profile that names another runtime kind with it would run
 // nothing. Other kinds get their own block when an adapter for them lands.
+
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
 
 const credentialRefFields = {
   value_env: z.string().min(1).optional(),
@@ -68,9 +77,22 @@ function isWebUrl(value: string): boolean {
     return false;
   }
 }
-const webUrl = credentialFreeUrl.refine(isWebUrl, {
-  message: "must be an http:// or https:// URL",
-});
+// The egress proxy refuses an upstream with a fragment (94S-252), so one
+// here would pass startup and fail every call through the route.
+const webUrl = credentialFreeUrl
+  .refine(isWebUrl, { message: "must be an http:// or https:// URL" })
+  .refine((value) => !isWebUrl(value) || new URL(value).hash === "", {
+    message: "must not carry a fragment",
+  })
+  // The egress proxy checks an https upstream's certificate for a name, so
+  // one addressed by IP would pass here and fail every call.
+  .refine(
+    (value) =>
+      !isWebUrl(value) ||
+      new URL(value).protocol !== "https:" ||
+      isIP(new URL(value).hostname.replace(/^\[|\]$/g, "")) === 0,
+    { message: "https must name its host, not an address" },
+  );
 
 const catalogProviderSchema = z.discriminatedUnion("kind", [
   z
@@ -102,6 +124,34 @@ export const catalogProfileConfigSchema = z
   })
   .strict();
 
+// How the egress proxy logs in to the repository host for this
+// repository's read-only route (94S-252). `basic` carries a login (Gitea
+// takes a token as the password); `bearer` carries none. The value is
+// never handed to a worker: what a worker holds is an attempt-scoped token
+// for the proxy's route. Give it a read-only, non-admin account.
+const catalogRepositoryAuthSchema = z
+  .object({
+    kind: z.enum(["basic", "bearer"]),
+    // Joined as `username:value` for basic auth, so no colon of its own.
+    username: z
+      .string()
+      .min(1)
+      .refine((name) => !name.includes(":") && !hasControlCharacter(name), {
+        message: "must not hold a colon or a control character",
+      })
+      .optional(),
+    ...credentialRefFields,
+  })
+  .strict()
+  .refine(
+    (auth) => (auth.value_env === undefined) !== (auth.secret_id === undefined),
+    { message: "name exactly one of value_env or secret_id" },
+  )
+  .refine((auth) => (auth.kind === "basic") === (auth.username !== undefined), {
+    message: "basic needs a username and bearer takes none",
+    path: ["username"],
+  });
+
 // A repository lists the profiles allowed to run against it. The pair is
 // the unit of trust (94S-258): a profile that lets the repository's
 // CLAUDE.md into the system prompt must not carry that trust to a
@@ -112,6 +162,8 @@ export const catalogRepositorySchema = z
     url: webUrl,
     branch: z.string().min(1),
     profiles: z.array(z.string().min(1)).min(1),
+    // Absent for a repository anyone may read.
+    auth: catalogRepositoryAuthSchema.optional(),
   })
   .strict();
 
@@ -150,7 +202,13 @@ export const sessionCatalogConfigSchema = z
 
 export type SessionCatalogConfig = z.infer<typeof sessionCatalogConfigSchema>;
 export type CatalogProfileConfig = z.infer<typeof catalogProfileConfigSchema>;
-export type CatalogRepository = z.infer<typeof catalogRepositorySchema>;
+export type CatalogRepositoryConfig = z.infer<typeof catalogRepositorySchema>;
+export type RepositoryCredential =
+  | { kind: "basic"; username: string; value: string; ref: CredentialRef }
+  | { kind: "bearer"; value: string; ref: CredentialRef };
+export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
+  auth?: RepositoryCredential | undefined;
+};
 export type CredentialRef = { value_env: string } | { secret_id: string };
 
 // What the services hold: each credential resolved, its reference kept so
@@ -184,12 +242,65 @@ export type SessionCatalog = {
   repositories: Record<string, CatalogRepository>;
 };
 
-/** The provider exactly as the worker protocol carries it: no reference. */
-export function runtimeProviderOf(profile: CatalogProfile) {
-  const { ref: _ref, ...auth } = profile.provider.auth;
-  return { ...profile.provider, auth } as z.infer<
-    typeof runtimeConfigSchema.shape.provider
-  >;
+/**
+ * The provider as the worker protocol carries it (94S-252): where the proxy
+ * will send the engine's requests, and the attempt's token for that route.
+ * The credential stays here; `providerUpstreamOf` is what the proxy gets.
+ */
+export function runtimeProviderOf(
+  profile: CatalogProfile,
+  token: string,
+): z.infer<typeof runtimeConfigSchema.shape.provider> {
+  return {
+    kind: profile.provider.kind,
+    endpoint: profile.provider.endpoint,
+    auth: { kind: "egress_token", token },
+  };
+}
+
+/** One request the egress proxy makes on a worker's behalf. */
+export type EgressUpstream = {
+  /** The base the route's path is appended to. */
+  url: string;
+  /** Set on the upstream request, replacing whatever the worker sent. */
+  headers: Array<[string, string]>;
+};
+
+/** Where a provider route goes and how it authenticates there. */
+export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
+  const { auth, endpoint } = profile.provider;
+  return {
+    url: endpoint,
+    headers:
+      auth.kind === "bearer"
+        ? [["authorization", `Bearer ${auth.value}`]]
+        : [["x-api-key", auth.value]],
+  };
+}
+
+/** Where a repository route goes and how it authenticates there. */
+export function repositoryUpstreamOf(
+  repository: CatalogRepository,
+): EgressUpstream {
+  const { auth, url } = repository;
+  if (auth === undefined) return { url, headers: [] };
+  return {
+    url,
+    headers: [
+      [
+        "authorization",
+        auth.kind === "basic"
+          ? `Basic ${Buffer.from(`${auth.username}:${auth.value}`, "utf8").toString("base64")}`
+          : `Bearer ${auth.value}`,
+      ],
+    ],
+  };
+}
+
+function withoutRepositorySecret(repository: CatalogRepository) {
+  if (repository.auth === undefined) return repository;
+  const { value: _value, ...auth } = repository.auth;
+  return { ...repository, auth };
 }
 
 function withoutSecret(profile: CatalogProfile) {
@@ -219,6 +330,23 @@ export function profileFingerprint(profile: CatalogProfile): string {
 }
 
 /**
+ * What a repository route is authorized against: the entry's URL, branch
+ * and where its credential comes from, never the credential. A token issued
+ * under one binding stops working if the entry is re-pointed, while the
+ * value behind the same reference may still be rotated.
+ */
+export function repositoryBinding(
+  id: string,
+  repository: CatalogRepository,
+): string {
+  return sha256({
+    fingerprint_version: FINGERPRINT_VERSION,
+    id,
+    repository: withoutRepositorySecret(repository),
+  });
+}
+
+/**
  * The whole catalog as loaded, for audit and logs: it moves whenever any
  * profile or repository does, so it is not what a session should be matched
  * against (an unrelated edit would fail every claim).
@@ -232,7 +360,12 @@ export function catalogRevision(catalog: SessionCatalog): string {
         withoutSecret(profile),
       ]),
     ),
-    repositories: catalog.repositories,
+    repositories: Object.fromEntries(
+      Object.entries(catalog.repositories).map(([id, repository]) => [
+        id,
+        withoutRepositorySecret(repository),
+      ]),
+    ),
   });
 }
 
@@ -264,43 +397,110 @@ export function credentialRefOf(auth: {
 }
 
 export class CatalogCredentialError extends Error {
+  /** `path` is where the reference sits, e.g. `profiles.<id>.provider.auth`. */
   constructor(
-    readonly profileId: string,
+    readonly path: string,
     readonly ref: CredentialRef,
     reason = "is not set",
   ) {
     super(
       "value_env" in ref
-        ? `profiles.${profileId}.provider.auth.value_env: ${ref.value_env} ${reason}`
-        : `profiles.${profileId}.provider.auth.secret_id: ${ref.secret_id} ${reason}`,
+        ? `${path}.value_env: ${ref.value_env} ${reason}`
+        : `${path}.secret_id: ${ref.secret_id} ${reason}`,
     );
   }
 }
 
+/** Every credential reference in the catalog, with where it sits. */
+export function catalogCredentialRefs(
+  config: SessionCatalogConfig,
+): Array<{ path: string; ref: CredentialRef }> {
+  const refs: Array<{ path: string; ref: CredentialRef }> = [];
+  for (const [id, profile] of Object.entries(config.profiles)) {
+    const { kind: _kind, ...fields } = profile.provider.auth;
+    refs.push({
+      path: `profiles.${id}.provider.auth`,
+      ref: credentialRefOf(fields),
+    });
+  }
+  for (const [id, repository] of Object.entries(config.repositories)) {
+    if (repository.auth === undefined) continue;
+    refs.push({
+      path: `repositories.${id}.auth`,
+      ref: credentialRefOf(repository.auth),
+    });
+  }
+  return refs;
+}
+
+/**
+ * The egress proxy watches its responses for the value it injected, and a
+ * streamed body is only checked for values at least this long (shorter ones
+ * turn up in pack data by chance). A shorter credential would pass through
+ * unchecked, so it is refused here instead.
+ */
+export const MIN_CREDENTIAL_BYTES = 8;
+
 /**
  * The resolved catalog. `lookup` hands back each reference's value, already
  * fetched (a Secrets Manager read is the loader's job, not this pure step);
- * an absent or empty value fails naming the profile and the reference,
- * never a value.
+ * an absent or empty value fails naming where the reference sits, never a
+ * value.
  */
 export function resolveSessionCatalog(
   config: SessionCatalogConfig,
   lookup: (ref: CredentialRef) => string | undefined,
 ): SessionCatalog {
+  const resolved = (path: string, ref: CredentialRef): string => {
+    const value = lookup(ref);
+    if (!value) throw new CatalogCredentialError(path, ref);
+    // It goes into a header as it is (or base64'd with the login): a
+    // trailing newline from `echo` into a secret, say, would pass here and
+    // be refused by the egress proxy on every call.
+    if (hasControlCharacter(value) || value.trim() !== value) {
+      throw new CatalogCredentialError(
+        path,
+        ref,
+        "has a control character or surrounding whitespace",
+      );
+    }
+    if (Buffer.byteLength(value, "utf8") < MIN_CREDENTIAL_BYTES) {
+      throw new CatalogCredentialError(
+        path,
+        ref,
+        `is shorter than ${MIN_CREDENTIAL_BYTES} bytes`,
+      );
+    }
+    return value;
+  };
   const profiles: Record<string, CatalogProfile> = {};
   for (const [id, profile] of Object.entries(config.profiles)) {
     const { kind, ...refFields } = profile.provider.auth;
     const ref = credentialRefOf(refFields);
-    const value = lookup(ref);
-    if (!value) {
-      throw new CatalogCredentialError(id, ref);
-    }
+    const value = resolved(`profiles.${id}.provider.auth`, ref);
     profiles[id] = {
       ...profile,
       provider: { ...profile.provider, auth: { kind, value, ref } },
     } as CatalogProfile;
   }
-  return { profiles, repositories: config.repositories };
+  const repositories: Record<string, CatalogRepository> = {};
+  for (const [id, repository] of Object.entries(config.repositories)) {
+    const { auth, ...rest } = repository;
+    if (auth === undefined) {
+      repositories[id] = rest;
+      continue;
+    }
+    const ref = credentialRefOf(auth);
+    const value = resolved(`repositories.${id}.auth`, ref);
+    repositories[id] = {
+      ...rest,
+      auth:
+        auth.kind === "basic"
+          ? { kind: "basic", username: auth.username ?? "", value, ref }
+          : { kind: "bearer", value, ref },
+    };
+  }
+  return { profiles, repositories };
 }
 
 /** Environment-only lookup: a secret reference resolves to nothing here. */

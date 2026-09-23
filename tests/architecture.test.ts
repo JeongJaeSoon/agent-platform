@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -8,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const testkit = "@agent-platform/testkit";
@@ -16,6 +17,7 @@ const claudeSdk = "@anthropic-ai/claude-agent-sdk";
 const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
 const dockerBackend = join("packages", "adapters", "execution", "local-docker");
+const platform = join("packages", "platform");
 const worker = join("apps", "worker");
 const storage = "@agent-platform/storage";
 /** The one worker file allowed to know objects live in S3 (94S-244). */
@@ -159,6 +161,46 @@ export async function importsOutside(
     .filter((file) => file !== allowed)
     .sort();
 }
+
+/**
+ * `forbidden` entries match a package and everything under it, so a bare
+ * scope ("@aws-sdk") covers each of its packages.
+ */
+function isForbidden(name: string, forbidden: readonly string[]): boolean {
+  return forbidden.some(
+    (entry) => name === entry || name.startsWith(`${entry}/`),
+  );
+}
+
+/** Files, test files included, that import anything `forbidden` names. */
+export async function forbiddenImports(
+  directory: string,
+  forbidden: readonly string[],
+): Promise<string[]> {
+  const offenders: string[] = [];
+  for (const file of await typescriptFiles(
+    join(directory, "src"),
+    () => true,
+  )) {
+    for (const specifier of specifiers(await readFile(file, "utf8"))) {
+      if (isForbidden(packageOf(specifier), forbidden))
+        offenders.push(`${relative(directory, file)} -> ${specifier}`);
+    }
+  }
+  return offenders.sort();
+}
+
+// What stays behind the platform ports (module-design.md): the business
+// logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
+const platformForbidden = [
+  "@agent-platform/db",
+  "@agent-platform/queue",
+  "@agent-platform/storage",
+  "@anthropic-ai",
+  "@aws-sdk",
+  "drizzle-orm",
+  "pg",
+];
 
 export async function escapingRelativeImports(
   directory: string,
@@ -343,10 +385,88 @@ describe("architecture", () => {
       "@aws-sdk",
       "pg",
     ];
-    const declared = declaredDependencies(await manifest(directory));
-    const imported = await packageImports(directory);
-    expect(forbidden.filter((name) => declared.has(name))).toEqual([]);
-    expect(forbidden.filter((name) => imported.has(name))).toEqual([]);
+    const declared = [...declaredDependencies(await manifest(directory))];
+    const imported = [...(await packageImports(directory))];
+    expect(declared.filter((name) => isForbidden(name, forbidden))).toEqual([]);
+    expect(imported.filter((name) => isForbidden(name, forbidden))).toEqual([]);
+  });
+
+  test("platform depends on contracts, runtime-core and zod only", async () => {
+    const directory = join(root, platform);
+    const allowed = new Set([
+      "@agent-platform/contracts",
+      "@agent-platform/runtime-core",
+      "zod",
+    ]);
+    const declared = [...declaredDependencies(await manifest(directory))];
+    // The import scan also picks up prose such as 'from "paused"' in
+    // platform's comments; only a name that resolves to an installed package
+    // is an import.
+    const installed = (name: string) =>
+      [root, directory].some((base) =>
+        existsSync(join(base, "node_modules", name)),
+      );
+    const imported = [...(await packageImports(directory))].filter(installed);
+    expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
+    expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+    expect(imported).toContain("@agent-platform/contracts");
+  });
+
+  test("no platform file, tests included, imports a driver, ORM or SDK", async () => {
+    expect(
+      await forbiddenImports(join(root, platform), platformForbidden),
+    ).toEqual([]);
+  });
+
+  test("the forbidden-import check matches subpaths and whole scopes", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-"));
+    try {
+      await mkdir(join(fixture, "src"), { recursive: true });
+      await writeFile(
+        join(fixture, "src", "leak.test.ts"),
+        [
+          'import { drizzle } from "drizzle-orm/node-postgres";',
+          "import { S3Client } from '@aws-sdk/client-s3';",
+          'import { query } from "@anthropic-ai/claude-agent-sdk";',
+          'import { Pool } from "pg";',
+          'import { pgTable } from "pg-core-lookalike";',
+          'import type { Session } from "@agent-platform/contracts";',
+        ].join("\n"),
+      );
+      expect(await forbiddenImports(fixture, platformForbidden)).toEqual([
+        "src/leak.test.ts -> @anthropic-ai/claude-agent-sdk",
+        "src/leak.test.ts -> @aws-sdk/client-s3",
+        "src/leak.test.ts -> drizzle-orm/node-postgres",
+        "src/leak.test.ts -> pg",
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("no app imports or depends on another app", async () => {
+    const appDirectories = (await workspacePackages()).filter(
+      (directory) => relative(root, directory).split(sep)[0] === "apps",
+    );
+    const appNames = new Set<string>();
+    for (const directory of appDirectories) {
+      const name = (await manifest(directory)).name;
+      if (name) appNames.add(name);
+    }
+    const offenders: string[] = [];
+    for (const directory of appDirectories) {
+      const own = (await manifest(directory)).name;
+      const reached = new Set([
+        ...declaredDependencies(await manifest(directory)),
+        ...(await packageImports(directory)),
+      ]);
+      for (const name of reached) {
+        if (name !== own && appNames.has(name))
+          offenders.push(`${relative(root, directory)} -> ${name}`);
+      }
+    }
+    expect(appNames.size).toBeGreaterThan(1);
+    expect(offenders).toEqual([]);
   });
 
   test("the Docker backend depends on platform and contracts only and never on db, pg or Docker SDKs", async () => {

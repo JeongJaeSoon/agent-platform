@@ -11,7 +11,11 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
-import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
+import {
+  quotaForTestDaemon,
+  removeWorkerNetworks,
+  startStandInProxy,
+} from "./testing.ts";
 
 /**
  * Workspace volumes against a real daemon: the ceiling, the labels GC reads,
@@ -34,6 +38,78 @@ const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
 /** Small enough that filling it is a second of `dd`, not a minute. */
 const QUOTA_BYTES = 64 * 1024 * 1024;
+/** Small enough that exhausting it is a few seconds of `touch`. */
+const QUOTA_INODES = 1000;
+
+/**
+ * Runs `script` against `volume` at /workspace and hands back its exit
+ * status. The container is root and otherwise unconstrained on purpose: what
+ * is under test is the volume's ceiling, not the worker's isolation, and a
+ * fresh volume is root-owned until an image seeds it.
+ */
+async function runScript(
+  client: DockerClient,
+  volume: string,
+  script: string,
+): Promise<number> {
+  const container = `ap-ws-dd-${crypto.randomUUID().slice(0, 8)}`;
+  await client.createContainer(container, {
+    Cmd: ["sh", "-c", script],
+    Env: [],
+    HostConfig: {
+      CapDrop: [],
+      Memory: 256 * 1024 * 1024,
+      Mounts: [{ Source: volume, Target: "/workspace", Type: "volume" }],
+      NanoCpus: 1_000_000_000,
+      NetworkMode: "none",
+      PidsLimit: 64,
+      ReadonlyRootfs: false,
+      RestartPolicy: { Name: "no" },
+      SecurityOpt: [],
+      Tmpfs: {},
+    },
+    Image: IMAGE,
+    Labels: {},
+    User: "0:0",
+  });
+  try {
+    await client.startContainer(container);
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const inspected = await client.inspectContainer(container);
+      if (inspected && !inspected.State.Running) {
+        return inspected.State.ExitCode;
+      }
+      await Bun.sleep(500);
+    }
+    throw new Error(`${container} never exited`);
+  } finally {
+    await client.stopAndRemoveContainer(container, 1).catch(() => {});
+  }
+}
+
+/**
+ * Creates empty files until one fails, and exits 0 only if that failure is
+ * `No space left on device` within a few files of `limit` — the volume's root
+ * directory holds one inode of its own. Empty files cost the byte quota
+ * nothing, so this is exactly the exhaustion the byte ceiling lets through.
+ */
+function exhaustInodes(limit: number): string {
+  return [
+    "i=0",
+    `while [ $i -lt ${limit + 100} ]; do`,
+    // `touch`, not `: >`: a redirection that fails on a special builtin
+    // ends a non-interactive shell before the error can be read.
+    '  if ! touch "/workspace/f$i" 2>/tmp/err; then',
+    '    echo "file $i: $(cat /tmp/err)"',
+    "    grep -q 'No space left on device' /tmp/err || exit 3",
+    `    [ $i -ge ${limit - 5} ] && [ $i -lt ${limit} ] && exit 0`,
+    "    exit 4",
+    "  fi",
+    "  i=$((i + 1))",
+    "done",
+    "exit 5",
+  ].join("\n");
+}
 
 async function defaultDockerHost(): Promise<string> {
   const candidates = [
@@ -59,6 +135,7 @@ integration("workspace volumes against a real daemon", () => {
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
+    egressCredentialPort: 3129,
     egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",
@@ -81,9 +158,10 @@ integration("workspace volumes against a real daemon", () => {
 
   /** What this daemon can actually be held to. */
   function quota(): WorkspaceQuota {
-    return supportsQuota
-      ? { mode: "enforced", sizeBytes: QUOTA_BYTES }
-      : { mode: "off" };
+    return quotaForTestDaemon(supportsQuota, {
+      inodes: QUOTA_INODES,
+      sizeBytes: QUOTA_BYTES,
+    });
   }
 
   function intentFor(): LaunchIntent {
@@ -194,7 +272,13 @@ integration("workspace volumes against a real daemon", () => {
     const strict = new LocalDockerBackend(
       {
         ...backendConfig(),
-        workspaceQuota: { mode: "enforced", sizeBytes: QUOTA_BYTES },
+        workspaceQuota: {
+          helperImage:
+            process.env.DOCKER_BACKEND_TEST_HELPER_IMAGE ?? "busybox:1.36",
+          inodes: QUOTA_INODES,
+          mode: "enforced",
+          sizeBytes: QUOTA_BYTES,
+        },
       },
       client,
     );
@@ -210,6 +294,76 @@ integration("workspace volumes against a real daemon", () => {
       await client.inspectVolume(`ap-quota-probe-${installationId}`),
     ).toBeNull();
   }, 60_000);
+
+  test("a worker's workspace stops new files at the inode limit and bytes at the byte limit (94S-224)", async () => {
+    if (!supportsQuota) {
+      // Nothing to hold: this daemon has no quota, and the preflight test
+      // above is what holds it to refusing to start instead.
+      expect(supportsQuota).toBe(false);
+      return;
+    }
+    const backend = new LocalDockerBackend(backendConfig(), client);
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const volume = (await workspaceOf(intent.sessionId))?.Name ?? "";
+
+    // What `df -i` inside the container reports is the configured limit,
+    // and what `df` reports is the configured size.
+    expect(
+      await runScript(
+        client,
+        volume,
+        `test "$(df -P -i /workspace | awk 'NR==2 {print $2}')" = ${QUOTA_INODES}`,
+      ),
+    ).toBe(0);
+    expect(
+      await runScript(
+        client,
+        volume,
+        `test "$(df -P -k /workspace | awk 'NR==2 {print $2}')" -le ${QUOTA_BYTES / 1024}`,
+      ),
+    ).toBe(0);
+    // The byte ceiling is still there beside it (94S-215).
+    expect(
+      await runScript(
+        client,
+        volume,
+        "dd if=/dev/zero of=/workspace/over bs=1M count=256 2>&1 | grep -q 'No space left on device'; s=$?; rm -f /workspace/over; exit $s",
+      ),
+    ).toBe(0);
+    expect(await runScript(client, volume, exhaustInodes(QUOTA_INODES))).toBe(
+      0,
+    );
+  }, 180_000);
+
+  test("a workspace from before the inode limit gets it on its next launch (94S-224)", async () => {
+    if (!supportsQuota) {
+      expect(supportsQuota).toBe(false);
+      return;
+    }
+    const intent = intentFor();
+    // Made the way 94S-215 made them: bounded by bytes, labelled, and never
+    // shown to the helper.
+    const volume = `${workspaceVolumePrefixFor(intent.sessionId, installationId)}pre22400`;
+    await client.createVolume({
+      Driver: "local",
+      DriverOpts: { size: String(QUOTA_BYTES) },
+      Labels: {
+        [LABELS.installation]: installationId,
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+      },
+      Name: volume,
+    });
+    await new LocalDockerBackend(backendConfig(), client).ensureExecution(
+      intent,
+    );
+    expect((await workspaceOf(intent.sessionId))?.Name).toBe(volume);
+    expect(await runScript(client, volume, exhaustInodes(QUOTA_INODES))).toBe(
+      0,
+    );
+  }, 180_000);
 
   test("the opt-out asks the daemon for nothing", async () => {
     const off = new LocalDockerBackend(
@@ -326,50 +480,8 @@ integration("workspace disk pressure", () => {
     }
   });
 
-  /**
-   * Runs `script` against the volume and hands back its exit status. The
-   * container is root and otherwise unconstrained on purpose: what is under
-   * test is the volume's ceiling, not the worker's isolation, and a fresh
-   * volume is root-owned until an image seeds it.
-   */
-  async function runAgainstVolume(
-    script: string,
-    volume = name,
-  ): Promise<number> {
-    const container = `ap-ws-dd-${crypto.randomUUID().slice(0, 8)}`;
-    await client.createContainer(container, {
-      Cmd: ["sh", "-c", script],
-      Env: [],
-      HostConfig: {
-        CapDrop: [],
-        Memory: 256 * 1024 * 1024,
-        Mounts: [{ Source: volume, Target: "/workspace", Type: "volume" }],
-        NanoCpus: 1_000_000_000,
-        NetworkMode: "none",
-        PidsLimit: 64,
-        ReadonlyRootfs: false,
-        RestartPolicy: { Name: "no" },
-        SecurityOpt: [],
-        Tmpfs: {},
-      },
-      Image: IMAGE,
-      Labels: {},
-      User: "0:0",
-    });
-    try {
-      await client.startContainer(container);
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        const inspected = await client.inspectContainer(container);
-        if (inspected && !inspected.State.Running) {
-          return inspected.State.ExitCode;
-        }
-        await Bun.sleep(500);
-      }
-      throw new Error(`${container} never exited`);
-    } finally {
-      await client.stopAndRemoveContainer(container, 1).catch(() => {});
-    }
-  }
+  const runAgainstVolume = (script: string, volume = name) =>
+    runScript(client, volume, script);
 
   test("writing past the ceiling fails while writing under it succeeds", async () => {
     if (!capable) {

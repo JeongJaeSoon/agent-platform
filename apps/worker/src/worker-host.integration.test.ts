@@ -14,6 +14,7 @@ import {
 } from "@agent-platform/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
+import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
@@ -96,10 +97,12 @@ function sdkRuntimes(
             maxTurns: 4,
             model: runtimeConfig.model,
             permissionMode: runtimeConfig.permission_mode,
-            profile: {
-              ...runtimeConfig.provider,
-              principal: { ownerScope: principal.owner_scope },
-            },
+            // The fake server stands in for the proxy's route too.
+            profile: engineProfile(
+              runtimeConfig.provider,
+              principal.owner_scope,
+              runtimeConfig.provider.endpoint.replace(/\/$/, ""),
+            ),
             settingSources: ["project"],
             tools: runtimeConfig.tools,
             ...launch,
@@ -156,7 +159,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
       provider: {
         kind: "anthropic",
         endpoint: server.url,
-        auth: { kind: "api_key", value: "placeholder-local" },
+        auth: { kind: "egress_token", token: "placeholder-local" },
       },
     };
 
@@ -398,7 +401,7 @@ describe("WorkerHost interrupt against the actual Claude SDK", () => {
           provider: {
             kind: "anthropic",
             endpoint: server.url,
-            auth: { kind: "api_key", value: "placeholder-local" },
+            auth: { kind: "egress_token", token: "placeholder-local" },
           },
         },
         sessionId: SESSION_ID,

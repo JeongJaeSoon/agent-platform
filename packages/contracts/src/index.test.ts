@@ -13,6 +13,7 @@ import {
   finalizeResponseSchema,
   getSessionResponseSchema,
   heartbeatRequestSchema,
+  heartbeatResponseSchema,
   listSessionsQuerySchema,
   loggableBootstrapClaim,
   nextInputRequestSchema,
@@ -525,6 +526,26 @@ describe("worker protocol", () => {
     auth_revision: 1,
   };
 
+  test("a heartbeat answer carries the lease as time remaining on the database clock (94S-322)", () => {
+    const answer = {
+      lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
+      auth_revision: 1,
+      control_pending: false,
+    };
+    expect(heartbeatResponseSchema.parse(answer)).toEqual(answer);
+    const { lease_remaining_ms: _r, ...withoutRemaining } = answer;
+    expect(heartbeatResponseSchema.safeParse(withoutRemaining).success).toBe(
+      false,
+    );
+    for (const lease_remaining_ms of [-1, 1.5, Number.POSITIVE_INFINITY]) {
+      expect(
+        heartbeatResponseSchema.safeParse({ ...answer, lease_remaining_ms })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   test("fences every post-claim request with the same identity", () => {
     expect(workerScopeSchema.parse(scope)).toEqual(scope);
     expect(nextInputRequestSchema.safeParse(scope).success).toBe(true);
@@ -620,6 +641,7 @@ describe("worker protocol", () => {
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -633,15 +655,16 @@ describe("worker protocol", () => {
         provider: {
           kind: "litellm",
           endpoint: "https://litellm.invalid",
-          auth: { kind: "bearer", value: "provider-token" },
+          auth: { kind: "egress_token", token: "wep_provider" },
         },
         project_settings: { claude_md: true },
       },
       workspace: {
         repository: {
           id: "sample-app",
-          url: "https://oauth2:repo-token@example.invalid/team/app.git",
+          url: "https://example.invalid/team/app.git",
           branch: "main",
+          access: { kind: "egress_token", token: "wer_repository" },
         },
       },
       principal: { owner_scope: "owner_1" },
@@ -672,6 +695,12 @@ describe("worker protocol", () => {
       false,
     );
     // The fingerprint names the exact profile the claim resolved (94S-132).
+    // The lease a worker tracks is the remaining time, not the deadline
+    // (94S-322): a claim without it could only be judged by a wall clock.
+    const { lease_remaining_ms: _r, ...withoutRemaining } = claim;
+    expect(
+      bootstrapClaimResponseSchema.safeParse(withoutRemaining).success,
+    ).toBe(false);
     const { profile_fingerprint: _f, ...withoutFingerprint } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutFingerprint).success,
@@ -708,27 +737,57 @@ describe("worker protocol", () => {
         workspace: { repository: { ...claim.workspace.repository, id: null } },
       }).success,
     ).toBe(true);
-    // anthropic takes an API key only; bearer is a litellm affordance.
+    // A repository reached without the proxy (a local path in tests) has no
+    // token to carry.
+    const { access: _a, ...withoutAccess } = claim.workspace.repository;
     expect(
       bootstrapClaimResponseSchema.safeParse({
         ...claim,
-        runtime_config: {
-          ...claim.runtime_config,
-          provider: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: { kind: "bearer", value: "t" },
+        workspace: { repository: withoutAccess },
+      }).success,
+    ).toBe(true);
+    // The upstream credential itself is refused in every shape it used to
+    // take (94S-252): the worker is only ever handed the proxy's token.
+    for (const kind of ["anthropic", "litellm"] as const) {
+      for (const auth of [
+        { kind: "api_key", value: "provider-key" },
+        { kind: "bearer", value: "provider-key" },
+        { kind: "egress_token", token: "wep_x", value: "provider-key" },
+      ]) {
+        expect(
+          bootstrapClaimResponseSchema.safeParse({
+            ...claim,
+            runtime_config: {
+              ...claim.runtime_config,
+              provider: {
+                kind,
+                endpoint: "https://api.anthropic.invalid",
+                auth,
+              },
+            },
+          }).success,
+        ).toBe(false);
+      }
+    }
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        workspace: {
+          repository: {
+            ...claim.workspace.repository,
+            access: { kind: "basic", username: "bot", value: "repo-token" },
           },
         },
       }).success,
     ).toBe(false);
   });
 
-  test("the loggable claim is an allowlist: no session token, provider credential or repository URL", () => {
+  test("the loggable claim is an allowlist: no session token, egress token or repository URL", () => {
     const claim = bootstrapClaimResponseSchema.parse({
       ...scope,
       session_credential: "wsc_token",
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
@@ -742,7 +801,7 @@ describe("worker protocol", () => {
         provider: {
           kind: "litellm",
           endpoint: "https://litellm.invalid",
-          auth: { kind: "api_key", value: "provider-key" },
+          auth: { kind: "egress_token", token: "provider-token" },
         },
         project_settings: { claude_md: false },
       },
@@ -751,6 +810,7 @@ describe("worker protocol", () => {
           id: "sample-app",
           url: "https://oauth2:repo-token@example.invalid/team/app.git",
           branch: "main",
+          access: { kind: "egress_token", token: "repository-token" },
         },
       },
       principal: { owner_scope: "owner_1" },
@@ -768,6 +828,7 @@ describe("worker protocol", () => {
       execution_generation: scope.execution_generation,
       auth_revision: scope.auth_revision,
       lease_expires_at: AT,
+      lease_remaining_ms: 120_000,
       runtime: claim.runtime,
       profile_fingerprint: `sha256:${"b".repeat(64)}`,
       model: "claude-sonnet-5",
@@ -783,7 +844,8 @@ describe("worker protocol", () => {
     const line = JSON.stringify(loggableBootstrapClaim(claim));
     for (const secret of [
       "wsc_token",
-      "provider-key",
+      "provider-token",
+      "repository-token",
       "repo-token",
       "example.invalid",
     ]) {

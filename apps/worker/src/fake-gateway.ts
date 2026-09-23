@@ -164,7 +164,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         provider: {
           kind: "anthropic",
           endpoint: "http://127.0.0.1:4000",
-          auth: { kind: "api_key", value: "placeholder" },
+          auth: { kind: "egress_token", token: "placeholder" },
         },
       },
       sessionId: options.sessionId ?? "11111111-1111-4111-8111-111111111111",
@@ -280,6 +280,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       auth_revision: this.authRevision,
       session_credential: "wsc_fake",
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       runtime: this.options.runtime,
       profile_fingerprint: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
@@ -345,7 +346,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     }
     if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
-        409,
+        this.heartbeatFailure === "UNAUTHORIZED" ? 401 : 409,
         this.heartbeatFailure,
         `heartbeat failed with ${this.heartbeatFailure}`,
         false,
@@ -353,6 +354,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     }
     return {
       lease_expires_at: this.leaseExpiresAt(),
+      lease_remaining_ms: this.options.leaseTtlMs,
       auth_revision: this.authRevision,
       control_pending: this.control !== null,
     };

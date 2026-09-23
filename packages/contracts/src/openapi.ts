@@ -528,6 +528,9 @@ export function buildOpenApiDocument() {
         content: jsonContent("ApiErrorResponse"),
       };
     }
+    // Any handler can fail in a way nothing mapped; the app's error hook
+    // answers that for every route alike.
+    responses[500] = { $ref: "#/components/responses/InternalError" };
     const operations = paths[route.path] ?? {};
     paths[route.path] = operations;
     operations[route.method] = {
@@ -566,6 +569,12 @@ export function buildOpenApiDocument() {
         },
       },
       schemas,
+      responses: {
+        InternalError: {
+          description: "Unexpected server error (INTERNAL_ERROR)",
+          content: jsonContent("ApiErrorResponse"),
+        },
+      },
     },
     paths,
   };

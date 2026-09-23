@@ -13,7 +13,9 @@
     "lint": "biome check .",
     "test": "bun test tests packages apps",
     "test:spike:94s-91": "bun run --cwd spikes/94s-91 test:contract",
-    "check": "bun run typecheck && bun run lint && bun run test"
+    "check": "bun run typecheck && bun run lint && bun run test",
+    "keys": "docker compose --profile apps exec -T api bun run apps/api/src/keys.ts",
+    "grants": "docker compose --profile apps exec -T api bun run apps/api/src/grants.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",

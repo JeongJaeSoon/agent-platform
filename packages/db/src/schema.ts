@@ -451,9 +451,21 @@ export const sessions = pgTable(
     // needs_input (94S-278). A record of what was published, not a state:
     // it flips only in the transaction that writes that status event.
     inputAnnounced: boolean("input_announced").notNull().default(false),
+    // An operator revoked this session's execution authority (94S-321).
+    // Independent of admission_state on purpose: every lifecycle path that
+    // would dispatch again (resume, start_fresh, a claim) refuses while it
+    // is set, and only the operator's restore command clears it.
+    executionRevokedAt: timestamp("execution_revoked_at", {
+      withTimezone: true,
+    }),
+    executionRevokedReason: text("execution_revoked_reason"),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+    check(
+      "sessions_execution_revoked_check",
+      sql`(${table.executionRevokedAt} IS NULL) = (${table.executionRevokedReason} IS NULL)`,
+    ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
       .where(sql`${table.podId} IS NOT NULL`),
@@ -623,10 +635,11 @@ export const receipts = pgTable(
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
+    // An execution revocation (94S-321) is swept the same way.
     index("receipts_open_terminate_idx")
       .on(table.createdAt)
       .where(
-        sql`${table.operation} = 'terminate' AND ${table.status} = 'accepted'`,
+        sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
       ),
   ],
 );
@@ -731,6 +744,10 @@ export const controlIntents = pgTable(
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (table) => [
+    // Only interrupt rows are ever written. A pause travels as the session's
+    // `pausing` admission state and a terminate as executions.desired_state;
+    // the two stay allowed only because narrowing the CHECK would cost a
+    // migration for no row that exists.
     check(
       "control_intents_kind_check",
       sql`${table.kind} IN ('interrupt', 'pause', 'terminate')`,
@@ -770,6 +787,10 @@ export const checkpoints = pgTable(
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Set by checkpoint garbage collection (94S-281) before it deletes the
+    // revision's objects: no restore reaches this revision any more, and a
+    // backup leaves it out rather than fail on what is gone.
+    collectedAt: timestamp("collected_at", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );
@@ -928,7 +949,11 @@ export const workerLaunches = pgTable(
   ],
 );
 
-// Session credential handed out by bootstrapClaim; only its hash is stored.
+// Tokens handed out by bootstrapClaim; only their hashes are stored. Each
+// attempt holds one live token per purpose: `gateway` authenticates the
+// worker's own calls, `provider` and `repository` the egress proxy's
+// credential routes (94S-252). All three are issued, extended and revoked
+// together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
   {
@@ -936,6 +961,12 @@ export const workerCredentials = pgTable(
     attemptId: text("attempt_id")
       .notNull()
       .references(() => attempts.id),
+    purpose: text("purpose").notNull().default("gateway"),
+    // What an egress token was issued against: the profile fingerprint or
+    // the repository binding at claim time. A catalog entry that moved since
+    // (a restart with an edited config) no longer matches, and the proxy is
+    // refused rather than sent somewhere the attempt never agreed to.
+    binding: text("binding"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -948,6 +979,17 @@ export const workerCredentials = pgTable(
     index("worker_credentials_live_idx")
       .on(table.attemptId)
       .where(sql`${table.revokedAt} IS NULL`),
+    uniqueIndex("worker_credentials_live_purpose_idx")
+      .on(table.attemptId, table.purpose)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "worker_credentials_purpose_check",
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository')`,
+    ),
+    check(
+      "worker_credentials_binding_check",
+      sql`(${table.purpose} = 'gateway') = (${table.binding} IS NULL)`,
+    ),
   ],
 );
 

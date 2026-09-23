@@ -1,4 +1,5 @@
 import { egressProxyConfigFromEnv } from "./config.ts";
+import { startCredentialProxy } from "./credential.ts";
 import { createProxyLogger } from "./logger.ts";
 import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
 import { sourceDigest } from "./source.ts";
@@ -6,19 +7,47 @@ import { sourceDigest } from "./source.ts";
 /**
  * The only container on the worker network with a route off it. Workers
  * reach it through `HTTP_PROXY`/`HTTPS_PROXY`; everything it will not
- * forward is unreachable from a worker, because nothing else is.
+ * forward is unreachable from a worker, because nothing else is. The
+ * credential routes, when configured, are where a worker's provider and
+ * repository calls pick up the credentials it never holds (94S-252).
  */
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<EgressProxyServer> {
   const config = egressProxyConfigFromEnv(environment);
-  return await startEgressProxy({
+  const logger = createProxyLogger(config.logLevel);
+  const policy = { allow: config.allow, allowPrivate: config.allowPrivate };
+  const forward = await startEgressProxy({
     hostname: config.hostname,
-    logger: createProxyLogger(config.logLevel),
-    policy: { allow: config.allow, allowPrivate: config.allowPrivate },
+    logger,
+    policy,
     port: config.port,
     sourceDigest: sourceDigest(import.meta.dir),
   });
+  if (config.credential === null) {
+    logger.warn(
+      "Credential routes are off (EGRESS_AUTHORIZER_URL unset); workers cannot reach their provider or repository",
+      {},
+    );
+    return forward;
+  }
+  const credential = startCredentialProxy({
+    authorizer: {
+      url: config.credential.authorizerUrl,
+      token: config.credential.authorizerToken,
+    },
+    hostname: config.hostname,
+    logger,
+    policy,
+    port: config.credential.port,
+  });
+  return {
+    port: forward.port,
+    stop(): void {
+      credential.stop();
+      forward.stop();
+    },
+  };
 }
 
 if (import.meta.main) {

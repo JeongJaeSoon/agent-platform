@@ -28,7 +28,7 @@ import type {
 } from "@agent-platform/runtime-core";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
-import type { WorkerTimeouts } from "./config.ts";
+import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import {
@@ -38,6 +38,11 @@ import {
 } from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { PendingRequestRegistry } from "./pending-requests.ts";
+import {
+  claimSecrets,
+  SecretScrubber,
+  scrubbingGateway,
+} from "./secret-scrubber.ts";
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
@@ -112,6 +117,11 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Absent for engines that spawn no process, like the fake. */
   engines?: EngineExitWatch;
+  /**
+   * Secrets this process holds besides the ones the claim brings, kept out
+   * of events by value (`SecretScrubber`): the object store key, say.
+   */
+  secrets?: readonly string[];
 };
 
 /**
@@ -253,8 +263,8 @@ export class WorkerHost {
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
-    const claim = await this.claim();
-    if (claim === null) {
+    const claimed = await this.claim();
+    if (claimed === null) {
       return {
         outcome: "unclaimed",
         reason:
@@ -262,6 +272,7 @@ export class WorkerHost {
         turns: [],
       };
     }
+    const { claim } = claimed;
     this.options.gateway.useCredential(claim.session_credential);
     this.scopeValue = {
       session_id: claim.session_id,
@@ -277,8 +288,16 @@ export class WorkerHost {
       restore_revision: claim.restore?.revision ?? null,
     });
 
+    // Everything this process holds that the engine's tools could print.
+    const scrubbed = scrubbingGateway(
+      this.options.gateway,
+      new SecretScrubber([
+        ...claimSecrets(claim, this.options.execution.bootstrapNonce),
+        ...(this.options.secrets ?? []),
+      ]),
+    );
     const publisher = new EventPublisher({
-      gateway: this.options.gateway,
+      gateway: scrubbed,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
       onFailed: (error) => {
@@ -294,7 +313,7 @@ export class WorkerHost {
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
-      gateway: this.options.gateway,
+      gateway: scrubbed,
       eventsStored: (toolUseId) =>
         publisher.toolUseStored(
           toolUseId,
@@ -311,11 +330,12 @@ export class WorkerHost {
       scope: () => this.scope,
       attemptState: () => this.attemptState,
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
-      leaseExpiresAt: new Date(claim.lease_expires_at),
+      lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
+      safetyMarginMs:
+        this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
       onLost: (reason) => this.lose(reason),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
-      ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
     let run: AgentRun | undefined;
@@ -561,12 +581,17 @@ export class WorkerHost {
     this.pending?.stop();
   }
 
-  private async claim(): Promise<BootstrapClaimResponse | null> {
+  /** The claim, with the monotonic instant the request that won it went out. */
+  private async claim(): Promise<{
+    claim: BootstrapClaimResponse;
+    sentAt: number;
+  } | null> {
     const deadline =
       this.now().getTime() + this.options.timeouts.claimTimeoutMs;
     let retriedUnauthorized = false;
     for (;;) {
       if (this.stopping !== undefined) return null;
+      const sentAt = performance.now();
       try {
         const claimed = await this.untilStopGraceSpent(
           this.options.gateway.bootstrapClaim({
@@ -586,7 +611,7 @@ export class WorkerHost {
           });
           return null;
         }
-        return claimed;
+        return { claim: claimed, sentAt };
       } catch (error) {
         if (!(error instanceof WorkerGatewayRequestError)) throw error;
         // Two claims racing leave one holding the revoked token; before this

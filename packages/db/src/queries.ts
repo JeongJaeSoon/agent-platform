@@ -1,8 +1,4 @@
-import type {
-  SessionScope,
-  SessionStatus,
-  TurnStatus,
-} from "@agent-platform/contracts";
+import type { SessionScope, TurnStatus } from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { DB_NOW, dbNow } from "./db-clock.ts";
@@ -17,17 +13,6 @@ import {
 } from "./schema.ts";
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
-
-const allowedTransitions: Readonly<
-  Record<SessionStatus, readonly SessionStatus[]>
-> = {
-  queued: ["running"],
-  running: ["needs_input", "idle", "failed", "stopped", "queued"],
-  needs_input: ["running", "failed", "stopped", "queued"],
-  idle: ["running", "stopped", "queued"],
-  failed: ["queued"],
-  stopped: ["queued"],
-};
 
 export async function createApiKey(
   db: Database,
@@ -84,123 +69,52 @@ export async function findApiKey(
     : null;
 }
 
-export async function claim(db: Database, sessionId: string, podId: string) {
-  return db.transaction(async (tx) => {
-    const [claimed] = await tx
-      .update(sessions)
-      .set({ podId, status: "running", updatedAt: new Date() })
-      .where(and(eq(sessions.id, sessionId), isNull(sessions.podId)))
-      .returning();
-    if (!claimed) {
-      return null;
-    }
-    await tx
-      .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, sessionId));
-    return claimed;
-  });
-}
+export type ApiKeyRevocation =
+  | { outcome: "revoked"; ownerId: string; revokedAt: Date }
+  | { outcome: "already_revoked"; ownerId: string; revokedAt: Date }
+  | { outcome: "not_found" };
 
-export async function release(db: Database, sessionId: string, podId: string) {
-  return db.transaction(async (tx) => {
-    const [released] = await tx
-      .update(sessions)
-      .set({ podId: null, updatedAt: new Date() })
-      .where(and(eq(sessions.id, sessionId), eq(sessions.podId, podId)))
-      .returning();
-    if (!released) {
-      return null;
-    }
-    const [pending] = await tx
-      .select({ id: queueMessages.id })
-      .from(queueMessages)
-      .where(eq(queueMessages.sessionId, sessionId))
-      .limit(1);
-    if (pending) {
-      await tx
-        .insert(unassignedSessions)
-        .values({ sessionId })
-        .onConflictDoNothing({ target: unassignedSessions.sessionId });
-    }
-    return released;
-  });
-}
-
-export async function transitionSession(
+/**
+ * Revokes one key; a second revoke keeps the first timestamp. Only future
+ * authentication is affected: the principal's running work is not
+ * cancelled (architecture.md 실행 권한 회수와 API key 회수), and an open SSE
+ * stream ends at its next credential re-check.
+ */
+export async function revokeApiKey(
   db: Database,
-  sessionId: string,
-  from: SessionStatus,
-  to: SessionStatus,
-) {
-  if (!allowedTransitions[from].includes(to)) {
-    throw new Error(`Invalid session status transition: ${from} -> ${to}`);
+  keyId: string,
+): Promise<ApiKeyRevocation> {
+  const [revoked] = await db
+    .update(apiKeys)
+    .set({ revokedAt: DB_NOW })
+    .where(and(eq(apiKeys.id, keyId), isNull(apiKeys.revokedAt)))
+    .returning({ ownerId: apiKeys.ownerId, revokedAt: apiKeys.revokedAt });
+  if (revoked?.revokedAt) {
+    return {
+      outcome: "revoked",
+      ownerId: revoked.ownerId,
+      revokedAt: revoked.revokedAt,
+    };
   }
-  const [updated] = await db
-    .update(sessions)
-    .set({ status: to, updatedAt: new Date() })
-    .where(and(eq(sessions.id, sessionId), eq(sessions.status, from)))
-    .returning();
-  return updated ?? null;
-}
-
-export async function getSessionForOwner(
-  db: Database,
-  sessionId: string,
-  ownerId: string,
-) {
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
+  const [existing] = await db
+    .select({ ownerId: apiKeys.ownerId, revokedAt: apiKeys.revokedAt })
+    .from(apiKeys)
+    .where(eq(apiKeys.id, keyId))
     .limit(1);
-  return session ?? null;
+  return existing?.revokedAt
+    ? {
+        outcome: "already_revoked",
+        ownerId: existing.ownerId,
+        revokedAt: existing.revokedAt,
+      }
+    : { outcome: "not_found" };
 }
 
 // A session bound through the Worker Gateway carries an execution_id and is
 // governed by attempts, leases and confirmExecutionGone: clearing its pod_id
 // here would let a replacement claim while the execution may still be alive.
-// The lease-expiry reconciler for those sessions is 94S-139.
+// lease-reconcile.ts reconciles those.
 const podLifecycleSession = isNull(sessions.executionId);
-
-// Deadlines are compared on the database clock unless a caller pins `now`
-// (tests): the heartbeat writer stamped them from that clock, and a
-// reconciler host running ahead would reclaim live sessions.
-export async function findOrphanedSessions(db: Database, now?: Date) {
-  return db
-    .select({ session: sessions })
-    .from(sessions)
-    .leftJoin(workers, eq(sessions.podId, workers.podId))
-    .where(
-      and(
-        isNotNull(sessions.podId),
-        podLifecycleSession,
-        or(isNull(workers.podId), lt(workers.leaseExpiresAt, now ?? DB_NOW)),
-      ),
-    )
-    .then((rows) => rows.map(({ session }) => session));
-}
-
-export async function requeueOrphan(
-  db: Database,
-  sessionId: string,
-  stalePodId: string,
-) {
-  return db.transaction(async (tx) => {
-    const [released] = await tx
-      .update(sessions)
-      .set({ podId: null, status: "queued", updatedAt: new Date() })
-      .where(and(eq(sessions.id, sessionId), eq(sessions.podId, stalePodId)))
-      .returning({ id: sessions.id });
-    if (!released) {
-      return false;
-    }
-    await tx
-      .insert(unassignedSessions)
-      .values({ sessionId })
-      .onConflictDoNothing({ target: unassignedSessions.sessionId });
-    return true;
-  });
-}
 
 // outcome_unknown is deliberately not terminal: its input must stay blocked
 // until an operator recovery decision.

@@ -8,13 +8,27 @@ import {
 /**
  * `enforced` puts a byte ceiling on the per-session workspace volume through
  * the `local` driver's `size` option, which only holds on a daemon whose
- * storage sits on a quota-capable filesystem (xfs with `prjquota`). `off` is
- * the deliberate opt-out for daemons that cannot: it is never the fallback a
+ * storage sits on a quota-capable filesystem (xfs with `prjquota`), and an
+ * inode ceiling on the same xfs project, which Docker has no option for and
+ * a helper container sets instead (`workspace-inodes.ts`). `off` is the
+ * deliberate opt-out for daemons that cannot: it is never the fallback a
  * missing capability drops into, because an unbounded workspace lets one
- * worker fill the host out from under every other session on the daemon.
+ * worker fill the host out from under every other session on the daemon —
+ * with bytes, or with millions of empty files.
  */
 export type WorkspaceQuota =
-  | { mode: "enforced"; sizeBytes: number }
+  | {
+      mode: "enforced";
+      sizeBytes: number;
+      inodes: number;
+      /**
+       * What the inode helper runs from: the scheduler's own worker image
+       * (`WORKER_IMAGE`), which carries xfsprogs. Never a launch's image —
+       * the helper holds CAP_SYS_ADMIN, and which image gets that is the
+       * operator's choice, not something a catalog entry can steer.
+       */
+      helperImage: string;
+    }
   | { mode: "off" };
 
 export type LocalDockerBackendConfig = {
@@ -30,6 +44,13 @@ export type LocalDockerBackendConfig = {
    * address differs on each one.
    */
   egressProxyUrl: string;
+  /**
+   * The port of the same proxy's credential routes (94S-252), where the
+   * worker's provider and repository calls pick up the credentials it never
+   * holds. Same host as `egressProxyUrl`, since only that alias resolves on
+   * a worker network; handed to the worker as `WORKER_EGRESS_CREDENTIAL_URL`.
+   */
+  egressCredentialPort: number;
   /** Handed to the worker as `WORKER_GATEWAY_URL`. */
   gatewayUrl: string;
   /** Mounted as tmpfs so the read-only rootfs still has a writable HOME. */
@@ -102,6 +123,7 @@ export type LocalDockerBackendEnvironment = {
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
   EXECUTION_DOCKER_COMMAND?: string | undefined;
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
+  EXECUTION_EGRESS_CREDENTIAL_PORT?: string | undefined;
   EXECUTION_EGRESS_PROXY_URL?: string | undefined;
   EXECUTION_INSTALLATION_ID?: string | undefined;
   EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC?: string | undefined;
@@ -113,8 +135,11 @@ export type LocalDockerBackendEnvironment = {
   /** `on` (default) or `off`; anything else is a typo, not an opt-out. */
   EXECUTION_WORKSPACE_QUOTA?: string | undefined;
   EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
+  EXECUTION_WORKSPACE_QUOTA_INODES?: string | undefined;
   S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
+  /** The worker image, and what the workspace inode helper runs from. */
+  WORKER_IMAGE?: string | undefined;
   [key: string]: string | undefined;
 };
 
@@ -156,6 +181,10 @@ export function localDockerConfigFromEnv(
     apiVersion: environment.DOCKER_API_VERSION ?? DEFAULT_DOCKER_API_VERSION,
     ...(command.length > 0 ? { command } : {}),
     dockerHost: environment.DOCKER_HOST ?? DEFAULT_DOCKER_HOST,
+    egressCredentialPort: port(
+      environment.EXECUTION_EGRESS_CREDENTIAL_PORT ?? "3129",
+      "EXECUTION_EGRESS_CREDENTIAL_PORT",
+    ),
     egressProxyUrl,
     gatewayUrl,
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
@@ -197,6 +226,13 @@ export function localDockerConfigFromEnv(
 }
 
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
+/**
+ * Room for a large monorepo checkout with its dependencies installed (a few
+ * hundred thousand files) several times over. Empty files cost the byte
+ * quota nothing — xfs does not charge inodes to a project's blocks — so
+ * without this a loop of them only stops when the daemon's filesystem does.
+ */
+export const DEFAULT_WORKSPACE_QUOTA_INODES = 1_000_000;
 export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
 
 function workspaceQuotaFromEnv(
@@ -211,7 +247,14 @@ function workspaceQuotaFromEnv(
       `EXECUTION_WORKSPACE_QUOTA ${mode} must be "on" or "off"; "off" is the explicit opt-out`,
     );
   }
+  const helperImage = environment.WORKER_IMAGE;
+  if (!helperImage) {
+    throw new Error(
+      "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
+    );
+  }
   return {
+    helperImage,
     mode: "enforced",
     sizeBytes:
       positiveInteger(
@@ -221,6 +264,11 @@ function workspaceQuotaFromEnv(
       ) *
       1024 *
       1024,
+    inodes: positiveInteger(
+      environment.EXECUTION_WORKSPACE_QUOTA_INODES ??
+        String(DEFAULT_WORKSPACE_QUOTA_INODES),
+      "EXECUTION_WORKSPACE_QUOTA_INODES",
+    ),
   };
 }
 
@@ -272,6 +320,13 @@ export function validateLocalDockerConfig(
   if (config.homeDir === config.workspaceDir) {
     throw new Error("homeDir and workspaceDir must differ");
   }
+  // The inode helper finds the volume in /proc/self/mountinfo, which escapes
+  // exactly these characters; a path holding one would never match there.
+  if (/[\s\\]/.test(config.workspaceDir)) {
+    throw new Error(
+      `workspaceDir ${JSON.stringify(config.workspaceDir)} must not contain whitespace or backslashes`,
+    );
+  }
   if (!INSTALLATION_ID.test(config.installationId)) {
     throw new Error(
       `EXECUTION_INSTALLATION_ID ${config.installationId} must be a short label-safe id`,
@@ -315,6 +370,16 @@ export function validateLocalDockerConfig(
     );
   }
   if (
+    !Number.isInteger(config.egressCredentialPort) ||
+    config.egressCredentialPort < 1 ||
+    config.egressCredentialPort > 65_535 ||
+    String(config.egressCredentialPort) === proxy.port
+  ) {
+    throw new Error(
+      `EXECUTION_EGRESS_CREDENTIAL_PORT ${config.egressCredentialPort} must be a port other than the proxy's own`,
+    );
+  }
+  if (
     config.workspaceQuota.mode === "enforced" &&
     (!Number.isInteger(config.workspaceQuota.sizeBytes) ||
       config.workspaceQuota.sizeBytes < 1)
@@ -322,6 +387,21 @@ export function validateLocalDockerConfig(
     throw new Error(
       `Workspace quota ${config.workspaceQuota.sizeBytes} is not a positive byte limit`,
     );
+  }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    (!Number.isInteger(config.workspaceQuota.inodes) ||
+      config.workspaceQuota.inodes < 1)
+  ) {
+    throw new Error(
+      `Workspace quota ${config.workspaceQuota.inodes} is not a positive inode limit`,
+    );
+  }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    config.workspaceQuota.helperImage.trim() === ""
+  ) {
+    throw new Error("Workspace quota needs an image to run its inode helper");
   }
   if (
     !Number.isInteger(config.workspaceGcMinAgeMs) ||
@@ -405,4 +485,12 @@ function stopGrace(seconds: number): number {
     );
   }
   return seconds;
+}
+
+function port(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
+    throw new Error(`${name} ${value} is not a port`);
+  }
+  return parsed;
 }

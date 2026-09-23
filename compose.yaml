@@ -1,0 +1,6 @@
+# `docker compose` from the repository root runs the local stack defined in
+# infra/docker-compose.yml (docs/quickstart.md). Same project name, so a
+# stack started either way is the same stack.
+name: agent-platform
+include:
+  - infra/docker-compose.yml

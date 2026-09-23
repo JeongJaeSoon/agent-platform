@@ -107,6 +107,9 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "context_reset_checkpoint_revision",
     // 94S-278; arrives as false
     "input_announced",
+    // 94S-321
+    "execution_revoked_at",
+    "execution_revoked_reason",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
@@ -175,8 +178,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 15, total: 24 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 24 });
+      expect(first).toEqual({ adopted: 0, applied: 18, total: 27 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 27 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

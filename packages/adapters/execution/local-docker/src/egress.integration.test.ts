@@ -99,6 +99,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
+    egressCredentialPort: 3129,
     egressProxyUrl: proxyUrl,
     gatewayUrl: `http://${allowedName}:8080`,
     homeDir: "/home/worker",

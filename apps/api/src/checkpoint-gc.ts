@@ -1,0 +1,166 @@
+import * as schema from "@agent-platform/db";
+import { createPostgresCheckpointStore } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import {
+  createLogger,
+  type StructuredLogger,
+} from "@agent-platform/observability";
+import {
+  type CheckpointCollectorDependencies,
+  createCheckpointCollector,
+} from "@agent-platform/platform";
+import {
+  createCheckpointObjectCollector,
+  createCheckpointObjectStore,
+  createStorageS3Client,
+} from "@agent-platform/storage";
+import { drizzle } from "drizzle-orm/node-postgres";
+
+import {
+  API_CHECKPOINT_CODECS,
+  assertCheckpointBucketProtection,
+  type CheckpointStorageEnvironment,
+  checkpointStorageConfigFromEnv,
+} from "./checkpoints.ts";
+
+const BATCH_SIZE = 100;
+
+/**
+ * One checkpoint garbage collection pass over every session, then exit
+ * (94S-281): the same one-shot shape as apps/reconciler, run on the API
+ * image with the API's object store settings, since releasing a hold needs
+ * the control plane's credentials.
+ *
+ * Read: the API's checkpoint storage variables (checkpoints.ts),
+ * `DATABASE_URL` and `CHECKPOINT_GC_DRY_RUN` (`true`/`1` reports what would
+ * go and deletes nothing). A deployment that is `unversioned` or has its
+ * object store `disabled` holds nothing and names no versions, so the pass
+ * says so and exits 0.
+ *
+ * Returns the exit code: 1 when any session failed. Must not run while a
+ * backup is being taken (docs/backup-restore.md).
+ */
+export async function runCheckpointGc(input: {
+  environment: CheckpointStorageEnvironment & {
+    CHECKPOINT_GC_DRY_RUN?: string;
+    DATABASE_URL?: string;
+  };
+  logger: StructuredLogger;
+  /** Tests substitute the stores; the product path builds them from env. */
+  connect?: (config: { bucket: string; databaseUrl: string }) => Promise<
+    Pick<CheckpointCollectorDependencies, "collector" | "objects" | "store"> & {
+      close(): Promise<void>;
+    }
+  >;
+}): Promise<number> {
+  const { environment, logger } = input;
+  const dryRun = booleanFlag(
+    environment.CHECKPOINT_GC_DRY_RUN ?? "false",
+    "CHECKPOINT_GC_DRY_RUN",
+  );
+  const config = checkpointStorageConfigFromEnv(environment);
+  if (config === "disabled" || config.protection !== "locked") {
+    logger.info("Checkpoint GC skipped", {
+      reason:
+        config === "disabled"
+          ? "CHECKPOINT_OBJECT_STORE=disabled"
+          : "CHECKPOINT_OBJECT_PROTECTION=unversioned holds nothing and pins no versions",
+    });
+    return 0;
+  }
+  const databaseUrl = environment.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is required");
+  await assertCheckpointBucketProtection(config);
+  const stores = await (input.connect ?? connect(config, logger))({
+    bucket: config.bucket,
+    databaseUrl,
+  });
+  try {
+    const collector = createCheckpointCollector({
+      ...stores,
+      codecs: API_CHECKPOINT_CODECS,
+      objectProtection: config.protection,
+    });
+    const totals = await collector.collect({
+      batchSize: BATCH_SIZE,
+      dryRun,
+      onSession(sessionId, result) {
+        if (result.status === "failed") {
+          logger.error("Checkpoint GC failed for a session", {
+            error: String(result.error),
+            session_id: sessionId,
+          });
+        } else if (result.status === "skipped") {
+          logger.info("Checkpoint GC skipped a session", {
+            reason: result.reason,
+            session_id: sessionId,
+          });
+        } else if (result.purged > 0) {
+          logger.info("Checkpoint GC collected a session", {
+            dry_run: dryRun,
+            kept: result.kept,
+            purged: result.purged,
+            session_id: sessionId,
+          });
+        }
+      },
+    });
+    logger.info("Checkpoint GC completed", { dry_run: dryRun, ...totals });
+    return totals.failed > 0 ? 1 : 0;
+  } finally {
+    await stores.close();
+  }
+}
+
+function connect(
+  config: Exclude<
+    ReturnType<typeof checkpointStorageConfigFromEnv>,
+    "disabled"
+  >,
+  logger: StructuredLogger,
+) {
+  return async ({
+    bucket,
+    databaseUrl,
+  }: {
+    bucket: string;
+    databaseUrl: string;
+  }) => {
+    const pool = createEnforcedPool(
+      databaseUrl,
+      logger,
+      "checkpoint-gc",
+      JOB_POOL_TIMEOUTS,
+    );
+    const client = createStorageS3Client({
+      s3: {
+        accessKeyId: config.accessKeyId,
+        ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+        region: config.region,
+        secretAccessKey: config.secretAccessKey,
+      },
+    });
+    return {
+      collector: createCheckpointObjectCollector({ bucket, client }),
+      objects: createCheckpointObjectStore({ bucket, client }),
+      store: createPostgresCheckpointStore(drizzle(pool, { schema })),
+      async close() {
+        client.destroy();
+        await pool.end();
+      },
+    };
+  };
+}
+
+function booleanFlag(value: string, name: string): boolean {
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  throw new Error(`${name} must be true, false, 1, or 0`);
+}
+
+if (import.meta.main) {
+  const logger = createLogger(
+    process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
+  );
+  process.exit(await runCheckpointGc({ environment: process.env, logger }));
+}

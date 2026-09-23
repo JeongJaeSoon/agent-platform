@@ -72,6 +72,7 @@ describe("HttpWorkerGatewayClient", () => {
         ...scope,
         session_credential: "wsc_session",
         lease_expires_at: new Date().toISOString(),
+        lease_remaining_ms: 30_000,
         runtime: {
           kind: "claude_agent_sdk",
           version: "0.3.270",
@@ -85,7 +86,7 @@ describe("HttpWorkerGatewayClient", () => {
           provider: {
             kind: "litellm",
             endpoint: "http://litellm:4000",
-            auth: { kind: "api_key", value: "placeholder" },
+            auth: { kind: "egress_token", token: "placeholder" },
           },
         },
         workspace: {

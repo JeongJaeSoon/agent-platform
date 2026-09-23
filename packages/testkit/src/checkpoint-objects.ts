@@ -26,6 +26,15 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
    * superseded checkpoint before it deletes it.
    */
   releaseHold(key: string, version: string): void;
+  /**
+   * Every version under the prefix, as S3 lists them, and the release and
+   * delete garbage collection performs on one: the store doubles as a
+   * `CheckpointObjectCollector`. Delete markers are not modelled.
+   */
+  listVersions(
+    prefix: string,
+  ): Promise<{ deleteMarker: boolean; key: string; version: string }[]>;
+  purge(entry: { key: string; version: string }): Promise<void>;
   /** Keys whose bodies were fetched since the last reset, in call order. */
   reads(): string[];
   resetReads(): void;
@@ -94,6 +103,23 @@ export function createMemoryCheckpointObjectStore(
     // 404 for an id it never issued.
     if (!versioned) return undefined;
     return slot.versions.find((candidate) => candidate.id === version);
+  }
+
+  function purgeVersion(key: string, version: string): void {
+    const slot = objects.get(key);
+    if (slot === undefined) return;
+    if (lookup(key, version)?.held) {
+      throw new Error(`Version ${version} of ${key} is under a legal hold`);
+    }
+    slot.versions = slot.versions.filter(
+      (candidate) => candidate.id !== version,
+    );
+    if (slot.current?.id === version) slot.current = slot.versions.at(-1);
+  }
+
+  function releaseHold(key: string, version: string): void {
+    const found = lookup(key, version);
+    if (found !== undefined) found.held = false;
   }
 
   function answer(found: Version): { version?: string } {
@@ -187,21 +213,24 @@ export function createMemoryCheckpointObjectStore(
       else objects.delete(key);
     },
 
-    purgeVersion(key, version) {
-      const slot = objects.get(key);
-      if (slot === undefined) return;
-      if (lookup(key, version)?.held) {
-        throw new Error(`Version ${version} of ${key} is under a legal hold`);
-      }
-      slot.versions = slot.versions.filter(
-        (candidate) => candidate.id !== version,
-      );
-      if (slot.current?.id === version) slot.current = slot.versions.at(-1);
+    purgeVersion,
+    releaseHold,
+
+    async listVersions(prefix) {
+      return [...objects.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .flatMap(([key, slot]) =>
+          slot.versions.map((found) => ({
+            deleteMarker: false,
+            key,
+            version: found.id,
+          })),
+        );
     },
 
-    releaseHold(key, version) {
-      const found = lookup(key, version);
-      if (found !== undefined) found.held = false;
+    async purge({ key, version }) {
+      releaseHold(key, version);
+      purgeVersion(key, version);
     },
 
     reads() {

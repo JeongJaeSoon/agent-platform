@@ -6,7 +6,8 @@
 # Builds the api, scheduler, worker and egress-proxy images from this
 # checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
-# then runs tests/d2-gate.e2e.test.ts against it. The report (JSON and
+# then runs tests/d2-gate.e2e.test.ts and tests/d2-gate/reconciler-sweep.e2e.test.ts
+# against it. The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
@@ -47,7 +48,8 @@ cleanup() {
   if [ "${D2_GATE_KEEP:-0}" = 1 ]; then
     echo "kept: compose project ${project}, installation ${EXECUTION_INSTALLATION_ID}" >&2
   else
-    dc down -v --remove-orphans >/dev/null 2>&1 || true
+    # --rmi local: migrate's image, built under the project's default name.
+    dc down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     local label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
     local ids
     ids="$(docker ps -aq --filter "label=${label}")"
@@ -85,7 +87,8 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
 api_key="$(dc exec -T api bun run apps/api/src/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-dc up -d --wait scheduler >>"$out/up.log" 2>&1
+# The reconciler runs as the product runs it, on its own loop (94S-320).
+dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
 echo "== gate" >&2
 export D2_GATE=1
@@ -109,4 +112,7 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
-bun test tests/d2-gate.e2e.test.ts --timeout 1800000 2>&1 | tee "$out/test.log"
+# The gate, then 94S-320's recovery sweep on the same stack: nothing in
+# the gate proves the reconciler service acts without a pass run by hand.
+bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  --timeout 1800000 2>&1 | tee "$out/test.log"

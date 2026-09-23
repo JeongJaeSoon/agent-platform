@@ -166,6 +166,11 @@ function claim(ref: ExecutionRef, nonce: string) {
     costLimitUsd: 1_000,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,
+    egress: {
+      providerHash: hashWorkerToken(`wep-${crypto.randomUUID()}`),
+      repositoryHash: hashWorkerToken(`wer-${crypto.randomUUID()}`),
+      bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+    },
     executionGeneration: ref.generation,
     executionId: ref.executionId,
     leaseTtlMs: 60_000,

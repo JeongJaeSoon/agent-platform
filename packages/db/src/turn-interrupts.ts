@@ -3,12 +3,12 @@ import type {
   TerminalTurnStatus,
 } from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { OPEN_TURN_STATUSES } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { controlIntents, receipts, turns } from "./schema.ts";
 
 const INTERRUPT = "interrupt";
-const OPEN_TURN_STATUSES = ["running", "needs_input"];
 
 /**
  * `pending` is an interrupt stored while its turn ran. One that arrives after

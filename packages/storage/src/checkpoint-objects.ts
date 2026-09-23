@@ -1,12 +1,18 @@
 import type {
+  CheckpointObjectCollector,
+  StoredObjectVersion,
+} from "@agent-platform/platform";
+import type {
   CheckpointObjectStore,
   PutImmutableResult,
 } from "@agent-platform/runtime-core";
 import {
+  DeleteObjectCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   PutObjectCommand,
   PutObjectLegalHoldCommand,
 } from "@aws-sdk/client-s3";
@@ -197,6 +203,84 @@ export function createCheckpointObjectStore(
       }
       // Never report "created" for a write that was not observed to land.
       throw new Error(`Conditional write to ${key} kept conflicting`);
+    },
+  };
+}
+
+/**
+ * The garbage collector's side of the checkpoint bucket. Its credentials
+ * must be the control plane's: releasing a hold is exactly the permission a
+ * worker must never have (94S-251).
+ *
+ * No `BypassGovernanceRetention`: checkpoints are protected by legal holds
+ * alone. A bucket that also has default retention is an operator saying
+ * time protects them too, and a delete then fails loudly instead of
+ * overriding that.
+ */
+export function createCheckpointObjectCollector(options: {
+  readonly bucket: string;
+  readonly client: S3ClientLike;
+}): CheckpointObjectCollector {
+  const { bucket, client } = options;
+  return {
+    async listVersions(prefix) {
+      const found: StoredObjectVersion[] = [];
+      let keyMarker: string | undefined;
+      let versionMarker: string | undefined;
+      do {
+        const page = (await client.send(
+          new ListObjectVersionsCommand({
+            Bucket: bucket,
+            KeyMarker: keyMarker,
+            Prefix: prefix,
+            VersionIdMarker: versionMarker,
+          }),
+        )) as {
+          DeleteMarkers?: Array<{ Key?: string; VersionId?: string }>;
+          IsTruncated?: boolean;
+          NextKeyMarker?: string;
+          NextVersionIdMarker?: string;
+          Versions?: Array<{ Key?: string; VersionId?: string }>;
+        };
+        const add = (
+          entries: Array<{ Key?: string; VersionId?: string }> | undefined,
+          deleteMarker: boolean,
+        ) => {
+          for (const entry of entries ?? []) {
+            const version = storedVersion(entry.VersionId);
+            if (entry.Key === undefined || version === undefined) continue;
+            found.push({ deleteMarker, key: entry.Key, version });
+          }
+        };
+        add(page.Versions, false);
+        add(page.DeleteMarkers, true);
+        keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+        versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+      } while (keyMarker !== undefined);
+      return found;
+    },
+
+    async purge(entry) {
+      // A held version refuses deletion, so the hold goes first. A delete
+      // that then fails leaves the version unheld but present, and the next
+      // pass, finding it still unreachable, deletes it.
+      if (!entry.deleteMarker) {
+        await client.send(
+          new PutObjectLegalHoldCommand({
+            Bucket: bucket,
+            Key: entry.key,
+            LegalHold: { Status: "OFF" },
+            VersionId: entry.version,
+          }),
+        );
+      }
+      await client.send(
+        new DeleteObjectCommand({
+          Bucket: bucket,
+          Key: entry.key,
+          VersionId: entry.version,
+        }),
+      );
     },
   };
 }

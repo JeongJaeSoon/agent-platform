@@ -42,6 +42,7 @@ import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
+  EgressPurpose,
   FenceRejection,
   FinalizeResult,
   ResolvedCredential,
@@ -50,7 +51,12 @@ import type {
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
+  allowedPair,
+  type EgressUpstream,
   profileFingerprint,
+  providerUpstreamOf,
+  repositoryBinding,
+  repositoryUpstreamOf,
   runtimeProviderOf,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
@@ -157,6 +163,20 @@ export function generateLaunchNonce(): string {
 function generateSessionToken(): string {
   return `wsc_${randomBytes(32).toString("base64url")}`;
 }
+
+// Prefixes say which route a token is for when one turns up in a log or an
+// event; the gateway never trusts them, the stored purpose decides.
+function generateEgressToken(purpose: EgressPurpose): string {
+  const prefix = purpose === "provider" ? "wep" : "wer";
+  return `${prefix}_${randomBytes(32).toString("base64url")}`;
+}
+
+/** What the egress proxy is told to do with one authorized request. */
+export type EgressGrant = {
+  session_id: string;
+  attempt_id: string;
+  upstream: EgressUpstream;
+};
 
 function own<T>(record: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined;
@@ -411,7 +431,10 @@ export function createWorkerGateway(deps: {
   // and transcript were made with that model and those tools, so a changed
   // setting is a new profile id, not an edit. What the session was created
   // against — its repository — comes from the row (WorkerBinding.repository).
-  function resolveProfile(profileId: string | null): {
+  function resolveProfile(
+    profileId: string | null,
+    providerToken: string,
+  ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
     runtime_config: RuntimeConfig;
@@ -436,12 +459,47 @@ export function createWorkerGateway(deps: {
         model: profile.model,
         tools: profile.tools,
         permission_mode: profile.permission_mode,
-        provider: runtimeProviderOf(profile),
+        provider: runtimeProviderOf(profile, providerToken),
         ...(profile.project_settings?.claude_md === true
           ? { project_settings: profile.project_settings }
           : {}),
       },
     };
+  }
+
+  // What each egress token is held to, taken from the catalog at the moment
+  // the claim binds the session. Only a runnable pair is ever claimed, so
+  // both entries exist here.
+  function egressBindingsOf(session: {
+    profileId: string | null;
+    repositoryId: string | null;
+  }): Record<EgressPurpose, string> {
+    const profile = session.profileId
+      ? own(catalog.profiles, session.profileId)
+      : undefined;
+    const repository = session.repositoryId
+      ? own(catalog.repositories, session.repositoryId)
+      : undefined;
+    if (!profile || !repository || session.repositoryId === null) {
+      throw new Error(
+        "A claimed session has no runnable profile and repository",
+      );
+    }
+    return {
+      provider: profileFingerprint(profile),
+      repository: repositoryBinding(session.repositoryId, repository),
+    };
+  }
+
+  // A catalog that moved since the claim (an edited config and a restart)
+  // is not followed: the attempt agreed to one endpoint and one repository.
+  // The proxy is refused rather than pointed somewhere new.
+  function moved(what: string): never {
+    throw new WorkerGatewayError(
+      409,
+      "BACKEND_UNAVAILABLE",
+      `The ${what} changed in the catalog since this attempt was claimed`,
+    );
   }
 
   // The write fence comes from the token, not from the body. Checking the
@@ -583,6 +641,8 @@ export function createWorkerGateway(deps: {
       }
       const at = now();
       const sessionToken = generateSessionToken();
+      const providerToken = generateEgressToken("provider");
+      const repositoryToken = generateEgressToken("repository");
       const result = await work.claimAtomic({
         runnable,
         costLimitUsd: deps.options.sessionCostLimitUsd,
@@ -592,6 +652,11 @@ export function createWorkerGateway(deps: {
         attemptId: `att_${randomUUID()}`,
         credentialHash: hashWorkerToken(sessionToken),
         credentialTtlMs: sessionTokenTtlMs,
+        egress: {
+          providerHash: hashWorkerToken(providerToken),
+          repositoryHash: hashWorkerToken(repositoryToken),
+          bindingsOf: egressBindingsOf,
+        },
         leaseTtlMs,
         now: at,
       });
@@ -643,8 +708,14 @@ export function createWorkerGateway(deps: {
             auth_revision: binding.authRevision,
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
-            ...resolveProfile(binding.profileId),
-            workspace: { repository: binding.repository },
+            lease_remaining_ms: binding.leaseRemainingMs,
+            ...resolveProfile(binding.profileId, providerToken),
+            workspace: {
+              repository: {
+                ...binding.repository,
+                access: { kind: "egress_token", token: repositoryToken },
+              },
+            },
             principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
@@ -656,6 +727,63 @@ export function createWorkerGateway(deps: {
           };
         }
       }
+    },
+
+    // The egress proxy's question, asked on every request to a credential
+    // route (94S-252): what does this token stand for right now? The answer
+    // carries the upstream credential, so only the authorizer listener —
+    // unreachable from any worker — may put it on the wire.
+    async authorizeEgress(request: {
+      token: string;
+      purpose: EgressPurpose;
+    }): Promise<EgressGrant> {
+      const result = await work.authorizeEgressAtomic({
+        tokenHash: hashWorkerToken(request.token),
+        purpose: request.purpose,
+      });
+      if (result.outcome === "invalid_token") {
+        throw new WorkerGatewayError(
+          401,
+          "UNAUTHORIZED",
+          "Egress token is missing, expired, revoked or for another route",
+        );
+      }
+      if (result.outcome !== "ok") {
+        throw new WorkerGatewayError(
+          403,
+          "FORBIDDEN",
+          "The attempt this token belongs to no longer owns its session",
+        );
+      }
+      const grant = (upstream: EgressUpstream): EgressGrant => ({
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        upstream,
+      });
+      if (request.purpose === "provider") {
+        const profile = result.profileId
+          ? own(catalog.profiles, result.profileId)
+          : undefined;
+        if (!profile || profileFingerprint(profile) !== result.binding) {
+          moved("session's profile");
+        }
+        return grant(providerUpstreamOf(profile));
+      }
+      const { id, url, branch } = result.repository;
+      const pair =
+        id !== null && result.profileId !== null
+          ? allowedPair(catalog, result.profileId, id)
+          : null;
+      if (
+        id === null ||
+        pair === null ||
+        pair.repository.url !== url ||
+        pair.repository.branch !== branch ||
+        repositoryBinding(id, pair.repository) !== result.binding
+      ) {
+        moved("session's repository");
+      }
+      return grant(repositoryUpstreamOf(pair.repository));
     },
 
     async nextInput(
@@ -737,6 +865,7 @@ export function createWorkerGateway(deps: {
       if (result.outcome !== "ok") rejected(result);
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
+        lease_remaining_ms: result.leaseRemainingMs,
         auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over.

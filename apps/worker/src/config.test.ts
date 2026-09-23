@@ -11,6 +11,7 @@ const launched: WorkerEnvironment = {
   WORKER_BOOTSTRAP_NONCE: "wln_from_launch",
   WORKER_EXECUTION_GENERATION: "3",
   WORKER_EXECUTION_ID: "exec-42",
+  WORKER_EGRESS_CREDENTIAL_URL: "http://egress-proxy:3129/",
   WORKER_GATEWAY_URL: "http://control-host:8080/",
   WORKER_WORKSPACE_DIR: "/workspace",
   AWS_ACCESS_KEY_ID: "test",
@@ -29,6 +30,7 @@ describe("workerConfigFromEnv", () => {
       bootstrapNonce: "wln_from_launch",
       executionGeneration: 3,
       executionId: "exec-42",
+      egressCredentialUrl: "http://egress-proxy:3129",
       gatewayUrl: "http://control-host:8080",
     });
     expect(config.runtime.home).toBe("/home/worker");
@@ -43,6 +45,7 @@ describe("workerConfigFromEnv", () => {
       drainTimeoutMs: 100_000,
       heartbeatIntervalMs: 10_000,
       idleTimeoutMs: 1_800_000,
+      leaseSafetyMarginMs: 10_000,
       maxTurnMs: 3_600_000,
       nextInputRetryTimeoutMs: 60_000,
       nextInputWaitMs: 20_000,
@@ -73,6 +76,10 @@ describe("workerConfigFromEnv", () => {
   test.each([
     ["HOME", { HOME: undefined }],
     ["WORKER_GATEWAY_URL", { WORKER_GATEWAY_URL: undefined }],
+    [
+      "WORKER_EGRESS_CREDENTIAL_URL",
+      { WORKER_EGRESS_CREDENTIAL_URL: undefined },
+    ],
     ["WORKER_BOOTSTRAP_NONCE", { WORKER_BOOTSTRAP_NONCE: undefined }],
     ["WORKER_EXECUTION_ID", { WORKER_EXECUTION_ID: undefined }],
     ["WORKER_WORKSPACE_DIR", { WORKER_WORKSPACE_DIR: undefined }],

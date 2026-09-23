@@ -112,6 +112,7 @@ describe("reconciler run", () => {
           dry_run: false,
           ended_count: 0,
           fenced_count: 0,
+          fenced_session_ids: [],
           reconciled_count: 0,
           session_ids: [],
         },

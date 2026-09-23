@@ -5,14 +5,29 @@ import { describeComponents } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 
 const principalSchema = z.object({ ownerScope: z.string().min(1) }).strict();
+const egressTokenSchema = z
+  .object({
+    kind: z.literal("egress_token"),
+    token: z.string().min(1),
+    transport: z
+      .string()
+      .url()
+      .refine((value) => /^https?:$/.test(new URL(value).protocol), {
+        message: "transport must be http or https",
+      }),
+  })
+  .strict();
 const profileSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("anthropic"),
       endpoint: z.string().url(),
-      auth: z
-        .object({ kind: z.literal("api_key"), value: z.string().min(1) })
-        .strict(),
+      auth: z.discriminatedUnion("kind", [
+        z
+          .object({ kind: z.literal("api_key"), value: z.string().min(1) })
+          .strict(),
+        egressTokenSchema,
+      ]),
       principal: principalSchema,
     })
     .strict(),
@@ -28,6 +43,7 @@ const profileSchema = z.discriminatedUnion("kind", [
         z
           .object({ kind: z.literal("bearer"), value: z.string().min(1) })
           .strict(),
+        egressTokenSchema,
       ]),
     })
     .strict(),
@@ -137,17 +153,46 @@ export function runtimeEnvironment(
   if (config.trustedCaBundle !== undefined) {
     environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;
   }
-  if (config.profile.auth.kind === "bearer") {
-    environment.ANTHROPIC_AUTH_TOKEN = config.profile.auth.value;
+  const auth = config.profile.auth;
+  if (auth.kind === "egress_token") {
+    // The engine talks to the egress proxy's credential route, which puts the
+    // real credential on the request (94S-252); the token is all it holds.
+    // The route is plain HTTP on the worker network, so it must not be sent
+    // through the forward proxy, which would refuse it anyway.
+    environment.ANTHROPIC_BASE_URL = normalizeEndpoint(auth.transport);
+    environment.ANTHROPIC_API_KEY = auth.token;
+    bypassProxyFor(environment, new URL(auth.transport).hostname, host);
+  } else if (auth.kind === "bearer") {
+    environment.ANTHROPIC_AUTH_TOKEN = auth.value;
   } else {
-    environment.ANTHROPIC_API_KEY = config.profile.auth.value;
+    environment.ANTHROPIC_API_KEY = auth.value;
   }
   return environment;
 }
 
 /**
+ * Adds `hostname` to whichever of `NO_PROXY`/`no_proxy` the host sets, or to
+ * both when it sets neither, so no twin ever disagrees with the other.
+ */
+function bypassProxyFor(
+  environment: Record<string, string | undefined>,
+  hostname: string,
+  host: NodeJS.ProcessEnv,
+): void {
+  const names = (["NO_PROXY", "no_proxy"] as const).filter(
+    (name) => host[name] !== undefined,
+  );
+  for (const name of names.length === 0 ? ["NO_PROXY", "no_proxy"] : names) {
+    const current = host[name] ?? "";
+    environment[name] = current === "" ? hostname : `${current},${hostname}`;
+  }
+}
+
+/**
  * The profile with the credential left behind and the principal kept: what
- * may be hashed, logged or compared without leaking a secret.
+ * may be hashed, logged or compared without leaking a secret. An egress
+ * token's transport is left behind too: where the proxy listens is plumbing,
+ * and moving it must not orphan every checkpoint.
  */
 export function publicProfile(profile: RuntimeProfile): {
   auth_kind: RuntimeProfile["auth"]["kind"];

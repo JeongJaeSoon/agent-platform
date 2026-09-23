@@ -122,7 +122,14 @@ export type Git = (
 export class GitWorkspace implements WorkspacePreparer {
   private instructions: PinnedInstructions = NOTHING_PINNED;
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    /**
+     * The egress proxy's credential routes (94S-252). A claim that gives the
+     * repository a token is fetched through them and nowhere else.
+     */
+    private readonly egressTransport: string | null = null,
+  ) {}
 
   committedClaudeMd(): string | null {
     return committedClaudeMdOf(this.instructions.claudeMd);
@@ -137,9 +144,13 @@ export class GitWorkspace implements WorkspacePreparer {
     restore: CheckpointRef | null;
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]> {
-    const { url } = input.descriptor.repository;
-    const remote = splitSecret(url);
-    const redact = redactor(url, remote.secret);
+    const { access, url } = input.descriptor.repository;
+    const remote = routed(splitSecret(url), access, this.egressTransport);
+    const redact = redactor(
+      url,
+      remote.secret,
+      remote.route === undefined ? [] : [remote.route.token],
+    );
     // Filled in once the checkout's filter drivers are known.
     const neutralized: Array<[string, string]> = [];
     const git: Git = (args, options = {}) =>
@@ -181,7 +192,7 @@ export class GitWorkspace implements WorkspacePreparer {
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
         await this.empty();
-        await this.clone(git, remote.url, plan.branch);
+        await this.clone(git, remote, plan.branch);
         // A fresh clone nothing has run in yet.
         this.instructions = await pinInstructions(
           git,
@@ -191,7 +202,7 @@ export class GitWorkspace implements WorkspacePreparer {
         );
         return plan.action;
       case "clone":
-        await this.clone(git, remote.url, plan.branch);
+        await this.clone(git, remote, plan.branch);
         // A fresh clone nothing has run in yet.
         this.instructions = await pinInstructions(
           git,
@@ -208,7 +219,7 @@ export class GitWorkspace implements WorkspacePreparer {
         );
         await this.fetchThroughMirror(
           git,
-          remote.url,
+          remote.route?.url ?? remote.url,
           plan.branch,
           input.signal,
         );
@@ -287,15 +298,32 @@ export class GitWorkspace implements WorkspacePreparer {
     );
   }
 
-  private async clone(git: Git, url: string, branch: string): Promise<void> {
+  private async clone(git: Git, remote: Remote, branch: string): Promise<void> {
     // Run from the parent: the root may not exist yet, and git creates it.
     await check(
-      git(["clone", "--quiet", "--branch", branch, "--", url, this.root], {
-        network: true,
-        cwd: join(this.root, ".."),
-      }),
+      git(
+        [
+          "clone",
+          "--quiet",
+          "--branch",
+          branch,
+          "--",
+          remote.route?.url ?? remote.url,
+          this.root,
+        ],
+        { network: true, cwd: join(this.root, "..") },
+      ),
       "clone",
     );
+    // Cloned through the proxy's route, origin names the route; the
+    // repository's own URL is what a reuse compares and what the engine
+    // should see.
+    if (remote.route !== undefined) {
+      await check(
+        git(["remote", "set-url", "origin", remote.url]),
+        "remote set-url",
+      );
+    }
   }
 
   /**
@@ -526,13 +554,39 @@ type Secret = {
   username: string;
 };
 
+/** The egress proxy's repository route and the token it takes. */
+type Route = { token: string; url: string };
+
 type Remote = {
+  /**
+   * Where the network calls go instead of `url` when the claim gave this
+   * attempt a repository token (94S-252): the proxy puts the repository's
+   * own credential on each request, so none reaches this process.
+   */
+  route?: Route;
   /** What git may store: the URL without userinfo. */
   url: string;
   /** The one transport the network calls may use. */
   protocol: string;
   secret: Secret | null;
 };
+
+function routed(
+  remote: Remote,
+  access: WorkspaceDescriptor["repository"]["access"],
+  transport: string | null,
+): Remote {
+  if (access === undefined) return remote;
+  if (transport === null) {
+    throw new Error(
+      "The claim routes the repository through the egress proxy, but WORKER_EGRESS_CREDENTIAL_URL is not set",
+    );
+  }
+  return {
+    ...remote,
+    route: { token: access.token, url: `${transport}/repository` },
+  };
+}
 
 function splitSecret(url: string): Remote {
   let parsed: URL;
@@ -678,8 +732,21 @@ function gitEnvironment(
     ...overrides,
     ...(extra.config ?? []),
   ];
+  const route = network?.route;
+  if (route !== undefined) {
+    // No helper at all: the route takes only the token, in a header git
+    // sends to that URL alone, and a redirect elsewhere is not followed.
+    config.push(
+      ["credential.helper", ""],
+      [`http.${route.url}.extraHeader`, `Authorization: Bearer ${route.token}`],
+      ["http.followRedirects", "false"],
+    );
+    const transport = new URL(route.url);
+    env.GIT_ALLOW_PROTOCOL = transport.protocol.replace(/:$/, "");
+    bypassProxyFor(env, transport.hostname);
+  }
   const secret = network?.secret ?? null;
-  if (network !== null && secret !== null) {
+  if (route === undefined && network !== null && secret !== null) {
     // The empty helper first drops every helper configured anywhere else.
     config.push(
       ["credential.helper", ""],
@@ -699,6 +766,21 @@ function gitEnvironment(
     env[`GIT_CONFIG_VALUE_${index}`] = value;
   });
   return env;
+}
+
+/**
+ * The route is plain http on the worker network and must not go through the
+ * forward proxy, which would refuse it: adds its host to whichever of
+ * `NO_PROXY`/`no_proxy` is set, or to both when neither is.
+ */
+function bypassProxyFor(env: Record<string, string>, hostname: string): void {
+  const names = (["NO_PROXY", "no_proxy"] as const).filter(
+    (name) => env[name] !== undefined,
+  );
+  for (const name of names.length === 0 ? ["NO_PROXY", "no_proxy"] : names) {
+    const current = env[name] ?? "";
+    env[name] = current === "" ? hostname : `${current},${hostname}`;
+  }
 }
 
 export type GitRunOptions = {
@@ -980,11 +1062,15 @@ export async function check(
 function redactor(
   url: string,
   secret: Secret | null,
+  extra: readonly string[] = [],
 ): (text: string) => string {
   return (text) => {
     let redacted = text.split(url).join("<repository>");
     if (secret !== null && secret.password !== "") {
       redacted = redacted.split(secret.password).join("<redacted>");
+    }
+    for (const value of extra) {
+      if (value !== "") redacted = redacted.split(value).join("<redacted>");
     }
     return redacted.replace(/(\/\/)[^/@\s]+@/g, "$1<redacted>@");
   };

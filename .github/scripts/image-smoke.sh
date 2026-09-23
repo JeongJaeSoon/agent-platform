@@ -174,9 +174,13 @@ case "$app" in
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
     # Its own ENTRYPOINT, a command standing in for the worker's: the
-    # scheduler overrides Cmd only, never the entrypoint.
+    # scheduler overrides Cmd only when it launches a worker.
     assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \
       "$image" bun -e 'setInterval(() => {}, 1 << 30)')"
+    # The workspace inode helper runs from this image with its own
+    # entrypoint (94S-224): every tool its script calls must be here.
+    docker run --rm --entrypoint /bin/sh "$image" -c \
+      'xfs_io -V && xfs_quota -V && command -v awk sed stat mknod mkdir >/dev/null'
     ;;
   api)
     # git: the checkpoint bundle verifier spawns it (94S-201).

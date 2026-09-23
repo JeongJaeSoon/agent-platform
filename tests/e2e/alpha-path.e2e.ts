@@ -1,0 +1,410 @@
+import { describe, expect, test } from "bun:test";
+import {
+  Api,
+  type ErrorBody,
+  e2eEnv,
+  poll,
+  scripted,
+  type Turn,
+} from "./client.ts";
+
+/**
+ * The alpha path (94S-134) against a stack tests/e2e/run.sh started: the
+ * images this checkout builds, a real Claude Code inside each worker, the
+ * compose fake Messages API playing each prompt's script. docs/quickstart.md
+ * walks the same steps by hand with curl.
+ */
+const api = new Api(e2eEnv());
+const TIMEOUT = 600_000;
+
+/**
+ * Settles a turn that must not ask anything: a read-only command runs
+ * without a permission request, and docs/quickstart.md answers none there.
+ */
+async function settleUnasked(sessionId: string, turnId: string): Promise<Turn> {
+  return poll(`turn ${turnId} of ${sessionId}`, 180_000, async () => {
+    const turn = await api.turn(sessionId, turnId);
+    if (!["queued", "running", "needs_input"].includes(turn.status)) {
+      return turn;
+    }
+    const asked = (await api.pending(sessionId)).filter(
+      (request) => request.turn_id === turnId,
+    );
+    if (asked.length > 0) {
+      throw new Error(`turn ${turnId} asked: ${JSON.stringify(asked)}`);
+    }
+    return null;
+  });
+}
+
+function must<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("missing value");
+  return value;
+}
+
+async function revision(sessionId: string): Promise<number> {
+  return (await api.session(sessionId)).revision;
+}
+
+const bash = (command: string) => ({
+  tool: "Bash",
+  input: { command, description: command },
+});
+
+describe("alpha path over public HTTP (94S-134)", () => {
+  test(
+    "create → events → pending → answer → message → interrupt → pause → resume → terminate → recovery → resume",
+    async () => {
+      // 1. create: the first turn writes a file, which asks permission.
+      const created = await api.createSession(
+        scripted("q1", [bash("echo alpha > hello.txt")], "wrote hello.txt"),
+      );
+      expect(created.status).toBe(201);
+      const sessionId = created.body.session_id;
+      expect(created.body).toMatchObject({ turn_id: "1", status: "queued" });
+
+      // 2. events: the permission question arrives on the stream.
+      const events = await api.events(
+        sessionId,
+        (event) => event.event === "question",
+      );
+      const question = events.at(-1);
+      expect(question?.data.turn_id).toBe("1");
+
+      // 3. pending-requests: the same request, typed.
+      const [request] = await api.pendingUntil(sessionId, 1);
+      expect(request).toMatchObject({
+        kind: "permission",
+        tool: "Bash",
+        turn_id: "1",
+        request_id: question?.data.data.request_id,
+      });
+      expect((await api.session(sessionId)).status).toBe("needs_input");
+
+      // 4. answers: allow, and the turn completes.
+      const answer = await api.allow(sessionId, must(request).request_id);
+      expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+      expect(
+        (
+          await api.receiptUntil(
+            answer.receipt_id,
+            (r) => r.status !== "accepted",
+          )
+        ).status,
+      ).toBe("succeeded");
+
+      // 5. messages: a follow-up turn on the same engine session.
+      const second = await api.send(
+        sessionId,
+        scripted("q2", [], "second turn"),
+      );
+      expect(second.turn_id).toBe("2");
+      expect((await api.settledTurn(sessionId, "2")).status).toBe("completed");
+
+      // 6. interrupt: a turn stuck in a slow model call stops on request.
+      const slow = await api.send(
+        sessionId,
+        scripted("q3", [], "too late", 300_000),
+      );
+      await api.sessionUntil(
+        sessionId,
+        "runs turn 3",
+        (s) => s.current_turn_id === slow.turn_id && s.status === "running",
+      );
+      await api.modelCallSeen("q3", 0);
+      const interrupt = await api.control(sessionId, "interrupt", {
+        target_turn_id: slow.turn_id,
+      });
+      expect(interrupt.status).toBe(202);
+      const interruptReceipt = await api.receiptUntil(
+        (interrupt.body as { receipt_id: string }).receipt_id,
+        (r) => r.status !== "accepted",
+      );
+      expect(interruptReceipt.status).toBe("succeeded");
+      expect((await api.settledTurn(sessionId, slow.turn_id)).status).toBe(
+        "interrupted",
+      );
+
+      // 7. pause: the worker drains, checkpoints and goes away. An
+      // interrupted turn leaves the session `stopped`, not `idle`
+      // (DESIGN.md §6.5); its worker stays for the next message.
+      await api.sessionUntil(
+        sessionId,
+        "is stopped",
+        (s) => s.status === "stopped",
+      );
+      const pause = await api.control(sessionId, "pause", {
+        expected_revision: await revision(sessionId),
+        reason: "e2e",
+      });
+      expect(pause.status).toBe(202);
+      await api.sessionUntil(
+        sessionId,
+        "is paused",
+        (s) => s.admission_state === "paused",
+      );
+      const refused = await api.request<ErrorBody>(
+        "POST",
+        `/v1/sessions/${sessionId}/messages`,
+        { message: "while paused" },
+      );
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe("SESSION_PAUSED");
+
+      // 8. resume: a new worker restores the checkpoint, workspace included.
+      const resume = await api.control(sessionId, "resume", {
+        expected_revision: await revision(sessionId),
+      });
+      expect(resume.status).toBe(202);
+      await api.sessionUntil(
+        sessionId,
+        "is active again",
+        (s) => s.admission_state === "active",
+      );
+      const afterResume = await api.send(
+        sessionId,
+        scripted("q4", [bash("cat hello.txt")], "restored"),
+      );
+      expect((await settleUnasked(sessionId, afterResume.turn_id)).status).toBe(
+        "completed",
+      );
+      const catResult = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" &&
+            event.data.turn_id === afterResume.turn_id,
+        )
+      ).at(-1);
+      expect(JSON.stringify(catResult?.data.data)).toContain("alpha");
+
+      // 9. terminate mid-turn → recovery decision → resume.
+      const doomed = await api.send(
+        sessionId,
+        scripted("q5", [], "never", 300_000),
+      );
+      await api.sessionUntil(
+        sessionId,
+        "runs the doomed turn",
+        (s) => s.current_turn_id === doomed.turn_id && s.status === "running",
+      );
+      await api.modelCallSeen("q5", 0);
+      const terminate = await api.control(sessionId, "terminate", {
+        expected_revision: await revision(sessionId),
+        reason: "e2e",
+      });
+      expect(terminate.status).toBe(202);
+      const stopped = await api.sessionUntil(
+        sessionId,
+        "needs a recovery decision",
+        (s) => s.admission_state === "recovery_required",
+      );
+      expect(stopped.status).toBe("failed");
+      expect((await api.turn(sessionId, doomed.turn_id)).status).toBe(
+        "outcome_unknown",
+      );
+      const decision = await api.control(sessionId, "recovery-decisions", {
+        decision: "abandon",
+        expected_revision: stopped.revision,
+        reason: "e2e: the slow call had no effect",
+        target_turn_id: doomed.turn_id,
+      });
+      expect(decision.status).toBe(202);
+      const decided = await api.receiptUntil(
+        (decision.body as { receipt_id: string }).receipt_id,
+        (r) => r.status !== "accepted",
+      );
+      expect(decided).toMatchObject({
+        status: "succeeded",
+        result: { resulting_admission_state: "stopped", resumable: true },
+      });
+      expect((await api.turn(sessionId, doomed.turn_id)).status).toBe(
+        "cancelled",
+      );
+      const again = await api.control(sessionId, "resume", {
+        expected_revision: await revision(sessionId),
+      });
+      expect(again.status).toBe(202);
+      await api.sessionUntil(
+        sessionId,
+        "is active after recovery",
+        (s) => s.admission_state === "active",
+      );
+      const last = await api.send(
+        sessionId,
+        scripted("q6", [bash("cat hello.txt")], "still here"),
+      );
+      expect((await settleUnasked(sessionId, last.turn_id)).status).toBe(
+        "completed",
+      );
+    },
+    TIMEOUT,
+  );
+});
+
+describe("concurrency regressions (94S-134)", () => {
+  test(
+    "a retried create is one session; the same key with another body is refused",
+    async () => {
+      const key = crypto.randomUUID();
+      const message = scripted("c1", [], "created once");
+      const [first, retry] = await Promise.all([
+        api.createSession(message, key),
+        api.createSession(message, key),
+      ]);
+      expect([first.status, retry.status]).toEqual([201, 201]);
+      expect(retry.body.session_id).toBe(first.body.session_id);
+      const conflict = await api.createSession(
+        scripted("c1-other", [], "other"),
+        key,
+      );
+      expect(conflict.status).toBe(409);
+      expect((conflict.body as unknown as ErrorBody).error.code).toBe(
+        "IDEMPOTENCY_CONFLICT",
+      );
+      expect((await api.settledTurn(first.body.session_id, "1")).status).toBe(
+        "completed",
+      );
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "three concurrent messages to one session become three turns, run in order",
+    async () => {
+      const created = await api.createSession(scripted("m0", [], "ready"));
+      const sessionId = created.body.session_id;
+      await api.settledTurn(sessionId, "1");
+      const sent = await Promise.all(
+        [1, 2, 3].map((n) =>
+          api.send(sessionId, scripted(`m${n}`, [], `reply ${n}`)),
+        ),
+      );
+      const ids = sent.map((turn) => Number(turn.turn_id)).sort();
+      expect(ids).toEqual([2, 3, 4]);
+      const settled = [];
+      for (const id of ids) {
+        settled.push(await api.settledTurn(sessionId, String(id)));
+      }
+      expect(settled.map((turn) => turn.status)).toEqual([
+        "completed",
+        "completed",
+        "completed",
+      ]);
+      // In order: each turn starts only after the one before it ended.
+      for (let index = 1; index < settled.length; index++) {
+        const before = Date.parse(String(must(settled[index - 1]).ended_at));
+        const after = Date.parse(String(must(settled[index]).started_at));
+        expect(after).toBeGreaterThanOrEqual(before);
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "approvals answered in reverse order each reach their own request",
+    async () => {
+      const sessions = await Promise.all(
+        ["a1", "a2"].map(async (id) => {
+          const created = await api.createSession(
+            scripted(id, [bash(`echo ${id} > ${id}.txt`)], `${id} done`),
+          );
+          return created.body.session_id;
+        }),
+      );
+      const requests = await Promise.all(
+        sessions.map(async (id) => must((await api.pendingUntil(id, 1))[0])),
+      );
+      // Another session's request id is not answerable here.
+      const crossed = await api.request<ErrorBody>(
+        "POST",
+        `/v1/sessions/${sessions[0]}/answers`,
+        {
+          request_id: must(requests[1]).request_id,
+          kind: "permission",
+          decision: "allow",
+        },
+      );
+      expect(crossed.status).toBeGreaterThanOrEqual(400);
+      expect(crossed.status).toBeLessThan(500);
+      for (const index of [1, 0]) {
+        await api.allow(
+          must(sessions[index]),
+          must(requests[index]).request_id,
+        );
+      }
+      for (const id of sessions) {
+        expect((await api.settledTurn(id, "1")).status).toBe("completed");
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "two requests of one turn are each answered by their own id",
+    async () => {
+      // Claude Code asks for one tool at a time, even for tool calls the
+      // model sent together, so one turn never holds two open requests; what
+      // can go wrong is an answer landing on the next one.
+      const created = await api.createSession(
+        scripted(
+          "t1",
+          [bash("echo one > one.txt"), bash("echo two > two.txt")],
+          "both written",
+        ),
+      );
+      const sessionId = created.body.session_id;
+      const [first] = await api.pendingUntil(sessionId, 1);
+      await api.allow(sessionId, must(first).request_id);
+      const second = await poll("the second request", 180_000, async () => {
+        const items = await api.pending(sessionId);
+        const next = items.find(
+          (item) => item.request_id !== must(first).request_id,
+        );
+        return next ?? null;
+      });
+      const again = await api.request<ErrorBody>(
+        "POST",
+        `/v1/sessions/${sessionId}/answers`,
+        {
+          request_id: must(first).request_id,
+          kind: "permission",
+          decision: "allow",
+        },
+      );
+      expect(again.status).toBe(409);
+      expect(again.body.error.code).toBe("REQUEST_EXPIRED");
+      await api.allow(sessionId, second.request_id);
+      expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "an interrupt racing the next message stops only its target",
+    async () => {
+      const created = await api.createSession(
+        scripted("r1", [], "slow", 300_000),
+      );
+      const sessionId = created.body.session_id;
+      await api.sessionUntil(
+        sessionId,
+        "runs turn 1",
+        (s) => s.current_turn_id === "1" && s.status === "running",
+      );
+      await api.modelCallSeen("r1", 0);
+      const [interrupt, next] = await Promise.all([
+        api.control(sessionId, "interrupt", { target_turn_id: "1" }),
+        api.send(sessionId, scripted("r2", [], "next one")),
+      ]);
+      expect(interrupt.status).toBe(202);
+      expect((await api.settledTurn(sessionId, "1")).status).toBe(
+        "interrupted",
+      );
+      expect((await api.settledTurn(sessionId, next.turn_id)).status).toBe(
+        "completed",
+      );
+    },
+    TIMEOUT,
+  );
+});

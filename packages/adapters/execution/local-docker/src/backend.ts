@@ -33,6 +33,7 @@ import {
   type NetworkInspect,
   type VolumeInspect,
 } from "./docker-client.ts";
+import { applyInodeLimit } from "./workspace-inodes.ts";
 
 export const LABELS = {
   /**
@@ -99,6 +100,8 @@ export const ENV = {
   executionGeneration: "WORKER_EXECUTION_GENERATION",
   executionId: "WORKER_EXECUTION_ID",
   gatewayUrl: "WORKER_GATEWAY_URL",
+  /** The egress proxy's credential routes (94S-252). */
+  egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
   /**
@@ -139,8 +142,35 @@ export const ENV = {
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
 } as const;
 
+/**
+ * The credential routes, on the alias the proxy has on every worker network.
+ * Plain http: the network holds only the worker and the proxy.
+ */
+export function egressCredentialUrlOf(
+  config: Pick<
+    LocalDockerBackendConfig,
+    "egressCredentialPort" | "egressProxyUrl"
+  >,
+): string {
+  const url = new URL(config.egressProxyUrl);
+  url.port = String(config.egressCredentialPort);
+  return url.toString().replace(/\/$/, "");
+}
+
 /** The worker's own loopback is the only thing worth not proxying. */
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
+
+/**
+ * Plus the proxy's own name: its credential routes are reached directly,
+ * and through the forward proxy they would be refused (94S-252). The worker
+ * could reach that name on any port anyway; it is the only other member of
+ * its network.
+ */
+export function noProxyValueFor(
+  config: Pick<LocalDockerBackendConfig, "egressProxyUrl">,
+): string {
+  return `${NO_PROXY_VALUE},${new URL(config.egressProxyUrl).hostname}`;
+}
 
 /**
  * Bumped whenever the isolation a worker container is created with changes.
@@ -156,8 +186,11 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  *    egress proxy, so workers no longer reach one another (94S-216).
  * 6: that network gives the host no address on it, so a host process
  *    listening on a wildcard address is out of reach too (94S-274).
+ * 7: the workspace volume carries an inode ceiling beside its byte one
+ *    (94S-224). A version, not only the fingerprint, so a host rolled back
+ *    past it reads these workers as newer and leaves them be.
  */
-export const ISOLATION_CONTRACT = 6;
+export const ISOLATION_CONTRACT = 7;
 
 /** The first contract whose workers each sit on a network of their own. */
 const PER_EXECUTION_NETWORK_CONTRACT = 5;
@@ -181,10 +214,17 @@ const GATEWAY_MODE_MIN_API = [1, 48] as const;
  * settings that shape the isolation. The version alone would miss a moved
  * network or a repointed proxy, neither of which needs a code change, and
  * both of which leave the old container on the old boundary.
+ *
+ * CPU, memory and pids limits stay out on purpose: they belong to the launch,
+ * pinned at reservation and checked through the launch-spec label, so a
+ * lowered limit takes effect from the next launch instead of retiring every
+ * running worker at once.
  */
 export function isolationStampFor(config: LocalDockerBackendConfig): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
+    // A worker holding the old credential port would lose its provider.
+    config.egressCredentialPort,
     config.homeDir,
     NO_PROXY_VALUE,
     config.tmpfsSizeBytes,
@@ -204,6 +244,12 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // in place. Making it stale forces the replacement through
     // `ensureWorkspaceVolume`, which is what reports the mismatch.
     quotaStampOf(config.workspaceQuota),
+    // The inode ceiling is not on the volume's label — it can be set in
+    // place — but a container from before it has never been through
+    // `ensureWorkspaceVolume` with it, and replacing it is what gets it there.
+    config.workspaceQuota.mode === "enforced"
+      ? config.workspaceQuota.inodes
+      : null,
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
@@ -359,7 +405,7 @@ export class ImageVolumeError extends Error {
 export class WorkspaceQuotaUnsupportedError extends Error {
   constructor(cause: string) {
     super(
-      `This Docker daemon cannot put a size quota on a local volume (${cause}). ` +
+      `This Docker daemon cannot put a size and inode quota on a local volume (${cause}). ` +
         "An unbounded workspace lets one worker fill the daemon's disk and take " +
         "every other session on it down, so nothing is launched. Move the daemon's " +
         "storage onto xfs with prjquota, or opt out deliberately with " +
@@ -543,6 +589,13 @@ export class LocalDockerBackend implements ExecutionBackend {
         throw new WorkspaceQuotaUnsupportedError(
           `the daemon accepted size=${quota.sizeBytes} but recorded ${volume.Options?.size ?? "no size option"}`,
         );
+      }
+      // The inode half has no create-time answer; the helper that sets it on
+      // every workspace is run here once, on the probe, so a daemon that
+      // refuses it fails now rather than one launch at a time.
+      const problem = await this.applyInodeLimit(name, quota);
+      if (problem !== null) {
+        throw new WorkspaceQuotaUnsupportedError(`inode limit: ${problem}`);
       }
     } finally {
       await this.client.removeVolume(name).catch(() => undefined);
@@ -1405,6 +1458,9 @@ export class LocalDockerBackend implements ExecutionBackend {
       const problem = workspaceVolumeProblem(existing, sessionId, config);
       if (problem !== null)
         throw new WorkspaceQuotaError(existing.Name, problem);
+      // A volume from before the inode ceiling gets it here, and one whose
+      // project id the daemon handed out again after a restart gets it back.
+      await this.requireInodeLimit(existing.Name);
       this.replacementWorkspaces.delete(sessionId);
       return existing.Name;
     }
@@ -1444,13 +1500,49 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
     const problem = workspaceVolumeProblem(volume, sessionId, config);
     if (problem !== null) throw new WorkspaceQuotaError(name, problem);
+    await this.requireInodeLimit(name);
     return name;
   }
 
   /**
-   * The workspace half of `assertReplaceable`, read-only like all of it.
-   * Answers with the volume the replacement must come back to, or null when
-   * the session has none and the replacement is free to make one.
+   * Sets the workspace's inode ceiling, or says why it could not. On every
+   * launch rather than once per volume: the limit lives in the filesystem,
+   * not on anything Docker reports, so there is nothing cheaper to check it
+   * against, and setting it again is idempotent.
+   */
+  async requireInodeLimit(volume: string): Promise<void> {
+    const quota = this.config.workspaceQuota;
+    if (quota.mode === "off") return;
+    const problem = await this.applyInodeLimit(volume, quota);
+    if (problem !== null) {
+      throw new WorkspaceQuotaError(volume, `has no inode limit: ${problem}`);
+    }
+  }
+
+  private async applyInodeLimit(
+    volume: string,
+    quota: Extract<WorkspaceQuota, { mode: "enforced" }>,
+  ): Promise<string | null> {
+    return applyInodeLimit(this.client, {
+      image: await this.inspectedImage(quota.helperImage),
+      inodes: quota.inodes,
+      installationId: this.config.installationId,
+      timeoutMs: this.config.requestTimeoutMs,
+      volume,
+      workspaceDir: this.config.workspaceDir,
+    });
+  }
+
+  /**
+   * The workspace half of `assertReplaceable`. Answers with the volume the
+   * replacement must come back to, or null when the session has none and
+   * the replacement is free to make one.
+   *
+   * It sets the inode ceiling too, rather than only reading labels: whether
+   * the volume can carry one is only answered by setting it, and a volume
+   * that cannot must fail here, while the old worker still runs, not in the
+   * `ensureExecution` that follows its teardown. Setting it is idempotent,
+   * and the launch sets it again.
    */
   private async assertWorkspaceReplaceable(
     sessionId: string,
@@ -1459,6 +1551,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     if (volume === null) return null;
     const problem = workspaceVolumeProblem(volume, sessionId, this.config);
     if (problem !== null) throw new WorkspaceQuotaError(volume.Name, problem);
+    await this.requireInodeLimit(volume.Name);
     return volume.Name;
   }
 
@@ -2074,14 +2167,15 @@ export function workerEnvironmentFor(
     `${ENV.executionGeneration}=${intent.generation}`,
     `${ENV.executionId}=${intent.executionId}`,
     `${ENV.gatewayUrl}=${config.gatewayUrl}`,
+    `${ENV.egressCredentialUrl}=${egressCredentialUrlOf(config)}`,
     `${ENV.home}=${config.homeDir}`,
     `${ENV.workspaceDir}=${config.workspaceDir}`,
     `${ENV.httpProxy}=${config.egressProxyUrl}`,
     `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
     `${ENV.httpsProxy}=${config.egressProxyUrl}`,
     `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
-    `${ENV.noProxy}=${NO_PROXY_VALUE}`,
-    `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+    `${ENV.noProxy}=${noProxyValueFor(config)}`,
+    `${ENV.noProxyLower}=${noProxyValueFor(config)}`,
     `${ENV.objectAccessKeyId}=${objectStore.accessKeyId}`,
     `${ENV.objectBucket}=${objectStore.bucket}`,
     ...(objectStore.endpoint === undefined

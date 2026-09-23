@@ -1,12 +1,26 @@
 import type {
+  CheckpointCollectionFences,
+  CheckpointCollectionStore,
   CheckpointPointer,
   CheckpointStore,
   CommitCheckpointInput,
   CommitCheckpointResult,
 } from "@agent-platform/platform";
-import { and, desc, eq, lt } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+} from "drizzle-orm";
+import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
+import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { checkpoints, sessions, turns } from "./schema.ts";
+import { attempts, checkpoints, sessions, turns } from "./schema.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
@@ -18,8 +32,94 @@ import {
  * helpers a turn's finalize uses (worker-unit-of-work.ts), so both entry
  * points judge the fence, the clock and the next revision the same way.
  */
-export function createPostgresCheckpointStore(db: Database): CheckpointStore {
+export function createPostgresCheckpointStore(
+  db: Database,
+): CheckpointStore & CheckpointCollectionStore {
   return {
+    /**
+     * The fence judged the way `acquireFence` judges it, for every attempt
+     * at once, from one snapshot of the session row and its attempts. A
+     * lease that merely ran out is not a lost fence: the attempt may yet
+     * heartbeat before the reconciler ends it.
+     */
+    readCollectionFences(
+      sessionId: string,
+    ): Promise<CheckpointCollectionFences | null> {
+      return db.transaction(
+        async (tx) => {
+          const [session] = await tx
+            .select({
+              authRevision: sessions.authRevision,
+              executionGeneration: sessions.executionGeneration,
+              fallbackRevision: sessions.checkpointFallbackRevision,
+              leaseEpoch: sessions.leaseEpoch,
+            })
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
+          if (!session) return null;
+          const rows = await tx
+            .select({
+              authRevision: attempts.authRevision,
+              executionGeneration: attempts.executionGeneration,
+              id: attempts.id,
+              leaseEpoch: attempts.leaseEpoch,
+              state: attempts.state,
+            })
+            .from(attempts)
+            .where(eq(attempts.sessionId, sessionId));
+          const fenced = rows.filter(
+            (attempt) =>
+              ENDED_ATTEMPT_STATES.includes(attempt.state) ||
+              attempt.leaseEpoch !== session.leaseEpoch ||
+              attempt.executionGeneration !== session.executionGeneration ||
+              attempt.authRevision !== session.authRevision,
+          );
+          return {
+            fallbackRevision: session.fallbackRevision,
+            fencedAttemptIds: new Set(fenced.map((attempt) => attempt.id)),
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
+    },
+
+    async markCollected(
+      sessionId: string,
+      options: { keep: readonly number[]; throughRevision: number },
+    ): Promise<number> {
+      const marked = await db
+        .update(checkpoints)
+        .set({ collectedAt: DB_NOW })
+        .where(
+          and(
+            eq(checkpoints.sessionId, sessionId),
+            lte(checkpoints.revision, options.throughRevision),
+            isNull(checkpoints.collectedAt),
+            ...(options.keep.length === 0
+              ? []
+              : [notInArray(checkpoints.revision, [...options.keep])]),
+          ),
+        )
+        .returning({ revision: checkpoints.revision });
+      return marked.length;
+    },
+
+    async listSessionIds(options: {
+      after: string | null;
+      limit: number;
+    }): Promise<string[]> {
+      const rows = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(
+          options.after === null ? undefined : gt(sessions.id, options.after),
+        )
+        .orderBy(asc(sessions.id))
+        .limit(options.limit);
+      return rows.map((row) => row.id);
+    },
+
     readPointer(sessionId: string): Promise<CheckpointPointer | null> {
       // One transaction, so the row and the checkpoint it names are read
       // from a single snapshot.

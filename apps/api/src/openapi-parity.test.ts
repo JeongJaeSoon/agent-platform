@@ -12,6 +12,7 @@ import type {
 import {
   bodyRouteErrors,
   createApiApp,
+  globalRouteErrors,
   mutationRouteErrors,
   probeRouteErrors,
   rootRouteErrors,
@@ -131,8 +132,10 @@ test("each handler's error statuses match its OpenAPI operation", () => {
           usageRouteErrors[route] ??
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
-    // Errors the /v1 middleware adds before the handler runs.
+    // Errors the app adds around the handler: the error hook on every route,
+    // and what the /v1 middleware answers before the handler runs.
     const middleware = [
+      ...globalRouteErrors,
       ...(route.startsWith("POST /v1")
         ? [
             ...bodyRouteErrors,

@@ -315,3 +315,39 @@ export function watchIdleErrors(
   });
   return pool;
 }
+
+// Node socket errors that mean the database is out of reach.
+const SOCKET_ERROR_CODES = new Set([
+  "EPIPE",
+  "ETIMEDOUT",
+  "EHOSTDOWN",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+]);
+
+// What pg raises without a code when the socket drops, a timeout fires, or a
+// saturated pool cannot hand out a client (pg/lib/client.js, pg-pool/index.js).
+const PG_CONNECTION_MESSAGES =
+  /^(Connection terminated|timeout expired|Query read timeout|timeout exceeded when trying to connect|Client has encountered a connection error|Client was closed and is not queryable)/;
+
+/**
+ * One link of a cause chain says the connection is gone: a 08xxx connection
+ * exception, a node socket error, or one of pg's code-less connection
+ * failures. Callers walk the chain themselves (Drizzle and pg-pool both wrap
+ * the driver's error) and add the SQLSTATEs their own policy counts.
+ */
+export function isConnectionFailure(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    typeof code === "string" &&
+    (code.startsWith("08") ||
+      code.startsWith("ECONN") ||
+      SOCKET_ERROR_CODES.has(code))
+  ) {
+    return true;
+  }
+  return error instanceof Error && PG_CONNECTION_MESSAGES.test(error.message);
+}
