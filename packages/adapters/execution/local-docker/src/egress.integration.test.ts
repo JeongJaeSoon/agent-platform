@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   hashWorkerToken,
@@ -1071,16 +1071,26 @@ console.log("TLS " + response.status + " " + (await response.text()));
     describe("a host process on a wildcard address", () => {
       let hostPort = 0;
       let stopListener: () => Promise<void> = async () => undefined;
+      /** Whether the listener is this very process, not a stand-in. */
+      let listenerIsThisProcess = false;
 
       /**
-       * Where "the host" is depends on the daemon. On native Linux it is
-       * this very process, so the listener is a real host process. Docker
-       * Desktop's daemon runs in a VM this process is not in, so there the
-       * listener is a container sharing the VM's own network namespace —
-       * the same position relative to the bridges, one level down.
+       * Where "the host" is depends on the daemon, not on this client. When
+       * this process holds an address the daemon gave a bridge, it shares
+       * the daemon's network namespace (native Linux, as in CI), and the
+       * listener is this process itself — a real host process. Otherwise
+       * (Docker Desktop's VM, a remote daemon) the listener is a container
+       * in the daemon host's namespace, the same position relative to the
+       * bridges.
        */
       beforeAll(async () => {
-        if (process.platform === "linux") {
+        const gateway =
+          (await client.inspectNetwork(workerNetwork))?.IPAM?.Config?.[0]
+            ?.Gateway ?? "";
+        listenerIsThisProcess = Object.values(networkInterfaces())
+          .flat()
+          .some((entry) => entry?.address === gateway);
+        if (listenerIsThisProcess) {
           const server = Bun.serve({
             fetch: () => new Response("host-listener"),
             hostname: "0.0.0.0",
@@ -1113,6 +1123,11 @@ console.log("TLS " + response.status + " " + (await response.text()));
           stopListener = () => client.stopAndRemoveContainer(name, 1);
         }
         expect(hostPort).toBeGreaterThan(0);
+        // CI's runner is native Linux: there the acceptance check has to be
+        // made against a real host process, never the stand-in.
+        if (process.env.CI === "true" && process.platform === "linux") {
+          expect(listenerIsThisProcess).toBe(true);
+        }
       }, 60_000);
 
       afterAll(async () => {

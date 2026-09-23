@@ -154,7 +154,7 @@ jobs:
             -e DOCKER_TLS_CERTDIR= \
             -v /mnt/xfs:/var/lib/docker \
             -v /tmp/apq:/sock \
-            docker:27-dind --host=unix:///sock/docker.sock
+            docker:28-dind --host=unix:///sock/docker.sock
           for _ in $(seq 1 60); do
             docker exec apq docker version >/dev/null 2>&1 && break
             sleep 2
