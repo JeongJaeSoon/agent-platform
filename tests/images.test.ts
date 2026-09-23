@@ -10,7 +10,9 @@ import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
 // images is images.yml's job.
 
 const root = join(import.meta.dir, "..");
-const apps = ["api", "scheduler", "worker"] as const;
+const apps = ["api", "scheduler", "worker", "egress-proxy"] as const;
+/** The apps with a workspace install; the egress proxy imports nothing. */
+const installingApps = ["api", "scheduler", "worker"] as const;
 const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -28,18 +30,32 @@ describe("app Dockerfiles", () => {
     expect(pin).toMatch(/^oven\/bun:1\.3\.10@sha256:[0-9a-f]{64}$/);
     // Every FROM goes through the ARG; a literal tag would silently float.
     const froms = source.match(/^FROM .*$/gm) ?? [];
-    expect(froms.length).toBeGreaterThan(1);
+    expect(froms.length).toBeGreaterThan(0);
     for (const line of froms) expect(line).toMatch(/^FROM \$\{BUN_IMAGE\}/);
   });
 
-  test("all three share one base digest", () => {
+  test("all of them share one base digest", () => {
     expect(new Set(apps.map((app) => basePins[app].pin)).size).toBe(1);
   });
 
-  test.each(apps)("%s installs from the frozen lockfile", (app) => {
+  test.each(installingApps)("%s installs from the frozen lockfile", (app) => {
     expect(basePins[app].source).toMatch(
       /bun install --frozen-lockfile --production/,
     );
+  });
+
+  test("the egress proxy image copies only its own code, which needs no install", () => {
+    // The Dockerfile has no `bun install`; a dependency added to the proxy
+    // must add one (and the deps stage the other apps have) with it.
+    const manifest = JSON.parse(read("apps/egress-proxy/package.json"));
+    expect(manifest.dependencies ?? {}).toEqual({});
+    const source = basePins["egress-proxy"].source;
+    expect(source).not.toMatch(/^RUN /m);
+    expect(source.match(/^COPY .*$/gm)).toEqual([
+      "COPY apps/egress-proxy/package.json ./",
+      "COPY apps/egress-proxy/src ./src",
+    ]);
+    expect(source).toMatch(/^USER 1000:1000$/m);
   });
 
   test("only the worker carries the Agent SDK", () => {
@@ -118,7 +134,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test("images.yml builds every app and pushes only on tags", () => {
     const workflow = read(".github/workflows/images.yml");
-    expect(workflow).toContain("app: [api, worker, scheduler]");
+    expect(workflow).toContain("app: [api, worker, scheduler, egress-proxy]");
+    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 4');
     expect(workflow).toContain('tags: ["v*"]');
     // The PR-facing job never pushes and never holds package write; only
     // the tag-gated job does.
@@ -168,5 +185,93 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
     // `up` runs migrate, so no service may take an ambient DATABASE_URL.
     expect(compose).not.toMatch(/\$\{DATABASE_URL/);
+  });
+});
+
+type ComposeService = {
+  image?: string;
+  build?: { dockerfile?: string };
+  ports?: (string | { host_ip?: string })[];
+  volumes?: string[];
+};
+
+const composeServices = (path: string) =>
+  (Bun.YAML.parse(read(path)) as { services: Record<string, ComposeService> })
+    .services;
+
+describe("compose publishes nothing beyond loopback and runs pinned images (94S-323)", () => {
+  const services = composeServices("infra/docker-compose.yml");
+  const restore = composeServices("infra/docker-compose.restore.yml");
+
+  test.each([
+    ["docker-compose.yml", services],
+    ["docker-compose.restore.yml", restore],
+  ] as const)("every published port in %s is bound to 127.0.0.1", (_, file) => {
+    const published = Object.entries(file).flatMap(([name, service]) =>
+      (service.ports ?? []).map((port) => [name, port] as const),
+    );
+    expect(published.length).toBeGreaterThan(0);
+    for (const [name, port] of published) {
+      // `a:b` and a bare `b` bind every interface, as does a long-syntax
+      // entry without host_ip.
+      const bound =
+        typeof port === "string"
+          ? port.startsWith("127.0.0.1:")
+          : port.host_ip === "127.0.0.1";
+      expect({ name, port, bound }).toEqual({ name, port, bound: true });
+    }
+  });
+
+  test("only what a host-side process uses is published", () => {
+    const published = Object.fromEntries(
+      Object.entries(services)
+        .filter(([, service]) => service.ports?.length)
+        .map(([name, service]) => [name, service.ports]),
+    );
+    expect(published).toEqual({
+      postgres: ["127.0.0.1:5432:5432"],
+      localstack: ["127.0.0.1:4566:4566"],
+      secrets: ["127.0.0.1:4567:4566"],
+      gitea: ["127.0.0.1:3001:3000"],
+      api: ["127.0.0.1:3000:3000"],
+    });
+  });
+
+  test("every image is built here or pinned by index digest", () => {
+    for (const [name, service] of Object.entries(services)) {
+      if (service.build) {
+        // Built images are released by digest through images.yml.
+        const app = service.build.dockerfile?.match(
+          /^apps\/([^/]+)\/Dockerfile$/,
+        )?.[1];
+        expect({ name, app }).toEqual({
+          name,
+          app: expect.stringMatching(/./),
+        });
+        expect(apps).toContain(app as (typeof apps)[number]);
+        continue;
+      }
+      expect({ name, image: service.image }).toEqual({
+        name,
+        image: expect.stringMatching(/^[^@\s]+@sha256:[0-9a-f]{64}$/),
+      });
+    }
+  });
+
+  test("compose runs Bun from the digest the Dockerfiles pin", () => {
+    const bunImages = Object.values(services)
+      .map((service) => service.image)
+      .filter((image) => image?.startsWith("oven/bun:"));
+    expect(bunImages.length).toBeGreaterThan(0);
+    for (const image of bunImages) expect(image).toBe(basePins.api.pin);
+  });
+
+  test("the egress proxy runs its released image, not a mounted source tree", () => {
+    const proxy = services["egress-proxy"];
+    expect(proxy?.build?.dockerfile).toBe("apps/egress-proxy/Dockerfile");
+    expect(proxy?.image).toBe(
+      "$" + "{EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}",
+    );
+    expect(proxy?.volumes).toBeUndefined();
   });
 });
