@@ -74,6 +74,23 @@ describe("workspacePathsProblem", () => {
     );
   });
 
+  test("finds a conflict across names that sort between a file and its children", () => {
+    // "-" and "." sort before "/", so plain sorting would put these between
+    // "a" and "a/b" and hide the conflict from a neighbour check.
+    expect(workspacePathsProblem(["a/b", "a-x", "a.x", "a"])).toBe(
+      "a is restored both as a file and as the directory of a/b",
+    );
+  });
+
+  test("stays fast on one very deep path", () => {
+    // Checking every prefix of this is ~10^11 character copies.
+    const deep = `${"d/".repeat(400_000)}file`;
+    const started = performance.now();
+
+    expect(workspacePathsProblem([deep, "d/other"])).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test("names the unsafe path", () => {
     expect(workspacePathsProblem(["ok", "../x"])).toBe(
       '"../x" has a ".." segment',

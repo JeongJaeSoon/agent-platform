@@ -90,16 +90,16 @@ export function workspacePathsProblem(
     if (files.has(path)) return `two files restore to ${path}`;
     files.add(path);
   }
-  for (const path of files) {
-    for (
-      let at = path.indexOf("/");
-      at !== -1;
-      at = path.indexOf("/", at + 1)
-    ) {
-      const ancestor = path.slice(0, at);
-      if (files.has(ancestor)) {
-        return `${ancestor} is restored both as a file and as the directory of ${path}`;
-      }
+  // The paths are the worker's, so checking each one's every prefix would let
+  // one deep path cost the control plane quadratic time. Sorted with "/" as
+  // NUL (refused above, so unambiguous), everything under a directory sorts
+  // straight after that directory's own name, and neighbours are enough.
+  const keys = [...files].map((path) => path.replaceAll("/", "\0")).sort();
+  for (let index = 1; index < keys.length; index += 1) {
+    const file = keys[index - 1] as string;
+    const next = keys[index] as string;
+    if (next.startsWith(`${file}\0`)) {
+      return `${file.replaceAll("\0", "/")} is restored both as a file and as the directory of ${next.replaceAll("\0", "/")}`;
     }
   }
   return undefined;
