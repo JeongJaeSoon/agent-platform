@@ -496,6 +496,34 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     },
   );
 
+  test("turns a fallback restore dropped are not a gap: that loss was reported by the fallback (94S-204)", async () => {
+    const session = await queuedSession("fallback");
+    await runOneTurn(session, {
+      checkpoint: checkpointAt(0),
+      thenQueue: "second input",
+    });
+    await runOneTurn(session, {
+      checkpoint: checkpointAt(1),
+      thenQueue: "third input",
+    });
+    // Revision 1 turned out damaged and the last restore fell back to 0.
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: 0 })
+      .where(eq(sessions.id, session.session_id));
+    const l = await launch(session);
+    const claimed = await claim(l);
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    await gateway.confirmExecutionGone(l.executionId);
+    expect((await sessionRow(session.session_id)).admissionState).toBe(
+      "active",
+    );
+    expect(await signalled(session.session_id)).toBe(true);
+  });
+
   test("the claim refuses a session that reaches it with a gap, and asks the launch to go", async () => {
     // The exit check normally catches this first. A row from before it, or a
     // path that returns a session to dispatch without it, meets the claim.

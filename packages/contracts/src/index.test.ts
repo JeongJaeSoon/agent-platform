@@ -368,6 +368,7 @@ describe("answers, pending requests and control", () => {
       last_completed_turn_id: "1",
       last_checkpointed_turn_id: null,
       checkpoint_pending_reason: null,
+      checkpoint_fallback_revision: null,
     };
     const held = getSessionResponseSchema.parse({
       ...base,
