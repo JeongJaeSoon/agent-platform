@@ -685,6 +685,8 @@ export async function startEgressProxy(
     let upstream: Socket<undefined> | null = null;
     /** A forwarded answer the client must not see a torn piece of. */
     const refuseAnswer = (reason: string): void => {
+      // The upstream's close after our own 502 comes back through here.
+      if (client.data.phase === "closed") return;
       logger.warn("Dropping a forwarded response whose head failed", {
         reason,
       });
