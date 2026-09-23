@@ -621,6 +621,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
       ],
       [{ outcome: "turn_not_unknown", turnStatus: null }, 404, "NOT_FOUND"],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "checkpoint_not_covering" }, 409, "CHECKPOINT_UNAVAILABLE"],
     ];
     for (const [result, status, code] of cases) {
       const response = await decide(abandon, {

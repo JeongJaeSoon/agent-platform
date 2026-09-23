@@ -49,7 +49,11 @@ export type RecoveryDecisionResult =
   // has no such turn at all.
   | { outcome: "turn_not_unknown"; turnStatus: string | null }
   // Legacy pod binding: no execution to confirm gone, no kill path.
-  | { outcome: "unsupported" };
+  | { outcome: "unsupported" }
+  // confirm_completed with no committed checkpoint that reaches the target
+  // turn: the session could only resume from a state that lacks the work
+  // being confirmed, so the decision is refused (abandon or close instead).
+  | { outcome: "checkpoint_not_covering" };
 
 export type ResumeSessionInput = {
   principal: Principal;

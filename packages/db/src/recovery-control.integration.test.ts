@@ -21,6 +21,7 @@ import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  checkpoints,
   events,
   executions,
   pendingRequests,
@@ -266,7 +267,13 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
    */
   async function unknownSession(
     name: string,
-    options: { queuedBehind?: boolean; checkpointRevision?: number } = {},
+    options: {
+      queuedBehind?: boolean;
+      checkpointRevision?: number;
+      // Whether that checkpoint was taken at turn 1 (so it covers the
+      // unknown turn) or before it.
+      checkpointCoversTurn1?: boolean;
+    } = {},
   ) {
     const partition = `${name}-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
@@ -281,6 +288,19 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       ? await append(session, "second input")
       : null;
     if (options.checkpointRevision !== undefined) {
+      const [turn1] = await db
+        .select({ id: turns.id })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+        );
+      await db.insert(checkpoints).values({
+        sessionId: session.session_id,
+        revision: options.checkpointRevision,
+        manifestRef: `manifests/${session.session_id}/${options.checkpointRevision}`,
+        manifestSha256: "0".repeat(64),
+        turnId: options.checkpointCoversTurn1 ? (turn1?.id ?? null) : null,
+      });
       await db
         .update(sessions)
         .set({
@@ -434,6 +454,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   test("confirm_completed: turn completed with the evidence, input receipt succeeded, queue head released, stopped", async () => {
     const { session, row } = await unknownSession("confirm", {
       checkpointRevision: 5,
+      checkpointCoversTurn1: true,
     });
     const result = await decide(session, {
       decision: "confirm_completed",
@@ -500,6 +521,38 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       decision: "confirm_completed",
       evidence_ref: "s3://audit/session/turn-1/verified.json",
     });
+  });
+
+  test("confirm_completed is refused when the committed checkpoint predates the turn or is missing", async () => {
+    const stale = await unknownSession("stale-cp", { checkpointRevision: 4 });
+    const none = await unknownSession("no-cp");
+    for (const { session, row } of [stale, none]) {
+      expect(
+        await decide(session, {
+          decision: "confirm_completed",
+          expected_revision: row.revision,
+          target_turn_id: "1",
+          evidence_ref: "s3://audit/turn-1",
+          reason: "work was done outside",
+        }),
+      ).toEqual({ outcome: "checkpoint_not_covering" });
+      // Nothing moved: still waiting for a decision, turn still unknown.
+      const after = await sessionRow(session.session_id);
+      expect(after.revision).toBe(row.revision);
+      expect(after.admissionState).toBe("recovery_required");
+      expect((await turnRows(session.session_id))[0]?.status).toBe(
+        "outcome_unknown",
+      );
+    }
+    // abandon stays available, and an older checkpoint still lets the
+    // session resume without the abandoned turn.
+    const abandoned = await decide(stale.session, {
+      decision: "abandon",
+      expected_revision: stale.row.revision,
+      target_turn_id: "1",
+      reason: "fall back to the older checkpoint",
+    });
+    expect(abandoned.outcome).toBe("accepted");
   });
 
   test("abandon and confirm_completed refuse a turn that is not unknown, a wrong revision and an unconfirmed exit", async () => {
@@ -758,6 +811,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   test("resume with nothing queued goes idle and clears a stale launch signal", async () => {
     const { session, row } = await unknownSession("idle", {
       checkpointRevision: 1,
+      checkpointCoversTurn1: true,
     });
     // A signal left over from the create, as terminate would leave it.
     await db

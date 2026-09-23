@@ -24,6 +24,7 @@ import {
 } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
+  checkpoints,
   events,
   executions,
   idempotencyKeys,
@@ -58,6 +59,33 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
     .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
     .limit(1);
   return turn ?? null;
+}
+
+/**
+ * api.md § 최소 운영 복구: confirm_completed needs a consistent checkpoint up
+ * to the input's watermark. The pointer is only ever moved by finalize, so
+ * "consistent" means the committed checkpoint the session points at was
+ * taken at or after the target turn. An older one would resume the session
+ * without the work the operator is confirming.
+ */
+async function checkpointCovers(
+  tx: Database,
+  session: SessionRow,
+  turnSequence: number,
+): Promise<boolean> {
+  if (session.checkpointRevision === null) return false;
+  const [row] = await tx
+    .select({ sequence: turns.sequence })
+    .from(checkpoints)
+    .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+    .where(
+      and(
+        eq(checkpoints.sessionId, session.id),
+        eq(checkpoints.revision, session.checkpointRevision),
+      ),
+    )
+    .limit(1);
+  return row !== undefined && row.sequence >= turnSequence;
 }
 
 // Every control decision leaves its audit record on the session's event
@@ -272,6 +300,12 @@ export function decideRecoveryAtomic(
           turnStatus: turn?.status ?? null,
         };
       }
+      if (
+        decision.decision === "confirm_completed" &&
+        !(await checkpointCovers(tx, session, turn.sequence))
+      ) {
+        return { outcome: "checkpoint_not_covering" };
+      }
       targetTurnRowId = turn.id;
       if (decision.decision === "abandon") {
         await abandon(tx, sessionId, turn, decision.reason, now);
@@ -377,9 +411,8 @@ async function abandon(
 
 // The operator vouches, with evidence, that the turn's work is done. The
 // turn ends completed and its input receipt succeeds. The checkpoint pointer
-// is not moved: only finalizeAtomic commits one, so the evidence has to cover
-// the checkpoint the session already holds as a consistent restore point, and
-// `resumable` in the receipt reports exactly that pointer.
+// is not moved (only finalizeAtomic commits one); the caller has already
+// checked that it reaches this turn.
 async function confirmCompleted(
   tx: Database,
   sessionId: string,

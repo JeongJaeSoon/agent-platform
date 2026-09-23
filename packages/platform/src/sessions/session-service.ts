@@ -321,6 +321,11 @@ export function createSessionService(deps: {
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that has no recovery path",
           );
+        case "checkpoint_not_covering":
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            "No committed checkpoint reaches the target turn, so a resume would lose the confirmed work; abandon or close instead",
+          );
         default:
           return result.response;
       }
