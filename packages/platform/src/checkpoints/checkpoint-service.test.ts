@@ -1229,6 +1229,30 @@ describe("getRestorePlan", () => {
     ).toMatchObject({ status: "rejected" });
   });
 
+  test.each([
+    [["./notes.md"], '"./notes.md" has a "." segment'],
+    [[".git/hooks/pre-commit"], '".git/hooks/pre-commit" writes into .git'],
+    [
+      ["notes.md", "notes.md/inner"],
+      "notes.md is restored both as a file and as the directory of notes.md/inner",
+    ],
+  ])("refuses untracked destinations %p", async (paths, problem) => {
+    const { checkpoint } = await upload(
+      manifest({
+        workspace: workspace({
+          untracked: paths.map((path, index) =>
+            fileRef(index === 0 ? UNTRACKED : ROOT_PART, path),
+          ),
+        }),
+      }),
+    );
+
+    expect(await service.validateManifest({ checkpoint, sessionId })).toEqual({
+      status: "rejected",
+      reason: `manifest restores untracked files unsafely: ${problem}`,
+    });
+  });
+
   test("leaves out the untracked artifact when there is nothing untracked", async () => {
     const { checkpoint } = await upload(
       manifest({ workspace: workspace({ untracked: [] }) }),

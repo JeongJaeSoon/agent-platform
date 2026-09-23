@@ -11,6 +11,7 @@ import type {
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
+import { workspacePathsProblem } from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
@@ -325,15 +326,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // The key says where the object is stored; `path` says where restoring
     // writes it. A safe key with a climbing path lands outside the workspace,
     // so both are checked, and here rather than in whatever later unpacks it.
-    const destinations = new Set<string>();
-    for (const artifact of manifest.workspace.untracked) {
-      if (!safeWorkspacePath(artifact.path)) {
-        return `manifest restores ${artifact.key} to an unsafe path: ${artifact.path}`;
-      }
-      if (destinations.has(artifact.path)) {
-        return `manifest restores two objects to ${artifact.path}`;
-      }
-      destinations.add(artifact.path);
+    // This is the text half; the restorer's writer refuses what only the disk
+    // can show, like a checked-out symlink on the way (workspace-restore.ts).
+    const pathProblem = workspacePathsProblem(
+      manifest.workspace.untracked.map((artifact) => artifact.path),
+    );
+    if (pathProblem !== undefined) {
+      return `manifest restores untracked files unsafely: ${pathProblem}`;
     }
     // Bounded, because with eager mirroring a long session accumulates
     // thousands of parts and firing a request per part at once turns a valid
@@ -435,15 +434,6 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     return verdict.status === "restorable"
       ? undefined
       : `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`;
-  }
-
-  function safeWorkspacePath(path: string): boolean {
-    if (path.length === 0 || path.startsWith("/") || path.includes("\\")) {
-      return false;
-    }
-    return !path
-      .split("/")
-      .some((segment) => segment === ".." || segment === "");
   }
 
   /**
