@@ -50,6 +50,12 @@ describe("sourceDigest", () => {
     expect(sourceDigest(noisy)).toBe(sourceDigest(base));
   });
 
+  test("reads through a directory whose name ends in .ts", () => {
+    const flat = tree({ "main.ts": "m" });
+    const nested = tree({ "main.ts": "m", "helper.ts/index.ts": "h" });
+    expect(sourceDigest(nested)).not.toBe(sourceDigest(flat));
+  });
+
   test("covers the proxy's own src", () => {
     expect(sourceDigest(import.meta.dir)).toMatch(/^[0-9a-f]{64}$/);
   });

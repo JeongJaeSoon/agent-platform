@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -19,7 +19,9 @@ export function sourceDigest(dir: string): string {
       (path) =>
         path.endsWith(".ts") &&
         !path.endsWith(".test.ts") &&
-        !path.startsWith("testing/"),
+        !path.startsWith("testing/") &&
+        // The recursive listing names directories too.
+        statSync(join(dir, path)).isFile(),
     )
     .sort();
   const hash = createHash("sha256");

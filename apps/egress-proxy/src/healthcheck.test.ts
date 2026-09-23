@@ -96,9 +96,35 @@ describe("the compose healthcheck script", () => {
     return { exitCode, stderr };
   };
 
-  test("passes against a proxy started from this src", async () => {
-    const server = await proxy(sourceDigest(import.meta.dir));
-    const result = await run(server.port);
+  test("passes against the proxy compose starts (main.ts)", async () => {
+    const free = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data() {} },
+    });
+    const port = free.port;
+    free.stop(true);
+    const child = Bun.spawn(["bun", "run", join(import.meta.dir, "main.ts")], {
+      env: {
+        ...process.env,
+        EGRESS_PRIVATE_ALLOWLIST: "api:3000",
+        EGRESS_PROXY_HOST: "127.0.0.1",
+        EGRESS_PROXY_PORT: String(port),
+        LOG_LEVEL: "error",
+      },
+      stdout: "ignore",
+      stderr: "inherit",
+    });
+    cleanups.push(() => child.kill());
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const up = await fetch(`http://127.0.0.1:${port}/healthz`)
+        .then((response) => response.ok)
+        .catch(() => false);
+      if (up) break;
+      await Bun.sleep(100);
+    }
+    const result = await run(port);
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
