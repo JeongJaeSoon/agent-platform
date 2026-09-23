@@ -191,12 +191,12 @@ docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
 
 하는 일:
 
-1. 새 volume을 지금 계약대로 만든다. label과 `size`를 붙이고, 원본 이름을 `agent-platform.migrated-from` label로 남긴다. 이름은 다른 workspace와 같은 1회용이다. workspace는 label로 찾으므로 이름을 바꿀 필요가 없다.
+1. 새 volume을 지금 계약대로 만든다. label과 `size`를 붙이고, 원본 이름을 `agent-platform.migration-source` label로 남긴다. 이름은 다른 workspace와 같은 1회용이다. workspace는 label로 찾으므로 이름을 바꿀 필요가 없다.
 2. 시작하지 않는 pin 컨테이너(`ap-ws-migrate-pin-` 접두어)가 원본을 읽기 전용으로 붙잡는다. Docker는 컨테이너가 참조하는 volume을 지우지 않는다. 그래서 pass lock을 잃은 사이에 GC가 끼어들어도 이 실행이 끝날 때까지 원본은 남는다. pin 이름은 실행마다 다르고, 각 실행은 자기 pin만 지운다. 이어서 helper 컨테이너가 원본을 읽기 전용으로, 새 volume을 쓰기로 붙여 `cp -a`로 복사한다. helper는 root이지만 네트워크가 없고, 파일 복사에 필요한 capability(`CHOWN`·`DAC_OVERRIDE`·`FOWNER`·`FSETID`)만 가진다.
 3. 같은 helper가 양쪽의 manifest를 비교한다. 비교 대상은 경로 집합, 종류, mode, uid/gid, symlink 대상, 일반 파일의 크기·mtime·SHA-256이다. 디렉터리의 크기와 시각, xattr와 ACL은 비교하지 않는다. busybox `cp -a`는 hard link를 보존하지 않으므로 hard link는 내용이 같은 별개 파일이 된다. 그만큼 디스크를 더 쓰므로 quota에 걸리면 복사가 실패한다. mtime은 초 단위까지만 비교한다.
-4. 일치할 때만 helper와 pin을 지우고 **원본을 지운다.** 그 순간부터 새 volume이 그 세션의 workspace다.
+4. 일치하면 원본을 지우기 전에 같은 원본의 다른 복사본이 있는지 다시 본다. 있으면 다른 실행이 아직 일하는 중이다. 그때는 자기 복사본을 버리고 실패한다. 원본이 다른 컨테이너에 붙잡혀 있을 때도 마찬가지다. 둘 다 아니면 helper와 pin을 지우고 **원본을 지운다.** 그 순간부터 새 volume이 그 세션의 workspace다.
 
-중간에 실패하면 원본은 그대로다. 복사 실패(quota 초과, helper가 만들 수 없는 device 파일 등), 불일치, 시간 초과(`--deadline-sec`, 기본 3600), lock 유실이 모두 그렇다. 실패한 helper는 `docker logs`로 볼 수 있게 남겨 둔다. pin도 남아 원본을 계속 붙잡는다. 다시 실행하면 먼저 새 pin으로 원본을 붙잡는다. 그다음 남은 helper, 이전 pin, 미완성 복사본(`migrated-from`이 같은 원본을 가리키는 것)을 지우고 처음부터 복사한다. 원본과 복사본이 함께 있는 동안에는 backend가 그 세션의 기동을 거절하고, GC는 둘 다 후보에서 뺀다. 그래서 반쯤 복사된 트리 위에서 worker가 뜨는 일도, 원본만 먼저 회수되는 일도 없다. 끝내지 않은 채 두면 두 volume이 그대로 남으므로, 다시 실행하거나 직접 정리한다. 원본이 지워지고 나면 다음 pass가 평소처럼 새 volume 위에서 worker를 다시 띄운다.
+중간에 실패하면 원본은 그대로다. 복사 실패(quota 초과, helper가 만들 수 없는 device 파일 등), 불일치, 시간 초과(`--deadline-sec`, 기본 3600), lock 유실이 모두 그렇다. 실패한 helper는 `docker logs`로 볼 수 있게 남겨 둔다. pin도 남아 원본을 계속 붙잡는다. 다시 실행하면 먼저 새 pin으로 원본을 붙잡는다. 그다음 남은 helper, 이전 pin, 미완성 복사본(`migration-source`이 같은 원본을 가리키는 것)을 지우고 처음부터 복사한다. 원본과 복사본이 함께 있는 동안에는 backend가 그 세션의 기동을 거절하고, GC는 둘 다 후보에서 뺀다. 그래서 반쯤 복사된 트리 위에서 worker가 뜨는 일도, 원본만 먼저 회수되는 일도 없다. 끝내지 않은 채 두면 두 volume이 그대로 남으므로, 다시 실행하거나 직접 정리한다. 원본이 지워지고 나면 다음 pass가 평소처럼 새 volume 위에서 worker를 다시 띄운다.
 
 ### worker 네트워크: 주소 풀, slot limit, 회수
 

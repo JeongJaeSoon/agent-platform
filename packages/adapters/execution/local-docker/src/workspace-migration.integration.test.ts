@@ -440,7 +440,7 @@ integration("workspace migration against a real daemon", () => {
         pollMs: 200,
         sessionId,
       }),
-    ).rejects.toThrow("was mounted again after the copy");
+    ).rejects.toThrow("is held by another container after the copy");
     expect(await run(VERIFY, legacy)).toBe(0);
 
     resumeB();
@@ -449,6 +449,74 @@ integration("workspace migration against a real daemon", () => {
     expect(result).toMatchObject({ outcome: "migrated", source: legacy });
     expect(await client.inspectVolume(legacy)).toBeNull();
     const { target } = result as { target: string };
+    expect(await run(VERIFY, target)).toBe(0);
+    expect(await toolContainers(sessionId)).toEqual([]);
+  }, 180_000);
+
+  test("a run that stalls after pinning leaves the next run's pin and copy alone", async () => {
+    const { legacy, sessionId } = await legacySession();
+    // A pins the source and stalls; B, under the lock now, pins it too and
+    // makes its copy; then A goes on while B waits to start its helper.
+    let resumeB!: () => void;
+    const bMayCopy = new Promise<void>((resolve) => {
+      resumeB = resolve;
+    });
+    let bCopied!: () => void;
+    const bHasCopy = new Promise<void>((resolve) => {
+      bCopied = resolve;
+    });
+    let runB: Promise<unknown> | undefined;
+    const clientB = new (class extends DockerClient {
+      override async createVolume(
+        ...args: Parameters<DockerClient["createVolume"]>
+      ) {
+        const created = await super.createVolume(...args);
+        bCopied();
+        await bMayCopy;
+        return created;
+      }
+    })(dockerHost);
+    const clientA = new (class extends DockerClient {
+      override async createContainer(
+        ...args: Parameters<DockerClient["createContainer"]>
+      ) {
+        const created = await super.createContainer(...args);
+        if (args[0].startsWith("ap-ws-migrate-pin-") && runB === undefined) {
+          runB = new WorkspaceMigrator(config(), clientB)
+            .migrate({
+              deadlineMs: 60_000,
+              helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+              pollMs: 200,
+              sessionId,
+            })
+            .then(
+              (result) => result,
+              (error: unknown) => error,
+            );
+          await bHasCopy;
+        }
+        return created;
+      }
+    })(dockerHost);
+
+    await expect(
+      new WorkspaceMigrator(config(), clientA).migrate({
+        deadlineMs: 60_000,
+        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        pollMs: 200,
+        sessionId,
+      }),
+    ).rejects.toThrow(`another migration of ${legacy} is in progress`);
+    expect(await run(VERIFY, legacy)).toBe(0);
+
+    resumeB();
+    const result = await runB;
+    if (result instanceof Error) throw result;
+    expect(result).toMatchObject({ outcome: "migrated", source: legacy });
+    const { target } = result as { target: string };
+    expect(
+      (await workspacesOf(sessionId)).map((volume) => volume.Name),
+    ).toEqual([target]);
     expect(await run(VERIFY, target)).toBe(0);
     expect(await toolContainers(sessionId)).toEqual([]);
   }, 180_000);

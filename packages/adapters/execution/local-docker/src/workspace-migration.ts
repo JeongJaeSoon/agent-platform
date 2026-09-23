@@ -42,8 +42,8 @@ const HELPER_EXIT: Record<number, string> = {
  * every regular file's size, mtime and SHA-256.
  */
 const COPY_AND_VERIFY = `set -u -o pipefail
-[ -z "$(ls -A /to)" ] || exit 3
-cp -a /from/. /to/ || exit 4
+[ -z "$(ls -A /copy)" ] || exit 3
+cp -a /source/. /copy/ || exit 4
 manifest() {
   cd "$1" || return 1
   find . -type d -print0 | sort -z | xargs -0 -r stat -c 'd|%n|%a|%u|%g' || return 1
@@ -51,9 +51,9 @@ manifest() {
   find . ! -type d ! -type l -print0 | sort -z | xargs -0 -r stat -c 'o|%n|%F|%a|%u|%g|%s|%Y' || return 1
   find . -type f -print0 | sort -z | xargs -0 -r sha256sum || return 1
 }
-manifest /from > /tmp/from || exit 5
-manifest /to > /tmp/to || exit 5
-cmp -s /tmp/from /tmp/to || exit 5
+manifest /source > /tmp/source || exit 5
+manifest /copy > /tmp/copy || exit 5
+cmp -s /tmp/source /tmp/copy || exit 5
 `;
 
 export type WorkspaceMigrationResult =
@@ -117,7 +117,7 @@ export function planWorkspaceMigration(input: {
       }
       return { kind: "current", workspace: labelled[0]?.Name ?? null };
     }
-    // `migrated-from` marks an unfinished copy only while its source still
+    // The migration-source label marks an unfinished copy only while its source still
     // exists; once that is gone the label is history, and a volume a past
     // migration made can itself be moved when the quota changes again.
     const present = new Set(listed);
@@ -239,7 +239,10 @@ export class WorkspaceMigrator {
     });
     if (plan.kind === "refused") throw fail(plan.reason);
     if (plan.kind === "current") {
-      await this.removeEarlierAttempts(sessionId, null);
+      // No source is left for any attempt to pin or copy.
+      for (const container of await this.toolContainers(sessionId)) {
+        await this.client.stopAndRemoveContainer(container.Id, 1);
+      }
       return { outcome: "current", workspace: plan.workspace };
     }
     const { source } = plan;
@@ -247,8 +250,11 @@ export class WorkspaceMigrator {
     // A copy of a tree something is writing to is not a copy of anything.
     // Stopped containers count too: starting one again would write to it.
     // An earlier attempt's pin or helper is set aside here and removed only
-    // once this attempt's own pin holds the source.
+    // once this attempt's own pin holds the source. Only what was listed
+    // before that pin counts as earlier: a later attempt's containers appear
+    // after it, and a run that resumes late must leave them alone.
     await this.assertUnused(source, fail, sessionId);
+    const earlier = await this.toolContainers(sessionId);
     signal?.throwIfAborted();
     const pinId = await this.pinSource(
       pin,
@@ -259,7 +265,9 @@ export class WorkspaceMigrator {
       { helperImage, sessionId },
       fail,
     );
-    await this.removeEarlierAttempts(sessionId, pinId);
+    for (const container of earlier) {
+      await this.client.stopAndRemoveContainer(container.Id, 1);
+    }
     for (const leftover of plan.leftovers) {
       signal?.throwIfAborted();
       await this.assertUnused(leftover, fail);
@@ -283,13 +291,13 @@ export class WorkspaceMigrator {
           {
             ReadOnly: true,
             Source: source,
-            Target: "/from",
+            Target: "/source",
             Type: "volume",
             VolumeOptions: { NoCopy: true },
           },
           {
             Source: target,
-            Target: "/to",
+            Target: "/copy",
             Type: "volume",
             VolumeOptions: { NoCopy: true },
           },
@@ -330,13 +338,31 @@ export class WorkspaceMigrator {
         `${target} disappeared after the copy; ${source} is untouched`,
       );
     }
+    // A copy made by another attempt means another run is still at work on
+    // this source: removing it now would leave that run copying nothing.
+    const copies = await this.client.listVolumes([
+      `${LABELS.managed}=true`,
+      `${LABELS.installation}=${this.config.installationId}`,
+      `${LABELS.sessionId}=${sessionId}`,
+      `${LABELS.migratedFrom}=${source}`,
+    ]);
+    const others = copies.filter((volume) => volume.Name !== target);
+    if (others.length > 0) {
+      await this.client.removeVolume(target);
+      throw fail(
+        `another migration of ${source} is in progress (${names(others)}); this copy was discarded and ${source} is untouched`,
+      );
+    }
     await this.client.stopAndRemoveContainer(pinId, 1);
     try {
       await this.client.removeVolume(source);
     } catch (error) {
       if (error instanceof DockerApiError && error.status === 409) {
+        // Another attempt's pin, or a container that mounted the source
+        // since: either way this copy is not the one to keep.
+        await this.client.removeVolume(target);
         throw fail(
-          `${source} was mounted again after the copy; both are kept and the session will not launch until this is run again`,
+          `${source} is held by another container after the copy; this copy was discarded and ${source} is untouched, run again once it is free`,
         );
       }
       throw error;
@@ -344,19 +370,12 @@ export class WorkspaceMigrator {
     return { outcome: "migrated", source, target };
   }
 
-  /** Every pin and helper this tool left for the session, but `keep`. */
-  private async removeEarlierAttempts(
-    sessionId: string,
-    keep: string | null,
-  ): Promise<void> {
-    for (const container of await this.client.listContainers([
+  /** Every pin and helper this tool has for the session, as of now. */
+  private toolContainers(sessionId: string) {
+    return this.client.listContainers([
       `${MIGRATION_HELPER_LABEL}=${this.config.installationId}`,
       `${LABELS.sessionId}=${sessionId}`,
-    ])) {
-      if (container.Id !== keep) {
-        await this.client.stopAndRemoveContainer(container.Id, 1);
-      }
-    }
+    ]);
   }
 
   /**

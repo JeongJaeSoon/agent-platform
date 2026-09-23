@@ -64,7 +64,7 @@ export const LABELS = {
    * volume still exists the copy is unfinished, and this label is what lets
    * a re-run remove the copy as its own rather than someone else's.
    */
-  migratedFrom: "agent-platform.migrated-from",
+  migratedFrom: "agent-platform.migration-source",
   operationId: "agent-platform.operation-id",
   sessionId: "agent-platform.session-id",
   /**

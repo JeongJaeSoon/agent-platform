@@ -188,6 +188,9 @@ describe("WorkspaceMigrator", () => {
           ? { ...volume(LEGACY), CreatedAt: created }
           : null;
       },
+      async listContainers() {
+        return [];
+      },
       async listContainersUsingVolume() {
         return [];
       },
