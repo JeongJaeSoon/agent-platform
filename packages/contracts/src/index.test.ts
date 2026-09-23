@@ -212,6 +212,7 @@ describe("receipt and error contracts", () => {
       "BACKEND_UNAVAILABLE",
       "NOT_READY",
       "CURSOR_EXPIRED",
+      "REQUEST_TIMEOUT",
     ]) {
       expect(API_ERROR_CODE_VALUES as readonly string[]).toContain(code);
     }

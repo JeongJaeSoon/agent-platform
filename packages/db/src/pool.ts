@@ -1,6 +1,19 @@
+import { AsyncResource } from "node:async_hooks";
 import type { StructuredLogger } from "@agent-platform/observability";
-import { Client, Pool, type PoolConfig } from "pg";
+import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { parseIntoClientConfig } from "pg-connection-string";
+import {
+  currentDeadline,
+  type RequestDeadline,
+  RequestDeadlineExceededError,
+} from "./request-deadline.ts";
+
+export {
+  currentDeadline,
+  RequestDeadline,
+  RequestDeadlineExceededError,
+  runWithDeadline,
+} from "./request-deadline.ts";
 
 export interface PoolTimeouts {
   // Waiting for a connection or a free pooled client.
@@ -33,6 +46,8 @@ const QUERY_READ_TIMEOUT = "Query read timeout";
 
 export class EvictOnReadTimeoutClient extends Client {
   private pendingRelease: ((error?: Error) => void) | undefined;
+  private unhold: (() => void) | undefined;
+  private evicted = false;
 
   constructor(...args: ConstructorParameters<typeof Client>) {
     super(...args);
@@ -56,16 +71,33 @@ export class EvictOnReadTimeoutClient extends Client {
 
   get release(): (error?: Error) => void {
     return (error?: Error) => {
+      this.unhold?.();
+      this.unhold = undefined;
       const fn = this.pendingRelease;
       this.pendingRelease = undefined;
       fn?.(error);
     };
   }
 
+  // Checked out under a request deadline: evicted if the deadline expires
+  // while this checkout is still open.
+  holdFor(deadline: RequestDeadline): void {
+    this.unhold = deadline.hold(() =>
+      this.evict(new RequestDeadlineExceededError()),
+    );
+  }
+
   private evictOnReadTimeout(error: unknown): void {
-    if (!(error instanceof Error) || error.message !== QUERY_READ_TIMEOUT) {
+    if (error instanceof Error && error.message === QUERY_READ_TIMEOUT) {
+      this.evict(error);
+    }
+  }
+
+  private evict(error: Error): void {
+    if (this.evicted) {
       return;
     }
+    this.evicted = true;
     // Flag the client unusable now so pg-pool removes it rather than parking
     // it idle, and so end() takes its destroy-the-socket path instead of
     // asking a server that no longer answers to say goodbye.
@@ -82,6 +114,28 @@ export class EvictOnReadTimeoutClient extends Client {
   // pg's overloads (callback or promise, text or config) all funnel through
   // here; only the failure path is wrapped, so the return shape is unchanged.
   override query(...args: unknown[]): never {
+    const deadline = currentDeadline();
+    if (deadline) {
+      const remaining = deadline.remainingMs();
+      if (remaining <= 0) {
+        // The client may be mid-transaction for a request that has already
+        // answered; it must not go back to the pool, nor run anything more.
+        const error = new RequestDeadlineExceededError();
+        this.evict(error);
+        const last = args[args.length - 1];
+        if (typeof last === "function") {
+          process.nextTick(() => last(error));
+          return undefined as never;
+        }
+        return Promise.reject(error) as never;
+      }
+      // pg reads query_timeout per statement, so the read timeout that
+      // already evicts a stuck client now also fires at the deadline.
+      args[0] = withReadTimeout(
+        args[0],
+        Math.min(Math.ceil(remaining), this.configuredReadTimeoutMs()),
+      );
+    }
     const last = args[args.length - 1];
     if (typeof last === "function") {
       args[args.length - 1] = (error: unknown, result: unknown) => {
@@ -99,6 +153,98 @@ export class EvictOnReadTimeoutClient extends Client {
     }
     return pending as never;
   }
+
+  private configuredReadTimeoutMs(): number {
+    const configured = (
+      this as unknown as { connectionParameters: { query_timeout?: number } }
+    ).connectionParameters.query_timeout;
+    return configured && configured > 0 ? configured : Number.POSITIVE_INFINITY;
+  }
+}
+
+function withReadTimeout(config: unknown, ms: number): unknown {
+  if (typeof config === "string") {
+    return { text: config, query_timeout: ms };
+  }
+  if (config === null || typeof config !== "object") {
+    // pg throws its own TypeError for these.
+    return config;
+  }
+  if (typeof (config as { submit?: unknown }).submit === "function") {
+    // A Submittable (cursor, stream) is the object pg drives; it cannot be
+    // copied.
+    (config as { query_timeout?: number }).query_timeout = ms;
+    return config;
+  }
+  return { ...config, query_timeout: ms };
+}
+
+type ConnectCallback = (
+  error: Error | undefined,
+  client?: PoolClient,
+  release?: (error?: Error) => void,
+) => void;
+
+class DeadlinePool extends Pool {
+  override connect(...args: unknown[]): never {
+    const callback =
+      typeof args[0] === "function" ? (args[0] as ConnectCallback) : undefined;
+    const deadline = currentDeadline();
+    if (!deadline) {
+      // pg-pool hands a queued callback its client from inside whichever
+      // caller released one; bound, it keeps running in its own caller's
+      // context (pool.query issues its statement from this callback) rather
+      // than under the releaser's deadline.
+      return (super.connect as (...a: unknown[]) => never)(
+        ...(callback ? [AsyncResource.bind(callback)] : args),
+      );
+    }
+    const checkout = this.connectWithin(deadline);
+    if (!callback) {
+      return checkout as never;
+    }
+    // A continuation runs in the caller's context, so no binding is needed.
+    checkout.then(
+      (client) => callback(undefined, client, client.release),
+      (error: Error) => callback(error),
+    );
+    return undefined as never;
+  }
+
+  // The wait for a client ends at the deadline too. A client that turns up
+  // afterwards goes straight back, untouched: evicting it on the late
+  // request's first statement instead would, under saturation, let every
+  // expired waiter destroy a healthy connection.
+  private connectWithin(deadline: RequestDeadline): Promise<PoolClient> {
+    const remaining = deadline.remainingMs();
+    if (remaining <= 0) {
+      return Promise.reject(new RequestDeadlineExceededError());
+    }
+    return new Promise((resolve, reject) => {
+      let late = false;
+      const timer = setTimeout(() => {
+        late = true;
+        reject(new RequestDeadlineExceededError());
+      }, remaining);
+      (super.connect as (callback: ConnectCallback) => void)(
+        (error, client, release) => {
+          clearTimeout(timer);
+          if (late) {
+            release?.();
+            return;
+          }
+          if (error || !client) {
+            reject(error ?? new Error("pg-pool returned no client"));
+            return;
+          }
+          if (client instanceof EvictOnReadTimeoutClient) {
+            client.holdFor(deadline);
+          }
+          resolve(client);
+        },
+      );
+    });
+  }
 }
 
 export function createEnforcedPool(
@@ -108,7 +254,7 @@ export function createEnforcedPool(
   timeouts: PoolTimeouts,
 ): Pool {
   return watchIdleErrors(
-    new Pool(enforcedConfig(connectionString, timeouts)),
+    new DeadlinePool(enforcedConfig(connectionString, timeouts)),
     logger,
     name,
   );

@@ -9,6 +9,7 @@ import {
   readyResponseSchema,
 } from "@agent-platform/contracts";
 import type { ResolvedWebSession } from "@agent-platform/db";
+import { RequestDeadlineExceededError } from "@agent-platform/db/pool";
 import {
   createLogger,
   type StructuredLogger,
@@ -22,6 +23,11 @@ import {
   type IdentityStore,
   ownerIdOf,
 } from "./auth.ts";
+import {
+  BODY_DEADLINE_MS,
+  readBodyWithin,
+  requestDeadline,
+} from "./deadline.ts";
 import type { ApiKeyStore } from "./keys.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 
@@ -36,13 +42,17 @@ export interface ApiVariables {
   // key is revoked. Long-lived responses (SSE) call it on their clock so a
   // revocation ends the stream instead of outliving it.
   reauthenticate: () => Promise<boolean>;
+  // The idle clock while the handler does database work: above the request
+  // deadline under /v1, off (0) elsewhere.
+  handlerIdleSeconds?: number;
 }
 
 export interface ApiBindings {
   // Sets the server's idle clock for this request, in seconds; 0 stops it.
-  // The app stops it before database work so a response that waits on the
-  // pool's timeouts is not reset mid-flight, and re-arms it while it ingests
-  // a body so a slow sender is still cut off.
+  // The app lifts it above the request deadline (or stops it) for database
+  // work so a response that waits on the pool's timeouts is not reset
+  // mid-flight, and re-arms it while it ingests a body so a slow sender is
+  // still cut off.
   setIdleTimeout?: (seconds: number) => void;
 }
 
@@ -52,8 +62,10 @@ export type ApiEnvironment = {
 };
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-// Bun's default; what a connection gets while bytes are still expected.
-export const BODY_IDLE_TIMEOUT_SECONDS = 10;
+// What a connection gets while bytes are still expected; above
+// BODY_DEADLINE_MS, so a sender that stops outright gets the 408 too rather
+// than a reset.
+export const BODY_IDLE_TIMEOUT_SECONDS = 20;
 
 export type ApiRouter = Hono<ApiEnvironment>;
 
@@ -75,6 +87,8 @@ export interface CreateApiAppOptions {
   // Backs GET /readyz; without one the process reports 503 NOT_READY, so a
   // build that forgot to wire the probe is never routed traffic.
   readiness?: ReadinessProbe;
+  // Overrides REQUEST_DEADLINE_MS, for tests.
+  requestDeadlineMs?: number;
 }
 
 export class ApiHttpError extends Error {
@@ -108,6 +122,9 @@ const PG_CONNECTION_MESSAGES =
 // Drizzle and pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
+    if (current instanceof RequestDeadlineExceededError) {
+      return true;
+    }
     const code = (current as { code?: unknown })?.code;
     if (
       typeof code === "string" &&
@@ -148,6 +165,9 @@ export const rootRouteErrors = [401, 503];
 // What the same middleware adds on an unsafe method: the CSRF refusal of a
 // cookie principal.
 export const mutationRouteErrors = [403];
+// What every /v1 route that reads a body can answer before its handler runs,
+// public or not: the body deadline.
+export const bodyRouteErrors = [408];
 // Liveness never fails; readiness only ever answers 503 NOT_READY.
 export const probeRouteErrors: Record<string, number[]> = {
   "GET /healthz": [],
@@ -225,9 +245,16 @@ export function jsonWithSchema<T extends z.ZodType>(
   return context.json(schema.parse(value), status);
 }
 
-// Read and bound a body under the idle clock; the caller stops the clock
-// afterwards for its database work. Hono caches the body, so parseJsonBody
-// reads the same bytes. Returns the 413 to send, or null.
+function setHandlerClock(context: Context<ApiEnvironment>): void {
+  (context.env?.setIdleTimeout ?? (() => {}))(
+    context.get("handlerIdleSeconds") ?? 0,
+  );
+}
+
+// Read and bound a body under the idle clock and BODY_DEADLINE_MS; the
+// caller sets the handler's clock afterwards for its database work. The bytes
+// go into Hono's body cache, so parseJsonBody reads the same bytes. Returns
+// the 408 or 413 to send, or null.
 async function ingestBody(
   context: Context<ApiEnvironment>,
 ): Promise<Response | null> {
@@ -236,8 +263,25 @@ async function ingestBody(
   }
   const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
   setIdleTimeout(BODY_IDLE_TIMEOUT_SECONDS);
-  const raw = await context.req.arrayBuffer();
-  if (raw.byteLength > REQUEST_BODY_MAX_BYTES) {
+  const read = await readBodyWithin(
+    context.req.raw,
+    BODY_DEADLINE_MS,
+    REQUEST_BODY_MAX_BYTES,
+  );
+  if (read.kind === "timeout") {
+    // The rest of the body may still be on its way; close rather than keep
+    // the connection for the next request behind it.
+    context.header("Connection", "close");
+    // Nothing has run yet, so sending the same request again is safe.
+    return errorResponse(
+      context,
+      408,
+      "REQUEST_TIMEOUT",
+      "Request body was not received in time",
+      true,
+    );
+  }
+  if (read.size > REQUEST_BODY_MAX_BYTES) {
     return errorResponse(
       context,
       413,
@@ -245,11 +289,16 @@ async function ingestBody(
       "Request body too large",
     );
   }
+  // Hono keeps the pending read per body type here (#cachedBody); its
+  // declared type is the Body interface, not what it actually stores.
+  (
+    context.req.bodyCache as unknown as { arrayBuffer?: Promise<ArrayBuffer> }
+  ).arrayBuffer = Promise.resolve(read.bytes);
   return null;
 }
 
-// Body under the clock, then the clock off for the handler: what every
-// route outside the /v1 principal middleware does. Public /v1 routes attach
+// Body under the clock, then the handler's clock: what every route outside
+// the /v1 principal middleware does. Public /v1 routes attach
 // it per route, never as a `*` middleware: that router is mounted ahead of
 // the authenticated one, so a wildcard there would read every /v1 body
 // before authentication and undo the auth-before-body rule.
@@ -261,7 +310,7 @@ export async function ingestThenStopClock(
   if (rejected) {
     return rejected;
   }
-  (context.env?.setIdleTimeout ?? (() => {}))(0);
+  setHandlerClock(context);
   await next();
   return undefined;
 }
@@ -320,12 +369,21 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     keyStore,
     ...(options.identity ? { identity: options.identity } : {}),
   });
+  // Ahead of both /v1 routers, so the public routes are bounded too.
+  app.use(
+    "/v1/*",
+    requestDeadline({
+      logger,
+      expired: storageUnavailableError,
+      ...(options.requestDeadlineMs === undefined
+        ? {}
+        : { deadlineMs: options.requestDeadlineMs }),
+    }),
+  );
   v1.use("*", async (context, next) => {
-    const setIdleTimeout = context.env?.setIdleTimeout ?? (() => {});
     // Authenticate before touching the body, so an unauthenticated sender
     // cannot hold a connection open by dripping bytes; the key lookup is
-    // database work, so the idle clock is off for it.
-    setIdleTimeout(0);
+    // database work, which requestDeadline already set the clock for.
     const authenticated = await authenticator.authenticate(context);
     if (!authenticated) {
       logger.warn("API authentication failed", {
@@ -356,13 +414,13 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     }
 
     // Ingest and bound the body under the idle clock, then hand the request
-    // to the route with the clock off for its database work.
+    // to the route with the handler's clock for its database work.
     if (!BODYLESS_METHODS.has(context.req.method)) {
       const rejected = await ingestBody(context);
       if (rejected) {
         return rejected;
       }
-      setIdleTimeout(0);
+      setHandlerClock(context);
     }
     await next();
   });

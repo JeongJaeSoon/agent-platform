@@ -473,6 +473,8 @@ export function buildOpenApiDocument() {
     };
     const errors = new Set(route.errors);
     if (csrf) errors.add(403);
+    // The API reads every non-GET body under a deadline before the handler.
+    if (route.method !== "get") errors.add(408);
     for (const status of [...errors].sort((a, b) => a - b)) {
       responses[status] = {
         description: "Error",

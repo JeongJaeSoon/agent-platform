@@ -11,6 +11,10 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "./app.ts";
+import {
+  REQUEST_IDLE_TIMEOUT_SECONDS,
+  RESPONSE_IDLE_TIMEOUT_SECONDS,
+} from "./deadline.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 function loggerWithMemory(): {
@@ -56,13 +60,20 @@ describe("API authentication", () => {
     expect(calls).toEqual([BODY_IDLE_TIMEOUT_SECONDS, 0]);
   });
 
-  test("stops the idle clock for database work and re-arms it only while an authenticated body is read", async () => {
+  test("holds the idle clock above the deadline for database work and re-arms it only while an authenticated body is read", async () => {
     let bodyRead = false;
     const app = createApiApp({
       authMode: "none",
       logger: loggerWithMemory().logger,
       registerRoutes: (router) => {
         router.get("/echo", (context) => context.json({ ok: true }));
+        router.get(
+          "/stream",
+          () =>
+            new Response(": keepalive\n\n", {
+              headers: { "Content-Type": "text/event-stream" },
+            }),
+        );
         router.post("/echo", async (context) => {
           bodyRead = true;
           return context.json({
@@ -84,37 +95,64 @@ describe("API authentication", () => {
         env,
       );
 
-    // GET: off for the key lookup and the route, never re-armed.
+    // GET: above the deadline for the key lookup and the route, off once the
+    // response is decided (a stream keeps its own clocks).
     const ok = await app.request(
       "/v1/echo",
       { headers: { "X-Owner-Id": "local-owner" } },
       env,
     );
     expect(ok.status).toBe(200);
-    expect(calls).toEqual([0]);
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
 
-    // POST: off for auth, back on while the body streams in, off again for
-    // the route; the route sees the same bytes.
+    // An event stream writes on its own keepalive clock; the idle clock stays
+    // off for it as it always was.
+    calls.length = 0;
+    const streamed = await app.request(
+      "/v1/stream",
+      { headers: { "X-Owner-Id": "local-owner" } },
+      env,
+    );
+    expect(streamed.status).toBe(200);
+    expect(calls).toEqual([REQUEST_IDLE_TIMEOUT_SECONDS, 0]);
+
+    // POST: the body streams in under the short idle clock, then the route
+    // gets the deadline's clock back; the route sees the same bytes.
     calls.length = 0;
     const accepted = await post("{}", { "X-Owner-Id": "local-owner" });
     expect(await accepted.json()).toEqual({ bytes: 2 });
-    expect(calls).toEqual([0, BODY_IDLE_TIMEOUT_SECONDS, 0]);
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      BODY_IDLE_TIMEOUT_SECONDS,
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
 
     // Unauthenticated POST: 401 without reading the body, so a dripping
     // sender is never waited on.
     calls.length = 0;
     bodyRead = false;
     expect((await post("{}")).status).toBe(401);
-    expect(calls).toEqual([0]);
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
     expect(bodyRead).toBe(false);
 
-    // Oversized: rejected with the clock still armed.
+    // Oversized: rejected straight from the body phase.
     calls.length = 0;
     const oversized = await post("x".repeat(65 * 1024), {
       "X-Owner-Id": "local-owner",
     });
     expect(oversized.status).toBe(413);
-    expect(calls).toEqual([0, BODY_IDLE_TIMEOUT_SECONDS]);
+    expect(calls).toEqual([
+      REQUEST_IDLE_TIMEOUT_SECONDS,
+      BODY_IDLE_TIMEOUT_SECONDS,
+      RESPONSE_IDLE_TIMEOUT_SECONDS,
+    ]);
   });
 
   test("fails closed when AUTH_MODE is missing and ignores X-Owner-Id", async () => {
