@@ -712,6 +712,11 @@ const controlKill: Campaign = {
       await startAgain(ctx, service);
       const readyMs = await waitReady(ctx, 180_000);
       const ended = await Promise.all(turns.map((t) => finish(ctx, t)));
+      // A turn whose outcome the kill left unconfirmed stops its session
+      // for an operator decision; give it up the way an operator would.
+      const unblocked = await Promise.all(
+        turns.map((t) => unblock(ctx, t.sessionId, t.turnId)),
+      );
       const next = await Promise.all(
         sessions.map(async (s) =>
           finish(ctx, await startTurn(ctx, s.sessionId, "normal")),
@@ -720,6 +725,7 @@ const controlKill: Campaign = {
       results[service] = {
         readyMs,
         during: ended.map((e) => e.status),
+        unblocked,
         next: next.map((e) => e.status),
       };
     }
@@ -733,7 +739,7 @@ const controlKill: Campaign = {
         input:
           "두 세션 turn 중 api SIGKILL 10초 → start, 같은 방식으로 scheduler",
         expected:
-          "API가 180초 안에 ready; 그때 돌던 turn은 끝나고, 다음 turn은 모두 completed; receipt·event·pointer 일치(불변식 행)",
+          "API가 180초 안에 ready; 그때 돌던 turn은 끝나고(결과를 모르면 recovery_required → abandon·resume), 다음 turn은 모두 completed; receipt·event·pointer 일치(불변식 행)",
         actual: { ...results, receipts: receipts.rows },
         pass: (["api", "scheduler"] as const).every((service) => {
           const r = results[service] as {
