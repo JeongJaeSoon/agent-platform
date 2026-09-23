@@ -81,8 +81,8 @@ compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본�
 | `RECONCILER_INTERVAL_SEC` | 10 | pass가 끝난 뒤 다음 pass까지 쉬는 시간 |
 | `RECONCILER_PASS_TIMEOUT_SEC` | 60 | 이 시간을 넘긴 pass는 SIGTERM, 10초 뒤 SIGKILL로 끝내고 실패로 센다. DB가 멈춘 pass가 pool timeout으로 스스로 끝나는 약 45초보다 크게 둔다 |
 | `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | 실패 pass가 이만큼 이어지면 루프가 exit 1 하고 `restart: unless-stopped`가 재시작한다. 그보다 적으면 다음 pass가 곧 재시도다 |
-| `RECONCILER_HEALTH_STALE_SEC` | 90 | 이 시간 동안 성공한 pass가 없으면 healthcheck가 unhealthy. 멈춘 pass·계속 실패하는 루프 모두 여기에 걸린다. `RECONCILER_INTERVAL_SEC`보다 커야 기동한다 |
-| `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | 루프가 pass마다 갱신하는 상태(`lastSuccessAt`·`lastFailureAt`·`lastFailureReason`·`consecutiveFailures`·`lastPassDurationMs`). healthcheck가 읽는다 |
+| `RECONCILER_HEALTH_STALE_SEC` | 90 | healthcheck는 마지막으로 끝난 pass가 실패했거나, 진행 중인 pass가 제한 시간을 넘겼거나, 이 시간 동안 성공한 pass가 없으면 unhealthy다. 성공 직후 멈춘 pass도 제한 시간에서 바로 unhealthy가 된다. `RECONCILER_INTERVAL_SEC`보다 커야 기동한다 |
+| `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | 루프가 pass마다 갱신하는 상태(`lastSuccessAt`·`lastFailureAt`·`lastFailureReason`·`consecutiveFailures`·`lastPassDurationMs`, 진행 중인 pass의 `passDeadlineAt`). healthcheck가 읽는다 |
 
 최근 성공·실패는 `docker compose -f infra/docker-compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/reconciler/src/overlap.integration.test.ts`).
 

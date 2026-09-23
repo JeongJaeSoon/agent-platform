@@ -405,7 +405,8 @@ services:
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after
   # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
   # policy engages. The healthcheck reads the status file the loop writes and
-  # is unhealthy once no pass has succeeded for RECONCILER_HEALTH_STALE_SEC;
+  # is unhealthy when the last pass failed, when a pass runs past its
+  # deadline, or once no pass has succeeded for RECONCILER_HEALTH_STALE_SEC;
   # `docker compose exec reconciler cat /tmp/reconciler-status.json` shows the
   # last success and failure. Passes are serial here, and every write a pass
   # makes is re-judged under row locks, so an overlapping or restarted pass

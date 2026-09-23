@@ -93,6 +93,8 @@ export type PassStatus = {
   lastFailureReason: string | null;
   lastPassDurationMs: number | null;
   consecutiveFailures: number;
+  // Set while a pass runs: past it, the pass is stuck until the kill lands.
+  passDeadlineAt: string | null;
 };
 
 export type PassLoopLogger = {
@@ -122,14 +124,20 @@ export async function runPassLoop(input: {
     lastFailureReason: null,
     lastPassDurationMs: null,
     consecutiveFailures: 0,
+    passDeadlineAt: null,
   };
   await writeStatus(config.statusFile, status, logger);
   while (!signal?.aborted) {
+    status.passDeadlineAt = new Date(
+      now().getTime() + config.passTimeoutMs,
+    ).toISOString();
+    await writeStatus(config.statusFile, status, logger);
     const started = performance.now();
     const failure = await runPass(command, config, signal);
     const durationMs = Math.round(performance.now() - started);
     // A pass cut short by shutdown is neither a success nor a failure.
     if (signal?.aborted) break;
+    status.passDeadlineAt = null;
     status.passes += 1;
     status.lastPassDurationMs = durationMs;
     if (failure === null) {

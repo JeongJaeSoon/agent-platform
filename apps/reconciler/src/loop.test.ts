@@ -6,6 +6,7 @@ import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { checkHealth, judgeHealth, readStatus } from "./health.ts";
 import {
   type PassLoopConfig,
+  type PassStatus,
   passLoopConfigFromEnv,
   runPassLoop,
 } from "./loop.ts";
@@ -186,6 +187,57 @@ describe("pass loop", () => {
     });
     expect(messages()).toEqual([]);
   }, 30_000);
+
+  test("a pass that hangs right after a success is unhealthy from its deadline on, not only once the success goes stale", async () => {
+    const loop = runPassLoop({
+      name: "Test",
+      // Succeeds once, then hangs.
+      command: bun(
+        `const f = ${JSON.stringify(join(dir, "count"))}; const n = Number(await Bun.file(f).text().catch(() => "0")) + 1; await Bun.write(f, String(n)); if (n > 1) await Bun.sleep(60_000)`,
+      ),
+      config: {
+        ...config,
+        passTimeoutMs: 2_000,
+        killGraceMs: 300,
+        maxConsecutiveFailures: 1,
+      },
+      logger,
+    });
+    const hanging = await waitForStatus(
+      (status) =>
+        status.lastSuccessAt !== null && status.passDeadlineAt !== null,
+    );
+    const deadline = Date.parse(hanging.passDeadlineAt ?? "");
+    const staleMs = 60_000;
+    expect(
+      judgeHealth(hanging, new Date(deadline - 1_000), staleMs).healthy,
+    ).toBe(true);
+    expect(judgeHealth(hanging, new Date(deadline + 1), staleMs)).toEqual({
+      healthy: false,
+      reason: `a pass has been running past its deadline of ${hanging.passDeadlineAt}`,
+    });
+
+    expect(await loop).toBe(1);
+    // Killed and recorded: still unhealthy, with the last success fresh.
+    const killed = await readStatus(config.statusFile);
+    expect(killed?.passDeadlineAt).toBeNull();
+    expect(judgeHealth(killed, new Date(), staleMs)).toEqual({
+      healthy: false,
+      reason:
+        "1 failed pass(es) since the last success: pass did not finish within 2s and was killed",
+    });
+  }, 30_000);
+
+  async function waitForStatus(
+    ready: (status: PassStatus) => boolean,
+  ): Promise<PassStatus> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const status = await readStatus(config.statusFile);
+      if (status !== null && ready(status)) return status;
+      await Bun.sleep(25);
+    }
+    throw new Error("status never reached the expected state");
+  }
 
   test("a pass that exits non-zero is a failure with its exit code", async () => {
     const code = await runPassLoop({

@@ -35,6 +35,8 @@ import {
  */
 
 const env = gateEnv();
+// Spec ids carry a suffix so a rerun on a kept stack never matches the
+// model calls of an earlier run.
 const evidence: Record<string, unknown> = {};
 
 let api: PublicApi;
@@ -96,7 +98,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
 
   test("R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown", async () => {
     const spec = {
-      id: "R1",
+      id: `R1-${crypto.randomUUID().slice(0, 8)}`,
       // Long enough that the turn is still open when the lease runs out.
       steps: [{ ...write("/workspace/r1.txt", "r1\n"), delayMs: 240_000 }],
       final: "R1 DONE",
@@ -107,7 +109,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
     evidence.r1_session = sessionId;
     await waitFor(
       "the model call of R1",
-      async () => (await messages.requests("R1")).length > 0,
+      async () => (await messages.requests(spec.id)).length > 0,
       300_000,
       250,
     );
@@ -162,14 +164,16 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
       });
       expect(turn.outcome_unknown).toBe(true);
       expect(session.admission_state).toBe("recovery_required");
-      expect(session.lease_epoch).toBe(before.lease_epoch + 1);
+      // One step for the reconciler's fence, one for the scheduler's
+      // confirmed removal; a second fence would make it three.
+      expect(session.lease_epoch).toBe(before.lease_epoch + 2);
       expect(
-        lines.some(
+        lines.filter(
           (line) =>
             line.includes("Expired lease reconciliation completed") &&
             line.includes('"fenced_count":1'),
         ),
-      ).toBe(true);
+      ).toHaveLength(1);
     } finally {
       await run(["docker", "unpause", worker.name], { allowFail: true });
     }
@@ -177,7 +181,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
 
   test("R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown", async () => {
     const spec = {
-      id: "R2",
+      id: `R2-${crypto.randomUUID().slice(0, 8)}`,
       steps: [{ ...write("/workspace/r2.txt", "r2\n"), delayMs: 240_000 }],
       final: "R2 DONE",
     };
@@ -187,7 +191,7 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
     evidence.r2_session = sessionId;
     await waitFor(
       "the model call of R2",
-      async () => (await messages.requests("R2")).length > 0,
+      async () => (await messages.requests(spec.id)).length > 0,
       300_000,
       250,
     );
@@ -257,16 +261,17 @@ describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
       });
       expect(receipt.status).toBe("unknown");
       expect(execution.desired_state).toBe("terminated");
-      expect(session.lease_epoch).toBe(before.lease_epoch + 1);
+      // Fence plus confirmed removal, as in R1.
+      expect(session.lease_epoch).toBe(before.lease_epoch + 2);
       // The worker did try to end the turn; only the kill path ended it.
       expect(finalizes.length).toBeGreaterThan(0);
       expect(
-        lines.some(
+        lines.filter(
           (line) =>
             line.includes("Overdue interrupt executions sent to terminate") &&
             line.includes('"fenced_count":1'),
         ),
-      ).toBe(true);
+      ).toHaveLength(1);
     } finally {
       await chaos.disarm(rule);
       await run(["docker", "rm", "-f", worker.name], { allowFail: true });
