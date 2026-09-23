@@ -1169,6 +1169,73 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       });
     });
 
+    test("stays held when the finalize fails without an answer that decides it", async () => {
+      let run: AgentRun | undefined;
+      let host: WorkerHost | undefined;
+      let failed = false;
+      class Unanswered extends FakeWorkerGateway {
+        override async finalize(): Promise<FinalizeResponse> {
+          host?.drain("received SIGTERM");
+          // Past the drain budget, so the retry gives up; the server may
+          // still be committing what this request carried.
+          await Bun.sleep(timeouts.drainTimeoutMs * 2);
+          failed = true;
+          throw new WorkerGatewayRequestError(
+            0,
+            null,
+            "POST /finalize did not reach the gateway: timed out",
+            true,
+          );
+        }
+      }
+      const gateway = new Unanswered();
+      const built = harness(oneTurn, {
+        checkpoints: committed,
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      host = built.host;
+      gateway.enqueue("a turn whose finalize never answers");
+
+      await built.host.runLoop();
+      await waitFor(() => failed, "the finalize to fail");
+      await Bun.sleep(5);
+
+      expect(await run?.prepareCheckpoint()).toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
+
+    test("is released when the gateway refuses the finalize outright", async () => {
+      let run: AgentRun | undefined;
+      const gateway = new FakeWorkerGateway();
+      gateway.finalizeFailure = new WorkerGatewayRequestError(
+        409,
+        "CHECKPOINT_UNAVAILABLE",
+        "Checkpoint manifest rejected: digest mismatch",
+        false,
+      );
+      const { host } = harness(oneTurn, {
+        checkpoints: committed,
+        gateway,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      gateway.enqueue("a turn whose checkpoint the gateway refuses");
+
+      await host.runLoop();
+      await Bun.sleep(1);
+
+      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
+
     test("is given back at once when there is nothing to commit", async () => {
       let run: AgentRun | undefined;
       const during: CheckpointPreparation[] = [];

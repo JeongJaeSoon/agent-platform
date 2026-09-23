@@ -721,7 +721,12 @@ export class WorkerHost {
         else
           outstanding.then(
             () => lease.release(),
-            () => lease.release(),
+            // A retryable failure (no answer, a 5xx) leaves the CAS
+            // undecided; the run ends with the lease still held rather than
+            // let a writer in ahead of a commit that may yet land.
+            (error) => {
+              if (!isRetryable(error)) lease.release();
+            },
           );
       }
     }
