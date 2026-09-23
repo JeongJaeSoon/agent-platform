@@ -170,6 +170,19 @@ export interface CheckpointObjectStore {
    * it; without, whatever the key holds now.
    */
   get(key: string, version?: string): Promise<Uint8Array | undefined>;
+  /**
+   * `get` for a body too large to hold: presence is settled before the
+   * promise resolves, by the same rules as `get`, and the chunks arrive as
+   * the store delivers them. A chunk is valid only until the next one is
+   * asked for — a store may refill the same buffer — so a consumer that needs
+   * bytes later copies them. One pass only. A consumer that stops early must
+   * end the iteration (`break` in `for await` does), which releases the
+   * connection.
+   */
+  stream(
+    key: string,
+    version?: string,
+  ): Promise<AsyncIterable<Uint8Array> | undefined>;
   /** Size and presence without transferring the body; undefined when absent. */
   head(key: string, version?: string): Promise<ObjectHead | undefined>;
   list(prefix: string): Promise<string[]>;

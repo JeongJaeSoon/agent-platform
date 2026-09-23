@@ -76,3 +76,37 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   }
   return stdout;
 }
+
+/**
+ * Asks a workspace bundle verifier about bytes held in memory, the way the
+ * checkpoint service asks: from a file of their own that exists only for the
+ * call. Typed structurally so testkit need not depend on platform.
+ */
+export async function verifyBundleBytes<T>(
+  verifier: {
+    verify(input: {
+      readonly bytes: number;
+      readonly commit: string;
+      readonly key: string;
+      readonly path: string;
+    }): Promise<T>;
+  },
+  input: {
+    readonly bytes: Uint8Array;
+    readonly commit: string;
+    readonly key: string;
+  },
+): Promise<T> {
+  const directory = await mkdtemp(join(tmpdir(), "testkit-verify-"));
+  try {
+    const path = join(directory, "workspace.bundle");
+    await writeFile(path, input.bytes);
+    return await verifier.verify({
+      ...input,
+      bytes: input.bytes.byteLength,
+      path,
+    });
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+}

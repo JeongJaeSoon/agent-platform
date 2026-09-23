@@ -35,7 +35,11 @@ export type WorkspaceCaptureResult =
   | { reason: string; status: "refused" };
 
 export type WorkspaceCaptureLimits = {
-  /** The control plane refuses a larger bundle (`DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`). */
+  /**
+   * At most the control plane's `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`, which
+   * refuses anything larger. Lower than it because the worker still holds
+   * the bundle in memory to upload it; the control plane streams it.
+   */
   maxBundleBytes: number;
   /**
    * Any one tracked file on disk. A restore writes each one back under a file
