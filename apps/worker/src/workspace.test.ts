@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readdir,
   rm,
+  symlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -12,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceDescriptor } from "@agent-platform/contracts";
 
-import { GitWorkspace } from "./workspace.ts";
+import { COMMITTED_CLAUDE_MD_MAX_BYTES, GitWorkspace } from "./workspace.ts";
 
 let scratch: string;
 let origin: string;
@@ -331,5 +332,219 @@ describe("GitWorkspace", () => {
 
     await expect(prepare(descriptor(), stop.signal)).rejects.toThrow();
     expect(await readdir(root)).toEqual([]);
+  });
+});
+
+describe("GitWorkspace.committedClaudeMd", () => {
+  /** Commits to origin's main, as the repository's authors would. */
+  async function publish(
+    files: Record<string, string>,
+    links: Record<string, string> = {},
+  ): Promise<void> {
+    const seed = join(scratch, "seed");
+    git(["pull", "--quiet", "origin", "main"], seed);
+    // Whatever stood at a path before — a directory, a link — is replaced.
+    for (const [path, text] of Object.entries(files)) {
+      await rm(join(seed, path), { force: true, recursive: true });
+      await mkdir(join(seed, path, ".."), { recursive: true });
+      await writeFile(join(seed, path), text);
+    }
+    for (const [path, target] of Object.entries(links)) {
+      await rm(join(seed, path), { force: true, recursive: true });
+      await symlink(target, join(seed, path));
+    }
+    git(["add", "-A"], seed);
+    git(["commit", "--quiet", "-m", "publish"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+  }
+
+  async function prepared(): Promise<GitWorkspace> {
+    const workspace = new GitWorkspace(root);
+    await workspace.prepare({
+      descriptor: descriptor(),
+      restore: null,
+      signal: new AbortController().signal,
+    });
+    return workspace;
+  }
+
+  test("reads the file the branch has committed, and none when it has none", async () => {
+    expect((await prepared()).committedClaudeMd()).toBeNull();
+    await rm(root, { force: true, recursive: true });
+    await mkdir(root);
+    await publish({ "CLAUDE.md": "Run bun test.\n" });
+
+    expect((await prepared()).committedClaudeMd()).toBe("Run bun test.\n");
+  });
+
+  test("a retry reads the branch, not what the last attempt left in the checkout", async () => {
+    await publish({ "CLAUDE.md": "committed rules\n" });
+    await prepared();
+    // What an engine could do before dying: edit the file, commit on the
+    // branch, and leave an uncommitted edit on top.
+    await writeFile(join(root, "CLAUDE.md"), "agent rules, committed\n");
+    git(["commit", "--quiet", "-am", "agent"], root);
+    await writeFile(join(root, "CLAUDE.md"), "agent rules, uncommitted\n");
+
+    const retry = await prepared();
+
+    expect(await Bun.file(join(root, "CLAUDE.md")).text()).toBe(
+      "agent rules, uncommitted\n",
+    );
+    expect(retry.committedClaudeMd()).toBe("committed rules\n");
+  });
+
+  test("a retry sees what the branch published since", async () => {
+    await publish({ "CLAUDE.md": "first\n" });
+    await prepared();
+    await publish({ "CLAUDE.md": "second\n" });
+
+    expect((await prepared()).committedClaudeMd()).toBe("second\n");
+  });
+
+  test("follows a committed link that stays in the tree", async () => {
+    await publish(
+      { "docs/AGENTS.md": "shared rules\n" },
+      { "AGENTS.md": "docs/AGENTS.md", "CLAUDE.md": "AGENTS.md" },
+    );
+
+    expect((await prepared()).committedClaudeMd()).toBe("shared rules\n");
+  });
+
+  test("a committed link to nothing is no instructions", async () => {
+    await publish({}, { "CLAUDE.md": "missing.md" });
+
+    expect((await prepared()).committedClaudeMd()).toBeNull();
+  });
+
+  test("refuses a committed link that leaves the tree, whatever the checkout holds there", async () => {
+    await writeFile(join(scratch, "outside.md"), "WORKER_SECRET=1\n");
+    for (const target of ["../outside.md", join(scratch, "outside.md")]) {
+      await publish({}, { "CLAUDE.md": target });
+      const workspace = await prepared();
+      expect(() => workspace.committedClaudeMd()).toThrow(
+        "Repository CLAUDE.md refused: it links outside the repository",
+      );
+    }
+  });
+
+  test("refuses a directory, a link loop and a file past the cap — but only when asked", async () => {
+    await publish({ "CLAUDE.md/inner.md": "x" });
+    const directory = await prepared();
+    expect(() => directory.committedClaudeMd()).toThrow("not a regular file");
+
+    await publish({}, { "CLAUDE.md": "AGENTS.md", "AGENTS.md": "CLAUDE.md" });
+    const loop = await prepared();
+    expect(() => loop.committedClaudeMd()).toThrow("too many symlinks");
+
+    await publish({
+      "CLAUDE.md": "a".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES + 1),
+    });
+    const large = await prepared();
+    expect(() => large.committedClaudeMd()).toThrow(
+      `larger than ${COMMITTED_CLAUDE_MD_MAX_BYTES} bytes`,
+    );
+  });
+
+  test("sizes a committed link before reading it", async () => {
+    await publish({ "CLAUDE.md": "first\n" });
+    const workspace = await prepared();
+    // A link no checkout could create; a reuse reads the mirror, which has no
+    // filesystem to refuse it first.
+    const seed = join(scratch, "seed");
+    const blob = Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
+      cwd: seed,
+      stdin: new TextEncoder().encode("a".repeat(1 << 20)),
+      stdout: "pipe",
+    });
+    const object = blob.stdout.toString().trim();
+    git(["rm", "--quiet", "CLAUDE.md"], seed);
+    git(
+      ["update-index", "--add", "--cacheinfo", `120000,${object},CLAUDE.md`],
+      seed,
+    );
+    git(["commit", "--quiet", "-m", "long link"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    await workspace.prepare({
+      descriptor: descriptor(),
+      restore: null,
+      signal: new AbortController().signal,
+    });
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "it links to an overlong path",
+    );
+  });
+
+  test("refuses a committed link to a directory without listing it", async () => {
+    await publish({ "docs/a.md": "a", "docs/b.md": "b" });
+    for (const target of ["docs/", ".", "./"]) {
+      await publish({}, { "CLAUDE.md": target });
+      const workspace = await prepared();
+      expect(() => workspace.committedClaudeMd()).toThrow(
+        "it is not a regular file",
+      );
+    }
+  });
+
+  test("refuses a committed link whose target holds a NUL, without failing the preparation", async () => {
+    await publish({ "CLAUDE.md": "first\n" });
+    const workspace = await prepared();
+    const seed = join(scratch, "seed");
+    const blob = Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
+      cwd: seed,
+      stdin: new TextEncoder().encode("docs\0AGENTS.md"),
+      stdout: "pipe",
+    });
+    git(["rm", "--quiet", "CLAUDE.md"], seed);
+    git(
+      [
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `120000,${blob.stdout.toString().trim()},CLAUDE.md`,
+      ],
+      seed,
+    );
+    git(["commit", "--quiet", "-m", "nul link"], seed);
+    git(["push", "--quiet", "origin", "HEAD:main"], seed);
+
+    expect(
+      await workspace.prepare({
+        descriptor: descriptor(),
+        restore: null,
+        signal: new AbortController().signal,
+      }),
+    ).toBe("reuse");
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "it links to a malformed path",
+    );
+  });
+
+  test("a file exactly at the cap is whole", async () => {
+    const whole = "b".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES);
+    await publish({ "CLAUDE.md": whole });
+
+    expect((await prepared()).committedClaudeMd()).toBe(whole);
+  });
+
+  test("a restore fetched nothing, so a profile that wants the file is refused", async () => {
+    await publish({ "CLAUDE.md": "committed rules\n" });
+    const workspace = await prepared();
+    expect(workspace.committedClaudeMd()).toBe("committed rules\n");
+
+    await workspace.prepare({
+      descriptor: descriptor(),
+      restore: {
+        revision: 3,
+        manifest_ref: "sessions/x/manifest-3.json",
+        manifest_sha256: "a".repeat(64),
+      },
+      signal: new AbortController().signal,
+    });
+
+    expect(() => workspace.committedClaudeMd()).toThrow(
+      "no freshly fetched commit",
+    );
   });
 });

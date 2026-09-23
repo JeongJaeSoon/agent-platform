@@ -65,6 +65,7 @@ const config: Pick<
   | "permissionMode"
   | "plugins"
   | "profile"
+  | "repositoryClaudeMd"
   | "settingSources"
   | "tools"
 > = {
@@ -669,6 +670,35 @@ describe("Claude profile fingerprint", () => {
     expect(
       claudeProfileFingerprint({ ...config, appendSystemPrompt: "extra" }),
     ).not.toBe(claudeProfileFingerprint(config));
+  });
+
+  test("changes with the switch that lets the repository's CLAUDE.md in", () => {
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        repositoryClaudeMd: { contents: "rules" },
+        settingSources: [],
+      }),
+    ).not.toBe(claudeProfileFingerprint({ ...config, settingSources: [] }));
+    // The text is not what a checkpoint is compatible with.
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        repositoryClaudeMd: { contents: "rules" },
+        settingSources: [],
+      }),
+    ).toBe(
+      claudeProfileFingerprint({
+        ...config,
+        repositoryClaudeMd: { contents: null },
+        settingSources: [],
+      }),
+    );
+    // Off is the digest this config had before the switch existed (main at
+    // a609d02), so checkpoints taken then still resume.
+    expect(claudeProfileFingerprint(config)).toBe(
+      "eab5b7b8016c7fd35dcf94b9e9aef27c727964b297789e2eee65d5d8a4631ae3",
+    );
   });
 
   test("treats an explicit default permission mode as the default", () => {

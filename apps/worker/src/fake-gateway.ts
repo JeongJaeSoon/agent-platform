@@ -22,6 +22,7 @@ import type {
   RuntimeConfig,
   SessionRuntime,
   WorkerEvent,
+  WorkspaceDescriptor,
 } from "@agent-platform/contracts";
 
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
@@ -38,6 +39,8 @@ export type FakeWorkerGatewayOptions = {
   runtime?: SessionRuntime;
   runtimeConfig?: RuntimeConfig;
   sessionId?: string;
+  /** The repository the claim names; a placeholder nothing clones by default. */
+  workspace?: WorkspaceDescriptor;
 };
 
 type Queued = { inputId: string; message: string; turnId: string };
@@ -86,9 +89,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     input_hash: string;
   }> = [];
   private readonly options: Required<
-    Omit<FakeWorkerGatewayOptions, "restore">
+    Omit<FakeWorkerGatewayOptions, "restore" | "workspace">
   > &
-    Pick<FakeWorkerGatewayOptions, "restore">;
+    Pick<FakeWorkerGatewayOptions, "restore" | "workspace">;
   private readonly queue: Queued[] = [];
   private acceptedThrough = 0;
   private nextTurn: number;
@@ -118,6 +121,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         },
       },
       sessionId: options.sessionId ?? "11111111-1111-4111-8111-111111111111",
+      ...(options.workspace === undefined
+        ? {}
+        : { workspace: options.workspace }),
     };
   }
 
@@ -193,7 +199,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       lease_expires_at: this.leaseExpiresAt(),
       runtime: this.options.runtime,
       runtime_config: this.options.runtimeConfig,
-      workspace: {
+      workspace: this.options.workspace ?? {
         repository: {
           id: "fake-repository",
           url: "https://git.example.test/fake.git",

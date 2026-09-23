@@ -108,6 +108,24 @@ export const runtimeProviderSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+// Which of the checked-out repository's own Claude project settings the run
+// takes in. Only its root CLAUDE.md can be let in, as text the worker reads
+// itself; the repository's settings.json never loads, because it can carry
+// hooks that run commands no permission callback sees, `env` that points the
+// engine (and the provider credential) at another endpoint, and permission
+// rules that pre-approve tools — and that surface grows with every CLI
+// release. There is deliberately no `hooks` switch: the strict object refuses
+// one. It becomes a field when an operator-reviewed repository has to run its
+// hooks, which also needs a sandbox for what they execute.
+//
+// Absent on the wire means off, and the gateway leaves it out when it is off:
+// a worker built before the field refuses unknown keys, and off is what that
+// worker already does. When it is on, such a worker refuses the claim — the
+// right answer from a worker that could not honour it.
+export const projectSettingsSchema = z
+  .object({ claude_md: z.boolean() })
+  .strict();
+
 // Everything the engine needs beyond the identity in `runtime`: resolved by
 // the server from the profile the session was created with. The provider
 // credential rides here. The claim that carries it can be replayed only
@@ -121,6 +139,7 @@ export const runtimeConfigSchema = z
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
+    project_settings: projectSettingsSchema.optional(),
   })
   .strict();
 
@@ -150,6 +169,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     model: response.runtime_config.model,
     permission_mode: response.runtime_config.permission_mode,
     provider_kind: response.runtime_config.provider.kind,
+    claude_md: response.runtime_config.project_settings?.claude_md === true,
     repository_id: response.workspace.repository.id,
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,

@@ -93,6 +93,31 @@ describe("runtime profiles", () => {
     expect(validateRuntimeConfig(config, policy)).toBe(config);
   });
 
+  test("lets the repository's CLAUDE.md in only with the project source left out", () => {
+    const isolated = {
+      ...baseConfig,
+      repositoryClaudeMd: { contents: "rules" },
+      settingSources: [] as [],
+    };
+    expect(validateRuntimeConfig(isolated, policy)).toBe(isolated);
+    expect(() =>
+      validateRuntimeConfig(
+        { ...baseConfig, repositoryClaudeMd: { contents: null } },
+        policy,
+      ),
+    ).toThrow(/needs settingSources: \[\]/);
+    expect(() =>
+      validateRuntimeConfig(
+        {
+          ...baseConfig,
+          repositoryClaudeMd: { contents: "rules" },
+          settingSources: ["project"],
+        },
+        policy,
+      ),
+    ).toThrow(/needs settingSources: \[\]/);
+  });
+
   test("accepts only approved endpoints and model aliases", () => {
     expect(
       validateRuntimeConfig(baseConfig, {

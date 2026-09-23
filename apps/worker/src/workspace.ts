@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type {
   CheckpointRef,
   WorkspaceDescriptor,
@@ -23,6 +23,14 @@ export interface WorkspacePreparer {
     restore: CheckpointRef | null;
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]>;
+  /**
+   * The repository's root CLAUDE.md as committed on the session's branch,
+   * read by the last `prepare` from what it had just fetched and before any
+   * engine ran; null when there is none. Throws when the committed file is
+   * one the worker will not hand over (see `readCommittedClaudeMd`), or when
+   * that `prepare` fetched nothing to read it from (a restore).
+   */
+  committedClaudeMd(): string | null;
 }
 
 /** For hosts whose engine never touches a repository, like the fake. */
@@ -30,7 +38,20 @@ export const noWorkspace: WorkspacePreparer = {
   async prepare() {
     return "reuse";
   },
+  committedClaudeMd: () => null,
 };
+
+/**
+ * Past this the run is refused rather than handed part of the file: a cut can
+ * drop the rule that mattered or end one mid-sentence, and a model cannot
+ * tell a truncated policy from a complete one.
+ */
+export const COMMITTED_CLAUDE_MD_MAX_BYTES = 64 * 1024;
+
+type CommittedClaudeMd =
+  | { kind: "text"; text: string }
+  | { kind: "absent" }
+  | { kind: "refused"; reason: string };
 
 type GitResult = { code: number; stdout: string; stderr: string };
 type Git = (
@@ -65,7 +86,22 @@ type Git = (
  * Revisit when clone time starts eating the claim's lease budget.
  */
 export class GitWorkspace implements WorkspacePreparer {
+  private claudeMd: CommittedClaudeMd = { kind: "absent" };
+
   constructor(private readonly root: string) {}
+
+  committedClaudeMd(): string | null {
+    switch (this.claudeMd.kind) {
+      case "text":
+        return this.claudeMd.text;
+      case "absent":
+        return null;
+      case "refused":
+        throw new Error(
+          `Repository CLAUDE.md refused: ${this.claudeMd.reason}`,
+        );
+    }
+  }
 
   async prepare(input: {
     descriptor: WorkspaceDescriptor;
@@ -85,6 +121,7 @@ export class GitWorkspace implements WorkspacePreparer {
         redact,
         signal: input.signal,
       });
+    this.claudeMd = { kind: "absent" };
     const plan = planWorkspacePreparation({
       workspace: input.descriptor,
       restore: input.restore,
@@ -92,15 +129,39 @@ export class GitWorkspace implements WorkspacePreparer {
     });
     switch (plan.action) {
       case "restore":
+        // Nothing here was fetched by this process, so there is no commit to
+        // read instructions from, and the restored checkout is the last
+        // engine's. Refused rather than absent: a session whose profile lets
+        // CLAUDE.md in would otherwise resume without it and nobody would
+        // see. The restore path (94S-246) has to pin the commit to lift this.
+        this.claudeMd = {
+          kind: "refused",
+          reason:
+            "a restored workspace has no freshly fetched commit behind it",
+        };
         return plan.action;
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
         await this.empty();
         await this.clone(git, remote.url, plan.branch);
+        // A fresh clone nothing has run in yet.
+        this.claudeMd = await readCommittedClaudeMd(
+          git,
+          this.root,
+          `refs/remotes/origin/${plan.branch}`,
+          input.signal,
+        );
         return plan.action;
       case "clone":
         await this.clone(git, remote.url, plan.branch);
+        // A fresh clone nothing has run in yet.
+        this.claudeMd = await readCommittedClaudeMd(
+          git,
+          this.root,
+          `refs/remotes/origin/${plan.branch}`,
+          input.signal,
+        );
         return plan.action;
       case "reuse":
         // Also scrubs a credential an older worker may have stored.
@@ -108,7 +169,12 @@ export class GitWorkspace implements WorkspacePreparer {
           git(["remote", "set-url", "origin", remote.url]),
           "remote set-url",
         );
-        await this.fetchThroughMirror(git, remote.url);
+        await this.fetchThroughMirror(
+          git,
+          remote.url,
+          plan.branch,
+          input.signal,
+        );
         await check(git(["checkout", "--quiet", plan.branch]), "checkout");
         return plan.action;
     }
@@ -204,7 +270,12 @@ export class GitWorkspace implements WorkspacePreparer {
    * config is exactly what this avoids trusting. Revisit when a reuse costs
    * noticeably more than the clone it saves.
    */
-  private async fetchThroughMirror(git: Git, url: string): Promise<void> {
+  private async fetchThroughMirror(
+    git: Git,
+    url: string,
+    branch: string,
+    signal: AbortSignal,
+  ): Promise<void> {
     const scratch = await mkdtemp(join(tmpdir(), "worker-fetch-"));
     const mirror = join(scratch, "origin.git");
     try {
@@ -225,6 +296,15 @@ export class GitWorkspace implements WorkspacePreparer {
         ]),
         "fetch",
       );
+      // From the mirror, not the checkout: the last attempt's engine could
+      // have edited the working tree, committed on the branch, or planted
+      // objects in `.git` that a fetch would not overwrite.
+      this.claudeMd = await readCommittedClaudeMd(
+        git,
+        mirror,
+        `refs/heads/${branch}`,
+        signal,
+      );
     } finally {
       await rm(scratch, { force: true, recursive: true });
     }
@@ -236,6 +316,143 @@ export class GitWorkspace implements WorkspacePreparer {
       await rm(join(this.root, entry), { force: true, recursive: true });
     }
   }
+}
+
+/** Enough for a CLAUDE.md -> AGENTS.md -> docs/... chain; more is a loop. */
+const MAX_LINK_HOPS = 8;
+/** Linux's PATH_MAX: no checkout could create a link to anything longer. */
+const MAX_LINK_TARGET_BYTES = 4096;
+
+/**
+ * The root CLAUDE.md at `rev`, read from git's object store in `cwd` — never
+ * from a working tree, which the engine writes. A committed symlink is
+ * followed only to another path in the same tree (`CLAUDE.md -> AGENTS.md`
+ * is ordinary); one that leaves it, loops, or ends at anything but a file is
+ * refused, as is a file past the cap or one git cannot read. Refused, not
+ * thrown: whether the run wants the file at all is the profile's call, made
+ * later, and a session that never asked for it must not fail over it.
+ *
+ * Left out, against what the engine itself loads: `.claude/CLAUDE.md`,
+ * `CLAUDE.local.md`, `.claude/rules/`, nested directories' files and `@`
+ * imports — each is another path to resolve the same way, worth adding when
+ * a repository the platform serves depends on one.
+ */
+async function readCommittedClaudeMd(
+  git: Git,
+  cwd: string,
+  rev: string,
+  signal: AbortSignal,
+): Promise<CommittedClaudeMd> {
+  try {
+    return await resolveCommittedClaudeMd(git, cwd, rev);
+  } catch (error) {
+    // A stop is the preparation's to report. Anything else that goes wrong
+    // with this file is only the business of a profile that asks for it.
+    if (signal.aborted) throw error;
+    return {
+      kind: "refused",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function resolveCommittedClaudeMd(
+  git: Git,
+  cwd: string,
+  rev: string,
+): Promise<CommittedClaudeMd> {
+  let path = "CLAUDE.md";
+  for (let hop = 0; hop <= MAX_LINK_HOPS; hop++) {
+    const listed = await git(
+      ["--literal-pathspecs", "ls-tree", "--full-tree", "-z", rev, "--", path],
+      { cwd },
+    );
+    if (listed.code !== 0) {
+      return {
+        kind: "refused",
+        reason: `git ls-tree failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+      };
+    }
+    // A pathspec naming a directory lists what is in it; only an entry for
+    // exactly this path is the file (a link to nothing lists nothing).
+    const entry = /^(\d+) (\w+) ([0-9a-f]+)\t([^\0]*)\0/.exec(listed.stdout);
+    if (entry === null || entry[4] !== path) return { kind: "absent" };
+    const [, mode, type, object] = entry as unknown as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    if (mode === "120000") {
+      // Sized before it is read, like the file itself: on a reuse this runs
+      // against a mirror before any checkout, where no filesystem limit on
+      // link targets stands between a huge blob and this process's memory.
+      const size = await git(["cat-file", "-s", object], { cwd });
+      if (size.code !== 0) {
+        return {
+          kind: "refused",
+          reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
+        };
+      }
+      if (Number(size.stdout.trim()) > MAX_LINK_TARGET_BYTES) {
+        return { kind: "refused", reason: "it links to an overlong path" };
+      }
+      const target = await git(["cat-file", "blob", object], { cwd });
+      if (target.code !== 0) {
+        return {
+          kind: "refused",
+          reason: `git cat-file failed (exit ${target.code}): ${target.stderr.trim()}`,
+        };
+      }
+      // A link is an arbitrary blob; no filesystem path holds a NUL.
+      if (target.stdout.includes("\0")) {
+        return { kind: "refused", reason: "it links to a malformed path" };
+      }
+      const next = posix.normalize(
+        posix.join(posix.dirname(path), target.stdout),
+      );
+      if (
+        posix.isAbsolute(target.stdout) ||
+        next === ".." ||
+        next.startsWith("../")
+      ) {
+        return { kind: "refused", reason: "it links outside the repository" };
+      }
+      // A pathspec that names a directory this way lists everything in it —
+      // unbounded output from a read that runs for every session — and
+      // whatever it names is no file anyway.
+      if (next === "." || next.endsWith("/")) {
+        return { kind: "refused", reason: "it is not a regular file" };
+      }
+      path = next;
+      continue;
+    }
+    if (type !== "blob") {
+      return { kind: "refused", reason: "it is not a regular file" };
+    }
+    const size = await git(["cat-file", "-s", object], { cwd });
+    if (size.code !== 0) {
+      return {
+        kind: "refused",
+        reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
+      };
+    }
+    if (Number(size.stdout.trim()) > COMMITTED_CLAUDE_MD_MAX_BYTES) {
+      return {
+        kind: "refused",
+        reason: `it is larger than ${COMMITTED_CLAUDE_MD_MAX_BYTES} bytes`,
+      };
+    }
+    const blob = await git(["cat-file", "blob", object], { cwd });
+    if (blob.code !== 0) {
+      return {
+        kind: "refused",
+        reason: `git cat-file failed (exit ${blob.code}): ${blob.stderr.trim()}`,
+      };
+    }
+    return { kind: "text", text: blob.stdout };
+  }
+  return { kind: "refused", reason: "it links through too many symlinks" };
 }
 
 type Secret = {

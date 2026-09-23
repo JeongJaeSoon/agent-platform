@@ -1,5 +1,6 @@
 import {
   permissionModeSchema,
+  projectSettingsSchema,
   runtimeConfigSchema,
 } from "@agent-platform/contracts";
 import { z } from "zod";
@@ -41,6 +42,9 @@ export const catalogProfileConfigSchema = z
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
+    // Off unless the operator turns it on: a profile written before this
+    // field existed keeps the run it was reviewed for.
+    project_settings: projectSettingsSchema.default({ claude_md: false }),
   })
   .strict();
 export const sessionCatalogConfigSchema = z

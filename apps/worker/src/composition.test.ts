@@ -71,4 +71,42 @@ describe("claudeRuntimeRegistry", () => {
       }),
     ).toThrow("this worker ships Agent SDK");
   });
+
+  test("a profile that wants CLAUDE.md gets no engine when the workspace cannot vouch for one", () => {
+    const launcher = claudeRuntimeRegistry(
+      config,
+      new EngineProcesses(),
+    ).launcherFor({
+      kind: "claude_agent_sdk",
+      version: CLAUDE_AGENT_SDK_VERSION,
+      profile_id: "default",
+    });
+
+    expect(() =>
+      launcher.start(
+        {
+          committedClaudeMd: () => {
+            throw new Error(
+              "Repository CLAUDE.md refused: a restored workspace has no freshly fetched commit behind it",
+            );
+          },
+          correlationId: "s:a",
+          mode: "new",
+          principal: { owner_scope: "owner-a" },
+          runtimeConfig: {
+            model: "m",
+            tools: [],
+            permission_mode: "default",
+            provider: {
+              kind: "anthropic",
+              endpoint: "http://127.0.0.1:9",
+              auth: { kind: "api_key", value: "placeholder" },
+            },
+            project_settings: { claude_md: true },
+          },
+        },
+        { onPermission: async () => ({ behavior: "deny", message: "none" }) },
+      ),
+    ).toThrow("no freshly fetched commit");
+  });
 });
