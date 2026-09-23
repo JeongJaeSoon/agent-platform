@@ -10,6 +10,9 @@ export const API_ERROR_CODE_VALUES = [
   "REQUEST_TIMEOUT",
   "UNSUPPORTED_CAPABILITY",
   "RATE_LIMITED",
+  // The installation's retained-content budget is spent; retrying does not
+  // free any of it (94S-131).
+  "STORAGE_LIMIT_EXCEEDED",
   "INTERNAL_ERROR",
   "REVISION_CONFLICT",
   "IDEMPOTENCY_CONFLICT",

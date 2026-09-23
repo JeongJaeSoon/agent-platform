@@ -39,6 +39,11 @@ function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
 ) {
   const service = createSessionService({
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+    },
     authorization: ownerScopedPolicy,
     catalog,
     inputs: {
@@ -642,6 +647,11 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
 
   test("a principal without sessions:recover is 403 FORBIDDEN, not 404", async () => {
     const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+      },
       authorization: {
         authorize: (actor, action, resource) =>
           actor.ownerId === resource.ownerId && action !== "sessions:recover",

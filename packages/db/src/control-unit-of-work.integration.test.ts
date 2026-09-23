@@ -72,7 +72,12 @@ integration("session terminate on PostgreSQL", () => {
           return { status: "verified" };
         },
       },
-      options: { leaseTtlMs: LEASE_TTL_MS, now, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: LEASE_TTL_MS,
+        now,
+        sleep: async () => {},
+      },
     });
   }, 60_000);
 
@@ -85,12 +90,14 @@ integration("session terminate on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
   const store = () =>
     createPostgresSchedulerStore(db, {
+      sessionCostLimitUsd: 1_000,
       connectForLock: () => pool.connect(),
     });
 
   async function queuedSession(partition: string) {
     const ownerId = `owner-${crypto.randomUUID()}`;
     const result = await inputs().acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -234,6 +241,7 @@ integration("session terminate on PostgreSQL", () => {
     const { session, launch: l, claimed } = await bound("tx");
     await deliver(claimed);
     const appended = await inputs().appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: session.ownerId },
       sessionId: session.session_id,
       idempotencyKey: crypto.randomUUID(),

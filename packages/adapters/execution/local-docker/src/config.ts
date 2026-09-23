@@ -68,6 +68,12 @@ export type LocalDockerBackendConfig = {
    */
   workspaceGcMinAgeMs: number;
   workspaceQuota: WorkspaceQuota;
+  /**
+   * Installation limits the worker enforces itself (94S-131), handed to it as
+   * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. Left out, the
+   * worker's own defaults apply; the scheduler always sets them.
+   */
+  workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
 };
 
 export type WorkerObjectStoreAccess = {

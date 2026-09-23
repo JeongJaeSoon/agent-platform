@@ -78,7 +78,11 @@ integration("pause on PostgreSQL (94S-137)", () => {
         },
       },
       pending: createPostgresWorkerPendingStore(db),
-      options: { leaseTtlMs: 60_000, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: 60_000,
+        sleep: async () => {},
+      },
     });
   }, 60_000);
 
@@ -102,6 +106,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     const partition = `${name}-${crypto.randomUUID()}`;
     const ownerId = `owner-${crypto.randomUUID()}`;
     const accepted = await inputs().acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -234,6 +239,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
 
   async function append(session: Session, message: string) {
     return inputs().appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: session.ownerId },
       sessionId: session.sessionId,
       idempotencyKey: crypto.randomUUID(),

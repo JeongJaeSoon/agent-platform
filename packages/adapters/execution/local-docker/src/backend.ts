@@ -114,6 +114,8 @@ export const ENV = {
    * sizes its drain to what it will actually get.
    */
   stopGrace: "WORKER_STOP_GRACE_SEC",
+  maxTurnSeconds: "WORKER_MAX_TURN_SEC",
+  providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
 } as const;
 
 /** The worker's own loopback is the only thing worth not proxying. */
@@ -184,6 +186,10 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
+    // Same for the turn deadline and provider retries (94S-131). It also
+    // retires containers from before the limits existed, whose workers
+    // report no turn cost and so would never reach the budget.
+    config.workerLimits ?? null,
   ]);
   const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
   return `${ISOLATION_CONTRACT}:${digest}`;
@@ -1924,6 +1930,12 @@ export function workerEnvironmentFor(
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
     `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
+    ...(config.workerLimits === undefined
+      ? []
+      : [
+          `${ENV.maxTurnSeconds}=${config.workerLimits.maxTurnSeconds}`,
+          `${ENV.providerMaxRetries}=${config.workerLimits.providerMaxRetries}`,
+        ]),
   ];
 }
 

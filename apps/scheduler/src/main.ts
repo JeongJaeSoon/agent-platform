@@ -47,6 +47,7 @@ export async function main(
     const latch = latchOnConnectionLoss(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
+        sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
       }),
       (error) => {
         logger.error("Database connection lost; failing the rest of the pass", {

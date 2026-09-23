@@ -27,10 +27,13 @@ import type {
   SessionAction,
 } from "../authorization/policy.ts";
 import { checkpointAdmission } from "../checkpoints/durability.ts";
+import { budgetExceeded } from "../limits/installation-limits.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,
   InputAcceptance,
+  InputLimitRefusal,
+  InputLimits,
   ReadEventsQuery,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
@@ -40,6 +43,7 @@ export class SessionServiceError extends Error {
   constructor(
     readonly code: ApiErrorCode,
     message: string,
+    readonly retry?: { afterSeconds: number },
   ) {
     super(message);
   }
@@ -125,6 +129,23 @@ const PAUSE_REJECTIONS: Record<
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
 
+// Not a prediction of when the queue drains — turns wait on approvals and run
+// for minutes — only a floor that keeps clients from retrying in a tight loop.
+export const QUEUE_FULL_RETRY_AFTER_SECONDS = 5;
+
+function limitError(refusal: InputLimitRefusal): SessionServiceError {
+  return refusal.outcome === "queue_full"
+    ? new SessionServiceError(
+        "RATE_LIMITED",
+        "The session already holds its limit of queued messages",
+        { afterSeconds: QUEUE_FULL_RETRY_AFTER_SECONDS },
+      )
+    : new SessionServiceError(
+        "STORAGE_LIMIT_EXCEEDED",
+        "The installation has no storage left for this message",
+      );
+}
+
 export function payloadHash(payload: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(payload)), "utf8")
@@ -137,9 +158,14 @@ export function createSessionService(deps: {
   controls: SessionControl;
   reader: SessionReader;
   catalog: SessionCatalog;
+  limits: InputLimits & { sessionCostLimitUsd: number };
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
+  const inputLimits: InputLimits = {
+    queuedInputLimitPerSession: deps.limits.queuedInputLimitPerSession,
+    storageLimitBytes: deps.limits.storageLimitBytes,
+  };
   const now = deps.now ?? (() => new Date());
 
   function runtimeFor(profileId: string | null): SessionRuntime {
@@ -207,6 +233,7 @@ export function createSessionService(deps: {
             ? { id: input.body.repository_id, ...repository }
             : null,
         message: input.body.message,
+        limits: inputLimits,
       });
       switch (result.outcome) {
         case "conflict":
@@ -214,6 +241,9 @@ export function createSessionService(deps: {
             "IDEMPOTENCY_CONFLICT",
             "Idempotency-Key was already used with a different payload",
           );
+        case "queue_full":
+        case "storage_exhausted":
+          throw limitError(result);
         case "unsupported":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
@@ -236,6 +266,7 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         message: input.body.message,
+        limits: inputLimits,
       });
       switch (result.outcome) {
         case "conflict":
@@ -258,6 +289,9 @@ export function createSessionService(deps: {
               : admission.message,
           );
         }
+        case "queue_full":
+        case "storage_exhausted":
+          throw limitError(result);
         default:
           return result.response;
       }
@@ -469,8 +503,21 @@ export function createSessionService(deps: {
       if (!record) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const { profile_id, ...detail } = record;
-      return { ...detail, runtime: runtimeFor(profile_id) };
+      const { profile_id, cost_usd, ...detail } = record;
+      return {
+        ...detail,
+        // Dispatch stops at the same predicate (nextInputAtomic), so what
+        // this says and what the gateway does come from one comparison.
+        attention:
+          detail.attention ??
+          (budgetExceeded(cost_usd, deps.limits.sessionCostLimitUsd)
+            ? {
+                code: "BUDGET_EXCEEDED",
+                reason: `The session has spent its ${deps.limits.sessionCostLimitUsd} USD budget; queued messages will not run`,
+              }
+            : null),
+        runtime: runtimeFor(profile_id),
+      };
     },
 
     async listTurns(

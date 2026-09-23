@@ -83,7 +83,11 @@ integration("turn interrupts on PostgreSQL", () => {
         },
       },
       pending: createPostgresWorkerPendingStore(db),
-      options: { leaseTtlMs: 60_000, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: 60_000,
+        sleep: async () => {},
+      },
     });
     interrupts = createInterruptService({
       authorization: ownerScopedPolicy,
@@ -152,6 +156,7 @@ integration("turn interrupts on PostgreSQL", () => {
     const owner = { ownerId: `owner-${crypto.randomUUID()}` };
     const inputs = createPostgresSessionUnitOfWork(db);
     const accepted = await inputs.acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -167,6 +172,7 @@ integration("turn interrupts on PostgreSQL", () => {
     const sessionId = accepted.response.session_id;
     for (let index = 0; index < queued; index += 1) {
       const appended = await inputs.appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
         principal: owner,
         sessionId,
         idempotencyKey: crypto.randomUUID(),

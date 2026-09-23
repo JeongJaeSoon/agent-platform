@@ -110,7 +110,11 @@ const HOST_PROXY_VARIABLES = [
 export function runtimeEnvironment(
   config: Pick<
     ClaudeRuntimeConfig,
-    "claudeConfigDir" | "home" | "profile" | "trustedCaBundle"
+    | "claudeConfigDir"
+    | "home"
+    | "profile"
+    | "providerMaxRetries"
+    | "trustedCaBundle"
   >,
   host: NodeJS.ProcessEnv = process.env,
 ): Record<string, string | undefined> {
@@ -126,6 +130,9 @@ export function runtimeEnvironment(
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
     if (value !== undefined) environment[name] = value;
+  }
+  if (config.providerMaxRetries !== undefined) {
+    environment.CLAUDE_CODE_MAX_RETRIES = String(config.providerMaxRetries);
   }
   if (config.trustedCaBundle !== undefined) {
     environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;

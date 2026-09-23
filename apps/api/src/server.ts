@@ -16,6 +16,9 @@ import {
   createSessionService,
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
+  InstallationConfigError,
+  installationLimitProblems,
+  installationLimitsFromEnv,
   isCatalogEmpty,
   ownerScopedPolicy,
   parseSessionCatalogEnv,
@@ -52,6 +55,20 @@ if (!databaseUrl) {
 }
 
 const logger = createLogger();
+const limits = (() => {
+  try {
+    return installationLimitsFromEnv(process.env);
+  } catch (error) {
+    // Every problem in one line before the process dies, so the operator
+    // fixes the env file once instead of once per variable.
+    if (error instanceof InstallationConfigError) {
+      logger.error("Refusing to start: installation limits are invalid", {
+        problems: error.problems,
+      });
+    }
+    throw error;
+  }
+})();
 const catalog = parseSessionCatalogEnv(
   "SESSION_CATALOG_JSON",
   process.env.SESSION_CATALOG_JSON,
@@ -96,6 +113,7 @@ const sessions = createSessionService({
   controls: createPostgresSessionControl(db),
   reader: createPostgresSessionReader(db),
   catalog,
+  limits,
 });
 const pendingRequests = createPendingRequestService({
   authorization: ownerScopedPolicy,
@@ -122,6 +140,7 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   options: {
+    sessionCostLimitUsd: limits.sessionCostLimitUsd,
     leaseTtlMs:
       Number.isFinite(heartbeatTtlSec) && heartbeatTtlSec > 0
         ? heartbeatTtlSec * 1000
@@ -189,6 +208,9 @@ const app = createApiApp({
       "DATABASE_URL",
       { name: "AUTH_MODE", allowed: ["none", "api-key"] },
     ],
+    // The same parser the process started with: an env that changed under a
+    // running instance shows up here rather than at the next restart.
+    configProblems: installationLimitProblems,
   }),
 });
 

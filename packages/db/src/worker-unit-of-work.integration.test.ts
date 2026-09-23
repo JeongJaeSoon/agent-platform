@@ -80,7 +80,12 @@ integration("worker gateway on PostgreSQL", () => {
             : { status: "verified" };
         },
       },
-      options: { leaseTtlMs: LEASE_TTL_MS, now, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs: LEASE_TTL_MS,
+        now,
+        sleep: async () => {},
+      },
     });
   }, 60_000);
 
@@ -114,7 +119,12 @@ integration("worker gateway on PostgreSQL", () => {
           return { status: "verified" };
         },
       },
-      options: { leaseTtlMs, now: () => clock, sleep: async () => {} },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        leaseTtlMs,
+        now: () => clock,
+        sleep: async () => {},
+      },
     });
 
   async function launch(partition: string, sessionId?: string) {
@@ -133,6 +143,7 @@ integration("worker gateway on PostgreSQL", () => {
   // Every test owns a partition so leftovers from other tests never compete.
   async function queuedSession(partition: string, message = "first input") {
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -198,6 +209,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs,
         now: () => new Date(Date.now() + offsetMs),
         sleep: async () => {},
@@ -643,6 +655,7 @@ integration("worker gateway on PostgreSQL", () => {
         .where(eq(sessions.id, session.session_id))
     )[0];
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: owner?.ownerId ?? "" },
       sessionId: session.session_id,
       idempotencyKey: crypto.randomUUID(),
@@ -1183,6 +1196,7 @@ integration("worker gateway on PostgreSQL", () => {
       .from(sessions)
       .where(eq(sessions.id, session.session_id));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: owner?.ownerId ?? "" },
       sessionId: session.session_id,
       idempotencyKey: crypto.randomUUID(),
@@ -1287,6 +1301,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: 400,
         now: () => clock,
         sleep: async () => {},
@@ -1338,6 +1353,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -1459,6 +1475,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         sessionTokenTtlMs: 600,
         now: () => clock,
@@ -1726,6 +1743,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -2201,6 +2219,7 @@ integration("worker gateway on PostgreSQL", () => {
     const inputs = createPostgresSessionUnitOfWork(db);
     const ownerId = `owner-${crypto.randomUUID()}`;
     const create = {
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
@@ -2246,6 +2265,7 @@ integration("worker gateway on PostgreSQL", () => {
     await finalizeTurn("1", "completed");
 
     const append = {
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },
       sessionId,
       idempotencyKey: crypto.randomUUID(),
@@ -2376,6 +2396,7 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ repositoryId: null })
       .where(eq(sessions.id, session.session_id));
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: {
         ownerId:
           (
@@ -2457,6 +2478,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
     // A second input arrives while the worker is still bound.
     await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: {
         ownerId:
           (
@@ -2644,6 +2666,7 @@ integration("worker gateway on PostgreSQL", () => {
       )[0]?.ownerId ?? "";
     const append = (message: string) =>
       createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
         principal: { ownerId },
         sessionId: session.session_id,
         idempotencyKey: crypto.randomUUID(),
@@ -2832,6 +2855,7 @@ integration("worker gateway on PostgreSQL", () => {
       )[0]?.ownerId ?? "";
     const append = (message: string) =>
       createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
         principal: { ownerId },
         sessionId: session.session_id,
         idempotencyKey: crypto.randomUUID(),

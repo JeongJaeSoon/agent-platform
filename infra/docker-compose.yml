@@ -1,5 +1,18 @@
 name: agent-platform
 
+# Installation limits (94S-131). The API and the scheduler both refuse to
+# start without them, and read them with one parser, so both services take
+# this one block. These are local defaults, not recommendations: size them
+# per installation.
+x-installation-limits: &installation-limits
+  EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+  QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
+  # Retained input messages across the installation; 1 GiB.
+  STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-1073741824}
+  MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
+  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
+  PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
+
 services:
   postgres:
     image: postgres:16
@@ -160,6 +173,7 @@ services:
       # `docker compose exec api bun run apps/api/src/keys.ts create <owner>`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
+      <<: *installation-limits
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
@@ -281,7 +295,7 @@ services:
       WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
       EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
-      EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+      <<: *installation-limits
       # Docker Desktop cannot carry a project quota, so the local stack opts out
       # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}

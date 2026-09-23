@@ -303,6 +303,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
         },
       },
       options: {
+        sessionCostLimitUsd: 1_000,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -320,6 +321,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),

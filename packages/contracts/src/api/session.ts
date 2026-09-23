@@ -111,10 +111,18 @@ export const PAUSE_BLOCKED_REASON_VALUES = [
   "checkpoint_unavailable",
 ] as const;
 export const pauseBlockedReasonSchema = z.enum(PAUSE_BLOCKED_REASON_VALUES);
-export const sessionAttentionSchema = z.object({
-  code: z.enum(["PAUSE_BLOCKED"]),
-  reason: pauseBlockedReasonSchema,
-});
+export const sessionAttentionSchema = z.discriminatedUnion("code", [
+  z.object({
+    code: z.literal("PAUSE_BLOCKED"),
+    reason: pauseBlockedReasonSchema,
+  }),
+  // The session has spent SESSION_COST_LIMIT_USD, so no further turn is
+  // dispatched; input is still queued (94S-131).
+  z.object({
+    code: z.literal("BUDGET_EXCEEDED"),
+    reason: z.string().min(1),
+  }),
+]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
   checkpoint_committed_at: timestampSchema.nullable(),

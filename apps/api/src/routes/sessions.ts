@@ -51,6 +51,8 @@ const STATUS_BY_CODE: Partial<
   SESSION_STOPPED: 409,
   SESSION_CLOSED: 409,
   RECOVERY_REQUIRED: 409,
+  RATE_LIMITED: 429,
+  STORAGE_LIMIT_EXCEEDED: 413,
 };
 
 // pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket
@@ -64,6 +66,8 @@ export async function mapped<T>(work: () => Promise<T>): Promise<T> {
         STATUS_BY_CODE[error.code] ?? 500,
         error.code,
         error.message,
+        error.retry !== undefined,
+        error.retry?.afterSeconds,
       );
     }
     if (error instanceof InvalidCursorError) {
@@ -77,12 +81,13 @@ export async function mapped<T>(work: () => Promise<T>): Promise<T> {
 }
 
 // Error statuses each handler can produce; the OpenAPI parity test holds the
-// route table to this. 429 stays declared-only until quota lands (94S-131).
+// route table to this. 413 on the two input routes is also the storage limit,
+// 429 the per-session queue limit (94S-131).
 export const sessionRouteErrors: Record<string, number[]> = {
-  "POST /v1/sessions": [400, 401, 409, 413, 422, 503],
+  "POST /v1/sessions": [400, 401, 409, 413, 422, 429, 503],
   "GET /v1/sessions": [400, 401, 503],
   "GET /v1/sessions/{id}": [401, 404, 503],
-  "POST /v1/sessions/{id}/messages": [400, 401, 404, 409, 413, 503],
+  "POST /v1/sessions/{id}/messages": [400, 401, 404, 409, 413, 429, 503],
   "GET /v1/sessions/{id}/turns": [400, 401, 404, 503],
   "GET /v1/sessions/{id}/turns/{turn_id}": [401, 404, 503],
   "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],

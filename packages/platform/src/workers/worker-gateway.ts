@@ -101,6 +101,8 @@ export type CheckpointProtocol = {
 export type WorkerGatewayOptions = {
   /** How long a heartbeat extends the lease. */
   leaseTtlMs: number;
+  /** SESSION_COST_LIMIT_USD: past it a session is dispatched nothing new. */
+  sessionCostLimitUsd: number;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /** Lifetime of a launch nonce registered through registerLaunch. */
@@ -515,6 +517,7 @@ export function createWorkerGateway(deps: {
       const sessionToken = generateSessionToken();
       const result = await work.claimAtomic({
         runnableProfiles,
+        costLimitUsd: deps.options.sessionCostLimitUsd,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -573,13 +576,19 @@ export function createWorkerGateway(deps: {
       const deadline =
         now().getTime() + Math.min(request.wait_ms ?? 0, maxWaitMs);
       for (;;) {
-        const result = await work.nextInputAtomic({ fence, now: now() });
+        const result = await work.nextInputAtomic({
+          fence,
+          now: now(),
+          costLimitUsd: deps.options.sessionCostLimitUsd,
+        });
         if (result.outcome !== "ok") rejected(result);
-        // A draining attempt is never handed new input, so waiting out the
-        // poll would only hold up its shutdown.
+        // A draining attempt is never handed new input, and neither is a
+        // session over budget, so waiting out the poll would only hold up
+        // the shutdown.
         if (
           result.input ||
           result.draining === true ||
+          result.blocked !== undefined ||
           now().getTime() >= deadline
         ) {
           return {
@@ -593,6 +602,9 @@ export function createWorkerGateway(deps: {
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),
+            ...(result.blocked === undefined
+              ? {}
+              : { draining: true, reason: result.blocked }),
           };
         }
         // Never sleep past the deadline the caller asked for: a one
