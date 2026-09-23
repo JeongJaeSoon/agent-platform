@@ -16,6 +16,7 @@ import {
   sha256,
   verifyCheckpoint,
   type WorkerContainer,
+  type WorkerEvent,
   Workers,
   waitFor,
   write,
@@ -61,8 +62,18 @@ async function rows<T>(sql: string, params: unknown[]): Promise<T[]> {
   return (await db.query(sql, params)).rows as T[];
 }
 
-async function sessionRow(sessionId: string): Promise<Record<string, any>> {
-  const [row] = await rows<Record<string, any>>(
+type SessionRow = {
+  admission_state: string;
+  checkpoint_pending_attempt_id: string | null;
+  checkpoint_pending_reason: string | null;
+  checkpoint_revision: number | null;
+  execution_generation: number;
+  lease_epoch: number;
+  status: string;
+};
+
+async function sessionRow(sessionId: string): Promise<SessionRow> {
+  const [row] = await rows<SessionRow>(
     `SELECT status, admission_state, checkpoint_revision, checkpoint_pending_reason,
             checkpoint_pending_attempt_id, execution_generation, lease_epoch
        FROM sessions WHERE id = $1`,
@@ -107,10 +118,8 @@ async function eventNumbering(sessionId: string): Promise<{
   let lastSequence = 0;
   for (const row of found) {
     attempts[row.attempt_id] = (attempts[row.attempt_id] ?? 0) + 1;
-    if (
-      lastAttempt === row.attempt_id &&
-      row.source_sequence !== lastSequence + 1
-    ) {
+    const expected = lastAttempt === row.attempt_id ? lastSequence + 1 : 1;
+    if (row.source_sequence !== expected) {
       problems.push(
         `${row.attempt_id}: ${lastSequence} → ${row.source_sequence}`,
       );
@@ -143,9 +152,9 @@ async function receiptStatuses(sessionId: string): Promise<string[]> {
 function logged(
   container: WorkerContainer,
   event: string,
-  match: (line: Record<string, any>) => boolean = () => true,
+  match: (line: WorkerEvent) => boolean = () => true,
   timeoutMs = 120_000,
-): Promise<Record<string, any>> {
+): Promise<WorkerEvent> {
   return waitFor(
     `${event} in ${container.name}`,
     async () =>
@@ -170,11 +179,15 @@ function exitOf(container: WorkerContainer): Promise<number> {
 
 /** Stops a worker the way an operator would: SIGTERM, then the drain. */
 async function stopWorker(container: WorkerContainer): Promise<number> {
-  const exit = exitOf(container);
+  const waited = exitOf(container);
   await run(["docker", "stop", "-t", "120", container.name], {
     allowFail: true,
   });
-  return exit;
+  const inspected = await run(
+    ["docker", "inspect", "--format", "{{.State.ExitCode}}", container.name],
+    { allowFail: true },
+  );
+  return inspected.code === 0 ? Number(inspected.stdout.trim()) : waited;
 }
 
 /** `docker ps` names the image by tag, or by short id once the tag moved on. */
@@ -416,6 +429,14 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const appendLog = (await chaos.log(sessionId)).filter((entry) =>
       entry.path.endsWith("/append-events"),
     );
+    const lostAt = appendLog.find((entry) => entry.rule === lost);
+    const retried = appendLog.filter(
+      (entry) =>
+        lostAt !== undefined &&
+        entry.index > lostAt.index &&
+        entry.rule === null &&
+        entry.status === 200,
+    );
     const numbering = await eventNumbering(sessionId);
     report.check({
       id: "A-04",
@@ -427,19 +448,14 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "the rule fired, a later append succeeded, events numbered without gap or repeat",
       actual: {
         fired: appendLog.filter((entry) => entry.rule === lost).length,
-        retried_ok: appendLog.some(
-          (entry) => entry.rule === null && entry.status === 200,
-        ),
+        committed_upstream: lostAt?.upstreamStatus ?? null,
+        later_appends_ok: retried.length,
         per_attempt: numbering.attempts,
         problems: numbering.problems,
       },
       pass:
-        appendLog.some(
-          (entry) => entry.rule === lost && entry.upstreamStatus === 200,
-        ) &&
-        appendLog.some(
-          (entry) => entry.rule === null && entry.status === 200,
-        ) &&
+        lostAt?.upstreamStatus === 200 &&
+        retried.length > 0 &&
         numbering.problems.length === 0,
     });
 
@@ -588,6 +604,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const after = await workers.workspace(second.name, tracked);
     const engine3 = await workers.engine(second.name);
     const inspected = await workers.inspect(second.name);
+    const newVolumes = await workspaceVolumes(sessionId);
     report.check({
       id: "A-08",
       criterion: "새 worker·clean HOME/workspace에서 복원",
@@ -601,7 +618,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         old_released: drained.some((line) => line.event === "worker.released"),
         old_volumes: oldVolumes,
         volume_removed: removed,
-        new_volumes: await workspaceVolumes(sessionId),
+        new_volumes: newVolumes,
         new_container: `${second.name} (generation ${second.generation})`,
         restore_revision: claimed.restore_revision,
         restored: {
@@ -616,9 +633,10 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         claimed.restore_revision === 1 &&
         restored.revision === 1 &&
         restored.git_commit === verified.manifest.workspace.gitCommit &&
-        (await workspaceVolumes(sessionId)).every(
-          (v) => !oldVolumes.includes(v),
-        ),
+        oldVolumes.length > 0 &&
+        newVolumes.length > 0 &&
+        newVolumes.every((v) => !oldVolumes.includes(v)) &&
+        "/home/worker" in (inspected.HostConfig?.Tmpfs ?? {}),
     });
     report.check({
       id: "A-09",
@@ -799,6 +817,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         turn2.status === "completed" &&
         checkpoints.length === 1 &&
         committed?.revision === 0 &&
+        (await sessionRow(sessionId)).checkpoint_revision === 0 &&
         committed.turn_id ===
           (await turnRows(sessionId)).find((t) => String(t.sequence) === turnId)
             ?.id &&
@@ -869,7 +888,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         checkpoints: checkpoints.length,
         next_message: {
           status: next.status,
-          code: next.body?.error?.code ?? next.body?.code,
+          body: next.body,
         },
       },
       pass:

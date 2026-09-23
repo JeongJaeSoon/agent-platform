@@ -18,6 +18,8 @@
 # worker containers, networks and volumes the scheduler made for this run's
 # installation id, and the three images are removed on exit.
 set -euo pipefail
+# vars.sh and the logs carry the run's API key.
+umask 077
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -26,7 +28,7 @@ if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
 fi
 
-run_id="$(date +%s | tail -c 7)$((RANDOM % 1000))"
+run_id="$(od -An -N5 -tx1 /dev/urandom | tr -d ' \n')"
 project="d2gate-${run_id}"
 out="${D2_GATE_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/d2-gate.XXXXXX")}"
 mkdir -p "$out"

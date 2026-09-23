@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+  CreateSessionResponse,
+  GetSessionResponse,
+  GetTurnResponse,
+  PendingRequest,
+  PostSessionMessageResponse,
+} from "@agent-platform/contracts";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
   GetObjectCommand,
@@ -171,7 +178,7 @@ export async function waitFor<T>(
 
 // ---------------------------------------------------------------- public API
 
-export type ApiResult = { body: any; status: number };
+export type ApiResult = { body: unknown; status: number };
 
 const OPEN_TURN = new Set(["queued", "running", "needs_input"]);
 
@@ -199,11 +206,7 @@ export class PublicApi {
     return { body: parsed, status: response.status };
   }
 
-  async createSession(message: string): Promise<{
-    session_id: string;
-    turn_id: string;
-    receipt_id: string;
-  }> {
+  async createSession(message: string): Promise<CreateSessionResponse> {
     const created = await this.call("POST", "/v1/sessions", {
       profile_id: "d2-gate",
       repository_id: "gate-app",
@@ -214,7 +217,7 @@ export class PublicApi {
         `create ${created.status} ${JSON.stringify(created.body)}`,
       );
     }
-    return created.body;
+    return created.body as CreateSessionResponse;
   }
 
   postMessage(sessionId: string, message: string): Promise<ApiResult> {
@@ -229,16 +232,17 @@ export class PublicApi {
         `message ${posted.status} ${JSON.stringify(posted.body)}`,
       );
     }
-    return posted.body.turn_id;
+    return (posted.body as PostSessionMessageResponse).turn_id;
   }
 
-  async session(sessionId: string): Promise<any> {
-    return (await this.call("GET", `/v1/sessions/${sessionId}`)).body;
+  async session(sessionId: string): Promise<GetSessionResponse> {
+    return (await this.call("GET", `/v1/sessions/${sessionId}`))
+      .body as GetSessionResponse;
   }
 
-  async turn(sessionId: string, turnId: string): Promise<any> {
+  async turn(sessionId: string, turnId: string): Promise<GetTurnResponse> {
     return (await this.call("GET", `/v1/sessions/${sessionId}/turns/${turnId}`))
-      .body;
+      .body as GetTurnResponse;
   }
 
   /**
@@ -250,7 +254,7 @@ export class PublicApi {
     sessionId: string,
     turnId: string,
     timeoutMs: number,
-  ): Promise<any> {
+  ): Promise<GetTurnResponse> {
     return waitFor(
       `turn ${turnId} of ${sessionId} to end`,
       async () => {
@@ -258,7 +262,8 @@ export class PublicApi {
           "GET",
           `/v1/sessions/${sessionId}/pending-requests`,
         );
-        for (const request of pending.body?.items ?? []) {
+        const { items } = pending.body as { items?: PendingRequest[] };
+        for (const request of items ?? []) {
           if (request.kind !== "permission") continue;
           await this.call("POST", `/v1/sessions/${sessionId}/answers`, {
             request_id: request.request_id,
@@ -530,7 +535,7 @@ export type WorkerContainer = {
   state: string;
 };
 
-export type WorkerEvent = { [field: string]: any; event: string };
+export type WorkerEvent = { [field: string]: unknown; event: string };
 
 export class Workers {
   private readonly following = new Map<
@@ -668,9 +673,15 @@ export class Workers {
     return lines;
   }
 
-  async inspect(name: string): Promise<any> {
+  async inspect(
+    name: string,
+  ): Promise<{ HostConfig?: { Tmpfs?: Record<string, string> } }> {
     const { stdout } = await run(["docker", "inspect", name]);
-    return (JSON.parse(stdout) as unknown[])[0];
+    const [found] = JSON.parse(stdout) as Array<{
+      HostConfig?: { Tmpfs?: Record<string, string> };
+    }>;
+    if (!found) throw new Error(`docker inspect ${name} returned nothing`);
+    return found;
   }
 
   /**
@@ -682,7 +693,7 @@ export class Workers {
     name: string,
   ): Promise<{ command: string; pid: number; startTicks: string } | null> {
     const script =
-      'p=claude-agent-sdk; for d in /proc/[0-9]*; do c=$(tr "\\0" " " < "$d/cmdline" 2>/dev/null); case "$c" in *"$p"-linux*/claude*) echo "${d#/proc/} $(cut -d" " -f22 "$d/stat") $c";; esac; done';
+      'p=claude-agent-sdk; for d in /proc/[0-9]*; do c=$(tr "\\0" " " < "$d/cmdline" 2>/dev/null); case "$c" in *"$p"-linux*/claude*) echo "$(basename "$d") $(cut -d" " -f22 "$d/stat") $c";; esac; done';
     const { stdout } = await run(["docker", "exec", name, "sh", "-c", script], {
       allowFail: true,
     });
@@ -724,6 +735,8 @@ export type ChaosRule = {
 
 export type ChaosEntry = {
   at: string;
+  /** Arrival order at the fault injector. */
+  index: number;
   method: string;
   path: string;
   rule: string | null;
