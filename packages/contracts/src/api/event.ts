@@ -152,6 +152,9 @@ export const sseEventSchema = z.discriminatedUnion("event", [
 // no page past it could be served and the cursor could never move on. It
 // reads instead as an `error` event under its own cursor. This code is not
 // terminal; the session's state is read from the session, not from here.
+// The flip side: a reader cannot tell such a row from one a newer writer
+// stored, so widening this contract (a new kind or enum value) must reach
+// every reader before any writer uses it.
 export const UNREADABLE_EVENT_CODE = "EVENT_UNREADABLE";
 
 export function readStoredEvent(
