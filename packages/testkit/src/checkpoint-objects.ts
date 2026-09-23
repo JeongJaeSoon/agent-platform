@@ -39,6 +39,13 @@ export type MemoryCheckpointObjectStoreOptions = {
    * Only a versioned store offers `hold`.
    */
   readonly versioned?: boolean;
+  /**
+   * Largest chunk `stream` hands out; defaults to 64 KiB. Every chunk is a
+   * view of one buffer refilled for the next, which the store contract
+   * allows, so a consumer that keeps a chunk instead of copying it reads
+   * garbage in a test before it does in production.
+   */
+  readonly streamChunkBytes?: number;
 };
 
 type Version = { bytes: Uint8Array; held: boolean; id: string };
@@ -53,6 +60,7 @@ export function createMemoryCheckpointObjectStore(
   options: MemoryCheckpointObjectStoreOptions = {},
 ): MemoryCheckpointObjectStore {
   const versioned = options.versioned === true;
+  const chunkBytes = options.streamChunkBytes ?? 64 * 1024;
   const objects = new Map<string, Slot>();
   const reads: string[] = [];
   let failuresLeft = 0;
@@ -96,6 +104,23 @@ export function createMemoryCheckpointObjectStore(
     async get(key, version) {
       reads.push(key);
       return lookup(key, version)?.bytes.slice();
+    },
+
+    async stream(key, version) {
+      reads.push(key);
+      const found = lookup(key, version);
+      if (found === undefined) return undefined;
+      // Taken now, as S3 pins the object that answered the GET: a write
+      // landing mid-read does not change what this read delivers.
+      const bytes = found.bytes;
+      return (async function* () {
+        const buffer = new Uint8Array(Math.min(chunkBytes, bytes.byteLength));
+        for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+          const piece = bytes.subarray(offset, offset + chunkBytes);
+          buffer.set(piece);
+          yield buffer.subarray(0, piece.byteLength);
+        }
+      })();
     },
 
     async head(key, version): Promise<ObjectHead | undefined> {

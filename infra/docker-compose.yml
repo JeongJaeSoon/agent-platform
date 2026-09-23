@@ -195,10 +195,11 @@ services:
     # bundles are verified at once (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).
     # Each has git fetch and its index-pack alive together, each capped at
     # CHECKPOINT_GIT_MEMORY_MB of address space (fsck runs after them, not
-    # beside), while the service holds the bundle about twice over
-    # (2 x 128 MiB). So:
-    #   2 x (2 x 1536 + 256) MiB = 6656 MiB for verification
-    #   + 512 MiB for the API itself           = 7168 MiB
+    # beside). The service itself streams the bundle to a spool file and
+    # holds none of it (94S-230), so the 256 MiB per verification it used
+    # to hold is now headroom. So:
+    #   2 x (2 x 1536) MiB = 6144 MiB for verification
+    #   + 512 MiB for the API itself     = 6656 MiB, under 7168 MiB
     # Measured far below it: two concurrent verifications of 94S-259's worst
     # honest bundle (480 MiB file, one edit) peaked at 3.5 GiB including page
     # cache, which the kernel reclaims before it OOM-kills anything. A crafted
