@@ -50,6 +50,11 @@ project="${RR_PROJECT:-rr${run_id}}"
 restored="${project}r"
 port_base="${RR_PORT_BASE:-24320}"
 out="${RR_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/restore-resume.XXXXXX")}"
+# Cleanup deletes $out/backup, so the directory must be this run's alone.
+if [ -d "$out" ] && [ -n "$(ls -A "$out")" ]; then
+  echo "RR_OUT ${out} is not empty" >&2
+  exit 2
+fi
 mkdir -p "$out/workers"
 record="$out/record.txt"
 
@@ -203,8 +208,13 @@ jq -e . "$out/manifest-source.json" >/dev/null || fail "source manifest is not J
 
 # --- 2. backup, then remove the source --------------------------------------
 src stop api scheduler reconciler >/dev/null 2>&1
+# `paused` commits while the worker is still releasing; give it time to exit.
+for _ in $(seq 60); do
+  [ -n "$(docker ps -q --filter "label=${label}" --filter "name=ap-worker-")" ] || break
+  sleep 1
+done
 [ -z "$(docker ps -q --filter "label=${label}" --filter "name=ap-worker-")" ] \
-  || fail "a worker still runs after pause and stop"
+  || fail "a worker still runs 60s after pause and stop"
 backup_dir="$(bash scripts/backup.sh --project "$project" --out "$out/backup" 2>"$out/backup.log")" \
   || { cat "$out/backup.log" >&2; fail "backup"; }
 cp "$backup_dir/manifest.json" "$out/backup-manifest.json"
@@ -212,8 +222,8 @@ note "backup: $(jq -c '{objects, repos: (.repos.bundled | length), worker: .imag
 src down -v --remove-orphans >/dev/null 2>&1
 remove_installation
 ! project_has_resources "$project" || fail "source project ${project} still has resources"
-[ -z "$(docker ps -aq --filter "label=${label}")$(docker volume ls -q --filter "label=${label}")" ] \
-  || fail "installation ${EXECUTION_INSTALLATION_ID} still has containers or volumes"
+[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${label}")" ] \
+  || fail "installation ${EXECUTION_INSTALLATION_ID} still has containers, networks or volumes"
 pass "source ${project} removed: no container, volume or network left"
 
 # --- 3. restore into a new project, verify, start the apps -------------------
