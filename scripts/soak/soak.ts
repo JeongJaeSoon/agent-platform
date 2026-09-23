@@ -1,13 +1,18 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Pool } from "pg";
 import { database, run, Workers } from "../../tests/d2-gate/harness.ts";
-import { checkInvariants, type InvariantResult } from "./invariants.ts";
+import {
+  ContainerLifetimes,
+  checkInvariants,
+  type InvariantResult,
+  SlotWatch,
+} from "./invariants.ts";
 import {
   between,
   type Criterion,
   clockOffset,
-  compose,
+  composeToFile,
   criterion,
   distribution,
   markdownReport,
@@ -41,6 +46,7 @@ import {
  *
  *   source "$SOAK_STATE/vars.sh"
  *   bun scripts/soak/soak.ts scripts/soak/config/preflight-1h.json [out-dir]
+ *   bun scripts/soak/soak.ts --judge <out-dir>     judge a run again from its files
  *
  * Every raw observation lands as JSONL in the output directory (turns,
  * controls, readyz, invariants, clock, model requests, fault injector
@@ -199,6 +205,8 @@ class Soak {
   readonly anomalies: Array<Record<string, unknown>> = [];
   windowStart = Number.POSITIVE_INFINITY;
   windowEnd = Number.POSITIVE_INFINITY;
+  readonly lifetimes: ContainerLifetimes;
+  readonly slots = new SlotWatch();
 
   constructor(
     readonly config: SoakConfig,
@@ -207,7 +215,12 @@ class Soak {
     readonly api: Api,
     readonly model: Model,
     readonly db: Pool,
-  ) {}
+  ) {
+    this.lifetimes = new ContainerLifetimes(
+      env.installation,
+      out.jsonl("container-events"),
+    );
+  }
 
   inWindow(at: number): boolean {
     return at >= this.windowStart && at <= this.windowEnd;
@@ -257,8 +270,8 @@ class SessionLoop {
     await this.turn("normal", rampStep);
   }
 
-  async loop(deadline: number, clock: Clock): Promise<void> {
-    while (Date.now() < deadline && !clock.stopping) {
+  async loop(schedule: { deadline: number }, clock: Clock): Promise<void> {
+    while (Date.now() < schedule.deadline && !clock.stopping) {
       if (this.sessionId === null) {
         await this.open(null);
         continue;
@@ -489,27 +502,61 @@ async function every(
   }
 }
 
+/**
+ * One /readyz request, timed by curl rather than by this process: the
+ * runner's own event loop stalls while it parses a large log batch, and a
+ * timer measured here would charge that stall to the API. `wallMs` is kept
+ * beside it so such a stall stays visible.
+ */
+async function readyzProbe(
+  apiUrl: string,
+  timeoutMs: number,
+): Promise<{
+  error: string | null;
+  ms: number;
+  ok: boolean;
+  status: number;
+  wallMs: number;
+}> {
+  const sent = Date.now();
+  const child = Bun.spawn(
+    [
+      "curl",
+      "-s",
+      "-o",
+      "/dev/null",
+      "-m",
+      String(timeoutMs / 1000),
+      "-w",
+      "%{http_code} %{time_total}",
+      `${apiUrl}/readyz`,
+    ],
+    { stderr: "ignore", stdout: "pipe" },
+  );
+  const [text, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    child.exited,
+  ]);
+  const [httpCode = "0", seconds = "0"] = text.trim().split(" ");
+  const status = Number(httpCode);
+  return {
+    error: code === 0 ? null : `curl exit ${code}`,
+    ms: Math.round(Number(seconds) * 1000),
+    ok: code === 0 && status === 200,
+    status,
+    wallMs: Date.now() - sent,
+  };
+}
+
 function background(soak: Soak, clock: Clock): Promise<void>[] {
   const { config, env, out } = soak;
   let modelCursor = 0;
   let chaosCursor = 0;
   const tasks = [
     every(clock, config.readyz.intervalMs, async () => {
-      const sent = Date.now();
-      let status = 0;
-      let error: string | null = null;
-      try {
-        const response = await fetch(`${env.apiUrl}/readyz`, {
-          signal: AbortSignal.timeout(config.readyz.timeoutMs),
-        });
-        status = response.status;
-        await response.arrayBuffer();
-      } catch (caught) {
-        error = String(caught);
-      }
-      const sample = { ok: status === 200, ms: Date.now() - sent, status };
+      const sample = await readyzProbe(env.apiUrl, config.readyz.timeoutMs);
       soak.readyz.push(sample);
-      out.jsonl("readyz").write({ ...sample, error });
+      out.jsonl("readyz").write({ t: new Date().toISOString(), ...sample });
     }),
     every(clock, config.sampleIntervalSec * 1000, async () => {
       out.jsonl("clock").write(await clockOffset(env.messagesUrl));
@@ -566,10 +613,11 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
 }
 
 async function invariantSample(soak: Soak): Promise<void> {
-  const { results, observations } = await checkInvariants(soak.db, {
-    installation: soak.env.installation,
-    ...soak.config.invariants,
-  });
+  const { results, observations } = await checkInvariants(
+    soak.db,
+    { installation: soak.env.installation, ...soak.config.invariants },
+    { lifetimes: soak.lifetimes, slots: soak.slots },
+  );
   const sample = { at: new Date().toISOString(), results, observations };
   soak.invariantSamples.push(sample);
   soak.out.jsonl("invariants").write(sample);
@@ -577,8 +625,13 @@ async function invariantSample(soak: Soak): Promise<void> {
 
 // ---------------------------------------------------------------- report
 
-function judge(
-  soak: Soak,
+export type JudgeInput = Pick<
+  Soak,
+  "anomalies" | "config" | "controls" | "invariantSamples" | "readyz" | "turns"
+>;
+
+export function judge(
+  soak: JudgeInput,
   meta: Record<string, unknown>,
 ): {
   criteria: Criterion[];
@@ -611,8 +664,19 @@ function judge(
         .map((sample) => sample.effectMs)
         .filter((ms): ms is number => ms !== null),
     );
+  // Latency of what the API accepted; refusals are counted, not timed.
   const acceptedOf = (samples: ControlSample[]) =>
-    distribution(samples.map((sample) => sample.acceptedMs));
+    distribution(
+      samples
+        .filter((sample) => sample.acceptStatus === 202)
+        .map((sample) => sample.acceptedMs),
+    );
+  const refused = (samples: ControlSample[]) =>
+    samples.filter((sample) => sample.acceptStatus !== 202).length;
+  const valid = (samples: ControlSample[]) =>
+    samples.filter((sample) => sample.extra?.valid === true);
+  const validInterrupts = valid(interrupts);
+  const validTerminates = valid(terminates);
 
   const stages = (samples: StartupSample[]) => {
     const of = (key: keyof StartupSample) =>
@@ -753,48 +817,54 @@ function judge(
     criterion({
       id: "P-3",
       area: "성능·종료 의미",
-      input: `interrupt ${interrupts.length}건: accepted ${JSON.stringify(acceptedOf(interrupts))}`,
-      expected: `모든 표본이 ${targets.interruptEffectMs}ms 안에 turn 종료 관찰, 수락 뒤 모델 호출 0`,
-      actual: `effect ${JSON.stringify(effect(interrupts))}, 관찰 못 함 ${interrupts.filter((s) => s.effectMs === null).length}, 상태 ${JSON.stringify(interrupts.map((s) => s.effect))}, 계속 호출 ${continued.length}`,
+      input: `interrupt ${interrupts.length}건 (유효 ${validInterrupts.length}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}`,
+      expected: `유효하지 않은 표본 0, 모든 표본이 ${targets.interruptEffectMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0`,
+      actual: `effect ${JSON.stringify(effect(validInterrupts))}, 무효 ${interrupts.length - validInterrupts.length}, 관찰 못 함 ${interrupts.filter((s) => s.effectMs === null).length}, interrupted 아님 ${interrupts.filter((s) => s.effect !== "interrupted").length}, 계속 호출 ${continued.length}`,
       pass:
-        interrupts.length === 0
-          ? false
-          : interrupts.every(
-              (sample) =>
-                sample.effectMs !== null &&
-                sample.effectMs <= targets.interruptEffectMs,
-            ) && continued.length === 0,
+        interrupts.length > 0 &&
+        validInterrupts.length === interrupts.length &&
+        interrupts.every(
+          (sample) =>
+            sample.effect === "interrupted" &&
+            sample.effectMs !== null &&
+            sample.effectMs <= targets.interruptEffectMs,
+        ) &&
+        continued.length === 0,
     }),
     criterion({
       id: "P-4",
       area: "성능·종료 의미",
-      input: `terminate ${terminates.length}건: accepted ${JSON.stringify(acceptedOf(terminates))}`,
-      expected: `모든 표본이 ${targets.terminateEffectMs}ms 안에 receipt succeeded|unknown + worker 없음`,
-      actual: `effect ${JSON.stringify(effect(terminates))}, receipt ${JSON.stringify(terminates.map((s) => s.receiptStatus))}, 확인 못 함 ${terminates.filter((s) => s.effectMs === null).length}`,
+      input: `terminate ${terminates.length}건 (유효 ${validTerminates.length}: 느린 호출 중·202): accepted ${JSON.stringify(acceptedOf(terminates))}`,
+      expected: `유효하지 않은 표본 0, 모든 표본이 ${targets.terminateEffectMs}ms 안에 receipt succeeded|unknown + worker 없음(receipt 정산 뒤에도)`,
+      actual: `effect ${JSON.stringify(effect(validTerminates))}, receipt ${JSON.stringify(terminates.map((s) => s.receiptStatus))}, 확인 못 함 ${terminates.filter((s) => s.effectMs === null).length}, docker 관찰 실패 ${terminates.reduce((n, s) => n + Number(s.extra?.dockerFailures ?? 0), 0)}`,
       pass:
-        terminates.length === 0
-          ? false
-          : terminates.every(
-              (sample) =>
-                sample.effectMs !== null &&
-                sample.effectMs <= targets.terminateEffectMs,
-            ),
+        terminates.length > 0 &&
+        validTerminates.length === terminates.length &&
+        terminates.every(
+          (sample) =>
+            sample.effectMs !== null &&
+            sample.effectMs <= targets.terminateEffectMs,
+        ),
     }),
     criterion({
       id: "P-5",
       area: "성능",
-      input: `control accepted (interrupt·terminate·pause·resume ${controls.length}건)`,
-      expected: `각 p95 ≤ ${targets.acceptP95Ms}ms`,
+      input: `control accepted (interrupt·terminate·pause·resume ${controls.length}건, 202만 시간 표본)`,
+      expected: `각 p95 ≤ ${targets.acceptP95Ms}ms, 거절(202 아님) 0`,
       actual: Object.fromEntries(
         (["interrupt", "terminate", "pause", "resume"] as const).map((op) => [
           op,
-          acceptedOf(ofOp(op)).p95,
+          { p95: acceptedOf(ofOp(op)).p95, refused: refused(ofOp(op)) },
         ]),
       ),
       pass: (["interrupt", "terminate", "pause", "resume"] as const).every(
         (op) => {
           const p95 = acceptedOf(ofOp(op)).p95;
-          return p95 !== null && p95 <= targets.acceptP95Ms;
+          return (
+            p95 !== null &&
+            p95 <= targets.acceptP95Ms &&
+            refused(ofOp(op)) === 0
+          );
         },
       ),
     }),
@@ -844,7 +914,7 @@ function judge(
       area: "관측",
       input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격`,
       expected: `가용률 ≥ ${targets.readyzAvailability}`,
-      actual: `가용률 ${availability}, 실패 ${readyz.length - readyzOk}회`,
+      actual: `가용률 ${availability}, 실패 ${readyz.length - readyzOk}회, 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
       pass: availability !== null && availability >= targets.readyzAvailability,
     }),
     criterion({
@@ -950,6 +1020,7 @@ async function main(): Promise<number> {
   mkdirSync(workerLogs, { recursive: true });
   const workers = new Workers(env.installation, workerLogs);
   workers.watch();
+  await soak.lifetimes.start();
   await model.setFaults(config.messagesFaults);
 
   const clock: Clock = { stopping: false };
@@ -960,17 +1031,23 @@ async function main(): Promise<number> {
   );
 
   // Ramp: open sessions up to each step at once, so the first turns of a
-  // step start together and are tagged with that concurrency.
+  // step start together and are tagged with that concurrency; sessions
+  // already open keep working meanwhile, as they would while an
+  // installation scales from 1 to 10.
+  const schedule = { deadline: Number.POSITIVE_INFINITY };
+  const running: Promise<void>[] = [];
   let open = 0;
   for (const step of config.ramp) {
     const opening = loops.slice(open, step);
     console.error(`ramp → ${step} sessions`);
     await Promise.all(opening.map((loop) => loop.open(step)));
+    for (const loop of opening) running.push(loop.loop(schedule, clock));
     open = step;
   }
   const rampEnded = Date.now();
   soak.windowStart = rampEnded + config.warmupMin * 60_000;
   const deadline = rampEnded + config.durationMin * 60_000;
+  schedule.deadline = deadline;
   soak.windowEnd = deadline;
   out.jsonl("phases").write({
     phase: "steady",
@@ -991,7 +1068,7 @@ async function main(): Promise<number> {
       if (loop && loop.pending === null) loop.pending = "pause";
     }, config.probes.pauseResumeEveryMin * 60_000),
   ];
-  const steady = Promise.all(loops.map((loop) => loop.loop(deadline, clock)));
+  const steady = Promise.all(running);
   const drainLimit = new Promise<void>((resolveLimit) =>
     setTimeout(resolveLimit, deadline - Date.now() + config.drainSec * 1000),
   );
@@ -1005,25 +1082,114 @@ async function main(): Promise<number> {
   clock.stopping = true;
   await Promise.all(tasks);
   workers.stop();
+  soak.lifetimes.stop();
 
-  const { criteria, summary } = judge(soak, meta);
+  await dumpTables(db, out);
+  await composeToFile(
+    env,
+    ["logs", "--no-color", "--timestamps"],
+    join(dir, "compose.log"),
+  );
+  await db.end();
+  return report(dir, soak, meta);
+}
+
+/** The rows the verdict rests on, kept with the run as raw evidence. */
+async function dumpTables(db: Pool, out: Output): Promise<void> {
+  for (const table of [
+    "sessions",
+    "turns",
+    "attempts",
+    "worker_launches",
+    "executions",
+    "checkpoints",
+    "receipts",
+    "control_intents",
+  ]) {
+    const { rows } = await db.query(`SELECT * FROM ${table}`);
+    const sink = out.jsonl(`db-${table}`);
+    for (const row of rows) sink.write(row as Record<string, unknown>);
+  }
+}
+
+function report(
+  dir: string,
+  data: JudgeInput,
+  meta: Record<string, unknown>,
+): number {
+  const out = new Output(dir);
+  const { criteria, summary } = judge(data, meta);
   out.json("summary", summary);
   out.json("criteria", criteria);
   out.text(
     "report.md",
-    markdownReport(`94S-135 soak — ${config.name}`, meta, criteria),
+    markdownReport(`94S-135 soak — ${data.config.name}`, meta, criteria),
   );
-  await compose(env, ["logs", "--no-color", "--timestamps"]).then((logs) =>
-    out.text("compose.log", `${logs.stdout}${logs.stderr}`),
-  );
-  await db.end();
   const failed = criteria.filter((row) => row.status === "fail");
   console.error(
-    `soak ${config.name}: ${criteria.length - failed.length}/${criteria.length} pass or skip; report ${join(dir, "report.md")}`,
+    `soak ${data.config.name}: ${criteria.length - failed.length}/${criteria.length} pass or skip; report ${join(dir, "report.md")}`,
   );
   return failed.length === 0 ? 0 : 1;
 }
 
+function readJsonl<T>(path: string): T[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
+}
+
+/**
+ * Judges a finished run again from its raw files. A control sample written
+ * before probes recorded their own validity is judged from the receipts
+ * the run dumped: an interrupt counts when the slow call was pending, the
+ * API accepted it and the receipt says it was no no-op.
+ */
+function rejudge(dir: string): number {
+  const at = (name: string) => join(dir, name);
+  const config = validConfig(
+    JSON.parse(readFileSync(at("config.json"), "utf8")),
+  );
+  const meta = JSON.parse(readFileSync(at("meta.json"), "utf8"));
+  const receipts = new Map(
+    readJsonl<{ id: string; result: unknown }>(at("db-receipts.jsonl")).map(
+      (row) => [row.id, row.result],
+    ),
+  );
+  const controls = readJsonl<ControlSample>(at("controls.jsonl")).map(
+    (sample) => {
+      if (sample.extra?.valid !== undefined) return sample;
+      const result = sample.receiptId ? receipts.get(sample.receiptId) : null;
+      const reached = sample.extra?.reachedSlowStep !== false;
+      const noOp = (result as { no_op?: boolean } | null)?.no_op;
+      const validSample =
+        sample.op === "interrupt"
+          ? reached && sample.acceptStatus === 202 && noOp === false
+          : reached && sample.acceptStatus === 202;
+      return {
+        ...sample,
+        extra: { ...sample.extra, valid: validSample, rejudged: true },
+      };
+    },
+  );
+  return report(
+    dir,
+    {
+      anomalies: readJsonl(at("anomalies.jsonl")),
+      config,
+      controls,
+      invariantSamples: readJsonl(at("invariants.jsonl")),
+      readyz: readJsonl(at("readyz.jsonl")),
+      turns: readJsonl(at("turns.jsonl")),
+    },
+    { ...meta, rejudged_at: new Date().toISOString() },
+  );
+}
+
 if (import.meta.main) {
-  process.exit(await main());
+  const [first, second] = process.argv.slice(2);
+  process.exit(
+    first === "--judge" && second ? rejudge(resolve(second)) : await main(),
+  );
 }

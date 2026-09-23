@@ -307,6 +307,19 @@ async function waitChaos(
   return null;
 }
 
+/** The index the injector will give the next request it sees. */
+async function chaosCursor(ctx: Ctx): Promise<number> {
+  return ((await ctx.chaos.log()).at(-1)?.index ?? -1) + 1;
+}
+
+/** How many requests an armed rule has matched so far (null: not armed). */
+async function ruleFired(ctx: Ctx, id: string): Promise<number | null> {
+  const rules = (await fetch(`${ctx.env.chaosUrl}/rules`).then((response) =>
+    response.json(),
+  )) as Array<{ fired: number; id: string }>;
+  return rules.find((rule) => rule.id === id)?.fired ?? null;
+}
+
 function regexLiteral(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -334,7 +347,10 @@ async function unblock(
       reason: "94S-135 campaign: the killed turn is given up",
     },
   );
-  return `abandon → ${decided.status}`;
+  // Abandon leaves the session stopped; only a resume admits input again.
+  if (decided.status !== 202) return `abandon → ${decided.status}`;
+  const resumed = await ctx.api.control(sessionId, "resume");
+  return `abandon → 202, resume → ${resumed.status}`;
 }
 
 // ---------------------------------------------------------------- faults
@@ -764,6 +780,9 @@ const corruptFallback: Campaign = {
     });
     const third = await startTurn(ctx, first.sessionId, "normal");
     const thirdEnd = await finish(ctx, third);
+    // Without a damaged read the restore took some other path, and whatever
+    // it did says nothing about fallback.
+    const corrupted = await ruleFired(ctx, rule);
     await ctx.chaos.disarm(rule);
     const after = await sessionRow(ctx.db, first.sessionId);
     const evidence = modelEvidence(
@@ -779,17 +798,21 @@ const corruptFallback: Campaign = {
       criterion({
         id: "fault-corrupt-fallback/restore",
         area: "장애: 손상 fallback",
-        input: `revision ${revision}의 manifest(${manifest})를 복원 GET에서 1바이트 손상, workspace volume 삭제 뒤 turn`,
+        input: `revision ${revision}의 manifest(${manifest})를 복원 GET에서 1바이트 손상, workspace volume 삭제 뒤 turn (손상 규칙이 실제로 1회 이상 적용되어야 유효)`,
         expected:
           "손상을 digest로 잡아 이전 revision으로 fallback하고 그 사실이 세션에 남는다(checkpoint_fallback_revision) — 또는 recovery_required로 멈춘다; 직전 turn을 잃고도 조용히 이어가지 않는다",
         actual: {
           volumeRemoved: removed,
+          corruptedReads: corrupted,
           third: thirdEnd.status,
           after,
           contextKeptTurn2: evidence.contextKept,
         },
         pass:
-          removed && visible && !(evidence.contextKept === false && !fellBack),
+          removed &&
+          (corrupted ?? 0) > 0 &&
+          visible &&
+          !(evidence.contextKept === false && !fellBack),
       }),
     );
     await invariants(ctx, "손상 fallback 뒤");
@@ -930,7 +953,7 @@ const claimTerminate: Campaign = {
   async run(ctx) {
     const results: unknown[] = [];
     for (let round = 0; round < 3; round++) {
-      const since = (await ctx.chaos.log()).length;
+      const since = await chaosCursor(ctx);
       const lost = await ctx.chaos.arm({
         action: "lose_response",
         upstream: "gateway",
@@ -947,11 +970,28 @@ const claimTerminate: Campaign = {
         times: -1,
       });
       const started = await startTurn(ctx, null, "normal");
+      // The order under test: the first claim commits upstream and its answer
+      // is lost; the worker's replay reaches the injector and is held; the
+      // terminate goes out while it is held; only then does the replay reach
+      // the gateway. Each step is waited for, not assumed.
       const firstClaim = await waitChaos(
         ctx,
-        (entry) => entry.index >= since && entry.rule === lost,
+        (entry) =>
+          entry.index >= since &&
+          entry.rule === lost &&
+          entry.upstreamStatus !== null,
         180_000,
       );
+      const replayHeld = firstClaim
+        ? await waitChaos(
+            ctx,
+            (entry) =>
+              entry.index > firstClaim.index &&
+              entry.rule === held &&
+              entry.sessionId === started.sessionId,
+            60_000,
+          )
+        : null;
       const terminated = await terminateProbe(ctx.api, ctx.model, {
         budgetMs: 60_000,
         installation: ctx.env.installation,
@@ -960,13 +1000,21 @@ const claimTerminate: Campaign = {
         specId: null,
         turnId: started.turnId,
       });
-      await Bun.sleep(8000);
+      const replayAnswered = replayHeld
+        ? await waitChaos(
+            ctx,
+            (entry) =>
+              entry.index === replayHeld.index && entry.upstreamStatus !== null,
+            30_000,
+          )
+        : null;
       await ctx.chaos.disarm(lost);
       await ctx.chaos.disarm(held);
       const replays = (await ctx.chaos.log()).filter(
         (entry) =>
           entry.index > (firstClaim?.index ?? Number.MAX_SAFE_INTEGER) &&
-          entry.path.endsWith("/bootstrap-claim"),
+          entry.path.endsWith("/bootstrap-claim") &&
+          entry.sessionId === started.sessionId,
       );
       const models = await ctx.model.requests({ spec: started.specId });
       const turn = await turnRow(ctx.db, started.sessionId, started.turnId);
@@ -977,6 +1025,9 @@ const claimTerminate: Campaign = {
       results.push({
         round,
         firstClaimUpstream: firstClaim?.upstreamStatus ?? null,
+        replayHeldAt: replayHeld?.at ?? null,
+        heldReplayUpstream: replayAnswered?.upstreamStatus ?? null,
+        terminateAccepted: terminated.acceptStatus,
         terminate: {
           receipt: terminated.receiptStatus,
           effectMs: terminated.effectMs,
@@ -995,21 +1046,30 @@ const claimTerminate: Campaign = {
         id: "race-claim-terminate/replay",
         area: "경합: claim/replay↔terminate",
         input:
-          "첫 bootstrap-claim 응답 유실(commit은 됨) + 재시도 5초 지연, 그 사이 terminate; 3회",
+          "첫 bootstrap-claim이 upstream에서 2xx로 commit된 뒤 응답 유실 → 재시도가 5초 붙잡힌 동안 terminate(202) → 붙잡힌 재시도가 gateway 도달; 3회",
         expected:
-          "terminate가 30초 안에 확인되고, 이후의 claim 재시도는 2xx가 아니며, 세션에 열린 attempt·완료 turn이 없다",
+          "선행 조건(첫 claim 2xx·재시도 붙잡힘·terminate 202)이 모두 성립하고, terminate가 30초 안에 확인되며, terminate 뒤 도달한 재시도는 모두 4xx 이상이고, 세션에 열린 attempt·완료 turn이 없다",
         actual: results,
         pass: results.every((r) => {
           const x = r as {
+            firstClaimUpstream: number | null;
+            heldReplayUpstream: number | null;
+            terminateAccepted: number;
             terminate: { receipt: string | null; effectMs: number | null };
             replays: Array<number | null>;
             turn: Record<string, unknown> | null;
             openAttempts: number;
           };
           return (
+            x.firstClaimUpstream !== null &&
+            x.firstClaimUpstream < 300 &&
+            x.terminateAccepted === 202 &&
+            x.heldReplayUpstream !== null &&
+            x.heldReplayUpstream >= 400 &&
             x.terminate.effectMs !== null &&
             x.terminate.effectMs <= 30_000 &&
-            x.replays.every((status) => status === null || status >= 400) &&
+            x.replays.length > 0 &&
+            x.replays.every((status) => status !== null && status >= 400) &&
             x.turn?.status !== "completed" &&
             x.openAttempts === 0
           );
@@ -1101,7 +1161,7 @@ function finalizeRace(op: "pause" | "terminate"): Campaign {
       const results: unknown[] = [];
       for (const delayMs of [500, 1500, 3000]) {
         const a = await readySession(ctx);
-        const since = (await ctx.chaos.log()).length;
+        const since = await chaosCursor(ctx);
         const rule = await ctx.chaos.arm({
           action: "delay",
           delayMs,
@@ -1205,10 +1265,14 @@ const replacementLateClaim: Campaign = {
   kind: "race",
   title: "a dead worker's delayed claim arrives after its replacement",
   async run(ctx) {
-    const since = (await ctx.chaos.log()).length;
+    const since = await chaosCursor(ctx);
+    // The injector forwards a held request after its delay whether or not
+    // the sender is still alive, so the dead worker's claim does arrive —
+    // late, after the replacement's own claim if the delay is long enough.
+    const delayMs = 90_000;
     const held = await ctx.chaos.arm({
       action: "delay",
-      delayMs: 25_000,
+      delayMs,
       upstream: "gateway",
       method: "POST",
       path: `${GATEWAY}/bootstrap-claim$`,
@@ -1217,35 +1281,65 @@ const replacementLateClaim: Campaign = {
     const started = await startTurn(ctx, null, "normal");
     const late = await waitChaos(
       ctx,
-      (entry) => entry.index >= since && entry.rule === held,
+      (entry) =>
+        entry.index >= since &&
+        entry.rule === held &&
+        entry.sessionId === started.sessionId,
       180_000,
     );
-    const first = (await ctx.workers.of(started.sessionId))[0];
-    if (first) await docker(["kill", "-s", "KILL", first.name]);
+    const first = late ? (await ctx.workers.of(started.sessionId))[0] : null;
+    const killed = first
+      ? (await docker(["kill", "-s", "KILL", first.name])).code === 0
+      : false;
+    const replacement = late
+      ? await waitChaos(
+          ctx,
+          (entry) =>
+            entry.index > late.index &&
+            entry.sessionId === started.sessionId &&
+            entry.path.endsWith("/bootstrap-claim") &&
+            entry.upstreamStatus !== null &&
+            entry.upstreamStatus < 300,
+          delayMs - 5000,
+        )
+      : null;
     const ended = await finish(ctx, started);
-    await Bun.sleep(30_000);
+    const lateAnswered = late
+      ? await waitChaos(
+          ctx,
+          (entry) =>
+            entry.index === late.index && entry.upstreamStatus !== null,
+          delayMs + 30_000,
+        )
+      : null;
     const claims = (await ctx.chaos.log()).filter(
       (entry) =>
-        entry.index >= since && entry.path.endsWith("/bootstrap-claim"),
+        entry.index >= since &&
+        entry.sessionId === started.sessionId &&
+        entry.path.endsWith("/bootstrap-claim"),
     );
-    const lateEntry = claims.find((entry) => entry.index === late?.index);
     const generations = (await ctx.workers.of(started.sessionId)).map(
       (c) => c.generation,
     );
     const turn = await turnRow(ctx.db, started.sessionId, started.turnId);
+    const replacedFirst =
+      replacement !== null &&
+      late !== null &&
+      Date.parse(replacement.at) < Date.parse(late.at) + delayMs;
     ctx.rows.push(
       criterion({
         id: "race-replacement-late-claim/fence",
         area: "경합: replacement↔late claim",
-        input:
-          "첫 worker의 bootstrap-claim을 25초 붙잡고 그 worker를 SIGKILL; 교체 worker가 뜬 뒤 늦은 claim이 도착",
+        input: `첫 worker의 bootstrap-claim을 ${delayMs / 1000}초 붙잡고 그 worker를 SIGKILL; 교체 worker의 claim이 2xx로 끝난 뒤 늦은 claim이 gateway에 도달`,
         expected:
-          "turn은 교체 worker에서 completed; 늦은 claim은 2xx가 아니거나, 2xx라도 교체본을 막지 않는다(중복 실행 0 — 불변식 행)",
+          "선행 조건(규칙 적용·첫 worker kill·교체 claim 2xx가 늦은 claim보다 먼저)이 모두 성립하고, turn은 교체 worker에서 completed, 늦은 claim은 4xx 이상(중복 실행 0은 불변식 행)",
         actual: {
-          killed: first?.name ?? null,
+          killed: killed ? (first?.name ?? null) : null,
+          replacementClaimAt: replacement?.at ?? null,
+          replacedFirst,
           ended: ended.status,
           turn,
-          lateClaimUpstream: lateEntry?.upstreamStatus ?? null,
+          lateClaimUpstream: lateAnswered?.upstreamStatus ?? null,
           claims: claims.map((entry) => ({
             at: entry.at,
             upstream: entry.upstreamStatus,
@@ -1253,7 +1347,13 @@ const replacementLateClaim: Campaign = {
           })),
           generations,
         },
-        pass: ended.status === "completed",
+        pass:
+          late !== null &&
+          killed &&
+          replacedFirst &&
+          ended.status === "completed" &&
+          lateAnswered?.upstreamStatus != null &&
+          lateAnswered.upstreamStatus >= 400,
       }),
     );
     await ctx.chaos.disarm(held);

@@ -281,6 +281,11 @@ export type ControlSample = {
  * the turn reaching a terminal status, polled every `pollMs`; the receipt is
  * timed apart from it. `continued` says whether the engine asked the model
  * for anything after the interrupt was accepted — it should not have.
+ *
+ * A sample is `valid` only when the slow call was pending when the
+ * interrupt went out, the API accepted it (202), and the settled receipt
+ * says the interrupt ended the turn (`no_op` false): otherwise a turn that
+ * ended on its own would read as a fast interrupt.
  */
 export async function interruptProbe(
   api: Api,
@@ -301,6 +306,7 @@ export async function interruptProbe(
   let effect: string | null = null;
   let receiptMs: number | null = null;
   let receiptStatus: string | null = null;
+  let receiptResult: unknown = null;
   const deadline = posted.sentAt + input.budgetMs;
   while (Date.now() < deadline && (effectMs === null || receiptMs === null)) {
     if (effectMs === null) {
@@ -316,10 +322,12 @@ export async function interruptProbe(
       if (receipt && receipt.status !== OPEN_RECEIPT) {
         receiptMs = Date.now() - posted.sentAt;
         receiptStatus = String(receipt.status);
+        receiptResult = receipt.result ?? null;
       }
     }
     await Bun.sleep(input.pollMs);
   }
+  const noOp = (receiptResult as { no_op?: boolean } | null)?.no_op ?? null;
   const after = (await model.requests({ spec: input.specId })).filter(
     (entry) =>
       Date.parse(entry.at) > posted.sentAt + posted.ms &&
@@ -339,6 +347,8 @@ export async function interruptProbe(
     extra: {
       reachedSlowStep: reached !== null,
       continuedAfterInterrupt: after.length,
+      receiptResult,
+      valid: reached !== null && posted.status === 202 && noOp === false,
     },
   };
 }
@@ -372,14 +382,23 @@ export async function terminateProbe(
   let receiptStatus: string | null = null;
   let goneMs: number | null = null;
   let succeededWhileRunning = false;
+  let dockerFailures = 0;
   const deadline = posted.sentAt + input.budgetMs;
+  // Gone is an observation that no worker runs; it is dropped again if a
+  // later look finds one, and a failed look observes nothing either way.
   while (Date.now() < deadline && (receiptMs === null || goneMs === null)) {
-    const running =
-      (await runningWorkers(input.installation)).get(input.sessionId) ?? [];
-    if (goneMs === null && running.length === 0) {
-      goneMs = Date.now() - posted.sentAt;
+    let running: string[] | null = null;
+    try {
+      running =
+        (await runningWorkers(input.installation)).get(input.sessionId) ?? [];
+    } catch {
+      dockerFailures++;
     }
-    if (receiptMs === null && receiptId) {
+    if (running !== null) {
+      if (running.length > 0) goneMs = null;
+      else if (goneMs === null) goneMs = Date.now() - posted.sentAt;
+    }
+    if (receiptMs === null && receiptId && running !== null) {
       const receipt = await api.receipt(receiptId);
       if (receipt && receipt.status !== OPEN_RECEIPT) {
         receiptMs = Date.now() - posted.sentAt;
@@ -409,8 +428,11 @@ export async function terminateProbe(
     receiptStatus,
     extra: {
       containerGoneMs: goneMs,
+      dockerFailures,
       reachedSlowStep: input.specId ? reached !== null : null,
       succeededWhileRunning,
+      valid:
+        posted.status === 202 && (input.specId === null || reached !== null),
     },
   };
 }

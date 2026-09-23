@@ -35,7 +35,11 @@ export type RequestSummary = {
   hasTools: boolean;
   index: number;
   latencyMs: number;
-  /** Every spec id in the conversation, in order, the current one last. */
+  /**
+   * The newest spec ids in the conversation, the current one last — enough
+   * to find the previous completed turn, bounded so a day of history does
+   * not grow the log with every turn it ever carried.
+   */
   specs: string[];
   specId: string | null;
   step: number | null;
@@ -46,6 +50,8 @@ export const NO_FAULTS: MessagesFaults = {
   errorRate: 0,
   errorStatuses: [500],
 };
+
+const SPECS_KEPT = 8;
 
 const SPEC_ID = new RegExp(`${SPEC_MARKER}\\{[^\\n]*?"id":"([^"\\\\]+)"`, "g");
 
@@ -134,7 +140,7 @@ export function createMessages(
       hasTools,
       index: received++,
       latencyMs,
-      specs: hasTools ? specIds(messages) : [],
+      specs: hasTools ? specIds(messages).slice(-SPECS_KEPT) : [],
       specId: plan?.spec.id ?? null,
       step: plan?.step ?? null,
     };
@@ -184,7 +190,7 @@ export function createMessages(
 
 if (import.meta.main) {
   const messages = createMessages({
-    logMax: Number(process.env.SOAK_MESSAGES_LOG_MAX ?? "200000"),
+    logMax: Number(process.env.SOAK_MESSAGES_LOG_MAX ?? "100000"),
   });
   const port = Number(process.env.FAKE_MESSAGES_PORT ?? "4010");
   const controlPort = Number(process.env.GATE_CONTROL_PORT ?? "4011");

@@ -65,22 +65,39 @@ export function container(env: SoakEnv, service: string): string {
 }
 
 /** `docker compose` on the soak project, the way stack.sh runs it. */
+function composeArgv(env: SoakEnv, args: string[]): string[] {
+  return [
+    "docker",
+    "compose",
+    "-p",
+    env.project,
+    ...env.composeFiles,
+    "--profile",
+    "apps",
+    "--profile",
+    "worker",
+    ...args,
+  ];
+}
+
 export function compose(env: SoakEnv, args: string[]) {
-  return run(
-    [
-      "docker",
-      "compose",
-      "-p",
-      env.project,
-      ...env.composeFiles,
-      "--profile",
-      "apps",
-      "--profile",
-      "worker",
-      ...args,
-    ],
-    { allowFail: true },
-  );
+  return run(composeArgv(env, args), { allowFail: true });
+}
+
+/**
+ * Runs a compose command straight into a file. A day of stack logs is
+ * gigabytes, which `compose()` would buffer in memory whole.
+ */
+export async function composeToFile(
+  env: SoakEnv,
+  args: string[],
+  path: string,
+): Promise<number> {
+  const child = Bun.spawn(composeArgv(env, args), {
+    stderr: "inherit",
+    stdout: Bun.file(path),
+  });
+  return child.exited;
 }
 
 // ---------------------------------------------------------------- raw output

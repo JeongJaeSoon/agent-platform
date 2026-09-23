@@ -195,34 +195,241 @@ export const OBSERVATIONS = {
                                  FROM turns WHERE started_at IS NOT NULL`,
 } as const;
 
-/** Running worker containers per session, from Docker's own labels. */
+type RunningWorker = { execution: string; name: string; session: string };
+
+/** Running worker containers, from Docker's own labels. */
+async function listRunning(installation: string): Promise<RunningWorker[]> {
+  // Throws when Docker does not answer: an empty listing must mean no
+  // workers, never "could not look".
+  const { stdout } = await run([
+    "docker",
+    "ps",
+    "--filter",
+    `label=agent-platform.installation=${installation}`,
+    "--filter",
+    "name=ap-worker-",
+    "--format",
+    '{{.Names}}\t{{.Label "agent-platform.session-id"}}\t{{.Label "agent-platform.session-execution-id"}}',
+  ]);
+  return stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [name = "", session = "", execution = ""] = line.split("\t");
+      return { execution, name, session };
+    });
+}
+
+/** Running worker containers per session. */
 export async function runningWorkers(
   installation: string,
 ): Promise<Map<string, string[]>> {
-  const { stdout } = await run(
-    [
-      "docker",
-      "ps",
-      "--filter",
-      `label=agent-platform.installation=${installation}`,
-      "--filter",
-      "name=ap-worker-",
-      "--format",
-      '{{.Names}}\t{{.Label "agent-platform.session-id"}}',
-    ],
-    { allowFail: true },
-  );
   const bySession = new Map<string, string[]>();
-  for (const line of stdout.split("\n").filter(Boolean)) {
-    const [name = "", session = ""] = line.split("\t");
+  for (const { name, session } of await listRunning(installation)) {
     bySession.set(session, [...(bySession.get(session) ?? []), name]);
   }
   return bySession;
 }
 
+type Lifetime = {
+  container: string;
+  die: number | null;
+  execution: string;
+  name: string;
+  session: string;
+  start: number;
+};
+
+/**
+ * Every worker container's lifetime, from `docker events` for as long as
+ * the run lasts: two workers of one session alive at once is a duplicate
+ * execution even when both are gone before the next snapshot. Each event is
+ * also appended to the run's raw output.
+ */
+export class ContainerLifetimes {
+  readonly lifetimes = new Map<string, Lifetime>();
+  private process: { kill(): void } | undefined;
+  failed: string | null = null;
+
+  constructor(
+    private readonly installation: string,
+    private readonly sink: { write(record: Record<string, unknown>): void },
+  ) {}
+
+  async start(): Promise<void> {
+    for (const worker of await listRunning(this.installation)) {
+      const { stdout } = await run([
+        "docker",
+        "inspect",
+        "--format",
+        "{{.Id}} {{.State.StartedAt}}",
+        worker.name,
+      ]);
+      const [id = worker.name, startedAt = ""] = stdout.trim().split(" ");
+      this.lifetimes.set(id, {
+        container: id,
+        die: null,
+        execution: worker.execution,
+        name: worker.name,
+        session: worker.session,
+        start: Date.parse(startedAt),
+      });
+    }
+    const child = Bun.spawn(
+      [
+        "docker",
+        "events",
+        "--filter",
+        `label=agent-platform.installation=${this.installation}`,
+        "--filter",
+        "type=container",
+        "--filter",
+        "event=start",
+        "--filter",
+        "event=die",
+        "--format",
+        "{{json .}}",
+      ],
+      { stderr: "pipe", stdout: "pipe" },
+    );
+    this.process = child;
+    void this.read(child.stdout);
+    void child.exited.then((code) => {
+      if (this.process === child) this.failed = `docker events exited ${code}`;
+    });
+  }
+
+  private async read(stream: ReadableStream<Uint8Array>): Promise<void> {
+    let buffered = "";
+    for await (const chunk of stream) {
+      buffered += new TextDecoder().decode(chunk);
+      let newline = buffered.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        newline = buffered.indexOf("\n");
+        try {
+          this.record(JSON.parse(line));
+        } catch {}
+      }
+    }
+  }
+
+  private record(event: {
+    Action?: string;
+    Actor?: { Attributes?: Record<string, string>; ID?: string };
+    timeNano?: number;
+  }): void {
+    const attributes = event.Actor?.Attributes ?? {};
+    const id = event.Actor?.ID ?? "";
+    const name = attributes.name ?? "";
+    if (!name.startsWith("ap-worker-")) return;
+    const at = Math.round((event.timeNano ?? 0) / 1e6);
+    this.sink.write({ action: event.Action, id, name, at, attributes });
+    if (event.Action === "start") {
+      this.lifetimes.set(id, {
+        container: id,
+        die: null,
+        execution: attributes["agent-platform.session-execution-id"] ?? "",
+        name,
+        session: attributes["agent-platform.session-id"] ?? "",
+        start: at,
+      });
+    } else if (event.Action === "die") {
+      const known = this.lifetimes.get(id);
+      if (known) known.die = at;
+    }
+  }
+
+  /** Pairs of one session's workers alive together longer than the tolerance. */
+  overlaps(toleranceMs: number, now = Date.now()): unknown[] {
+    const bySession = new Map<string, Lifetime[]>();
+    for (const lifetime of this.lifetimes.values()) {
+      bySession.set(lifetime.session, [
+        ...(bySession.get(lifetime.session) ?? []),
+        lifetime,
+      ]);
+    }
+    const found: unknown[] = [];
+    for (const [session, lifetimes] of bySession) {
+      const sorted = lifetimes.sort((a, b) => a.start - b.start);
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const a = sorted[i];
+          const b = sorted[j];
+          if (!a || !b) continue;
+          const shared = Math.min(a.die ?? now, b.die ?? now) - b.start;
+          if (shared > toleranceMs) {
+            found.push({
+              session,
+              first: a.name,
+              second: b.name,
+              sharedMs: shared,
+            });
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  stop(): void {
+    const child = this.process;
+    this.process = undefined;
+    child?.kill();
+  }
+}
+
+/**
+ * Open slots whose execution has no running worker, remembered across
+ * samples: a slot held that way past the grace period — outside a launch
+ * backoff — is a leak whatever the session's state (an active session whose
+ * worker vanished included).
+ */
+export class SlotWatch {
+  private readonly missingSince = new Map<string, number>();
+
+  async check(
+    db: Pool,
+    running: RunningWorker[],
+    graceSec: number,
+    now = Date.now(),
+  ): Promise<unknown[]> {
+    const { rows } = await db.query(
+      `SELECT wl.execution_id, wl.session_id::text, s.admission_state::text, s.status::text,
+              wl.launch_retry_at, wl.last_launch_error
+         FROM worker_launches wl LEFT JOIN sessions s ON s.id = wl.session_id
+        WHERE wl.slot_released_at IS NULL
+          AND (wl.launch_retry_at IS NULL OR wl.launch_retry_at < now())`,
+    );
+    const live = new Set(running.map((worker) => worker.execution));
+    const open = new Set<string>();
+    const leaks: unknown[] = [];
+    for (const row of rows as Array<
+      { execution_id: string } & Record<string, unknown>
+    >) {
+      open.add(row.execution_id);
+      if (live.has(row.execution_id)) {
+        this.missingSince.delete(row.execution_id);
+        continue;
+      }
+      const since = this.missingSince.get(row.execution_id) ?? now;
+      this.missingSince.set(row.execution_id, since);
+      if (now - since >= graceSec * 1000) {
+        leaks.push({ ...row, missingForSec: Math.round((now - since) / 1000) });
+      }
+    }
+    for (const execution of this.missingSince.keys()) {
+      if (!open.has(execution)) this.missingSince.delete(execution);
+    }
+    return leaks;
+  }
+}
+
 export async function checkInvariants(
   db: Pool,
   options: InvariantOptions,
+  watch: { lifetimes?: ContainerLifetimes; slots?: SlotWatch } = {},
 ): Promise<{
   observations: Record<string, unknown>;
   results: InvariantResult[];
@@ -239,7 +446,11 @@ export async function checkInvariants(
     });
   }
 
-  const workers = await runningWorkers(options.installation);
+  const running = await listRunning(options.installation);
+  const workers = new Map<string, string[]>();
+  for (const { name, session } of running) {
+    workers.set(session, [...(workers.get(session) ?? []), name]);
+  }
   const doubled = [...workers].filter(([, names]) => names.length > 1);
   results.push({
     id: "duplicate_execution.running_containers",
@@ -250,6 +461,19 @@ export async function checkInvariants(
       .slice(0, ROW_CAP)
       .map(([session, names]) => ({ session, names })),
   });
+  if (watch.lifetimes) {
+    const overlaps = watch.lifetimes.overlaps(options.toleranceMs);
+    const failed = watch.lifetimes.failed;
+    results.push({
+      id: "duplicate_execution.overlapping_lifetimes",
+      invariant: "duplicate_execution",
+      title:
+        "two worker containers of one session alive at the same time, over the whole run (docker events)",
+      // A dead event stream has stopped watching: that is not a clean result.
+      count: overlaps.length + (failed ? 1 : 0),
+      rows: [...(failed ? [{ failed }] : []), ...overlaps.slice(0, ROW_CAP)],
+    });
+  }
   const ids = [...workers.keys()].filter(Boolean);
   const { rows: gone } = ids.length
     ? await db.query(
@@ -268,9 +492,24 @@ export async function checkInvariants(
     count: gone.length,
     rows: gone.slice(0, ROW_CAP),
   });
+  if (watch.slots) {
+    const leaks = await watch.slots.check(
+      db,
+      running,
+      options.slotLeakGraceSec,
+    );
+    results.push({
+      id: "slot_leak.open_slot_without_worker",
+      invariant: "slot_leak",
+      title:
+        "open slots whose execution has had no running worker for the grace period, outside a launch backoff",
+      count: leaks.length,
+      rows: leaks.slice(0, ROW_CAP),
+    });
+  }
 
   const observations: Record<string, unknown> = {
-    running_worker_containers: [...workers.values()].flat().length,
+    running_worker_containers: running.length,
   };
   for (const [name, sql] of Object.entries(OBSERVATIONS)) {
     const { rows } = await db.query(sql);
