@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import {
   link,
   lstat,
@@ -32,6 +32,9 @@ describe("workspacePathProblem", () => {
     ".env.local",
     "..hidden",
     "dir/.gitignore",
+    "a".repeat(255),
+    // 85 three-byte syllables: 255 bytes, which is what NAME_MAX counts.
+    "가".repeat(85),
   ])("accepts %p", (path) => {
     expect(workspacePathProblem(path)).toBeUndefined();
   });
@@ -47,6 +50,8 @@ describe("workspacePathProblem", () => {
     ["a/../../etc", 'has a ".." segment'],
     [".git/hooks/pre-commit", "writes into .git"],
     ["vendor/.GIT/config", "writes into .git"],
+    [`dir/${"a".repeat(256)}`, "has a segment longer than 255 bytes"],
+    ["가".repeat(86), "has a segment longer than 255 bytes"],
   ])("refuses %p", (path, problem) => {
     expect(workspacePathProblem(path)).toBe(problem);
   });
@@ -154,6 +159,12 @@ describe("writeWorkspaceFile", () => {
       restoreRefusal('untracked file "../escape/file" has a ".." segment'),
     );
     expect(existsSync(join(outside, "file"))).toBe(false);
+  });
+
+  test("refuses a name no filesystem can create, rather than throwing on it", async () => {
+    expect(await write(`a/${"n".repeat(256)}`)).toMatchObject({
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
   });
 
   // procfs is the mechanism; on a machine without it every write is the
@@ -272,6 +283,24 @@ describe("writeWorkspaceFile", () => {
       expect(await write("dir")).toMatchObject({
         code: "CHECKPOINT_UNAVAILABLE",
       });
+    });
+
+    test("leaves no descriptor open, written or refused", async () => {
+      const open = () => readdirSync("/proc/self/fd").length;
+      await mkdir(join(root, "taken"));
+      await writeFile(join(root, "taken/file"), "tracked\n");
+      await symlink(outside, join(root, "out"));
+      const before = open();
+
+      expect(await write("deep/a/b/c/d/e/file")).toBeUndefined();
+      expect(await write("taken/file")).toMatchObject({
+        code: "CHECKPOINT_UNAVAILABLE",
+      });
+      expect(await write("out/x/y/file")).toMatchObject({
+        code: "CHECKPOINT_UNAVAILABLE",
+      });
+
+      expect(open()).toBe(before);
     });
 
     test("refuses a workspace root that is itself a symlink", async () => {

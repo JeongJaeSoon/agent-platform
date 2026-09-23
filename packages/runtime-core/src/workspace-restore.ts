@@ -40,6 +40,9 @@ export function restoreRefusal(reason: string): RestoreRefusal {
   return { status: "unavailable", code: "CHECKPOINT_UNAVAILABLE", reason };
 }
 
+const NAME_MAX_BYTES = 255;
+const utf8 = new TextEncoder();
+
 /**
  * Why `path` cannot name a file under a workspace root, or undefined when it
  * can. Shared by finalize, which refuses such a manifest, and the writer,
@@ -62,6 +65,12 @@ export function workspacePathProblem(path: string): string | undefined {
     }
     // Case-insensitive filesystems treat `.GIT` as the same directory.
     if (segment.toLowerCase() === ".git") return "writes into .git";
+    // NAME_MAX on every filesystem a workspace lives on. A longer name passes
+    // as text and then cannot be created, so a committed checkpoint could
+    // never be restored.
+    if (utf8.encode(segment).byteLength > NAME_MAX_BYTES) {
+      return `has a segment longer than ${NAME_MAX_BYTES} bytes`;
+    }
   }
   return undefined;
 }
@@ -129,7 +138,15 @@ const DIRECTORY_MODE = 0o700;
 
 // A leaf or ancestor that is a symlink, a file where a directory should be,
 // or something already at the destination: confinement refusals, not faults.
-const CONFINEMENT_ERRORS = new Set(["EEXIST", "ELOOP", "ENOTDIR", "EISDIR"]);
+// ENAMETOOLONG is here too: the name comes from the checkpoint, and the
+// lexical limit below should have caught it first.
+const CONFINEMENT_ERRORS = new Set([
+  "EEXIST",
+  "ELOOP",
+  "ENAMETOOLONG",
+  "ENOTDIR",
+  "EISDIR",
+]);
 
 /**
  * Writes `bytes` to `path` under `workspaceRoot`, creating missing parent
@@ -153,9 +170,11 @@ export async function writeWorkspaceFile(input: {
   if (problem !== undefined) {
     return restoreRefusal(`untracked file ${JSON.stringify(path)} ${problem}`);
   }
-  // Every directory stays open until the file is written, so the chain the
-  // leaf was resolved through is the chain that was checked.
-  const held: FileHandle[] = [];
+  // Only the directory the next name is looked up in is held. Holding every
+  // ancestor would add nothing (renames are excluded by the restore contract,
+  // see the top of this file) and would let one deep path exhaust the
+  // worker's descriptor table.
+  let parent: FileHandle | undefined;
   try {
     const root = await openDirectory(workspaceRoot);
     if (root === "missing" || root === "refused") {
@@ -163,7 +182,7 @@ export async function writeWorkspaceFile(input: {
         `workspace root ${workspaceRoot} is not a directory`,
       );
     }
-    held.push(root);
+    parent = root;
     if (!(await addressable(root, fdDirectory))) {
       return restoreRefusal(
         `restoring untracked files needs ${fdDirectory} to address directories by descriptor, and it is not available here`,
@@ -171,7 +190,6 @@ export async function writeWorkspaceFile(input: {
     }
     const names = path.split("/");
     const leaf = names.pop() as string;
-    let parent = root;
     let walked = "";
     for (const name of names) {
       walked = walked === "" ? name : `${walked}/${name}`;
@@ -189,7 +207,7 @@ export async function writeWorkspaceFile(input: {
           `cannot restore ${path}: ${walked} is not a directory inside the workspace (a symlink or a file)`,
         );
       }
-      held.push(child);
+      await closeDirectory(parent);
       parent = child;
     }
     let file: FileHandle;
@@ -205,12 +223,24 @@ export async function writeWorkspaceFile(input: {
         `cannot restore ${path}: something is already there (${errorCode(error)})`,
       );
     }
-    held.push(file);
-    await file.writeFile(bytes);
+    try {
+      await file.writeFile(bytes);
+    } catch (error) {
+      await file.close().catch(() => undefined);
+      throw error;
+    }
+    // Not swallowed: a close that fails can be the write failing late.
+    await file.close();
     return undefined;
   } finally {
-    for (const handle of held.reverse()) await handle.close();
+    if (parent !== undefined) await closeDirectory(parent);
   }
+}
+
+// A read-only directory descriptor has nothing to flush, so a failed close
+// loses nothing and must not replace the answer the caller is owed.
+async function closeDirectory(handle: FileHandle): Promise<void> {
+  await handle.close().catch(() => undefined);
 }
 
 async function openDirectory(
