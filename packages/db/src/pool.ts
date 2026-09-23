@@ -34,6 +34,18 @@ const QUERY_READ_TIMEOUT = "Query read timeout";
 export class EvictOnReadTimeoutClient extends Client {
   private pendingRelease: ((error?: Error) => void) | undefined;
 
+  constructor(...args: ConstructorParameters<typeof Client>) {
+    super(...args);
+    // pg-pool takes its idle listener off at checkout, so a backend that dies
+    // while a caller holds the client between statements — a DB restart, an
+    // admin kill — would be an uncaught "error" that takes the process down.
+    // Nothing is lost by swallowing it: pg marks the client not queryable, the
+    // holder's next statement fails with a connection error (503 in the API),
+    // and pg-pool discards the client on release. Not logged here: the
+    // holder sees the failure, and a pass lock watches for it on its own.
+    this.on("error", () => {});
+  }
+
   // pg-pool assigns release() on every checkout and throws if it is called
   // twice. Eviction hands the client back itself (drizzle runs BEGIN before
   // the try/finally that releases, so a timed-out BEGIN would otherwise leak
@@ -54,9 +66,6 @@ export class EvictOnReadTimeoutClient extends Client {
     if (!(error instanceof Error) || error.message !== QUERY_READ_TIMEOUT) {
       return;
     }
-    // A checked-out client has no "error" listener, so a stray socket error
-    // during our own teardown would otherwise kill the process.
-    this.on("error", () => {});
     // Flag the client unusable now so pg-pool removes it rather than parking
     // it idle, and so end() takes its destroy-the-socket path instead of
     // asking a server that no longer answers to say goodbye.

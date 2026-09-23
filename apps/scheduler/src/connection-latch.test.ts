@@ -49,8 +49,11 @@ describe("latchOnConnectionLoss", () => {
     const store = {
       async acquirePassLock() {
         calls.push("acquirePassLock");
-        return async () => {
-          unlocked += 1;
+        return {
+          signal: new AbortController().signal,
+          release: async () => {
+            unlocked += 1;
+          },
         };
       },
       async desiredStateOf() {
@@ -72,7 +75,7 @@ describe("latchOnConnectionLoss", () => {
     const latch = latchOnConnectionLoss(fake.store, (error) =>
       reported.push(error),
     );
-    const release = await latch.store.acquirePassLock();
+    const lock = await latch.store.acquirePassLock();
     const ref = { executionId: "e", generation: 1 };
 
     await expect(latch.store.desiredStateOf(ref)).rejects.toBe(lost);
@@ -87,7 +90,7 @@ describe("latchOnConnectionLoss", () => {
     expect(fake.calls).toEqual(["acquirePassLock", "desiredStateOf"]);
     expect(reported).toHaveLength(1);
 
-    await release?.();
+    await lock?.release();
     expect(fake.unlocked()).toBe(1);
   });
 

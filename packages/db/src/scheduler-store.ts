@@ -8,6 +8,7 @@ import type {
   ExecutionObservation,
   ExecutionRef,
   LaunchCredentialState,
+  PassLock,
   ReplaceReason,
   ReserveLaunchInput,
   SchedulerDemand,
@@ -48,7 +49,12 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 /** A connection the pass lock can live on for as long as the pass runs. */
 export type PassLockClient = {
   query(text: string): Promise<{ rows: Array<Record<string, unknown>> }>;
-  release(): void;
+  /** An error hands the client back to be destroyed, not reused. */
+  release(error?: Error): void;
+  on(event: "end", listener: () => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  off(event: "end", listener: () => void): unknown;
+  off(event: "error", listener: (error: Error) => void): unknown;
 };
 
 export type PostgresSchedulerStoreOptions = {
@@ -97,28 +103,67 @@ export function createPostgresSchedulerStore(
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
   const work = createPostgresWorkerUnitOfWork(db);
   return {
-    async acquirePassLock() {
+    async acquirePassLock(): Promise<PassLock | null> {
       const client = await options.connectForLock();
+      // A session-level lock lives exactly as long as its connection: once
+      // the socket is gone the server has let go of it, whether or not the
+      // server has noticed yet. Watched from before the lock is taken, so a
+      // drop right after it is not missed.
+      const lost = new AbortController();
+      const onError = (error: Error) => {
+        lost.abort(
+          new Error("Scheduler pass lock connection failed", { cause: error }),
+        );
+      };
+      const onEnd = () => {
+        lost.abort(new Error("Scheduler pass lock connection ended"));
+      };
+      client.on("error", onError);
+      client.on("end", onEnd);
+      const giveBack = (error?: Error) => {
+        client.off("error", onError);
+        client.off("end", onEnd);
+        client.release(error);
+      };
       try {
         const result = await client.query(
           `SELECT pg_try_advisory_lock(hashtext('${PASS_LOCK_KEY}')) AS locked`,
         );
         if (result.rows[0]?.locked !== true) {
-          client.release();
+          giveBack();
           return null;
         }
       } catch (error) {
-        client.release();
+        giveBack(error instanceof Error ? error : new Error(String(error)));
         throw error;
       }
-      return async () => {
-        try {
-          await client.query(
-            `SELECT pg_advisory_unlock(hashtext('${PASS_LOCK_KEY}'))`,
-          );
-        } finally {
-          client.release();
-        }
+      return {
+        signal: lost.signal,
+        async release() {
+          let failure: Error | undefined;
+          try {
+            if (!lost.signal.aborted) {
+              await client.query(
+                `SELECT pg_advisory_unlock(hashtext('${PASS_LOCK_KEY}'))`,
+              );
+            }
+          } catch (error) {
+            failure = error instanceof Error ? error : new Error(String(error));
+            throw error;
+          } finally {
+            // Detached only once nothing more is sent: a socket that fails
+            // during the unlock still has a listener to land on. A client
+            // that lost its connection, or may still hold the lock after a
+            // failed unlock, is destroyed rather than handed to the next
+            // caller — closing it is what makes the server let go.
+            giveBack(
+              failure ??
+                (lost.signal.aborted
+                  ? new Error("Scheduler pass lock connection lost")
+                  : undefined),
+            );
+          }
+        },
       };
     },
 
@@ -315,28 +360,61 @@ export function createPostgresSchedulerStore(
       // what stops the caller tearing its resource down. Clearing the hash
       // is what shuts the door (see `revokeBootstrapNonce`): a claim commits
       // strictly before this row lock or finds nothing to claim after it.
-      const [row] = await db
-        .update(workerLaunches)
-        .set({
-          nonceHash: null,
-          replacementCount: sql`${workerLaunches.replacementCount} + 1`,
-          replacementReason: reason,
-        })
-        .where(
-          and(
-            eq(workerLaunches.executionId, ref.executionId),
-            eq(workerLaunches.generation, ref.generation),
-            isNull(workerLaunches.claimedAttemptId),
-            holdsSlot(),
-            eq(workerLaunches.replacementCount, expectedCount),
-            credentialFence,
-          ),
-        )
-        .returning({ count: workerLaunches.replacementCount });
-      return row?.count ?? null;
+      return db.transaction(async (tx) => {
+        const [launch] = await tx
+          .select({ executionId: workerLaunches.executionId })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return null;
+        // Read after the row lock, in a statement of its own: a terminate
+        // takes the same lock before it asks for the kill, so one that got
+        // there first is seen here, and a launch asked to go is killed, not
+        // rebuilt. Folded into the update below, the check would be judged
+        // on the snapshot taken before the wait.
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return null;
+        const [row] = await tx
+          .update(workerLaunches)
+          .set({
+            nonceHash: null,
+            replacementCount: sql`${workerLaunches.replacementCount} + 1`,
+            replacementReason: reason,
+          })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.claimedAttemptId),
+              holdsSlot(),
+              eq(workerLaunches.replacementCount, expectedCount),
+              credentialFence,
+            ),
+          )
+          .returning({ count: workerLaunches.replacementCount });
+        return row?.count ?? null;
+      });
     },
 
-    async settleReplacement(ref: ExecutionRef): Promise<void> {
+    async settleReplacement(
+      ref: ExecutionRef,
+      expectedCount: number,
+    ): Promise<void> {
       await db
         .update(workerLaunches)
         .set({ replacementReason: null })
@@ -344,6 +422,8 @@ export function createPostgresSchedulerStore(
           and(
             eq(workerLaunches.executionId, ref.executionId),
             eq(workerLaunches.generation, ref.generation),
+            // A replacement asked for since belongs to whoever asked.
+            eq(workerLaunches.replacementCount, expectedCount),
           ),
         );
     },
@@ -509,8 +589,17 @@ export function createPostgresSchedulerStore(
         );
     },
 
-    async confirmExecutionGone(executionId: string, now: Date): Promise<void> {
-      await work.confirmExecutionGoneAtomic({ executionId, now });
+    async confirmExecutionGone(executionId, now, incarnation) {
+      const result = await work.confirmExecutionGoneAtomic({
+        executionId,
+        now,
+        ...(incarnation === null ? {} : { incarnation }),
+      });
+      return result.superseded
+        ? "superseded"
+        : result.deferred
+          ? "deferred"
+          : "confirmed";
     },
 
     async desiredStateOf(ref) {

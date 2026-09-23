@@ -40,10 +40,41 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     ]);
     const held = [first, second].filter((r) => r !== null);
     expect(held).toHaveLength(1);
-    await held[0]?.();
+    await held[0]?.release();
     const again = await store.acquirePassLock();
     expect(again).not.toBeNull();
-    await again?.();
+    await again?.release();
+  });
+
+  test("a pass lock whose connection the server drops says so, and is free for the next pass", async () => {
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+    });
+    const lock = await store.acquirePassLock();
+    if (!lock) throw new Error("lock not taken");
+    const [holder] = (
+      await pool.query<{ pid: number }>(
+        `SELECT pid FROM pg_locks
+          WHERE locktype = 'advisory' AND granted
+            AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+      )
+    ).rows;
+    expect(holder).toBeDefined();
+    await pool.query("SELECT pg_terminate_backend($1)", [holder?.pid]);
+    // The server let go the moment the session ended; the holder hears about
+    // it from its own socket.
+    for (let i = 0; i < 50 && !lock.signal.aborted; i += 1) {
+      await Bun.sleep(20);
+    }
+    expect(lock.signal.aborted).toBe(true);
+    expect(() => lock.signal.throwIfAborted()).toThrow(/pass lock connection/);
+    const idleBefore = pool.idleCount;
+    await lock.release();
+    // Destroyed, not parked for the next caller.
+    expect(pool.idleCount).toBe(idleBefore);
+    const next = await store.acquirePassLock();
+    expect(next).not.toBeNull();
+    await next?.release();
   });
 
   test("15 concurrent reservations from an empty pool yield exactly slotLimit intents", async () => {
@@ -142,6 +173,40 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     expect(row?.reason).toBeNull();
   }, 60_000);
 
+  test("a replacement request waits behind a terminate holding the row and then refuses", async () => {
+    const { intent, store } = await reservedLaunch();
+    // A terminate in flight, as terminateAtomic orders it: the launch row
+    // locked first, then the kill intent written, not yet committed.
+    const terminating = await pool.connect();
+    try {
+      await terminating.query("BEGIN");
+      await terminating.query(
+        "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+        [intent.executionId],
+      );
+      await terminating.query(
+        "UPDATE executions SET desired_state = 'terminated' WHERE id = $1",
+        [intent.executionId],
+      );
+      const request = store.requestReplacement(intent, "stale_isolation", 0);
+      expect(await settledWithin(request, 300)).toBe("pending");
+      await terminating.query("COMMIT");
+      // The kill intent is read after the wait, not from the snapshot taken
+      // before it: a launch asked to go is never recorded for a rebuild.
+      expect(await request).toBeNull();
+    } finally {
+      terminating.release();
+    }
+    const [row] = await db
+      .select({
+        count: workerLaunches.replacementCount,
+        reason: workerLaunches.replacementReason,
+      })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(row).toEqual({ count: 0, reason: null });
+  }, 60_000);
+
   test("an exit confirmation waits behind a replacement request holding the row and then refuses", async () => {
     const { intent, sessionId, store } = await reservedLaunch();
     // A replacement request in flight: reason written, not committed.
@@ -155,6 +220,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
       const confirm = store.confirmExecutionGone(
         intent.executionId,
         new Date(),
+        null,
       );
       expect(await settledWithin(confirm, 300)).toBe("pending");
       await requesting.query("COMMIT");

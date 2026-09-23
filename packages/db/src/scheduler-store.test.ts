@@ -69,6 +69,9 @@ beforeEach(async () => {
         return { rows: result.rows };
       },
       release: () => undefined,
+      // One in-process session: its connection never drops.
+      on: () => undefined,
+      off: () => undefined,
     }),
   });
 });
@@ -143,7 +146,7 @@ describe("PostgresSchedulerStore", () => {
       slotLimit: 10,
     });
     if (!first) throw new Error("no intent");
-    await store.confirmExecutionGone(first.executionId, NOW);
+    await store.confirmExecutionGone(first.executionId, NOW, null);
     const second = await store.reserveLaunch({
       backend: "local_docker",
       now: NOW,
@@ -232,7 +235,7 @@ describe("PostgresSchedulerStore", () => {
       (await store.inspectDemand({ limit: 10 })).activeExecutionCount,
     ).toBe(1);
 
-    await store.confirmExecutionGone(launched.executionId, NOW);
+    await store.confirmExecutionGone(launched.executionId, NOW, null);
     const after = await store.inspectDemand({ limit: 10 });
     expect(after.activeExecutionCount).toBe(0);
     expect(after.eligibleSessionIds).toContain(ids[0] ?? "");
@@ -384,7 +387,7 @@ describe("PostgresSchedulerStore", () => {
       }),
     ).toBeNull();
     if (!first) throw new Error("no intent");
-    await store.confirmExecutionGone(first.executionId, NOW);
+    await store.confirmExecutionGone(first.executionId, NOW, null);
     expect(
       await store.reserveLaunch({
         backend: "local_docker",
@@ -411,7 +414,7 @@ describe("PostgresSchedulerStore", () => {
       // keeping a second ledger; with one, the limit of 1 proves it.
       await store.issueBootstrapNonce(intent);
       expect(await work.countReservedSlots()).toBe(1);
-      await store.confirmExecutionGone(intent.executionId, NOW);
+      await store.confirmExecutionGone(intent.executionId, NOW, null);
       expect(await work.countReservedSlots()).toBe(0);
       expect(
         (await store.inspectDemand({ limit: 0 })).activeExecutionCount,
@@ -465,7 +468,7 @@ describe("PostgresSchedulerStore", () => {
     await expect(
       store.issueBootstrapNonce({ ...intent, generation: 9 }),
     ).rejects.toThrow("no bootstrap credential was issued");
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     await expect(store.issueBootstrapNonce(intent)).rejects.toThrow(
       "no bootstrap credential was issued",
     );
@@ -537,7 +540,7 @@ describe("PostgresSchedulerStore", () => {
     });
 
     // A launch that gave its slot back is not one to replace a resource for.
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     await expect(store.bootstrapCredentialState(intent)).rejects.toThrow(
       "released or unknown",
     );
@@ -614,7 +617,7 @@ describe("PostgresSchedulerStore", () => {
     expect(await store.revokeBootstrapNonce({ ...intent, generation: 9 })).toBe(
       false,
     );
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(await store.revokeBootstrapNonce(intent)).toBe(false);
   });
 
@@ -696,7 +699,7 @@ describe("PostgresSchedulerStore", () => {
     ).toBe(2);
     expect((await launchRow())?.nonceHash).toBeNull();
     // Back to the unfenced path for the rest.
-    await store.settleReplacement(intent);
+    await store.settleReplacement(intent, 2);
     expect(await active()).toMatchObject({
       pendingReplacement: null,
       replacementCount: 2,
@@ -709,7 +712,7 @@ describe("PostgresSchedulerStore", () => {
     });
 
     // Settling clears the reason and keeps the count.
-    await store.settleReplacement(intent);
+    await store.settleReplacement(intent, 3);
     expect(await active()).toMatchObject({
       pendingReplacement: null,
       replacementCount: 3,
@@ -724,7 +727,7 @@ describe("PostgresSchedulerStore", () => {
       ),
     ).toBeNull();
     // Neither is one whose slot went back.
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(
       await store.requestReplacement(intent, "stale_isolation", 3),
     ).toBeNull();
@@ -785,7 +788,7 @@ describe("PostgresSchedulerStore", () => {
     // Someone else — a reconciler that saw the old container exit — reports
     // it gone while the scheduler is between teardown and create. The plan
     // wins: the slot and the session stay with this launch.
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(await holdsSlot()).toBe(true);
     const [session] = await db
       .select({ executionId: sessions.executionId })
@@ -794,9 +797,233 @@ describe("PostgresSchedulerStore", () => {
     expect(session?.executionId).toBe(intent.executionId);
 
     // Once the rebuilt resource is up, an exit is an exit again.
-    await store.settleReplacement(intent);
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.settleReplacement(intent, 1);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(await holdsSlot()).toBe(false);
+  });
+
+  test("confirmExecutionGone with another incarnation is a no-op", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const incarnationOf = (nonce: string | null) => ({
+      nonceFingerprint:
+        nonce === null ? null : launchNonceFingerprint(sha256(nonce)),
+    });
+    const holdsSlot = async () =>
+      (await store.listActiveExecutions("local_docker")).some(
+        (row) => row.executionId === intent.executionId,
+      );
+    const boundSession = async () =>
+      (
+        await db
+          .select({ executionId: sessions.executionId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+      )[0]?.executionId;
+
+    // The resource a stale pass watched go, then the replacement another
+    // pass created for the same launch, whose worker bound.
+    const old = await store.issueBootstrapNonce(intent);
+    const current = await store.issueBootstrapNonce(intent);
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: intent.generation,
+      executionId: intent.executionId,
+      id: "att-current",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-current" })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+
+    for (const seen of [incarnationOf(old), incarnationOf(null)]) {
+      expect(
+        await store.confirmExecutionGone(intent.executionId, NOW, seen),
+      ).toBe("superseded");
+      expect(await holdsSlot()).toBe(true);
+      expect(await boundSession()).toBe(intent.executionId);
+      const [attempt] = await db
+        .select({ state: attempts.state })
+        .from(attempts)
+        .where(eq(attempts.id, "att-current"));
+      expect(attempt?.state).toBe("running");
+    }
+    // An unknown launch names no incarnation at all.
+    expect(
+      await store.confirmExecutionGone("exec-unknown", NOW, incarnationOf(old)),
+    ).toBe("superseded");
+
+    // The claim kept the credential, so the incarnation the worker bound on
+    // is still the launch's and its exit is an exit.
+    expect(
+      await store.confirmExecutionGone(
+        intent.executionId,
+        NOW,
+        incarnationOf(current),
+      ),
+    ).toBe("confirmed");
+    expect(await holdsSlot()).toBe(false);
+    expect(await boundSession()).toBeNull();
+  });
+
+  test("a row-read incarnation also carries the claim it showed", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    // A pass read the launch unclaimed with this credential and saw no
+    // resource; the create that issued it then built one and its worker
+    // bound. The fingerprint alone still matches.
+    const nonce = await store.issueBootstrapNonce(intent);
+    const seen = {
+      claimed: false,
+      nonceFingerprint: launchNonceFingerprint(sha256(nonce)),
+    };
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: intent.generation,
+      executionId: intent.executionId,
+      id: "att-late",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-late" })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+
+    expect(
+      await store.confirmExecutionGone(intent.executionId, NOW, seen),
+    ).toBe("superseded");
+    expect(await store.listActiveExecutions("local_docker")).toHaveLength(1);
+    expect(
+      await store.confirmExecutionGone(intent.executionId, NOW, {
+        ...seen,
+        claimed: true,
+      }),
+    ).toBe("confirmed");
+    expect(await store.listActiveExecutions("local_docker")).toEqual([]);
+  });
+
+  test("a launch asked to go is killed, never rebuilt or held for a rebuild", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    // A replacement recorded, and then a terminate: the kill must be able
+    // to confirm the resource gone although the reason is still set.
+    expect(await store.requestReplacement(intent, "stale_isolation", 0)).toBe(
+      1,
+    );
+    await db
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, intent.executionId));
+    // And a replacement asked for after the terminate is refused outright.
+    await store.settleReplacement(intent, 1);
+    expect(
+      await store.requestReplacement(intent, "stale_isolation", 1),
+    ).toBeNull();
+    const [launch] = await db
+      .select({ reason: workerLaunches.replacementReason })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(launch?.reason).toBeNull();
+
+    // A reason that got in anyway — before the terminate, and never
+    // cleared — does not hold the killed launch's slot.
+    await db
+      .update(workerLaunches)
+      .set({ replacementReason: "stale_isolation" })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(
+      await store.confirmExecutionGone(intent.executionId, NOW, null),
+    ).toBe("confirmed");
+    expect(await store.listActiveExecutions("local_docker")).toEqual([]);
+  });
+
+  test("settling a replacement leaves one asked for since alone", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    expect(await store.requestReplacement(intent, "stale_isolation", 0)).toBe(
+      1,
+    );
+    // Another pass judged the rebuild and asked again before this one
+    // settled the first.
+    expect(await store.requestReplacement(intent, "nonce_expired", 1)).toBe(2);
+    await store.settleReplacement(intent, 1);
+    const reasonNow = async () =>
+      (
+        await db
+          .select({ reason: workerLaunches.replacementReason })
+          .from(workerLaunches)
+          .where(eq(workerLaunches.executionId, intent.executionId))
+      )[0]?.reason;
+    expect(await reasonNow()).toBe("nonce_expired");
+    await store.settleReplacement(intent, 2);
+    expect(await reasonNow()).toBeNull();
+  });
+
+  test("a pending replacement defers an exit confirmation and says so", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    expect(await store.requestReplacement(intent, "stale_isolation", 0)).toBe(
+      1,
+    );
+    expect(
+      await store.confirmExecutionGone(intent.executionId, NOW, null),
+    ).toBe("deferred");
+    expect(await store.listActiveExecutions("local_docker")).toHaveLength(1);
+  });
+
+  test("confirmExecutionGone without an incarnation speaks for whatever the launch runs", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    await store.issueBootstrapNonce(intent);
+    expect(
+      await store.confirmExecutionGone(intent.executionId, NOW, null),
+    ).toBe("confirmed");
+    expect(await store.listActiveExecutions("local_docker")).toEqual([]);
   });
 
   test("the schema refuses a replacement reason it does not know", async () => {
@@ -824,11 +1051,12 @@ describe("PostgresSchedulerStore", () => {
   });
 
   test("acquirePassLock hands out the lock once and releases it", async () => {
-    const release = await store.acquirePassLock();
-    expect(release).not.toBeNull();
+    const lock = await store.acquirePassLock();
+    expect(lock).not.toBeNull();
+    expect(lock?.signal.aborted).toBe(false);
     // PGlite is one session, so the same session re-acquires; the real
     // Postgres race is covered in scheduler-store.integration.test.ts.
-    await release?.();
+    await lock?.release();
     expect(await store.acquirePassLock()).not.toBeNull();
   });
 
@@ -854,7 +1082,7 @@ describe("PostgresSchedulerStore", () => {
     expect(await store.filterKnown([], "local_docker")).toEqual([]);
 
     // A launch that gave its slot back no longer owns its resource.
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(await store.filterKnown([intent], "local_docker")).toEqual([]);
   });
   test("workspaces are retained until the session is finished with them", async () => {
@@ -917,7 +1145,7 @@ describe("PostgresSchedulerStore", () => {
       sessionId,
     ]);
 
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
     expect(await store.filterRetainedSessions([sessionId])).toEqual([]);
   });
 
@@ -942,7 +1170,7 @@ describe("PostgresSchedulerStore", () => {
       providerRef: null,
       state: "terminated",
     });
-    await store.confirmExecutionGone(intent.executionId, NOW);
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
 
     expect(await store.filterRetainedSessions([sessionId])).toEqual([
       sessionId,
