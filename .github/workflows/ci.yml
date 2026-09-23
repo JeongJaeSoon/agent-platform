@@ -39,23 +39,78 @@ jobs:
   # gated on those skip here and run in `integration`. Suites that need nothing
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
-  check:
+  #
+  # Split by role across runners (94S-305): `bun run check` ran typecheck, lint
+  # and the suite one after another in 5m10s (1m, 1s and 4m10s), which made it
+  # the longest path of every PR run. Each part is now its own job, and the
+  # suite is cut once more along the repo layout — packages/ in one part,
+  # everything else in the other — because one bun process over it was still
+  # longer than the integration shards. The parts are names, not numbers: a red
+  # `check (lint)` says what broke without opening the log.
+  check-part:
+    name: check (${{ matrix.part }})
     # A non-dispatch event has no `only`, so it reads as `all`.
     if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # Ceilings sit just above the slowest run on record (6m/4m/6m), so a hang
-    # costs minutes rather than a quarter hour.
-    timeout-minutes: 10
+    # Ceiling just above the slowest part: the old single job's worst was 6m.
+    timeout-minutes: 6
+    strategy:
+      # Each part's failures are its own; a cancelled part would hide them
+      # until the next push.
+      fail-fast: false
+      matrix:
+        include:
+          - part: typecheck
+          - part: lint
+          - part: "unit: packages"
+            unit: packages
+          # The complement of `packages`: apps/ and tests/, and any other
+          # directory the `test` script's filters pick up.
+          - part: "unit: apps, tests"
+            unit: rest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
         with:
-          save-cache: "true"
+          # One writer per cache scope; the other parts restore what it saved.
+          save-cache: ${{ matrix.part == 'typecheck' }}
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - if: matrix.part == 'typecheck'
+        run: bun run typecheck
+      - if: matrix.part == 'lint'
+        run: bun run lint
+      - if: matrix.unit
+        name: Tests of this part
+        env:
+          UNIT: ${{ matrix.unit }}
+        # An assignment, not process substitution, so a planner failure fails
+        # the step instead of handing `bun test` an empty list — which it
+        # would read as the whole suite.
+        run: |
+          files=$(bun .github/scripts/unit-part.ts "$UNIT")
+          mapfile -t files <<<"$files"
+          bun test "${files[@]}"
+
+  # The required check, for the same reason as `integration` below: branch
+  # protection names `check`, the matrix reports one context per part, and a
+  # skipped required check counts as passing. So it runs on `always()` and
+  # fails on anything but `success` from every part.
+  check:
+    needs: check-part
+    if: >-
+      always()
+      && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.check-part.result }}
+        run: |
+          echo "check parts: $RESULT"
+          [ "$RESULT" = success ]
 
   # The same suite with every opt-in variable on, so `bun run test` reports
   # zero skips. Filtering by file name would miss opt-in tests that do not
