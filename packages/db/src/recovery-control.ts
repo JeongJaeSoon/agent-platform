@@ -19,6 +19,7 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
+  parseTurnSequence,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
@@ -44,6 +45,8 @@ const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume"];
 type SessionRow = typeof sessions.$inferSelect;
 
 async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
+  const sequence = parseTurnSequence(turnId);
+  if (sequence === null) return null;
   const [turn] = await tx
     .select({
       id: turns.id,
@@ -52,9 +55,7 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
       resultJson: turns.resultJson,
     })
     .from(turns)
-    .where(
-      and(eq(turns.sessionId, sessionId), eq(turns.sequence, Number(turnId))),
-    )
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
     .limit(1);
   return turn ?? null;
 }

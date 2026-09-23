@@ -8,6 +8,21 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
+const TURN_ID = /^[1-9]\d{0,9}$/;
+// turns.sequence is a PostgreSQL integer.
+const SEQUENCE_MAX = 2_147_483_647;
+
+/**
+ * A public turn id as a sequence, by the same canonical rule as the turn
+ * reader: "1e0" or " 1" must not settle turn 1, and "abc" or an out-of-range
+ * number must not reach the query as a 500.
+ */
+export function parseTurnSequence(turnId: string): number | null {
+  if (!TURN_ID.test(turnId)) return null;
+  const sequence = Number(turnId);
+  return sequence <= SEQUENCE_MAX ? sequence : null;
+}
+
 // Receipts written for the inputs a decision or a cancellation settles.
 export const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 

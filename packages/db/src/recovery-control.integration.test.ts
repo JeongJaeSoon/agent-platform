@@ -522,6 +522,17 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         reason: "no such turn",
       }),
     ).toEqual({ outcome: "turn_not_unknown", turnStatus: null });
+    // Non-canonical ids never alias turn 1, and nonsense never reaches SQL.
+    for (const target of ["1e0", " 1", "01", "abc", "99999999999"]) {
+      expect(
+        await decide(session, {
+          decision: "abandon",
+          expected_revision: row.revision,
+          target_turn_id: target,
+          reason: "malformed id",
+        }),
+      ).toEqual({ outcome: "turn_not_unknown", turnStatus: null });
+    }
     expect(
       await decide(session, {
         decision: "confirm_completed",
