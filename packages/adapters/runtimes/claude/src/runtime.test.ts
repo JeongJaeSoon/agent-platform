@@ -131,6 +131,16 @@ describe("Claude SDK adapter options", () => {
     );
   });
 
+  test("passes a spending budget only when the caller sets one", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    expect(buildSdkOptions(config, allow)).not.toHaveProperty("maxBudgetUsd");
+    expect(
+      buildSdkOptions({ ...config, maxBudgetUsd: 2.5 }, allow).maxBudgetUsd,
+    ).toBe(2.5);
+  });
+
   test("denies tools outside the server allowlist before the host callback", async () => {
     let callbackCount = 0;
     const options = buildSdkOptions(config, {

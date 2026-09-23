@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { FinalizeRequest, WorkerScope } from "@agent-platform/contracts";
+import {
+  type FinalizeRequest,
+  TURN_BUDGET_EXCEEDED_REASON,
+  type WorkerScope,
+} from "@agent-platform/contracts";
 import {
   createWorkerGateway,
   type InputLimits,
@@ -12,7 +16,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
@@ -22,6 +26,7 @@ import * as schema from "./schema.ts";
 import {
   executions,
   MAX_SESSION_COST_USD,
+  receipts,
   sessions,
   storageUsage,
   turns,
@@ -249,7 +254,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
     const session = await queuedSession();
     const l = await launch(session.partition, session.session_id);
     const claimed = await claim(l);
-    return { session, claimed };
+    return { session, claimed, launched: l };
   }
 
   function finalize(
@@ -395,6 +400,65 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
         .from(turns)
         .where(eq(turns.sessionId, session.session_id));
       expect(turn?.result).toMatchObject({ cost_usd: 1.5 });
+    });
+
+    test("a turn the engine cut on its budget adds its cost once, and its receipt says why (94S-279)", async () => {
+      const { session, claimed } = await bound();
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      const cut: Partial<FinalizeRequest> = {
+        terminal: {
+          status: "failed",
+          reason: TURN_BUDGET_EXCEEDED_REASON,
+          result: { subtype: "error_max_budget_usd", is_error: true },
+          usage: null,
+          cost_usd: 10.25,
+        },
+      };
+
+      await finalize(claimed, "1", cut);
+      await finalize(claimed, "1", cut);
+
+      // Past the limit by what the last request cost, and counted once.
+      expect(await sessionCost(session.session_id)).toBe(10.25);
+      const [turn] = await db
+        .select({ status: turns.status, reason: turns.terminalReason })
+        .from(turns)
+        .where(eq(turns.sessionId, session.session_id));
+      expect(turn).toEqual({ status: "failed", reason: "budget_exceeded" });
+      const [receipt] = await db
+        .select({ status: receipts.status, error: receipts.error })
+        .from(receipts)
+        .where(
+          sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+        );
+      expect(receipt).toMatchObject({
+        status: "failed",
+        error: { code: "BUDGET_EXCEEDED", message: "budget_exceeded" },
+      });
+      // The next poll is where the stored sum, not the engine, holds it.
+      expect(
+        await gateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
+    });
+
+    test("every claim hands the engine what is left, so a resumed attempt gets less (94S-279)", async () => {
+      const { session, claimed, launched } = await bound();
+      expect(claimed.remaining_budget_usd).toBe(COST_LIMIT_USD);
+      expect((await append(session, "second input")).outcome).toBe("accepted");
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await finalize(claimed, "1", { costUsd: 4.25 });
+      await gateway.release(principalOf(claimed), {
+        ...scopeOf(claimed),
+        reason: "drained",
+      });
+      await gateway.confirmExecutionGone(launched.executionId);
+
+      const again = await claim(
+        await launch(session.partition, session.session_id),
+      );
+
+      expect(again.attempt_id).not.toBe(claimed.attempt_id);
+      expect(again.remaining_budget_usd).toBe(COST_LIMIT_USD - 4.25);
     });
 
     test("a cost below a micro-dollar still counts, rounded up", async () => {

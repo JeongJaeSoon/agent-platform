@@ -12,7 +12,10 @@ import type {
   TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
-import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
+import {
+  MAX_TURN_COST_USD,
+  TURN_BUDGET_EXCEEDED_REASON,
+} from "@agent-platform/contracts";
 import { endedByAbort } from "@agent-platform/runtime-claude";
 import type {
   AgentRun,
@@ -55,6 +58,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
   committedClaudeMd: () => string | null;
   correlationId: string;
+  /** The claim's remaining_budget_usd: this run counts its spend from zero. */
+  maxBudgetUsd: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
 };
@@ -334,6 +339,7 @@ export class WorkerHost {
                   ? plan.committedClaudeMd
                   : () => this.options.workspace.committedClaudeMd(),
               correlationId: `${claim.session_id}:${claim.attempt_id}`,
+              maxBudgetUsd: claim.remaining_budget_usd,
               principal: claim.principal,
               runtimeConfig: claim.runtime_config,
             },
@@ -1910,6 +1916,9 @@ function terminalOf(
  * (`api_error`, …) is the cause.
  */
 function failureReason(native: NativeSdkMessage, subtype: string): string {
+  // The engine's budget is the session's remaining one, so this is the same
+  // limit the gateway enforces between turns, reached inside one.
+  if (subtype === "error_max_budget_usd") return TURN_BUDGET_EXCEEDED_REASON;
   if (subtype !== "success") return subtype;
   return typeof native.terminal_reason === "string" &&
     native.terminal_reason.length > 0

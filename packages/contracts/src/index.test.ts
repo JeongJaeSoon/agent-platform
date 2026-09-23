@@ -646,8 +646,21 @@ describe("worker protocol", () => {
       },
       principal: { owner_scope: "owner_1" },
       restore: null,
+      remaining_budget_usd: 12.5,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    // The engine's budget is what is left of the session's, never below
+    // nothing and never left out (94S-279).
+    const { remaining_budget_usd: _b, ...withoutBudget } = claim;
+    expect(bootstrapClaimResponseSchema.safeParse(withoutBudget).success).toBe(
+      false,
+    );
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        remaining_budget_usd: -0.01,
+      }).success,
+    ).toBe(false);
     // A claim without the workspace or the resolved profile is not a claim a
     // worker can act on.
     const { workspace: _w, ...withoutWorkspace } = claim;
@@ -746,6 +759,7 @@ describe("worker protocol", () => {
         manifest_ref: "m",
         manifest_sha256: "a".repeat(64),
       },
+      remaining_budget_usd: 12.5,
     });
     expect(loggableBootstrapClaim(claim)).toEqual({
       session_id: scope.session_id,
@@ -764,6 +778,7 @@ describe("worker protocol", () => {
       branch: "main",
       owner_scope: "owner_1",
       restore_revision: 4,
+      remaining_budget_usd: 12.5,
     });
     const line = JSON.stringify(loggableBootstrapClaim(claim));
     for (const secret of [

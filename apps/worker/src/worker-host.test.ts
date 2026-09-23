@@ -101,12 +101,14 @@ function harness(
       : { resumedTranscript: overrides.resumedTranscript },
   );
   const launched: RuntimeConfig[] = [];
+  const budgets: number[] = [];
   const principals: ClaimPrincipal[] = [];
   const claudeMds: Array<string | null> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
       start: ({ runtimeConfig, principal, ...launch }, hooks) => {
         launched.push(runtimeConfig);
+        budgets.push(launch.maxBudgetUsd);
         principals.push(principal);
         claudeMds.push(launch.committedClaudeMd());
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
@@ -141,7 +143,7 @@ function harness(
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
-  return { claudeMds, gateway, host, launched, principals, runtime };
+  return { budgets, claudeMds, gateway, host, launched, principals, runtime };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -991,6 +993,58 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
         provider_error: "server_error",
         last_retry_status: 503,
       },
+    });
+  });
+
+  test("a turn the engine ended on its budget fails as budget_exceeded, with its cost and its checkpoint (94S-279)", async () => {
+    const gateway = new FakeWorkerGateway({ remainingBudgetUsd: 4.5 });
+    const { budgets, host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: {
+            ...resultMessage(uuidForTurn(1)),
+            subtype: "error_max_budget_usd",
+            is_error: true,
+            total_cost_usd: 4.75,
+          },
+        },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        checkpoints: {
+          restorePlan: async () => ({ mode: "new" }),
+          capture: async (preparation) =>
+            preparation.status === "ready"
+              ? {
+                  revision: 0,
+                  manifest_ref: "checkpoints/0.json",
+                  manifest_sha256: "a".repeat(64),
+                }
+              : null,
+        },
+      },
+    );
+    gateway.enqueue("a turn that loops on tools");
+
+    const summary = await host.runLoop();
+
+    // The engine was given what the claim said the session had left.
+    expect(budgets).toEqual([4.5]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "budget_exceeded" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(gateway.finalized[0]).toMatchObject({
+      terminal: {
+        status: "failed",
+        reason: "budget_exceeded",
+        cost_usd: 4.75,
+        result: { subtype: "error_max_budget_usd", is_error: true },
+      },
+      checkpoint: { revision: 0, manifest_ref: "checkpoints/0.json" },
     });
   });
 
