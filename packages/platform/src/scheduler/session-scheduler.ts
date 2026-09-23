@@ -208,13 +208,14 @@ export async function reclaimWorkspaces(
 export async function reclaimNetworks(
   options: ReclaimOptions,
 ): Promise<SchedulerRunSummary> {
-  const release = await options.store.acquirePassLock();
-  if (release === null) {
+  const lock = await options.store.acquirePassLock();
+  if (lock === null) {
     options.logger.warn("Another scheduling pass holds the lock; skipping");
     return { ...emptySummary(0), skipped: true };
   }
   const summary = emptySummary(0);
   try {
+    lock.signal.throwIfAborted();
     await reconcileNetworks(options, summary);
     options.logger.info("Worker network reconcile completed", {
       network_failed_count: summary.networksFailed.length,
@@ -222,10 +223,11 @@ export async function reclaimNetworks(
       network_repaired_count: summary.networksRepaired.length,
       network_scan_failed: summary.networkScanFailed,
     });
-    return summary;
   } finally {
-    await release();
+    await lock.release();
   }
+  lock.signal.throwIfAborted();
+  return summary;
 }
 
 /**
