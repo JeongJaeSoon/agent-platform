@@ -203,6 +203,14 @@ class FakeRun implements AgentRun {
             position > index && candidate.type === "await-input",
         );
         if (next === -1) return;
+        // What the interrupt ended goes with it: its tools stop, and the
+        // inputs its terminal named are dropped rather than run next turn.
+        for (const skipped of this.steps.slice(index + 1, next)) {
+          if (skipped.type === "tool-end") {
+            this.ledger.toolSettled(skipped.toolUseId);
+          }
+        }
+        this.consumedInputs = this.acceptedInputs;
         this.terminal = undefined;
         this.interruptController = new AbortController();
         index = next - 1;

@@ -278,6 +278,43 @@ describe("fake agent runtime", () => {
     expect(frames[1]?.envelope.message.user_message_uuid).toBe("u2");
   });
 
+  test("an interrupt settles the tools it cut short and drops the inputs it named", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "tool-start", toolUseId: "toolu_cut" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "tool-end", toolUseId: "toolu_cut" },
+      { type: "emit", message: { ...result, user_message_uuid: "u1" } },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u3" } },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "one", uuid: "u1" });
+    run.send({ message: "queued", uuid: "u2" });
+    await waitFor(() => runtime.toolAdmissions.length === 1);
+    await run.interrupt();
+    await waitFor(() => frames.length === 1);
+    expect(frames[0]?.envelope.message.user_message_uuids).toEqual([
+      "u1",
+      "u2",
+    ]);
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+
+    // u2 ended with the interrupt, so the next turn waits for a new input.
+    run.send({ message: "three", uuid: "u3" });
+    await within(consume, 200);
+    expect(
+      frames.map((frame) => frame.envelope.message.user_message_uuid),
+    ).toEqual(["u2", "u3"]);
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {
