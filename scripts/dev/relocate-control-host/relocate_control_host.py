@@ -311,13 +311,17 @@ sub(images_test, r"basePins\.api\.source", 'basePins["control-host"].source', co
 sub(images_test, r'("app: \[)([^\]]*)\]"', lambda m: without_scheduler(m) + '"')
 replace(images_test,
         '  test("the scheduler loop surfaces persistent failure", () => {\n',
-        '  test("one service builds the shared control-host image", () => {\n'
-        '    // Two services building one tag race on export: "already exists".\n'
-        '    expect(compose.match(/dockerfile: apps\\/control-host\\/Dockerfile/g)).toHaveLength(1);\n'
-        '    const schedulerBlock = compose.slice(compose.indexOf("\\n  scheduler:"));\n'
-        '    expect(schedulerBlock).toContain(\n'
-        '      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",\n'
-        '    );\n'
+        '  test("no two services build the same image tag", () => {\n'
+        '    // Two builds exporting one tag race: "image ... already exists".\n'
+        '    const { services } = Bun.YAML.parse(compose) as {\n'
+        '      services: Record<string, { build?: unknown; image?: string }>;\n'
+        '    };\n'
+        '    const built = Object.values(services)\n'
+        '      .filter((service) => service.build && service.image)\n'
+        '      .map((service) => service.image);\n'
+        '    expect(new Set(built).size).toBe(built.length);\n'
+        '    expect(services.scheduler?.build).toBeUndefined();\n'
+        '    expect(services.scheduler?.image).toBe(services.api?.image);\n'
         '  });\n\n'
         '  test("the scheduler loop surfaces persistent failure", () => {\n')
 

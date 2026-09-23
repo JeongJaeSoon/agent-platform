@@ -59,15 +59,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
   });
 
-  test("one service builds the shared control-host image", () => {
-    // Two services building one tag race on export: "already exists".
-    expect(
-      compose.match(/dockerfile: apps\/control-host\/Dockerfile/g),
-    ).toHaveLength(1);
-    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
-    expect(schedulerBlock).toContain(
-      "image: $" + "{API_IMAGE:-agent-platform-control-host:dev}",
-    );
+  test("no two services build the same image tag", () => {
+    // Two builds exporting one tag race: "image ... already exists".
+    const { services } = Bun.YAML.parse(compose) as {
+      services: Record<string, { build?: unknown; image?: string }>;
+    };
+    const built = Object.values(services)
+      .filter((service) => service.build && service.image)
+      .map((service) => service.image);
+    expect(new Set(built).size).toBe(built.length);
+    expect(services.scheduler?.build).toBeUndefined();
+    expect(services.scheduler?.image).toBe(services.api?.image);
   });
 
   test("the scheduler loop surfaces persistent failure", () => {
