@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerScope } from "@agent-platform/contracts";
+import {
+  type SseEvent,
+  sessionEventVariants,
+  type WorkerScope,
+} from "@agent-platform/contracts";
 import {
   createWorkerGateway,
   type SessionCatalog,
@@ -22,6 +26,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
+import { recordAudit } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -276,6 +281,37 @@ integration("pause on PostgreSQL (94S-137)", () => {
     throw new Error("expected the call to fail");
   }
 
+  // Reads the whole stream the way GET /v1/sessions/{id}/events pages it.
+  async function streamed(session: Session) {
+    const frames: SseEvent[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const page = await reader().readEvents(
+        session.ownerId,
+        session.sessionId,
+        {
+          ...(after === undefined ? {} : { after }),
+          limit: 2,
+          maxBytes: 1 << 20,
+        },
+      );
+      if (!page) throw new Error("session not readable");
+      frames.push(...page.items);
+      after = page.items.at(-1)?.id ?? after;
+      if (!page.more) return frames;
+    }
+  }
+
+  function pauseStatus(frames: SseEvent[]) {
+    return frames.flatMap((frame) => {
+      if (frame.event !== "status") return [];
+      const status = sessionEventVariants.status.shape.data.parse(
+        frame.data.data,
+      );
+      return status.reason === undefined ? [] : [status];
+    });
+  }
+
   // Backdates the pause past its drain deadline, on the clock it is read on.
   async function overdue(receiptId: string) {
     await db
@@ -379,6 +415,11 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect(audit.map((row) => row.payload)).toContainEqual(
       expect.objectContaining({ admission_state: "pausing" }),
     );
+    // ...and the stream still reads to its end past it (94S-283). The
+    // turn was draining, so the status the pause reports is running.
+    expect(pauseStatus(await streamed(session))).toEqual([
+      expect.objectContaining({ phase: "running", admission_state: "pausing" }),
+    ]);
   });
 
   test("pausing and paused refuse messages with SESSION_PAUSED's state, keep answers open, and replay by key", async () => {
@@ -519,6 +560,9 @@ integration("pause on PostgreSQL (94S-137)", () => {
       checkpoint_revision: 0,
       queued_turn_count: 0,
     });
+    expect(pauseStatus(await streamed(covered))).toEqual([
+      expect.objectContaining({ phase: "idle", admission_state: "paused" }),
+    ]);
 
     // Queued and never run, no checkpoint: nothing to restore from.
     const fresh = await newSession("idle-fresh");
@@ -527,6 +571,35 @@ integration("pause on PostgreSQL (94S-137)", () => {
       outcome: "checkpoint_unavailable",
     });
     expect((await sessionRow(fresh.sessionId)).admissionState).toBe("active");
+  });
+
+  test("an audit the event contract would not read is refused before it is stored", async () => {
+    const session = await newSession("audit-contract");
+    const stored = () =>
+      db
+        .select({ id: events.id })
+        .from(events)
+        .where(eq(events.sessionId, session.sessionId));
+    const before = (await stored()).length;
+    const write = (payload: Record<string, unknown>) =>
+      db.transaction((tx) =>
+        recordAudit(tx, {
+          sessionId: session.sessionId,
+          type: "status",
+          payload,
+          turnRowId: null,
+          now: new Date(),
+        }),
+      );
+
+    await expect(write({ admission_state: "paused" })).rejects.toThrow();
+    await expect(
+      write({ phase: "paused", admission_state: "paused" }),
+    ).rejects.toThrow();
+    expect(await stored()).toHaveLength(before);
+
+    await write({ phase: "idle", admission_state: "paused" });
+    expect(await stored()).toHaveLength(before + 1);
   });
 
   test("a launch reserved but not yet claimed gets its stop intent at once, and the gone observation pauses it", async () => {

@@ -338,6 +338,8 @@ export function pauseAtomic(
       sessionId,
       type: "status",
       payload: {
+        // Pause moves admission only; the status it reports is untouched.
+        phase: session.status,
         admission_state: bound ? "pausing" : "paused",
         reason: input.reason,
         actor: { owner_id: input.principal.ownerId },
