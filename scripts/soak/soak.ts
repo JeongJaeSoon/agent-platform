@@ -86,8 +86,12 @@ export type SoakConfig = {
     slotLimit: number;
     toleranceMs: number;
   };
-  /** How often the product reconciler's status file is read (94S-320). */
-  reconciler: { intervalSec: number };
+  /**
+   * How often the product reconciler's status file is read (94S-320), and
+   * how old its last successful pass may be at any reading — the compose
+   * healthcheck's RECONCILER_HEALTH_STALE_SEC.
+   */
+  reconciler: { intervalSec: number; staleSec: number };
   sampleIntervalSec: number;
   targets: {
     acceptP95Ms: number;
@@ -152,6 +156,7 @@ export function validConfig(value: unknown): SoakConfig {
   positive("invariants.slotLimit", config.invariants?.slotLimit);
   positive("sampleIntervalSec", config.sampleIntervalSec);
   positive("reconciler.intervalSec", config.reconciler?.intervalSec);
+  positive("reconciler.staleSec", config.reconciler?.staleSec);
   positive("targets.acceptP95Ms", config.targets?.acceptP95Ms);
   try {
     validFaults(config.messagesFaults);
@@ -196,7 +201,9 @@ type TurnRecord = {
 class Soak {
   readonly turns: TurnRecord[] = [];
   readonly controls: ControlSample[] = [];
-  readonly readyz: Array<{ ok: boolean; ms: number; status: number }> = [];
+  readonly readyz: ReadyzSample[] = [];
+  readonly phases: Array<Record<string, unknown>> = [];
+  readonly reconciler: ReconcilerSample[] = [];
   readonly invariantSamples: Array<{
     at: string;
     results: InvariantResult[];
@@ -235,6 +242,11 @@ class Soak {
     const inWindow = this.inWindow(Date.now());
     this.controls.push(sample);
     this.out.jsonl("controls").write({ ...sample, inWindow });
+  }
+
+  phase(entry: Record<string, unknown>): void {
+    this.phases.push(entry);
+    this.out.jsonl("phases").write(entry);
   }
 
   anomaly(entry: Record<string, unknown>): void {
@@ -358,6 +370,7 @@ class SessionLoop {
             budgetMs: this.config.probes.slowStepMs + 60_000,
             pollMs: this.config.probes.pollMs,
             sessionId,
+            slowStepMs: this.config.probes.slowStepMs,
             specId,
             turnId,
           }),
@@ -508,16 +521,30 @@ async function every(
  * timer measured here would charge that stall to the API. `wallMs` is kept
  * beside it so such a stall stays visible.
  */
-async function readyzProbe(
-  apiUrl: string,
-  timeoutMs: number,
-): Promise<{
+type ReadyzSample = {
   error: string | null;
   ms: number;
   ok: boolean;
   status: number;
+  t: string;
   wallMs: number;
-}> {
+};
+
+type ReconcilerSample = {
+  t: string;
+  code: number;
+  status: {
+    consecutiveFailures?: number;
+    lastFailureReason?: string | null;
+    lastSuccessAt?: string | null;
+    passes?: number;
+  } | null;
+};
+
+async function readyzProbe(
+  apiUrl: string,
+  timeoutMs: number,
+): Promise<Omit<ReadyzSample, "t">> {
   const sent = Date.now();
   const child = Bun.spawn(
     [
@@ -554,9 +581,24 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
   let chaosCursor = 0;
   const tasks = [
     every(clock, config.readyz.intervalMs, async () => {
-      const sample = await readyzProbe(env.apiUrl, config.readyz.timeoutMs);
+      const t = new Date().toISOString();
+      // A probe that could not run is a failed interval, not a missing one.
+      const sample: ReadyzSample = await readyzProbe(
+        env.apiUrl,
+        config.readyz.timeoutMs,
+      ).then(
+        (probe) => ({ t, ...probe }),
+        (error) => ({
+          t,
+          error: `probe did not run: ${String(error)}`,
+          ms: 0,
+          ok: false,
+          status: 0,
+          wallMs: 0,
+        }),
+      );
       soak.readyz.push(sample);
-      out.jsonl("readyz").write({ t: new Date().toISOString(), ...sample });
+      out.jsonl("readyz").write(sample);
     }),
     every(clock, config.sampleIntervalSec * 1000, async () => {
       out.jsonl("clock").write(await clockOffset(env.messagesUrl));
@@ -590,10 +632,14 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
       try {
         status = JSON.parse(result.stdout);
       } catch {}
-      out.jsonl("reconciler").write({
+      const sample = {
         t: new Date().toISOString(),
         code: result.code,
-        status,
+        status: status as ReconcilerSample["status"],
+      };
+      soak.reconciler.push(sample);
+      out.jsonl("reconciler").write({
+        ...sample,
         ...(status === null ? { output: result.stderr.slice(-2000) } : {}),
       });
     }),
@@ -616,8 +662,27 @@ async function invariantSample(soak: Soak): Promise<void> {
 
 export type JudgeInput = Pick<
   Soak,
-  "anomalies" | "config" | "controls" | "invariantSamples" | "readyz" | "turns"
+  | "anomalies"
+  | "config"
+  | "controls"
+  | "invariantSamples"
+  | "phases"
+  | "readyz"
+  | "reconciler"
+  | "turns"
 >;
+
+/** The longest stretch in [from, to] with no sample, in ms. */
+function longestGap(times: number[], from: number, to: number): number {
+  const points = [from, ...times.filter((t) => t > from && t < to), to].sort(
+    (a, b) => a - b,
+  );
+  let longest = 0;
+  for (let i = 1; i < points.length; i++) {
+    longest = Math.max(longest, (points[i] ?? 0) - (points[i - 1] ?? 0));
+  }
+  return longest;
+}
 
 export function judge(
   soak: JudgeInput,
@@ -627,6 +692,50 @@ export function judge(
   summary: Record<string, unknown>;
 } {
   const { config, turns, controls, readyz, invariantSamples } = soak;
+  // The steady phase the run was meant to cover, and whether it got there.
+  const steadyPhase = soak.phases.find((entry) => entry.phase === "steady") as
+    | { deadline?: number; rampEnded?: number }
+    | undefined;
+  const quiescePhase = soak.phases.find((entry) => entry.phase === "quiesce") as
+    | { at?: number }
+    | undefined;
+  const steadyFrom = Number(steadyPhase?.rampEnded ?? Number.NaN);
+  const steadyTo = Number(steadyPhase?.deadline ?? Number.NaN);
+  const steadyKnown = Number.isFinite(steadyFrom) && Number.isFinite(steadyTo);
+  const gap = (times: number[]) =>
+    steadyKnown ? longestGap(times, steadyFrom, steadyTo) : null;
+  const gaps = {
+    readyz: gap(readyz.map((sample) => Date.parse(sample.t))),
+    invariants: gap(invariantSamples.map((sample) => Date.parse(sample.at))),
+    reconciler: gap(soak.reconciler.map((sample) => Date.parse(sample.t))),
+  };
+  const gapLimits = {
+    readyz: 3 * config.readyz.intervalMs + config.readyz.timeoutMs,
+    invariants: 1.5 * config.invariants.intervalMin * 60_000,
+    reconciler: 3 * config.reconciler.intervalSec * 1000,
+  };
+  const inSteady = (t: string) =>
+    steadyKnown && Date.parse(t) >= steadyFrom && Date.parse(t) <= steadyTo;
+  const reconcilerSamples = soak.reconciler.filter((sample) =>
+    inSteady(sample.t),
+  );
+  const unreadable = reconcilerSamples.filter(
+    (sample) => sample.code !== 0 || sample.status === null,
+  );
+  const failing = reconcilerSamples.filter(
+    (sample) => (sample.status?.consecutiveFailures ?? 0) > 0,
+  );
+  const staleness = reconcilerSamples.map((sample) =>
+    sample.status?.lastSuccessAt
+      ? Date.parse(sample.t) - Date.parse(sample.status.lastSuccessAt)
+      : Number.POSITIVE_INFINITY,
+  );
+  const restarts = reconcilerSamples.filter(
+    (sample, i) =>
+      i > 0 &&
+      (sample.status?.passes ?? 0) <
+        (reconcilerSamples[i - 1]?.status?.passes ?? 0),
+  ).length;
   const targets = config.targets;
   const accepted = (endpoint: TurnRecord["endpoint"]) =>
     distribution(
@@ -907,6 +1016,49 @@ export function judge(
       pass: availability !== null && availability >= targets.readyzAvailability,
     }),
     criterion({
+      id: "O-3",
+      area: "관측",
+      input: `compose reconciler status 파일 ${reconcilerSamples.length}회 (${config.reconciler.intervalSec}s 간격, steady 구간)`,
+      expected: `모든 표본을 읽을 수 있고, 실패한 pass 0, 마지막 성공이 ${config.reconciler.staleSec}s보다 오래된 표본 0, 재시작(passes 감소) 0`,
+      actual: {
+        unreadable: unreadable.length,
+        failing: failing.map((sample) => ({
+          t: sample.t,
+          reason: sample.status?.lastFailureReason ?? null,
+        })),
+        maxStalenessMs: staleness.length ? Math.max(...staleness) : null,
+        restarts,
+        passes: reconcilerSamples.at(-1)?.status?.passes ?? null,
+      },
+      pass:
+        reconcilerSamples.length > 0 &&
+        unreadable.length === 0 &&
+        failing.length === 0 &&
+        restarts === 0 &&
+        staleness.every((ms) => ms <= config.reconciler.staleSec * 1000),
+    }),
+    criterion({
+      id: "W-1",
+      area: "실행 완주",
+      input: `phases.jsonl과 표본 시각 (steady ${config.durationMin}분)`,
+      expected: `steady 구간이 설정 길이이고 끝까지 돌았으며(quiesce ≥ deadline), 표본 공백이 readyz ≤ ${gapLimits.readyz}ms · invariants ≤ ${gapLimits.invariants}ms · reconciler ≤ ${gapLimits.reconciler}ms`,
+      actual: {
+        steadyFrom: steadyKnown ? new Date(steadyFrom).toISOString() : null,
+        steadyTo: steadyKnown ? new Date(steadyTo).toISOString() : null,
+        quiesceAt: quiescePhase?.at
+          ? new Date(quiescePhase.at).toISOString()
+          : null,
+        gaps,
+      },
+      pass:
+        steadyKnown &&
+        steadyTo - steadyFrom === config.durationMin * 60_000 &&
+        Number(quiescePhase?.at ?? 0) >= steadyTo &&
+        (Object.keys(gaps) as Array<keyof typeof gaps>).every(
+          (key) => gaps[key] !== null && (gaps[key] ?? 0) <= gapLimits[key],
+        ),
+    }),
+    criterion({
       id: "O-2",
       area: "관측",
       input: "DB 관측 쿼리",
@@ -1038,7 +1190,7 @@ async function main(): Promise<number> {
   const deadline = rampEnded + config.durationMin * 60_000;
   schedule.deadline = deadline;
   soak.windowEnd = deadline;
-  out.jsonl("phases").write({
+  soak.phase({
     phase: "steady",
     rampEnded,
     windowStart: soak.windowStart,
@@ -1065,7 +1217,7 @@ async function main(): Promise<number> {
   for (const timer of timers) clearInterval(timer);
   const stuck = loops.filter((loop) => loop.busy).map((loop) => loop.slot);
   if (stuck.length > 0) soak.anomaly({ reason: "drain ran out", slots: stuck });
-  out.jsonl("phases").write({ phase: "quiesce", at: Date.now() });
+  soak.phase({ phase: "quiesce", at: Date.now() });
   await Bun.sleep(config.quiesceSec * 1000);
   await invariantSample(soak);
   clock.stopping = true;
@@ -1130,10 +1282,10 @@ function readJsonl<T>(path: string): T[] {
 }
 
 /**
- * Judges a finished run again from its raw files. A control sample written
- * before probes recorded their own validity is judged from the receipts
- * the run dumped: an interrupt counts when the slow call was pending, the
- * API accepted it and the receipt says it was no no-op.
+ * Judges a finished run again from its raw files, with the same rules the
+ * live run used. A control sample from before probes recorded their own
+ * validity carries no proof the slow call was still pending, so it counts
+ * as invalid rather than being reconstructed after the fact.
  */
 function rejudge(dir: string): number {
   const at = (name: string) => join(dir, name);
@@ -1141,26 +1293,14 @@ function rejudge(dir: string): number {
     JSON.parse(readFileSync(at("config.json"), "utf8")),
   );
   const meta = JSON.parse(readFileSync(at("meta.json"), "utf8"));
-  const receipts = new Map(
-    readJsonl<{ id: string; result: unknown }>(at("db-receipts.jsonl")).map(
-      (row) => [row.id, row.result],
-    ),
-  );
   const controls = readJsonl<ControlSample>(at("controls.jsonl")).map(
-    (sample) => {
-      if (sample.extra?.valid !== undefined) return sample;
-      const result = sample.receiptId ? receipts.get(sample.receiptId) : null;
-      const reached = sample.extra?.reachedSlowStep !== false;
-      const noOp = (result as { no_op?: boolean } | null)?.no_op;
-      const validSample =
-        sample.op === "interrupt"
-          ? reached && sample.acceptStatus === 202 && noOp === false
-          : reached && sample.acceptStatus === 202;
-      return {
-        ...sample,
-        extra: { ...sample.extra, valid: validSample, rejudged: true },
-      };
-    },
+    (sample) =>
+      sample.extra?.valid !== undefined
+        ? sample
+        : {
+            ...sample,
+            extra: { ...sample.extra, valid: false, legacy: true },
+          },
   );
   return report(
     dir,
@@ -1169,7 +1309,9 @@ function rejudge(dir: string): number {
       config,
       controls,
       invariantSamples: readJsonl(at("invariants.jsonl")),
+      phases: readJsonl(at("phases.jsonl")),
       readyz: readJsonl(at("readyz.jsonl")),
+      reconciler: readJsonl(at("reconciler.jsonl")),
       turns: readJsonl(at("turns.jsonl")),
     },
     { ...meta, rejudged_at: new Date().toISOString() },

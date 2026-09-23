@@ -725,7 +725,7 @@ export class Workers {
 // ---------------------------------------------------------------- gate services
 
 export type ChaosRule = {
-  action: "corrupt" | "delay" | "fail" | "lose_response";
+  action: "corrupt" | "delay" | "fail" | "hold" | "lose_response";
   bodyContains?: string;
   delayMs?: number;
   method?: string;
@@ -738,6 +738,10 @@ export type ChaosEntry = {
   at: string;
   /** append-events only: the batch key and each event's sha256 by source_sequence. */
   batch: { events: Record<string, string>; key: string } | null;
+  /** A `corrupt` rule changed a byte of this answer. */
+  corrupted?: boolean;
+  /** When the injector sent it on upstream; null while held or never. */
+  forwardedAt?: string | null;
   /** Arrival order at the fault injector. */
   index: number;
   method: string;
@@ -759,6 +763,11 @@ export class Chaos {
       method: "POST",
     });
     return ((await response.json()) as { id: string }).id;
+  }
+
+  /** Lets the requests a `hold` rule is holding go on upstream. */
+  async release(id: string): Promise<void> {
+    await fetch(`${this.base}/rules/${id}/release`, { method: "POST" });
   }
 
   async disarm(id: string): Promise<void> {

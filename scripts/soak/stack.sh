@@ -15,7 +15,7 @@
 # with another; `up` writes the ones it got, the API key and the image tags
 # to $SOAK_STATE/vars.sh (mode 0600), which soak.ts and campaigns.ts read.
 #
-# SOAK_PROJECT / SOAK_INSTALLATION default to soak135; SOAK_STATE to
+# The project and installation are always soak135; SOAK_STATE defaults to
 # ${TMPDIR}/soak135-state. SOAK_SKIP_BUILD=1 reuses images already tagged.
 # Removal is by this project's name and this installation's label only.
 set -euo pipefail
@@ -28,20 +28,14 @@ if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
 fi
 
-project="${SOAK_PROJECT:-soak135}"
+# Fixed, not configurable: `down` removes volumes and every resource with
+# this installation label, so the names it acts on are the ones this script
+# creates and no other stack's.
+project=soak135
 state="${SOAK_STATE:-${TMPDIR:-/tmp}/soak135-state}"
 mkdir -p "$state"
 
-export EXECUTION_INSTALLATION_ID="${SOAK_INSTALLATION:-soak135}"
-# `down` removes volumes and label-matched resources; only names this script
-# could have created may reach it, so a stray override cannot point it at
-# another stack (the quickstart's `agent-platform`, a gate's `d2gate`).
-for name in "$project" "$EXECUTION_INSTALLATION_ID"; do
-  if ! [[ "$name" =~ ^soak[a-z0-9-]*$ ]]; then
-    echo "refusing: '$name' is not a soak stack name (soak[a-z0-9-]*)" >&2
-    exit 2
-  fi
-done
+export EXECUTION_INSTALLATION_ID=soak135
 export API_IMAGE="agent-platform-api:${project}"
 export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"

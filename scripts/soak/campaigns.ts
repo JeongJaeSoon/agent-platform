@@ -19,7 +19,6 @@ import {
 import { checkInvariants, runningWorkers } from "./invariants.ts";
 import {
   type Criterion,
-  clockOffset,
   container,
   criterion,
   markdownReport,
@@ -311,14 +310,6 @@ async function waitChaos(
 /** The index the injector will give the next request it sees. */
 async function chaosCursor(ctx: Ctx): Promise<number> {
   return ((await ctx.chaos.log()).at(-1)?.index ?? -1) + 1;
-}
-
-/** How many requests an armed rule has matched so far (null: not armed). */
-async function ruleFired(ctx: Ctx, id: string): Promise<number | null> {
-  const rules = (await fetch(`${ctx.env.chaosUrl}/rules`).then((response) =>
-    response.json(),
-  )) as Array<{ fired: number; id: string }>;
-  return rules.find((rule) => rule.id === id)?.fired ?? null;
 }
 
 function regexLiteral(text: string): string {
@@ -783,7 +774,11 @@ const corruptFallback: Campaign = {
     const thirdEnd = await finish(ctx, third);
     // Without a damaged read the restore took some other path, and whatever
     // it did says nothing about fallback.
-    const corrupted = await ruleFired(ctx, rule);
+    // Answers the rule actually damaged (a 2xx with a body), not merely
+    // matched: a failed upstream read changes nothing and proves nothing.
+    const corrupted = (await ctx.chaos.log()).filter(
+      (entry) => entry.rule === rule && entry.corrupted === true,
+    ).length;
     await ctx.chaos.disarm(rule);
     const after = await sessionRow(ctx.db, first.sessionId);
     const evidence = modelEvidence(
@@ -791,10 +786,9 @@ const corruptFallback: Campaign = {
       second.specId,
     );
     const fellBack = after?.checkpoint_fallback_revision != null;
-    const visible =
-      fellBack ||
-      after?.admission_state === "recovery_required" ||
-      thirdEnd.status !== "completed";
+    // The two outcomes 94S-204 designs for damage: an older revision is
+    // restored and recorded, or the session stops for a recovery decision.
+    const visible = fellBack || after?.admission_state === "recovery_required";
     ctx.rows.push(
       criterion({
         id: "fault-corrupt-fallback/restore",
@@ -811,7 +805,7 @@ const corruptFallback: Campaign = {
         },
         pass:
           removed &&
-          (corrupted ?? 0) > 0 &&
+          corrupted > 0 &&
           visible &&
           !(evidence.contextKept === false && !fellBack),
       }),
@@ -947,6 +941,34 @@ const clockSkew: Campaign = {
 
 // ---------------------------------------------------------------- races
 
+/**
+ * A terminate already posted: when its receipt settled (succeeded or
+ * unknown) and no worker of the session was running, both observed.
+ */
+async function terminateEffect(
+  ctx: Ctx,
+  sessionId: string,
+  posted: { body: unknown; sentAt: number; status: number },
+): Promise<{ effectMs: number | null; receiptStatus: string | null }> {
+  const receiptId =
+    ((posted.body ?? {}) as { receipt_id?: string }).receipt_id ?? null;
+  let receiptStatus: string | null = null;
+  while (receiptId && Date.now() - posted.sentAt < 60_000) {
+    const receipt = await ctx.api.receipt(receiptId);
+    if (receipt && receipt.status !== "accepted") {
+      receiptStatus = String(receipt.status);
+      const running = (await runningWorkers(ctx.env.installation)).get(
+        sessionId,
+      );
+      if (!running?.length) {
+        return { effectMs: Date.now() - posted.sentAt, receiptStatus };
+      }
+    }
+    await Bun.sleep(250);
+  }
+  return { effectMs: null, receiptStatus };
+}
+
 const claimTerminate: Campaign = {
   id: "race-claim-terminate",
   kind: "race",
@@ -962,9 +984,11 @@ const claimTerminate: Campaign = {
         path: `${GATEWAY}/bootstrap-claim$`,
         times: 1,
       });
+      // Held until released after the terminate is accepted; the cap only
+      // keeps a broken round from stranding the worker for good.
       const held = await ctx.chaos.arm({
-        action: "delay",
-        delayMs: 5000,
+        action: "hold",
+        delayMs: 120_000,
         upstream: "gateway",
         method: "POST",
         path: `${GATEWAY}/bootstrap-claim$`,
@@ -973,8 +997,8 @@ const claimTerminate: Campaign = {
       const started = await startTurn(ctx, null, "normal");
       // The order under test: the first claim commits upstream and its answer
       // is lost; the worker's replay reaches the injector and is held; the
-      // terminate goes out while it is held; only then does the replay reach
-      // the gateway. Each step is waited for, not assumed.
+      // terminate is accepted; only then is the replay released to the
+      // gateway. Each step is waited for, not assumed.
       const firstClaim = await waitChaos(
         ctx,
         (entry) =>
@@ -993,14 +1017,9 @@ const claimTerminate: Campaign = {
             60_000,
           )
         : null;
-      const terminated = await terminateProbe(ctx.api, ctx.model, {
-        budgetMs: 60_000,
-        installation: ctx.env.installation,
-        pollMs: 250,
-        sessionId: started.sessionId,
-        specId: null,
-        turnId: started.turnId,
-      });
+      const posted = await ctx.api.control(started.sessionId, "terminate");
+      const acceptedAt = new Date().toISOString();
+      await ctx.chaos.release(held);
       const replayAnswered = replayHeld
         ? await waitChaos(
             ctx,
@@ -1009,6 +1028,7 @@ const claimTerminate: Campaign = {
             30_000,
           )
         : null;
+      const terminated = await terminateEffect(ctx, started.sessionId, posted);
       await ctx.chaos.disarm(lost);
       await ctx.chaos.disarm(held);
       const replays = (await ctx.chaos.log()).filter(
@@ -1027,8 +1047,10 @@ const claimTerminate: Campaign = {
         round,
         firstClaimUpstream: firstClaim?.upstreamStatus ?? null,
         replayHeldAt: replayHeld?.at ?? null,
+        terminateAcceptedAt: acceptedAt,
+        replayForwardedAt: replayAnswered?.forwardedAt ?? null,
         heldReplayUpstream: replayAnswered?.upstreamStatus ?? null,
-        terminateAccepted: terminated.acceptStatus,
+        terminateAccepted: posted.status,
         terminate: {
           receipt: terminated.receiptStatus,
           effectMs: terminated.effectMs,
@@ -1047,7 +1069,7 @@ const claimTerminate: Campaign = {
         id: "race-claim-terminate/replay",
         area: "경합: claim/replay↔terminate",
         input:
-          "첫 bootstrap-claim이 upstream에서 2xx로 commit된 뒤 응답 유실 → 재시도가 5초 붙잡힌 동안 terminate(202) → 붙잡힌 재시도가 gateway 도달; 3회",
+          "첫 bootstrap-claim이 upstream에서 2xx로 commit된 뒤 응답 유실 → 재시도를 injector가 붙잡음 → terminate 202를 받은 뒤에야 풀어 gateway로 보냄; 3회",
         expected:
           "선행 조건(첫 claim 2xx·재시도 붙잡힘·terminate 202)이 모두 성립하고, terminate가 30초 안에 확인되며, terminate 뒤 도달한 재시도는 모두 4xx 이상이고, 세션에 열린 attempt·완료 turn이 없다",
         actual: results,
@@ -1620,7 +1642,17 @@ const grantRevoke: Campaign = {
     const since = await chaosCursor(ctx);
     const sent = Date.now();
     const revoked = await grants(ctx, "revoke", a.sessionId);
-    const committed = Date.now();
+    // The commit point on the database's clock, which the injector and the
+    // scripted model share (one kernel): writes and model calls are compared
+    // with it directly, not with when the command returned on the host.
+    const { rows: revokedRows } = await ctx.db.query(
+      "SELECT execution_revoked_at FROM sessions WHERE id = $1",
+      [a.sessionId],
+    );
+    const revokedAt = (
+      revokedRows[0] as { execution_revoked_at: Date | null } | undefined
+    )?.execution_revoked_at;
+    const committed = revokedAt ? revokedAt.getTime() : Number.NaN;
     const receiptId = /receipt=([0-9a-f-]{36})/.exec(revoked.line)?.[1] ?? null;
 
     // Worker gone and receipt settled, each timed from the command.
@@ -1654,7 +1686,6 @@ const grantRevoke: Campaign = {
     // The revoked worker was already seen gone, so any running one is new.
     const relaunched =
       (await runningWorkers(ctx.env.installation)).get(a.sessionId) ?? [];
-    const offset = await clockOffsetMs(ctx);
     const lateWrites = (await ctx.chaos.log()).filter(
       (entry) =>
         entry.index >= since &&
@@ -1662,28 +1693,42 @@ const grantRevoke: Campaign = {
         WRITE_PATHS.test(entry.path) &&
         entry.upstreamStatus !== null &&
         entry.upstreamStatus < 300 &&
-        // Arrived after the command returned, on the host's clock.
-        Date.parse(entry.at) + offset > committed + 1000,
+        Date.parse(entry.at) > committed,
     );
     const turn = await turnRow(ctx.db, a.sessionId, slow.turnId);
     const models = await ctx.model.requests({ spec: slow.specId });
     const afterRevoke = models.filter(
-      (entry) => Date.parse(entry.at) + offset > committed + 1000,
+      (entry) => Date.parse(entry.at) > committed,
     );
 
-    const restored = await grants(ctx, "restore", a.sessionId);
-    const resumed = await ctx.api.control(a.sessionId, "resume");
-    const next =
-      resumed.status === 202
-        ? await finish(ctx, await startTurn(ctx, a.sessionId, "normal"))
-        : null;
+    // Restore is refused until the scheduler has confirmed the revoked
+    // execution gone, which can trail the container's disappearance.
+    let restored = await grants(ctx, "restore", a.sessionId);
+    for (
+      let tries = 0;
+      tries < 30 && restored.line.includes("not been observed gone");
+      tries++
+    ) {
+      await Bun.sleep(2000);
+      restored = await grants(ctx, "restore", a.sessionId);
+    }
+    // Restore lifts the revocation only; the killed turn is still unknown
+    // (recovery_required) or the session is stopped, as after a terminate.
+    const afterRestore = await sessionRow(ctx.db, a.sessionId);
+    const recovered =
+      afterRestore?.admission_state === "recovery_required"
+        ? await unblock(ctx, a.sessionId, slow.turnId)
+        : `resume → ${(await ctx.api.control(a.sessionId, "resume")).status}`;
+    const next = /resume → 202/.test(recovered)
+      ? await finish(ctx, await startTurn(ctx, a.sessionId, "normal"))
+      : null;
 
     ctx.rows.push(
       criterion({
         id: "race-grant-revoke/in-flight",
         area: "경합: Grant 회수↔in-flight turn",
         input:
-          "느린 모델 호출 중인 turn이 있는 세션에 grants.ts revoke → 20초 관찰 → restore → resume → 새 turn",
+          "느린 모델 호출 중인 turn이 있는 세션에 grants.ts revoke → 20초 관찰 → restore → (recovery_required면 abandon) → resume → 새 turn",
         expected:
           "revoke 성공, worker가 30초 안에 사라지고 receipt가 succeeded|unknown으로 정산, 회수 뒤 입력은 202가 아니고, 회수 커밋 뒤 도착한 worker 쓰기 2xx 0건, restore 전 재기동 0, 회수된 turn은 completed가 아니며, restore·resume 뒤 새 turn은 completed",
         actual: {
@@ -1700,13 +1745,16 @@ const grantRevoke: Campaign = {
           })),
           modelRequestsAfterRevoke: afterRevoke.length,
           turn,
+          revokedAt: revokedAt?.toISOString() ?? null,
           restore: restored.line,
-          resume: resumed.status,
+          afterRestore: afterRestore?.admission_state ?? null,
+          recovered,
           next: next?.status ?? null,
         },
         pass:
           reached !== null &&
           revoked.code === 0 &&
+          Number.isFinite(committed) &&
           revoked.line.startsWith("revoked ") &&
           goneMs !== null &&
           goneMs <= 30_000 &&
@@ -1717,18 +1765,12 @@ const grantRevoke: Campaign = {
           afterRevoke.length === 0 &&
           turn?.status !== "completed" &&
           restored.line.startsWith("restored ") &&
-          resumed.status === 202 &&
           next?.status === "completed",
       }),
     );
     await invariants(ctx, "Grant 회수·복구 뒤");
   },
 };
-
-/** Host clock minus container clock, from the scripted model's /clock. */
-async function clockOffsetMs(ctx: Ctx): Promise<number> {
-  return (await clockOffset(ctx.env.messagesUrl)).offsetMs;
-}
 
 // ---------------------------------------------------------------- hooks
 

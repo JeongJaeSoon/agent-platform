@@ -2,6 +2,7 @@ import type { PendingRequest } from "@agent-platform/contracts";
 import type { Pool } from "pg";
 import { prompt, type Step, write } from "../../tests/d2-gate/harness.ts";
 import { runningWorkers } from "./invariants.ts";
+import { clockOffset } from "./lib.ts";
 import type { MessagesFaults, RequestSummary } from "./messages.ts";
 
 /**
@@ -147,6 +148,11 @@ export class Api {
 export class Model {
   constructor(private readonly base: string) {}
 
+  /** Host clock minus the model's (the containers') clock. */
+  offset(): Promise<{ offsetMs: number; rttMs: number }> {
+    return clockOffset(this.base);
+  }
+
   async setFaults(faults: MessagesFaults): Promise<void> {
     const response = await fetch(`${this.base}/faults`, {
       method: "POST",
@@ -178,8 +184,10 @@ export class Model {
   ): Promise<RequestSummary | null> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      // An injected error answers at once, so only a clean request is
+      // one the engine is still waiting on.
       const found = (await this.requests({ spec })).find(
-        (entry) => (entry.step ?? -1) >= step,
+        (entry) => (entry.step ?? -1) >= step && entry.fault === null,
       );
       if (found) return found;
       await Bun.sleep(200);
@@ -294,12 +302,25 @@ export async function interruptProbe(
     budgetMs: number;
     pollMs: number;
     sessionId: string;
+    /** How long the scripted model holds the slow call's answer. */
+    slowStepMs: number;
     specId: string;
     turnId: string;
   },
 ): Promise<ControlSample> {
   const reached = await model.reached(input.specId, 1, 120_000);
+  const clock = await model.offset();
   const posted = await api.interrupt(input.sessionId, input.turnId);
+  // The slow call is answered `latencyMs + slowStepMs` after it arrived, on
+  // the model's clock. The interrupt counts only if the API had accepted it
+  // before then — the latest the acceptance can have happened, moved onto
+  // that clock, with the clock reading's own uncertainty added.
+  const pendingUntil = reached
+    ? Date.parse(reached.at) + reached.latencyMs + input.slowStepMs
+    : null;
+  const acceptedBy =
+    posted.sentAt + posted.ms - clock.offsetMs + Math.ceil(clock.rttMs / 2);
+  const pending = pendingUntil !== null && acceptedBy < pendingUntil;
   const receiptId =
     ((posted.body ?? {}) as { receipt_id?: string }).receipt_id ?? null;
   let effectMs: number | null = null;
@@ -346,9 +367,12 @@ export async function interruptProbe(
     receiptStatus,
     extra: {
       reachedSlowStep: reached !== null,
+      slowPendingUntil:
+        pendingUntil === null ? null : new Date(pendingUntil).toISOString(),
+      acceptedBy: new Date(acceptedBy).toISOString(),
       continuedAfterInterrupt: after.length,
       receiptResult,
-      valid: reached !== null && posted.status === 202 && noOp === false,
+      valid: pending && posted.status === 202 && noOp === false,
     },
   };
 }

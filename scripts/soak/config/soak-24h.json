@@ -36,7 +36,8 @@
     "toleranceMs": 1000
   },
   "reconciler": {
-    "intervalSec": 30
+    "intervalSec": 30,
+    "staleSec": 90
   },
   "sampleIntervalSec": 60,
   "targets": {
