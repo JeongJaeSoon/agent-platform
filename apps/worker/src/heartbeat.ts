@@ -167,11 +167,14 @@ export class Heartbeat {
       );
       // The request timeout can be longer than what is left of the lease,
       // and a stalled event loop can fire the race's timer late: an answer
-      // is taken only if it came back before the lease was given up.
-      if (response === undefined || this.leaseLeftMs <= 0) {
+      // is taken only if it came back before the lease was given up. The
+      // lease is judged as it stands now — an overlapping beat may have
+      // renewed it while this one was waiting.
+      if (this.leaseLeftMs <= 0) {
         this.giveUp("the gateway had not answered the beat renewing it");
         return;
       }
+      if (response === undefined) return;
       // Overlapping beats can answer out of order; neither shortens the
       // lease the other already granted, as on the database side.
       this.deadline = Math.max(

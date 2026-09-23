@@ -235,20 +235,22 @@ describe("Heartbeat", () => {
 
   test("gives the lease up a safety margin early with a beat still unanswered", async () => {
     const { heartbeat: beat, lost } = heartbeat(() => new Promise(() => {}), {
-      remainingMs: 2_000,
-      safetyMarginMs: 1_000,
+      remainingMs: 4_000,
+      safetyMarginMs: 2_000,
     });
     const started = performance.now();
     beat.start();
     await Bun.sleep(100);
     expect(lost).toEqual([]);
 
-    await until(() => lost.length > 0, 3_000);
+    await until(() => lost.length > 0, 6_000);
 
     expect(lost).toHaveLength(1);
-    expect(lost[0]).toContain("had not answered");
-    // Given up at the margin (~1s), not at the lease's end (2s).
-    expect(performance.now() - started).toBeLessThan(2_000);
+    // A timer can fire a hair before its instant, so the beat after the
+    // hanging one may be the one to say so.
+    expect(lost[0]).toContain("lease given up 2000ms before it runs out");
+    // Given up at the margin (~2s), not at the lease's end (4s).
+    expect(performance.now() - started).toBeLessThan(4_000);
     await beat.stop();
   });
 
@@ -269,6 +271,30 @@ describe("Heartbeat", () => {
     expect(lost).toEqual([
       "lease given up 60000ms before it runs out: no beat renewed it in time",
     ]);
+  });
+
+  test("a beat left unanswered does not give up a lease an overlapping beat renewed", async () => {
+    let calls = 0;
+    const { heartbeat: beat, lost } = heartbeat(
+      () => {
+        calls += 1;
+        // The loop's beat hangs; the one asked for meanwhile answers.
+        return calls === 1
+          ? new Promise(() => {})
+          : Promise.resolve(answer(30_000));
+      },
+      // Frozen: only the race's own timer can end the hanging beat.
+      { remainingMs: 200, safetyMarginMs: 100, monotonicNow: () => 0 },
+    );
+    beat.start();
+    await until(() => calls === 1);
+    await beat.beatOnce();
+    // Past the hanging beat's 100ms race.
+    await Bun.sleep(250);
+
+    expect(lost).toEqual([]);
+    expect(beat.leaseLeftMs).toBe(30_000 - 100);
+    await beat.stop();
   });
 
   test("an answer that comes back after the lease was given up does not revive it", async () => {
