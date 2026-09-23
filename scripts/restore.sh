@@ -112,7 +112,7 @@ log "restore: db.sql applied ($(psql_in "$INTO" -Atc "SELECT count(*) FROM sessi
 # ones. The manifests those rows name are left out of the sync and written
 # once, re-pinned to the new versions, by `checkpoint_pins repin` below
 # (docs/backup-restore.md, "checkpoint 객체의 version").
-MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpoints ORDER BY 1")"
+MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpoints WHERE collected_at IS NULL ORDER BY 1")"
 while IFS= read -r key; do
   [ -n "$key" ] || continue
   # Removed from the stage by path below; a key that could climb out of it

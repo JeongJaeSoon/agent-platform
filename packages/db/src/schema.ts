@@ -783,6 +783,10 @@ export const checkpoints = pgTable(
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Set by checkpoint garbage collection (94S-281) before it deletes the
+    // revision's objects: no restore reaches this revision any more, and a
+    // backup leaves it out rather than fail on what is gone.
+    collectedAt: timestamp("collected_at", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );

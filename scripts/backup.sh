@@ -68,6 +68,7 @@ log "backup: project=$PROJECT -> $DEST"
 # --- database -------------------------------------------------------------
 PG_USER="$(container_env "$PROJECT" postgres POSTGRES_USER)"
 PG_DB="$(container_env "$PROJECT" postgres POSTGRES_DB)"
+DUMP_AT="$(psql_in "$PROJECT" -Atc "SELECT clock_timestamp()")"
 compose "$PROJECT" exec -T postgres pg_dump --no-owner --no-privileges -U "$PG_USER" "$PG_DB" > "$DEST/db.sql"
 log "backup: db.sql $(wc -c < "$DEST/db.sql" | tr -d ' ') bytes"
 
@@ -97,6 +98,16 @@ compose "$PROJECT" exec -T localstack rm -rf "$STAGE"
 # the backup must carry the bytes the checkpoint pinned, or refuse.
 checkpoint_pins "$PROJECT" "$BUCKET" capture "$DEST/objects" >/dev/null \
   || die "checkpoint objects could not be backed up at the versions their checkpoints pin"
+# Checkpoint GC marks a row collected_at, then deletes its objects. A row it
+# marked after pg_dump's snapshot is unmarked in db.sql while its objects are
+# missing from objects/, and restore's repin fails on it. The mark is one
+# statement, so the minute before the dump started covers every mark the
+# dump can have missed; checked after the copy, because each purge follows
+# its mark.
+COLLECTED="$(psql_in "$PROJECT" -Atc \
+  "SELECT count(*) FROM checkpoints WHERE collected_at > timestamptz '$DUMP_AT' - interval '1 minute'")"
+[ "$COLLECTED" = 0 ] \
+  || die "checkpoint GC collected $COLLECTED checkpoint(s) while this backup ran, so db.sql names objects the backup lacks; back up again with checkpoint GC stopped"
 OBJECT_COUNT="$(find "$DEST/objects" -type f | wc -l | tr -d ' ')"
 log "backup: objects/ $OBJECT_COUNT objects from s3://${BUCKET}"
 

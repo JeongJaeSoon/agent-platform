@@ -107,7 +107,7 @@ import {
 import { recordEvent, recordStatus } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
-const ENDED_ATTEMPT_STATES = ["exited", "lost"];
+export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a

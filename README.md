@@ -31,7 +31,7 @@ bun run keys create quickstart \
 | 문서 | 내용 |
 |---|---|
 | [docs/quickstart.md](docs/quickstart.md) | 로컬 스택 기동, key 발급, curl 9단계, 워커 로그, 문제 해결 |
-| [docs/operations.md](docs/operations.md) | reconciler·scheduler, worker 격리·egress·네트워크, workspace 상한·회수, 카탈로그, 인증, 설치 상한, 이미지·compose |
+| [docs/operations.md](docs/operations.md) | reconciler·scheduler, worker 격리·egress·네트워크, workspace 상한·회수, checkpoint GC, 카탈로그, 인증, 설치 상한, 이미지·compose |
 | [docs/backup-restore.md](docs/backup-restore.md) | 설치 백업·새 project로 복원·검증 |
 | [docs/ci.md](docs/ci.md) | CI job별 실행 내용, required check, 수동 실행 |
 | [docs/openapi.json](docs/openapi.json) | 공개 `/v1` API 계약(`packages/contracts`에서 생성) |
