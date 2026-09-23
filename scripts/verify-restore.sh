@@ -155,10 +155,17 @@ while IFS='|' read -r session revision ref expected manifest_version held is_poi
   fi
   if [ "$ok" = 1 ]; then
     # Transcript parts of the root and every subagent, then the bundle.
-    # NUL-delimited: an object key may itself contain whitespace.
+    # NUL-delimited: an object key may itself contain whitespace. Listed to a
+    # file first: a jq that failed halfway inside a process substitution
+    # would just end the loop early, and the row would pass unchecked.
+    refs="$WORK/refs-$ROWS"
+    if ! jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest" > "$refs"; then
+      fail "$tag manifest: could not list its objects"
+      ok=0
+    fi
     while IFS= read -r -d '' key && IFS= read -r -d '' version && IFS= read -r -d '' sha && IFS= read -r -d '' bytes; do
       check_ref "$tag part" "$key" "$version" "$sha" "$WORK/part" "$bytes" || ok=0
-    done < <(jq -j '(([.transcripts.root] + (.transcripts.subagents | to_entries | map(.value))) | .[].parts[]), .workspace.untracked[] | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest")
+    done < "$refs"
     bundle_key="$(jq -r '.workspace.bundle.key' "$manifest")"
     bundle_version="$(jq -r '.workspace.bundle.version // ""' "$manifest")"
     bundle_sha="$(jq -r '.workspace.bundle.sha256' "$manifest")"
@@ -207,11 +214,16 @@ fi
 # The restored API's own answer, in `locked` mode: the bucket check it runs
 # at startup, then a restore plan for every pointer, each plan's versions
 # read back and found held (scripts/lib/checkpoint-pins-cli.ts).
-if ! PLAN_OUTPUT="$(checkpoint_pins "$PROJECT" "$BUCKET" plans)"; then
-  [ -n "$PLAN_OUTPUT" ] || PLAN_OUTPUT="FAIL restore plan check did not run"
+PLAN_STATUS=0
+PLAN_OUTPUT="$(checkpoint_pins "$PROJECT" "$BUCKET" plans)" || PLAN_STATUS=$?
+[ -z "$PLAN_OUTPUT" ] || printf '%s\n' "$PLAN_OUTPUT"
+PLAN_FAILS="$(printf '%s\n' "$PLAN_OUTPUT" | grep -c '^FAIL' || true)"
+FAILED=$((FAILED + PLAN_FAILS))
+# 5 is the check's own verdict, already counted line by line; anything else
+# nonzero means it stopped partway, whatever it printed before.
+if [ "$PLAN_STATUS" -ne 0 ] && { [ "$PLAN_STATUS" -ne "$EXIT_VERIFY_FAILED" ] || [ "$PLAN_FAILS" -eq 0 ]; }; then
+  fail "restore plan check exited $PLAN_STATUS before finishing"
 fi
-printf '%s\n' "$PLAN_OUTPUT"
-FAILED=$((FAILED + $(printf '%s\n' "$PLAN_OUTPUT" | grep -c '^FAIL' || true)))
 
 echo "SKIP resume continues the same native session — verified after 94S-129 (pause/resume)"
 echo "SKIP worker image digest matches manifest.json images.worker — verified after 94S-125 (images)"

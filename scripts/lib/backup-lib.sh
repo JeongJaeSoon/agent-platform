@@ -100,13 +100,27 @@ checkpoint_pins() {
   pg_user="$(container_env "$project" postgres POSTGRES_USER)"
   pg_db="$(container_env "$project" postgres POSTGRES_DB)"
   pg_password="$(container_env "$project" postgres POSTGRES_PASSWORD)"
-  DATABASE_URL="postgresql://$(uri_escape "$pg_user"):$(uri_escape "$pg_password")@127.0.0.1:${pg_port}/$(uri_escape "$pg_db")" \
-  AWS_ENDPOINT_URL="http://127.0.0.1:${s3_port}" \
-  AWS_REGION="$(container_env "$project" localstack AWS_DEFAULT_REGION)" \
-  AWS_ACCESS_KEY_ID="$(container_env "$project" localstack AWS_ACCESS_KEY_ID)" \
-  AWS_SECRET_ACCESS_KEY="$(container_env "$project" localstack AWS_SECRET_ACCESS_KEY)" \
-  S3_BUCKET="$bucket" \
-    bun run "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@"
+  # bun leaves the pipes it wrote to non-blocking. Handed the caller's own
+  # stdout or stderr, and the caller merging them into one pipe (`2>&1 |`),
+  # the script's next write larger than the pipe has room for fails with
+  # EAGAIN and the whole run exits 1. So bun only ever gets descriptors of
+  # its own: a file for stdout, a pipe that cat drains for stderr.
+  local out status=0
+  out="$(mktemp)"
+  if DATABASE_URL="postgresql://$(uri_escape "$pg_user"):$(uri_escape "$pg_password")@127.0.0.1:${pg_port}/$(uri_escape "$pg_db")" \
+    AWS_ENDPOINT_URL="http://127.0.0.1:${s3_port}" \
+    AWS_REGION="$(container_env "$project" localstack AWS_DEFAULT_REGION)" \
+    AWS_ACCESS_KEY_ID="$(container_env "$project" localstack AWS_ACCESS_KEY_ID)" \
+    AWS_SECRET_ACCESS_KEY="$(container_env "$project" localstack AWS_SECRET_ACCESS_KEY)" \
+    S3_BUCKET="$bucket" \
+    bun run "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@" </dev/null >"$out" 2> >(cat >&2); then
+    status=0
+  else
+    status=$?
+  fi
+  cat "$out"
+  rm -f "$out"
+  return "$status"
 }
 
 uri_escape() {
