@@ -11,6 +11,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, turns } from "./schema.ts";
+import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 import {
   acquireFence,
   leaseHeld,
@@ -112,6 +113,11 @@ export function createPostgresWorkerPendingStore(
         if (!OPEN_TURN_STATUSES.includes(turn.status)) {
           return { outcome: "turn_not_found" };
         }
+        // Accepting the interrupt invalidated the turn's open requests; one
+        // registered after it would be a callback nobody can answer.
+        if (await turnInterruptPending(tx, turn.id)) {
+          return { outcome: "turn_interrupted" };
+        }
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         const expiresAt = new Date(at.getTime() + input.ttlMs);
         await tx.insert(pendingRequests).values({
@@ -173,6 +179,10 @@ export function createPostgresWorkerPendingStore(
             ),
           )
           .orderBy(asc(pendingRequests.answerSequence));
+        const control = await openInterruptFor(tx, {
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+        });
         // Judged after every read that can wait on a lock and before the
         // first write: returning lease_expired does not roll back, and an
         // answer handed over after the lease ended would let the engine act
@@ -218,6 +228,15 @@ export function createPostgresWorkerPendingStore(
         const rows = due.filter((row) => !settledNow.has(row.requestId));
         return {
           outcome: "ok",
+          control:
+            control === null
+              ? null
+              : {
+                  controlId: control.controlId,
+                  kind: "interrupt",
+                  turnId: String(control.turnSequence),
+                  issuedAt: control.issuedAt,
+                },
           answers: rows.map((row) => ({
             sequence: row.sequence as number,
             answer: postSessionAnswerRequestSchema.parse(row.answer),
@@ -233,7 +252,13 @@ export function createPostgresWorkerPendingStore(
         .from(pendingRequests)
         .where(undelivered(fence))
         .limit(1);
-      return row !== undefined;
+      if (row !== undefined) return true;
+      return (
+        (await openInterruptFor(db, {
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+        })) !== null
+      );
     },
   };
 }

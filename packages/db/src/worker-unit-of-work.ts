@@ -71,6 +71,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 
@@ -1128,6 +1129,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
+        // api.md: `interrupted` is only ever recorded together with the
+        // checkpoint that makes it consistent; without one the worker has to
+        // say outcome_unknown. A replay above is still answered as stored.
+        if (input.terminal.status === "interrupted" && !input.checkpoint) {
+          return {
+            outcome: "checkpoint_rejected",
+            reason: "an interrupted turn must commit a checkpoint with it",
+          };
+        }
         if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
         }
@@ -1164,6 +1174,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             now,
           });
           if (advanced.outcome === "not_next") {
+            // An interrupt has no second capture to wait for: its checkpoint
+            // cannot commit, so the worker records the turn unknown instead.
+            if (input.terminal.status === "interrupted") {
+              return {
+                outcome: "checkpoint_rejected",
+                reason: `revision ${input.checkpoint.revision} is not next after ${advanced.currentRevision ?? "none"}`,
+              };
+            }
             return {
               outcome: "checkpoint_conflict",
               currentRevision: advanced.currentRevision,
@@ -1194,8 +1212,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               inArray(turns.status, OPEN_TURN_STATUSES),
             ),
           )
-          .returning({ id: turns.id });
+          .returning({ id: turns.id, sequence: turns.sequence });
         expectFenced([terminal].filter(Boolean), "turn");
+        if (terminal) {
+          await settleTurnInterrupts(tx, {
+            turnRowId: terminal.id,
+            turnSequence: terminal.sequence,
+            terminal: input.terminal.status,
+            at: now,
+          });
+        }
 
         const receiptStatus = RECEIPT_STATUS_BY_TERMINAL[input.terminal.status];
         const succeeded = receiptStatus === "succeeded";
@@ -1428,7 +1454,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               inArray(turns.status, OPEN_TURN_STATUSES),
             ),
           )
-          .returning({ sequence: turns.sequence });
+          .returning({ id: turns.id, sequence: turns.sequence });
+        for (const turn of unresolved) {
+          await settleTurnInterrupts(tx, {
+            turnRowId: turn.id,
+            turnSequence: turn.sequence,
+            terminal: "outcome_unknown",
+            at: now,
+          });
+        }
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.
         await tx

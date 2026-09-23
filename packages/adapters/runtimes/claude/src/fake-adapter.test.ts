@@ -248,6 +248,113 @@ describe("fake agent runtime", () => {
     expect((await abortedFirst.prepareCheckpoint()).status).toBe("rejected");
   });
 
+  test("an interrupt ends only the current turn; the next scripted turn still runs", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const run = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "emit", message: { ...result, user_message_uuid: "u1" } },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u2" } },
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "one", uuid: "u1" });
+    await Bun.sleep(5);
+    await run.interrupt();
+    await waitFor(() => frames.length === 1);
+    expect(frames[0]?.envelope.message.terminal_reason).toBe("interrupted");
+    expect(frames[0]?.envelope.message.user_message_uuid).toBe("u1");
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+
+    run.send({ message: "two", uuid: "u2" });
+    await within(consume, 200);
+    expect(frames.map((frame) => frame.envelope.message.subtype)).toEqual([
+      "error_during_execution",
+      "success",
+    ]);
+    expect(frames[1]?.envelope.message.user_message_uuid).toBe("u2");
+  });
+
+  test("an interrupt settles the tools it cut short and drops the inputs it named", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "tool-start", toolUseId: "toolu_cut" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "tool-end", toolUseId: "toolu_cut" },
+      { type: "emit", message: { ...result, user_message_uuid: "u1" } },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u3" } },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({ message: "one", uuid: "u1" });
+    run.send({ message: "queued", uuid: "u2" });
+    await waitFor(() => runtime.toolAdmissions.length === 1);
+    await run.interrupt();
+    await waitFor(() => frames.length === 1);
+    expect(frames[0]?.envelope.message.user_message_uuids).toEqual([
+      "u1",
+      "u2",
+    ]);
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+
+    // u2 ended with the interrupt, so the next turn waits for a new input.
+    run.send({ message: "three", uuid: "u3" });
+    await within(consume, 200);
+    expect(
+      frames.map((frame) => frame.envelope.message.user_message_uuid),
+    ).toEqual(["u2", "u3"]);
+  });
+
+  test("an interrupt in the last turn settles its tools before the terminal is read", async () => {
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "tool-start", toolUseId: "toolu_last" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "tool-end", toolUseId: "toolu_last" },
+    ]);
+    const run = runtime.start(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const iterator = run[Symbol.asyncIterator]();
+    run.send({ message: "one", uuid: "u1" });
+    const first = iterator.next();
+    await waitFor(() => runtime.toolAdmissions.length === 1);
+    await run.interrupt();
+    expect((await first).done).toBe(false);
+    expect((await run.prepareCheckpoint()).status).toBe("ready");
+    expect((await iterator.next()).done).toBe(true);
+  });
+
+  test("an input sent after the interrupt terminal is delivered survives into the next turn", async () => {
+    const result = { type: "result", subtype: "success", session_id: "s" };
+    const run = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 10_000 },
+      { type: "await-input" },
+      { type: "emit", message: { ...result, user_message_uuid: "u2" } },
+    ]).start(config, { onPermission: async () => ({ behavior: "allow" }) });
+    const iterator = run[Symbol.asyncIterator]();
+    run.send({ message: "one", uuid: "u1" });
+    const first = iterator.next();
+    await Bun.sleep(5);
+    await run.interrupt();
+    await first;
+    // Sent while the generator is suspended on the terminal it just yielded.
+    run.send({ message: "two", uuid: "u2" });
+    const second = await within(iterator.next(), 200);
+    expect(second.done).toBe(false);
+  });
+
   test("rejects a duplicate uuid before it reaches the input queue", () => {
     const runtime = new FakeAgentRuntime([]);
     const run = runtime.start(config, {

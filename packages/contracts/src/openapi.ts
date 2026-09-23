@@ -281,7 +281,9 @@ const routes: Route[] = [
     scope: "control",
     body: "InterruptSessionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    errors: CONFLICTS,
+    // 422: a turn running on the legacy pod binding, which no worker polls
+    // control for.
+    errors: [...CONFLICTS, 413, 422, 503],
   },
   {
     method: "post",

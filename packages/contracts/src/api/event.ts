@@ -9,7 +9,7 @@ import {
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
-import { admissionStateSchema, sessionStatusSchema } from "./session.ts";
+import { admissionStateSchema, SESSION_STATUS_VALUES } from "./session.ts";
 
 export const SESSION_EVENT_NAMES = [
   "system",
@@ -22,6 +22,14 @@ export const SESSION_EVENT_NAMES = [
   "error",
 ] as const;
 export const SSE_SCHEMA_VERSION = 1;
+// A status event reports the session's projected status, or a control step
+// in progress that no stored status names: an interrupt the worker has taken
+// and is waiting on the engine's terminal for.
+export const STATUS_EVENT_PHASE_VALUES = [
+  ...SESSION_STATUS_VALUES,
+  "interrupting",
+] as const;
+export const statusEventPhaseSchema = z.enum(STATUS_EVENT_PHASE_VALUES);
 
 const assistantMessagePayloadSchema = z.object({
   type: z.literal("assistant"),
@@ -70,7 +78,7 @@ export const sessionEventVariants = {
   status: z.object({
     event: z.literal("status"),
     data: z.looseObject({
-      phase: sessionStatusSchema,
+      phase: statusEventPhaseSchema,
       admission_state: admissionStateSchema.optional(),
     }),
   }),

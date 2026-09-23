@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { revisionSchema, turnIdSchema } from "../shared/index.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
-import { admissionStateSchema } from "./session.ts";
+import { admissionStateSchema, terminalTurnStatusSchema } from "./session.ts";
 
 export const RECOVERY_DECISION_VALUES = [
   "abandon",
@@ -52,6 +52,16 @@ export const controlAcceptedResponseSchema = receiptAcceptedResponseSchema;
 export const terminateSessionResponseSchema = receiptAcceptedResponseSchema
   .extend({ external_effects_reverted: z.literal(false) })
   .strict();
+// What an interrupt receipt settles with: the terminal the target turn
+// actually reached. `no_op` is true when that terminal was not the
+// interrupt's doing — the turn had already ended when it was asked, or ended
+// on its own first — and false for `interrupted` and for `outcome_unknown`
+// reached while it was pending, where nobody can say.
+export const interruptReceiptResultSchema = z.object({
+  turn_id: turnIdSchema,
+  terminal: terminalTurnStatusSchema,
+  no_op: z.boolean(),
+});
 // The receipt result of a recovery decision (api.md § recovery 결정 후
 // 상태). `resumable` is false whenever the session has no committed
 // checkpoint at all: a resume would then be refused CHECKPOINT_UNAVAILABLE.
@@ -86,6 +96,9 @@ export type ControlAcceptedResponse = z.infer<
 >;
 export type TerminateSessionResponse = z.infer<
   typeof terminateSessionResponseSchema
+>;
+export type InterruptReceiptResult = z.infer<
+  typeof interruptReceiptResultSchema
 >;
 export type RecoveryDecisionResult = z.infer<
   typeof recoveryDecisionResultSchema

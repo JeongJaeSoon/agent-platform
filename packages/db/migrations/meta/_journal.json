@@ -99,6 +99,13 @@
       "when": 1790136488001,
       "tag": "0104_goofy_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1790139012881,
+      "tag": "0105_wet_warpath",
+      "breakpoints": true
     }
   ]
 }

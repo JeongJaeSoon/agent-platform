@@ -434,6 +434,7 @@
                   "PAUSE_COMMITTING",
                   "PAUSE_CANCELLED",
                   "CONTROL_SUPERSEDED",
+                  "TURN_NOT_STARTED",
                   "BACKEND_UNAVAILABLE",
                   "NOT_READY",
                   "CURSOR_EXPIRED",
@@ -1985,7 +1986,8 @@
                           "needs_input",
                           "idle",
                           "failed",
-                          "stopped"
+                          "stopped",
+                          "interrupting"
                         ]
                       },
                       "admission_state": {
@@ -2544,6 +2546,7 @@
                       "PAUSE_COMMITTING",
                       "PAUSE_CANCELLED",
                       "CONTROL_SUPERSEDED",
+                      "TURN_NOT_STARTED",
                       "BACKEND_UNAVAILABLE",
                       "NOT_READY",
                       "CURSOR_EXPIRED",
@@ -4481,6 +4484,36 @@
             }
           },
           "409": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "Error",
             "content": {
               "application/json": {
