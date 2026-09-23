@@ -6,7 +6,6 @@ import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { failResume } from "./resume-control.ts";
 import {
-  events,
   executions,
   queueMessages,
   receipts,
@@ -14,6 +13,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { recordStatus } from "./session-events.ts";
 
 /** Why a launch was given up on, as the session's reader will see it. */
 export type LaunchGiveUpCause = {
@@ -145,20 +145,18 @@ export async function quarantineLaunch(
         .update(sessions)
         .set({ status: "failed", updatedAt: now })
         .where(eq(sessions.id, session.id));
-      await tx.insert(events).values({
+      await recordStatus(tx, {
         sessionId: session.id,
-        type: "status",
-        payload: {
-          phase: "failed",
+        phase: "failed",
+        extra: {
           admission_state: session.admissionState,
           code: cause.code,
           message: cause.detail,
           failed_turn_count: failed.length,
         },
-        turnId: null,
-        occurredAt: now,
+        turnRowId: null,
+        now,
       });
-      await tx.execute(sql`SELECT pg_notify('session_events', ${session.id})`);
     }
   }
   await tx
