@@ -440,11 +440,14 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
-    // The attempt committing ran on what its restore handed it: a fallback's
-    // revision while the row records one, the pointer otherwise.
+    // The attempt committing ran on what its restore handed it: the
+    // fallback's revision when the row records one for this very attempt,
+    // the pointer otherwise. Another attempt's fallback says nothing about
+    // what this one restored.
     parentRevision:
-      input.session.checkpointFallbackRevision ??
-      input.session.checkpointRevision,
+      (input.session.checkpointRestoreAttemptId === input.fence.attemptId
+        ? input.session.checkpointFallbackRevision
+        : null) ?? input.session.checkpointRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
   });

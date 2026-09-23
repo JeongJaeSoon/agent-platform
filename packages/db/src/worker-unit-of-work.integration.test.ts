@@ -3157,6 +3157,7 @@ integration("worker gateway on PostgreSQL", () => {
         manifestRef: "s3://bucket/state-0.json",
         manifestSha256: "a".repeat(64),
         manifestVersion: null,
+        parentRevision: null,
         revision: 0,
         turnId: "1",
         versionsHeld: false,
@@ -3340,6 +3341,7 @@ integration("worker gateway on PostgreSQL", () => {
         manifestRef: "s3://bucket/listed-2.json",
         manifestSha256: "2".repeat(64),
         manifestVersion: "v2",
+        parentRevision: 1,
         revision: 2,
         turnId: null,
         versionsHeld: false,
@@ -3349,6 +3351,7 @@ integration("worker gateway on PostgreSQL", () => {
         manifestRef: "s3://bucket/listed-1.json",
         manifestSha256: "1".repeat(64),
         manifestVersion: null,
+        parentRevision: 0,
         revision: 1,
         turnId: null,
         versionsHeld: true,
@@ -3563,11 +3566,38 @@ integration("worker gateway on PostgreSQL", () => {
       )[0],
     ).toMatchObject({ revision: 1, parentRevision: 0 });
 
+    // A fallback another attempt was handed is not what this one runs on:
+    // its commit builds on the pointer.
+    await db
+      .update(sessions)
+      .set({
+        checkpointFallbackRevision: 0,
+        checkpointRestoreAttemptId: "att_earlier",
+      })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 3,
+          manifest_ref: "s3://bucket/fallback-3.json",
+          manifest_sha256: "d".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 3 });
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 3,
+      parentRevision: 2,
+    });
+
     await db
       .update(sessions)
       .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
       .where(eq(sessions.id, sessionId));
-    expect(await record(2, { revision: 0, skipped })).toEqual({
+    expect(await record(3, { revision: 0, skipped })).toEqual({
       outcome: "stale_epoch",
     });
     expect(await announced()).toHaveLength(2);
