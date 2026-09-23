@@ -152,7 +152,3 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
     ? 1
     : 0;
 }
-
-if (import.meta.main) {
-  process.exitCode = exitCodeFor(await main());
-}

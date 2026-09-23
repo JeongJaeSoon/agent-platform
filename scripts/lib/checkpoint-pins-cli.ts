@@ -26,7 +26,7 @@ import {
   API_CHECKPOINT_CODECS,
   assertCheckpointBucketProtection,
   createApiCheckpointService,
-} from "../../apps/api/src/checkpoints.ts";
+} from "../../apps/control-host/src/api/checkpoints.ts";
 import {
   applyRepin,
   CheckpointPinError,

@@ -159,8 +159,9 @@ jobs:
             localstack: true
             docker: false
             paths:
-              - apps/api/
-              - apps/reconciler/
+              - apps/control-host/src/api/
+              - apps/control-host/src/main
+              - apps/control-host/src/reconciler/
               - packages/contracts/
               - packages/ui/
               - tests/catalog-mismatch.
@@ -191,7 +192,7 @@ jobs:
             localstack: false
             docker: true
             paths:
-              - apps/scheduler/
+              - apps/control-host/src/scheduler/
               - packages/adapters/execution/local-docker/src/backend.
               - packages/adapters/execution/local-docker/src/config.
               - packages/adapters/execution/local-docker/src/docker-client.
@@ -320,7 +321,7 @@ jobs:
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
       - if: matrix.domain == 'api'
-        run: bun test ./apps/api/src/server.integration.ts
+        run: bun test ./apps/control-host/src/api/server.integration.ts
 
   # The required check. Branch protection names `integration`, and a matrix
   # reports one context per job, so this job stands in for all of them:

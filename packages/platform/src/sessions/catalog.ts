@@ -9,7 +9,7 @@ import { z } from "zod";
 
 // Operator-registered profiles and repositories (94S-132). The operator
 // writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
-// them once at startup (`apps/api/src/catalog-config.ts`) and refuses to
+// them once at startup (`apps/control-host/src/api/catalog-config.ts`) and refuses to
 // start on anything this file rejects. A provider credential is never in the
 // files: the entry names where it lives — an environment variable or a
 // Secrets Manager secret — and the value is resolved once at load. Rotation

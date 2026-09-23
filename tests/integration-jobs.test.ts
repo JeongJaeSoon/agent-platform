@@ -98,12 +98,19 @@ describe("integration-jobs.ts", () => {
 
   test("gives every file to the one job whose prefix it starts with", () => {
     const assigned = assign(
-      ["apps/api/a.test.ts", "packages/db/b.test.ts", "tests/c.test.ts"],
-      [job("api", ["apps/api/", "tests/c."]), job("db", ["packages/db/"])],
+      [
+        "apps/control-host/a.test.ts",
+        "packages/db/b.test.ts",
+        "tests/c.test.ts",
+      ],
+      [
+        job("api", ["apps/control-host/", "tests/c."]),
+        job("db", ["packages/db/"]),
+      ],
     );
 
     expect(Object.fromEntries(assigned)).toEqual({
-      api: ["apps/api/a.test.ts", "tests/c.test.ts"],
+      api: ["apps/control-host/a.test.ts", "tests/c.test.ts"],
       db: ["packages/db/b.test.ts"],
     });
   });
@@ -111,9 +118,13 @@ describe("integration-jobs.ts", () => {
   test("names every file that belongs to no job or to two, and every stale prefix or empty job", () => {
     expect(() =>
       assign(
-        ["apps/api/a.test.ts", "apps/web/b.test.ts", "packages/db/c.test.ts"],
         [
-          job("api", ["apps/api/", "packages/db/"]),
+          "apps/control-host/a.test.ts",
+          "apps/web/b.test.ts",
+          "packages/db/c.test.ts",
+        ],
+        [
+          job("api", ["apps/control-host/", "packages/db/"]),
           job("db", ["packages/db/", "packages/queue/"]),
           job("ui", ["packages/ui/"]),
         ],

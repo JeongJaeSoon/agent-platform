@@ -147,7 +147,7 @@ scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PA
 # 3. (선택) 실제 API 프로세스를 복원본 위에 locked로 띄워 /readyz 200 확인
 DATABASE_URL=postgresql://postgres:dev@127.0.0.1:25432/sessions AUTH_MODE=api-key PORT=27999 \
 AWS_ENDPOINT_URL=http://127.0.0.1:25433 AWS_REGION=ap-northeast-1 S3_BUCKET=claude-sessions \
-CHECKPOINT_OBJECT_PROTECTION=locked bun apps/api/src/server.ts   # + 위와 같은 AWS 자격 증명
+CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
 # 4. 정리 (복원본만)
 docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v

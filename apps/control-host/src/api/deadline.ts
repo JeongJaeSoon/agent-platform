@@ -5,7 +5,7 @@ import type { ApiEnvironment } from "./app.ts";
 
 // One /v1 request, start to response: the key lookup, the body, the pool
 // wait and the whole transaction. Each pool stage has its own timeout
-// (apps/api/src/pool.ts), but a degraded database that answers every
+// (apps/control-host/src/api/pool.ts), but a degraded database that answers every
 // statement just inside statement_timeout would otherwise stack them past any
 // proxy's patience; this is the sum's cap.
 export const REQUEST_DEADLINE_MS = 30_000;

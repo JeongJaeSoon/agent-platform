@@ -112,7 +112,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     );
     if (state.rows[0]?.sessions === null) {
       await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
+        migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
       });
     }
     const service = createSessionService({

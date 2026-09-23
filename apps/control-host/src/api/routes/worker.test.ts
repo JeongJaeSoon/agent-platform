@@ -42,7 +42,7 @@ beforeEach(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await migrate(db, {
-    migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
+    migrationsFolder: `${import.meta.dir}/../../../../../packages/db/migrations`,
   });
   clock = new Date("2026-09-22T00:00:00.000Z");
   gateway = createWorkerGateway({
