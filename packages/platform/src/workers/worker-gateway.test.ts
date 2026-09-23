@@ -5,7 +5,9 @@ import {
 } from "@agent-platform/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
+  FailResumeInput,
   NextInputInput,
+  ReadyInput,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import { profileFingerprint } from "../sessions/catalog.ts";
@@ -55,6 +57,8 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     finalizeAtomic: unimplemented,
     checkpointStateAtomic: unimplemented,
     releaseAtomic: unimplemented,
+    readyAtomic: unimplemented,
+    failResumeAtomic: unimplemented,
     confirmExecutionGoneAtomic: unimplemented,
     countReservedSlots: unimplemented,
     ...overrides,
@@ -689,6 +693,7 @@ describe("WorkerGateway", () => {
 
   test("restorePlan puts the service's plan on the wire and passes refusals through", async () => {
     const seen: unknown[] = [];
+    const failed: FailResumeInput[] = [];
     let answer: Awaited<ReturnType<CheckpointProtocol["getRestorePlan"]>> = {
       status: "none",
     };
@@ -696,6 +701,10 @@ describe("WorkerGateway", () => {
       work: work({
         async checkpointStateAtomic() {
           return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+        async failResumeAtomic(input) {
+          failed.push(input);
+          return { outcome: "ok", failed: false };
         },
       }),
       catalog: { profiles: {}, repositories: {} },
@@ -814,6 +823,84 @@ describe("WorkerGateway", () => {
       code: "CHECKPOINT_UNAVAILABLE",
       reason: "manifest object is missing",
     });
+    // Every refusal is offered to a resume from `paused` standing on that
+    // pointer (94S-138); the plan itself is not.
+    expect(
+      failed.map((input) => [
+        input.pointerRevision,
+        input.error.code,
+        input.error.message,
+      ]),
+    ).toEqual([
+      [
+        null,
+        "CHECKPOINT_UNAVAILABLE",
+        "the resume could not restore its checkpoint: no committed checkpoint to restore",
+      ],
+      [
+        null,
+        "CHECKPOINT_UNAVAILABLE",
+        "the resume could not restore its checkpoint: the checkpoint is incompatible with this worker: sdkVersion 0.3.270 != 0.3.1",
+      ],
+      [
+        null,
+        "CHECKPOINT_UNAVAILABLE",
+        "the resume could not restore its checkpoint: manifest object is missing",
+      ],
+    ]);
+  });
+
+  test("ready reports the restored revision and maps a failed resume to 409 CHECKPOINT_UNAVAILABLE", async () => {
+    const seen: ReadyInput[] = [];
+    let answer: Awaited<ReturnType<WorkerUnitOfWork["readyAtomic"]>> = {
+      outcome: "ok",
+      activated: true,
+    };
+    const { instance } = gateway({
+      async readyAtomic(input) {
+        seen.push(input);
+        return answer;
+      },
+    });
+    expect(
+      await instance.ready(principal, { ...scope, restored_revision: 3 }),
+    ).toEqual({ activated: true });
+    expect(seen[0]?.restoredRevision).toBe(3);
+    expect(seen[0]?.fence.attemptId).toBe(scope.attempt_id);
+
+    answer = { outcome: "restore_mismatch" };
+    await expect(
+      instance.ready(principal, { ...scope, restored_revision: 3 }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    answer = { outcome: "stale_epoch" };
+    await expect(
+      instance.ready(principal, { ...scope, restored_revision: null }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+  });
+
+  test("a restore refusal from an attempt that lost the session answers STALE_EPOCH", async () => {
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic() {
+          return { outcome: "ok", pointer: null, pendingReason: null };
+        },
+        async failResumeAtomic() {
+          return { outcome: "stale_epoch" };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      checkpointProtocol: {
+        requestCheckpoint: unimplemented,
+        async getRestorePlan() {
+          return { status: "none" };
+        },
+      },
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    await expect(
+      instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
   });
 
   test("heartbeat forwards the transcript report as dates and leaves it out when absent", async () => {

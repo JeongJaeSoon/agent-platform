@@ -330,8 +330,9 @@ const routes: Route[] = [
     scope: "control",
     body: "ResumeSessionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
-    // 422: a paused session (94S-138) or a legacy pod binding; 413/503 as
-    // for every mutation.
+    // 409 PAUSE_COMMITTING once a pause can no longer be cancelled, 409
+    // SESSION_RESUMING while a resume is restoring; 422: a legacy pod
+    // binding; 413/503 as for every mutation.
     errors: [...CONFLICTS, 413, 422, 503],
   },
   {

@@ -18,6 +18,8 @@ import {
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
   checkpointReasonHoldsWork,
+  type FailResumeInput,
+  type FailResumeResult,
   type FenceRejection,
   type FinalizeInput,
   type FinalizeResult,
@@ -29,11 +31,14 @@ import {
   nextPendingReason,
   type PeekFinalizeResult,
   payloadHash,
+  type ReadyInput,
+  type ReadyResult,
   type RegisterLaunchInput,
   type ReleaseInput,
   type ReleaseResult,
   type ResolvedCredential,
   type RunnablePair,
+  storedPendingReasonHoldsWork,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -53,7 +58,12 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { OPEN_TURN_STATUSES } from "./control-shared.ts";
+import {
+  hasRestorePoint,
+  LAUNCHABLE_ADMISSION_STATES,
+  OPEN_TURN_STATUSES,
+  recordAudit,
+} from "./control-shared.ts";
 import {
   earliestUnknownTurn,
   terminateReceiptResult,
@@ -67,6 +77,12 @@ import {
 } from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
+import {
+  completeResume,
+  failResume,
+  RESUME_LAUNCH_LIMIT,
+  resumeLaunchesSpent,
+} from "./resume-control.ts";
 import {
   attempts,
   checkpoints,
@@ -716,7 +732,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             and(
               eq(unassignedSessions.partition, launch.partition),
               isNull(sessions.podId),
-              eq(sessions.admissionState, "active"),
+              inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
               runnableCondition(input.runnable),
               lt(sessions.costUsd, input.costLimitUsd),
               ...(launch.sessionId === null
@@ -742,9 +758,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             and(
               eq(sessions.id, candidate.sessionId),
               isNull(sessions.podId),
-              // The candidate query saw `active`, but a terminate can commit
-              // between that read and this row lock; the write is the check.
-              eq(sessions.admissionState, "active"),
+              // The candidate query saw it launchable, but a terminate can
+              // commit between that read and this row lock; the write is the
+              // check.
+              inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
             ),
           )
           .returning();
@@ -1500,6 +1517,67 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       });
     },
 
+    readyAtomic(input: ReadyInput): Promise<ReadyResult> {
+      const { fence, now } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        // Only a resume from `paused` waits on this report; a fresh or a
+        // stopped-resume claim is already active.
+        if (session.admissionState !== "resuming") {
+          return { outcome: "ok", activated: false };
+        }
+        // A draining attempt takes no input, so it cannot carry the
+        // session on; its exit settles the resume instead.
+        if (fenced.attempt.state === "draining") {
+          return { outcome: "ok", activated: false };
+        }
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
+        if (
+          !hasRestorePoint(session) ||
+          session.checkpointRevision !== input.restoredRevision
+        ) {
+          await failResume(tx, {
+            sessionId: session.id,
+            error: {
+              code: "CHECKPOINT_UNAVAILABLE",
+              message: `the worker restored checkpoint revision ${input.restoredRevision ?? "none"}, but the session was resumed onto ${session.checkpointRevision ?? "none"}${session.checkpointPendingReason === null ? "" : ` (${session.checkpointPendingReason})`}`,
+            },
+            now,
+          });
+          return { outcome: "restore_mismatch" };
+        }
+        await completeResume(tx, session, now);
+        return { outcome: "ok", activated: true };
+      });
+    },
+
+    failResumeAtomic(input: FailResumeInput): Promise<FailResumeResult> {
+      const { fence, now } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        // The verdict was reached outside this transaction; it holds only
+        // while the session is still resuming onto the pointer it judged.
+        if (
+          session.admissionState !== "resuming" ||
+          session.checkpointRevision !== input.pointerRevision
+        ) {
+          return { outcome: "ok", failed: false };
+        }
+        await failResume(tx, {
+          sessionId: session.id,
+          error: input.error,
+          now,
+        });
+        return { outcome: "ok", failed: true };
+      });
+    },
+
     confirmExecutionGoneAtomic(
       input: ConfirmExecutionGoneInput,
     ): Promise<ConfirmExecutionGoneResult> {
@@ -1681,12 +1759,35 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const stopping = session.admissionState === "stopping";
         const closed = session.admissionState === "closed";
         // A pause completes only here, on the observed absence, and only onto
-        // a checkpoint that covers every turn that ran. One that cannot stays
-        // pausing and says why (PAUSE_BLOCKED); the caller may terminate.
-        const paused =
-          session.admissionState === "pausing" &&
-          unresolved.length === 0 &&
-          (await pauseBlocker(tx, session)) === null;
+        // a checkpoint that covers every turn that ran. One that cannot has
+        // lost the only attempt that could still have committed it (94S-285):
+        // the pause fails and the session is active again, as after any lost
+        // worker, so a new one restores the last trusted checkpoint for the
+        // queued input. A blocking pending reason (a dropped mirror batch, or
+        // one this build does not know) cannot be carried on from, so that
+        // one goes to an operator instead, as a cancel would (94S-138).
+        const pauseBlockedBy =
+          session.admissionState === "pausing" && unresolved.length === 0
+            ? await pauseBlocker(tx, session)
+            : undefined;
+        const paused = pauseBlockedBy === null;
+        const pauseFailed =
+          pauseBlockedBy !== undefined && pauseBlockedBy !== null;
+        const pauseFailedInto = storedPendingReasonHoldsWork(
+          session.checkpointPendingReason,
+        )
+          ? "recovery_required"
+          : "active";
+        // A worker that claimed a resuming session and ended before it
+        // reported ready did not prove the checkpoint restores, nor that it
+        // cannot: the session stays resuming and is signalled again until
+        // RESUME_LAUNCH_LIMIT claimed launches have died that way, then an
+        // operator decides. A launch that never claimed spends nothing.
+        const resumeFailed =
+          session.admissionState === "resuming" &&
+          launch?.claimedAttemptId !== null &&
+          launch?.claimedAttemptId !== undefined &&
+          (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
         await tx
           .update(sessions)
           .set({
@@ -1708,9 +1809,26 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                     }
                   : paused
                     ? { admissionState: "paused" as const }
-                    : {}),
+                    : pauseFailed
+                      ? pauseFailedInto === "active"
+                        ? { admissionState: "active" as const }
+                        : {
+                            status: "failed" as const,
+                            admissionState: "recovery_required" as const,
+                          }
+                      : {}),
           })
           .where(eq(sessions.id, session.id));
+        if (resumeFailed && unresolved.length === 0) {
+          await failResume(tx, {
+            sessionId: session.id,
+            error: {
+              code: "RECOVERY_REQUIRED",
+              message: `${RESUME_LAUNCH_LIMIT} executions restoring the checkpoint ended before any reported ready`,
+            },
+            now,
+          });
+        }
         // Stamped no earlier than the observation it rests on.
         const observedAt =
           observed?.observedAt && observed.observedAt > now
@@ -1726,10 +1844,39 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               updatedAt: observedAt,
             })
             .where(openPauseReceipt(session.id));
-        } else if (
-          session.admissionState === "pausing" &&
-          unresolved.length > 0
-        ) {
+        } else if (pauseFailed) {
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code:
+                  pauseFailedInto === "active"
+                    ? "CHECKPOINT_UNAVAILABLE"
+                    : "RECOVERY_REQUIRED",
+                message: `the execution ended before the pause could commit (${pauseBlockedBy})`,
+              },
+              updatedAt: observedAt,
+            })
+            .where(openPauseReceipt(session.id));
+        }
+        // The pause family's outcome is a status change the event stream
+        // has to carry, or a client following it stays at `pausing`.
+        if (paused || pauseFailed) {
+          const into = paused ? "paused" : pauseFailedInto;
+          await recordAudit(tx, {
+            sessionId: session.id,
+            type: "status",
+            payload: {
+              phase: into === "recovery_required" ? "failed" : session.status,
+              admission_state: into,
+              ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
+            },
+            turnRowId: null,
+            now: observedAt,
+          });
+        }
+        if (session.admissionState === "pausing" && unresolved.length > 0) {
           await tx
             .update(receipts)
             .set({
@@ -1775,10 +1922,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             and(eq(turns.sessionId, session.id), eq(turns.status, "queued")),
           );
         const queued = queuedRow?.queued ?? 0;
+        const activeNow =
+          session.admissionState === "active" ||
+          (pauseFailed && pauseFailedInto === "active");
         if (
-          queued > 0 &&
           unresolved.length === 0 &&
-          session.admissionState === "active"
+          ((queued > 0 && activeNow) ||
+            (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx
             .insert(unassignedSessions)

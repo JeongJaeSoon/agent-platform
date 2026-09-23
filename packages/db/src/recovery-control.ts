@@ -1,34 +1,34 @@
 import { randomUUID } from "node:crypto";
-import {
-  type ControlAcceptedResponse,
-  type RecoveryDecisionResult as RecoveryDecisionReceiptResult,
-  type ResumeReceiptResult,
-  sessionEventPayloadSchema,
+import type {
+  ControlAcceptedResponse,
+  RecoveryDecisionResult as RecoveryDecisionReceiptResult,
+  ResumeReceiptResult,
 } from "@agent-platform/contracts";
-import {
-  type RecoveryDecisionInput,
-  type RecoveryDecisionResult,
-  type ResumeSessionInput,
-  type ResumeSessionResult,
-  storedPendingReasonHoldsWork,
+import type {
+  RecoveryDecisionInput,
+  RecoveryDecisionResult,
+  ResumeSessionInput,
+  ResumeSessionResult,
 } from "@agent-platform/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   earliestUnknownTurn,
   findIdempotent,
+  hasRestorePoint,
   type IdempotencyScope,
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
+  recordAudit,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
+import { RESUME, resumePauseFamily } from "./resume-control.ts";
 import {
   checkpoints,
-  events,
   executions,
   idempotencyKeys,
   pendingRequests,
@@ -40,8 +40,9 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
+export { hasRestorePoint, recordAudit } from "./control-shared.ts";
+
 const RECOVERY_DECISION = "recovery_decision";
-const RESUME = "resume";
 // Control receipts a close supersedes: whichever of these is still open
 // was waiting on an outcome the close makes irrelevant.
 const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause"];
@@ -62,32 +63,6 @@ async function turnBySequence(tx: Database, sessionId: string, turnId: string) {
     .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
     .limit(1);
   return turn ?? null;
-}
-
-/**
- * Whether the checkpoint the session points at can be restored from. A
- * blocking reason (94S-201: a dropped transcript mirror batch) means the
- * pointer may have been taken by the run whose mirror is missing entries, so
- * it is not trusted until a later run commits past it. An advisory one (the
- * run was not quiescent) only says the newest turn went uncaptured; the
- * pointer it left is still the one to resume from (94S-284) — distrusting
- * it would wedge a stopped session, which no later commit ever reaches.
- *
- * Deliberately coarse: a pointer committed by an earlier, healthy run would
- * be safe, but checkpoints do not record their attempt. If that case shows
- * up in practice, key the check on the pointer's attempt against
- * checkpoint_pending_attempt_id instead.
- */
-export function hasRestorePoint<
-  T extends {
-    checkpointRevision: number | null;
-    checkpointPendingReason: string | null;
-  },
->(session: T): session is T & { checkpointRevision: number } {
-  return (
-    session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason)
-  );
 }
 
 /**
@@ -139,35 +114,6 @@ async function checkpointCovers(
     )
     .limit(1);
   return row !== undefined && row.sequence >= turnSequence;
-}
-
-// Every control decision leaves its audit record on the session's event
-// stream, where the operator and the SSE reader (94S-126) both find it.
-// Like every other writer to `events`, it holds the payload to the public
-// event contract before storing it: the reader parses each row with the
-// same schema, and a row it cannot parse is lost to every client (94S-283).
-export async function recordAudit(
-  tx: Database,
-  input: {
-    sessionId: string;
-    type: "system" | "status";
-    payload: Record<string, unknown>;
-    turnRowId: number | null;
-    now: Date;
-  },
-) {
-  const checked = sessionEventPayloadSchema.parse({
-    event: input.type,
-    data: input.payload,
-  });
-  await tx.insert(events).values({
-    sessionId: input.sessionId,
-    type: checked.event,
-    payload: checked.data,
-    turnId: input.turnRowId,
-    occurredAt: input.now,
-  });
-  await tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`);
 }
 
 async function writeReceipt(
@@ -589,7 +535,8 @@ async function close(tx: Database, session: SessionRow, now: Date) {
  * again from its committed checkpoint. Unknown turns and unconfirmed exits
  * are the operator's to settle first, and a session with no checkpoint has
  * nothing to restore. Cancelled input stays cancelled; what is still
- * queued is signalled for a new worker.
+ * queued is signalled for a new worker. `paused` and `pausing` are handed
+ * to resumePauseFamily (94S-138).
  */
 export function resumeAtomic(
   db: Database,
@@ -636,8 +583,7 @@ export function resumeAtomic(
       };
     }
     // stopping: the kill is not yet observed. recovery_required: a turn is
-    // unknown. Both are RECOVERY_REQUIRED to the caller; the pause family
-    // resumes through 94S-138 and is refused here rather than half-done.
+    // unknown. Both are RECOVERY_REQUIRED to the caller.
     if (
       session.admissionState === "stopping" ||
       session.admissionState === "recovery_required"
@@ -646,6 +592,17 @@ export function resumeAtomic(
         outcome: "recovery_required",
         unconfirmedTurnId: await earliestUnknownTurn(tx, sessionId),
       };
+    }
+    if (
+      session.admissionState === "paused" ||
+      session.admissionState === "pausing"
+    ) {
+      return resumePauseFamily(tx, session, {
+        scope,
+        payloadHash: input.payloadHash,
+        ownerId: input.principal.ownerId,
+        now,
+      });
     }
     if (session.admissionState !== "stopped") {
       return { outcome: "rejected", admissionState: session.admissionState };

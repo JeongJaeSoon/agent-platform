@@ -88,15 +88,17 @@ export type ResumeSessionResult =
   | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
   | { outcome: "conflict" | "not_found" }
   | { outcome: "revision_conflict"; currentRevision: number }
-  // Nothing to resume from: closed, still active, or the pause family,
-  // whose resume is 94S-138.
+  // Nothing to resume from: closed, still active, or already resuming.
   | {
       outcome: "rejected";
       admissionState: Exclude<
         AdmissionState,
-        "stopped" | "stopping" | "recovery_required"
+        "stopped" | "stopping" | "recovery_required" | "paused" | "pausing"
       >;
     }
+  // A pause whose stop intent is written (or whose drainer is gone) can no
+  // longer be cancelled; it settles `paused` and is resumed from there.
+  | { outcome: "pause_committing" }
   // An unknown turn or an unconfirmed exit still needs an operator.
   | { outcome: "recovery_required"; unconfirmedTurnId: string | null }
   // No committed checkpoint to restore; the client closes or starts anew.
@@ -139,6 +141,12 @@ export interface SessionControl {
    * Resume from `stopped`: the session admits input again and, if input is
    * queued, is signalled for a new worker that restores the committed
    * checkpoint. Input cancelled by terminate stays cancelled.
+   *
+   * From `paused` (94S-138): the session goes `resuming` and the receipt
+   * stays accepted until the new worker reports it restored the checkpoint
+   * (WorkerUnitOfWork.readyAtomic). From `pausing`, while the drainer still
+   * holds the session and no stop intent is written, the pause is cancelled
+   * instead and the session is active again with the same worker.
    */
   resumeAtomic(input: ResumeSessionInput): Promise<ResumeSessionResult>;
 }

@@ -31,6 +31,9 @@ import {
   registerPendingResponseSchema,
   releaseResponseSchema,
   restorePlanResponseSchema,
+  type WorkerReadyRequest,
+  type WorkerReadyResponse,
+  workerReadyResponseSchema,
 } from "@agent-platform/contracts";
 
 import type { WorkerGatewaySession } from "./worker-host.ts";
@@ -162,6 +165,10 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
 
   restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse> {
     return this.post("/restore-plan", request, restorePlanResponseSchema);
+  }
+
+  ready(request: WorkerReadyRequest): Promise<WorkerReadyResponse> {
+    return this.post("/ready", request, workerReadyResponseSchema);
   }
 
   finalize(request: FinalizeRequest): Promise<FinalizeResponse> {

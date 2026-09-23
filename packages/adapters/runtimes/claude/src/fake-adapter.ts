@@ -40,6 +40,8 @@ export type FakeRuntimeOptions = {
    * to end, so it produces no terminal either.
    */
   resumedTranscript?: string[];
+  /** Makes a resumed run's `ready()` reject with this, as an unreadable transcript would. */
+  resumeFailure?: string;
 };
 
 export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
@@ -68,6 +70,7 @@ export class FakeAgentRuntime implements AgentRuntime<ClaudeRuntimeConfig> {
       config.mode === "resume"
         ? new Set(this.options.resumedTranscript ?? [])
         : new Set(),
+      config.mode === "resume" ? this.options.resumeFailure : undefined,
     );
   }
 }
@@ -99,9 +102,14 @@ class FakeRun implements AgentRun {
     ) => Promise<PermissionDecision>,
     resume: string | undefined,
     private readonly resumed: ReadonlySet<string>,
+    private readonly resumeFailure: string | undefined,
   ) {
     this.ledger = new TurnLedger(resume);
     this.sessionId = resume ?? "fake-session";
+  }
+
+  async ready(): Promise<void> {
+    if (this.resumeFailure !== undefined) throw new Error(this.resumeFailure);
   }
 
   send(input: AgentInput): void {

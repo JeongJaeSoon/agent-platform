@@ -272,7 +272,7 @@ describe("WorkerHost pause (94S-137)", () => {
     );
   });
 
-  test("a refused pause keeps the lease and the engine until something else stops the worker", async () => {
+  test("a refused pause keeps the lease and the engine, asking again, until something else stops the worker", async () => {
     const { gateway, host, log } = harness([
       { type: "await-input" },
       { type: "emit", message: resultMessage(1) },
@@ -294,8 +294,13 @@ describe("WorkerHost pause (94S-137)", () => {
       () => gateway.heartbeats.length > beats + 2,
       "heartbeats while held",
     );
-    expect(gateway.releases).toHaveLength(1);
+    // Held, the release is asked again each interval (94S-138): that is how
+    // the worker learns a resume cancelled the pause.
+    await waitFor(() => gateway.releases.length > 2, "the release asked again");
     expect(log).not.toContain("worker.released");
+    expect(
+      log.filter((event) => event === "worker.pause.blocked"),
+    ).toHaveLength(1);
 
     host.drain("received SIGTERM");
     const summary = await loop;
@@ -303,8 +308,8 @@ describe("WorkerHost pause (94S-137)", () => {
     expect(summary.outcome).toBe("drained");
     // The held attempt still gives the session back when it does go, without
     // claiming the pause it could not commit.
-    expect(gateway.releases.map((release) => release.pause_control_id)).toEqual(
-      [PAUSE.control_id, undefined],
-    );
+    const ids = gateway.releases.map((release) => release.pause_control_id);
+    expect(ids.at(-1)).toBeUndefined();
+    expect(ids.slice(0, -1).every((id) => id === PAUSE.control_id)).toBe(true);
   });
 });

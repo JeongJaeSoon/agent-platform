@@ -93,22 +93,16 @@ const ADMISSION_REJECTIONS: Record<
   closed: { code: "SESSION_CLOSED", message: "Session is closed" },
 };
 
-// Resume from anything but `stopped`. The pause family belongs to 94S-138
-// and is refused as unsupported rather than half-resumed; an active
-// session has nothing to resume.
+// Resume from a state with nothing to resume: an active session is running
+// already, a resuming one is on its way.
 const RESUME_REJECTIONS: Record<
-  Exclude<AdmissionState, "stopped" | "stopping" | "recovery_required">,
+  Exclude<
+    AdmissionState,
+    "stopped" | "stopping" | "recovery_required" | "paused" | "pausing"
+  >,
   [ApiErrorCode, string]
 > = {
   active: ["REQUEST_STALE", "Session is already active"],
-  pausing: [
-    "UNSUPPORTED_CAPABILITY",
-    "Resume from a pausing session is not available yet (94S-138)",
-  ],
-  paused: [
-    "UNSUPPORTED_CAPABILITY",
-    "Resume from a paused session is not available yet (94S-138)",
-  ],
   resuming: ["SESSION_RESUMING", "Session is already resuming"],
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
@@ -476,6 +470,11 @@ export function createSessionService(deps: {
             "CHECKPOINT_UNAVAILABLE",
             "No committed checkpoint the session can be restored from; close it through a recovery decision or create a new session",
           );
+        case "pause_committing":
+          throw new SessionServiceError(
+            "PAUSE_COMMITTING",
+            "The pause has already been committed and is waiting for its execution to end; resume once the session is paused",
+          );
         case "unsupported":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
@@ -528,7 +527,7 @@ export function createSessionService(deps: {
           (budgetExceeded(cost_usd, deps.limits.sessionCostLimitUsd)
             ? {
                 code: "BUDGET_EXCEEDED",
-                reason: `The session has spent its ${deps.limits.sessionCostLimitUsd} USD budget; queued messages will not run`,
+                reason: `The session has spent its ${deps.limits.sessionCostLimitUsd} USD budget; queued messages will not run and a pending resume will not launch`,
               }
             : null),
         runtime: runtimeFor(profile_id),
