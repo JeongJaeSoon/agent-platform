@@ -7,31 +7,36 @@ import {
   unassignedSessions,
   workers,
 } from "@agent-platform/db";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.QUEUE_DATABASE_URL;
-const integration = databaseUrl ? describe : describe.skip;
+const integration = testDatabaseUrl() ? describe : describe.skip;
 
+// The child reconciler sweeps every orphan in the database it is pointed at
+// and the test asserts on the whole sweep (`reconciled_count`, session_ids).
+// Pointed at the shared QUEUE_DATABASE_URL, that sweep also picks up any
+// session whose worker is stale or missing: rows left by an interrupted run
+// or seeded by another checkout running this suite at the same time. The
+// test then fails once and passes on the next run, because the failing sweep
+// cleared the leftovers (94S-210). A database of its own is the only state
+// these assertions can speak for.
 integration("reconciler process on PostgreSQL", () => {
+  let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   const sessionId = crypto.randomUUID();
   const podId = `reconciler-${crypto.randomUUID()}`;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: databaseUrl });
+    database = await createTempDatabase({ prefix: "reconciler_it" });
+    pool = new Pool({ connectionString: database.url });
     db = drizzle(pool, { schema });
-    const schemaState = await pool.query<{ sessions: string | null }>(
-      "SELECT to_regclass('public.sessions') AS sessions",
-    );
-    if (schemaState.rows[0]?.sessions === null) {
-      await migrate(db, {
-        migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
-      });
-    }
     await db.insert(sessions).values({
       id: sessionId,
       ownerId: "reconciler-owner",
@@ -65,16 +70,11 @@ integration("reconciler process on PostgreSQL", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await db
-      .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, sessionId));
-    await db
-      .delete(queueMessages)
-      .where(eq(queueMessages.sessionId, sessionId));
-    await db.delete(turns).where(eq(turns.sessionId, sessionId));
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
-    await db.delete(workers).where(eq(workers.podId, podId));
-    await pool.end();
+    try {
+      await pool.end();
+    } finally {
+      await database.drop();
+    }
   }, 60_000);
 
   test("requeues once, logs the session, and exits zero", async () => {
@@ -83,7 +83,7 @@ integration("reconciler process on PostgreSQL", () => {
       {
         env: {
           ...process.env,
-          DATABASE_URL: databaseUrl,
+          DATABASE_URL: database.url,
           HEARTBEAT_TTL_SEC: "1",
           RECONCILER_BATCH_SIZE: "10",
           RECONCILER_DRY_RUN: "false",
