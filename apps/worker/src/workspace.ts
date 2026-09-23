@@ -386,6 +386,12 @@ async function readCommittedClaudeMd(
       ) {
         return { kind: "refused", reason: "it links outside the repository" };
       }
+      // A pathspec that names a directory this way lists everything in it —
+      // unbounded output from a read that runs for every session — and
+      // whatever it names is no file anyway.
+      if (next === "." || next.endsWith("/")) {
+        return { kind: "refused", reason: "it is not a regular file" };
+      }
       path = next;
       continue;
     }

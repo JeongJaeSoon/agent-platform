@@ -476,6 +476,17 @@ describe("GitWorkspace.committedClaudeMd", () => {
     );
   });
 
+  test("refuses a committed link to a directory without listing it", async () => {
+    await publish({ "docs/a.md": "a", "docs/b.md": "b" });
+    for (const target of ["docs/", ".", "./"]) {
+      await publish({}, { "CLAUDE.md": target });
+      const workspace = await prepared();
+      expect(() => workspace.committedClaudeMd()).toThrow(
+        "it is not a regular file",
+      );
+    }
+  });
+
   test("a file exactly at the cap is whole", async () => {
     const whole = "b".repeat(COMMITTED_CLAUDE_MD_MAX_BYTES);
     await publish({ "CLAUDE.md": whole });
