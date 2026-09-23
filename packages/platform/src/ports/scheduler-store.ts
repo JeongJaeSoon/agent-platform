@@ -2,11 +2,19 @@ import type { ExecutionBackend as ExecutionBackendKind } from "@agent-platform/c
 import type {
   ExecutionObservation,
   ExecutionRef,
+  LaunchCredentialState,
   LaunchIntent,
 } from "./execution-backend.ts";
 
-/** Why a resource that exists is torn down and built again. */
-export type ReplaceReason = "nonce_expired" | "stale_isolation";
+/**
+ * Why a resource that exists is torn down and built again.
+ * `credential_mismatch`: it holds a bootstrap credential the registry has
+ * rotated past, so it can never bind (94S-231).
+ */
+export type ReplaceReason =
+  | "credential_mismatch"
+  | "nonce_expired"
+  | "stale_isolation";
 
 export type SchedulerDemand = {
   /** Reserved launch slots: rows that have not given their slot back. */
@@ -33,7 +41,7 @@ export type ReserveLaunchInput = {
  */
 export type StoredLaunchIntent = Omit<
   LaunchIntent,
-  "image" | "resources" | "issueBootstrapNonce"
+  "image" | "resources" | "issueBootstrapNonce" | "bootstrapCredentialState"
 >;
 
 /**
@@ -72,6 +80,11 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
    * would replace a resource whose credential is still good.
    */
   nonceExpired: boolean;
+  /**
+   * `launchNonceFingerprint` of the stored hash, or null while none is held.
+   * What a resource's `credentialFingerprint` label is compared to.
+   */
+  nonceFingerprint: string | null;
   /**
    * A replacement the scheduler committed to before tearing the resource
    * down, until the one built from the intent is observed up. It survives a
@@ -131,11 +144,21 @@ export interface SchedulerStore {
    * nothing to rebuild from this snapshot, and the caller must not tear
    * down. The count check is what stops a pass that lost its lock — a
    * dropped lock connection — from tearing down what a later pass built.
+   *
+   * `expectedNonceFingerprint`, when given, fences the write on the
+   * credential too: the launch must still accept exactly that fingerprint
+   * (`launchNonceFingerprint` of its stored hash; null for no credential).
+   * `ensureExecution` on another pass rebuilds a resource with a fresh
+   * credential without touching the count, so the count alone would let a
+   * stale judgement — of any reason — shut the door on that fresh
+   * credential (94S-231). The scheduler always passes it; leaving it out
+   * fences on the count alone.
    */
   requestReplacement(
     ref: ExecutionRef,
     reason: ReplaceReason,
     expectedCount: number,
+    expectedNonceFingerprint?: string | null,
   ): Promise<number | null>;
   /**
    * The replacement landed: the resource built from the intent is up. Clears
@@ -144,6 +167,15 @@ export interface SchedulerStore {
    * well would turn its stopped resource back into an ordinary exit.
    */
   settleReplacement(ref: ExecutionRef): Promise<void>;
+  /**
+   * Which credential this launch accepts right now, read without changing
+   * anything: the fingerprint of the stored hash while the launch is open,
+   * `claimed` once a worker has bound, and no fingerprint while it holds no
+   * credential. Rejects a launch that is unknown or gave its slot back, the
+   * same way `issueBootstrapNonce` does: its resource is an orphan, not
+   * something to replace.
+   */
+  bootstrapCredentialState(ref: ExecutionRef): Promise<LaunchCredentialState>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,

@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { LaunchIntent } from "@agent-platform/platform";
+import {
+  hashWorkerToken,
+  type LaunchIntent,
+  launchNonceFingerprint,
+} from "@agent-platform/platform";
 import {
   LABELS,
   LocalDockerBackend,
@@ -91,6 +95,10 @@ integration("workspace volumes against a real daemon", () => {
       executionId: `exec-${suffix}`,
       generation: 1,
       image: IMAGE,
+      bootstrapCredentialState: async () => ({
+        claimed: false,
+        fingerprint: launchNonceFingerprint(hashWorkerToken(`wln-${suffix}`)),
+      }),
       issueBootstrapNonce: async () => `wln-${suffix}`,
       operationId: `op-${suffix}`,
       resources: { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 },

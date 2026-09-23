@@ -31,7 +31,26 @@ export type LaunchIntent = {
    * a resource that already exists must not cut its worker off.
    */
   issueBootstrapNonce: () => Promise<string>;
+  /**
+   * Which credential the registry accepts for this launch right now. A
+   * backend asks before adopting a resource it did not create in this call:
+   * one that holds any other credential can never bind, so it is replaced
+   * instead of adopted (94S-231). Reading never issues anything, and rejects
+   * a launch the registry no longer holds, so nothing is torn down for a
+   * launch that could not be created again.
+   */
+  bootstrapCredentialState: () => Promise<LaunchCredentialState>;
 };
+
+/**
+ * `claimed`: a worker already traded the credential for a binding, so the
+ * resource is bound and its fingerprint no longer matters. Otherwise
+ * `fingerprint` is `launchNonceFingerprint` of the stored hash, or null when
+ * the launch holds no credential (never issued, or revoked).
+ */
+export type LaunchCredentialState =
+  | { claimed: true }
+  | { claimed: false; fingerprint: string | null };
 
 export type ExecutionRef = {
   executionId: string;
@@ -51,6 +70,15 @@ export type ExecutionObservation = {
    * scheduler replaces it rather than reporting it healthy.
    */
   stale?: boolean;
+  /**
+   * The fingerprint the resource was labelled with at creation, for the
+   * scheduler to hold against `ActiveExecution.nonceFingerprint`: a running
+   * resource whose credential the registry no longer accepts can never bind
+   * and is replaced. Null when the resource carries no label (it predates
+   * the label, and cannot be judged); absent when the backend has no such
+   * label at all.
+   */
+  credentialFingerprint?: string | null;
 };
 
 export type EnsureExecutionResult = {
@@ -65,7 +93,22 @@ export type TerminateExecutionResult =
   | { outcome: "absent" }
   // A resource with that execution id exists but belongs to another
   // generation; it was left untouched.
-  | { outcome: "generation_mismatch"; foundGeneration: number };
+  | { outcome: "generation_mismatch"; foundGeneration: number }
+  // The name resolves to a resource other than the one the caller inspected
+  // (`TerminateOptions.providerRef`): something replaced it in between, and
+  // it was left untouched.
+  | { outcome: "provider_mismatch"; foundProviderRef: string };
+
+export type TerminateOptions = {
+  /**
+   * The provider's own id of the resource the caller decided to terminate.
+   * The name a ref resolves to is deterministic, so between an inspect and
+   * the terminate it can come to name a replacement — one another pass
+   * built, whose worker may already have bound. Given, the terminate
+   * refuses anything but that exact resource.
+   */
+  providerRef?: string;
+};
 
 export type ManagedExecution = ExecutionRef & {
   providerRef: string;
@@ -106,8 +149,14 @@ export interface ExecutionBackend {
   inspect(ref: ExecutionRef): Promise<ExecutionObservation>;
   /** Every resource this backend created, whether or not a row still exists. */
   listManaged(): Promise<ManagedExecution[]>;
-  /** Stops and removes the resource only when its generation matches. */
-  terminate(ref: ExecutionRef): Promise<TerminateExecutionResult>;
+  /**
+   * Stops and removes the resource only when its generation matches, and,
+   * when `options.providerRef` is given, only that very resource.
+   */
+  terminate(
+    ref: ExecutionRef,
+    options?: TerminateOptions,
+  ): Promise<TerminateExecutionResult>;
   /**
    * Refuses unless this intent could be created right now. Replacing a
    * resource destroys the running one first, so the scheduler asks before

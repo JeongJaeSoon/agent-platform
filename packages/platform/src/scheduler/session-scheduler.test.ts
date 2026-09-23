@@ -4,10 +4,12 @@ import type {
   ExecutionBackend,
   ExecutionObservation,
   ExecutionRef,
+  LaunchCredentialState,
   LaunchIntent,
   ManagedExecution,
   ManagedWorkspace,
   TerminateExecutionResult,
+  TerminateOptions,
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import type {
@@ -18,6 +20,10 @@ import type {
   StoredLaunchIntent,
 } from "../ports/scheduler-store.ts";
 import {
+  hashWorkerToken,
+  launchNonceFingerprint,
+} from "../workers/worker-gateway.ts";
+import {
   reclaimWorkspaces,
   runScheduler,
   type SchedulerLogger,
@@ -25,6 +31,11 @@ import {
 
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 const NONCE_TTL_MS = 10 * 60 * 1000;
+
+/** What the registry computes from its column, and the label carries. */
+function fingerprintOf(nonce: string | null | undefined): string | null {
+  return nonce == null ? null : launchNonceFingerprint(hashWorkerToken(nonce));
+}
 
 /** A launch row: the slot it holds and the credential it has handed out. */
 type Launch = ActiveExecution & { slotReleased: boolean; nonce: string | null };
@@ -67,6 +78,7 @@ class MemoryStore implements SchedulerStore {
       nonce: null,
       nonceExpiresAt: null,
       nonceExpired: false,
+      nonceFingerprint: null,
       observedState: "pending",
       operationId: crypto.randomUUID(),
       pendingReplacement: null,
@@ -123,6 +135,7 @@ class MemoryStore implements SchedulerStore {
     ref: ExecutionRef,
     reason: ReplaceReason,
     expectedCount: number,
+    expectedNonceFingerprint?: string | null,
   ): Promise<number | null> {
     const row = this.executions.get(ref.executionId);
     if (
@@ -130,7 +143,9 @@ class MemoryStore implements SchedulerStore {
       row.generation !== ref.generation ||
       row.claimed ||
       row.slotReleased ||
-      row.replacementCount !== expectedCount
+      row.replacementCount !== expectedCount ||
+      (expectedNonceFingerprint !== undefined &&
+        fingerprintOf(row.nonce) !== expectedNonceFingerprint)
     ) {
       return null;
     }
@@ -176,6 +191,17 @@ class MemoryStore implements SchedulerStore {
     }
     row.nonce = null;
     return true;
+  }
+
+  async bootstrapCredentialState(
+    ref: ExecutionRef,
+  ): Promise<LaunchCredentialState> {
+    const row = this.executions.get(ref.executionId);
+    if (!row || row.generation !== ref.generation || row.slotReleased) {
+      throw new Error(`no launch for ${ref.executionId}`);
+    }
+    if (row.claimed) return { claimed: true };
+    return { claimed: false, fingerprint: fingerprintOf(row.nonce) };
   }
 
   async confirmExecutionGone(executionId: string): Promise<void> {
@@ -225,6 +251,7 @@ class MemoryStore implements SchedulerStore {
         ...e,
         nonceExpired:
           e.nonceExpiresAt !== null && e.nonceExpiresAt.getTime() <= Date.now(),
+        nonceFingerprint: fingerprintOf(e.nonce),
       }));
   }
 
@@ -266,6 +293,8 @@ class MemoryStore implements SchedulerStore {
 type Container = {
   exited: boolean;
   generation: number;
+  /** The provider's own id; each create gets a new one, like Docker. */
+  id?: string;
   /**
    * What the resource was built with, exactly as an env var would be. Only
    * containers this backend created have one; a hand-seeded fixture stands
@@ -307,6 +336,9 @@ class FakeBackend implements ExecutionBackend {
   refuseReplacementFor = new Set<string>();
   mismatchTerminateFor = new Set<string>();
   duringInspect: ((ref: ExecutionRef) => void) | null = null;
+  /** Runs after the pass decided to terminate and before the fake does. */
+  duringTerminate: ((ref: ExecutionRef) => void) | null = null;
+  private created = 0;
   /** Volume name -> the session label on it, null when it carries none. */
   readonly workspaces = new Map<string, string | null>();
   readonly workspacesInUse = new Set<string>();
@@ -357,7 +389,7 @@ class FakeBackend implements ExecutionBackend {
       existing.started = true;
       return {
         created: false,
-        providerRef: `ctr-${intent.executionId}`,
+        providerRef: this.providerRefOf(nameOf(intent), existing),
         state: "running",
       };
     }
@@ -365,18 +397,20 @@ class FakeBackend implements ExecutionBackend {
     const pending = this.createPendingFor.has(intent.sessionId);
     // A fresh container is built on the contract this backend speaks now.
     this.staleFor.delete(nameOf(intent));
-    this.containers.set(nameOf(intent), {
+    const container: Container = {
       exited,
       generation: intent.generation,
+      id: `ctr-${intent.executionId}-${++this.created}`,
       // Only the create path asks for one, like the real backend.
       nonce: await intent.issueBootstrapNonce(),
       operationId: intent.operationId,
       sessionId: intent.sessionId,
       ...(pending ? { started: false } : {}),
-    });
+    };
+    this.containers.set(nameOf(intent), container);
     return {
       created: true,
-      providerRef: `ctr-${intent.executionId}`,
+      providerRef: this.providerRefOf(nameOf(intent), container),
       state: exited ? "terminated" : pending ? "pending" : "running",
     };
   }
@@ -407,9 +441,12 @@ class FakeBackend implements ExecutionBackend {
     return {
       ...(container.exited ? { exitCode: 0 } : {}),
       ...(this.staleFor.has(nameOf(ref)) ? { stale: true } : {}),
+      // Labelled the way the real backend labels: from the nonce it was
+      // created with, and nothing on a hand-seeded container.
+      credentialFingerprint: fingerprintOf(container.nonce),
       found: true,
       observedAt: new Date(),
-      providerRef: `ctr-${ref.executionId}`,
+      providerRef: this.providerRefOf(nameOf(ref), container),
       state: container.exited
         ? "terminated"
         : container.removing
@@ -424,16 +461,36 @@ class FakeBackend implements ExecutionBackend {
     return [...this.containers.entries()].map(([name, c]) => ({
       executionId: name.split("#")[0] ?? name,
       generation: c.generation,
-      providerRef: `ctr-${name}`,
+      providerRef: this.providerRefOf(name, c),
       sessionId: c.sessionId,
       state: c.exited ? "terminated" : "running",
     }));
   }
 
-  async terminate(ref: ExecutionRef): Promise<TerminateExecutionResult> {
+  /** Hand-seeded containers have no id; they are named like before. */
+  private providerRefOf(name: string, container: Container): string {
+    return container.id ?? `ctr-${name.split("#")[0] ?? name}`;
+  }
+
+  async terminate(
+    ref: ExecutionRef,
+    options: TerminateOptions = {},
+  ): Promise<TerminateExecutionResult> {
     this.terminateCalls.push(ref);
     if (this.failTerminateFor.has(nameOf(ref))) {
       throw new Error("docker stop failed");
+    }
+    this.duringTerminate?.(ref);
+    const pinned = this.containers.get(nameOf(ref));
+    if (
+      pinned &&
+      options.providerRef !== undefined &&
+      this.providerRefOf(nameOf(ref), pinned) !== options.providerRef
+    ) {
+      return {
+        foundProviderRef: this.providerRefOf(nameOf(ref), pinned),
+        outcome: "provider_mismatch",
+      };
     }
     const stopped = this.containers.get(nameOf(ref));
     if (stopped && this.failRemoveFor.has(nameOf(ref))) {
@@ -601,6 +658,36 @@ describe("runScheduler", () => {
     const after = await run();
     expect(after.replaced).toHaveLength(0);
     expect(after.reensured).toHaveLength(0);
+  });
+
+  test("a stale-isolation replacement does not revoke a credential issued since it was judged", async () => {
+    // Every reason is fenced on the credential, not only a mismatch: another
+    // pass's `ensureExecution` issues anew without counting a replacement,
+    // so a matching count says nothing about the credential (94S-231).
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [intent] = backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const row = store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+    backend.staleFor.add(`${intent.executionId}#1`);
+    const fresh = `nonce-${crypto.randomUUID()}`;
+    backend.duringInspect = () => {
+      row.nonce = fresh;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(row.nonce).toBe(fresh);
+    expect(row.replacementCount).toBe(0);
+    expect(row.pendingReplacement).toBeNull();
+    expect(
+      records.some((r) => r.level === "info" && r.message.includes("moved on")),
+    ).toBe(true);
   });
 
   test("a stale resource whose replacement cannot be built is left running", async () => {
@@ -1048,6 +1135,214 @@ describe("runScheduler", () => {
     ).toBe(true);
   });
 
+  test("a running resource whose credential the launch rotated past is replaced", async () => {
+    // A create from an earlier pass that landed late, after the registry had
+    // already issued again — and no `ensureExecution` in between to judge it
+    // (the pass that would have crashed, or lost its lock). The container
+    // can never claim with what it holds.
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const held = container.nonce;
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(summary.reensured).toHaveLength(1);
+    expect(store.confirmedGone).toEqual([]);
+    expect(row.replacementCount).toBe(1);
+    expect(row.pendingReplacement).toBeNull();
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.nonce).not.toBe(held);
+    expect(fingerprintOf(replacement?.nonce)).toBe(fingerprintOf(row.nonce));
+    expect(
+      records.some(
+        (r) =>
+          r.level === "warn" &&
+          r.message.includes("credential the launch no longer accepts"),
+      ),
+    ).toBe(true);
+  });
+
+  test("a credential mismatch is not acted on once the launch has moved on", async () => {
+    // Another pass (one that still held the lock) replaced the resource and
+    // its worker claimed while this pass was out inspecting: the snapshot
+    // says mismatch, the registry says bound. The replacement record is
+    // refused, and the terminate that would have taken the new worker never
+    // runs.
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+    backend.duringInspect = () => {
+      row.nonce = `nonce-${crypto.randomUUID()}`;
+      row.claimed = true;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(
+      records.some((r) => r.level === "info" && r.message.includes("moved on")),
+    ).toBe(true);
+  });
+
+  test("a replacement built by another pass after the record is not torn down", async () => {
+    // The replacement was recorded and, before this pass got to the
+    // terminate, a pass that still held the lock replaced the resource and
+    // its worker claimed. The teardown is pinned to the resource this pass
+    // inspected, so the replacement — the one that is bound — is refused
+    // and left running.
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+    const replacementNonce = `nonce-${crypto.randomUUID()}`;
+    backend.duringTerminate = () => {
+      backend.containers.set(name, {
+        ...container,
+        id: `${container.id}-replacement`,
+        nonce: replacementNonce,
+      });
+      row.nonce = replacementNonce;
+      row.claimed = true;
+      backend.duringTerminate = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(summary.reconcileFailed).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.containers.get(name)?.nonce).toBe(replacementNonce);
+    expect(
+      records.some(
+        (r) =>
+          r.level === "error" &&
+          r.message.includes("would not terminate") &&
+          (r.fields as { outcome?: string } | undefined)?.outcome ===
+            "provider_mismatch",
+      ),
+    ).toBe(true);
+  });
+
+  test("a credential mismatch on a claimed launch is left alone", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name] = [...backend.containers.keys()];
+    const row = store.executions.get(name?.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.claimed = true;
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+  });
+
+  test("a resource without a credential label is not judged by one", async () => {
+    const { backend, run, store } = harness();
+    const seeded = store.seedActive({
+      nonce: "nonce-issued",
+      nonceExpiresAt: new Date(Date.now() + NONCE_TTL_MS),
+    });
+    // A container from before the label: adopted as it always was.
+    backend.containers.set(nameOf(seeded), {
+      exited: false,
+      generation: 1,
+      operationId: seeded.operationId ?? "",
+      sessionId: seeded.sessionId,
+    });
+
+    const summary = await run();
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+  });
+
+  test("a resource left running by a pass that died after recording its replacement is replaced, not settled", async () => {
+    // `requestReplacement` shut the door and the host died before the
+    // teardown: the registry accepts nothing, the old container is still up
+    // with its old label. The pending branch would read it as the
+    // replacement and settle it, stranding a launch nothing can claim.
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    const held = container.nonce;
+    row.nonce = null;
+    row.pendingReplacement = "credential_mismatch";
+    row.replacementCount = 1;
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(row.pendingReplacement).toBeNull();
+    expect(row.replacementCount).toBe(2);
+    expect(row.nonce).not.toBeNull();
+    const replacement = [...backend.containers.values()][0];
+    expect(replacement?.nonce).not.toBe(held);
+    expect(fingerprintOf(replacement?.nonce)).toBe(fingerprintOf(row.nonce));
+    expect(
+      records.some((r) => r.message.includes("already running; settled")),
+    ).toBe(false);
+  });
+
+  test("a credential mismatch does not revoke a credential issued since it was judged", async () => {
+    // Another pass rebuilt the resource through `ensureExecution` — which
+    // issues anew without counting a replacement — while this pass was out
+    // inspecting. The count still matches; only the fingerprint says the
+    // snapshot is stale. The record is refused, the fresh credential stands.
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    row.nonce = `nonce-${crypto.randomUUID()}`;
+    const fresh = `nonce-${crypto.randomUUID()}`;
+    backend.duringInspect = () => {
+      row.nonce = fresh;
+      backend.duringInspect = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(row.nonce).toBe(fresh);
+    expect(row.replacementCount).toBe(0);
+    expect(
+      records.some((r) => r.level === "info" && r.message.includes("moved on")),
+    ).toBe(true);
+  });
+
   test("an expired nonce on a claimed launch is left alone", async () => {
     const { backend, run, store } = harness();
     store.addUnassigned(1);
@@ -1116,6 +1411,43 @@ describe("runScheduler", () => {
     ).toBe(true);
   });
 
+  test("an exited resource's reclaim does not take a replacement another pass built", async () => {
+    // Between the inspect that saw the exit and the terminate, a pass that
+    // still held the lock replaced the resource under the same name and its
+    // worker bound. The reclaim is pinned to the exited resource, so the
+    // replacement is refused, the row stays `terminating`, and neither the
+    // slot nor the binding is given back.
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [name, container] = [...backend.containers.entries()][0] ?? [];
+    if (!name || !container) throw new Error("no container");
+    const row = store.executions.get(name.split("#")[0] ?? "");
+    if (!row) throw new Error("no row");
+    container.exited = true;
+    backend.duringTerminate = () => {
+      backend.containers.set(name, {
+        ...container,
+        exited: false,
+        id: `${container.id}-replacement`,
+      });
+      row.claimed = true;
+      backend.duringTerminate = null;
+    };
+
+    const summary = await run();
+
+    expect(summary.reclaimFailed).toEqual([
+      { executionId: row.executionId, generation: 1 },
+    ]);
+    expect(summary.terminatedObserved).toEqual([]);
+    expect(store.confirmedGone).toEqual([]);
+    expect(backend.containers.get(name)?.id).toBe(
+      `${container.id}-replacement`,
+    );
+    expect(row.observedState).toBe("terminating");
+  });
+
   test("an exited resource whose removal fails stays live and is retried", async () => {
     const { backend, records, run, store } = harness();
     store.addUnassigned(1);
@@ -1165,7 +1497,11 @@ describe("runScheduler", () => {
     );
     expect(
       records.some(
-        (r) => r.level === "error" && r.message.includes("generation mismatch"),
+        (r) =>
+          r.level === "error" &&
+          r.message.includes("left it in place") &&
+          (r.fields as { outcome?: string } | undefined)?.outcome ===
+            "generation_mismatch",
       ),
     ).toBe(true);
   });
