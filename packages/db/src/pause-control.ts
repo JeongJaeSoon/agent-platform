@@ -28,11 +28,11 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   OPEN_TURN_STATUSES,
-  recordAudit,
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { fromDbNow } from "./db-clock.ts";
+import { dbNow, fromDbNow } from "./db-clock.ts";
+import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -44,6 +44,7 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
+import { recordStatus } from "./session-events.ts";
 
 export const PAUSE = "pause";
 
@@ -336,12 +337,17 @@ export function pauseAtomic(
       payloadHash: input.payloadHash,
       receiptId,
     });
-    await recordAudit(tx, {
+    // Pause moves admission only, so the status it reports is the one the
+    // session reads as now — after the epoch above moved, which ends any
+    // wait for input that the fenced attempt had open.
+    const at = await dbNow(tx);
+    await recordStatus(tx, {
       sessionId,
-      type: "status",
-      payload: {
-        // Pause moves admission only; the status it reports is untouched.
-        phase: session.status,
+      phase: publicStatus(
+        session.status,
+        await awaitingInputAt(tx, sessionId, at),
+      ),
+      extra: {
         admission_state: bound ? "pausing" : "paused",
         reason: input.reason,
         actor: { owner_id: input.principal.ownerId },

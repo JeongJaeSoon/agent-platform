@@ -188,7 +188,20 @@ class FakeRun implements AgentRun {
           interrupted = true;
         } else {
           try {
-            await this.runStep(step, controlSignal);
+            // The real engine streams the assistant message carrying a call
+            // before it asks whether the call may run.
+            if (step.type === "permissions") {
+              yield frameFromNativeMessage(
+                toolCallMessage(step.requests),
+                this.correlationId,
+                `fake:${cursor}:calls`,
+              );
+            }
+            // A stop that landed while the calls frame was being consumed
+            // ends the turn before anyone is asked.
+            if (this.terminal === undefined) {
+              await this.runStep(step, controlSignal);
+            }
             if (step.type === "emit") {
               this.ledger.observe(step.message);
               if (typeof step.message.session_id === "string") {
@@ -338,6 +351,25 @@ class FakeRun implements AgentRun {
 // Typed against the SDK: a value no real run sends would let a host that
 // branches on it pass here and fail against the engine.
 type TerminalReason = NonNullable<InterruptedResult["terminal_reason"]>;
+
+function toolCallMessage(
+  requests: Omit<PermissionRequest, "signal">[],
+): NativeSdkMessage {
+  return {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: requests.map((request) => ({
+        type: "tool_use",
+        id: request.toolUseId,
+        name: request.tool,
+        input: request.input,
+      })),
+    },
+    parent_tool_use_id: null,
+    session_id: "fake-session",
+  };
+}
 
 // An interrupt drops every queued input, so the terminal frame attributes all
 // of them the way the SDK attributes a batch: last uuid plus the full list.

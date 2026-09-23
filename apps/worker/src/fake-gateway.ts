@@ -25,6 +25,7 @@ import type {
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
+  SessionEventPayload,
   SessionRuntime,
   WorkerEvent,
   WorkerReadyRequest,
@@ -232,9 +233,30 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     );
   }
 
-  /** The `question` events this attempt registered, in stream order. */
-  questions(): WorkerEvent[] {
-    return this.events.filter((event) => event.event === "question");
+  /**
+   * The `question` events the gateway wrote for this attempt's
+   * registrations, in stream order, as the real one does with the row.
+   */
+  questions(): SessionEventPayload[] {
+    return this.registered().flatMap((entry) =>
+      entry.announce === undefined
+        ? []
+        : [
+            {
+              event: "question" as const,
+              data: {
+                request_id: entry.request_id,
+                tool_use_id: entry.announce.tool_use_id,
+                kind: entry.request.kind,
+                tool: entry.announce.tool,
+                input:
+                  entry.request.kind === "permission"
+                    ? entry.request.input
+                    : { questions: entry.request.questions },
+              },
+            },
+          ],
+    );
   }
 
   useCredential(credential: string): void {

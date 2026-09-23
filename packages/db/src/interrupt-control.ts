@@ -25,6 +25,7 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
+import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
 import { interruptReceiptResult } from "./turn-interrupts.ts";
 import { OPEN_TURN_STATUSES } from "./worker-unit-of-work.ts";
 
@@ -62,7 +63,7 @@ export function createPostgresTurnInterrupts(db: Database): TurnInterrupts {
         // and this is a no-op, or the intent is stored before the terminal
         // and settled by it.
         const [session] = await tx
-          .select({ id: sessions.id })
+          .select({ id: sessions.id, inputAnnounced: sessions.inputAnnounced })
           .from(sessions)
           .where(
             and(
@@ -127,6 +128,7 @@ export function createPostgresTurnInterrupts(db: Database): TurnInterrupts {
           createdAt: at,
           updatedAt: at,
         });
+        const waitingBefore = open && (await inputWaitBefore(tx, session, at));
         if (open) {
           await tx.insert(controlIntents).values({
             id: randomUUID(),
@@ -149,6 +151,12 @@ export function createPostgresTurnInterrupts(db: Database): TurnInterrupts {
                 isNull(pendingRequests.resolvedAt),
               ),
             );
+          await announceInputWaitEnded(tx, {
+            sessionId,
+            waitingBefore,
+            turnRowId: turn.id,
+            at,
+          });
         }
         await tx.insert(idempotencyKeys).values({
           principal: scope.principal,

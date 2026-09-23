@@ -23,7 +23,6 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
-  recordAudit,
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
@@ -42,10 +41,10 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 
 export {
   hasRestorePoint,
-  recordAudit,
   restoreBaseRevision,
 } from "./control-shared.ts";
 
@@ -386,7 +385,9 @@ export function decideRecoveryAtomic(
         after.admissionState === "stopped" &&
         (await resumableFromStopped(tx, after)),
     };
-    await recordAudit(tx, {
+    // Every control decision leaves its audit record on the session's event
+    // stream, where the operator and the SSE reader (94S-126) both find it.
+    await recordEvent(tx, {
       sessionId,
       type: "system",
       payload: {
@@ -507,11 +508,10 @@ async function startFresh(
     })
     .where(eq(sessions.id, session.id));
   await signalQueuedInput(tx, session.id, queued, now);
-  await recordAudit(tx, {
+  await recordStatus(tx, {
     sessionId: session.id,
-    type: "status",
-    payload: {
-      phase: queued > 0 ? "queued" : "idle",
+    phase: queued > 0 ? "queued" : "idle",
+    extra: {
       admission_state: "active",
       context_reset_turn_id:
         reset.turnSequence === null ? null : String(reset.turnSequence),
@@ -829,11 +829,10 @@ export function resumeAtomic(
       checkpoint_revision: restoredFrom,
       queued_turn_count: queued,
     };
-    await recordAudit(tx, {
+    await recordStatus(tx, {
       sessionId,
-      type: "status",
-      payload: {
-        phase: queued > 0 ? "queued" : "idle",
+      phase: queued > 0 ? "queued" : "idle",
+      extra: {
         admission_state: "active",
         resumed_from_checkpoint_revision: restoredFrom,
         actor: { owner_id: input.principal.ownerId },

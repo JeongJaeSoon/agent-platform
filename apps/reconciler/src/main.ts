@@ -1,5 +1,6 @@
 import * as schema from "@agent-platform/db";
 import {
+  announceLapsedInputWaits,
   expireOverdueInterrupts,
   expireOverdueTerminations,
   reconcileExpiredLeases,
@@ -67,6 +68,7 @@ export async function main(
           dryRun,
           now,
         }),
+      announceInputReturns: (options) => announceLapsedInputWaits(db, options),
     });
   } finally {
     await pool.end();

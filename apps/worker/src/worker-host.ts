@@ -170,6 +170,8 @@ const INTERRUPT_GRACE_MS = 5_000;
 const ENGINE_EXIT_GRACE_MS = 5_000;
 /** Kept back from the stop grace for the release call. */
 const RELEASE_RESERVE_MS = 2_000;
+/** The default for `timeouts.toolUseFrameWaitMs`. */
+const TOOL_USE_FRAME_WAIT_MS = 10_000;
 
 /**
  * The worker process: one session, one attempt, however many turns the lease
@@ -274,15 +276,25 @@ export class WorkerHost {
       gateway: this.options.gateway,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
-      onFailed: (error) =>
-        isOwnershipLost(error)
-          ? this.lose(describe(error))
-          : this.fail(`Events could not be stored: ${describe(error)}`),
+      onFailed: (error) => {
+        if (isOwnershipLost(error)) {
+          this.lose(describe(error));
+          return;
+        }
+        // Nothing the engine does from here is recorded, so nothing waiting
+        // on a person may be allowed to run.
+        this.pending?.cancelAll("The session's events can no longer be stored");
+        this.fail(`Events could not be stored: ${describe(error)}`);
+      },
     });
     this.publisher = publisher;
     this.pending = new PendingRequestRegistry({
       gateway: this.options.gateway,
-      publish: (event) => publisher.publish([event], this.scope.turn_id),
+      eventsStored: (toolUseId) =>
+        publisher.toolUseStored(
+          toolUseId,
+          this.options.timeouts.toolUseFrameWaitMs ?? TOOL_USE_FRAME_WAIT_MS,
+        ),
       scope: () => this.scope,
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,

@@ -64,6 +64,9 @@ export const sessionEventVariants = {
       kind: z.enum(["permission", "question"]),
       tool: z.string().min(1).optional(),
       input: requiredUnknownSchema,
+      // When the control plane stops taking answers for it. Absent on
+      // questions an older worker published itself.
+      expires_at: timestampSchema.optional(),
     }),
   }),
   result: z.object({
@@ -176,6 +179,7 @@ export function readStoredEvent(
 }
 
 export type SessionEventName = (typeof SESSION_EVENT_NAMES)[number];
+export type StatusEventPhase = z.infer<typeof statusEventPhaseSchema>;
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SseEvent = z.infer<typeof sseEventSchema>;

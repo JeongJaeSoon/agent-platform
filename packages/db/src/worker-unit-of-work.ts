@@ -65,7 +65,6 @@ import {
   hasRestorePoint,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
-  recordAudit,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
@@ -103,6 +102,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 import { settleTurnInterrupts } from "./turn-interrupts.ts";
 
 const ENDED_ATTEMPT_STATES = ["exited", "lost"];
@@ -1694,7 +1694,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // The attempt goes in the payload, not the event's attempt column:
         // that column numbers the worker's own sourced stream, and this row
         // is the server's.
-        await recordAudit(tx, {
+        await recordEvent(tx, {
           sessionId: fence.sessionId,
           type: "system",
           payload: {
@@ -2150,11 +2150,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // has to carry, or a client following it stays at `pausing`.
         if (paused || pauseFailed) {
           const into = paused ? "paused" : pauseFailedInto;
-          await recordAudit(tx, {
+          await recordStatus(tx, {
             sessionId: session.id,
-            type: "status",
-            payload: {
-              phase: into === "recovery_required" ? "failed" : session.status,
+            phase: into === "recovery_required" ? "failed" : session.status,
+            extra: {
               admission_state: into,
               ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
             },

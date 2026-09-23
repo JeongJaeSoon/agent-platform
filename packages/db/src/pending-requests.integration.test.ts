@@ -21,9 +21,11 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresSessionControl } from "./control-unit-of-work.ts";
+import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
 import { reconcileExpiredLeases } from "./lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import { createPostgresPendingRequests } from "./pending-requests.ts";
@@ -34,6 +36,7 @@ import {
 import * as schema from "./schema.ts";
 import {
   attempts,
+  events,
   pendingRequests,
   queueMessages,
   receipts,
@@ -41,6 +44,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { announceLapsedInputWaits } from "./session-events.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -897,5 +901,380 @@ integration("pending requests and answers on PostgreSQL", () => {
       .where(eq(attempts.id, worker.scope.attempt_id));
     expect(attempt?.state).toBe("lost");
     expect(await statuses(owner, sessionId)).toEqual(RUNNING);
+  });
+  // 94S-278: the stream reports the needs_input edges the reads derive.
+  async function ask(
+    worker: Worker,
+    request: RegisterPendingRequest["request"],
+    options: {
+      requestId?: string;
+      inputHash?: string;
+      toolUseId?: string;
+    } = {},
+  ) {
+    const requestId = options.requestId ?? `req_${crypto.randomUUID()}`;
+    const response = await gateway.registerPending(worker.principal, {
+      ...(worker.scope as WorkerScope & { turn_id: string }),
+      request_id: requestId,
+      input_hash: options.inputHash ?? HASH_A,
+      request,
+      announce: {
+        tool_use_id: options.toolUseId ?? `toolu_${requestId}`,
+        tool: request.kind === "permission" ? request.tool : "AskUserQuestion",
+      },
+    });
+    return { requestId, response };
+  }
+
+  // The session's stream as a client reads it, reduced to what orders.
+  async function stream(sessionId: string) {
+    const rows = await db
+      .select({
+        type: events.type,
+        payload: events.payload,
+        attemptId: events.attemptId,
+        turnId: events.turnId,
+      })
+      .from(events)
+      .where(eq(events.sessionId, sessionId))
+      .orderBy(asc(events.id));
+    return rows.map((row) => {
+      const payload = row.payload as Record<string, unknown>;
+      return row.type === "status"
+        ? `status:${payload.phase}`
+        : row.type === "question"
+          ? `question:${payload.request_id}`
+          : row.type;
+    });
+  }
+
+  async function announced(sessionId: string) {
+    const [row] = await db
+      .select({ flag: sessions.inputAnnounced })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    return row?.flag;
+  }
+
+  test("a question and the needs_input it opens are written together, question first, once", async () => {
+    const { sessionId, worker } = await runningSession();
+    const first = await ask(worker, permission("ls"), {
+      toolUseId: "toolu_first",
+    });
+    expect(await stream(sessionId)).toEqual([
+      `question:${first.requestId}`,
+      "status:needs_input",
+    ]);
+    const [question] = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "question")));
+    expect(question?.payload).toEqual({
+      request_id: first.requestId,
+      tool_use_id: "toolu_first",
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "ls" },
+      expires_at: first.response.expires_at,
+    });
+    // It belongs to the attempt that asked and its turn, but takes no place
+    // in that attempt's own numbering.
+    expect(question?.attemptId).toBe(worker.scope.attempt_id);
+    expect(question?.turnId).not.toBeNull();
+    expect(question?.sourceSequence).toBeNull();
+    expect(await announced(sessionId)).toBe(true);
+
+    // A second question while waiting opens nothing new.
+    const second = await ask(worker, QUESTION, { inputHash: HASH_B });
+    // A registration whose reply was lost comes back: nothing is rewritten.
+    await ask(worker, permission("ls"), {
+      requestId: first.requestId,
+      toolUseId: "toolu_first",
+    });
+    expect(await stream(sessionId)).toEqual([
+      `question:${first.requestId}`,
+      "status:needs_input",
+      `question:${second.requestId}`,
+    ]);
+    // The same id under another tool use is another request.
+    expect(
+      await failure(
+        ask(worker, permission("ls"), {
+          requestId: first.requestId,
+          toolUseId: "toolu_other",
+        }),
+      ),
+    ).toBe("IDEMPOTENCY_CONFLICT");
+    const [secondEvent] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(
+          eq(events.sessionId, sessionId),
+          sql`${events.payload}->>'request_id' = ${second.requestId}`,
+        ),
+      );
+    expect(secondEvent?.payload).toMatchObject({
+      kind: "question",
+      tool: "AskUserQuestion",
+      input: {
+        questions: QUESTION.kind === "question" ? QUESTION.questions : [],
+      },
+    });
+  });
+
+  test("the answer or settlement that leaves nothing to answer reports running, once", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await ask(worker, permission());
+    const second = await ask(worker, permission("pwd"), { inputHash: HASH_B });
+    const key = crypto.randomUUID();
+    await answer(
+      owner,
+      sessionId,
+      { request_id: first.requestId, kind: "permission", decision: "allow" },
+      key,
+    );
+    // One is still open.
+    expect((await stream(sessionId)).slice(3)).toEqual([]);
+
+    await poll(worker, 0, [
+      { request_id: second.requestId, outcome: "cancelled" },
+    ]);
+    const settledOnce = [
+      `question:${first.requestId}`,
+      "status:needs_input",
+      `question:${second.requestId}`,
+      "status:running",
+    ];
+    expect(await stream(sessionId)).toEqual(settledOnce);
+    expect(await announced(sessionId)).toBe(false);
+    // It is about the turn whose request the settlement closed.
+    const [pendingRow] = await db
+      .select({ turnId: pendingRequests.turnId })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, second.requestId));
+    const [returned] = await db
+      .select({ turnId: events.turnId })
+      .from(events)
+      .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(returned?.turnId).toBe(pendingRow?.turnId ?? -1);
+
+    // Repeats close nothing that was open: the answer's replay, the same
+    // settlement again, and the answered row's own settlement.
+    await answer(
+      owner,
+      sessionId,
+      { request_id: first.requestId, kind: "permission", decision: "allow" },
+      key,
+    );
+    await poll(worker, 0, [
+      { request_id: second.requestId, outcome: "cancelled" },
+      { request_id: first.requestId, outcome: "answered" },
+    ]);
+    expect(await stream(sessionId)).toEqual(settledOnce);
+  });
+
+  test("an answer that closes the last request reports running in its own transaction", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await ask(worker, permission());
+    await answer(owner, sessionId, {
+      request_id: requestId,
+      kind: "permission",
+      decision: "deny",
+    });
+    expect(await stream(sessionId)).toEqual([
+      `question:${requestId}`,
+      "status:needs_input",
+      "status:running",
+    ]);
+    const detail = await createPostgresSessionReader(db).getSession(
+      owner.ownerId,
+      sessionId,
+    );
+    expect(detail?.status).toBe("running");
+  });
+
+  test("an expiry is reported once by the reconciler, not by the settlement that follows it", async () => {
+    const { sessionId, worker } = await runningSession();
+    const { requestId } = await ask(worker, permission());
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    // The worker's own timer settles it: the wait had already ended.
+    await poll(worker, 0, [{ request_id: requestId, outcome: "expired" }]);
+    expect(await stream(sessionId)).toEqual([
+      `question:${requestId}`,
+      "status:needs_input",
+    ]);
+
+    const swept = await announceLapsedInputWaits(db, {
+      limit: 1_000,
+      dryRun: false,
+    });
+    expect(swept).toContainEqual({ sessionId, phase: "running" });
+    await announceLapsedInputWaits(db, { limit: 1_000, dryRun: false });
+    expect(await stream(sessionId)).toEqual([
+      `question:${requestId}`,
+      "status:needs_input",
+      "status:running",
+    ]);
+  });
+
+  test("a dry run reports the lapsed wait and writes nothing", async () => {
+    const { sessionId, worker } = await runningSession();
+    const { requestId } = await ask(worker, permission());
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, requestId));
+    const swept = await announceLapsedInputWaits(db, {
+      limit: 1_000,
+      dryRun: true,
+    });
+    expect(swept).toContainEqual({ sessionId, phase: "running" });
+    expect(await stream(sessionId)).toHaveLength(2);
+    expect(await announced(sessionId)).toBe(true);
+  });
+
+  test("a lost attempt's wait is reported by the reconciler with the status the session reads", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await ask(worker, permission());
+    await db
+      .update(attempts)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(attempts.id, worker.scope.attempt_id));
+    await reconcileExpiredLeases(db, {});
+    await announceLapsedInputWaits(db, { limit: 1_000, dryRun: false });
+    const detail = await createPostgresSessionReader(db).getSession(
+      owner.ownerId,
+      sessionId,
+    );
+    expect((await stream(sessionId)).at(-1)).toBe(`status:${detail?.status}`);
+    expect(detail?.status).toBe("running");
+  });
+
+  test("a new question after a wait that lapsed unreported reports the lapse first", async () => {
+    const { sessionId, worker } = await runningSession();
+    const first = await ask(worker, permission());
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pendingRequests.requestId, first.requestId));
+    const second = await ask(worker, permission("pwd"), { inputHash: HASH_B });
+    expect(await stream(sessionId)).toEqual([
+      `question:${first.requestId}`,
+      "status:needs_input",
+      "status:running",
+      `question:${second.requestId}`,
+      "status:needs_input",
+    ]);
+  });
+
+  test("an interrupt or a terminate that closes the requests reports the end of the wait", async () => {
+    const interrupted = await runningSession();
+    const asked = await ask(interrupted.worker, permission());
+    const accepted = await createPostgresTurnInterrupts(db).interruptAtomic({
+      principal: interrupted.owner,
+      sessionId: interrupted.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      targetTurnId: "1",
+    });
+    expect(accepted.outcome).toBe("accepted");
+    expect(await stream(interrupted.sessionId)).toEqual([
+      `question:${asked.requestId}`,
+      "status:needs_input",
+      "status:running",
+    ]);
+
+    const terminated = await runningSession();
+    const pending = await ask(terminated.worker, permission());
+    const [row] = await db
+      .select({ revision: sessions.revision })
+      .from(sessions)
+      .where(eq(sessions.id, terminated.sessionId));
+    const stopped = await createPostgresSessionControl(db).terminateAtomic({
+      principal: terminated.owner,
+      sessionId: terminated.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: row?.revision ?? 0,
+      reason: null,
+      now: new Date(),
+    });
+    expect(stopped.outcome).toBe("accepted");
+    const detail = await createPostgresSessionReader(db).getSession(
+      terminated.owner.ownerId,
+      terminated.sessionId,
+    );
+    expect(await stream(terminated.sessionId)).toEqual([
+      `question:${pending.requestId}`,
+      "status:needs_input",
+      `status:${detail?.status}`,
+    ]);
+  });
+
+  test("a pause reports the status the session reads, needs_input included", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await ask(worker, permission());
+    const [row] = await db
+      .select({ revision: sessions.revision })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const paused = await createPostgresSessionControl(db).pauseAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: row?.revision ?? 0,
+      reason: "overnight",
+      now: new Date(),
+    });
+    expect(paused.outcome).toBe("accepted");
+    const detail = await createPostgresSessionReader(db).getSession(
+      owner.ownerId,
+      sessionId,
+    );
+    // The worker drains on its own lease, so its question still stands.
+    expect(detail?.status).toBe("needs_input");
+    expect(await stream(sessionId)).toEqual([
+      `question:${requestId}`,
+      "status:needs_input",
+      "status:needs_input",
+    ]);
+    expect(await announced(sessionId)).toBe(true);
+
+    // A resume that cancels the pause leaves the drainer and its question.
+    const [pausing] = await db
+      .select({ revision: sessions.revision })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const resumed = await createPostgresSessionControl(db).resumeAtomic({
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: pausing?.revision ?? 0,
+      now: new Date(),
+    });
+    expect(resumed.outcome).toBe("accepted");
+    expect((await stream(sessionId)).at(-1)).toBe("status:needs_input");
+    expect(await announced(sessionId)).toBe(true);
+  });
+
+  test("a worker that publishes its own question gets no events from the gateway", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    expect(await stream(sessionId)).toEqual([]);
+    await answer(owner, sessionId, {
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(await stream(sessionId)).toEqual([]);
+    expect(await announced(sessionId)).toBe(false);
   });
 });
