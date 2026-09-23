@@ -8,13 +8,16 @@ export type RuntimeCheckpoint = {
 /**
  * Why a run refuses to be checkpointed right now. The host stores the code as
  * the session's pending reason, so it has to be stable and machine-readable;
- * `detail` carries the human wording.
+ * `detail` carries the human wording. `publish_failed` is never a run's
+ * verdict: the publisher reports it when a ready run's checkpoint could not be
+ * written.
  */
 export type CheckpointBlockReason =
   | "background_writer"
   | "checkpoint_lease_held"
   | "mirror_error"
   | "no_engine_session"
+  | "publish_failed"
   | "tool_in_flight"
   | "turn_in_flight";
 

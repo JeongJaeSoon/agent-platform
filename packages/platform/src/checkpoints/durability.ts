@@ -22,6 +22,11 @@ import type {
  *   reason is recorded so it is visible, but work goes on: holding turns back
  *   for a server the agent was asked to keep running would stall the session.
  *   Any later commit clears it, from this attempt or another.
+ *   `publish_failed` is the same for a run that was ready but whose checkpoint
+ *   could not be written — a workspace the capture refused, a manifest over
+ *   the limits, a store that failed. The ones that persist (a workspace too
+ *   large to capture) are not fixed by holding turns back, and a replaced
+ *   worker still refuses to go on past turns no checkpoint covers (94S-288).
  */
 export type CheckpointReasonKind = "advisory" | "blocking" | "ordinary";
 
@@ -31,6 +36,7 @@ const CHECKPOINT_REASONS: Record<CheckpointBlockReason, CheckpointReasonKind> =
     checkpoint_lease_held: "advisory",
     mirror_error: "blocking",
     no_engine_session: "ordinary",
+    publish_failed: "advisory",
     tool_in_flight: "advisory",
     turn_in_flight: "ordinary",
   };

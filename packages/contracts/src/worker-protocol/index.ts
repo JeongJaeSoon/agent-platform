@@ -231,13 +231,15 @@ export const nextInputResponseSchema = z.object({
   reason: z.enum(["BUDGET_EXCEEDED"]).optional(),
 });
 
-// Why a run refuses to be checkpointed right now (runtime-core
-// CheckpointBlockReason, mirrored here so the wire schema is closed).
+// Why a run refuses to be checkpointed right now, or why the publisher
+// failed to (runtime-core CheckpointBlockReason, mirrored here so the wire
+// schema is closed).
 export const checkpointBlockReasonSchema = z.enum([
   "background_writer",
   "checkpoint_lease_held",
   "mirror_error",
   "no_engine_session",
+  "publish_failed",
   "tool_in_flight",
   "turn_in_flight",
 ]);

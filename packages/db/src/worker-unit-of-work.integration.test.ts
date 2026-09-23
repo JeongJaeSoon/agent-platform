@@ -3049,108 +3049,118 @@ integration("worker gateway on PostgreSQL", () => {
     expect(stored).toEqual({ status: "stopped", pending: "mirror_error" });
   });
 
-  test("a run that was not quiescent is recorded for display, holds nothing back, and yields to a mirror failure", async () => {
-    const partition = partitionFor("quiesce");
-    const { session, claimed } = await claimAndDeliver(partition);
-    const work = createPostgresWorkerUnitOfWork(db);
-    const ownerId =
-      (
-        await db
-          .select({ ownerId: sessions.ownerId })
-          .from(sessions)
-          .where(eq(sessions.id, session.session_id))
-      )[0]?.ownerId ?? "";
-    const append = (message: string) =>
-      createPostgresSessionUnitOfWork(db).appendInputAtomic({
-        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-        principal: { ownerId },
-        sessionId: session.session_id,
-        idempotencyKey: crypto.randomUUID(),
-        payloadHash: crypto.randomUUID(),
-        message,
+  test.each([
+    "background_writer",
+    // 94S-312: a ready run whose checkpoint could not be written.
+    "publish_failed",
+  ] as const)(
+    "%s is recorded for display, holds nothing back, and yields to a mirror failure",
+    async (reason) => {
+      const partition = partitionFor(`quiesce-${reason}`);
+      const { session, claimed } = await claimAndDeliver(partition);
+      const work = createPostgresWorkerUnitOfWork(db);
+      const ownerId =
+        (
+          await db
+            .select({ ownerId: sessions.ownerId })
+            .from(sessions)
+            .where(eq(sessions.id, session.session_id))
+        )[0]?.ownerId ?? "";
+      const append = (message: string) =>
+        createPostgresSessionUnitOfWork(db).appendInputAtomic({
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+          },
+          principal: { ownerId },
+          sessionId: session.session_id,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message,
+        });
+      const pending = async () =>
+        (
+          await db
+            .select({ reason: sessions.checkpointPendingReason })
+            .from(sessions)
+            .where(eq(sessions.id, session.session_id))
+        )[0]?.reason;
+      const finalize = (turnId: string, revision: number | null) =>
+        gateway.finalize(principalOf(claimed), {
+          ...scopeOf(claimed, turnId),
+          turn_id: turnId,
+          finalize_key: `fin-${turnId}`,
+          final_source_sequence: 0,
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint:
+            revision === null
+              ? null
+              : {
+                  revision,
+                  manifest_ref: `s3://bucket/quiesce-${reason}-${revision}.json`,
+                  manifest_sha256: "c".repeat(64),
+                },
+        });
+
+      expect(
+        await work.checkpointStateAtomic({
+          fence: fenceOf(claimed),
+          now: clock,
+          pendingReason: reason,
+        }),
+      ).toEqual({
+        outcome: "ok",
+        pointer: null,
+        restorable: false,
+        pendingReason: reason,
       });
-    const pending = async () =>
-      (
-        await db
-          .select({ reason: sessions.checkpointPendingReason })
-          .from(sessions)
-          .where(eq(sessions.id, session.session_id))
-      )[0]?.reason;
-    const finalize = (turnId: string, revision: number | null) =>
-      gateway.finalize(principalOf(claimed), {
-        ...scopeOf(claimed, turnId),
-        turn_id: turnId,
-        finalize_key: `fin-${turnId}`,
-        final_source_sequence: 0,
-        terminal: {
-          status: "completed",
-          reason: null,
-          result: null,
-          usage: null,
-        },
-        checkpoint:
-          revision === null
-            ? null
-            : {
-                revision,
-                manifest_ref: `s3://bucket/quiesce-${revision}.json`,
-                manifest_sha256: "c".repeat(64),
-              },
+      expect(await pending()).toBe(reason);
+      // The previous generation stays the one to resume from, and work goes on:
+      // new input is taken and the turn completes without a checkpoint.
+      expect((await append("while the server runs")).outcome).toBe("accepted");
+      expect(await finalize("1", null)).toMatchObject({
+        status: "completed",
+        checkpoint_revision: null,
       });
+      expect(await pending()).toBe(reason);
 
-    expect(
-      await work.checkpointStateAtomic({
-        fence: fenceOf(claimed),
-        now: clock,
-        pendingReason: "background_writer",
-      }),
-    ).toEqual({
-      outcome: "ok",
-      pointer: null,
-      restorable: false,
-      pendingReason: "background_writer",
-    });
-    expect(await pending()).toBe("background_writer");
-    // The previous generation stays the one to resume from, and work goes on:
-    // new input is taken and the turn completes without a checkpoint.
-    expect((await append("while the server runs")).outcome).toBe("accepted");
-    expect(await finalize("1", null)).toMatchObject({
-      status: "completed",
-      checkpoint_revision: null,
-    });
-    expect(await pending()).toBe("background_writer");
+      // This attempt's own next checkpoint is exactly what was missing.
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      expect(next.input?.turn_id).toBe("2");
+      expect(await finalize("2", 0)).toMatchObject({
+        status: "completed",
+        checkpoint_revision: 0,
+      });
+      expect(await pending()).toBeNull();
 
-    // This attempt's own next checkpoint is exactly what was missing.
-    const next = await gateway.nextInput(
-      principalOf(claimed),
-      scopeOf(claimed),
-    );
-    expect(next.input?.turn_id).toBe("2");
-    expect(await finalize("2", 0)).toMatchObject({
-      status: "completed",
-      checkpoint_revision: 0,
-    });
-    expect(await pending()).toBeNull();
-
-    // A mirror failure outranks it, and is not replaced by it.
-    await gateway.heartbeat(principalOf(claimed), {
-      ...scopeOf(claimed),
-      attempt_state: "running",
-      transcript: { persisted_at: null, mirror_error: "batch 3 dropped" },
-    });
-    expect(
-      await work.checkpointStateAtomic({
-        fence: fenceOf(claimed),
-        now: clock,
-        pendingReason: "tool_in_flight",
-      }),
-    ).toMatchObject({ pendingReason: "mirror_error" });
-    expect(await pending()).toBe("mirror_error");
-    expect(await append("after the failure")).toEqual({
-      outcome: "checkpoint_unavailable",
-      reason: "mirror_error",
-    });
-  });
+      // A mirror failure outranks it, and is not replaced by it.
+      await gateway.heartbeat(principalOf(claimed), {
+        ...scopeOf(claimed),
+        attempt_state: "running",
+        transcript: { persisted_at: null, mirror_error: "batch 3 dropped" },
+      });
+      expect(
+        await work.checkpointStateAtomic({
+          fence: fenceOf(claimed),
+          now: clock,
+          pendingReason: "tool_in_flight",
+        }),
+      ).toMatchObject({ pendingReason: "mirror_error" });
+      expect(await pending()).toBe("mirror_error");
+      expect(await append("after the failure")).toEqual({
+        outcome: "checkpoint_unavailable",
+        reason: "mirror_error",
+      });
+    },
+  );
 
   test("checkpointStateAtomic answers the fenced pointer and records only a durable refusal", async () => {
     const { session, claimed } = await claimAndDeliver();
