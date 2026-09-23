@@ -9,6 +9,7 @@ import type {
   RuntimeConfig,
   SessionRuntime,
   TerminalTurnStatus,
+  TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
 import { MAX_TURN_COST_USD } from "@agent-platform/contracts";
@@ -195,6 +196,7 @@ export class WorkerHost {
   private interruptAnswered: Promise<void> | undefined;
   private attemptState: AttemptState = "starting";
   private heartbeat: Heartbeat | undefined;
+  private mirrorError: string | undefined;
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
@@ -293,6 +295,7 @@ export class WorkerHost {
       leaseExpiresAt: new Date(claim.lease_expires_at),
       onLost: (reason) => this.lose(reason),
       onControlPending: () => this.pending?.poll(true),
+      transcript: () => this.transcriptReport(),
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
     });
 
@@ -391,7 +394,7 @@ export class WorkerHost {
       repository_id: claim.workspace.repository.id,
       branch: claim.workspace.repository.branch,
     });
-    return this.untilStopped(this.checkpoints.restorePlan(claim.restore));
+    return this.untilStopped(this.checkpoints.restorePlan(claim));
   }
 
   /** Read through getters: the field changes across awaits, which narrowing cannot see. */
@@ -956,24 +959,33 @@ export class WorkerHost {
           terminal === settlement ? checkpoint : null,
         );
       } catch (error) {
-        // The gateway refused the checkpoint for good, so nothing committed:
-        // the interrupted turn is finalized once more, as unknown.
+        // The gateway refused the manifest itself (only verification answers
+        // CHECKPOINT_UNAVAILABLE to a finalize that carries one), so that
+        // request committed nothing and the same key may carry another body.
         if (
           terminal !== settlement ||
-          !interrupted ||
+          checkpoint === null ||
           !(error instanceof WorkerGatewayRequestError) ||
           error.code !== "CHECKPOINT_UNAVAILABLE"
         ) {
           throw error;
         }
-        this.logger.warn("worker.checkpoint.refused", {
-          turn_id: turnId,
+        // Any other turn is recorded without the checkpoint, as it would have
+        // been had the publish failed here — but only when no earlier attempt
+        // is still out that might commit it under the first body.
+        if (!interrupted && undecided) throw error;
+        this.logger.warn("worker.checkpoint.failed", {
+          stage: "finalize",
           reason: describe(error),
+          revision: checkpoint.revision,
+          manifest_ref: checkpoint.manifest_ref,
+          turn_id: turnId,
         });
         // Nothing can commit the capture any more unless an earlier attempt
         // is still undecided; the fallback carries no checkpoint to wait on.
         if (!undecided) captured?.lease?.release();
-        terminal = unconfirm();
+        // An interrupted turn is `interrupted` only with its checkpoint.
+        terminal = interrupted ? unconfirm() : settlement;
         finalized = await finalize(terminal, null);
       }
       if (finalized === undefined) return;
@@ -1259,8 +1271,27 @@ export class WorkerHost {
     })();
   }
 
+  /** Absent while the port binds no mirror, so such a worker beats unchanged. */
+  private transcriptReport(): TranscriptReport | undefined {
+    const mirror = this.checkpoints.mirror?.();
+    if (mirror === undefined) return undefined;
+    return {
+      persisted_at: mirror.persistedAt?.toISOString() ?? null,
+      mirror_error: this.mirrorError ?? null,
+    };
+  }
+
   private observe(native: NativeSdkMessage): void {
     this.accounting.observe(native);
+    if (native.type === "system" && native.subtype === "mirror_error") {
+      // Latched for the run like the ledger's own: the SDK has given up on a
+      // batch, and no later write brings it back.
+      this.mirrorError ??= `Transcript mirror dropped a batch: ${
+        typeof native.error === "string" && native.error.length > 0
+          ? native.error
+          : "unspecified error"
+      }`;
+    }
     if (native.type !== "result") return;
     const turn = this.turn;
     if (turn === undefined) return;
@@ -1353,7 +1384,10 @@ export class WorkerHost {
     }
     let ref: CheckpointRef | null;
     try {
-      ref = await this.checkpoints.capture(preparation);
+      ref = await this.checkpoints.capture(preparation, {
+        scope: { ...this.scope },
+        recheck: () => run.prepareCheckpoint(),
+      });
     } catch (error) {
       lease?.release();
       throw error;

@@ -348,6 +348,15 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 - **eligibility ≠ compatibility.** 시작 전 거절은 fingerprint를 계산할 수 있는지만 본다. 복원하는 쪽(워커)은 새로 resolve한 구성으로 fingerprint를 **다시 계산해** manifest와 비교해야 하며, 저장된 digest를 복사해 넘기면 검사가 무력화된다(`getRestorePlan`은 호출자가 준 fingerprint를 받는다).
 - **digest 변경 정책.** 이 규칙은 모든 digest를 바꾼다. 적용 시점(2026-09-23)에 워커 루프가 아직 머지되지 않아 운영 checkpoint가 없으므로 재계산 경로 없이 fail-closed다. 앞으로 fingerprint 입력을 바꿀 때는 그 시점의 checkpoint를 어떻게 다룰지(재계산 또는 fail-closed)를 같은 PR에서 정한다.
 
+**워커 publisher 규칙 (94S-246, 2026-09-23).** 위 1~4의 워커 쪽 구현(`apps/worker/src/session-checkpoints.ts`)을 다음 계약으로 고정한다.
+
+- **push 대신 bundle.** 1번의 "remote에 push"는 하지 않는다. workspace는 임시 index 사본에 `add -u`한 tree를 HEAD 위 commit으로 만들어(checkout의 HEAD·index·branch는 건드리지 않는다) 그 commit과 HEAD·branch ref를 git bundle 하나에 담는다. push는 사용자 branch 이력에 checkpoint commit을 남기고 credential을 워커 쓰기 경로에 들이기 때문이다. untracked 파일은 bundle 밖 객체(`untracked/<sha256>`)로 따로 올리고 manifest가 경로와 함께 가리킨다. ignored 파일은 담지 않는다 — 재개 후 다시 만들어지는 산출물(`node_modules`, build 결과)이고, 담으면 크기 상한이 사실상 사용자 `.gitignore`에 달린다.
+- **key는 서버가 준다.** revision과 manifest key는 `requestCheckpoint` 응답만 따른다. key는 publish마다 새로 발급되고(`<rev>/<attempt>/<publishId>/manifest.json`), bundle·untracked는 그 manifest와 같은 디렉터리에 content-addressed key로 쓴다. 그래서 한 publish가 다른 publish의 객체를 덮지 않고, 도중에 멈춘 publish는 manifest 없는 고아만 남긴다. manifest는 create-only로 맨 마지막에 쓴다.
+- **transcript 정착.** mirror batch 하나라도 실패한 채 다시 쓰이지 않았으면(`unsettled`) 또는 lease를 잡은 뒤 `mirror_error`가 왔으면 manifest를 쓰지 않는다. heartbeat는 mirror가 마지막으로 쓴 시각과 run에 latch된 `mirror_error`를 `transcript`로 싣는다.
+- **실패는 turn 실패가 아니다.** publish가 도중에 실패하면 `worker.checkpoint.failed`(stage·reason·revision·manifest_ref)를 남기고 checkpoint 없이 finalize한다. 소유권 상실만 던진다. checkpoint를 실은 finalize가 결정적 `CHECKPOINT_UNAVAILABLE`(manifest 검증 거절)을 받고 앞서 결말 모를 시도가 없었으면, 같은 finalize key로 checkpoint 없이 한 번 더 finalize한다. 거절된 요청은 아무것도 commit하지 않았기 때문이다.
+- **엔진 밖 writer (한계).** lease는 엔진이 실행하는 tool만 막는다. 명령이 detach한 프로세스처럼 엔진 밖에서 쓰는 writer가 capture 도중 workspace를 바꾸면 bundle과 transcript가 어긋난 generation이 commit될 수 있다. v0.1은 이 한계를 받아들인다(Codex 판정 (c)). 막으려면 workspace를 snapshot 가능한 파일시스템에 두거나 capture 동안 컨테이너 전체를 freeze해야 하며, 둘 다 execution backend의 일이다.
+- **복원은 publish와 함께 켠다.** composition은 restorer가 들어오기 전까지 `unwiredCheckpoints`를 쓴다. publish만 켜면 첫 checkpoint가 commit된 순간부터 교체 워커가 claim에서 전부 실패하기 때문이다.
+
 1~3 사이에서 죽거나 CAS에 실패한 generation은 재개의 대상이 아니다. 새 워커는 Postgres pointer가 가리키고 모든 객체·hash·revision이 검증되는 마지막 generation만 사용하며, 없거나 깨졌으면 안전한 이전 generation으로 돌아간다. branch HEAD와 최신 object를 독립적으로 조합하지 않는다. S3 manifest의 owner 사전 조회나 ETag 조건은 DB와 원자적이지 않으므로 권한·소유권 fence로 쓰지 않는다.
 
 G2는 현재 `pod_id`와 previous revision의 CAS까지만 요구한다. 94S-44는 G4에서 checkpoint 외 전체 write에 claim epoch fencing을 확장하며, G2가 이를 구현 완료했다고 주장하지 않는다.

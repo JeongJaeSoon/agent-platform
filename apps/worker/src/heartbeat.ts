@@ -1,4 +1,8 @@
-import type { AttemptState, WorkerScope } from "@agent-platform/contracts";
+import type {
+  AttemptState,
+  TranscriptReport,
+  WorkerScope,
+} from "@agent-platform/contracts";
 import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
 
 import {
@@ -18,6 +22,12 @@ export type HeartbeatOptions = {
   onLost: (reason: string) => void;
   /** An answer or control intent is waiting to be fetched. */
   onControlPending?: () => void;
+  /**
+   * The transcript mirror as of this beat; undefined while the run has none.
+   * A `mirror_error` here is what records the session's blocking pending
+   * reason even when no checkpoint is asked for afterwards.
+   */
+  transcript?: () => TranscriptReport | undefined;
   now?: () => Date;
 };
 
@@ -87,11 +97,13 @@ export class Heartbeat {
 
   private async beat(): Promise<void> {
     const scope = this.options.scope();
+    const transcript = this.options.transcript?.();
     try {
       const response = await this.beforeLeaseRunsOut(
         this.options.gateway.heartbeat({
           ...scope,
           attempt_state: this.options.attemptState(),
+          ...(transcript === undefined ? {} : { transcript }),
         }),
       );
       if (response === undefined) {

@@ -325,7 +325,7 @@ describe("WorkerHost turn loop", () => {
     const summary = await host.runLoop();
 
     expect(summary.outcome).toBe("failed");
-    expect(summary.reason).toContain("94S-201");
+    expect(summary.reason).toContain("94S-246");
     expect(gateway.finalized).toEqual([]);
   });
 
@@ -2398,5 +2398,139 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
 
     expect(summary.outcome).toBe("idle");
     expect(summary.turns).toHaveLength(1);
+  });
+});
+
+describe("WorkerHost checkpoint publishing (94S-246)", () => {
+  const publishing: WorkerCheckpointPort = {
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation) =>
+      preparation.status === "ready"
+        ? {
+            revision: 0,
+            manifest_ref: "checkpoints/0.json",
+            manifest_sha256: "a".repeat(64),
+          }
+        : null,
+  };
+  const oneTurn: FakeStep[] = [
+    { type: "await-input" },
+    { type: "emit", message: resultMessage(uuidForTurn(1)) },
+    { type: "await-input" },
+  ];
+  const refused = () =>
+    new WorkerGatewayRequestError(
+      409,
+      "CHECKPOINT_UNAVAILABLE",
+      "Checkpoint manifest rejected: bundle digest mismatch",
+      false,
+    );
+
+  test("a manifest the gateway refuses is dropped, and the turn is recorded without it", async () => {
+    const warnings: string[] = [];
+    const gateway = new FakeWorkerGateway({
+      checkpoints: {
+        commit: async () => {
+          throw refused();
+        },
+        requestCheckpoint: async () => ({
+          status: "blocked",
+          reason: "tool_in_flight",
+          detail: "unused: the port under test never asks",
+        }),
+        restorePlan: async () => ({ status: "none" }),
+      },
+    });
+    const { host } = harness(oneTurn, {
+      checkpoints: publishing,
+      gateway,
+      logger: { ...silent, warn: (event) => warnings.push(event) },
+    });
+    gateway.enqueue("a turn whose manifest is refused");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    expect(gateway.finalized.map((call) => call.checkpoint)).toEqual([null]);
+    expect(gateway.calls.filter((call) => call === "finalize").length).toBe(2);
+    expect(warnings).toContain("worker.checkpoint.failed");
+  });
+
+  test("a refusal after an unanswered finalize is not retried without the checkpoint", async () => {
+    const sent: Array<FinalizeRequest["checkpoint"]> = [];
+    class Undecided extends FakeWorkerGateway {
+      override async finalize(
+        request: FinalizeRequest,
+      ): Promise<FinalizeResponse> {
+        sent.push(request.checkpoint);
+        // The first may have committed for all this worker knows; whatever
+        // a retry is told cannot prove it did not.
+        if (sent.length === 1) {
+          throw new WorkerGatewayRequestError(
+            503,
+            null,
+            "the gateway is restarting",
+            true,
+          );
+        }
+        throw refused();
+      }
+    }
+    const gateway = new Undecided();
+    const { host } = harness(oneTurn, { checkpoints: publishing, gateway });
+    gateway.enqueue("a turn whose finalize goes unanswered first");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(sent.every((checkpoint) => checkpoint !== null)).toBe(true);
+  });
+
+  test("the heartbeat carries when the mirror last wrote and the error it latched", async () => {
+    const persistedAt = new Date("2026-09-23T01:02:03.000Z");
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "mirror_error",
+            session_id: "fake-session",
+            error: "bucket unreachable",
+          },
+        },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: { ...publishing, mirror: () => ({ persistedAt }) },
+        gateway,
+      },
+    );
+    gateway.enqueue("a turn whose mirror fails");
+
+    await host.runLoop();
+
+    expect(gateway.heartbeats.at(-1)?.transcript).toEqual({
+      persisted_at: persistedAt.toISOString(),
+      mirror_error: "Transcript mirror dropped a batch: bucket unreachable",
+    });
+  });
+
+  test("a port without a mirror heartbeats as before", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(oneTurn, { checkpoints: publishing, gateway });
+    gateway.enqueue("a turn");
+
+    await host.runLoop();
+
+    expect(gateway.heartbeats.length).toBeGreaterThan(0);
+    expect(
+      gateway.heartbeats.every((beat) => beat.transcript === undefined),
+    ).toBe(true);
   });
 });
