@@ -916,7 +916,9 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
   test("D: a worker that loses its lease mid-turn promotes nothing", async () => {
     const spec = {
       id: "D1",
-      steps: [{ ...write("/workspace/d.txt", "d turn 1\n"), delayMs: 5000 }],
+      // The model holds its answer long enough to stop the scheduler and
+      // pause the worker while the turn is still open.
+      steps: [{ ...write("/workspace/d.txt", "d turn 1\n"), delayMs: 30_000 }],
       final: "D1 DONE",
     };
     const created = await api.createSession(prompt("Turn one.", spec));
