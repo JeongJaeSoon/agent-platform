@@ -386,18 +386,19 @@ describe("check-main-push-run.sh", () => {
     const outcome = await run("check-main-push-run.sh", ["10e58fb"], {
       "api repos/octo/repo/commits/10e58fb": oldCommit("10e58fb0000"),
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=10e58fb0000&per_page=1":
-        "1",
+        "1 35688714425",
     });
 
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.stdout).toBe("present 10e58fb\n");
+    // The run id is what the spikes check reads next.
+    expect(outcome.stdout).toBe("present 10e58fb 35688714425\n");
   });
 
   test("reports missing, with exit 1, when no push run exists for the commit", async () => {
     const outcome = await run("check-main-push-run.sh", ["70139eb"], {
       "api repos/octo/repo/commits/70139eb": oldCommit("70139eb0000"),
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=70139eb0000&per_page=1":
-        "0",
+        "0 ",
     });
 
     expect(outcome.exitCode).toBe(1);
@@ -410,14 +411,14 @@ describe("check-main-push-run.sh", () => {
         `${oldCommit("bbbbbbb222")}\\n${oldCommit("aaaaaaa111")}`,
       ],
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
-        "1",
+        "1 222",
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=aaaaaaa111&per_page=1":
-        "0",
+        "0 ",
     });
 
     // The tip is fine; the commit under it lost its run and is still reported.
     expect(outcome.exitCode).toBe(1);
-    expect(outcome.stdout).toBe("present bbbbbbb\nmissing aaaaaaa\n");
+    expect(outcome.stdout).toBe("present bbbbbbb 222\nmissing aaaaaaa\n");
     const [window] = outcome.calls.filter((call) =>
       call.startsWith("api repos/octo/repo/commits?sha=main&since="),
     );
@@ -435,11 +436,11 @@ describe("check-main-push-run.sh", () => {
         `${oldCommit("bbbbbbb222")}\\n${oldCommit("aaaaaaa111")}`,
       ],
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
-        "1",
+        "1 222",
     });
 
     expect(outcome.exitCode).toBe(2);
-    expect(outcome.stdout).toBe("present bbbbbbb\n");
+    expect(outcome.stdout).toBe("present bbbbbbb 222\n");
     expect(outcome.stderr).toContain("GitHub API call failed");
   });
 
@@ -473,12 +474,205 @@ describe("check-main-push-run.sh", () => {
       {
         "api repos/octo/repo/commits/fresh": `fresh0000 ${justNow}`,
         "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=fresh0000&per_page=1":
-          "0",
+          "0 ",
       },
       { MIN_AGE_MINUTES: "0" },
     );
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.stdout).toBe("missing fresh00\n");
+  });
+});
+
+describe("check-spikes-job.sh", () => {
+  const created = "2026-09-22T04:55:23Z";
+  const runUrl = "https://github.com/octo/repo/actions/runs/555";
+  const runQuery = "api repos/octo/repo/actions/runs/555 --jq";
+  const jobsQuery = "api repos/octo/repo/actions/runs/555/jobs?per_page=100";
+  const issuesQuery = `api repos/octo/repo/issues?labels=ci-spikes-failure&state=all&since=${created}&per_page=100`;
+  const commentsQuery = `api repos/octo/repo/issues/comments?since=${created}&per_page=100`;
+  const completedRun = `completed failure ${created} ${runUrl} abc1234def`;
+  const issue = (number: number, body: string) =>
+    JSON.stringify({
+      body,
+      number,
+      url: `https://api.github.com/repos/octo/repo/issues/${number}`,
+    });
+  const comment = (number: number, body: string) =>
+    JSON.stringify({
+      body,
+      issue_url: `https://api.github.com/repos/octo/repo/issues/${number}`,
+    });
+
+  const failed = (conclusion: string, issues: string, comments: string) => ({
+    [runQuery]: completedRun,
+    [jobsQuery]: `completed ${conclusion}`,
+    [issuesQuery]: issues,
+    [commentsQuery]: comments,
+  });
+
+  test("a timed-out job that no issue names is unreported", async () => {
+    const outcome = await run(
+      "check-spikes-job.sh",
+      ["555"],
+      failed(
+        "timed_out",
+        `[${issue(12, "[run 554](https://github.com/octo/repo/actions/runs/554)")}]`,
+        "[]",
+      ),
+    );
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe(`unreported timed_out ${runUrl} abc1234def\n`);
+    // Only what changed after the run began can name it; the list endpoints,
+    // not search, and closed issues too.
+    const jobs = outcome.calls.find((call) => call.startsWith(jobsQuery));
+    expect(jobs).toContain("--paginate");
+    expect(jobs).toContain('select(.name == "spikes")');
+    expect(outcome.calls.some((call) => call.startsWith(issuesQuery))).toBe(
+      true,
+    );
+    expect(outcome.calls.some((call) => call.startsWith(commentsQuery))).toBe(
+      true,
+    );
+    expect(outcome.calls.some((call) => call.includes("search"))).toBe(false);
+  });
+
+  test("a failure the in-run step already opened an issue for is reported", async () => {
+    const outcome = await run(
+      "check-spikes-job.sh",
+      ["555"],
+      failed(
+        "failure",
+        `[${issue(12, `spikes failed ([run 555](${runUrl})).`)}]`,
+        "[]",
+      ),
+    );
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("reported failure\n");
+  });
+
+  test("a comment on a labelled issue, across pages, counts as reported", async () => {
+    // Two pages of issues and of comments, printed back to back as gh
+    // --paginate does; #13 may be closed, which acknowledges the run too.
+    const outcome = await run(
+      "check-spikes-job.sh",
+      ["555"],
+      failed(
+        "cancelled",
+        `[${issue(12, "older")}][${issue(13, "older still")}]`,
+        `[${comment(12, "unrelated")}][${comment(13, `[run 555](${runUrl})`)}]`,
+      ),
+    );
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("reported cancelled\n");
+  });
+
+  test("a comment naming the run on an unlabelled issue does not count", async () => {
+    const outcome = await run(
+      "check-spikes-job.sh",
+      ["555"],
+      failed("failure", `[${issue(12, "older")}]`, `[${comment(99, runUrl)}]`),
+    );
+
+    expect(outcome.stdout).toBe(`unreported failure ${runUrl} abc1234def\n`);
+  });
+
+  test("a longer run id that starts with this one does not count", async () => {
+    const outcome = await run(
+      "check-spikes-job.sh",
+      ["555"],
+      failed(
+        "failure",
+        `[${issue(12, "https://github.com/octo/repo/actions/runs/5551")}]`,
+        "[]",
+      ),
+    );
+
+    expect(outcome.stdout).toBe(`unreported failure ${runUrl} abc1234def\n`);
+  });
+
+  for (const conclusion of ["success", "skipped"]) {
+    test(`a ${conclusion} job is ok without looking at issues`, async () => {
+      const outcome = await run("check-spikes-job.sh", ["555"], {
+        [runQuery]: completedRun,
+        [jobsQuery]: `completed ${conclusion}`,
+      });
+
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stdout).toBe(`ok ${conclusion}\n`);
+    });
+  }
+
+  test("a job still running is pending", async () => {
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: `in_progress null ${created} ${runUrl} abc1234def`,
+      [jobsQuery]: "in_progress null",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("pending in_progress\n");
+  });
+
+  test("a successful run without a spikes job predates the job", async () => {
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: `completed success ${created} ${runUrl} abc1234def`,
+      [jobsQuery]: "",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("ok absent\n");
+  });
+
+  test("the job the script reads is still called spikes in ci.yml", async () => {
+    // A rename would turn every run into `ok absent` without a word.
+    const workflow = await readFile(
+      join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+    expect(workflow).toMatch(/^ {2}spikes:$/m);
+  });
+
+  test("a failed run without a spikes job is a missing conclusion", async () => {
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]: "",
+      [issuesQuery]: "[]",
+      [commentsQuery]: "[]",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe(`unreported missing ${runUrl} abc1234def\n`);
+  });
+
+  test("an unfinished run without a spikes job yet is pending", async () => {
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: `queued null ${created} ${runUrl} abc1234def`,
+      [jobsQuery]: "",
+    });
+
+    expect(outcome.stdout).toBe("pending queued\n");
+  });
+
+  test("a failed lookup exits 2 and prints no verdict", async () => {
+    // No reply for the comments query: the fake fails it like an API error.
+    const outcome = await run("check-spikes-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]: "completed failure",
+      [issuesQuery]: "[]",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("GitHub API call failed");
+  });
+
+  test("refuses a run id that is not a number before touching GitHub", async () => {
+    const outcome = await run("check-spikes-job.sh", ["55a"], {});
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.calls).toEqual([]);
   });
 });
