@@ -74,6 +74,8 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const deniedName = `ap-it-denied-${suffix}`;
   const proxyName = `ap-it-proxy-${suffix}`;
   const tlsName = `ap-it-tls-${suffix}`;
+  /** LocalStack behind TLS: the https S3 endpoint the worker must reach. */
+  const s3TlsName = `ap-it-s3tls-${suffix}`;
   const proxyUrl = `http://${proxyName}:3128`;
   const localstackName = `ap-it-localstack-${suffix}`;
   const created: string[] = [];
@@ -124,6 +126,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     await startServer(deniedName, "denied-upstream", true);
     await startTlsServer();
     await startLocalstack();
+    await startS3TlsFront();
     await startProxy();
   }, 300_000);
 
@@ -206,6 +209,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
    */
   async function objectProbe(
     environment: string[],
+    binds: string[] = [],
   ): Promise<{ exitCode: number; output: string }> {
     const name = `ap-it-object-probe-${crypto.randomUUID().slice(0, 8)}`;
     const script = join(probeDir, `${name}.ts`);
@@ -214,7 +218,11 @@ integration("worker egress is confined to the proxy allowlist", () => {
       Cmd: ["bun", "run", "/probe/probe.ts"],
       Env: environment,
       HostConfig: {
-        Binds: [`${REPOSITORY}:/app:ro`, `${script}:/probe/probe.ts:ro`],
+        Binds: [
+          `${REPOSITORY}:/app:ro`,
+          `${script}:/probe/probe.ts:ro`,
+          ...binds,
+        ],
         NetworkMode: workerNetwork,
         // Bun writes its cache under HOME; the worker's HOME is a tmpfs.
         Tmpfs: { "/home/worker": "rw,size=16m" },
@@ -234,9 +242,12 @@ integration("worker egress is confined to the proxy allowlist", () => {
     }
   }
 
-  function workerEnv(sessionId: string): string[] {
+  function workerEnv(sessionId: string, endpoint?: string): string[] {
+    const config = configFor(bucket.bucket);
     return workerEnvironmentFor(
-      configFor(bucket.bucket),
+      endpoint === undefined
+        ? config
+        : { ...config, objectStore: { ...config.objectStore, endpoint } },
       { executionId: `exec-${suffix}`, generation: 1, sessionId },
       `wln-${suffix}`,
     );
@@ -317,7 +328,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
         "-subj",
         `/CN=${tlsName}`,
         "-addext",
-        `subjectAltName=DNS:${tlsName}`,
+        `subjectAltName=DNS:${tlsName},DNS:${s3TlsName}`,
         "-keyout",
         join(tlsDir, "key.pem"),
         "-out",
@@ -347,6 +358,36 @@ integration("worker egress is confined to the proxy allowlist", () => {
       if (Date.now() > deadline) {
         throw new Error(
           `TLS upstream never came up; logs were:\n${await logsOf(tlsName)}`,
+        );
+      }
+      await Bun.sleep(500);
+    }
+  }
+
+  /**
+   * TLS in front of LocalStack, on the outer network: it decrypts and relays
+   * bytes, so the worker's transport parses LocalStack's own HTTP over a
+   * real handshake. Same certificate and image as the TLS upstream above.
+   */
+  async function startS3TlsFront(): Promise<void> {
+    const tlsDir = join(probeDir, "tls");
+    await writeFile(join(tlsDir, "s3-front.ts"), s3TlsFront(localstackName));
+    created.push(s3TlsName);
+    const response = await raw("POST", `/containers/create?name=${s3TlsName}`, {
+      Cmd: ["bun", "run", "/tls/s3-front.ts"],
+      HostConfig: {
+        Binds: [`${tlsDir}:/tls:ro`],
+        NetworkMode: outerNetwork,
+      },
+      Image: PROXY_IMAGE,
+    });
+    expect(response.status).toBe(201);
+    await client.startContainer(s3TlsName);
+    const deadline = Date.now() + 90_000;
+    while (!(await logsOf(s3TlsName)).includes("s3 front listening")) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `S3 TLS front never came up; logs were:\n${await logsOf(s3TlsName)}`,
         );
       }
       await Bun.sleep(500);
@@ -433,7 +474,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
     const response = await raw("POST", `/containers/create?name=${proxyName}`, {
       Cmd: ["bun", "run", "/app/src/main.ts"],
       Env: [
-        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566,${tlsName}:8443`,
+        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566,${tlsName}:8443,${s3TlsName}:8443`,
         "EGRESS_PROXY_PORT=3128",
       ],
       HostConfig: {
@@ -693,6 +734,59 @@ console.log("TLS " + response.status + " " + (await response.text()));
     ]);
   }, 300_000);
 
+  test("through the proxy the worker's object store reaches an https endpoint with its own TLS", async () => {
+    // 94S-254: Bun's own https client sends a GREASE ECH the proxy refuses
+    // (the case above pins that), so the store's https transport opens the
+    // tunnel and the TLS session itself. The CA reaches it the way a
+    // deployment's would, through NODE_EXTRA_CA_CERTS.
+    const sessionId = crypto.randomUUID();
+    const before = await logsOf(proxyName);
+    const result = await objectProbe(
+      [
+        ...workerEnv(sessionId, `https://${s3TlsName}:8443`),
+        "NODE_EXTRA_CA_CERTS=/tls/cert.pem",
+      ],
+      [`${join(probeDir, "tls")}:/tls:ro`],
+    );
+    expect(result.output).toContain("PROBE ");
+    expect(result.exitCode).toBe(0);
+    const report = JSON.parse(
+      result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
+    ) as Record<string, unknown>;
+    expect(report).toMatchObject({
+      conflict: "conflict",
+      duplicate: "duplicate",
+      foreignGet: "ObjectScopeError",
+      get: '{"revision":0}',
+      head: 14,
+      put: "ok",
+      putImmutable: "created",
+    });
+    // Every request went through a CONNECT tunnel the gate let through.
+    const after = (await logsOf(proxyName)).slice(before.length);
+    const allowed = after
+      .split("\n")
+      .filter((line) => line.includes("Egress allowed"));
+    expect(allowed.length).toBeGreaterThan(0);
+    for (const line of allowed) {
+      expect(line).toContain('"method":"connect"');
+      expect(line).toContain(`"host":"${s3TlsName}"`);
+    }
+    expect(after).not.toContain("failed the gate");
+    expect(after).not.toContain("encrypted_client_hello");
+    // And the objects are in the bucket behind the front.
+    const stored = await bucket.s3.send(
+      new (await import("@aws-sdk/client-s3")).ListObjectsV2Command({
+        Bucket: bucket.bucket,
+        Prefix: sessionObjectPrefix(sessionId),
+      }),
+    );
+    expect((stored.Contents ?? []).map((o) => o.Key).sort()).toEqual([
+      `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
+      `${sessionObjectPrefix(sessionId)}transcript/part-0`,
+    ]);
+  }, 300_000);
+
   test("without the proxy variables the same object store reaches nothing", async () => {
     // A refusal by the wrapper looks nothing like this: the request leaves
     // the process and dies on the internal network, so the first call fails
@@ -746,6 +840,28 @@ Bun.serve({
   },
 });
 console.log("tls listening");
+`;
+
+/** Decrypts and relays each connection to LocalStack's plain port. */
+const s3TlsFront = (localstack: string) => `
+import { connect } from "node:net";
+import { createServer } from "node:tls";
+const server = createServer(
+  {
+    cert: await Bun.file("/tls/cert.pem").text(),
+    key: await Bun.file("/tls/key.pem").text(),
+  },
+  (client) => {
+    const upstream = connect({ host: ${JSON.stringify(localstack)}, port: 4566 });
+    client.pipe(upstream);
+    upstream.pipe(client);
+    client.on("error", () => upstream.destroy());
+    upstream.on("error", () => client.destroy());
+    client.on("close", () => upstream.destroy());
+    upstream.on("close", () => client.destroy());
+  },
+);
+server.listen(8443, "0.0.0.0", () => console.log("s3 front listening"));
 `;
 
 /**

@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import {
   DEFAULT_DOCKER_API_VERSION,
   DEFAULT_DOCKER_HOST,
@@ -73,10 +74,7 @@ export type LocalDockerBackendConfig = {
 export type WorkerObjectStoreAccess = {
   accessKeyId: string;
   bucket: string;
-  /**
-   * Optional in the type for callers that build the value by hand; the
-   * env parser requires it and holds it to http until 94S-254.
-   */
+  /** Absent means AWS itself, over https. */
   endpoint?: string;
   region: string;
   /**
@@ -323,30 +321,33 @@ export function validateLocalDockerConfig(
   const { objectStore } = config;
   // The same rule the worker's `objectStoreConfigFromEnv` applies, checked
   // here so a launch is refused before an intent is reserved rather than by
-  // every container dying at startup: the egress proxy refuses the GREASE
-  // ECH in Bun's node:https (94S-219), so an https object store — real AWS
-  // included — is out of reach for the worker until 94S-254.
-  if (objectStore.endpoint === undefined) {
-    throw new Error(
-      "AWS_ENDPOINT_URL is required: the worker cannot reach an https object store through the egress proxy yet (94S-254)",
-    );
-  }
-  let endpoint: URL;
-  try {
-    endpoint = new URL(objectStore.endpoint);
-  } catch {
-    // Not quoted: a value that failed to parse may still hold a credential.
-    throw new Error("AWS_ENDPOINT_URL is not a URL");
-  }
-  // The URL is quoted in messages and labels; a credential in it would be
-  // too, so this comes before any message that quotes it.
-  if (endpoint.username !== "" || endpoint.password !== "") {
-    throw new Error("AWS_ENDPOINT_URL must not carry credentials");
-  }
-  if (endpoint.protocol !== "http:") {
-    throw new Error(
-      `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http:// URL: the worker cannot reach an https object store through the egress proxy yet (94S-254)`,
-    );
+  // every container dying at startup. No endpoint means AWS itself.
+  if (objectStore.endpoint !== undefined) {
+    let endpoint: URL;
+    try {
+      endpoint = new URL(objectStore.endpoint);
+    } catch {
+      // Not quoted: a value that failed to parse may still hold a credential.
+      throw new Error("AWS_ENDPOINT_URL is not a URL");
+    }
+    // The URL is quoted in messages and labels; a credential in it would be
+    // too, so this comes before any message that quotes it.
+    if (endpoint.username !== "" || endpoint.password !== "") {
+      throw new Error("AWS_ENDPOINT_URL must not carry credentials");
+    }
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http:// or https:// URL`,
+      );
+    }
+    if (
+      endpoint.protocol === "https:" &&
+      isIP(endpoint.hostname.replace(/^\[|\]$/g, ""))
+    ) {
+      throw new Error(
+        `AWS_ENDPOINT_URL ${objectStore.endpoint} must name its host: an https object store is not reached by address`,
+      );
+    }
   }
   // Names only in these messages, never the values: they end up in logs.
   for (const [name, value] of [
