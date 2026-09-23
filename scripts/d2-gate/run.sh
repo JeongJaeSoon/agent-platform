@@ -97,7 +97,8 @@ export D2_GATE_CHAOS_URL="http://127.0.0.1:$(port gate-chaos 8099)"
 export D2_GATE_MESSAGES_URL="http://127.0.0.1:$(port gate-messages 4011)"
 export D2_GATE_GITEA_URL="$gitea_url"
 export D2_GATE_NETWORK="${project}_default"
-export -p | grep -E ' (D2_GATE_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z]+_IMAGE)=' >"$out/vars.sh"
+export -p | grep -E ' (D2_GATE(_[A-Z0-9_]*)?|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z]+_IMAGE)=' |
+  grep -vE ' D2_GATE_(UP_ONLY|KEEP)=' >"$out/vars.sh"
 if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
   export D2_GATE_KEEP=1
   echo "stack up: source $out/vars.sh" >&2

@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
   GetObjectCommand,
   ListObjectVersionsCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { digestParts } from "@agent-platform/runtime-claude-codec";
 import { Pool } from "pg";
 
 /**
@@ -42,7 +42,8 @@ export function gateEnv(): GateEnv | null {
   if (vars.D2_GATE !== "1") return null;
   const need = (name: string): string => {
     const value = vars[name];
-    if (!value) throw new Error(`${name} is not set; run scripts/d2-gate/run.sh`);
+    if (!value)
+      throw new Error(`${name} is not set; run scripts/d2-gate/run.sh`);
     return value;
   };
   return {
@@ -83,10 +84,12 @@ export class GateReport {
   readonly meta: Record<string, unknown> = {};
 
   /** Records the outcome and returns whether it passed. */
-  check(entry: Omit<Check, "actual" | "status"> & {
-    actual: unknown;
-    pass: boolean;
-  }): boolean {
+  check(
+    entry: Omit<Check, "actual" | "status"> & {
+      actual: unknown;
+      pass: boolean;
+    },
+  ): boolean {
     const { pass, actual, ...rest } = entry;
     this.checks.push({
       ...rest,
@@ -207,7 +210,9 @@ export class PublicApi {
       message,
     });
     if (created.status !== 201 && created.status !== 202) {
-      throw new Error(`create ${created.status} ${JSON.stringify(created.body)}`);
+      throw new Error(
+        `create ${created.status} ${JSON.stringify(created.body)}`,
+      );
     }
     return created.body;
   }
@@ -230,7 +235,11 @@ export class PublicApi {
    * user would: the gate's profile runs Write without asking, but whatever
    * does ask must not be what decides the outcome.
    */
-  async settle(sessionId: string, turnId: string, timeoutMs: number): Promise<any> {
+  async settle(
+    sessionId: string,
+    turnId: string,
+    timeoutMs: number,
+  ): Promise<any> {
     return waitFor(
       `turn ${turnId} of ${sessionId} to end`,
       async () => {
@@ -282,12 +291,15 @@ export class Bucket {
         ...(version ? { VersionId: version } : {}),
       }),
     );
-    return await (response.Body as { transformToByteArray(): Promise<Uint8Array> })
-      .transformToByteArray();
+    return await (
+      response.Body as { transformToByteArray(): Promise<Uint8Array> }
+    ).transformToByteArray();
   }
 
   /** Every version of every key under the prefix, oldest first per key. */
-  async versions(prefix: string): Promise<Array<{ key: string; version: string }>> {
+  async versions(
+    prefix: string,
+  ): Promise<Array<{ key: string; version: string }>> {
     const found: Array<{ key: string; version: string }> = [];
     let keyMarker: string | undefined;
     let versionMarker: string | undefined;
@@ -321,7 +333,10 @@ export type Manifest = {
   sessionId: string;
   transcripts: {
     root: { entryCount: number; parts: Ref[]; sha256: string };
-    subagents: Record<string, { entryCount: number; parts: Ref[]; sha256: string }>;
+    subagents: Record<
+      string,
+      { entryCount: number; parts: Ref[]; sha256: string }
+    >;
   };
   workspace: {
     bundle: Ref;
@@ -357,18 +372,29 @@ export async function verifyCheckpoint(
   row: CheckpointRow,
 ): Promise<VerifiedCheckpoint> {
   const problems: string[] = [];
-  const manifestBytes = await bucket.get(row.manifest_ref, row.manifest_version);
+  const manifestBytes = await bucket.get(
+    row.manifest_ref,
+    row.manifest_version,
+  );
   if (sha256(manifestBytes) !== row.manifest_sha256) {
-    problems.push(`manifest sha256 ${sha256(manifestBytes)} != pointer ${row.manifest_sha256}`);
+    problems.push(
+      `manifest sha256 ${sha256(manifestBytes)} != pointer ${row.manifest_sha256}`,
+    );
   }
-  const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as Manifest;
+  const manifest = JSON.parse(
+    new TextDecoder().decode(manifestBytes),
+  ) as Manifest;
   if (manifest.revision !== row.revision) {
-    problems.push(`manifest revision ${manifest.revision} != pointer ${row.revision}`);
+    problems.push(
+      `manifest revision ${manifest.revision} != pointer ${row.revision}`,
+    );
   }
   const fetchRef = async (label: string, ref: Ref): Promise<Uint8Array> => {
     const bytes = await bucket.get(ref.key, ref.version);
-    if (sha256(bytes) !== ref.sha256) problems.push(`${label} ${ref.key} sha256 mismatch`);
-    if (bytes.byteLength !== ref.bytes) problems.push(`${label} ${ref.key} size mismatch`);
+    if (sha256(bytes) !== ref.sha256)
+      problems.push(`${label} ${ref.key} sha256 mismatch`);
+    if (bytes.byteLength !== ref.bytes)
+      problems.push(`${label} ${ref.key} size mismatch`);
     if (!ref.version) problems.push(`${label} ${ref.key} carries no version`);
     return bytes;
   };
@@ -387,22 +413,46 @@ export async function verifyCheckpoint(
       problems.push(`${label} part-list digest mismatch`);
     }
     const chunks: Uint8Array[] = [];
-    for (const part of transcript.parts) chunks.push(await fetchRef(label, part));
+    for (const part of transcript.parts)
+      chunks.push(await fetchRef(label, part));
     return jsonl(chunks);
   };
-  const rootEntries = await readTranscript("root transcript", manifest.transcripts.root);
+  const rootEntries = await readTranscript(
+    "root transcript",
+    manifest.transcripts.root,
+  );
   const subagentEntries: Record<string, Array<Record<string, unknown>>> = {};
-  for (const [subpath, transcript] of Object.entries(manifest.transcripts.subagents)) {
-    subagentEntries[subpath] = await readTranscript(`subagent ${subpath}`, transcript);
+  for (const [subpath, transcript] of Object.entries(
+    manifest.transcripts.subagents,
+  )) {
+    subagentEntries[subpath] = await readTranscript(
+      `subagent ${subpath}`,
+      transcript,
+    );
   }
   for (const file of manifest.workspace.untracked) {
     await fetchRef(`untracked ${file.path}`, file);
   }
   const bundle = await fetchRef("bundle", manifest.workspace.bundle);
-  const { heads, tree } = await unbundle(bundle, manifest.workspace.gitCommit, problems);
-  return { bundleHeads: heads, manifest, problems, rootEntries, subagentEntries, tree };
+  const { heads, tree } = await unbundle(
+    bundle,
+    manifest.workspace.gitCommit,
+    problems,
+  );
+  return {
+    bundleHeads: heads,
+    manifest,
+    problems,
+    rootEntries,
+    subagentEntries,
+    tree,
+  };
 }
 
+/**
+ * What the bundle names and carries: its heads as `git bundle list-heads`
+ * prints them, and every file of the manifest's commit.
+ */
 async function unbundle(
   bundle: Uint8Array,
   commit: string,
@@ -411,33 +461,35 @@ async function unbundle(
   const directory = await mkdtemp(join(tmpdir(), "d2-gate-bundle-"));
   try {
     const file = join(directory, "workspace.bundle");
+    const repo = join(directory, "repo.git");
     await writeFile(file, bundle);
-    const git = async (args: string[]) => (await run(["git", "-C", directory, ...args])).stdout;
-    await git(["init", "--quiet", "--bare", "repo.git"]);
-    const heads = (await run(["git", "bundle", "list-heads", file])).stdout.trim();
-    await run(["git", "-C", join(directory, "repo.git"), "fetch", "--quiet", file, "refs/*:refs/*"]);
+    await run(["git", "init", "--quiet", "--bare", repo]);
+    const git = (args: string[], allowFail = false) =>
+      run(["git", "-C", repo, ...args], { allowFail });
+    const verified = await git(["bundle", "verify", file], true);
+    if (verified.code !== 0)
+      problems.push(`git bundle verify: ${verified.stderr.trim()}`);
+    const heads = (await git(["bundle", "list-heads", file])).stdout.trim();
+    await git(["fetch", "--quiet", file, "refs/*:refs/*"]);
     const worktree = (
-      await run(["git", "-C", join(directory, "repo.git"), "rev-parse", "refs/checkpoint/worktree"], { allowFail: true })
+      await git(["rev-parse", "refs/checkpoint/worktree"], true)
     ).stdout.trim();
     if (worktree !== commit) {
-      problems.push(`bundle refs/checkpoint/worktree ${worktree} != manifest gitCommit ${commit}`);
+      problems.push(
+        `bundle refs/checkpoint/worktree ${worktree} != manifest gitCommit ${commit}`,
+      );
     }
     const tree: Record<string, string> = {};
-    const listing = (
-      await run(["git", "-C", join(directory, "repo.git"), "ls-tree", "-r", "--name-only", commit], { allowFail: true })
-    ).stdout;
+    const listing = (await git(["ls-tree", "-r", "--name-only", commit], true))
+      .stdout;
     for (const name of listing.split("\n").filter(Boolean)) {
-      tree[name] = (
-        await run(["git", "-C", join(directory, "repo.git"), "show", `${commit}:${name}`])
-      ).stdout;
+      tree[name] = (await git(["show", `${commit}:${name}`])).stdout;
     }
-    void git;
     return { heads, tree };
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
 }
-
 // ---------------------------------------------------------------- processes
 
 export async function run(
@@ -466,6 +518,8 @@ export type WorkerContainer = {
   state: string;
 };
 
+export type WorkerEvent = { [field: string]: any; at: string; event: string };
+
 export class Workers {
   private readonly following = new Map<string, string>();
 
@@ -477,9 +531,15 @@ export class Workers {
   /** The session's worker containers, newest generation first. */
   async of(sessionId: string): Promise<WorkerContainer[]> {
     const { stdout } = await run([
-      "docker", "ps", "-a",
-      "--filter", `label=agent-platform.installation=${this.installation}`,
-      "--filter", `label=agent-platform.session-id=${sessionId}`,
+      "docker",
+      "ps",
+      "-a",
+      "--filter",
+      `label=agent-platform.installation=${this.installation}`,
+      "--filter",
+      `label=agent-platform.session-id=${sessionId}`,
+      "--filter",
+      "name=ap-worker-",
       "--format",
       '{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "agent-platform.generation"}}\t{{.Label "agent-platform.session-execution-id"}}',
     ]);
@@ -487,17 +547,28 @@ export class Workers {
       .split("\n")
       .filter(Boolean)
       .map((line) => {
-        const [id = "", name = "", state = "", generation = "0", executionId = ""] = line.split("\t");
+        const [
+          id = "",
+          name = "",
+          state = "",
+          generation = "0",
+          executionId = "",
+        ] = line.split("\t");
         return { executionId, generation: Number(generation), id, name, state };
       })
       .sort((a, b) => b.generation - a.generation);
   }
 
-  async running(sessionId: string, timeoutMs = 180_000): Promise<WorkerContainer> {
+  async running(
+    sessionId: string,
+    timeoutMs = 180_000,
+  ): Promise<WorkerContainer> {
     return waitFor(
       `a running worker for ${sessionId}`,
       async () => {
-        const found = (await this.of(sessionId)).find((c) => c.state === "running");
+        const found = (await this.of(sessionId)).find(
+          (c) => c.state === "running",
+        );
         if (found) this.follow(found.name);
         return found;
       },
@@ -523,15 +594,30 @@ export class Workers {
     return file;
   }
 
-  /** The worker's structured log lines (one JSON object per line). */
-  async events(name: string): Promise<Array<Record<string, any>>> {
+  /**
+   * The worker's structured log (packages/observability): each line's
+   * message as `event`, its fields spread beside it.
+   */
+  async events(name: string): Promise<WorkerEvent[]> {
     const file = this.follow(name);
-    const text = (await Bun.file(file).exists()) ? await Bun.file(file).text() : "";
-    const lines: Array<Record<string, any>> = [];
+    const text = (await Bun.file(file).exists())
+      ? await Bun.file(file).text()
+      : "";
+    const lines: WorkerEvent[] = [];
     for (const line of text.split("\n")) {
       if (!line.startsWith("{")) continue;
       try {
-        lines.push(JSON.parse(line));
+        const record = JSON.parse(line) as {
+          fields?: Record<string, unknown>;
+          message?: string;
+          timestamp?: string;
+        };
+        if (typeof record.message !== "string") continue;
+        lines.push({
+          ...record.fields,
+          at: record.timestamp ?? "",
+          event: record.message,
+        });
       } catch {}
     }
     return lines;
@@ -547,10 +633,14 @@ export class Workers {
    * start time in clock ticks since boot, which together name one process
    * even across pid reuse.
    */
-  async engine(name: string): Promise<{ command: string; pid: number; startTicks: string } | null> {
+  async engine(
+    name: string,
+  ): Promise<{ command: string; pid: number; startTicks: string } | null> {
     const script =
       'p=claude-agent-sdk; for d in /proc/[0-9]*; do c=$(tr "\\0" " " < "$d/cmdline" 2>/dev/null); case "$c" in *"$p"-linux*/claude*) echo "${d#/proc/} $(cut -d" " -f22 "$d/stat") $c";; esac; done';
-    const { stdout } = await run(["docker", "exec", name, "sh", "-c", script], { allowFail: true });
+    const { stdout } = await run(["docker", "exec", name, "sh", "-c", script], {
+      allowFail: true,
+    });
     const line = stdout.split("\n").find(Boolean);
     if (!line) return null;
     const [pid = "0", startTicks = "", ...command] = line.split(" ");
@@ -611,7 +701,9 @@ export class Chaos {
 
   async log(sessionId?: string): Promise<ChaosEntry[]> {
     const query = sessionId ? `?session=${sessionId}` : "";
-    return (await (await fetch(`${this.base}/log${query}`)).json()) as ChaosEntry[];
+    return (await (
+      await fetch(`${this.base}/log${query}`)
+    ).json()) as ChaosEntry[];
   }
 }
 
@@ -629,13 +721,19 @@ export class Messages {
 
   async requests(specId?: string): Promise<ModelRequest[]> {
     const query = specId ? `?spec=${encodeURIComponent(specId)}` : "";
-    return (await (await fetch(`${this.base}/requests${query}`)).json()) as ModelRequest[];
+    return (await (
+      await fetch(`${this.base}/requests${query}`)
+    ).json()) as ModelRequest[];
   }
 }
 
 // ---------------------------------------------------------------- scripted turns
 
-export type Step = { delayMs?: number; input: Record<string, unknown>; tool: string };
+export type Step = {
+  delayMs?: number;
+  input: Record<string, unknown>;
+  tool: string;
+};
 
 /** A prompt the gate's Messages API plays back (scripts/d2-gate/fake-messages.ts). */
 export function prompt(

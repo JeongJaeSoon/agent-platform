@@ -114,7 +114,9 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     path,
     rule: rule?.id ?? null,
     sessionId:
-      SESSION_IN_BODY.exec(body)?.[1] ?? SESSION_IN_PATH.exec(path)?.[1] ?? null,
+      SESSION_IN_BODY.exec(body)?.[1] ??
+      SESSION_IN_PATH.exec(path)?.[1] ??
+      null,
     status: 0,
     upstream,
     upstreamStatus: null,

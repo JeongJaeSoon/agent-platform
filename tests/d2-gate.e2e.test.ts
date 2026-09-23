@@ -1,0 +1,977 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { inputUuid } from "@agent-platform/worker";
+import type { Pool } from "pg";
+import {
+  Bucket,
+  Chaos,
+  type CheckpointRow,
+  database,
+  GateReport,
+  gateEnv,
+  Messages,
+  PublicApi,
+  prompt,
+  read,
+  run,
+  sha256,
+  verifyCheckpoint,
+  type WorkerContainer,
+  Workers,
+  waitFor,
+  write,
+} from "./d2-gate/harness.ts";
+
+/**
+ * The D2 completion gate (94S-247): the product stack built from this
+ * checkout — public API, scheduler, the worker image with the real Claude
+ * Agent SDK — driven only from outside, with a scripted Messages API and a
+ * fault injector in the worker's path. scripts/d2-gate/run.sh builds the
+ * stack and runs this file; without it (D2_GATE unset) every test skips, so
+ * `bun run test` never needs Docker for it.
+ *
+ * Scenarios run in order on one stack, each on a session of its own:
+ * A. two turns on one engine, checkpoint, and a restore onto a clean
+ *    workspace volume and HOME, with one append response lost on the way;
+ * B. a publish that fails at the manifest, then one that succeeds;
+ * C. a transcript mirror that fails;
+ * D. a worker that loses its lease while its turn is open.
+ */
+
+const env = gateEnv();
+const TURN_MS = 300_000;
+const report = new GateReport();
+
+let api: PublicApi;
+let db: Pool;
+let bucket: Bucket;
+let chaos: Chaos;
+let messages: Messages;
+let workers: Workers;
+
+type TurnRow = {
+  attempt_id: string | null;
+  id: string;
+  outcome_unknown: boolean;
+  sequence: number;
+  status: string;
+  terminal_reason: string | null;
+};
+
+async function rows<T>(sql: string, params: unknown[]): Promise<T[]> {
+  return (await db.query(sql, params)).rows as T[];
+}
+
+async function sessionRow(sessionId: string): Promise<Record<string, any>> {
+  const [row] = await rows<Record<string, any>>(
+    `SELECT status, admission_state, checkpoint_revision, checkpoint_pending_reason,
+            checkpoint_pending_attempt_id, execution_generation, lease_epoch
+       FROM sessions WHERE id = $1`,
+    [sessionId],
+  );
+  if (!row) throw new Error(`no session ${sessionId}`);
+  return row;
+}
+
+function checkpointRows(
+  sessionId: string,
+): Promise<Array<CheckpointRow & { turn_id: string }>> {
+  return rows(
+    `SELECT revision, manifest_ref, manifest_sha256, manifest_version, turn_id::text
+       FROM checkpoints WHERE session_id = $1 ORDER BY revision`,
+    [sessionId],
+  );
+}
+
+function turnRows(sessionId: string): Promise<TurnRow[]> {
+  return rows(
+    `SELECT id::text, sequence, status, terminal_reason, outcome_unknown, attempt_id
+       FROM turns WHERE session_id = $1 ORDER BY sequence`,
+    [sessionId],
+  );
+}
+
+/** Every attempt's events must be numbered 1, 2, 3… with no gap or repeat. */
+async function eventNumbering(sessionId: string): Promise<{
+  attempts: Record<string, number>;
+  problems: string[];
+}> {
+  const found = await rows<{ attempt_id: string; source_sequence: number }>(
+    `SELECT attempt_id, source_sequence FROM events
+      WHERE session_id = $1 AND attempt_id IS NOT NULL
+      ORDER BY attempt_id, source_sequence`,
+    [sessionId],
+  );
+  const attempts: Record<string, number> = {};
+  const problems: string[] = [];
+  let lastAttempt: string | null = null;
+  let lastSequence = 0;
+  for (const row of found) {
+    attempts[row.attempt_id] = (attempts[row.attempt_id] ?? 0) + 1;
+    if (
+      lastAttempt === row.attempt_id &&
+      row.source_sequence !== lastSequence + 1
+    ) {
+      problems.push(
+        `${row.attempt_id}: ${lastSequence} → ${row.source_sequence}`,
+      );
+    }
+    lastAttempt = row.attempt_id;
+    lastSequence = row.source_sequence;
+  }
+  return { attempts, problems };
+}
+
+async function queueDepth(sessionId: string): Promise<number> {
+  const [row] = await rows<{ n: string }>(
+    "SELECT count(*)::text AS n FROM queue_messages WHERE session_id = $1",
+    [sessionId],
+  );
+  return Number(row?.n ?? "0");
+}
+
+async function receiptStatuses(sessionId: string): Promise<string[]> {
+  return (
+    await rows<{ operation: string; status: string }>(
+      `SELECT operation, status FROM receipts
+        WHERE target_ref->>'session_id' = $1 ORDER BY created_at`,
+      [sessionId],
+    )
+  ).map((row) => `${row.operation}:${row.status}`);
+}
+
+/** Waits for the worker's own log to say something, and returns that line. */
+function logged(
+  container: WorkerContainer,
+  event: string,
+  match: (line: Record<string, any>) => boolean = () => true,
+  timeoutMs = 120_000,
+): Promise<Record<string, any>> {
+  return waitFor(
+    `${event} in ${container.name}`,
+    async () =>
+      (await workers.events(container.name)).find(
+        (line) => line.event === event && match(line),
+      ),
+    timeoutMs,
+    500,
+  );
+}
+
+/**
+ * The worker's exit code, whenever it comes. `docker wait` is attached
+ * before anything stops it: the scheduler removes a container once it has
+ * seen it exit, and the code would go with it.
+ */
+function exitOf(container: WorkerContainer): Promise<number> {
+  return run(["docker", "wait", container.name], { allowFail: true }).then(
+    (waited) => (waited.code === 0 ? Number(waited.stdout.trim()) : -1),
+  );
+}
+
+/** Stops a worker the way an operator would: SIGTERM, then the drain. */
+async function stopWorker(container: WorkerContainer): Promise<number> {
+  const exit = exitOf(container);
+  await run(["docker", "stop", "-t", "120", container.name], {
+    allowFail: true,
+  });
+  return exit;
+}
+
+async function workspaceVolumes(sessionId: string): Promise<string[]> {
+  const { stdout } = await run([
+    "docker",
+    "volume",
+    "ls",
+    "-q",
+    "--filter",
+    `label=agent-platform.installation=${env?.installation}`,
+    "--filter",
+    `label=agent-platform.session-id=${sessionId}`,
+  ]);
+  return stdout.split("\n").filter(Boolean);
+}
+
+async function scheduler(action: "start" | "stop"): Promise<void> {
+  await run(["docker", action, `${env?.project}-scheduler-1`]);
+}
+
+/** One pass of the lease reconciler, from the API image as the product runs it. */
+async function reconcileOnce(): Promise<string> {
+  const { stdout, stderr } = await run([
+    "docker",
+    "run",
+    "--rm",
+    "--network",
+    env?.network ?? "",
+    "-e",
+    "DATABASE_URL=postgres://postgres:dev@postgres:5432/sessions",
+    "-e",
+    "LOG_LEVEL=info",
+    env?.apiImage ?? "",
+    "bun",
+    "run",
+    "apps/reconciler/src/main.ts",
+  ]);
+  return `${stdout}${stderr}`;
+}
+
+async function collectMeta(): Promise<void> {
+  if (!env) return;
+  const text = async (command: string[]) =>
+    (await run(command, { allowFail: true })).stdout.trim();
+  const imageId = (image: string) =>
+    text(["docker", "image", "inspect", "--format", "{{.Id}}", image]);
+  const inWorker = (script: string) =>
+    text([
+      "docker",
+      "run",
+      "--rm",
+      "--entrypoint",
+      "sh",
+      env.workerImage,
+      "-c",
+      script,
+    ]);
+  const containerImage = (service: string) =>
+    text([
+      "docker",
+      "inspect",
+      "--format",
+      "{{.Config.Image}} {{.Image}}",
+      `${env.project}-${service}-1`,
+    ]);
+  Object.assign(report.meta, {
+    command: env.command,
+    tested_sha: await text(["git", "rev-parse", "HEAD"]),
+    worktree_dirty: (await text(["git", "status", "--porcelain"])) !== "",
+    api_image: `${env.apiImage} ${await imageId(env.apiImage)}`,
+    scheduler_image: `${env.schedulerImage} ${await imageId(env.schedulerImage)}`,
+    worker_image: `${env.workerImage} ${await imageId(env.workerImage)}`,
+    postgres_image: await containerImage("postgres"),
+    localstack_image: await containerImage("localstack"),
+    gitea_image: await containerImage("gitea"),
+    egress_proxy_image: await containerImage("egress-proxy"),
+    claude_agent_sdk: await inWorker(
+      'sed -n \'s/^  "version": "\\(.*\\)",$/\\1/p\' /app/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
+    ),
+    claude_code: await inWorker(
+      "$(find /app/node_modules/@anthropic-ai -path '*claude-agent-sdk-linux-*/claude' -type f | head -n 1) --version",
+    ),
+    worker_bun: await inWorker("bun --version"),
+    host_bun: Bun.version,
+    docker: await text([
+      "docker",
+      "version",
+      "--format",
+      "{{.Server.Version}} (API {{.Server.APIVersion}})",
+    ]),
+    object_store:
+      "LocalStack S3, versioned bucket with Object Lock (CHECKPOINT_OBJECT_PROTECTION=locked)",
+    model_api: "scripts/d2-gate/fake-messages.ts (scripted Messages API)",
+  });
+}
+
+describe.skipIf(env === null)("D2 gate (94S-247)", () => {
+  beforeAll(async () => {
+    if (!env) return;
+    api = new PublicApi(env.apiUrl, env.apiKey);
+    db = database(env.databaseUrl);
+    bucket = new Bucket(env.s3Url);
+    chaos = new Chaos(env.chaosUrl);
+    messages = new Messages(env.messagesUrl);
+    workers = new Workers(env.installation, env.out);
+    await collectMeta();
+  });
+
+  afterAll(async () => {
+    if (!env) return;
+    report.skip({
+      id: "SKIP-1",
+      criterion: "외부 서비스",
+      title:
+        "real AWS S3 (https, Object Lock) and the paid Anthropic Messages API",
+      input: "—",
+      expected: "the same flow against real endpoints",
+      reason:
+        "out of this gate by decision (94S-247 comment, decided with Codex): LocalStack and the scripted Messages API stand in; the real-service smoke is its own ticket before an external release",
+    });
+    await report.write(env.out);
+    await db?.end();
+  });
+
+  test("A: two turns on one engine, checkpoint, restore onto a clean worker", async () => {
+    const spec1 = {
+      id: "A1",
+      steps: [
+        write("/workspace/gate.txt", "gate turn 1\n"),
+        {
+          tool: "Agent",
+          input: {
+            description: "write the subagent file",
+            subagent_type: "general-purpose",
+            prompt: prompt("Write the file.", {
+              id: "A1sub",
+              steps: [write("/workspace/sub.txt", "written by the subagent\n")],
+              final: "SUB DONE",
+            }),
+          },
+        },
+      ],
+      final: "A1 DONE",
+    };
+    const created = await api.createSession(prompt("Turn one.", spec1));
+    const sessionId = created.session_id;
+    report.meta.session_a = sessionId;
+    const turn1 = await api.settle(sessionId, created.turn_id, TURN_MS);
+    const first = await workers.running(sessionId, 10_000);
+    const engine1 = await workers.engine(first.name);
+    report.check({
+      id: "A-01",
+      criterion: "HTTP→scheduler→빌드 이미지 worker",
+      title:
+        "public HTTP creates the session and the scheduler launches this build's worker image",
+      input: `POST /v1/sessions profile d2-gate, repository gate-app`,
+      expected: `turn 1 completed, worker from ${env?.workerImage}`,
+      actual: {
+        status: turn1.status,
+        terminal_reason: turn1.terminal_reason,
+        container: first.name,
+        image: (await workers.inspect(first.name)).Config.Image,
+      },
+      pass:
+        turn1.status === "completed" &&
+        (await workers.inspect(first.name)).Config.Image === env?.workerImage,
+    });
+
+    // Turn 2 reads and rewrites the file on the same engine, and loses the
+    // response to its first event append on the way back.
+    const lost = await chaos.arm({
+      action: "lose_response",
+      upstream: "gateway",
+      method: "POST",
+      path: "/internal/worker/append-events$",
+      bodyContains: sessionId,
+      times: 1,
+    });
+    const spec2 = {
+      id: "A2",
+      steps: [
+        read("/workspace/gate.txt"),
+        write("/workspace/gate.txt", "gate turn 2\n"),
+      ],
+      final: "A2 DONE",
+    };
+    const posted2 = await api.postMessage(
+      sessionId,
+      prompt("Turn two.", spec2),
+    );
+    const turn2 = await api.settle(sessionId, posted2.body.turn_id, TURN_MS);
+    await chaos.disarm(lost);
+    const engine2 = await workers.engine(first.name);
+    report.check({
+      id: "A-02",
+      criterion: "SDK tool로 workspace 변경",
+      title: "both turns complete through tool calls",
+      input:
+        "A1: Write gate.txt, Agent→Write sub.txt; A2: Read, Write gate.txt",
+      expected: "completed, completed",
+      actual: [turn1.status, turn2.status],
+      pass: turn1.status === "completed" && turn2.status === "completed",
+    });
+    report.check({
+      id: "A-03",
+      criterion: "두 turn이 같은 SDK PID",
+      title: "the second turn runs on the engine process of the first",
+      input: `/proc of ${first.name} after each turn`,
+      expected: "same pid and start time",
+      actual: { after_turn1: engine1, after_turn2: engine2 },
+      pass:
+        engine1 !== null &&
+        engine2 !== null &&
+        engine1.pid === engine2.pid &&
+        engine1.startTicks === engine2.startTicks,
+    });
+
+    const appendLog = (await chaos.log(sessionId)).filter((entry) =>
+      entry.path.endsWith("/append-events"),
+    );
+    const numbering = await eventNumbering(sessionId);
+    report.check({
+      id: "A-04",
+      criterion: "fault: append 응답 유실",
+      title:
+        "an append whose response was lost is retried into the same events, once",
+      input: "lose_response on the first append-events of turn 2",
+      expected:
+        "the rule fired, a later append succeeded, events numbered without gap or repeat",
+      actual: {
+        fired: appendLog.filter((entry) => entry.rule === lost).length,
+        retried_ok: appendLog.some(
+          (entry) => entry.rule === null && entry.status === 200,
+        ),
+        per_attempt: numbering.attempts,
+        problems: numbering.problems,
+      },
+      pass:
+        appendLog.some(
+          (entry) => entry.rule === lost && entry.upstreamStatus === 200,
+        ) &&
+        appendLog.some(
+          (entry) => entry.rule === null && entry.status === 200,
+        ) &&
+        numbering.problems.length === 0,
+    });
+
+    const session = await sessionRow(sessionId);
+    const checkpoints = await checkpointRows(sessionId);
+    const turns = await turnRows(sessionId);
+    const receipts = await receiptStatuses(sessionId);
+    const depth = await queueDepth(sessionId);
+    report.check({
+      id: "A-05",
+      criterion: "events·terminal·receipt·queue·pointer 정합",
+      title: "turns, receipts, queue and checkpoint pointer agree",
+      input: "DB after turn 2",
+      expected:
+        "turns completed with revisions 0 and 1, pointer 1, receipts succeeded, queue empty",
+      actual: {
+        turns: turns.map((t) => `${t.id}:${t.status}:${t.terminal_reason}`),
+        api_turn_revisions: [
+          turn1.checkpoint_revision,
+          turn2.checkpoint_revision,
+        ],
+        checkpoints: checkpoints.map((c) => `${c.revision}@turn${c.turn_id}`),
+        pointer: session.checkpoint_revision,
+        pending_reason: session.checkpoint_pending_reason,
+        receipts,
+        queue: depth,
+      },
+      pass:
+        turns.length === 2 &&
+        turns.every((t) => t.status === "completed" && !t.outcome_unknown) &&
+        turn1.checkpoint_revision === 0 &&
+        turn2.checkpoint_revision === 1 &&
+        checkpoints.map((c) => `${c.revision}@${c.turn_id}`).join() ===
+          `0@${turns[0]?.id},1@${turns[1]?.id}` &&
+        session.checkpoint_revision === 1 &&
+        session.checkpoint_pending_reason === null &&
+        receipts.length === 2 &&
+        receipts.every((r) => r.endsWith(":succeeded")) &&
+        depth === 0,
+    });
+
+    const pointer = checkpoints.find((c) => c.revision === 1);
+    if (!pointer) throw new Error("no revision 1 to verify");
+    const verified = await verifyCheckpoint(bucket, pointer);
+    const untracked = Object.fromEntries(
+      verified.manifest.workspace.untracked.map((file) => [
+        file.path,
+        file.sha256,
+      ]),
+    );
+    report.check({
+      id: "A-06",
+      criterion: "manifest·bundle·transcript hash 비교",
+      title:
+        "every object the manifest names reads back by version with the digest it records",
+      input: `${pointer.manifest_ref} @ ${pointer.manifest_version}`,
+      expected:
+        "no mismatch; gate.txt and sub.txt carried with their final contents; subagent transcript present",
+      actual: {
+        problems: verified.problems,
+        git_commit: verified.manifest.workspace.gitCommit,
+        bundle_heads: verified.bundleHeads,
+        untracked,
+        root_parts: verified.manifest.transcripts.root.parts.length,
+        subagents: Object.keys(verified.manifest.transcripts.subagents),
+      },
+      pass:
+        verified.problems.length === 0 &&
+        untracked["gate.txt"] === sha256("gate turn 2\n") &&
+        untracked["sub.txt"] === sha256("written by the subagent\n") &&
+        Object.values(verified.subagentEntries).some((entries) =>
+          JSON.stringify(entries).includes("/workspace/sub.txt"),
+        ),
+    });
+
+    const started = (await workers.events(first.name)).filter(
+      (line) => line.event === "worker.turn.started",
+    );
+    const uuids = started.map((line) => ({
+      turn_id: String(line.turn_id),
+      uuid: inputUuid(sessionId, String(line.turn_id), String(line.input_id)),
+    }));
+    const occurrences = (
+      entries: Array<Record<string, unknown>>,
+      uuid: string,
+    ) =>
+      entries.filter((entry) => entry.type === "user" && entry.uuid === uuid)
+        .length;
+    report.check({
+      id: "A-07",
+      criterion: "input UUID 안정 매핑",
+      title:
+        "each delivered input sits in the root transcript under its derived UUID, once",
+      input: "worker.turn.started (turn_id, input_id) → inputUuid()",
+      expected: "two inputs, each exactly once",
+      actual: uuids.map((u) => ({
+        ...u,
+        count: occurrences(verified.rootEntries, u.uuid),
+      })),
+      pass:
+        uuids.length === 2 &&
+        uuids.every((u) => occurrences(verified.rootEntries, u.uuid) === 1),
+    });
+
+    // Restore: the worker drains and releases, its workspace volume goes,
+    // and the next message brings up a new generation on a clean volume
+    // and a fresh HOME, which must rebuild both from revision 1.
+    const tracked = ["gate.txt", "sub.txt", "README.md"];
+    const before = await workers.workspace(first.name, tracked);
+    const oldVolumes = await workspaceVolumes(sessionId);
+    const exitCode = await stopWorker(first);
+    const removed = await waitFor(
+      "the workspace volume to be removable",
+      async () => {
+        for (const volume of await workspaceVolumes(sessionId)) {
+          const gone = await run(["docker", "volume", "rm", volume], {
+            allowFail: true,
+          });
+          if (gone.code !== 0) return null;
+        }
+        return true;
+      },
+      120_000,
+      2000,
+    );
+    const drained = await workers.events(first.name);
+    const spec3 = {
+      id: "A3",
+      steps: [read("/workspace/gate.txt"), read("/workspace/sub.txt")],
+      final: "A3 DONE",
+    };
+    const posted3 = await api.postMessage(
+      sessionId,
+      prompt("Turn three.", spec3),
+    );
+    const second = await waitFor(
+      "a new generation",
+      async () =>
+        (await workers.of(sessionId)).find(
+          (c) => c.generation > first.generation && c.state === "running",
+        ),
+      180_000,
+      500,
+    );
+    workers.follow(second.name);
+    const turn3 = await api.settle(sessionId, posted3.body.turn_id, TURN_MS);
+    const claimed = await logged(second, "worker.claimed");
+    const restored = await logged(second, "worker.checkpoint.restored");
+    const after = await workers.workspace(second.name, tracked);
+    const engine3 = await workers.engine(second.name);
+    const inspected = await workers.inspect(second.name);
+    report.check({
+      id: "A-08",
+      criterion: "새 worker·clean HOME/workspace에서 복원",
+      title:
+        "the drained worker releases and a new generation restores revision 1 onto a new volume and tmpfs HOME",
+      input: "docker stop -t 120; docker volume rm; POST message",
+      expected:
+        "old worker exits 0 after worker.released; new generation claims with restore 1 and logs worker.checkpoint.restored 1",
+      actual: {
+        old_exit: exitCode,
+        old_released: drained.some((line) => line.event === "worker.released"),
+        old_volumes: oldVolumes,
+        volume_removed: removed,
+        new_volumes: await workspaceVolumes(sessionId),
+        new_container: `${second.name} (generation ${second.generation})`,
+        restore_revision: claimed.restore_revision,
+        restored: {
+          revision: restored.revision,
+          git_commit: restored.git_commit,
+        },
+        home_tmpfs: Object.keys(inspected.HostConfig?.Tmpfs ?? {}),
+      },
+      pass:
+        exitCode === 0 &&
+        drained.some((line) => line.event === "worker.released") &&
+        claimed.restore_revision === 1 &&
+        restored.revision === 1 &&
+        restored.git_commit === verified.manifest.workspace.gitCommit &&
+        (await workspaceVolumes(sessionId)).every(
+          (v) => !oldVolumes.includes(v),
+        ),
+    });
+    report.check({
+      id: "A-09",
+      criterion: "정확한 SHA·파일 복원",
+      title: "the restored workspace is the checkpointed one, byte for byte",
+      input:
+        "HEAD, branch, status, sha256 and mode of the files, before stop and after restore",
+      expected: before,
+      actual: after,
+      pass:
+        before === after &&
+        before.includes(verified.manifest.workspace.gitCommit),
+    });
+
+    const turn3Requests = await messages.requests("A3");
+    const firstAsk = JSON.stringify(turn3Requests[0]?.messages ?? []);
+    const lastAsk = JSON.stringify(turn3Requests.at(-1)?.messages ?? []);
+    report.check({
+      id: "A-10",
+      criterion: "transcript 복원 후 이어서 진행·새 PID",
+      title:
+        "turn 3 continues the restored conversation on a new engine process",
+      input: "Messages API requests of turn 3",
+      expected:
+        "turn 3 completed; its first request carries turns 1 and 2; the reads return the restored contents; a different container runs the engine",
+      actual: {
+        status: turn3.status,
+        carries_turn1: firstAsk.includes('\\"id\\":\\"A1\\"'),
+        carries_turn2: firstAsk.includes('\\"id\\":\\"A2\\"'),
+        reads_gate: lastAsk.includes("gate turn 2"),
+        reads_sub: lastAsk.includes("written by the subagent"),
+        engine_before: `${first.name} pid ${engine2?.pid}`,
+        engine_after: `${second.name} pid ${engine3?.pid}`,
+      },
+      pass:
+        turn3.status === "completed" &&
+        firstAsk.includes('\\"id\\":\\"A1\\"') &&
+        firstAsk.includes('\\"id\\":\\"A2\\"') &&
+        lastAsk.includes("gate turn 2") &&
+        lastAsk.includes("written by the subagent") &&
+        engine3 !== null &&
+        second.id !== first.id,
+    });
+
+    const final = (await checkpointRows(sessionId)).find(
+      (c) => c.revision === 2,
+    );
+    const finalVerified = final ? await verifyCheckpoint(bucket, final) : null;
+    const allUuids = [
+      ...uuids,
+      ...(await workers.events(second.name))
+        .filter((line) => line.event === "worker.turn.started")
+        .map((line) => ({
+          turn_id: String(line.turn_id),
+          uuid: inputUuid(
+            sessionId,
+            String(line.turn_id),
+            String(line.input_id),
+          ),
+        })),
+    ];
+    report.check({
+      id: "A-11",
+      criterion: "input UUID 안정 매핑(복원 후)",
+      title:
+        "after the restore every input is still in the transcript exactly once",
+      input: "revision 2 root transcript",
+      expected: "three inputs, each exactly once; no digest mismatch",
+      actual: {
+        revision: final?.revision ?? null,
+        problems: finalVerified?.problems ?? ["no revision 2"],
+        counts: allUuids.map((u) => ({
+          ...u,
+          count: finalVerified
+            ? occurrences(finalVerified.rootEntries, u.uuid)
+            : 0,
+        })),
+      },
+      pass:
+        finalVerified !== null &&
+        finalVerified.problems.length === 0 &&
+        allUuids.length === 3 &&
+        allUuids.every(
+          (u) => occurrences(finalVerified.rootEntries, u.uuid) === 1,
+        ),
+    });
+
+    await stopWorker(second);
+    expect(report.failed().filter((c) => c.id.startsWith("A-"))).toEqual([]);
+  }, 1_200_000);
+
+  test("B: a publish that fails at the manifest is never promoted", async () => {
+    const spec1 = {
+      id: "B1",
+      steps: [write("/workspace/b.txt", "b turn 1\n")],
+      final: "B1 DONE",
+    };
+    const created = await api.createSession(prompt("Turn one.", spec1));
+    const sessionId = created.session_id;
+    report.meta.session_b = sessionId;
+    const failing = await chaos.arm({
+      action: "fail",
+      upstream: "s3",
+      method: "PUT",
+      path: `sessions/${sessionId}/checkpoints/.*/manifest\\.json`,
+      times: -1,
+    });
+    const turn1 = await api.settle(sessionId, created.turn_id, TURN_MS);
+    await chaos.disarm(failing);
+    const worker = await workers.running(sessionId, 10_000);
+    const failed = await logged(worker, "worker.checkpoint.failed");
+    const orphanDirectory = String(failed.manifest_ref ?? "").replace(
+      /manifest\.json$/,
+      "",
+    );
+    const orphans = orphanDirectory
+      ? await bucket.versions(orphanDirectory)
+      : [];
+    const afterFailure = {
+      pointer: (await sessionRow(sessionId)).checkpoint_revision,
+      checkpoints: (await checkpointRows(sessionId)).length,
+    };
+    report.check({
+      id: "B-01",
+      criterion: "fault: publish 중 실패",
+      title:
+        "a publish whose manifest PUT fails leaves no checkpoint and no pointer",
+      input: "fail every PUT of this session's manifest.json",
+      expected:
+        "turn completed without a revision; worker.checkpoint.failed; bundle uploaded but no manifest; no checkpoints row",
+      actual: {
+        status: turn1.status,
+        turn_revision: turn1.checkpoint_revision,
+        failed: {
+          stage: failed.stage,
+          reason: String(failed.reason).slice(0, 160),
+        },
+        orphan_objects: orphans.map((o) => o.key.slice(orphanDirectory.length)),
+        ...afterFailure,
+      },
+      pass:
+        turn1.status === "completed" &&
+        turn1.checkpoint_revision === null &&
+        orphans.length > 0 &&
+        orphans.every((o) => !o.key.endsWith("manifest.json")) &&
+        afterFailure.pointer === null &&
+        afterFailure.checkpoints === 0,
+    });
+
+    const spec2 = {
+      id: "B2",
+      steps: [write("/workspace/b.txt", "b turn 2\n")],
+      final: "B2 DONE",
+    };
+    const posted = await api.postMessage(sessionId, prompt("Turn two.", spec2));
+    const turn2 = await api.settle(sessionId, posted.body.turn_id, TURN_MS);
+    const checkpoints = await checkpointRows(sessionId);
+    const committed = checkpoints[0];
+    const verified = committed
+      ? await verifyCheckpoint(bucket, committed)
+      : null;
+    report.check({
+      id: "B-02",
+      criterion: "fault: publish 중 실패",
+      title:
+        "the next publish commits in a directory of its own, and only it is pointed at",
+      input: "fault removed, turn 2",
+      expected:
+        "one checkpoint (revision 0, turn 2) outside the failed directory; digests match",
+      actual: {
+        status: turn2.status,
+        checkpoints: checkpoints.map((c) => `${c.revision}:${c.manifest_ref}`),
+        failed_directory: orphanDirectory,
+        pointer: (await sessionRow(sessionId)).checkpoint_revision,
+        problems: verified?.problems ?? ["none committed"],
+      },
+      pass:
+        turn2.status === "completed" &&
+        checkpoints.length === 1 &&
+        committed?.revision === 0 &&
+        committed.turn_id === posted.body.turn_id &&
+        !committed.manifest_ref.startsWith(orphanDirectory) &&
+        verified !== null &&
+        verified.problems.length === 0,
+    });
+
+    await stopWorker(worker);
+    expect(report.failed().filter((c) => c.id.startsWith("B-"))).toEqual([]);
+  }, 900_000);
+
+  test("C: a transcript mirror error blocks the checkpoint and new input", async () => {
+    const spec = {
+      id: "C1",
+      steps: [write("/workspace/c.txt", "c turn 1\n")],
+      final: "C1 DONE",
+    };
+    const created = await api.createSession(prompt("Turn one.", spec));
+    const sessionId = created.session_id;
+    report.meta.session_c = sessionId;
+    const failing = await chaos.arm({
+      action: "fail",
+      upstream: "s3",
+      method: "PUT",
+      path: `sessions/${sessionId}/transcripts/`,
+      times: -1,
+    });
+    const blocked = await waitFor(
+      "checkpoint_pending_reason mirror_error",
+      async () => {
+        const row = await sessionRow(sessionId);
+        return row.checkpoint_pending_reason === "mirror_error" ? row : null;
+      },
+      TURN_MS,
+    );
+    const worker = await workers.running(sessionId, 10_000).catch(() => null);
+    const turn = await waitFor(
+      "the turn to leave running",
+      async () => {
+        const found = await api.turn(sessionId, created.turn_id);
+        return found.status !== "queued" && found.status !== "running"
+          ? found
+          : null;
+      },
+      TURN_MS,
+    ).catch(async () => api.turn(sessionId, created.turn_id));
+    const next = await api.postMessage(sessionId, "after the mirror error");
+    const detail = await api.session(sessionId);
+    const checkpoints = await checkpointRows(sessionId);
+    await chaos.disarm(failing);
+    const failedPuts = (await chaos.log(sessionId)).filter(
+      (entry) => entry.rule === failing,
+    ).length;
+    report.check({
+      id: "C-01",
+      criterion: "fault: mirror 오류",
+      title:
+        "a mirror error is recorded, blocks the checkpoint, and refuses new input",
+      input: "fail every PUT under this session's transcripts/",
+      expected:
+        "checkpoint_pending_reason mirror_error; no checkpoints row; POST messages 409 CHECKPOINT_UNAVAILABLE",
+      actual: {
+        failed_puts: failedPuts,
+        pending_reason: blocked.checkpoint_pending_reason,
+        durability: detail?.durability,
+        turn: { status: turn.status, terminal_reason: turn.terminal_reason },
+        checkpoints: checkpoints.length,
+        next_message: {
+          status: next.status,
+          code: next.body?.error?.code ?? next.body?.code,
+        },
+      },
+      pass:
+        failedPuts > 0 &&
+        blocked.checkpoint_pending_reason === "mirror_error" &&
+        checkpoints.length === 0 &&
+        next.status === 409 &&
+        JSON.stringify(next.body).includes("CHECKPOINT_UNAVAILABLE"),
+    });
+    if (worker) await stopWorker(worker);
+    expect(report.failed().filter((c) => c.id.startsWith("C-"))).toEqual([]);
+  }, 900_000);
+
+  test("D: a worker that loses its lease mid-turn promotes nothing", async () => {
+    const spec = {
+      id: "D1",
+      steps: [{ ...write("/workspace/d.txt", "d turn 1\n"), delayMs: 5000 }],
+      final: "D1 DONE",
+    };
+    const created = await api.createSession(prompt("Turn one.", spec));
+    const sessionId = created.session_id;
+    report.meta.session_d = sessionId;
+    await waitFor(
+      "the model call of D1",
+      async () => (await messages.requests("D1")).length > 0,
+      TURN_MS,
+      250,
+    );
+    const worker = await workers.running(sessionId, 10_000);
+    // With the scheduler stopped nothing replaces or reaps the worker, so
+    // what follows is the worker's own reaction to finding its lease gone.
+    await scheduler("stop");
+    try {
+      const exited = exitOf(worker);
+      await run(["docker", "pause", worker.name]);
+      const pausedAt = new Date();
+      await Bun.sleep(40_000);
+      const reconciled = await reconcileOnce();
+      const lost = await rows<{ state: string; end_reason: string | null }>(
+        "SELECT state, end_reason FROM attempts WHERE session_id = $1",
+        [sessionId],
+      );
+      await run(["docker", "unpause", worker.name]);
+      const exitCode = await exited;
+      const log = await workers.events(worker.name);
+      const late = (await chaos.log(sessionId)).filter(
+        (entry) =>
+          entry.upstream === "gateway" && new Date(entry.at) > pausedAt,
+      );
+      report.check({
+        id: "D-01",
+        criterion: "fault: lease 상실",
+        title:
+          "a worker that was paused past its lease is refused and stops as lost",
+        input:
+          "docker pause for 40s (lease TTL 30s), one reconciler pass, docker unpause",
+        expected:
+          "attempt lost; the worker's later gateway calls answered 401/409; worker.stopping lost; exit 1 without release",
+        actual: {
+          attempts: lost,
+          late_calls: late.map(
+            (entry) =>
+              `${entry.path.split("/").at(-1)} ${entry.upstreamStatus}`,
+          ),
+          stopping: log.find((line) => line.event === "worker.stopping"),
+          released: log.some((line) => line.event === "worker.released"),
+          exit: exitCode,
+          reconciler: reconciled
+            .split("\n")
+            .filter((line) => line.includes("lease"))
+            .slice(0, 3),
+        },
+        pass:
+          lost.some((a) => a.state === "lost") &&
+          late.length > 0 &&
+          late.every((entry) =>
+            [401, 409].includes(entry.upstreamStatus ?? 0),
+          ) &&
+          log.some(
+            (line) => line.event === "worker.stopping" && line.kind === "lost",
+          ) &&
+          !log.some((line) => line.event === "worker.released") &&
+          exitCode === 1,
+      });
+    } finally {
+      await run(["docker", "unpause", worker.name], { allowFail: true });
+      await scheduler("start");
+    }
+    const session = await sessionRow(sessionId);
+    const turns = await turnRows(sessionId);
+    const checkpoints = await checkpointRows(sessionId);
+    const turnPut = (await chaos.log(sessionId)).filter(
+      (entry) =>
+        entry.upstream === "s3" && entry.path.includes("/checkpoints/"),
+    );
+    report.check({
+      id: "D-02",
+      criterion: "fault: lease 상실",
+      title: "neither the open turn's work nor the old attempt is promoted",
+      input: "DB and bucket after the lost worker exited",
+      expected:
+        "turn outcome unknown; recovery_required; no checkpoints row; no pointer",
+      actual: {
+        turn: turns.map((t) => ({
+          status: t.status,
+          reason: t.terminal_reason,
+          unknown: t.outcome_unknown,
+        })),
+        admission: session.admission_state,
+        pointer: session.checkpoint_revision,
+        checkpoints: checkpoints.length,
+        checkpoint_writes: turnPut.map(
+          (entry) => `${entry.method} ${entry.upstreamStatus}`,
+        ),
+      },
+      pass:
+        turns.length === 1 &&
+        turns[0]?.outcome_unknown === true &&
+        session.admission_state === "recovery_required" &&
+        session.checkpoint_revision === null &&
+        checkpoints.length === 0,
+    });
+    expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
+  }, 900_000);
+});

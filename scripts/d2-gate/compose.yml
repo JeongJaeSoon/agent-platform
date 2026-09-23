@@ -6,9 +6,10 @@
 # - host ports are ephemeral and loopback-only, so a gate run never collides
 #   with a developer stack or another run;
 # - the API reads the gate's catalog (scripts/d2-gate/config);
-# - workers are handed gate-chaos as their gateway and object store, and
-#   the egress proxy allows nothing else of ours, so every write a worker
-#   makes passes the fault injector — and cannot go around it;
+# - workers are handed gate-chaos (as gate-gateway and gate-s3) for their
+#   gateway and object store, and the egress proxy allows nothing else of
+#   ours, so every write a worker makes passes the fault injector — and
+#   cannot go around it;
 # - the scheduler loops faster, which only shortens waits.
 services:
   postgres:

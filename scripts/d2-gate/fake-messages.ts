@@ -120,9 +120,7 @@ export function replyFor(
       ? textReply(spec.final)
       : toolReply(next.tool, next.input, `toolu_gate_${spec.id}_${step}`);
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
-  return delayMs === undefined
-    ? reply
-    : Bun.sleep(delayMs).then(() => reply);
+  return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
 }
 
 if (import.meta.main) {
