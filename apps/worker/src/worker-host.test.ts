@@ -33,6 +33,7 @@ const timeouts: WorkerTimeouts = {
   drainTimeoutMs: 50,
   heartbeatIntervalMs: 10_000,
   idleTimeoutMs: 60,
+  maxTurnMs: 60_000,
   nextInputWaitMs: 15,
   questionTimeoutMs: 200,
   requestTimeoutMs: 1_000,
@@ -70,13 +71,20 @@ function harness(
     engines?: EngineExitWatch;
     gateway?: FakeWorkerGateway;
     logger?: WorkerLogger;
+    /** Input uuids the engine session a resumed run opens already holds. */
+    resumedTranscript?: string[];
     timeouts?: Partial<WorkerTimeouts>;
     workspace?: WorkspacePreparer;
     wrap?: (run: AgentRun) => AgentRun;
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
-  const runtime = new FakeAgentRuntime(steps);
+  const runtime = new FakeAgentRuntime(
+    steps,
+    overrides.resumedTranscript === undefined
+      ? {}
+      : { resumedTranscript: overrides.resumedTranscript },
+  );
   const launched: RuntimeConfig[] = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
@@ -1250,5 +1258,462 @@ describe("WorkerHost outcomes a drain must not hide", () => {
     expect(summary.outcome).toBe("drained");
     expect(gateway.releases).toHaveLength(1);
     expect(runtime.inputs).toEqual([]);
+  });
+});
+
+/** A worker whose claim restored an engine session rather than opening one. */
+function resumedFrom(capture: () => void = () => {}): WorkerCheckpointPort {
+  return {
+    restorePlan: async () => ({
+      mode: "resume",
+      resume: "fake-session",
+      localTranscriptResume: true,
+    }),
+    capture: async () => {
+      capture();
+      return null;
+    },
+  };
+}
+
+describe("WorkerHost with a resumed engine session (94S-242)", () => {
+  test("closes an input the resumed transcript already holds as outcome_unknown, without sending it", async () => {
+    let captures = 0;
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(() => {
+          captures += 1;
+        }),
+        resumedTranscript: [uuidForTurn(1)],
+      },
+    );
+    gateway.enqueue("a turn an earlier engine already took");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      {
+        turnId: "1",
+        status: "outcome_unknown",
+        reason: "input_already_consumed",
+      },
+    ]);
+    // Never sent, and never under a new uuid either: nothing ran twice.
+    expect(runtime.inputs).toEqual([]);
+    expect(gateway.finalized[0]?.terminal).toMatchObject({
+      status: "outcome_unknown",
+      reason: "input_already_consumed",
+    });
+    // Nothing ran, so there is nothing new to checkpoint.
+    expect(captures).toBe(0);
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    // The next decision is recovery's: the worker gives the session back.
+    expect(summary.outcome).toBe("drained");
+    expect(summary.reason).toBe("Turn 1 needs a recovery decision");
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("sends a redelivered input under its own uuid when the resumed transcript does not hold it", async () => {
+    const { gateway, host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: resumedFrom(),
+        resumedTranscript: ["some-earlier-input"],
+      },
+    );
+    gateway.enqueue("a turn the checkpoint predates");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs.map((input) => input.uuid)).toEqual([uuidForTurn(1)]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+  });
+
+  test("a transcript that cannot be read fails closed: nothing is sent or finalized", async () => {
+    const { gateway, host, runtime } = harness([{ type: "await-input" }], {
+      checkpoints: resumedFrom(),
+      wrap: (run) =>
+        new Proxy(run, {
+          get(target, property) {
+            if (property === "holdsInput") {
+              return async () => {
+                throw new Error("The resumed transcript could not be read");
+              };
+            }
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    gateway.enqueue("a turn nobody can place");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("could not be read");
+    expect(runtime.inputs).toEqual([]);
+    // Left open for the reconciler, which records it as unknown.
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a transcript check that hangs is ended by the turn deadline, not the drain budget", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose transcript never loads");
+    const began = Date.now();
+
+    const summary = await host.runLoop();
+
+    expect(Date.now() - began).toBeLessThan(10_000);
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.releases).toHaveLength(1);
+  }, 15_000);
+
+  test("an input whose check answers only after the deadline is never sent", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") {
+                return () => Bun.sleep(80).then(() => false);
+              }
+              // The interrupt is asked for and never lands, so nothing
+              // closes the turn before the late check answers.
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose check comes back too late");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+  }, 15_000);
+
+  test("a check that fails only after the deadline leaves the timeout to finalize", async () => {
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 60_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") {
+                return () =>
+                  Bun.sleep(80).then(() => {
+                    throw new Error("The transcript store went away");
+                  });
+              }
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose check fails too late");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs).toEqual([]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+  }, 15_000);
+
+  test("a drain budget shorter than the interrupt grace still gets the timeout finalized", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 50 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn with almost no drain budget");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(summary.outcome).toBe("failed");
+  });
+
+  test("a drain begun before the deadline still leaves room to finalize the timeout", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 300, drainTimeoutMs: 200 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn the drain would give up first");
+    // Gives the turn up at 400ms; the deadline fires at 300ms.
+    setTimeout(() => host.drain("stopping"), 200);
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized).toHaveLength(1);
+    expect(summary.outcome).toBe("failed");
+  });
+
+  test("with no drain budget left the timeout closes at once and fails the worker", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 0 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn with no drain budget at all");
+    const began = Date.now();
+
+    const summary = await host.runLoop();
+
+    expect(Date.now() - began).toBeLessThan(5_000);
+    expect(summary.outcome).toBe("failed");
+  });
+
+  test("a timed-out turn the engine answers for no input fails the worker", async () => {
+    const { gateway, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 80 },
+        {
+          type: "emit",
+          message: {
+            type: "result",
+            subtype: "error_during_execution",
+            session_id: "fake-session",
+            is_error: true,
+          },
+        },
+        { type: "await-input" },
+      ],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 10_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") return () => new Promise(() => {});
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn answered for nobody after its deadline");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("answered for no input");
+  });
+
+  test("an interrupt that ends the stream still closes the turn as a timeout", async () => {
+    const { gateway, host } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 10_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "interrupt") {
+                return async () => {
+                  target.close();
+                  return { stillQueued: [] };
+                };
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn whose engine dies on interrupt");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("stream ended after the turn ran out");
+  });
+
+  test("an engine that swallows the input is closed by the turn deadline, not left leased", async () => {
+    // What the fix guards against, reproduced: the check is bypassed, the
+    // engine deduplicates the send and answers nothing — not even the
+    // interrupt. Without a deadline this turn would never end.
+    const { gateway, host, runtime } = harness(
+      [{ type: "await-input" }, { type: "await-input" }],
+      {
+        resumedTranscript: [uuidForTurn(1)],
+        checkpoints: resumedFrom(),
+        timeouts: { maxTurnMs: 30, drainTimeoutMs: 10_000 },
+        wrap: (run) =>
+          new Proxy(run, {
+            get(target, property) {
+              if (property === "holdsInput") return async () => false;
+              const value = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+      },
+    );
+    gateway.enqueue("a turn the engine will never answer");
+
+    const summary = await host.runLoop();
+
+    expect(runtime.inputs.map((input) => input.uuid)).toEqual([uuidForTurn(1)]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "outcome_unknown", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    // An engine that ignores an interrupt is not trusted with anything else.
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("did not answer the interrupt");
+    expect(gateway.releases).toHaveLength(1);
+  }, 15_000);
+
+  test("a turn past its budget is interrupted and closed as failed, approval wait included", async () => {
+    const { gateway, host, runtime } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "permissions",
+          requests: [
+            {
+              input: { command: "sleep 3600" },
+              requestId: "req-slow",
+              tool: "Bash",
+              toolUseId: "toolu_slow",
+            },
+          ],
+        },
+        { type: "delay", delayMs: 10_000 },
+      ],
+      {
+        timeouts: {
+          maxTurnMs: 40,
+          questionTimeoutMs: 10_000,
+          drainTimeoutMs: 10_000,
+        },
+      },
+    );
+    gateway.enqueue("a turn that runs too long");
+    const began = Date.now();
+
+    const summary = await host.runLoop();
+
+    // Stuck on an approval nobody gives: the budget, not the 10s question
+    // timeout, is what ends it.
+    expect(Date.now() - began).toBeLessThan(5_000);
+    expect(runtime.inputs).toHaveLength(1);
+    // The engine answered the interrupt, but the budget is what ended it.
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "turn_timeout" },
+    ]);
+    expect(gateway.finalized[0]?.terminal).toMatchObject({
+      status: "failed",
+      reason: "turn_timeout",
+      result: { terminal_reason: "interrupted" },
+    });
+    expect(summary.outcome).toBe("drained");
+    expect(summary.reason).toBe("Turn 1 ran past its 0.04s budget");
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a turn longer than the idle timeout does not end the worker on the next poll", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "delay", delayMs: 150 },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(2)) },
+        { type: "await-input" },
+      ],
+      { gateway, timeouts: { idleTimeoutMs: 80 } },
+    );
+    gateway.enqueue("a long first turn");
+    const loop = host.runLoop();
+    await waitFor(() => gateway.finalized.length === 1, "the first finalize");
+    await Bun.sleep(20);
+    gateway.enqueue("a follow-up soon after");
+
+    const summary = await loop;
+
+    expect(runtime.inputs).toHaveLength(2);
+    expect(summary.turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(summary.outcome).toBe("idle");
   });
 });

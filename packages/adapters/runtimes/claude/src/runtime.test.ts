@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import {
   buildSdkOptions,
@@ -32,6 +33,7 @@ describe("Claude SDK run", () => {
       new InputStream(),
       { interrupt: async () => undefined, close: () => undefined } as never,
       new AbortController(),
+      ResumedHistory.empty(),
       "resume-1",
     );
     run.finishInput();
@@ -39,6 +41,22 @@ describe("Claude SDK run", () => {
       "Input stream is closed",
     );
     expect((await run.prepareCheckpoint()).status).toBe("ready");
+    // It never reached the engine, so sending it again is not a duplicate.
+    expect(await run.holdsInput("late")).toBe(false);
+  });
+
+  test("holds an input once it was sent, whether or not a result settled it", async () => {
+    const run = new ClaudeSdkRun(
+      "sent",
+      new InputStream(),
+      { interrupt: async () => undefined, close: () => undefined } as never,
+      new AbortController(),
+      ResumedHistory.empty(),
+    );
+    expect(await run.holdsInput("first")).toBe(false);
+    run.send({ message: "first", uuid: "first" });
+    expect(await run.holdsInput("first")).toBe(true);
+    expect(await run.holdsInput("second")).toBe(false);
   });
 });
 

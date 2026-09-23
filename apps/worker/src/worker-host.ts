@@ -94,6 +94,11 @@ type Settlement = {
   reason: string | null;
   result: unknown;
   status: WorkerTerminalStatus;
+  /**
+   * Decided here rather than reported by the engine: the transcript has
+   * nothing new for this turn, so there is nothing to checkpoint.
+   */
+  synthetic?: true;
   usage: unknown;
 };
 
@@ -102,6 +107,9 @@ type Turn = {
   closed: boolean;
   settled: Promise<Settlement>;
   settle: (settlement: Settlement) => void;
+  /** The deadline fired: whatever terminal comes now is the timeout's. */
+  timedOut: boolean;
+  timers: ReturnType<typeof setTimeout>[];
   turnId: string;
   uuid: string;
 };
@@ -142,6 +150,8 @@ export class WorkerHost {
   private readonly abandoned: Promise<void>;
   private announceAbandon: () => void = () => {};
   private abandonedNow = false;
+  /** When the drain under way gives the turn up, on the monotonic clock its timer runs on. */
+  private abandonsAt: number | undefined;
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
   private stoppedAt: number | undefined;
@@ -344,6 +354,7 @@ export class WorkerHost {
     }
     // A drain lets the turn in flight finish and be finalized; only once that
     // budget is spent is it given up for the recovery path to retry.
+    this.abandonsAt = performance.now() + this.options.timeouts.drainTimeoutMs;
     const timer = setTimeout(
       () => this.announceAbandon(),
       this.options.timeouts.drainTimeoutMs,
@@ -448,8 +459,10 @@ export class WorkerHost {
         }
         continue;
       }
-      lastInputAt = this.now().getTime();
       await this.runTurn(run, next.input);
+      // Idle is counted from the end of the last turn, not its start: a turn
+      // longer than the idle timeout must not end the worker on the next poll.
+      lastInputAt = this.now().getTime();
     }
   }
 
@@ -490,27 +503,134 @@ export class WorkerHost {
       turn_id: input.turn_id,
       input_id: input.input_id,
     });
-    run.send({ message: input.message, uuid });
-
-    // No timer bounds this: a turn may legitimately run for hours, and the
-    // engine answering is the only thing that ends one. The case that has no
-    // answer is a redelivered input the engine already consumed, which it
-    // deduplicates by uuid and never produces a result for — unreachable
-    // while every attempt opens a fresh engine session, and to be closed
-    // with the resume path in 94S-242.
-    const settlement = await Promise.race([
-      turn.settled,
-      this.abandoned.then(() => undefined),
-    ]);
+    // Armed before the delivery check, so a check that hangs spends the same
+    // budget as an engine that does.
+    this.armDeadline(run, turn);
     try {
-      // Owner loss forbids every further durable write, including this one.
-      if (settlement === undefined || this.ownerLost) return;
-      await this.finalizeTurn(run, input.turn_id, settlement);
+      await this.deliver(run, turn, input.message);
+      // The engine's terminal ends the turn; the deadline ends one it never
+      // answers, which heartbeats alone would otherwise keep leased forever.
+      const settlement = await Promise.race([
+        turn.settled,
+        this.abandoned.then(() => undefined),
+      ]);
+      try {
+        // Owner loss forbids every further durable write, including this one.
+        if (settlement === undefined || this.ownerLost) return;
+        if (settlement.status === "outcome_unknown") {
+          // The session is recovery's to decide now (the gateway holds the
+          // input back as recovery_required); stopping first also bounds
+          // the finalize below by the drain budget.
+          this.stop({
+            kind: "drain",
+            reason: `Turn ${input.turn_id} needs a recovery decision`,
+          });
+        }
+        await this.finalizeTurn(run, input.turn_id, settlement);
+      } finally {
+        // Whatever the engine said after the terminal goes out now, as session
+        // events, whether or not the turn made it to a finalize.
+        this.publisher?.release();
+      }
     } finally {
-      // Whatever the engine said after the terminal goes out now, as session
-      // events, whether or not the turn made it to a finalize.
-      this.publisher?.release();
+      clearTurnTimers(turn);
     }
+  }
+
+  /**
+   * Sends the input unless the engine session already holds its uuid. Such a
+   * send is deduplicated and never answered (94S-242); regenerating the uuid
+   * would make it a new turn and redo whatever the first delivery did. The
+   * transcript the run resumed from is what says so, and when it holds the
+   * input its outcome is unknown: it was recorded, not proven finished.
+   */
+  private async deliver(run: AgentRun, turn: Turn, message: string) {
+    const check = run.holdsInput(turn.uuid).catch((error: unknown) => {
+      // Past the deadline the timeout owns the terminal; a check failing
+      // now must not unwind the turn before it is finalized.
+      if (turn.timedOut) return undefined;
+      throw error;
+    });
+    // Raced with the turn too: the deadline has to end a check that hangs.
+    const held = await Promise.race([
+      this.untilAbandoned(check),
+      turn.settled.then(() => undefined),
+    ]);
+    // The check awaited: the deadline, the lease or the engine may be gone.
+    // Past the deadline nothing is sent, even with the terminal still to
+    // come: the interrupt has already been asked for and would miss it.
+    if (held === undefined || turn.closed || turn.timedOut) return;
+    if (this.stopKind === "failed" || this.stopKind === "lost") return;
+    if (held) {
+      this.logger.warn("worker.turn.already_consumed", {
+        turn_id: turn.turnId,
+      });
+      this.settleTurn({
+        status: "outcome_unknown",
+        reason: "input_already_consumed",
+        result: null,
+        usage: null,
+        synthetic: true,
+      });
+      return;
+    }
+    run.send({ message, uuid: turn.uuid });
+  }
+
+  /**
+   * On expiry the turn is interrupted, and the worker winds down whatever
+   * happens next: an engine that overran its budget is not handed another
+   * input, and a late interrupt must not land on one. An engine that answers
+   * within the grace ends the turn `failed`; one that does not leaves it
+   * `outcome_unknown` for recovery, because the interrupt proves nothing
+   * about what the engine did.
+   */
+  private armDeadline(run: AgentRun, turn: Turn): void {
+    const budget = this.options.timeouts.maxTurnMs;
+    const expire = () => {
+      if (turn.closed || this.ownerLost) return;
+      turn.timedOut = true;
+      const reason = `Turn ${turn.turnId} ran past its ${budget / 1000}s budget`;
+      this.logger.warn("worker.turn.timeout", {
+        turn_id: turn.turnId,
+        max_turn_ms: budget,
+      });
+      this.stop({ kind: "drain", reason });
+      this.pending?.cancelAll("The turn ran out of time");
+      run.interrupt().catch((error) => {
+        this.logger.warn("worker.interrupt.failed", {
+          reason: describe(error),
+        });
+      });
+      // Never more than half of what is left of the drain, which may have
+      // begun well before the deadline: were the drain to give the turn up
+      // first, it would end with no terminal at all.
+      const left =
+        (this.abandonsAt ?? Number.POSITIVE_INFINITY) - performance.now();
+      const grace = Math.min(INTERRUPT_GRACE_MS, left / 2);
+      const unanswered = `${reason}, and the engine did not answer the interrupt`;
+      if (grace <= 0) {
+        this.closeUnanswered(turn, unanswered);
+        return;
+      }
+      turn.timers.push(
+        setTimeout(() => this.closeUnanswered(turn, unanswered), grace),
+      );
+    };
+    turn.timers.push(setTimeout(expire, budget));
+  }
+
+  /** A timed-out turn the engine gave no terminal for: unknown, and the engine is not trusted again. */
+  private closeUnanswered(turn: Turn, reason: string): void {
+    if (turn.closed) return;
+    this.fail(reason);
+    this.settleTurn({
+      status: "outcome_unknown",
+      reason: "turn_timeout",
+      result: null,
+      usage: null,
+      synthetic: true,
+    });
   }
 
   private async finalizeTurn(
@@ -528,7 +648,14 @@ export class WorkerHost {
     if (flushed === undefined || this.ownerLost) return;
     // Where settleTurn cut the stream; idle() has made all of it durable.
     const finalSourceSequence = this.publisher?.hold() ?? 0;
-    const checkpoint = await this.capture(run);
+    let checkpoint: CheckpointRef | null = null;
+    if (settlement.synthetic !== true) {
+      // Bounded like the waits around it: a capture that never returns must
+      // not hold the process past the drain budget either.
+      const captured = await this.untilAbandoned(this.capture(run));
+      if (captured === undefined) return;
+      checkpoint = captured;
+    }
     if (this.ownerLost) return;
     const finalized = await this.untilAbandoned(
       this.withRetry(
@@ -568,7 +695,15 @@ export class WorkerHost {
     const settled = new Promise<Settlement>((resolve) => {
       settle = resolve;
     });
-    const turn: Turn = { closed: false, settled, settle, turnId, uuid };
+    const turn: Turn = {
+      closed: false,
+      settled,
+      settle,
+      timedOut: false,
+      timers: [],
+      turnId,
+      uuid,
+    };
     this.turn = turn;
     return turn;
   }
@@ -580,6 +715,7 @@ export class WorkerHost {
     // reached by the time finalize is sent: the engine keeps emitting after
     // its result, and the gateway closes the turn only at the exact end.
     turn.closed = true;
+    clearTurnTimers(turn);
     this.publisher?.hold();
     turn.settle(settlement);
   }
@@ -597,6 +733,15 @@ export class WorkerHost {
       } catch (error) {
         this.logger.warn("worker.stream.ended", { reason: describe(error) });
       } finally {
+        const turn = this.turn;
+        if (turn?.timedOut === true) {
+          // The interrupt ended the stream rather than the turn: still the
+          // timeout's outcome, and the drain it began becomes a failure.
+          this.closeUnanswered(
+            turn,
+            "The engine stream ended after the turn ran out of time",
+          );
+        }
         // A stream that ended without a terminal leaves the turn's outcome
         // genuinely unknown; guessing either way would be a lie about the
         // transcript.
@@ -605,6 +750,7 @@ export class WorkerHost {
           reason: "The engine stream ended before the turn settled",
           result: null,
           usage: null,
+          synthetic: true,
         });
         // An engine that is gone accepts inputs it will never answer, so the
         // loop must not hand it another one. A no-op when shutdown closed it.
@@ -621,12 +767,27 @@ export class WorkerHost {
     // A result that names other inputs belongs to a batch this turn is not
     // part of; one that names nothing settles nothing on its own.
     if (attributed.length > 0 && !attributed.includes(turn.uuid)) return;
+    if (turn.timedOut && attributed.length === 0) {
+      // As unproven as no answer at all, and the engine as untrusted.
+      this.fail(
+        `Turn ${turn.turnId} ran out of time, and the engine answered for no input`,
+      );
+    }
     this.settleTurn(
       attributed.includes(turn.uuid)
-        ? terminalOf(native)
+        ? turn.timedOut
+          ? // Whatever the engine says it ended with, the budget ended it.
+            {
+              ...terminalOf(native),
+              status: "failed",
+              reason: "turn_timeout",
+            }
+          : terminalOf(native)
         : {
             status: "outcome_unknown",
-            reason: "The engine reported a result it attributed to no input",
+            reason: turn.timedOut
+              ? "turn_timeout"
+              : "The engine reported a result it attributed to no input",
             result: resultPayload(native),
             usage: native.usage ?? null,
           },
@@ -922,6 +1083,10 @@ function resultPayload(native: NativeSdkMessage): unknown {
     stop_reason: native.stop_reason ?? null,
     terminal_reason: native.terminal_reason ?? null,
   };
+}
+
+function clearTurnTimers(turn: Turn): void {
+  for (const timer of turn.timers.splice(0)) clearTimeout(timer);
 }
 
 async function settledWithin(

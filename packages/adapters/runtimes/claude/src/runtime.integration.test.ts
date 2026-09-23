@@ -577,6 +577,117 @@ describe("transcript mirror against the actual SDK", () => {
   }, 60_000);
 });
 
+describe("resumed history against the actual SDK (94S-242)", () => {
+  test("a checkpoint resume holds exactly the inputs the engine loaded", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-242-" });
+    const { home, root, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(`resumed-turn-${index + 1}`),
+    );
+    const objects = createMemoryCheckpointObjectStore();
+    const prefix = "sessions/resume/history";
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const base = {
+      correlationId: "actual-resumed-history",
+      cwd: workspace,
+      maxTurns: 2,
+      model: "claude-sonnet-4-5",
+      profile: {
+        kind: "anthropic" as const,
+        endpoint: server.url,
+        auth: { kind: "api_key" as const, value: "placeholder-local" },
+      },
+      settingSources: ["project"] as ["project"],
+      tools: [],
+    };
+    const hooks = {
+      onPermission: async () => ({
+        behavior: "deny" as const,
+        message: "No tools expected",
+      }),
+    };
+    const consumed = crypto.randomUUID();
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const mirrored: TranscriptKey[] = [];
+    const firstRun = runtime.start(
+      {
+        ...base,
+        claudeConfigDir: home,
+        home,
+        mode: "new",
+        sessionStore: {
+          append: async (key, entries) => {
+            mirrored.push(key);
+            await first.append(key, entries);
+          },
+          listSubkeys: (key) => first.listSubkeys(key),
+          load: (key) => first.load(key),
+        },
+      },
+      hooks,
+    );
+    const frames: AgentFrame[] = [];
+    const firstDone = (async () => {
+      for await (const frame of firstRun) frames.push(frame);
+    })();
+    firstRun.send({ message: "remember this", uuid: consumed });
+    firstRun.finishInput();
+    await withTimeout(firstDone, 20_000, "First run did not settle");
+    const sessionId = sessionIdOf(frames);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    // Written past the checkpoint by a worker that lost its lease: the
+    // resumed engine never loads it, so it is not held either.
+    const rootKey = mirrored.find(
+      (key) => key.subpath === undefined && key.sessionId === sessionId,
+    );
+    if (rootKey === undefined) throw new Error("The SDK mirrored nothing");
+    const late = crypto.randomUUID();
+    await first.append(rootKey, [
+      { type: "user", uuid: late, message: { role: "user", content: "late" } },
+    ]);
+
+    const resumedHome = join(root, "home-resumed");
+    await mkdir(resumedHome);
+    const resumed = runtime.start(
+      {
+        ...base,
+        claudeConfigDir: resumedHome,
+        home: resumedHome,
+        mode: "resume",
+        resume: sessionId,
+        sessionStore: new ClaudeSessionStore({
+          generation: 2,
+          inherit: { sessionId, transcripts },
+          objects,
+          prefix,
+        }),
+      },
+      hooks,
+    );
+    const resumedDone = (async () => {
+      for await (const _frame of resumed) void _frame;
+    })();
+
+    expect(
+      await withTimeout(resumed.holdsInput(consumed), 10_000, "No history"),
+    ).toBe(true);
+    expect(await resumed.holdsInput(late)).toBe(false);
+    expect(await resumed.holdsInput(crypto.randomUUID())).toBe(false);
+    // Nothing was sent to find that out.
+    expect(server.requests).toHaveLength(1);
+    resumed.close();
+    await withTimeout(
+      resumedDone.catch(() => {}),
+      10_000,
+      "Did not close",
+    );
+  }, 60_000);
+});
+
 /** Sends one prompt, closes input, and collects every frame the run emits. */
 async function drive(
   run: AsyncIterable<AgentFrame> & {
