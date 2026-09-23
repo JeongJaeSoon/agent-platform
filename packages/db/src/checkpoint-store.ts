@@ -4,9 +4,9 @@ import type {
   CommitCheckpointInput,
   CommitCheckpointResult,
 } from "@agent-platform/platform";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { checkpoints, sessions } from "./schema.ts";
+import { checkpoints, sessions, turns } from "./schema.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
@@ -35,6 +35,46 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
           .limit(1);
         return row ? readCheckpointPointer(tx, row) : null;
       });
+    },
+
+    async listCheckpoints(
+      sessionId: string,
+      options: { belowRevision: number; limit: number },
+    ): Promise<CheckpointPointer[]> {
+      if (options.limit <= 0) return [];
+      // Rows are only ever inserted, together with the pointer advance, so
+      // everything below a pointer the caller already read is settled.
+      const rows = await db
+        .select({
+          revision: checkpoints.revision,
+          manifestRef: checkpoints.manifestRef,
+          manifestSha256: checkpoints.manifestSha256,
+          manifestVersion: checkpoints.manifestVersion,
+          versionsHeld: checkpoints.versionsHeld,
+          parentRevision: checkpoints.parentRevision,
+          committedAt: checkpoints.committedAt,
+          turnSequence: turns.sequence,
+        })
+        .from(checkpoints)
+        .leftJoin(turns, eq(turns.id, checkpoints.turnId))
+        .where(
+          and(
+            eq(checkpoints.sessionId, sessionId),
+            lt(checkpoints.revision, options.belowRevision),
+          ),
+        )
+        .orderBy(desc(checkpoints.revision))
+        .limit(options.limit);
+      return rows.map((row) => ({
+        committedAt: row.committedAt,
+        manifestRef: row.manifestRef,
+        manifestSha256: row.manifestSha256,
+        manifestVersion: row.manifestVersion,
+        parentRevision: row.parentRevision,
+        revision: row.revision,
+        versionsHeld: row.versionsHeld,
+        turnId: row.turnSequence === null ? null : String(row.turnSequence),
+      }));
     },
 
     /**

@@ -251,27 +251,27 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
     });
     signal.throwIfAborted();
-    const plan = planFor(answer, pointer);
+    const { plan, restoring } = planFor(answer, pointer);
     // Which write of each object to read is the gateway's call: it knows
     // whether this deployment pins versions. What the bytes must be is the
     // manifest's, so a wrong answer here can only fail the restore.
     const versions = versionsOf(plan);
     const manifestBytes = await objects.get(
-      pointer.manifest_ref,
+      restoring.manifest_ref,
       plan.manifest_version,
     );
     signal.throwIfAborted();
     if (
       manifestBytes === undefined ||
-      sha256(manifestBytes) !== pointer.manifest_sha256
+      sha256(manifestBytes) !== restoring.manifest_sha256
     ) {
       throw new RestoreRefused(
         "CHECKPOINT_UNAVAILABLE",
-        `manifest ${pointer.manifest_ref} is not the one the claim pinned`,
+        `manifest ${restoring.manifest_ref} is not the one ${restoring === pointer ? "the claim" : "the fallback plan"} pinned`,
       );
     }
     const manifest = this.#codec.decode(manifestBytes);
-    this.#checkManifest(claim, pointer, runtime, manifest);
+    this.#checkManifest(claim, restoring, runtime, manifest);
     const pinned = (ref: ObjectRef): ObjectRef => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);
@@ -370,8 +370,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       };
       restored = true;
       this.#options.logger.info("worker.checkpoint.restored", {
-        revision: pointer.revision,
-        manifest_ref: pointer.manifest_ref,
+        revision: restoring.revision,
+        manifest_ref: restoring.manifest_ref,
+        ...(plan.fallback === undefined
+          ? {}
+          : { fallback_from: plan.fallback.pointer_revision }),
         git_commit: manifest.workspace.gitCommit,
         untracked: manifest.workspace.untracked.length,
       });
@@ -380,7 +383,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         resume: manifest.resume,
         sessionStore: store,
         committedClaudeMd: () => committedClaudeMdOf(claudeMd),
-        restoredRevision: pointer.revision,
+        restoredRevision: restoring.revision,
       };
     } finally {
       await rm(spool, { force: true, recursive: true });
@@ -406,7 +409,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     if (manifest.revision !== pointer.revision) {
       throw refuse(
-        `manifest is revision ${manifest.revision}, not the claim's ${pointer.revision}`,
+        `manifest is revision ${manifest.revision}, not the planned ${pointer.revision}`,
       );
     }
     const verdict = this.#codec.validateCompatibility(manifest, runtime);
@@ -723,14 +726,17 @@ function claimScope(claim: BootstrapClaimResponse): WorkerScope {
 }
 
 /**
- * The gateway's plan for the claim's checkpoint, or a refusal. A plan for
- * another revision or manifest means the pointer moved after the claim, and
- * the claim is what this worker restores.
+ * The gateway's plan for the claim's checkpoint, or a refusal, with the
+ * checkpoint it restores. A plan for another revision or manifest means the
+ * pointer moved after the claim, and the claim is what this worker restores
+ * — unless the plan says it falls back from the claim's own pointer, which
+ * was damaged, to an earlier revision (94S-204). That one is pinned by the
+ * digest the plan carries, since the claim only knows the pointer's.
  */
 function planFor(
   answer: Awaited<ReturnType<WorkerGatewayClient["restorePlan"]>>,
   pointer: CheckpointRef,
-): RestorePlanWire {
+): { plan: RestorePlanWire; restoring: CheckpointRef } {
   switch (answer.status) {
     case "none":
       throw new RestoreRefused(
@@ -753,6 +759,28 @@ function planFor(
       break;
   }
   const { plan } = answer;
+  if (plan.fallback !== undefined) {
+    if (
+      plan.fallback.pointer_revision !== pointer.revision ||
+      plan.revision >= pointer.revision
+    ) {
+      throw new RestoreRefused(
+        "CHECKPOINT_UNAVAILABLE",
+        `the gateway falls back from revision ${plan.fallback.pointer_revision} to ${plan.revision}, not from the claim's ${pointer.revision} to an earlier one`,
+      );
+    }
+    return {
+      plan,
+      restoring: {
+        revision: plan.revision,
+        manifest_ref: plan.manifest_ref,
+        manifest_sha256: plan.manifest_sha256,
+        ...(plan.manifest_version === undefined
+          ? {}
+          : { manifest_version: plan.manifest_version }),
+      },
+    };
+  }
   if (
     plan.revision !== pointer.revision ||
     plan.manifest_ref !== pointer.manifest_ref
@@ -762,7 +790,7 @@ function planFor(
       `the gateway planned revision ${plan.revision} (${plan.manifest_ref}), not the claim's ${pointer.revision} (${pointer.manifest_ref})`,
     );
   }
-  return plan;
+  return { plan, restoring: pointer };
 }
 
 function versionsOf(plan: RestorePlanWire): Map<string, string> {

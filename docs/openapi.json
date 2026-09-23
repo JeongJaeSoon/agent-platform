@@ -1078,6 +1078,18 @@
                 "type": "null"
               }
             ]
+          },
+          "checkpoint_fallback_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1086,7 +1098,8 @@
           "checkpoint_revision",
           "last_completed_turn_id",
           "last_checkpointed_turn_id",
-          "checkpoint_pending_reason"
+          "checkpoint_pending_reason",
+          "checkpoint_fallback_revision"
         ],
         "additionalProperties": false
       },

@@ -37,6 +37,8 @@ import {
   type ReleaseInput,
   type ReleaseResult,
   type ResolvedCredential,
+  type RestoreBaseInput,
+  type RestoreBaseResult,
   type RunnablePair,
   storedPendingReasonHoldsWork,
   type WorkerBinding,
@@ -200,6 +202,9 @@ export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
 // Locks the session and attempt rows and classifies why the fence does not
 // hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
 // else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
+// The system event a restore that fell back to an earlier revision leaves.
+export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
+
 export async function acquireFence(
   tx: Database,
   fence: WorkerFence,
@@ -450,6 +455,14 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
+    // The attempt committing ran on what its restore handed it: the
+    // fallback's revision when the row records one for this very attempt,
+    // the pointer otherwise. Another attempt's fallback says nothing about
+    // what this one restored.
+    parentRevision:
+      (input.session.checkpointRestoreAttemptId === input.fence.attemptId
+        ? input.session.checkpointFallbackRevision
+        : null) ?? input.session.checkpointRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
   });
@@ -464,6 +477,10 @@ export async function advanceCheckpointPointer(
       .set({
         checkpointRevision: input.checkpoint.revision,
         checkpointCommittedAt: input.now,
+        // Whatever an earlier fallback restored, this commit now stands for
+        // the session's state.
+        checkpointFallbackRevision: null,
+        checkpointRestoreAttemptId: null,
         updatedAt: input.now,
         ...(resolvesPending
           ? { checkpointPendingReason: null, checkpointPendingAttemptId: null }
@@ -502,6 +519,7 @@ export async function readCheckpointPointer(
       manifestSha256: checkpoints.manifestSha256,
       manifestVersion: checkpoints.manifestVersion,
       versionsHeld: checkpoints.versionsHeld,
+      parentRevision: checkpoints.parentRevision,
       committedAt: checkpoints.committedAt,
       turnSequence: turns.sequence,
     })
@@ -524,6 +542,7 @@ export async function readCheckpointPointer(
     manifestRef: checkpoint.manifestRef,
     manifestSha256: checkpoint.manifestSha256,
     manifestVersion: checkpoint.manifestVersion,
+    parentRevision: checkpoint.parentRevision,
     revision: session.checkpointRevision,
     versionsHeld: checkpoint.versionsHeld,
     turnId:
@@ -1445,6 +1464,81 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           pointer: await readCheckpointPointer(tx, fenced.session),
           pendingReason,
         };
+      });
+    },
+
+    /**
+     * The fallback is a fact about the session, not about one response: it
+     * goes on the row, where pause and recovery read what the session's
+     * state is actually based on, and on the event stream, where the owner
+     * learns their session resumed from an older generation. Both happen
+     * before the worker is given the plan, under the same fence and against
+     * the same pointer the plan was judged on.
+     *
+     * Every served plan pins its attempt to the base it names, the pointer
+     * included, so asking again for the same base is a retry and being
+     * handed a different one is refused: the object store can change
+     * between two requests, and a worker holding two plans for one pointer
+     * may restore either while the row describes only one.
+     */
+    recordRestoreBaseAtomic(
+      input: RestoreBaseInput,
+    ): Promise<RestoreBaseResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const { session } = fenced;
+        if (session.checkpointRevision !== input.pointerRevision) {
+          return {
+            outcome: "pointer_moved",
+            currentRevision: session.checkpointRevision,
+          };
+        }
+        const base = input.fallback?.revision ?? input.pointerRevision;
+        // A pointer advance clears the attempt column, so a match here
+        // means this attempt was served a plan on this very pointer.
+        if (session.checkpointRestoreAttemptId === fence.attemptId) {
+          const recorded =
+            session.checkpointFallbackRevision ?? input.pointerRevision;
+          return recorded === base
+            ? { outcome: "ok" }
+            : { outcome: "base_changed", recordedRevision: recorded };
+        }
+        expectFenced(
+          await tx
+            .update(sessions)
+            .set({
+              checkpointFallbackRevision: input.fallback?.revision ?? null,
+              checkpointRestoreAttemptId: fence.attemptId,
+              updatedAt: input.now,
+            })
+            .where(fencedSession(fence))
+            .returning({ id: sessions.id }),
+          "session restore base",
+        );
+        if (input.fallback === null) return { outcome: "ok" };
+        // The attempt goes in the payload, not the event's attempt column:
+        // that column numbers the worker's own sourced stream, and this row
+        // is the server's.
+        await recordAudit(tx, {
+          sessionId: fence.sessionId,
+          type: "system",
+          payload: {
+            type: "system",
+            subtype: CHECKPOINT_RESTORE_FALLBACK,
+            attempt_id: fence.attemptId,
+            pointer_revision: input.pointerRevision,
+            restored_revision: base,
+            skipped: input.fallback.skipped.map((skip) => ({
+              revision: skip.revision,
+              reason: skip.reason,
+            })),
+          },
+          turnRowId: null,
+          now: input.now,
+        });
+        return { outcome: "ok" };
       });
     },
 

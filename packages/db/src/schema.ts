@@ -388,6 +388,15 @@ export const sessions = pgTable(
     // was captured before the failure at best and proves nothing about what
     // came after. Any commit clears an advisory one.
     checkpointPendingAttemptId: text("checkpoint_pending_attempt_id"),
+    // The earlier revision the session was last restored from because the
+    // pointer's own checkpoint was damaged (94S-204). While set, the
+    // session's state is that revision's, not the pointer's; the next
+    // committed checkpoint, or another attempt restoring the pointer,
+    // clears it. The attempt column names the attempt that was last handed
+    // a restore plan on the current pointer, fallback or not: that attempt
+    // is held to the base it was given.
+    checkpointFallbackRevision: integer("checkpoint_fallback_revision"),
+    checkpointRestoreAttemptId: text("checkpoint_restore_attempt_id"),
     // The worker's last successful transcript mirror write, as it reported
     // it; only ever moves forward.
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
@@ -733,6 +742,8 @@ export const checkpoints = pgTable(
     manifestVersion: text("manifest_version"),
     // Set only by a locked finalize (CheckpointPointer.versionsHeld).
     versionsHeld: boolean("versions_held").notNull().default(false),
+    // CheckpointPointer.parentRevision: what a restore falls back along.
+    parentRevision: integer("parent_revision"),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()

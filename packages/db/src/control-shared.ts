@@ -201,6 +201,20 @@ export function hasRestorePoint<
   );
 }
 
+/**
+ * The checkpoint revision the session's state is actually based on: the
+ * pointer's, unless the last restore fell back to an earlier revision
+ * because the pointer's checkpoint was damaged (94S-204) and nothing has
+ * committed since. Coverage is judged on this one — the pointer's turn
+ * watermark describes work the running session no longer has.
+ */
+export function restoreBaseRevision(session: {
+  checkpointRevision: number | null;
+  checkpointFallbackRevision: number | null;
+}): number | null {
+  return session.checkpointFallbackRevision ?? session.checkpointRevision;
+}
+
 // Every control decision leaves its audit record on the session's event
 // stream, where the operator and the SSE reader (94S-126) both find it.
 // Like every other writer to `events`, it holds the payload to the public

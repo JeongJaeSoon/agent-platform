@@ -424,6 +424,7 @@ integration(
           engine: "claude",
           gitCommit: "e".repeat(40),
           manifestRef: `manifests/${session.sessionId}/0`,
+          manifestSha256: MANIFEST_SHA,
           objectKeys: [],
           resume: "sdk-session",
           revision: 0,

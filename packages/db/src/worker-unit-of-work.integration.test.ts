@@ -17,6 +17,7 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -32,7 +33,10 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import {
+  CHECKPOINT_RESTORE_FALLBACK,
+  createPostgresWorkerUnitOfWork,
+} from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -3188,6 +3192,7 @@ integration("worker gateway on PostgreSQL", () => {
         manifestRef: "s3://bucket/state-0.json",
         manifestSha256: "a".repeat(64),
         manifestVersion: null,
+        parentRevision: null,
         revision: 0,
         turnId: "1",
         versionsHeld: false,
@@ -3339,5 +3344,297 @@ integration("worker gateway on PostgreSQL", () => {
       .from(checkpoints)
       .where(eq(checkpoints.sessionId, session.session_id));
     expect(row?.version).toBe("v1");
+  });
+
+  test("listCheckpoints returns the revisions below the one asked, newest first, bounded (94S-204)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const store = createPostgresCheckpointStore(db);
+    for (const revision of [0, 1, 2, 3]) {
+      expect(
+        await store.commitAtomic({
+          checkpoint: {
+            revision,
+            manifest_ref: `s3://bucket/listed-${revision}.json`,
+            manifest_sha256: String(revision).repeat(64),
+            ...(revision === 1 ? {} : { manifest_version: `v${revision}` }),
+          },
+          fence: fenceOf(claimed),
+          now: clock,
+          sessionId: session.session_id,
+          turnId: null,
+          versionsHeld: revision !== 2,
+        }),
+      ).toEqual({ outcome: "committed", revision });
+    }
+    const listed = await store.listCheckpoints(session.session_id, {
+      belowRevision: 3,
+      limit: 2,
+    });
+    expect(listed).toEqual([
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-2.json",
+        manifestSha256: "2".repeat(64),
+        manifestVersion: "v2",
+        parentRevision: 1,
+        revision: 2,
+        turnId: null,
+        versionsHeld: false,
+      },
+      {
+        committedAt: expect.any(Date),
+        manifestRef: "s3://bucket/listed-1.json",
+        manifestSha256: "1".repeat(64),
+        manifestVersion: null,
+        parentRevision: 0,
+        revision: 1,
+        turnId: null,
+        versionsHeld: true,
+      },
+    ]);
+    expect(
+      (
+        await store.listCheckpoints(session.session_id, {
+          belowRevision: 10,
+          limit: 10,
+        })
+      ).map((row) => row.revision),
+    ).toEqual([3, 2, 1, 0]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 0,
+        limit: 10,
+      }),
+    ).toEqual([]);
+    expect(
+      await store.listCheckpoints(session.session_id, {
+        belowRevision: 3,
+        limit: 0,
+      }),
+    ).toEqual([]);
+    // Another session's rows never leak into this one's list.
+    expect(
+      await store.listCheckpoints(crypto.randomUUID(), {
+        belowRevision: 10,
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
+
+  test("a restore that falls back is recorded on the session and its event stream, and the next commit clears it (94S-204)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const sessionId = session.session_id;
+    const fence = fenceOf(claimed);
+    const store = createPostgresCheckpointStore(db);
+    const work = createPostgresWorkerUnitOfWork(db);
+    // Revision 0 was taken before any turn; revision 1 closes turn 1.
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/fallback-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
+    expect(
+      await gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, "1"),
+        turn_id: "1",
+        finalize_key: "fin",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "s3://bucket/fallback-1.json",
+          manifest_sha256: "b".repeat(64),
+        },
+      }),
+    ).toMatchObject({ checkpoint_revision: 1 });
+
+    const row = async () => {
+      const [found] = await db
+        .select({
+          revision: sessions.checkpointFallbackRevision,
+          attempt: sessions.checkpointRestoreAttemptId,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      return found;
+    };
+    const blocker = () =>
+      db.transaction(async (tx) => {
+        const [found] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+        if (!found) throw new Error("session vanished");
+        return pauseBlocker(tx, found);
+      });
+    const announced = () =>
+      db
+        .select({ payload: events.payload, attemptId: events.attemptId })
+        .from(events)
+        .where(
+          and(
+            eq(events.sessionId, sessionId),
+            sql`${events.payload}->>'subtype' = ${CHECKPOINT_RESTORE_FALLBACK}`,
+          ),
+        );
+    const skipped = [{ revision: 1, reason: "manifest object is missing" }];
+    const record = (
+      pointerRevision: number,
+      fallback: { revision: number; skipped: typeof skipped } | null,
+    ) =>
+      work.recordRestoreBaseAtomic({
+        fence,
+        now: clock,
+        pointerRevision,
+        fallback,
+      });
+
+    expect(await blocker()).toBeNull();
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await row()).toEqual({ revision: 0, attempt: claimed.attempt_id });
+    // A retry is the same announcement, not a second one; a different base
+    // for the same pointer is refused; a stale pointer is a conflict.
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await record(1, { revision: 5, skipped })).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 0,
+    });
+    expect(await record(0, { revision: 0, skipped })).toEqual({
+      outcome: "pointer_moved",
+      currentRevision: 1,
+    });
+    expect(await announced()).toEqual([
+      {
+        attemptId: null,
+        payload: {
+          type: "system",
+          subtype: CHECKPOINT_RESTORE_FALLBACK,
+          attempt_id: claimed.attempt_id,
+          pointer_revision: 1,
+          restored_revision: 0,
+          skipped,
+        },
+      },
+    ]);
+    // Turn 1 ran, and the revision the session now runs on does not cover
+    // it: a pause may no longer lean on the damaged pointer.
+    expect(await blocker()).toBe("checkpoint_unavailable");
+
+    // The same attempt handed the pointer after all is refused too: the
+    // object may have come back between two requests, and the worker could
+    // restore either plan.
+    expect(await record(1, null)).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 0,
+    });
+
+    // Another attempt restoring the pointer puts the session back on it.
+    // The row, not a second claim, stands in for that attempt having been
+    // the one served before.
+    const handedTo = async (attempt: string) => {
+      await db
+        .update(sessions)
+        .set({ checkpointRestoreAttemptId: attempt })
+        .where(eq(sessions.id, sessionId));
+    };
+    await handedTo("att_earlier");
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await row()).toEqual({
+      revision: null,
+      attempt: claimed.attempt_id,
+    });
+    expect(await blocker()).toBeNull();
+    // Having been served the pointer, this attempt cannot be handed an
+    // earlier revision for it either.
+    expect(await record(1, null)).toEqual({ outcome: "ok" });
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "base_changed",
+      recordedRevision: 1,
+    });
+
+    // The next committed checkpoint clears a fallback as well.
+    await handedTo("att_earlier");
+    expect(await record(1, { revision: 0, skipped })).toEqual({
+      outcome: "ok",
+    });
+    expect(await announced()).toHaveLength(2);
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 2,
+          manifest_ref: "s3://bucket/fallback-2.json",
+          manifest_sha256: "c".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 2 });
+    expect(await row()).toEqual({ revision: null, attempt: null });
+    // The commit was built on what the restore handed out, not on the pointer
+    // it skipped, and a later fallback walks back along that.
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 2,
+      parentRevision: 0,
+    });
+    expect(
+      (
+        await store.listCheckpoints(sessionId, { belowRevision: 2, limit: 1 })
+      )[0],
+    ).toMatchObject({ revision: 1, parentRevision: 0 });
+
+    // A fallback another attempt was handed is not what this one runs on:
+    // its commit builds on the pointer.
+    await db
+      .update(sessions)
+      .set({
+        checkpointFallbackRevision: 0,
+        checkpointRestoreAttemptId: "att_earlier",
+      })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await store.commitAtomic({
+        checkpoint: {
+          revision: 3,
+          manifest_ref: "s3://bucket/fallback-3.json",
+          manifest_sha256: "d".repeat(64),
+        },
+        fence,
+        now: clock,
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 3 });
+    expect(await store.readPointer(sessionId)).toMatchObject({
+      revision: 3,
+      parentRevision: 2,
+    });
+
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, sessionId));
+    expect(await record(3, { revision: 0, skipped })).toEqual({
+      outcome: "stale_epoch",
+    });
+    expect(await announced()).toHaveLength(2);
   });
 });

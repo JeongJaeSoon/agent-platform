@@ -22,6 +22,7 @@ import {
   lockSessionForControl,
   parseTurnSequence,
   recordAudit,
+  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
@@ -40,7 +41,11 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
-export { hasRestorePoint, recordAudit } from "./control-shared.ts";
+export {
+  hasRestorePoint,
+  recordAudit,
+  restoreBaseRevision,
+} from "./control-shared.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
@@ -92,9 +97,10 @@ async function closableByRecovery(
 /**
  * api.md § 최소 운영 복구: confirm_completed needs a consistent checkpoint up
  * to the input's watermark. The pointer is only ever moved by finalize, so
- * "consistent" means the committed checkpoint the session points at was
- * taken at or after the target turn. An older one would resume the session
- * without the work the operator is confirming.
+ * "consistent" means the committed checkpoint the session's state is based
+ * on — the pointer's, or the earlier one a fallback restored — was taken at
+ * or after the target turn. An older one would resume the session without
+ * the work the operator is confirming.
  */
 async function checkpointCovers(
   tx: Database,
@@ -109,7 +115,10 @@ async function checkpointCovers(
     .where(
       and(
         eq(checkpoints.sessionId, session.id),
-        eq(checkpoints.revision, session.checkpointRevision),
+        eq(
+          checkpoints.revision,
+          restoreBaseRevision(session) ?? session.checkpointRevision,
+        ),
       ),
     )
     .limit(1);
@@ -339,6 +348,7 @@ export function decideRecoveryAtomic(
       .select({
         admissionState: sessions.admissionState,
         checkpointRevision: sessions.checkpointRevision,
+        checkpointFallbackRevision: sessions.checkpointFallbackRevision,
         checkpointPendingReason: sessions.checkpointPendingReason,
       })
       .from(sessions)
@@ -347,7 +357,8 @@ export function decideRecoveryAtomic(
     const unknownLeft = await earliestUnknownTurn(tx, sessionId);
     const result: RecoveryDecisionReceiptResult = {
       resulting_admission_state: after.admissionState,
-      checkpoint_revision: after.checkpointRevision,
+      // The revision a resume would restore from, as `resumable` judges it.
+      checkpoint_revision: restoreBaseRevision(after),
       resumable:
         after.admissionState === "stopped" &&
         hasRestorePoint(after) &&
@@ -661,9 +672,13 @@ export function resumeAtomic(
         .delete(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId));
     }
+    // The revision the next worker restores: after a fallback, not the
+    // damaged pointer (94S-204).
+    const restoredFrom =
+      session.checkpointFallbackRevision ?? session.checkpointRevision;
     const result: ResumeReceiptResult = {
       resulting_admission_state: "active",
-      checkpoint_revision: session.checkpointRevision,
+      checkpoint_revision: restoredFrom,
       queued_turn_count: queued,
     };
     await recordAudit(tx, {
@@ -672,7 +687,7 @@ export function resumeAtomic(
       payload: {
         phase: queued > 0 ? "queued" : "idle",
         admission_state: "active",
-        resumed_from_checkpoint_revision: session.checkpointRevision,
+        resumed_from_checkpoint_revision: restoredFrom,
         actor: { owner_id: input.principal.ownerId },
       },
       turnRowId: null,

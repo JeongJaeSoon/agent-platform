@@ -32,6 +32,7 @@ import type {
 import { executionBackendSchema } from "@agent-platform/contracts";
 import type {
   CheckpointRequestDecision,
+  RestoreFallback,
   RestorePlan,
   RestorePlanResult,
 } from "../checkpoints/checkpoint-service.ts";
@@ -279,6 +280,14 @@ export function restorePlanOnWire(
         status: "incompatible",
         code: result.code,
         mismatches: result.mismatches.map((mismatch) => ({ ...mismatch })),
+        ...(result.fallback === undefined
+          ? {}
+          : {
+              fallback: {
+                ...fallbackOnWire(result.fallback),
+                revision: result.fallback.revision,
+              },
+            }),
       };
     default:
       return planOnWire(result.plan);
@@ -291,6 +300,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
     plan: {
       revision: plan.revision,
       manifest_ref: plan.manifestRef,
+      manifest_sha256: plan.manifestSha256,
       ...(plan.manifestVersion === undefined
         ? {}
         : { manifest_version: plan.manifestVersion }),
@@ -324,7 +334,20 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
             },
       ),
       object_keys: [...plan.objectKeys],
+      ...(plan.fallback === undefined
+        ? {}
+        : { fallback: fallbackOnWire(plan.fallback) }),
     },
+  };
+}
+
+function fallbackOnWire(fallback: RestoreFallback) {
+  return {
+    pointer_revision: fallback.pointerRevision,
+    skipped: fallback.skipped.map((skip) => ({
+      revision: skip.revision,
+      reason: skip.reason,
+    })),
   };
 }
 
@@ -969,8 +992,64 @@ export function createWorkerGateway(deps: {
           },
         });
         if (failed.outcome !== "ok") rejected(failed);
+        return restorePlanOnWire(result);
       }
-      return restorePlanOnWire(result);
+      if (result.status !== "ready") return restorePlanOnWire(result);
+      // A ready plan exists only with a pointer: "none" answered above.
+      const pointerRevision =
+        state.pointer?.revision ??
+        result.plan.fallback?.pointerRevision ??
+        result.plan.revision;
+      const fallback = result.plan.fallback;
+      if (fallback !== undefined) {
+        // A resume from `paused` promised the pointer's state; an older one
+        // is not that resume, so the owner decides (94S-138 with 94S-204).
+        // A session that is not resuming takes the fallback as before.
+        const failed = await work.failResumeAtomic({
+          fence,
+          now: now(),
+          pointerRevision,
+          error: {
+            code: "CHECKPOINT_UNAVAILABLE",
+            message: `the resume could not restore its checkpoint: revision ${pointerRevision} is damaged and only revision ${result.plan.revision} verifies`,
+          },
+        });
+        if (failed.outcome !== "ok") rejected(failed);
+        else if (failed.failed) {
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `Revision ${pointerRevision} is damaged; the resume it was to restore is handed to an operator rather than resumed from revision ${result.plan.revision}`,
+          );
+        }
+      }
+      const recorded = await work.recordRestoreBaseAtomic({
+        fence,
+        now: now(),
+        pointerRevision,
+        fallback:
+          fallback === undefined
+            ? null
+            : { revision: result.plan.revision, skipped: fallback.skipped },
+      });
+      switch (recorded.outcome) {
+        case "ok":
+          return restorePlanOnWire(result);
+        case "pointer_moved":
+          throw new WorkerGatewayError(
+            409,
+            "REVISION_CONFLICT",
+            `The checkpoint pointer moved to ${recorded.currentRevision ?? "none"} while the plan was judged; ask for the plan again`,
+          );
+        case "base_changed":
+          throw new WorkerGatewayError(
+            409,
+            "CHECKPOINT_UNAVAILABLE",
+            `This attempt was already handed revision ${recorded.recordedRevision} to restore; a new attempt must start over`,
+          );
+        default:
+          return rejected(recorded);
+      }
     },
 
     async release(

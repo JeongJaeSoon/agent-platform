@@ -104,6 +104,7 @@ export function checkpointAdmission(
 
 export type DurabilityFacts = {
   checkpointCommittedAt: Date | null;
+  checkpointFallbackRevision: number | null;
   checkpointRevision: number | null;
   lastCheckpointedTurnId: string | null;
   lastCompletedTurnId: string | null;
@@ -114,6 +115,7 @@ export type DurabilityFacts = {
 export function projectDurability(facts: DurabilityFacts): SessionDurability {
   return {
     checkpoint_committed_at: facts.checkpointCommittedAt?.toISOString() ?? null,
+    checkpoint_fallback_revision: facts.checkpointFallbackRevision,
     checkpoint_pending_reason: facts.pendingReason,
     checkpoint_revision: facts.checkpointRevision,
     last_checkpointed_turn_id: facts.lastCheckpointedTurnId,

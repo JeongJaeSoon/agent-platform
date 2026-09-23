@@ -53,6 +53,9 @@ const store: CheckpointStore = {
   async readPointer() {
     return null;
   },
+  async listCheckpoints() {
+    return [];
+  },
   async commitAtomic() {
     throw new Error("not exercised");
   },

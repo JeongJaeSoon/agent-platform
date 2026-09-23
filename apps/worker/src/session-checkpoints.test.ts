@@ -648,6 +648,7 @@ function planOf(
     plan: {
       revision: ref.revision,
       manifest_ref: ref.manifest_ref,
+      manifest_sha256: ref.manifest_sha256,
       ...(ref.manifest_version === undefined
         ? {}
         : { manifest_version: ref.manifest_version }),
@@ -783,6 +784,54 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     // CLAUDE.md as fetched, not as the engine left it on disk.
     expect(plan.committedClaudeMd?.()).toBe("rules as fetched\n");
     expect(plan.sessionStore).toBeDefined();
+  });
+
+  test("restores the earlier revision a fallback plan names in place of the claim's damaged pointer (94S-204)", async () => {
+    const from = await published({ versioned: true });
+    await replaceWorkspaceWithLeftovers();
+    const damaged: Partial<CheckpointRef> = {
+      revision: from.ref.revision + 1,
+      manifest_ref: `sessions/${SESSION}/checkpoints/damaged/manifest.json`,
+      manifest_sha256: "f".repeat(64),
+    };
+    const fallbackFrom = (pointerRevision: number) => () => {
+      const answer = planOf(from.ref, from.manifest);
+      if (answer.status !== "ready") throw new Error("expected a plan");
+      return {
+        ...answer,
+        plan: {
+          ...answer.plan,
+          fallback: {
+            pointer_revision: pointerRevision,
+            skipped: [{ revision: pointerRevision, reason: "manifest gone" }],
+          },
+        },
+      };
+    };
+
+    // A fallback from some other pointer is not the claim's to take.
+    const stray = restoring(from, {
+      claimed: damaged,
+      answer: fallbackFrom(from.ref.revision + 2),
+    });
+    await expect(
+      stray.port.restorePlan(await claimOf(stray.gateway), neverStopped()),
+    ).rejects.toBeInstanceOf(RestoreRefused);
+
+    const h = restoring(from, {
+      claimed: damaged,
+      answer: fallbackFrom(from.ref.revision + 1),
+    });
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+    expect(h.errors).toEqual([]);
+    if (plan.mode !== "resume") throw new Error("expected a resume plan");
+    expect(plan.restoredRevision).toBe(from.ref.revision);
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "edited\n",
+    );
   });
 
   test("a capture after the restore pins the same instructions commit", async () => {

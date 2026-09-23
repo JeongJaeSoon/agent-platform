@@ -148,6 +148,7 @@ describe("session contracts", () => {
         last_completed_turn_id: null,
         last_checkpointed_turn_id: null,
         checkpoint_pending_reason: null,
+        checkpoint_fallback_revision: null,
       },
       created_at: AT,
       updated_at: AT,
@@ -733,6 +734,7 @@ describe("worker protocol", () => {
         plan: {
           revision: 0,
           manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
           manifest_version: "m1",
           engine: "claude",
           resume: "sdk-session",
@@ -756,5 +758,40 @@ describe("worker protocol", () => {
     });
     expect(plan(undefined)).toMatchObject({ status: "ready" });
     expect(() => plan("null")).toThrow();
+  });
+
+  test("a restore plan says when it falls back to an earlier revision, and names what it skipped (94S-204)", () => {
+    const plan = (fallback: unknown) =>
+      restorePlanResponseSchema.safeParse({
+        status: "ready",
+        plan: {
+          revision: 0,
+          manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
+          engine: "claude",
+          resume: "sdk-session",
+          cwd: "/workspace",
+          git_commit: "0".repeat(40),
+          artifacts: [],
+          object_keys: [],
+          ...(fallback === undefined ? {} : { fallback }),
+        },
+      });
+    expect(
+      plan({
+        pointer_revision: 2,
+        skipped: [
+          { revision: 2, reason: "manifest object is missing" },
+          { revision: 1, reason: "digest mismatch" },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(plan(undefined).success).toBe(true);
+    // A fallback that skipped nothing is not a fallback.
+    expect(plan({ pointer_revision: 1, skipped: [] }).success).toBe(false);
+    expect(
+      plan({ pointer_revision: 1, skipped: [{ revision: 1, reason: "" }] })
+        .success,
+    ).toBe(false);
   });
 });

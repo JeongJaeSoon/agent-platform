@@ -700,6 +700,7 @@ export function createPostgresSessionReader(
         cost_usd: row.costUsd,
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
+          checkpointFallbackRevision: row.checkpointFallbackRevision,
           checkpointRevision: row.checkpointRevision,
           lastCheckpointedTurnId:
             checkpoint?.sequence == null ? null : String(checkpoint.sequence),

@@ -461,9 +461,21 @@ export const restoreArtifactSchema = z.discriminatedUnion("kind", [
     ),
   }),
 ]);
+// Every revision tried and refused before the one restored, newest first,
+// starting with the pointer's.
+const restoreFallbackSchema = z.object({
+  pointer_revision: revisionSchema,
+  skipped: z
+    .array(z.object({ revision: revisionSchema, reason: z.string().min(1) }))
+    .min(1),
+});
 export const restorePlanSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
+  // What the restored revision's manifest must hash to. It equals the
+  // claim's restore digest unless `fallback` says an earlier revision is
+  // restored, and then only this names it (94S-204).
+  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),
@@ -471,6 +483,11 @@ export const restorePlanSchema = z.object({
   git_commit: z.string().regex(/^[0-9a-f]{40}$/),
   artifacts: z.array(restoreArtifactSchema),
   object_keys: z.array(z.string().min(1)),
+  // Present only when the pointer's own checkpoint was damaged and the plan
+  // restores an earlier revision (`revision` above) instead (94S-204). The
+  // resumed session is then older than the pointer says, so the worker must
+  // not treat this as the checkpoint its claim named.
+  fallback: restoreFallbackSchema.optional(),
 });
 // `none` is a new session. `unavailable` and `incompatible` are refusals the
 // worker must fail its claim on: starting a fresh engine session on top of a
@@ -493,6 +510,11 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
         found: z.string(),
       }),
     ),
+    // Set when the pointer's checkpoint was damaged and it is the earlier
+    // `revision` the runtime cannot resume (94S-204).
+    fallback: restoreFallbackSchema
+      .extend({ revision: revisionSchema })
+      .optional(),
   }),
 ]);
 

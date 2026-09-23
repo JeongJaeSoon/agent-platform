@@ -585,6 +585,41 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(abandoned.outcome).toBe("accepted");
   });
 
+  test("confirm_completed is judged on the revision a fallback restored, not on the damaged pointer (94S-204)", async () => {
+    const { session, row } = await unknownSession("fallback-cp", {
+      checkpointRevision: 5,
+      checkpointCoversTurn1: true,
+    });
+    // An earlier revision taken before turn 1, which the last restore fell
+    // back to because revision 5 was damaged.
+    await db.insert(checkpoints).values({
+      sessionId: session.session_id,
+      revision: 4,
+      manifestRef: `manifests/${session.session_id}/4`,
+      manifestSha256: "0".repeat(64),
+      turnId: null,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: 4 })
+      .where(eq(sessions.id, session.session_id));
+    const confirm = {
+      decision: "confirm_completed",
+      expected_revision: row.revision,
+      target_turn_id: "1",
+      evidence_ref: "s3://audit/turn-1",
+      reason: "work was done outside",
+    } as const;
+    expect(await decide(session, confirm)).toEqual({
+      outcome: "checkpoint_not_covering",
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: null })
+      .where(eq(sessions.id, session.session_id));
+    expect((await decide(session, confirm)).outcome).toBe("accepted");
+  });
+
   test("a durable checkpoint blocker leaves no restore point: confirm_completed refused, resume refused, close allowed", async () => {
     const { session, row, claimed } = await unknownSession("mirror-error", {
       checkpointRevision: 3,
@@ -1014,6 +1049,45 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
         admission_state: "active",
         resumed_from_checkpoint_revision: 3,
       }),
+    });
+  });
+
+  test("after a fallback restore the decision and resume receipts name the revision restored, not the damaged pointer (94S-204)", async () => {
+    const { session, row } = await unknownSession("resume-fallback", {
+      queuedBehind: true,
+      checkpointRevision: 3,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointFallbackRevision: 2 })
+      .where(eq(sessions.id, session.session_id));
+    const decided = await decide(session, {
+      decision: "abandon",
+      expected_revision: row.revision,
+      target_turn_id: "1",
+      reason: "reviewed",
+    });
+    if (decided.outcome !== "accepted") throw new Error(decided.outcome);
+    expect(
+      (await receiptRow(decided.response.receipt_id)).result,
+    ).toMatchObject({ checkpoint_revision: 2 });
+    const stopped = await sessionRow(session.session_id);
+
+    const result = await resume(session, stopped.revision);
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect((await receiptRow(result.response.receipt_id)).result).toEqual({
+      resulting_admission_state: "active",
+      checkpoint_revision: 2,
+      queued_turn_count: 1,
+    });
+    const audit = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, session.session_id))
+      .orderBy(asc(events.id));
+    expect(audit.at(-1)?.payload).toMatchObject({
+      admission_state: "active",
+      resumed_from_checkpoint_revision: 2,
     });
   });
 

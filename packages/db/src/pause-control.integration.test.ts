@@ -30,6 +30,7 @@ import { recordAudit } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  checkpoints,
   events,
   executions,
   queueMessages,
@@ -571,6 +572,39 @@ integration("pause on PostgreSQL (94S-137)", () => {
       outcome: "checkpoint_unavailable",
     });
     expect((await sessionRow(fresh.sessionId)).admissionState).toBe("active");
+  });
+
+  test("after a fallback restore the pause rests on, and its receipt names, the revision restored (94S-204)", async () => {
+    const fellBack = await newSession("idle-fallback");
+    const worker = await claim(fellBack);
+    await finalize(worker, await deliver(worker), 0);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "idle",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    // A later turn-less revision 1 became the pointer and turned out damaged;
+    // the session was restored from revision 0, which covers the last turn.
+    await db.insert(checkpoints).values({
+      sessionId: fellBack.sessionId,
+      revision: 1,
+      manifestRef: `manifests/${fellBack.sessionId}/1`,
+      manifestSha256: MANIFEST_SHA,
+      parentRevision: 0,
+      turnId: null,
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 1, checkpointFallbackRevision: 0 })
+      .where(eq(sessions.id, fellBack.sessionId));
+
+    const response = await accepted(fellBack);
+    expect(response.receipt_status).toBe("succeeded");
+    expect((await receiptRow(response.receipt_id)).result).toEqual({
+      resulting_admission_state: "paused",
+      checkpoint_revision: 0,
+      queued_turn_count: 0,
+    });
   });
 
   test("an audit the event contract would not read is refused before it is stored", async () => {
