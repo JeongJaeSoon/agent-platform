@@ -76,7 +76,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 
 끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/docker-compose.yml down -v`)을 출력한다.
 
-복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001·2222)와 공용 worker network로 되돌아가 원본 설치와 충돌하고, Gitea의 `app.ini`는 복원 포트를 계속 광고해 clone URL이 없는 listener를 가리킨다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
+복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001)와 공용 worker network로 되돌아가 원본 설치와 충돌하고, Gitea의 `app.ini`는 복원 포트를 계속 광고해 clone URL이 없는 listener를 가리킨다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
 
 ## 검증
 

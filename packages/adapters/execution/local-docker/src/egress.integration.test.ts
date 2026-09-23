@@ -34,9 +34,10 @@ import { DockerClient } from "./docker-client.ts";
  * allowlisted, one not. Opt in with `DOCKER_BACKEND_TEST=1`.
  *
  * The proxy runs from `apps/egress-proxy`, mounted read-only into a stock
- * Bun image. That is deliberate: the deployed proxy has no workspace
- * dependency either, so the fixture and the compose service boot the same
- * way.
+ * Bun image. The released image (apps/egress-proxy/Dockerfile) is that same
+ * base with the same source copied in and nothing installed, so the fixture
+ * boots what compose runs without a build step here; image-smoke.sh checks
+ * the built image itself.
  */
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;

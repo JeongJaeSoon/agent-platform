@@ -21,6 +21,7 @@ import {
   type S3ClientLike,
   sha256,
   storedVersion,
+  streamObjectVersion,
 } from "./s3.ts";
 
 // Bounded: a 409 means retry, but an endpoint that answers 409 forever must
@@ -74,6 +75,14 @@ export function createCheckpointObjectStore(
   return {
     async get(key, version) {
       return (await read(key, version))?.bytes;
+    },
+
+    async stream(key, version) {
+      const found = await streamObjectVersion(client, bucket, key, {
+        ...(bodyRead === undefined ? {} : { bounds: bodyRead }),
+        ...(version === undefined ? {} : { version }),
+      });
+      return found?.chunks;
     },
 
     async head(key, version) {

@@ -69,6 +69,9 @@ export function scopedCheckpointObjectStore(
     async head(key, version) {
       return store.head(within(key), version);
     },
+    async stream(key, version) {
+      return store.stream(within(key), version);
+    },
     async list(prefix) {
       // A list prefix may be the scope itself or anything under it, and it
       // usually ends in a slash, which is not an empty segment.

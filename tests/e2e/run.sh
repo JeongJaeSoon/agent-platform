@@ -21,7 +21,7 @@
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless E2E_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
-# installation id, and the three images are removed on exit.
+# installation id, and the four images are removed on exit.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -40,6 +40,7 @@ export EXECUTION_INSTALLATION_ID="e2e${run_id}"
 export API_IMAGE="agent-platform-api:${project}"
 export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
+export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
@@ -61,7 +62,7 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
   # Stopping the event stream ends the loop; each `docker logs -f` ends with
   # its container, which is gone by now unless the stack is kept.
@@ -108,6 +109,7 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
   echo "scheduler_image: ${SCHEDULER_IMAGE} $(image_id "$SCHEDULER_IMAGE")"
   echo "worker_image: ${WORKER_IMAGE} $(image_id "$WORKER_IMAGE")"
+  echo "egress_proxy_image: ${EGRESS_PROXY_IMAGE} $(image_id "$EGRESS_PROXY_IMAGE")"
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
 } | tee "$out/record.txt" >&2
@@ -118,7 +120,7 @@ export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
-  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z]+_IMAGE)=' >"$out/vars.sh"
+  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi

@@ -3,8 +3,8 @@
 #
 #   scripts/d2-gate/run.sh
 #
-# Builds the api, scheduler and worker images from this checkout, starts the
-# compose product stack under a project of its own with the gate overlay
+# Builds the api, scheduler, worker and egress-proxy images from this
+# checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
 # then runs tests/d2-gate.e2e.test.ts against it. The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
@@ -16,7 +16,7 @@
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless D2_GATE_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
-# installation id, and the three images are removed on exit.
+# installation id, and the four images are removed on exit.
 set -euo pipefail
 # vars.sh and the logs carry the run's API key.
 umask 077
@@ -37,6 +37,7 @@ export EXECUTION_INSTALLATION_ID="d2g${run_id}"
 export API_IMAGE="agent-platform-api:${project}"
 export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
+export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
@@ -56,7 +57,7 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
   echo "report: $out" >&2
   exit "$status"
@@ -64,7 +65,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-dc build api scheduler worker >"$out/build.log" 2>&1
+dc build api scheduler worker egress-proxy >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1

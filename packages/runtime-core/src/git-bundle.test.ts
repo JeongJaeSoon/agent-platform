@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { gitBundleOffers, readGitBundleHeader } from "./git-bundle.ts";
+import {
+  gitBundleOffers,
+  gitBundleOffersFrom,
+  readGitBundleHeader,
+} from "./git-bundle.ts";
 
 /**
  * The parser is only worth anything if it agrees with git, so the fixtures are
@@ -135,13 +139,47 @@ describe("readGitBundleHeader", () => {
   });
 });
 
-describe("gitBundleOffers", () => {
+/**
+ * The streamed reader refills one small buffer for every chunk, as the store
+ * contract allows: a reader that kept a view instead of a copy would judge
+ * whatever the last refill left behind.
+ */
+async function* refilled(bytes: Uint8Array, size: number) {
+  const buffer = new Uint8Array(size);
+  for (let offset = 0; offset < bytes.byteLength; offset += size) {
+    const piece = bytes.subarray(offset, offset + size);
+    buffer.set(piece);
+    yield buffer.subarray(0, piece.byteLength);
+  }
+}
+
+describe.each([
+  [
+    "whole",
+    async (bytes: Uint8Array, commit: string) => gitBundleOffers(bytes, commit),
+  ],
+  [
+    "streamed in 7-byte chunks",
+    (bytes: Uint8Array, commit: string) =>
+      gitBundleOffersFrom(refilled(bytes, 7), commit),
+  ],
+  [
+    "streamed a byte at a time",
+    (bytes: Uint8Array, commit: string) =>
+      gitBundleOffersFrom(refilled(bytes, 1), commit),
+  ],
+])("gitBundleOffers, %s", (_label, offers) => {
   test("offers the ref whose tip is the commit", async () => {
     const { directory, shas } = await repository(2);
 
     expect(
-      gitBundleOffers(await bundle(directory, ["main"]), shas[1] as string),
-    ).toEqual({ status: "offers", refs: ["refs/heads/main"] });
+      await offers(await bundle(directory, ["main"]), shas[1] as string),
+    ).toEqual({
+      // Two commits, their trees and their blobs.
+      objects: 6,
+      refs: ["refs/heads/main"],
+      status: "offers",
+    });
   });
 
   test("refuses a commit that is only inside the history", async () => {
@@ -150,7 +188,7 @@ describe("gitBundleOffers", () => {
     const { directory, shas } = await repository(2);
 
     expect(
-      gitBundleOffers(await bundle(directory, ["main"]), shas[0] as string),
+      await offers(await bundle(directory, ["main"]), shas[0] as string),
     ).toMatchObject({ status: "unusable" });
   });
 
@@ -158,7 +196,7 @@ describe("gitBundleOffers", () => {
     const { directory } = await repository(1);
 
     expect(
-      gitBundleOffers(await bundle(directory, ["main"]), "b".repeat(40)),
+      await offers(await bundle(directory, ["main"]), "b".repeat(40)),
     ).toEqual({
       status: "unusable",
       reason: `git bundle does not offer ${"b".repeat(40)} as a ref tip`,
@@ -172,29 +210,29 @@ describe("gitBundleOffers", () => {
       `^${shas[0] as string}`,
     ]);
 
-    expect(gitBundleOffers(incremental, shas[1] as string)).toEqual({
+    expect(await offers(incremental, shas[1] as string)).toEqual({
       status: "unusable",
       reason:
         "git bundle needs 1 prerequisite commit(s) a fresh workspace does not have",
     });
   });
 
-  test("refuses a bundle whose object format is not the one the manifest pins", () => {
+  test("refuses a bundle whose object format is not the one the manifest pins", async () => {
     const text = `# v3 git bundle\n@object-format=sha256\n${"c".repeat(64)} refs/heads/main\n\nPACK`;
 
     expect(
-      gitBundleOffers(new TextEncoder().encode(text), "c".repeat(64)),
+      await offers(new TextEncoder().encode(text), "c".repeat(64)),
     ).toEqual({
       status: "unusable",
       reason: "git bundle uses object format sha256",
     });
   });
 
-  test("refuses a filtered bundle, whose pack promises objects instead of carrying them", () => {
+  test("refuses a filtered bundle, whose pack promises objects instead of carrying them", async () => {
     const text = `# v3 git bundle\n@object-format=sha1\n@filter=blob:none\n${"c".repeat(40)} refs/heads/main\n\nPACK`;
 
     expect(
-      gitBundleOffers(new TextEncoder().encode(text), "c".repeat(40)),
+      await offers(new TextEncoder().encode(text), "c".repeat(40)),
     ).toEqual({
       status: "unusable",
       reason:
@@ -207,10 +245,7 @@ describe("gitBundleOffers", () => {
     const whole = await bundle(directory, ["main"]);
 
     expect(
-      gitBundleOffers(
-        whole.subarray(0, whole.byteLength - 8),
-        shas[1] as string,
-      ),
+      await offers(whole.subarray(0, whole.byteLength - 8), shas[1] as string),
     ).toEqual({
       status: "unusable",
       reason: "git bundle packfile does not match its own checksum",
@@ -225,25 +260,25 @@ describe("gitBundleOffers", () => {
     const target = tampered.byteLength - 40;
     tampered.set([(tampered[target] ?? 0) ^ 0xff], target);
 
-    expect(gitBundleOffers(tampered, shas[1] as string)).toEqual({
+    expect(await offers(tampered, shas[1] as string)).toEqual({
       status: "unusable",
       reason: "git bundle packfile does not match its own checksum",
     });
   });
 
-  test("refuses a header-shaped file whose packfile is only the magic", () => {
+  test("refuses a header-shaped file whose packfile is only the magic", async () => {
     // What a digest alone would wave through: bytes the worker hashed itself.
     const text = `# v2 git bundle\n${"a".repeat(40)} refs/heads/main\n\nPACK`;
 
     expect(
-      gitBundleOffers(new TextEncoder().encode(text), "a".repeat(40)),
+      await offers(new TextEncoder().encode(text), "a".repeat(40)),
     ).toEqual({
       status: "unusable",
       reason: "git bundle packfile is truncated",
     });
   });
 
-  test("refuses a packfile whose version git never wrote", () => {
+  test("refuses a packfile whose version git never wrote", async () => {
     const header = new TextEncoder().encode(
       `# v2 git bundle\n${"a".repeat(40)} refs/heads/main\n\n`,
     );
@@ -254,15 +289,58 @@ describe("gitBundleOffers", () => {
     bytes.set(header);
     bytes.set(pack, header.byteLength);
 
-    expect(gitBundleOffers(bytes, "a".repeat(40))).toEqual({
+    expect(await offers(bytes, "a".repeat(40))).toEqual({
       status: "unusable",
       reason: "git bundle packfile is version 9",
     });
   });
 
-  test("reports bytes that are not a bundle at all", () => {
+  test("reports bytes that are not a bundle at all", async () => {
     expect(
-      gitBundleOffers(new TextEncoder().encode("hello"), "a".repeat(40)),
+      await offers(new TextEncoder().encode("hello"), "a".repeat(40)),
     ).toEqual({ status: "unusable", reason: "not a git bundle" });
+  });
+});
+
+describe("gitBundleOffersFrom", () => {
+  test("stops reading once the header has settled the answer", async () => {
+    const { directory } = await repository(2);
+    const bytes = await bundle(directory, ["main"]);
+    let pulled = 0;
+    let closed = false;
+    async function* counted() {
+      try {
+        for await (const chunk of refilled(bytes, 16)) {
+          pulled += 1;
+          yield chunk;
+        }
+      } finally {
+        closed = true;
+      }
+    }
+
+    expect(await gitBundleOffersFrom(counted(), "b".repeat(40))).toMatchObject({
+      status: "unusable",
+    });
+    expect(pulled).toBeLessThan(Math.ceil(bytes.byteLength / 16));
+    // Ending early has to let go of the source, or a store's socket leaks.
+    expect(closed).toBe(true);
+  });
+
+  test("gives up on a header that never terminates without reading the rest", async () => {
+    let pulled = 0;
+    async function* endless() {
+      yield new TextEncoder().encode("# v2 git bundle\n");
+      for (;;) {
+        pulled += 1;
+        yield new Uint8Array(64 * 1024).fill(0x61);
+      }
+    }
+
+    expect(await gitBundleOffersFrom(endless(), "a".repeat(40))).toEqual({
+      status: "unusable",
+      reason: "not a git bundle",
+    });
+    expect(pulled).toBeLessThanOrEqual(17);
   });
 });

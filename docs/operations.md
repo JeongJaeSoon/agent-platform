@@ -179,15 +179,13 @@ docker compose -f infra/docker-compose.yml --profile apps run --rm scheduler \
 
 같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 주고, egress proxy도 설치마다 따로 두어 각자의 id로 label을 단다. worker 네트워크 이름·label에 설치 id가 들어가므로 설치 A의 worker 네트워크에는 A의 proxy만 붙는다. 하나의 proxy를 두 설치가 쓰면 두 설치의 worker가 같은 allowlist를 쓰게 된다.
 
-compose의 proxy는 이미지가 아니라 `apps/egress-proxy`를 bind mount해서 돈다. 그래서 checkout을 다른 커밋으로 옮겨도 이미 떠 있는 프로세스는 기동할 때 읽은 코드를 계속 쓴다. 94S-319에서 qa-main이 이 상태로 #141 이전 proxy를 몇 시간 돌렸다. 디스크 파일의 md5가 같아도 실행 중인 코드가 같다는 증거는 되지 않는다.
-- proxy는 기동할 때 자기 소스(`src`의 테스트 아닌 `.ts`)의 sha256을 로그(`Egress proxy listening`의 `source`)와 `/healthz`(`ok source=<hex>`)로 알린다.
-- compose healthcheck(`src/healthcheck.ts`)는 이 값을 디스크의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다. 다만 Docker는 연속 실패 12회(약 60초)가 쌓여야 상태를 바꾼다. 그전에는 이미 `healthy`인 컨테이너에 `up -d --wait`를 걸어도 통과한다.
-- scheduler도 health를 보지 않고 실행 중인 proxy를 고른다.
-- 그래서 checkout을 옮긴 뒤에는 healthcheck를 직접 돌려 판정을 바로 받고, 실패하면 proxy를 다시 만든다.
+compose의 proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 돈다(94S-323). 소스가 이미지에 들어 있으므로 checkout을 옮겨도 떠 있는 proxy는 바뀌지 않고, 새 코드는 `up -d --build egress-proxy`로 다시 빌드해야 반영된다. 94S-323 이전에는 소스를 bind mount해서 돌렸다. 그래서 94S-319에서 qa-main이 checkout만 옮겨진 채 #141 이전 proxy를 몇 시간 돌렸다.
+- proxy는 기동할 때 자기 소스(`src`의 테스트 아닌 `.ts`)의 sha256을 로그(`Egress proxy listening`의 `source`)와 `/healthz`(`ok source=<hex>`)로 알린다. 어떤 코드가 도는지는 이 값으로 확인한다.
+- compose healthcheck(`src/healthcheck.ts`)는 이 값을 `/app/src`의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다. 이미지로 돌 때는 둘이 늘 같다. 누군가 소스 트리를 mount해 덮어쓴 뒤 그 checkout을 옮겼을 때만 이 검사가 발동한다. 다만 Docker는 연속 실패 12회(약 60초)가 쌓여야 상태를 바꾼다.
 
 ```bash
-docker compose -f infra/docker-compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts \
-  || docker compose -f infra/docker-compose.yml up -d --wait --force-recreate egress-proxy
+docker compose -f infra/docker-compose.yml up -d --wait --build egress-proxy   # checkout을 옮긴 뒤
+docker compose -f infra/docker-compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
 docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```
@@ -202,13 +200,15 @@ DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/
 
 ## 의존 서비스만 띄우기와 host에서 도는 API
 
-로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001·2222가 이미 사용 중인지 먼저 확인한다.
+로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001이 이미 사용 중인지 먼저 확인한다.
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d postgres localstack gitea egress-proxy
 docker compose -f infra/docker-compose.yml ps
 docker compose -f infra/docker-compose.yml run --rm migrate
 ```
+
+compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다(94S-323): postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`, Gitea 웹 UI·HTTP clone `3001`, API `3000`. Gitea SSH는 게시하지 않는다(워커는 proxy 경유 HTTP로 clone한다). 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`gitea`·`migrate`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`scheduler`·`worker`). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/docker-compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`·`SCHEDULER_IMAGE`·`WORKER_IMAGE`도 마찬가지다.
 
 기존 환경 파일이나 volume을 덮어쓰거나 삭제하지 않는다. host에서 실행하는 테스트는 컨테이너 DNS 이름이 아니라 host에 공개된 endpoint를 사용한다. PostgreSQL integration fixture는 임시 DB 생성 권한이 필요하므로 전용 로컬 테스트 DB만 지정한다. LocalStack fixture는 `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`의 로컬 테스트 설정을 요구한다. 운영 DB·운영 credential로 실행하지 않는다.
 

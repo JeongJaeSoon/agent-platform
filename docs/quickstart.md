@@ -31,7 +31,7 @@ private alpha는 **신뢰된 내부 인원만** 쓴다. 워커 안에서 실행�
 | Bun | 1.3.10 이상. `bun run keys` 한 곳에만 쓴다(`bun install` 불필요) | `bun --version` |
 | curl, jq, uuidgen | 아무 버전 | |
 
-Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다. 로컬 스택은 루프백에만 포트를 연다: `127.0.0.1`의 3000(API), 5432(Postgres), 4566(LocalStack S3), 4567(LocalStack Secrets Manager), 3001·2222(Gitea). 이미 쓰는 포트가 있으면 기동이 실패한다.
+Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다. 로컬 스택은 루프백에만 포트를 연다: `127.0.0.1`의 3000(API), 5432(Postgres), 4566(LocalStack S3), 4567(LocalStack Secrets Manager), 3001(Gitea 웹·HTTP clone). 이미 쓰는 포트가 있으면 기동이 실패한다.
 
 ```bash
 set -euo pipefail

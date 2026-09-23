@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   createGitBundle,
   type GitBundleFixture,
+  verifyBundleBytes,
 } from "@agent-platform/testkit/git-bundle";
 
 import {
@@ -59,7 +60,7 @@ function withSwappedTip(fixture: GitBundleFixture): {
 describe("git workspace bundle verifier", () => {
   test("a bundle git wrote is restorable", async () => {
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    const verdict = await verifier.verify({
+    const verdict = await verifyBundleBytes(verifier, {
       bytes: bundle.bytes,
       commit: bundle.commit,
       key: "k",
@@ -70,7 +71,7 @@ describe("git workspace bundle verifier", () => {
   test("a rewritten header over a whole pack is unusable", async () => {
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const swapped = withSwappedTip(bundle);
-    const verdict = await verifier.verify({ ...swapped, key: "k" });
+    const verdict = await verifyBundleBytes(verifier, { ...swapped, key: "k" });
     expect(verdict.status).toBe("unusable");
     if (verdict.status === "unusable") {
       expect(verdict.reason).toContain("git fetch failed");
@@ -84,7 +85,7 @@ describe("git workspace bundle verifier", () => {
       return { exitCode: 0, stderr: "", stdout: "" };
     };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
-    const verdict = await verifier.verify({
+    const verdict = await verifyBundleBytes(verifier, {
       bytes: bundle.bytes,
       commit: "0".repeat(40),
       key: "k",
@@ -99,12 +100,12 @@ describe("git workspace bundle verifier", () => {
   test("leaves no temp file or repository behind, on success or failure", async () => {
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const before = await readdir(tempRoot);
-    await verifier.verify({
+    await verifyBundleBytes(verifier, {
       bytes: bundle.bytes,
       commit: bundle.commit,
       key: "k",
     });
-    await verifier.verify({ ...withSwappedTip(bundle), key: "k" });
+    await verifyBundleBytes(verifier, { ...withSwappedTip(bundle), key: "k" });
     expect(await readdir(tempRoot)).toEqual(before);
   });
 
@@ -114,7 +115,7 @@ describe("git workspace bundle verifier", () => {
         ? { exitCode: 0, stderr: "", stdout: "" }
         : { exitCode: 128, stderr: "fatal: pack is corrupt\n", stdout: "" };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
-    const verdict = await verifier.verify({
+    const verdict = await verifyBundleBytes(verifier, {
       bytes: bundle.bytes,
       commit: bundle.commit,
       key: "k",
@@ -132,7 +133,11 @@ describe("git workspace bundle verifier", () => {
     };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow("spawn git ENOENT");
     expect(await readdir(tempRoot)).toEqual([]);
   });
@@ -145,7 +150,11 @@ describe("git workspace bundle verifier", () => {
     });
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow("git init failed with exit code 128");
     expect(await readdir(tempRoot)).toEqual([]);
   });
@@ -155,7 +164,11 @@ describe("git workspace bundle verifier", () => {
       tempRoot: join(tempRoot, "missing"),
     });
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow("ENOENT");
   });
 
@@ -176,7 +189,7 @@ describe("git workspace bundle verifier", () => {
         tempRoot,
       });
       await expect(
-        verifier.verify({
+        verifyBundleBytes(verifier, {
           bytes: bundle.bytes,
           commit: bundle.commit,
           key: "k",
@@ -193,7 +206,11 @@ describe("git workspace bundle verifier", () => {
         : { exitCode: 128, signal: "SIGKILL", stderr: "", stdout: "" };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow("git fetch was killed by SIGKILL");
     expect(await readdir(tempRoot)).toEqual([]);
   });
@@ -233,7 +250,7 @@ describe("git workspace bundle verifier", () => {
     process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = join(alternate, "objects");
     try {
       const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-      const verdict = await verifier.verify({
+      const verdict = await verifyBundleBytes(verifier, {
         bytes,
         commit: other.commit,
         key: "k",
@@ -287,7 +304,7 @@ describe("git workspace bundle verifier", () => {
         gitRunner,
         tempRoot,
       });
-      const verdict = await verifier.verify({
+      const verdict = await verifyBundleBytes(verifier, {
         bytes,
         commit: bundle.commit,
         key: "k",
@@ -328,7 +345,11 @@ describe("git workspace bundle verifier", () => {
         gitRunner,
         tempRoot,
       });
-      await verifier.verify({ bytes, commit: bundle.commit, key: "k" });
+      await verifyBundleBytes(verifier, {
+        bytes,
+        commit: bundle.commit,
+        key: "k",
+      });
       expect(calls.map((args) => args[0])).toEqual(["init", "-c", "rev-list"]);
     }
   });
@@ -364,7 +385,9 @@ describe("git workspace bundle verifier", () => {
     await rm(source, { force: true, recursive: true });
 
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    expect(await verifier.verify({ bytes, commit, key: "k" })).toEqual({
+    expect(
+      await verifyBundleBytes(verifier, { bytes, commit, key: "k" }),
+    ).toEqual({
       status: "unusable",
       reason:
         "git bundle is filtered (filter=blob:none) and omits objects a restore needs",
@@ -421,7 +444,9 @@ describe("git workspace bundle verifier", () => {
     );
 
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    expect(await verifier.verify({ bytes, commit, key: "k" })).toEqual({
+    expect(
+      await verifyBundleBytes(verifier, { bytes, commit, key: "k" }),
+    ).toEqual({
       status: "restorable",
     });
   });
@@ -443,7 +468,7 @@ describe("git workspace bundle verifier", () => {
       ]),
     );
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    const verdict = await verifier.verify({
+    const verdict = await verifyBundleBytes(verifier, {
       bytes,
       commit: bundle.commit,
       key: "k",
@@ -477,12 +502,14 @@ describe("git workspace bundle verifier", () => {
     // object the memory cap refuses the allocation ("Out of memory"). Both
     // are retryable throws.
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
-    const outcome = await verifier
-      .verify({ bytes, commit: bundle.commit, key: "k" })
-      .then(
-        (verdict) => verdict.status,
-        (error: Error) => error.message,
-      );
+    const outcome = await verifyBundleBytes(verifier, {
+      bytes,
+      commit: bundle.commit,
+      key: "k",
+    }).then(
+      (verdict) => verdict.status,
+      (error: Error) => error.message,
+    );
     expect(outcome).not.toBe("restorable");
     if (outcome !== "unusable") {
       expect(outcome).toMatch(/died of signal|Out of memory/);
@@ -511,7 +538,11 @@ describe("git workspace bundle verifier", () => {
     };
     const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
     expect(
-      await verifier.verify({ bytes, commit: bundle.commit, key: "k" }),
+      await verifyBundleBytes(verifier, {
+        bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).toEqual({
       status: "unusable",
       reason:
@@ -541,7 +572,11 @@ describe("git workspace bundle verifier", () => {
     });
     const started = Date.now();
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow(
       `git fetch failed with exit code ${GIT_TIMEOUT_EXIT_CODE}: git exceeded 200ms`,
     );
@@ -560,7 +595,7 @@ describe("git workspace bundle verifier", () => {
       tempRoot,
     });
     expect(
-      await verifier.verify({
+      await verifyBundleBytes(verifier, {
         bytes: bundle.bytes,
         commit: bundle.commit,
         key: "k",
@@ -602,7 +637,7 @@ describe("git workspace bundle verifier", () => {
         tempRoot,
       });
       await expect(
-        verifier.verify({
+        verifyBundleBytes(verifier, {
           bytes: bundle.bytes,
           commit: bundle.commit,
           key: "k",
@@ -625,7 +660,7 @@ describe("git workspace bundle verifier", () => {
       tempRoot,
     });
     await expect(
-      complainedThenKilled.verify({
+      verifyBundleBytes(complainedThenKilled, {
         bytes: bundle.bytes,
         commit: bundle.commit,
         key: "k",
@@ -641,7 +676,7 @@ describe("git workspace bundle verifier", () => {
         tempRoot,
       });
       await expect(
-        verifier.verify({
+        verifyBundleBytes(verifier, {
           bytes: bundle.bytes,
           commit: bundle.commit,
           key: "k",
@@ -668,7 +703,7 @@ describe("git workspace bundle verifier", () => {
               },
         tempRoot,
       });
-      const verdict = await verifier.verify({
+      const verdict = await verifyBundleBytes(verifier, {
         bytes: bundle.bytes,
         commit: bundle.commit,
         key: "k",
@@ -691,7 +726,11 @@ describe("git workspace bundle verifier", () => {
       tempRoot,
     });
     await expect(
-      verifier.verify({ bytes: bundle.bytes, commit: bundle.commit, key: "k" }),
+      verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
     ).rejects.toThrow("output cut short");
   });
 
@@ -708,13 +747,21 @@ describe("git workspace bundle verifier", () => {
         tempRoot,
       });
       await expect(
-        capped.verify({ bytes: big.bytes, commit: big.commit, key: "k" }),
+        verifyBundleBytes(capped, {
+          bytes: big.bytes,
+          commit: big.commit,
+          key: "k",
+        }),
       ).rejects.toThrow("Out of memory");
       expect(await readdir(tempRoot)).toEqual([]);
       // Same bundle, default cap: the limit, not the bundle, was the cause.
       const roomy = createGitWorkspaceBundleVerifier({ tempRoot });
       expect(
-        await roomy.verify({ bytes: big.bytes, commit: big.commit, key: "k" }),
+        await verifyBundleBytes(roomy, {
+          bytes: big.bytes,
+          commit: big.commit,
+          key: "k",
+        }),
       ).toEqual({ status: "restorable" });
     },
     60_000,

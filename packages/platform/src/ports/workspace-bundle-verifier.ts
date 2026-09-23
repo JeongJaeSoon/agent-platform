@@ -1,4 +1,5 @@
-import { gitBundleOffers } from "@agent-platform/runtime-core";
+import { createReadStream } from "node:fs";
+import { gitBundleOffersFrom } from "@agent-platform/runtime-core";
 
 export type WorkspaceBundleVerdict =
   | { readonly status: "restorable" }
@@ -13,15 +14,22 @@ export type WorkspaceBundleVerdict =
  * distinguishes a real pack from bytes shaped like one. The control plane does
  * not run git, so the implementation is injected.
  *
- * The service supplies the bytes rather than the key so that the size policy
- * stays in one place: whatever a deployment plugs in, it never decides on its
- * own how much of the object store to pull into memory.
+ * The service supplies a local file rather than the key so that the size
+ * policy stays in one place: whatever a deployment plugs in, it never decides
+ * on its own how much of the object store to pull in. A file rather than the
+ * bytes because a bundle is sized by the workspace, not by what fits in
+ * memory, and a git-backed verifier needs one on disk anyway. The file holds
+ * exactly the bytes the manifest's digest names — the service checks that
+ * before asking — and it exists only for the duration of the call: read it,
+ * never move, modify or keep it.
  */
 export interface WorkspaceBundleVerifier {
   verify(input: {
-    readonly bytes: Uint8Array;
+    /** The file's size, already checked against the manifest and the store. */
+    readonly bytes: number;
     readonly commit: string;
     readonly key: string;
+    readonly path: string;
   }): Promise<WorkspaceBundleVerdict>;
 }
 
@@ -61,8 +69,8 @@ export const rejectUnverifiedWorkspaceBundles: WorkspaceBundleVerifier = {
  * about their own commits, and should say so out loud by naming it.
  */
 export const structuralBundleVerifier: WorkspaceBundleVerifier = {
-  async verify({ bytes, commit }) {
-    const verdict = gitBundleOffers(bytes, commit);
+  async verify({ commit, path }) {
+    const verdict = await gitBundleOffersFrom(createReadStream(path), commit);
     return verdict.status === "offers"
       ? { status: "restorable" }
       : { status: "unusable", reason: verdict.reason };

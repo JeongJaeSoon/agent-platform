@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke for one app image: `image-smoke.sh <api|worker|scheduler> <image ref>`.
+# Smoke for one app image: `image-smoke.sh <api|worker|scheduler|egress-proxy> <image ref>`.
 # Shared by images.yml's build (loaded image) and publish (the digest that
 # was actually pushed) jobs so both check the same things.
 set -euo pipefail
@@ -138,6 +138,33 @@ assert_init_reaps() {
   [ "$control" -gt 0 ] || { echo "the zombie probe found none without an init" >&2; exit 1; }
 }
 
+# 94S-323: the proxy boots from its own image with no source mounted, runs
+# unprivileged over code it cannot rewrite, refuses what is not allowlisted,
+# and stops on SIGTERM as PID 1.
+egress_proxy_smoke() {
+  local image="$1" cid status code exit_code
+  cid="$(docker run -d --label "$smoke_label" \
+    -e EGRESS_ALLOWLIST=allowed.example.invalid:443 "$image")"
+  for _ in $(seq 1 30); do
+    status="$(docker exec "$cid" bun -e "const r = await fetch('http://127.0.0.1:3128/healthz'); console.log(r.status)" 2>/dev/null || true)"
+    [ "$status" = 200 ] && break
+    sleep 1
+  done
+  if [ "$status" != 200 ]; then
+    docker logs "$cid" >&2
+    echo "egress proxy never answered /healthz" >&2
+    exit 1
+  fi
+  docker exec "$cid" sh -c 'test "$(id -u)" = 1000 && test ! -w /app/src/main.ts && test ! -w /app/src'
+  code="$(docker exec "$cid" bun -e "const r = await fetch('http://denied.example.invalid/', { proxy: 'http://127.0.0.1:3128' }); console.log(r.status)")"
+  echo "absolute-form request to a host off the allowlist: $code"
+  [ "$code" = 403 ] || { echo "expected 403 from the proxy" >&2; exit 1; }
+  docker stop -t 10 "$cid" >/dev/null
+  exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$cid")"
+  echo "exit code after SIGTERM: $exit_code"
+  [ "$exit_code" = 0 ] || { echo "expected the proxy to exit 0 on SIGTERM, not be killed" >&2; exit 1; }
+}
+
 case "$app" in
   worker)
     # The ticket's check: the bundled executable resolves and is the version
@@ -158,6 +185,9 @@ case "$app" in
     ;;
   scheduler)
     docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'
+    ;;
+  egress-proxy)
+    egress_proxy_smoke "$image"
     ;;
   *)
     echo "unknown app: $app" >&2

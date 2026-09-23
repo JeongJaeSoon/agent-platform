@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, open, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { CheckpointRef } from "@agent-platform/contracts";
 import type {
   CheckpointBlockReason,
@@ -159,11 +162,21 @@ export type CheckpointServiceDependencies = {
   /** Manifest codecs by engine name. */
   codecs: Readonly<Record<string, CheckpointCodec>>;
   /**
+   * Where a workspace bundle is spooled while it is verified; defaults to the
+   * OS temp directory. It needs room for `maxConcurrentBundleVerifications`
+   * bundles of `maxWorkspaceBundleBytes` each, and a git-backed verifier
+   * puts its own copy of the pack beside that, usually under the same root.
+   */
+  bundleSpoolRoot?: string;
+  /**
    * How many workspace bundles may be read and verified at once.
    *
-   * The size ceiling below bounds one bundle; this bounds the process. Without
-   * it, ten sessions finalizing together each buy themselves a full bundle in
-   * memory and the ceiling turns out to have promised nothing.
+   * Reading one no longer holds it in memory — it is streamed to disk — but
+   * verifying it still starts git processes, each allowed its own address
+   * space (`CHECKPOINT_GIT_MEMORY_MB`, fetch and index-pack alive together),
+   * and spools a bundle and a copy of its pack to disk. The size ceiling
+   * below bounds one of those; this bounds how many the process runs at
+   * once, which is what the API container's memory limit is sized against.
    */
   maxConcurrentBundleVerifications?: number;
   /**
@@ -186,10 +199,11 @@ export type CheckpointServiceDependencies = {
   /**
    * Largest workspace bundle the control plane will read, in bytes.
    *
-   * Verifying one means holding it whole to hash it, and the S3 adapter
-   * gathers the chunks before joining them, so the real high-water mark is
-   * about twice this per bundle in flight. Together with the concurrency
-   * limit above that is the memory a finalize can cost.
+   * A policy, not a memory budget: the bundle is streamed through a hash to
+   * disk and never held. What it does bound is the time and disk one
+   * verification takes — the read, the spool file, git indexing the pack
+   * under its per-invocation timeout — so raising it means checking those
+   * (see `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`).
    *
    * Two consequences worth knowing before changing it. A checkpoint over the
    * limit is refused rather than promoted unverified, so a session whose
@@ -235,7 +249,23 @@ export type CheckpointServiceDependencies = {
 
 export type ObjectProtection = "locked" | "unversioned";
 
-export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 128 * 1024 * 1024;
+/**
+ * 256 MiB. Not memory any more (94S-230): what one bundle costs now is time
+ * and disk, and this is the largest size every existing bound still covers
+ * without being retuned. Measured under load (Apple M4 Pro, load average
+ * ~130), the verifier's `git fetch` of a 133 MiB bundle of real source took
+ * 9.5–15.7 s, so 256 MiB lands at roughly half of its 60 s per-invocation
+ * timeout (`DEFAULT_GIT_VERIFY_TIMEOUT_MS`), which is also its CPU limit.
+ * The read's 300 s budget (`DEFAULT_BODY_READ_BOUNDS.maxReadMs`) asks for
+ * 0.85 MiB/s, and so does the 300 s upload bound workers write it under
+ * (`S3_REQUEST_BOUNDS.requestTimeout`). Disk: the spool file plus git's copy
+ * of the pack, 2 × 256 MiB per verification in flight.
+ *
+ * Going higher means scaling that git timeout and both S3 budgets with the
+ * size first. Workers stop at their own capture limit, which is lower
+ * because a worker still holds the bundle in memory to upload it.
+ */
+export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 256 * 1024 * 1024;
 // A reference is about 200 bytes of canonical JSON, so the object limit
 // is what binds first; both sit far above what a mirror of a long session
 // produces today (one part per flushed batch).
@@ -304,6 +334,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   );
   const maxRestoreFallbacks =
     deps.maxRestoreFallbacks ?? DEFAULT_MAX_RESTORE_FALLBACKS;
+  const spoolRoot = deps.bundleSpoolRoot ?? tmpdir();
   if (
     !Number.isInteger(maxRestoreFallbacks) ||
     maxRestoreFallbacks < 0 ||
@@ -522,16 +553,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       if (ref.version !== undefined) pinned?.note(ref.key, ref.version, head);
       const token = refToken(ref);
       if (token !== undefined && verified.has(token)) return undefined;
-      const body = await objects.get(ref.key, ref.version);
+      const body = await digestObject(objects, ref.key, ref.version, ref.bytes);
       if (body === undefined) {
         return broken(
           `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`,
         );
       }
-      const digest = sha256(body);
-      if (digest !== ref.sha256) {
+      if (body.status === "over") {
         return broken(
-          `manifest object ${ref.key} hashes to ${digest}, not ${ref.sha256}`,
+          `manifest object ${ref.key} delivered more than the ${ref.bytes} bytes it was stored with`,
+        );
+      }
+      if (body.sha256 !== ref.sha256) {
+        return broken(
+          `manifest object ${ref.key} hashes to ${body.sha256}, not ${ref.sha256}`,
         );
       }
       return undefined;
@@ -609,31 +644,59 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
       );
     }
-    const body = await objects.get(bundle.key, bundle.version);
-    if (body === undefined) {
-      return broken(
-        `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
-      );
-    }
-    // A store that answered a smaller HEAD than it then served is the one
-    // case the checks above cannot bound.
-    if (body.byteLength > maxBundleBytes) return tooBig(body.byteLength);
-    const digest = sha256(body);
-    if (digest !== bundle.sha256) {
-      return broken(
-        `workspace bundle ${bundle.key} hashes to ${digest}, not ${bundle.sha256}`,
-      );
-    }
-    const verdict = await bundles.verify({
-      bytes: body,
-      commit: gitCommit,
-      key: bundle.key,
-    });
-    if (verdict.status !== "restorable") {
-      // The bytes are the ones committed, so it is the verifier that changed.
-      return refused(
-        `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`,
-      );
+    // The bundle is read exactly once, by this loop, which both hashes it
+    // and spools it to a file of its own; the verifier gets the file, and
+    // only after the digest proved it is the object the manifest names. A
+    // tee would let a slow second reader make the stream buffer for it, and
+    // would show the verifier bytes nobody had checked yet.
+    const spool = await mkdtemp(join(spoolRoot, "bundle-spool-"));
+    try {
+      const path = join(spool, "workspace.bundle");
+      const file = await open(path, "wx", 0o600);
+      let body: Awaited<ReturnType<typeof digestObject>>;
+      try {
+        body = await digestObject(
+          objects,
+          bundle.key,
+          bundle.version,
+          maxBundleBytes,
+          (chunk) => writeFully(file, chunk),
+        );
+      } finally {
+        await file.close();
+      }
+      if (body === undefined) {
+        return broken(
+          `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
+        );
+      }
+      // A store that answered a smaller HEAD than it then served is the one
+      // case the checks above cannot bound; the read stopped at the ceiling.
+      if (body.status === "over") {
+        return refused(
+          `workspace bundle ${bundle.key} delivered more than the ${maxBundleBytes} bytes the control plane will verify`,
+        );
+      }
+      if (body.sha256 !== bundle.sha256) {
+        return broken(
+          `workspace bundle ${bundle.key} hashes to ${body.sha256}, not ${bundle.sha256}`,
+        );
+      }
+      const verdict = await bundles.verify({
+        bytes: body.bytes,
+        commit: gitCommit,
+        key: bundle.key,
+        path,
+      });
+      if (verdict.status !== "restorable") {
+        // The bytes are the ones committed, so it is the verifier that
+        // changed.
+        return refused(
+          `workspace bundle ${bundle.key} cannot restore ${gitCommit}: ${verdict.reason}`,
+        );
+      }
+    } finally {
+      await rm(spool, { force: true, recursive: true });
     }
     if (bundle.version !== undefined) {
       pinned?.note(bundle.key, bundle.version, head);
@@ -1199,6 +1262,50 @@ function engineOf(bytes: Uint8Array): string | undefined {
 }
 
 /** Maps `items` in fixed-size waves, keeping the results in input order. */
+/**
+ * Reads one object through once, hashing it as it arrives and handing each
+ * chunk to `sink` before asking for the next; nothing is kept. Undefined for
+ * an absent object. Stops at the first chunk that takes the total past
+ * `limit`, so an object that is larger than it claimed costs at most that
+ * much to find out.
+ */
+async function digestObject(
+  objects: CheckpointObjectStore,
+  key: string,
+  version: string | undefined,
+  limit: number,
+  sink?: (chunk: Uint8Array) => Promise<void>,
+): Promise<
+  | { bytes: number; sha256: string; status: "read" }
+  | { status: "over" }
+  | undefined
+> {
+  const chunks = await objects.stream(key, version);
+  if (chunks === undefined) return undefined;
+  const hash = createHash("sha256");
+  let bytes = 0;
+  // Returning from inside the loop ends the iteration, which lets go of the
+  // store's connection.
+  for await (const chunk of chunks) {
+    bytes += chunk.byteLength;
+    if (bytes > limit) return { status: "over" };
+    hash.update(chunk);
+    await sink?.(chunk);
+  }
+  return { bytes, sha256: hash.digest("hex"), status: "read" };
+}
+
+/** `FileHandle.write` may take less than it was handed. */
+async function writeFully(
+  file: Awaited<ReturnType<typeof open>>,
+  chunk: Uint8Array,
+): Promise<void> {
+  for (let offset = 0; offset < chunk.byteLength; ) {
+    const { bytesWritten } = await file.write(chunk, offset);
+    offset += bytesWritten;
+  }
+}
+
 async function inBatches<T, R>(
   items: readonly T[],
   size: number,
