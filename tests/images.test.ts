@@ -80,6 +80,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
+  test("the API runs under an init that reaps the git helpers it orphans", () => {
+    const apiBlock = compose.slice(
+      compose.indexOf("\n  api:"),
+      compose.indexOf("\n  worker:"),
+    );
+    expect(apiBlock).toMatch(/\n {4}init: true\n/);
+  });
+
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);

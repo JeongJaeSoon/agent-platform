@@ -33,6 +33,22 @@ async function fakeGit(script: string): Promise<Record<string, string>> {
   return { PATH: bin };
 }
 
+/**
+ * Whether `pid` still runs. A killed helper whose parent died first is
+ * reparented to PID 1, and where that is this test runner (bun as a
+ * container's PID 1) nobody reaps it: it is dead, just still listed.
+ */
+async function running(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform !== "linux") return true;
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "");
+  return stat !== "" && !/^\d+ \(.*\) Z /.test(stat);
+}
+
 beforeAll(async () => {
   bin = await mkdtemp(join(tmpdir(), "git-runner-"));
   await mkdir(bin, { recursive: true });
@@ -96,7 +112,7 @@ describe("defaultGitRunner", () => {
     expect(result.exitCode).toBe(1);
     const helper = Number((await readFile(pidFile, "utf8")).trim());
     await Bun.sleep(100);
-    expect(() => process.kill(helper, 0)).toThrow();
+    expect(await running(helper)).toBe(false);
   });
 
   test("refuses limits that are not positive integers before starting git", async () => {
