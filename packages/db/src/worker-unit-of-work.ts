@@ -75,7 +75,7 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   running: 1,
   draining: 2,
 };
-const OPEN_TURN_STATUSES = ["running", "needs_input"];
+export const OPEN_TURN_STATUSES = ["running", "needs_input"];
 const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
 const TURN_ID = /^[1-9]\d{0,9}$/;
 // turns.sequence is a PostgreSQL integer; a larger id cannot exist and must

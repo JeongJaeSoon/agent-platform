@@ -496,6 +496,19 @@ integration("pending requests and answers on PostgreSQL", () => {
     ).toBe("NOT_FOUND");
   });
 
+  test("a registration whose reply was lost still replays after its turn closed", async () => {
+    const { sessionId, worker } = await runningSession();
+    const first = await register(worker, permission());
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, sessionId));
+    const again = await register(worker, permission(), HASH_A, first.requestId);
+    expect(again.response.expires_at).toBe(first.response.expires_at);
+    // The closed turn takes nothing new.
+    expect(await failure(register(worker, permission()))).toBe("NOT_FOUND");
+  });
+
   test("two requests answered in reverse order each get their own answer", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const first = await register(worker, permission("ls"), HASH_A);

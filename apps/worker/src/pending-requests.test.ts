@@ -539,12 +539,40 @@ describe("PendingRequestRegistry", () => {
     await harness.registry.flush(1_000);
 
     expect(calls).toBe(2);
-    const requestId = gateway.registrations[0]?.request_id;
+    const requestId = gateway.registrations[0]?.request_id ?? "";
     expect(gateway.settled).toEqual([
       { request_id: requestId, outcome: "cancelled" },
     ]);
     // It never became something to answer.
     expect(harness.published).toHaveLength(0);
+  });
+
+  test("stops retrying a registration of unknown outcome once stopped", async () => {
+    let calls = 0;
+    const down: PendingRequestsOptions["gateway"] = {
+      async registerPending(): Promise<RegisterPendingResponse> {
+        calls += 1;
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      },
+      async pendingControl(): Promise<PendingControlResponse> {
+        throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+      },
+    };
+    const harness = registry({ gateway: down });
+    const decision = harness.registry.request(permission("req-down"));
+    await waitFor(() => calls > 0, "the first registration");
+    harness.registry.cancelAll("drain");
+    await decision;
+    // The callback is gone but the row may exist: the retries go on.
+    await waitFor(() => calls > 2, "the retries after the close");
+    harness.registry.stop();
+    await harness.registry.flush(50);
+    const settled = calls;
+    await Bun.sleep(50);
+    expect(calls).toBe(settled);
+    expect(
+      (await harness.registry.request(permission("req-late"))).behavior,
+    ).toBe("deny");
   });
 
   test("a forced poll picks up an answer for a request this worker no longer holds", async () => {

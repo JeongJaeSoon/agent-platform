@@ -379,6 +379,7 @@ export class WorkerHost {
     // queued tail is dropped rather than retried against someone else's lease.
     this.publisher?.abandon(reason);
     this.pending?.cancelAll("This worker no longer owns the session");
+    this.pending?.stop();
   }
 
   private async claim(): Promise<BootstrapClaimResponse | null> {
@@ -731,6 +732,9 @@ export class WorkerHost {
     await this.pending?.flush(
       this.withinGrace(this.options.timeouts.requestTimeoutMs),
     );
+    // What did not land by now never will; nothing may keep retrying past
+    // the release.
+    this.pending?.stop();
     if (this.reportedOwnerLost()) return;
     this.released = true;
     const releasing = this.options.gateway

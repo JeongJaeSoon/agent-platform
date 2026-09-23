@@ -11,9 +11,12 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, turns } from "./schema.ts";
-import { acquireFence, leaseHeld, parseTurnId } from "./worker-unit-of-work.ts";
-
-const OPEN_TURN_STATUSES = ["running", "needs_input"];
+import {
+  acquireFence,
+  leaseHeld,
+  OPEN_TURN_STATUSES,
+  parseTurnId,
+} from "./worker-unit-of-work.ts";
 
 // What the worker's word does to the answer's receipt. `answered` means the
 // callback got it, whatever it decided; the other two mean the answer was
@@ -58,8 +61,6 @@ export function createPostgresWorkerPendingStore(
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const sequence = parseTurnId(input.turnId);
-        // Only the turn this attempt is running: a callback belongs to the
-        // turn that raised it, and a closed turn has no callback left.
         const [turn] = sequence
           ? await tx
               .select({ id: turns.id, status: turns.status })
@@ -73,9 +74,7 @@ export function createPostgresWorkerPendingStore(
               )
               .limit(1)
           : [];
-        if (!turn || !OPEN_TURN_STATUSES.includes(turn.status)) {
-          return { outcome: "turn_not_found" };
-        }
+        if (!turn) return { outcome: "turn_not_found" };
 
         const [existing] = await tx
           .select()
@@ -86,8 +85,10 @@ export function createPostgresWorkerPendingStore(
         const at = await dbNow(tx);
         if (existing) {
           // A retry of a registration whose response was lost. It stays the
-          // same registration — same expiry, answered or not — until the
-          // worker settles it; after that the id is spent.
+          // same registration — same expiry, answered or not, turn closed or
+          // not — until the worker settles it; after that the id is spent.
+          // Refusing it once the turn closed would tell the worker no row
+          // exists, and it would drop the settlement the row still needs.
           const same =
             existing.sessionId === fence.sessionId &&
             existing.attemptId === fence.attemptId &&
@@ -104,6 +105,12 @@ export function createPostgresWorkerPendingStore(
               existing.expiresAt.getTime() - at.getTime(),
             ),
           };
+        }
+        // A new registration only in the turn this attempt is running: a
+        // callback belongs to the turn that raised it, and a closed turn has
+        // no callback left.
+        if (!OPEN_TURN_STATUSES.includes(turn.status)) {
+          return { outcome: "turn_not_found" };
         }
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         const expiresAt = new Date(at.getTime() + input.ttlMs);

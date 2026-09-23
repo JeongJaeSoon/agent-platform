@@ -52,6 +52,7 @@ type Pending = {
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const MAX_REGISTER_BACKOFF_MS = 30_000;
 
 /**
  * The turn's pending-request map. Each `canUseTool` callback is registered
@@ -75,6 +76,7 @@ export class PendingRequestRegistry {
   private readonly registering = new Set<Promise<void>>();
   private answersAfter = 0;
   private polling: Promise<void> | undefined;
+  private stopped = false;
 
   constructor(options: PendingRequestsOptions) {
     this.options = options;
@@ -86,6 +88,12 @@ export class PendingRequestRegistry {
 
   /** Registers one callback and resolves with the decision the SDK gets back. */
   async request(request: PermissionRequest): Promise<PermissionDecision> {
+    if (this.stopped) {
+      return {
+        behavior: "deny",
+        message: "This worker is no longer taking requests",
+      };
+    }
     const questions = questionsOf(request);
     const kind = questions === null ? "permission" : "question";
     const inputHash = hashOf(request);
@@ -161,12 +169,20 @@ export class PendingRequestRegistry {
   }
 
   /**
+   * Ends every retry and poll this registry runs. Called once nothing more
+   * will be said to the gateway: after the final flush, or on owner loss.
+   */
+  stop(): void {
+    this.stopped = true;
+  }
+
+  /**
    * Asks the gateway now rather than at the next interval. `force` asks once
    * even with nothing held here: the gateway can hold an answer for a request
    * whose registration outcome this worker never learned.
    */
   poll(force = false): void {
-    if (this.polling !== undefined) return;
+    if (this.polling !== undefined || this.stopped) return;
     if (!force && this.pending.size === 0 && this.settlements.size === 0) {
       return;
     }
@@ -256,7 +272,8 @@ export class PendingRequestRegistry {
     // lists it. Only an outcome the gateway states — registered, refused, or
     // this worker gone — ends it.
     let sent = false;
-    while (sent || this.pending.has(requestId)) {
+    let backoff = interval;
+    while (!this.stopped && (sent || this.pending.has(requestId))) {
       sent = true;
       try {
         const response = await this.options.gateway.registerPending({
@@ -291,6 +308,7 @@ export class PendingRequestRegistry {
         if (isOwnershipLost(error)) {
           this.options.onOwnershipLost?.(error);
           this.cancelAll("This worker no longer owns the session");
+          this.stop();
           return;
         }
         if (!isRetryable(error)) {
@@ -307,7 +325,8 @@ export class PendingRequestRegistry {
           return;
         }
       }
-      await sleep(interval);
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, MAX_REGISTER_BACKOFF_MS);
     }
   }
 
@@ -315,7 +334,10 @@ export class PendingRequestRegistry {
     const sleep = this.options.sleep ?? ((ms: number) => Bun.sleep(ms));
     const interval = this.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     let once = force;
-    while (once || this.pending.size > 0 || this.settlements.size > 0) {
+    while (
+      !this.stopped &&
+      (once || this.pending.size > 0 || this.settlements.size > 0)
+    ) {
       once = false;
       // The rest waits for the next poll, which comes at once while any is
       // left.
@@ -348,6 +370,7 @@ export class PendingRequestRegistry {
           this.options.onOwnershipLost?.(error);
           this.cancelAll("This worker no longer owns the session");
           this.settlements.clear();
+          this.stop();
           return;
         }
         // Resending would be refused the same way; the answers themselves
