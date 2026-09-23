@@ -326,7 +326,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With
 
 ### 설치 상한 (94S-131)
 
-API와 scheduler는 아래 다섯 값이 없거나 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. 두 프로세스는 같은 parser(`packages/platform/src/limits/installation-limits.ts`)를 쓴다. 코드에는 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
+API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. 두 프로세스는 같은 parser(`packages/platform/src/limits/installation-limits.ts`)를 쓴다. 코드에는 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
 
 | 변수 | 의미 | 넘었을 때 |
 |---|---|---|
@@ -335,7 +335,7 @@ API와 scheduler는 아래 다섯 값이 없거나 형식이 틀리면 문제를
 | `STORAGE_LIMIT_BYTES` | 설치 전체가 보존하는 입력 message의 UTF-8 bytes. event·checkpoint object·worker 디스크는 세지 않는다(디스크는 workspace quota가 맡는다) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
 | `MAX_TURN_SECONDS` | turn 하나의 벽시계 상한. 승인 대기도 포함한다. worker env `WORKER_MAX_TURN_SEC`로 전달된다 | turn `failed(turn_timeout)`. 엔진이 응답하지 않으면 `outcome_unknown(turn_timeout)` |
 | `SESSION_COST_LIMIT_USD` | 세션 누적 비용(SDK `total_cost_usd`에서 구한 turn별 증분의 합, 추정치) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
-| `PROVIDER_MAX_RETRIES` (선택, 기본 2) | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
+| `PROVIDER_MAX_RETRIES` | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다. 0이면 첫 실패에서 turn이 끝난다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
 
 - 비용 상한은 turn이 끝난 뒤에 판정한다. 그래서 진행 중인 turn은 상한을 넘을 수 있다.
 - 비용이 보고되지 않은 turn(`outcome_unknown` 등)은 0으로 더해진다.

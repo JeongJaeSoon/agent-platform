@@ -151,7 +151,8 @@ export function workerConfigFromEnv(
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
-      // 2 matches the installation default, for a launcher that predates it.
+      // 2 is compose's local PROVIDER_MAX_RETRIES, for a launcher that
+      // predates it; the scheduler always passes the installation's value.
       providerMaxRetries: nonNegativeInteger(
         environment.WORKER_PROVIDER_MAX_RETRIES ?? "2",
         "WORKER_PROVIDER_MAX_RETRIES",

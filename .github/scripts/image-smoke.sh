@@ -54,7 +54,7 @@ api_init_smoke() {
     -e CHECKPOINT_OBJECT_STORE=disabled \
     -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
     -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
-    -e SESSION_COST_LIMIT_USD=1 \
+    -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
     "$image" 2>&1)" && status=0 || status=$?
   # A pattern match, not `| grep -q`: under pipefail grep's early exit can
   # fail the printf with SIGPIPE.
@@ -99,7 +99,7 @@ YAML
     -e CHECKPOINT_OBJECT_STORE=disabled \
     -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
     -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
-    -e SESSION_COST_LIMIT_USD=1 \
+    -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
     -e PLATFORM_CONFIG_DIR=/config \
     -e SMOKE_PROVIDER_KEY=smoke-placeholder \
     -v "$config_dir:/config:ro" \

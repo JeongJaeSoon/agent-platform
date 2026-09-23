@@ -11,6 +11,7 @@ const base = {
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   EXECUTION_INSTALLATION_ID: "dev-a",
   MAX_TURN_SECONDS: "3600",
+  PROVIDER_MAX_RETRIES: "2",
   QUEUED_INPUT_LIMIT_PER_SESSION: "20",
   S3_BUCKET: "claude-sessions",
   SESSION_COST_LIMIT_USD: "25",
@@ -85,6 +86,7 @@ describe("schedulerConfigFromEnv", () => {
     for (const name of [
       "EXECUTION_SLOT_LIMIT",
       "MAX_TURN_SECONDS",
+      "PROVIDER_MAX_RETRIES",
       "QUEUED_INPUT_LIMIT_PER_SESSION",
       "SESSION_COST_LIMIT_USD",
       "STORAGE_LIMIT_BYTES",
