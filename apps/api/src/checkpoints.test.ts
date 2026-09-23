@@ -126,6 +126,7 @@ describe("API checkpoint composition", () => {
     );
     const service = createApiCheckpointService({
       codecs,
+      objectProtection: "unversioned",
       objects,
       store,
       workspaceBundles: spy,
@@ -142,7 +143,12 @@ describe("API checkpoint composition", () => {
       bundle.bytes,
       bundle.commit,
     );
-    const service = createApiCheckpointService({ codecs, objects, store });
+    const service = createApiCheckpointService({
+      codecs,
+      objectProtection: "unversioned",
+      objects,
+      store,
+    });
     const verdict = await service.validateManifest({ checkpoint, sessionId });
     expect(verdict.status).toBe("verified");
   });
@@ -157,7 +163,12 @@ describe("API checkpoint composition", () => {
       0,
     );
     const { objects, checkpoint } = await checkpointWith(bytes, commit);
-    const service = createApiCheckpointService({ codecs, objects, store });
+    const service = createApiCheckpointService({
+      codecs,
+      objectProtection: "unversioned",
+      objects,
+      store,
+    });
     const verdict = await service.validateManifest({ checkpoint, sessionId });
     expect(verdict.status).toBe("rejected");
     if (verdict.status === "rejected") {
@@ -180,6 +191,7 @@ describe("API checkpoint composition", () => {
     });
     const service = createApiCheckpointService({
       codecs,
+      objectProtection: "unversioned",
       gitRunner,
       maxGitMemoryBytes,
       objects,
@@ -219,6 +231,30 @@ describe("API checkpoint composition", () => {
     ).toThrow(/^CHECKPOINT_GIT_MEMORY_MB must be a whole number of MiB/);
   });
 
+  test("pins and holds checkpoint objects unless degrading is said out loud", () => {
+    const full = {
+      AWS_ACCESS_KEY_ID: "id",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "s",
+      S3_BUCKET: "claude-sessions",
+    };
+    const protection = (value?: string) => {
+      const config = checkpointStorageConfigFromEnv(
+        value === undefined
+          ? full
+          : { ...full, CHECKPOINT_OBJECT_PROTECTION: value },
+      );
+      return config === "disabled" ? config : config.protection;
+    };
+    expect(protection()).toBe("locked");
+    expect(protection(" ")).toBe("locked");
+    expect(protection("locked")).toBe("locked");
+    expect(protection("unversioned")).toBe("unversioned");
+    expect(() => protection("off")).toThrow(
+      /^CHECKPOINT_OBJECT_PROTECTION must be "locked" \(default\) or "unversioned", not off$/,
+    );
+  });
+
   test("reads the object store from the environment and refuses a silent absence", () => {
     const full = {
       AWS_ACCESS_KEY_ID: "id",
@@ -231,6 +267,7 @@ describe("API checkpoint composition", () => {
       accessKeyId: "id",
       bucket: "claude-sessions",
       endpoint: "http://127.0.0.1:4566",
+      protection: "locked",
       region: "ap-northeast-1",
       secretAccessKey: "s",
     });

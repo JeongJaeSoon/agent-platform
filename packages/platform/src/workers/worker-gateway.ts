@@ -248,12 +248,19 @@ function finalizeAnswer(result: FinalizeResult): FinalizeResponse {
   }
 }
 
+function versionOnWire(object: { version?: string }): { version?: string } {
+  return object.version === undefined ? {} : { version: object.version };
+}
+
 function planOnWire(plan: RestorePlan): RestorePlanResponse {
   return {
     status: "ready",
     plan: {
       revision: plan.revision,
       manifest_ref: plan.manifestRef,
+      ...(plan.manifestVersion === undefined
+        ? {}
+        : { manifest_version: plan.manifestVersion }),
       engine: plan.engine,
       resume: plan.resume,
       cwd: plan.cwd,
@@ -267,6 +274,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
                 key: object.key,
                 bytes: object.bytes,
                 sha256: object.sha256,
+                ...versionOnWire(object),
                 path: object.path,
               })),
             }
@@ -277,6 +285,7 @@ function planOnWire(plan: RestorePlan): RestorePlanResponse {
                 key: object.key,
                 bytes: object.bytes,
                 sha256: object.sha256,
+                ...versionOnWire(object),
               })),
             },
       ),

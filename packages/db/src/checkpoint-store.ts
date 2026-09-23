@@ -78,11 +78,14 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
           return { outcome: "committed", revision: advanced.revision };
         }
         // The same manifest already stands at this revision: a retry of a
-        // commit whose answer was lost, not a competing checkpoint.
+        // commit whose answer was lost, not a competing checkpoint. The
+        // version counts too — identical bytes stored twice are two objects,
+        // and only the one this pointer names was verified and held.
         const [stored] = await tx
           .select({
             manifestRef: checkpoints.manifestRef,
             manifestSha256: checkpoints.manifestSha256,
+            manifestVersion: checkpoints.manifestVersion,
           })
           .from(checkpoints)
           .where(
@@ -95,7 +98,8 @@ export function createPostgresCheckpointStore(db: Database): CheckpointStore {
         if (
           stored &&
           stored.manifestRef === input.checkpoint.manifest_ref &&
-          stored.manifestSha256 === input.checkpoint.manifest_sha256
+          stored.manifestSha256 === input.checkpoint.manifest_sha256 &&
+          stored.manifestVersion === (input.checkpoint.manifest_version ?? null)
         ) {
           return { outcome: "replayed", revision: input.checkpoint.revision };
         }

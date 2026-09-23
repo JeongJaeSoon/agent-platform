@@ -27,6 +27,7 @@ import {
   receiptSchema,
   recoveryDecisionRequestSchema,
   releaseRequestSchema,
+  restorePlanResponseSchema,
   SESSION_EVENT_NAMES,
   SESSION_STATUS_VALUES,
   sessionEventSchema,
@@ -669,5 +670,73 @@ describe("worker protocol", () => {
     ]) {
       expect(line).not.toContain(secret);
     }
+  });
+
+  test("a checkpoint and a restore plan name object versions, never the replaceable null one (94S-229)", () => {
+    const scope = {
+      session_id: SESSION_ID,
+      turn_id: "1",
+      attempt_id: "att_1",
+      lease_epoch: 1,
+      execution_generation: 1,
+      auth_revision: 1,
+    };
+    const finalize = (manifest_version?: string) =>
+      finalizeRequestSchema.safeParse({
+        ...scope,
+        finalize_key: "f1",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_sha256: "a".repeat(64),
+          ...(manifest_version === undefined ? {} : { manifest_version }),
+        },
+      }).success;
+    expect(finalize("3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY")).toBe(true);
+    expect(finalize()).toBe(true);
+    expect(finalize("null")).toBe(false);
+    expect(finalize("")).toBe(false);
+
+    const part = {
+      key: "sessions/s/mirror/part-0.jsonl",
+      bytes: 3,
+      sha256: "b".repeat(64),
+    };
+    const plan = (version: string | undefined) =>
+      restorePlanResponseSchema.parse({
+        status: "ready",
+        plan: {
+          revision: 0,
+          manifest_ref: "sessions/s/checkpoints/0/a/manifest.json",
+          manifest_version: "m1",
+          engine: "claude",
+          resume: "sdk-session",
+          cwd: "/workspace",
+          git_commit: "0".repeat(40),
+          artifacts: [
+            {
+              kind: "transcript_root",
+              label: "",
+              objects: [version === undefined ? part : { ...part, version }],
+            },
+          ],
+          object_keys: [part.key],
+        },
+      });
+    expect(plan("v1")).toMatchObject({
+      plan: {
+        manifest_version: "m1",
+        artifacts: [{ objects: [{ version: "v1" }] }],
+      },
+    });
+    expect(plan(undefined)).toMatchObject({ status: "ready" });
+    expect(() => plan("null")).toThrow();
   });
 });

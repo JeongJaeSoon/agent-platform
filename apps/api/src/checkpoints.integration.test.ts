@@ -38,11 +38,16 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
+import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { createApiCheckpoints } from "./checkpoints.ts";
+import {
+  assertCheckpointBucketProtection,
+  type CheckpointStorageConfig,
+  createApiCheckpoints,
+} from "./checkpoints.ts";
 
 /**
  * The product composition against real stores: the worker gateway bound to
@@ -75,20 +80,19 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     await migrate(db, {
       migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
     });
-    bucket = await createLocalstackBucket({ prefix: "api-ckpt-it" });
+    // Object Lock, as the compose bucket is: the composition pins and holds
+    // checkpoint objects by default (94S-229).
+    bucket = await createLocalstackBucket({
+      objectLock: true,
+      prefix: "api-ckpt-it",
+    });
     bundle = await createGitBundle();
     // The worker's side of the store: same bucket, its own client.
     objects = createCheckpointObjectStore({
       bucket: bucket.bucket,
       client: createStorageS3Client({ s3: bucket.env }),
     });
-    const checkpoints = createApiCheckpoints(db, {
-      accessKeyId: bucket.env.accessKeyId,
-      bucket: bucket.bucket,
-      endpoint: bucket.env.endpoint,
-      region: bucket.env.region,
-      secretAccessKey: bucket.env.secretAccessKey,
-    });
+    const checkpoints = createApiCheckpoints(db, storageConfig(bucket));
     if (checkpoints.protocol === undefined) {
       throw new Error("an object store was configured; expected a protocol");
     }
@@ -123,9 +127,18 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     await database?.drop();
   });
 
+  /** A worker's upload: create-only, recording the version it landed as. */
   async function put(key: string, bytes: Uint8Array) {
-    await objects.put(key, bytes);
-    return { bytes: bytes.byteLength, key, sha256: sha256(bytes) };
+    const result = await objects.putImmutable(key, bytes);
+    if (result.outcome !== "created" || result.version === undefined) {
+      throw new Error(`upload of ${key} did not land with a version`);
+    }
+    return {
+      bytes: bytes.byteLength,
+      key,
+      sha256: sha256(bytes),
+      version: result.version,
+    };
   }
 
   async function claimedSession() {
@@ -275,7 +288,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       },
     };
     const encoded = claudeCheckpointCodec.encode(manifest);
-    await put(asked.manifest_ref, encoded.bytes);
+    const stored = await put(asked.manifest_ref, encoded.bytes);
 
     const terminal = {
       status: "completed" as const,
@@ -309,6 +322,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         revision: 0,
         manifest_ref: asked.manifest_ref,
         manifest_sha256: encoded.sha256,
+        manifest_version: stored.version,
       },
     });
     expect(finalized).toMatchObject({
@@ -340,6 +354,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
         plan: {
           revision: 0,
           manifest_ref: asked.manifest_ref,
+          manifest_version: stored.version,
           engine: "claude",
           resume: "sdk-session-1",
           cwd: "/workspace",
@@ -369,4 +384,198 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       ],
     });
   }, 60_000);
+
+  test("what finalize verified is what restore gets, whatever happens to the keys afterwards (94S-229)", async () => {
+    const { claimed, principal, scope, turnId } = await claimedSession();
+    const sessionId = claimed.session_id;
+    const prefix = sessionObjectPrefix(sessionId);
+    const asked = await gateway.requestCheckpoint(principal, {
+      ...scope,
+      preparation: { status: "ready" },
+    });
+    if (asked.status !== "ready") throw new Error(asked.status);
+    const attemptDir = asked.manifest_ref.slice(
+      0,
+      asked.manifest_ref.lastIndexOf("/") + 1,
+    );
+    const transcript = new TextEncoder().encode('{"type":"user"}\n');
+    const rootPart = await put(`${prefix}mirror/root-0.jsonl`, transcript);
+    const bundleRef = await put(`${attemptDir}workspace.bundle`, bundle.bytes);
+    const notes = await put(
+      `${attemptDir}untracked/notes.md`,
+      new TextEncoder().encode("notes\n"),
+    );
+    const manifest: CheckpointManifest = {
+      createdAt: clock.toISOString(),
+      cwd: "/workspace",
+      engine: "claude",
+      resume: "sdk-session-1",
+      revision: 0,
+      runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: PROFILE_SHA },
+      sessionId,
+      transcripts: {
+        root: {
+          entryCount: 1,
+          parts: [rootPart],
+          sha256: digestParts([rootPart]),
+        },
+        subagents: {},
+      },
+      version: 2,
+      workspace: {
+        bundle: bundleRef,
+        gitCommit: bundle.commit,
+        untracked: [{ ...notes, path: "notes.md" }],
+      },
+    };
+    const encoded = claudeCheckpointCodec.encode(manifest);
+    const stored = await put(asked.manifest_ref, encoded.bytes);
+    const terminal = {
+      status: "completed" as const,
+      reason: null,
+      result: null,
+      usage: null,
+    };
+    const finalize = (finalizeKey: string, version?: string) =>
+      gateway.finalize(principal, {
+        ...scope,
+        turn_id: turnId,
+        finalize_key: finalizeKey,
+        final_source_sequence: 0,
+        terminal,
+        checkpoint: {
+          revision: 0,
+          manifest_ref: asked.manifest_ref,
+          manifest_sha256: encoded.sha256,
+          ...(version === undefined ? {} : { manifest_version: version }),
+        },
+      });
+    // Locked: a checkpoint that does not name its manifest by version is
+    // refused before anything is read.
+    await expect(finalize("fin-unpinned")).rejects.toMatchObject({
+      status: 409,
+      code: "CHECKPOINT_UNAVAILABLE",
+      message: expect.stringMatching(/not named by version/),
+    });
+    expect(await finalize("fin-pinned", stored.version)).toMatchObject({
+      status: "completed",
+      checkpoint_revision: 0,
+    });
+    const [row] = await db
+      .select({ version: schema.checkpoints.manifestVersion })
+      .from(schema.checkpoints)
+      .where(eq(schema.checkpoints.sessionId, sessionId));
+    expect(row?.version).toBe(stored.version);
+
+    // Every version the checkpoint names is held: deleting it is refused
+    // even with the governance bypass.
+    for (const ref of [rootPart, bundleRef, notes, stored]) {
+      const refused = await bucket.s3
+        .send(
+          new DeleteObjectCommand({
+            Bucket: bucket.bucket,
+            BypassGovernanceRetention: true,
+            Key: ref.key,
+            VersionId: ref.version,
+          }),
+        )
+        .then(
+          () => undefined,
+          (error: { $metadata?: { httpStatusCode?: number } }) => error,
+        );
+      expect(refused?.$metadata?.httpStatusCode).toBe(403);
+    }
+
+    // Now the keys move: the transcript part and the manifest are
+    // overwritten with other bytes (the part keeps its length), the bundle
+    // is hidden behind a delete marker and a create-only write lands in its
+    // place, and the untracked file is deleted.
+    const overwrite = (key: string, body: string) =>
+      bucket.s3.send(
+        new PutObjectCommand({
+          Body: new TextEncoder().encode(body),
+          Bucket: bucket.bucket,
+          Key: key,
+        }),
+      );
+    await overwrite(rootPart.key, '{"type":"evil"}\n');
+    await overwrite(asked.manifest_ref, "{}\n");
+    await bucket.s3.send(
+      new DeleteObjectCommand({ Bucket: bucket.bucket, Key: bundleRef.key }),
+    );
+    expect(
+      (await objects.putImmutable(bundleRef.key, new Uint8Array([1, 2, 3])))
+        .outcome,
+    ).toBe("created");
+    await bucket.s3.send(
+      new DeleteObjectCommand({ Bucket: bucket.bucket, Key: notes.key }),
+    );
+
+    const runtime = {
+      engine: "claude",
+      sdk_version: CLAUDE_RUNTIME_FINGERPRINT.sdkVersion,
+      cli_version: CLAUDE_RUNTIME_FINGERPRINT.cliVersion,
+      profile_sha256: PROFILE_SHA,
+    };
+    const plan = await gateway.restorePlan(principal, { ...scope, runtime });
+    expect(plan).toEqual({
+      status: "ready",
+      plan: {
+        revision: 0,
+        manifest_ref: asked.manifest_ref,
+        manifest_version: stored.version,
+        engine: "claude",
+        resume: "sdk-session-1",
+        cwd: "/workspace",
+        git_commit: bundle.commit,
+        artifacts: [
+          { kind: "transcript_root", label: "", objects: [rootPart] },
+          { kind: "workspace_bundle", label: "", objects: [bundleRef] },
+          {
+            kind: "workspace_untracked",
+            label: "",
+            objects: [{ ...notes, path: "notes.md" }],
+          },
+        ],
+        object_keys: [rootPart.key, bundleRef.key, notes.key],
+      },
+    });
+    // And those versions still serve the bytes that were verified.
+    expect(await objects.get(rootPart.key, rootPart.version)).toEqual(
+      transcript,
+    );
+    expect(await objects.get(bundleRef.key, bundleRef.version)).toEqual(
+      bundle.bytes,
+    );
+    expect(await objects.get(rootPart.key)).not.toEqual(transcript);
+  }, 60_000);
+
+  test("a locked deployment refuses to start on a bucket that cannot pin or hold versions; an unversioned one says so and starts (94S-229)", async () => {
+    await assertCheckpointBucketProtection(storageConfig(bucket));
+    const plain = await createLocalstackBucket({ prefix: "api-ckpt-plain" });
+    try {
+      await expect(
+        assertCheckpointBucketProtection(storageConfig(plain)),
+      ).rejects.toThrow(
+        /has versioning Off and Object Lock not configured; CHECKPOINT_OBJECT_PROTECTION=locked needs both/,
+      );
+      await assertCheckpointBucketProtection({
+        ...storageConfig(plain),
+        protection: "unversioned",
+      });
+    } finally {
+      await plain.destroy();
+    }
+  }, 60_000);
 });
+
+function storageConfig(target: LocalstackBucket): CheckpointStorageConfig {
+  return {
+    accessKeyId: target.env.accessKeyId,
+    bucket: target.bucket,
+    endpoint: target.env.endpoint,
+    protection: "locked",
+    region: target.env.region,
+    secretAccessKey: target.env.secretAccessKey,
+  };
+}

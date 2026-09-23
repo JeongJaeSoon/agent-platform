@@ -3,7 +3,8 @@ import {
   CreateBucketCommand,
   DeleteBucketCommand,
   DeleteObjectsCommand,
-  ListObjectsV2Command,
+  ListObjectVersionsCommand,
+  PutObjectLegalHoldCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 
@@ -16,7 +17,12 @@ export type LocalstackEnv = {
 
 export type LocalstackBucket = {
   bucket: string;
-  /** Deletes every object under the prefix; an empty prefix empties the bucket. */
+  /**
+   * Deletes every object under the prefix — every version and delete marker,
+   * releasing legal holds and bypassing governance retention on the way, so a
+   * versioned or Object Lock bucket empties too. An empty prefix empties the
+   * bucket. Returns how many versions and markers went.
+   */
   deletePrefix(prefix: string): Promise<number>;
   /** Empties and deletes the bucket, then releases the client. */
   destroy(): Promise<void>;
@@ -54,8 +60,18 @@ export function localstackClient(env: LocalstackEnv = localstackEnv()) {
   });
 }
 
+export type LocalstackBucketOptions = {
+  env?: LocalstackEnv;
+  /**
+   * Create the bucket with Object Lock, which also turns versioning on — the
+   * shape a `locked` checkpoint deployment requires.
+   */
+  objectLock?: boolean;
+  prefix?: string;
+};
+
 export async function createLocalstackBucket(
-  options: { env?: LocalstackEnv; prefix?: string } = {},
+  options: LocalstackBucketOptions = {},
 ): Promise<LocalstackBucket> {
   const env = options.env ?? localstackEnv();
   const bucket = `${options.prefix ?? "testkit-it"}-${randomUUID()}`;
@@ -67,6 +83,9 @@ export async function createLocalstackBucket(
         CreateBucketConfiguration: {
           LocationConstraint: env.region as "ap-northeast-1",
         },
+        ...(options.objectLock === true
+          ? { ObjectLockEnabledForBucket: true }
+          : {}),
       }),
     );
   } catch (error) {
@@ -75,29 +94,53 @@ export async function createLocalstackBucket(
   }
   const deletePrefix = async (prefix: string) => {
     let deleted = 0;
-    let token: string | undefined;
+    let keyMarker: string | undefined;
+    let versionMarker: string | undefined;
     do {
       const page = await s3.send(
-        new ListObjectsV2Command({
+        new ListObjectVersionsCommand({
           Bucket: bucket,
-          ContinuationToken: token,
+          KeyMarker: keyMarker,
           Prefix: prefix,
+          VersionIdMarker: versionMarker,
         }),
       );
-      const keys = (page.Contents ?? [])
-        .map((object) => object.Key)
-        .filter((key): key is string => typeof key === "string");
-      if (keys.length > 0) {
+      const entries = [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
+        .filter(
+          (entry): entry is { Key: string; VersionId?: string } =>
+            typeof entry.Key === "string",
+        )
+        .map(({ Key, VersionId }) => ({ Key, VersionId }));
+      // A held version refuses deletion even with the governance bypass, so
+      // the hold goes first. Only where there is one: asking a bucket without
+      // Object Lock is an error.
+      for (const version of page.Versions ?? []) {
+        if (options.objectLock !== true || !version.Key) continue;
+        await s3.send(
+          new PutObjectLegalHoldCommand({
+            Bucket: bucket,
+            Key: version.Key,
+            LegalHold: { Status: "OFF" },
+            VersionId: version.VersionId,
+          }),
+        );
+      }
+      if (entries.length > 0) {
         await s3.send(
           new DeleteObjectsCommand({
             Bucket: bucket,
-            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+            // Sent at all, the header is refused by a bucket without Object Lock.
+            ...(options.objectLock === true
+              ? { BypassGovernanceRetention: true }
+              : {}),
+            Delete: { Objects: entries, Quiet: true },
           }),
         );
-        deleted += keys.length;
+        deleted += entries.length;
       }
-      token = page.IsTruncated ? page.NextContinuationToken : undefined;
-    } while (token !== undefined);
+      keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+      versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+    } while (keyMarker !== undefined);
     return deleted;
   };
   return {
@@ -118,7 +161,7 @@ export async function createLocalstackBucket(
 
 export async function withLocalstackBucket<T>(
   fn: (bucket: LocalstackBucket) => Promise<T>,
-  options: { env?: LocalstackEnv; prefix?: string } = {},
+  options: LocalstackBucketOptions = {},
 ): Promise<T> {
   const bucket = await createLocalstackBucket(options);
   try {

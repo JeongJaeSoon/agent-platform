@@ -150,6 +150,8 @@ for (const [name, createObjects] of backends) {
       const store = memoryCheckpointStore();
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
+        // The mirror does not record part versions yet (94S-246).
+        objectProtection: "unversioned",
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,
@@ -292,6 +294,8 @@ for (const [name, createObjects] of backends) {
       const store = memoryCheckpointStore(live);
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
+        // The mirror does not record part versions yet (94S-246).
+        objectProtection: "unversioned",
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,
@@ -408,6 +412,8 @@ for (const [name, createObjects] of backends) {
       const store = memoryCheckpointStore();
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
+        // The mirror does not record part versions yet (94S-246).
+        objectProtection: "unversioned",
         objects,
         store,
         workspaceBundles: structuralBundleVerifier,

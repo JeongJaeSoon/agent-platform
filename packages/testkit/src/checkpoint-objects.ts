@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   CheckpointObjectStore,
+  ObjectHead,
   PutImmutableResult,
 } from "@agent-platform/runtime-core";
 
@@ -9,22 +10,48 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
   keys(): string[];
   /** Fails the next `n` writes of any kind, to exercise mirror failures. */
   failWrites(count: number): void;
-  /** Drops an object, standing in for a lifecycle rule or an operator delete. */
+  /**
+   * Drops an object, standing in for a lifecycle rule or an operator delete.
+   * On a versioned store this is a delete marker, as on S3: the key reads as
+   * absent while every version stays readable by id.
+   */
   remove(key: string): void;
+  /**
+   * Destroys one version outright — what a privileged delete does to an
+   * object nothing locks. Throws for a held version, as S3 answers 403.
+   */
+  purgeVersion(key: string, version: string): void;
   /** Keys whose bodies were fetched since the last reset, in call order. */
   reads(): string[];
   resetReads(): void;
 };
+
+export type MemoryCheckpointObjectStoreOptions = {
+  /**
+   * Keep every write as its own version and answer with version ids, like an
+   * S3 bucket with versioning on. Off by default: the store then has no
+   * version concept at all, which is the other shape the contract allows.
+   * Only a versioned store offers `hold`.
+   */
+  readonly versioned?: boolean;
+};
+
+type Version = { bytes: Uint8Array; held: boolean; id: string };
+type Slot = { current: Version | undefined; versions: Version[] };
 
 /**
  * In-memory checkpoint object store with the create-only semantics the S3
  * adapter implements, so unit tests can exercise the immutability contract
  * without LocalStack.
  */
-export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore {
-  const objects = new Map<string, Uint8Array>();
+export function createMemoryCheckpointObjectStore(
+  options: MemoryCheckpointObjectStoreOptions = {},
+): MemoryCheckpointObjectStore {
+  const versioned = options.versioned === true;
+  const objects = new Map<string, Slot>();
   const reads: string[] = [];
   let failuresLeft = 0;
+  let nextVersion = 0;
 
   function guardWrite(key: string): void {
     if (failuresLeft <= 0) return;
@@ -32,42 +59,91 @@ export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore
     throw new Error(`Injected object store failure: ${key}`);
   }
 
+  function write(key: string, bytes: Uint8Array): Version {
+    nextVersion += 1;
+    const written = {
+      bytes: bytes.slice(),
+      held: false,
+      id: `v${nextVersion}`,
+    };
+    const slot = objects.get(key) ?? { current: undefined, versions: [] };
+    slot.current = written;
+    slot.versions = versioned ? [...slot.versions, written] : [written];
+    objects.set(key, slot);
+    return written;
+  }
+
+  function lookup(key: string, version?: string): Version | undefined {
+    const slot = objects.get(key);
+    if (slot === undefined) return undefined;
+    if (version === undefined) return slot.current;
+    // An unversioned store has no version by that name, just as S3 answers
+    // 404 for an id it never issued.
+    if (!versioned) return undefined;
+    return slot.versions.find((candidate) => candidate.id === version);
+  }
+
+  function answer(found: Version): { version?: string } {
+    return versioned ? { version: found.id } : {};
+  }
+
   return {
-    async get(key) {
+    async get(key, version) {
       reads.push(key);
-      const stored = objects.get(key);
-      return stored === undefined ? undefined : stored.slice();
+      return lookup(key, version)?.bytes.slice();
     },
 
-    async head(key) {
-      const stored = objects.get(key);
-      return stored === undefined ? undefined : { bytes: stored.byteLength };
+    async head(key, version): Promise<ObjectHead | undefined> {
+      const found = lookup(key, version);
+      return found === undefined
+        ? undefined
+        : {
+            bytes: found.bytes.byteLength,
+            ...(found.held ? { held: true } : {}),
+            ...answer(found),
+          };
     },
 
     async list(prefix) {
-      return [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+      return [...objects.entries()]
+        .filter(([key, slot]) => slot.current && key.startsWith(prefix))
+        .map(([key]) => key)
+        .sort();
     },
 
     async put(key, bytes) {
       guardWrite(key);
-      objects.set(key, bytes.slice());
+      write(key, bytes);
     },
 
     async putImmutable(key, bytes): Promise<PutImmutableResult> {
       guardWrite(key);
-      const existing = objects.get(key);
+      const existing = objects.get(key)?.current;
       if (existing === undefined) {
-        objects.set(key, bytes.slice());
-        return { outcome: "created" };
+        return { outcome: "created", ...answer(write(key, bytes)) };
       }
-      const found = sha256(existing);
+      const found = sha256(existing.bytes);
       return found === sha256(bytes)
-        ? { outcome: "duplicate" }
+        ? { outcome: "duplicate", ...answer(existing) }
         : { outcome: "conflict", sha256: found };
     },
 
+    ...(versioned
+      ? {
+          async hold(key: string, version: string) {
+            const found = lookup(key, version);
+            if (found === undefined) {
+              throw new Error(`No version ${version} of ${key} to hold`);
+            }
+            found.held = true;
+          },
+        }
+      : {}),
+
     keys() {
-      return [...objects.keys()];
+      return [...objects.entries()]
+        .filter(([, slot]) => slot.current)
+        .map(([key]) => key);
     },
 
     failWrites(count) {
@@ -75,7 +151,22 @@ export function createMemoryCheckpointObjectStore(): MemoryCheckpointObjectStore
     },
 
     remove(key) {
-      objects.delete(key);
+      const slot = objects.get(key);
+      if (slot === undefined) return;
+      if (versioned) slot.current = undefined;
+      else objects.delete(key);
+    },
+
+    purgeVersion(key, version) {
+      const slot = objects.get(key);
+      if (slot === undefined) return;
+      if (lookup(key, version)?.held) {
+        throw new Error(`Version ${version} of ${key} is under a legal hold`);
+      }
+      slot.versions = slot.versions.filter(
+        (candidate) => candidate.id !== version,
+      );
+      if (slot.current?.id === version) slot.current = slot.versions.at(-1);
     },
 
     reads() {

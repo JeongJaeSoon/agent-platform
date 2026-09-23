@@ -4,6 +4,13 @@ export type CheckpointPointer = {
   committedAt: Date;
   manifestRef: string;
   manifestSha256: string;
+  /**
+   * The object version of the manifest finalize verified (the checkpoint
+   * ref's `manifest_version`). Restore reads exactly that version. Null or
+   * absent for a checkpoint committed without one, which only an
+   * `objectProtection: "unversioned"` deployment restores.
+   */
+  manifestVersion?: string | null;
   revision: number;
   turnId: string | null;
 };

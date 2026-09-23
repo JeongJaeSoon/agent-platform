@@ -686,6 +686,9 @@ export const checkpoints = pgTable(
     revision: integer().notNull(),
     manifestRef: text("manifest_ref").notNull(),
     manifestSha256: text("manifest_sha256").notNull(),
+    // The object store version finalize verified the manifest at; restore
+    // reads exactly that one. Null when the deployment stores no versions.
+    manifestVersion: text("manifest_version"),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()

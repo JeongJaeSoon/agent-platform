@@ -54,7 +54,7 @@ services:
       - localstack-data:/var/lib/localstack
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api head-bucket --bucket claude-sessions >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -173,6 +173,10 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
+      # Pin every checkpoint object by version and hold what a checkpoint
+      # commits (94S-229); the bucket above is created with Object Lock.
+      # "unversioned" reads by key only — for a bucket restored from a backup.
+      CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
       # SESSION_CATALOG_JSON is deliberately not defaulted: the API parses an

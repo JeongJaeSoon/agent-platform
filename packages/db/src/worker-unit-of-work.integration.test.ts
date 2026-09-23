@@ -2958,6 +2958,7 @@ integration("worker gateway on PostgreSQL", () => {
         committedAt: clock,
         manifestRef: "s3://bucket/state-0.json",
         manifestSha256: "a".repeat(64),
+        manifestVersion: null,
         revision: 0,
         turnId: "1",
       },
@@ -3056,5 +3057,47 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
       .where(eq(sessions.id, session.session_id));
     expect(await commit(2, "d")).toEqual({ outcome: "stale_epoch" });
+  });
+
+  test("the pointer keeps the manifest version it was committed with, and a replay must name the same one (94S-229)", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    const store = createPostgresCheckpointStore(db);
+    const commit = (revision: number, version?: string) =>
+      store.commitAtomic({
+        checkpoint: {
+          revision,
+          manifest_ref: `s3://bucket/versioned-${revision}.json`,
+          manifest_sha256: "a".repeat(64),
+          ...(version === undefined ? {} : { manifest_version: version }),
+        },
+        fence: fenceOf(claimed),
+        now: clock,
+        sessionId: session.session_id,
+        turnId: null,
+      });
+    expect(await commit(0, "v1")).toEqual({
+      outcome: "committed",
+      revision: 0,
+    });
+    expect(await store.readPointer(session.session_id)).toMatchObject({
+      manifestVersion: "v1",
+      revision: 0,
+    });
+    expect(await commit(0, "v1")).toEqual({ outcome: "replayed", revision: 0 });
+    // The same bytes stored again are another object: the one this pointer
+    // names is the one that was verified and held.
+    expect(await commit(0, "v2")).toEqual({
+      outcome: "conflict",
+      currentRevision: 0,
+    });
+    expect(await commit(0)).toEqual({
+      outcome: "conflict",
+      currentRevision: 0,
+    });
+    const [row] = await db
+      .select({ version: checkpoints.manifestVersion })
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, session.session_id));
+    expect(row?.version).toBe("v1");
   });
 });

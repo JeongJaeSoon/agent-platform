@@ -88,6 +88,67 @@ describe("Claude checkpoint codec", () => {
     expect(decodeCheckpointManifest(bytes)).toEqual(original);
   });
 
+  test("round-trips the object versions a writer pinned (94S-229)", () => {
+    const parts = [
+      {
+        bytes: 42,
+        key: "root/part-1.jsonl",
+        sha256: "b".repeat(64),
+        version: "3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+      },
+    ];
+    const original = manifest({
+      transcripts: {
+        root: { entryCount: 1, parts, sha256: digestParts(parts) },
+        subagents: {},
+      },
+      workspace: {
+        ...manifest().workspace,
+        bundle: { ...manifest().workspace.bundle, version: "bundle-v1" },
+      },
+    });
+
+    const decoded = decodeCheckpointManifest(
+      encodeCheckpointManifest(original).bytes,
+    );
+
+    expect(decoded).toEqual(original);
+    expect(decoded.transcripts.root.parts[0]?.version).toBe(
+      "3sL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+    );
+    // A version is not part of what the part-list digest pins: the manifest
+    // digest already covers it, and the mirror computes the list digest
+    // before any writer could know one.
+    expect(digestParts(parts)).toBe(
+      digestParts(parts.map(({ version: _v, ...rest }) => rest)),
+    );
+  });
+
+  test("accepts a manifest without versions; whether one is required is the control plane's call", () => {
+    const original = manifest();
+    expect(original.workspace.bundle).not.toHaveProperty("version");
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+    ).toEqual(original);
+  });
+
+  test.each([
+    ["null", /immutable version/],
+    ["", /version/],
+    ["has space", /version/],
+    ["x".repeat(1025), /version/],
+  ])("refuses the object version %p", (version, message) => {
+    const { bytes } = encodeCheckpointManifest(manifest());
+    const edited = JSON.parse(new TextDecoder().decode(bytes));
+    edited.workspace.bundle.version = version;
+
+    expect(() =>
+      decodeCheckpointManifest(
+        new TextEncoder().encode(JSON.stringify(edited)),
+      ),
+    ).toThrow(message);
+  });
+
   test("encodes the same manifest to the same bytes whatever the key order", () => {
     const ordered = manifest();
     const shuffled = Object.fromEntries(

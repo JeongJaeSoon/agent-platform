@@ -74,6 +74,10 @@ scripts/verify-restore.sh --project ap-restore-1
 - **resume이 같은 native session으로 이어짐** — D3 pause/resume(94S-129) 뒤 direct-local e2e로 확인한다.
 - **worker image digest** — 94S-125 이미지가 생기면 `manifest.json`의 `images.worker`와 checkpoint를 만든 worker의 digest를 대조한다.
 
+## 복원본의 API는 `unversioned`로 띄운다
+
+checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229). `awslocal s3 sync`는 현재 객체의 바이트만 옮기므로 복원된 bucket의 객체는 모두 새 VersionId를 받는다. 백업 시점의 version을 가리키는 manifest는 복원본에서 그 version을 찾을 수 없다. 그래서 복원본의 API는 `CHECKPOINT_OBJECT_PROTECTION=unversioned`로 띄워야 세션을 복원할 수 있다 — key로 읽고 sha256으로 확인하는 저하된 모드다. `verify-restore.sh`는 key로 읽으므로 영향이 없다. version까지 보존하는 백업(VersionId를 유지하는 S3 replication, 또는 복원 뒤 manifest를 다시 고정하는 절차)은 아직 없다.
+
 ## 로컬에서 끝까지 돌려 보기
 
 제품에는 아직 checkpoint를 쓰는 경로가 없다(94S-201·246). `scripts/dev/seed-checkpoint.ts`가 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다.

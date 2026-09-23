@@ -12,6 +12,20 @@ export type ObjectRef = {
   readonly bytes: number;
   readonly key: string;
   readonly sha256: string;
+  /**
+   * The store's version id for the exact write these bytes came from — what
+   * `putImmutable` answered. A key says where an object lives *now*; a
+   * delete marker, a lifecycle rule or a privileged overwrite can change that
+   * after the pointer has moved, and verifying the key again at restore only
+   * finds the damage. A version cannot change, so a checkpoint that names one
+   * is verified and restored from the same bytes (94S-229).
+   *
+   * Absent only on a store without versions (the in-memory testkit, or a
+   * bucket without versioning). A control plane with `objectProtection:
+   * "locked"` refuses a manifest that leaves one out; an `"unversioned"` one
+   * ignores them and reads by key.
+   */
+  readonly version?: string;
 };
 
 /**
@@ -57,10 +71,10 @@ export type CheckpointWorkspace = {
    * checkpoint's own durability the only thing restore depends on, and makes
    * the commit verifiable by exactly the digest check every other object gets.
    *
-   * Writers must upload it with `putImmutable`. Finalize verifies the bytes it
-   * reads, and nothing it can do afterwards keeps that key from being replaced
-   * before restore — the verdict is only as durable as the write that made it.
-   * Pinning the verified object version so the two cannot diverge is 94S-229.
+   * Writers must upload it with `putImmutable` and record the version it
+   * answers, like every other ref: finalize verifies that version and restore
+   * reads that version, so a later write to the same key cannot come between
+   * the two.
    */
   readonly bundle: ObjectRef;
   readonly gitCommit: string;
@@ -130,19 +144,43 @@ export interface CheckpointCodec {
  * instead of overwriting, and the pointer never advances to it.
  */
 export type PutImmutableResult =
-  | { readonly outcome: "created" }
-  | { readonly outcome: "duplicate" }
+  // `version` is the write that now holds the bytes — for `duplicate`, the
+  // earlier write that already did. A writer records it in the ref it puts in
+  // a manifest. Absent on a store without versions.
+  | { readonly outcome: "created"; readonly version?: string }
+  | { readonly outcome: "duplicate"; readonly version?: string }
   | { readonly outcome: "conflict"; readonly sha256: string };
 
+export type ObjectHead = {
+  readonly bytes: number;
+  /** True when a legal hold keeps this version from being deleted. */
+  readonly held?: boolean;
+  /** The version that answered; absent on a store without versions. */
+  readonly version?: string;
+};
+
 export interface CheckpointObjectStore {
-  get(key: string): Promise<Uint8Array | undefined>;
+  /**
+   * With `version`, that exact write or undefined if the store no longer has
+   * it; without, whatever the key holds now.
+   */
+  get(key: string, version?: string): Promise<Uint8Array | undefined>;
   /** Size and presence without transferring the body; undefined when absent. */
-  head(key: string): Promise<{ bytes: number } | undefined>;
+  head(key: string, version?: string): Promise<ObjectHead | undefined>;
   list(prefix: string): Promise<string[]>;
   /** Append-only mirror write; callers own key uniqueness. */
   put(key: string, bytes: Uint8Array): Promise<void>;
   /** Create-only write. Never replaces an object that already exists. */
   putImmutable(key: string, bytes: Uint8Array): Promise<PutImmutableResult>;
+  /**
+   * Places a legal hold on one version: nobody can delete it until the hold
+   * is released, whatever their other permissions say. Idempotent. Only a
+   * store with versions and Object Lock offers it; the control plane calls it
+   * on everything a checkpoint it commits names. Whoever holds the permission
+   * to place a hold can also release one, so workers must not have it — they
+   * still share the bucket-wide credentials until 94S-251 scopes them.
+   */
+  hold?(key: string, version: string): Promise<void>;
 }
 
 /**

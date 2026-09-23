@@ -5,6 +5,7 @@ import {
   type CheckpointServiceDependencies,
   type CheckpointVerifier,
   createCheckpointService,
+  type ObjectProtection,
   rejectUnverifiedCheckpoints,
   serviceCheckpointVerifier,
 } from "@agent-platform/platform";
@@ -17,12 +18,13 @@ import {
   createGitWorkspaceBundleVerifier,
   createStorageS3Client,
   DEFAULT_MAX_GIT_MEMORY_BYTES,
+  describeBucketProtection,
   type GitCommandRunner,
 } from "@agent-platform/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
   CheckpointServiceDependencies,
-  "codecs" | "objects" | "store"
+  "codecs" | "objectProtection" | "objects" | "store"
 > & {
   /** Tests observe the git the verifier starts; the product path never passes this. */
   readonly gitRunner?: GitCommandRunner;
@@ -45,6 +47,9 @@ export function createApiCheckpointService(
 ): ReturnType<typeof createCheckpointService> {
   return createCheckpointService({
     codecs: deps.codecs,
+    ...(deps.objectProtection === undefined
+      ? {}
+      : { objectProtection: deps.objectProtection }),
     objects: deps.objects,
     store: deps.store,
     workspaceBundles:
@@ -98,12 +103,16 @@ export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] = {
 
 /**
  * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
- * `AWS_ENDPOINT_URL` (optional) and `CHECKPOINT_OBJECT_STORE`. The last one
- * set to `disabled` runs the API with no object store: every checkpoint is
- * refused and the worker checkpoint protocol answers CHECKPOINT_UNAVAILABLE.
- * It has to be said out loud — a missing bucket is a misconfiguration, and
- * one that would otherwise hide behind turns that keep finalizing without a
- * checkpoint.
+ * `AWS_ENDPOINT_URL` (optional), `CHECKPOINT_OBJECT_STORE` and
+ * `CHECKPOINT_OBJECT_PROTECTION`. `CHECKPOINT_OBJECT_STORE=disabled` runs the
+ * API with no object store: every checkpoint is refused and the worker
+ * checkpoint protocol answers CHECKPOINT_UNAVAILABLE. It has to be said out
+ * loud — a missing bucket is a misconfiguration, and one that would otherwise
+ * hide behind turns that keep finalizing without a checkpoint.
+ *
+ * `CHECKPOINT_OBJECT_PROTECTION` is `locked` (default) or `unversioned`, the
+ * CheckpointService `objectProtection`. Degrading to `unversioned` has to be
+ * said out loud for the same reason.
  */
 export type CheckpointStorageEnvironment = Readonly<
   Record<string, string | undefined>
@@ -113,6 +122,7 @@ export type CheckpointStorageConfig = {
   accessKeyId: string;
   bucket: string;
   endpoint?: string;
+  protection: ObjectProtection;
   region: string;
   secretAccessKey: string;
 };
@@ -149,10 +159,22 @@ export function checkpointStorageConfigFromEnv(
   // The bucket is named first so an empty environment is reported as the
   // missing object store, not as a missing key.
   const bucket = required(environment.S3_BUCKET, "S3_BUCKET");
+  const protection = environment.CHECKPOINT_OBJECT_PROTECTION?.trim();
+  if (
+    protection !== undefined &&
+    protection !== "" &&
+    protection !== "locked" &&
+    protection !== "unversioned"
+  ) {
+    throw new Error(
+      `CHECKPOINT_OBJECT_PROTECTION must be "locked" (default) or "unversioned", not ${protection}`,
+    );
+  }
   return {
     accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket,
     ...(endpoint ? { endpoint } : {}),
+    protection: protection === "unversioned" ? "unversioned" : "locked",
     region: required(environment.AWS_REGION, "AWS_REGION"),
     secretAccessKey: required(
       environment.AWS_SECRET_ACCESS_KEY,
@@ -188,7 +210,21 @@ export function createApiCheckpoints(
   if (config === "disabled") {
     return { verifier: rejectUnverifiedCheckpoints, protocol: undefined };
   }
-  const client = createStorageS3Client({
+  const service = createApiCheckpointService({
+    codecs: API_CHECKPOINT_CODECS,
+    objectProtection: config.protection,
+    objects: createCheckpointObjectStore({
+      bucket: config.bucket,
+      client: checkpointS3Client(config),
+    }),
+    store: createPostgresCheckpointStore(db),
+    ...(maxGitMemoryBytes === undefined ? {} : { maxGitMemoryBytes }),
+  });
+  return { verifier: serviceCheckpointVerifier(service), protocol: service };
+}
+
+function checkpointS3Client(config: CheckpointStorageConfig) {
+  return createStorageS3Client({
     s3: {
       accessKeyId: config.accessKeyId,
       ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
@@ -196,11 +232,28 @@ export function createApiCheckpoints(
       secretAccessKey: config.secretAccessKey,
     },
   });
-  const service = createApiCheckpointService({
-    codecs: API_CHECKPOINT_CODECS,
-    objects: createCheckpointObjectStore({ bucket: config.bucket, client }),
-    store: createPostgresCheckpointStore(db),
-    ...(maxGitMemoryBytes === undefined ? {} : { maxGitMemoryBytes }),
-  });
-  return { verifier: serviceCheckpointVerifier(service), protocol: service };
+}
+
+/**
+ * Refuses to start a `locked` deployment on a bucket that cannot pin or hold
+ * versions. Every finalize would otherwise fail on its first hold — and a
+ * bucket with versioning but no Object Lock would still verify, which reads
+ * like protection until the first hold is refused. `unversioned` is checked
+ * for nothing; the operator has said what it gives up.
+ */
+export async function assertCheckpointBucketProtection(
+  config: CheckpointStorageConfig,
+): Promise<void> {
+  if (config.protection !== "locked") return;
+  const client = checkpointS3Client(config);
+  try {
+    const found = await describeBucketProtection(client, config.bucket);
+    if (found.versioning !== "Enabled" || !found.objectLock) {
+      throw new Error(
+        `Checkpoint bucket ${config.bucket} has versioning ${found.versioning} and Object Lock ${found.objectLock ? "enabled" : "not configured"}; CHECKPOINT_OBJECT_PROTECTION=locked needs both (set it to "unversioned" to run without version pinning and holds)`,
+      );
+    }
+  } finally {
+    client.destroy();
+  }
 }

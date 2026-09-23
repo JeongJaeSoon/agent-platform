@@ -24,6 +24,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
+  assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
@@ -73,6 +74,13 @@ if (checkpointStorage === "disabled") {
     "Checkpoint object store is disabled; every checkpoint will be refused and no session can be restored",
     {},
   );
+} else if (checkpointStorage.protection === "unversioned") {
+  logger.warn(
+    "Checkpoint objects are not pinned by version or held; an object deleted or overwritten after its checkpoint committed is found at restore, not prevented",
+    { bucket: checkpointStorage.bucket },
+  );
+} else {
+  await assertCheckpointBucketProtection(checkpointStorage);
 }
 
 const pool = createApiPool(databaseUrl, logger);
