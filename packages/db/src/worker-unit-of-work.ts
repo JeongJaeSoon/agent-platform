@@ -582,6 +582,26 @@ function isRunnable(
   );
 }
 
+function replayableBinding(
+  session: SessionRow,
+  attempt: AttemptRow,
+  launch: Pick<
+    typeof workerLaunches.$inferSelect,
+    "executionId" | "generation"
+  >,
+): boolean {
+  return (
+    LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
+    session.podId === launch.executionId &&
+    session.executionId === launch.executionId &&
+    session.executionGeneration === launch.generation &&
+    attempt.executionId === launch.executionId &&
+    session.leaseEpoch === attempt.leaseEpoch &&
+    session.executionGeneration === attempt.executionGeneration &&
+    session.authRevision === attempt.authRevision
+  );
+}
+
 // A row with no repository id predates the catalog and matches nothing.
 function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   if (runnable.length === 0) return sql`false`;
@@ -818,6 +838,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // means the worker already used its token, so this is not a lost
           // response but a second holder trying to rotate it away.
           if (!bound || bound.attempt.state !== "allocated") {
+            return { outcome: "invalid_credential" };
+          }
+          // Terminate, close, a pause with nothing to drain and the lease
+          // sweep fence this attempt by moving the session on, but leave it
+          // `allocated` until the execution is seen gone (94S-139). A replay
+          // is therefore judged as a new claim and the fence would judge it:
+          // still the session's binding, on its epoch, and claimable
+          // (94S-291). Refused before anything is written, so the tokens and
+          // lease stay as the exit observation expects to find them.
+          if (!replayableBinding(bound.session, bound.attempt, launch)) {
             return { outcome: "invalid_credential" };
           }
           // A retry can land on a replica whose catalog lost this profile.
