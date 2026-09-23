@@ -10,7 +10,9 @@
 # open or closed, carries the run's URL in its body or in one of its comments:
 # the in-run step writes it there, and so does whoever reports it from here.
 # Closing that issue therefore acknowledges the run, and a second look at the
-# same run adds nothing. The lookup reads the list endpoints, not search,
+# same run adds nothing. The identity is the run, not the attempt: a rerun is
+# someone already looking at a run whose failure is on an issue, so a second
+# failing attempt of it is not a signal nobody saw. The lookup reads the list endpoints, not search,
 # which is indexed with a delay, and only what changed since the run was
 # created, because no report of it can be older.
 #
