@@ -41,7 +41,10 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Measured 75s for a 36-hour window of 64 commits (about 190 serial API
+    # calls); the ceiling leaves an order of magnitude for a busier main or a
+    # slow API.
+    timeout-minutes: 15
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
@@ -91,7 +94,10 @@ jobs:
           if [ -n "$ONLY_RUN" ]; then
             run_ids=$ONLY_RUN
           else
-            run_ids=$(awk '$1 == "present" { print $3 }' verdicts.txt 2>/dev/null || true)
+            # Oldest first: if the job is cut short, what is lost is the newest
+            # runs, which the next check sees again; the oldest are about to
+            # leave the window for good.
+            run_ids=$(awk '$1 == "present" { print $3 }' verdicts.txt 2>/dev/null | tac || true)
           fi
           failed=0
           for run_id in $run_ids; do
