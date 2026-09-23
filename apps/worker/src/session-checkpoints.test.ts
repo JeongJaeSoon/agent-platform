@@ -311,6 +311,105 @@ describe("SessionCheckpoints", () => {
     expect(h.objects.keys().some((key) => key.endsWith("manifest.json"))).toBe(
       false,
     );
+    // Recorded as the blocking reason before the turn can finish without it.
+    expect(h.gateway.checkpointRequests.at(-1)?.preparation).toEqual({
+      status: "rejected",
+      reason: "mirror_error",
+      detail:
+        "a transcript batch failed to mirror and has not been written since",
+    });
+  });
+
+  test("an unsettled mirror is recorded even when the publish stopped for another reason", async () => {
+    const h = harness({
+      captureWorkspace: async () => ({
+        status: "refused",
+        reason: "the checkout is shallow",
+      }),
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    h.objects.failWrites(1);
+    await expect(
+      mirror.append(root, [{ type: "user", uuid: "u2", message: "lost" }]),
+    ).rejects.toThrow("Injected");
+
+    expect(
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      }),
+    ).toBeNull();
+
+    expect(h.gateway.checkpointRequests.at(-1)?.preparation).toMatchObject({
+      status: "rejected",
+      reason: "mirror_error",
+    });
+  });
+
+  test("a lost mirror the gateway could not be told about fails the capture", async () => {
+    const gateway = new FakeWorkerGateway({
+      checkpoints: {
+        commit: async () => {},
+        requestCheckpoint: async (request) => {
+          if (request.preparation.status === "rejected") {
+            throw new WorkerGatewayRequestError(503, null, "restarting", true);
+          }
+          return {
+            status: "ready",
+            revision: 0,
+            manifest_ref: `sessions/${SESSION}/checkpoints/0000000000/att_fake/0123456789abcdef0123456789abcdef/manifest.json`,
+          };
+        },
+        restorePlan: async () => ({ status: "none" }),
+      },
+    });
+    const h = harness({ gateway });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const context = {
+      scope: scopeOf(claim),
+      recheck: async (): Promise<CheckpointPreparation> => ({
+        status: "rejected",
+        reason: "mirror_error",
+        detail: "Transcript mirror dropped a root batch",
+      }),
+    };
+
+    await expect(h.port.capture(ready, context)).rejects.toThrow(
+      "did not record it",
+    );
+    // The engine's own verdict takes the same path.
+    await expect(
+      h.port.capture(await context.recheck(), context),
+    ).rejects.toThrow("did not record it");
+    // An advisory refusal that does not land is only logged.
+    expect(
+      await h.port.capture(
+        { status: "rejected", reason: "tool_in_flight", detail: "x" },
+        context,
+      ),
+    ).toBeNull();
+  });
+
+  test("an upload that fails leaves no manifest naming what is missing", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    // The bundle is the first write of the publish.
+    h.objects.failWrites(1);
+
+    expect(
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      }),
+    ).toBeNull();
+
+    expect(h.warnings[0]?.fields).toMatchObject({ category: "error" });
+    expect(h.objects.keys().some((key) => key.includes("/checkpoints/"))).toBe(
+      false,
+    );
   });
 
   test("a mirror error raised while it uploaded keeps the manifest back", async () => {
@@ -331,6 +430,11 @@ describe("SessionCheckpoints", () => {
     expect(h.warnings[0]?.fields).toMatchObject({
       stage: "transcript",
       reason: "Transcript mirror dropped a root batch",
+    });
+    expect(h.gateway.checkpointRequests.at(-1)?.preparation).toEqual({
+      status: "rejected",
+      reason: "mirror_error",
+      detail: "Transcript mirror dropped a root batch",
     });
   });
 

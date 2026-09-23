@@ -380,6 +380,32 @@ describe("captureWorkspace", () => {
       },
     );
 
+    test("an index over the limit, before any git command reads it", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+
+      expect(await capture({ limits: { maxIndexBytes: 10 } })).toMatchObject({
+        status: "refused",
+        reason: expect.stringMatching(
+          /^the workspace index is \d+ bytes, over the 10 a checkpoint reads$/,
+        ),
+      });
+    });
+
+    test("tracked changes over the staging limit, before they are written as objects", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await writeFile(join(root, "a.txt"), "x".repeat(100));
+
+      expect(await capture({ limits: { maxStagedBytes: 50 } })).toEqual({
+        status: "refused",
+        reason: "the tracked changes are over the 50 bytes a checkpoint stages",
+      });
+      // An unchanged checkout stages nothing, whatever the limit.
+      await writeFile(join(root, "a.txt"), "a\n");
+      expect((await capture({ limits: { maxStagedBytes: 0 } })).status).toBe(
+        "captured",
+      );
+    });
+
     test("an untracked file it cannot read without following paths", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await writeFile(join(root, "notes.md"), "n\n");
@@ -416,6 +442,21 @@ describe("captureWorkspace", () => {
         ["notes/todo.md", "todo\n"],
         ["z.txt", "z\n"],
       ]);
+    });
+
+    test("keeps a leading U+FEFF in a name instead of reading the ignored file it would alias", async () => {
+      await commitFiles({ ".gitignore": "secrets.txt\n", "a.txt": "a\n" });
+      await writeFile(join(root, "secrets.txt"), "ignored secret\n");
+      await writeFile(join(root, "\ufeffsecrets.txt"), "untracked\n");
+
+      const result = await captured();
+
+      expect(
+        result.untracked.map(({ bytes, path }) => [
+          path,
+          new TextDecoder().decode(bytes),
+        ]),
+      ).toEqual([["\ufeffsecrets.txt", "untracked\n"]]);
     });
 
     test("keeps whether an untracked file is executable", async () => {

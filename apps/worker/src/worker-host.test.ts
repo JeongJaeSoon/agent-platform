@@ -2558,6 +2558,47 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     });
   });
 
+  test("a mirror error after a turn drains before the next input and is reported at once", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        {
+          type: "emit",
+          message: {
+            type: "system",
+            subtype: "mirror_error",
+            session_id: "fake-session",
+            error: "bucket unreachable",
+          },
+        },
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(2)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: { ...publishing, mirror: () => ({ persistedAt: null }) },
+        gateway,
+        // Nothing but the latch itself may send the beat that records it.
+        timeouts: { heartbeatIntervalMs: 60_000 },
+      },
+    );
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(summary.turns.map((turn) => turn.turnId)).toEqual(["1"]);
+    expect(runtime.inputs).toHaveLength(1);
+    expect(
+      gateway.heartbeats.some(
+        (beat) => beat.transcript?.mirror_error?.includes("bucket") === true,
+      ),
+    ).toBe(true);
+  });
+
   test("a port without a mirror heartbeats as before", async () => {
     const gateway = new FakeWorkerGateway();
     const { host } = harness(oneTurn, { checkpoints: publishing, gateway });

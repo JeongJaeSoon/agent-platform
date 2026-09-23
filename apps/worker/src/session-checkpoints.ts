@@ -43,6 +43,8 @@ import {
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_MANIFEST_OBJECTS = 20_000;
 const UPLOAD_CONCURRENCY = 8;
+const UNSETTLED =
+  "a transcript batch failed to mirror and has not been written since";
 
 export type SessionCheckpointsOptions = {
   gateway: Pick<WorkerGatewayClient, "requestCheckpoint" | "restorePlan">;
@@ -79,6 +81,18 @@ class PublishFailure extends Error {
     reason: string,
   ) {
     super(reason);
+  }
+}
+
+/**
+ * The transcript is missing entries nobody can name. Unlike the other
+ * failures this outlives the publish: the session must not report a turn
+ * complete without a checkpoint, so the gateway is told before the port
+ * answers.
+ */
+class MirrorLost extends PublishFailure {
+  constructor(reason: string) {
+    super("transcript", reason);
   }
 }
 
@@ -159,6 +173,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     let stage = "request";
     let revision: number | null = null;
     let manifestRef: string | null = null;
+    let lost: string | undefined;
     try {
       const answer = await this.#options.gateway.requestCheckpoint({
         ...context.scope,
@@ -169,15 +184,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           reason: answer.reason,
           detail: answer.detail,
         });
-        return null;
+      } else {
+        revision = answer.revision;
+        manifestRef = answer.manifest_ref;
+        stage = "publish";
+        return await this.#publish(bound, preparation, context, {
+          manifestRef: answer.manifest_ref,
+          revision: answer.revision,
+        });
       }
-      revision = answer.revision;
-      manifestRef = answer.manifest_ref;
-      stage = "publish";
-      return await this.#publish(bound, preparation, context, {
-        manifestRef: answer.manifest_ref,
-        revision: answer.revision,
-      });
     } catch (error) {
       if (isOwnershipLost(error)) throw error;
       this.#options.logger.warn("worker.checkpoint.failed", {
@@ -187,15 +202,27 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         revision,
         manifest_ref: manifestRef,
       });
-      return null;
+      if (error instanceof MirrorLost) lost = error.message;
     }
+    // Whatever stopped the publish, a mirror that lost a batch is recorded
+    // before the turn can be finalized without a checkpoint.
+    lost ??= bound.store.unsettled ? UNSETTLED : undefined;
+    if (lost !== undefined) {
+      await this.#report(
+        { status: "rejected", reason: "mirror_error", detail: lost },
+        context.scope,
+      );
+    }
+    return null;
   }
 
   /**
    * Sends a refusal to the gateway, which records the ones that outlive the
-   * turn — a dropped mirror batch above all — as the session's pending
-   * reason. A report that does not land is logged: the heartbeat carries a
-   * mirror error on its own, and the other reasons are advisory.
+   * turn as the session's pending reason. An advisory one that does not land
+   * is only logged. A mirror error that does not land throws: finalize
+   * without a checkpoint is accepted only while no blocking reason is
+   * recorded, so the turn must stay open rather than be reported complete
+   * ahead of the heartbeat that would have recorded it.
    */
   async #report(
     preparation: RejectedCheckpoint,
@@ -212,6 +239,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       });
     } catch (error) {
       if (isOwnershipLost(error)) throw error;
+      if (preparation.reason === "mirror_error") {
+        throw new Error(
+          `The transcript mirror failed and the gateway did not record it: ${describe(error)}`,
+        );
+      }
       this.#options.logger.warn("worker.checkpoint.report_failed", {
         reason: describe(error),
       });
@@ -291,14 +323,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // on, and a mirror error the engine raised since the verdict means the
     // pinned parts are missing entries nobody can name.
     if (bound.store.unsettled) {
-      throw new PublishFailure(
-        "transcript",
-        "a transcript batch failed to mirror and has not been written since",
-      );
+      throw new MirrorLost(UNSETTLED);
     }
     const now = await context.recheck();
     if (now.status === "rejected" && now.reason === "mirror_error") {
-      throw new PublishFailure("transcript", now.detail);
+      throw new MirrorLost(now.detail);
     }
 
     const referenced =

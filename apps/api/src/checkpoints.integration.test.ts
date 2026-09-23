@@ -273,6 +273,50 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     });
   }, 60_000);
 
+  test("a manifest refused at finalize leaves the key free to finalize the turn without one (94S-246)", async () => {
+    const { principal, scope, turnId } = await claimedSession();
+    const asked = await gateway.requestCheckpoint(principal, {
+      ...scope,
+      preparation: { status: "ready" },
+    });
+    if (asked.status !== "ready") throw new Error("expected a key");
+    const terminal = {
+      status: "completed" as const,
+      reason: null,
+      result: null,
+      usage: null,
+    };
+    // Nothing was uploaded under the key, so verification refuses it before
+    // finalizeAtomic stores anything for the turn.
+    const refused = {
+      ...scope,
+      turn_id: turnId,
+      finalize_key: "fin-1",
+      final_source_sequence: 0,
+      terminal,
+      checkpoint: {
+        revision: asked.revision,
+        manifest_ref: asked.manifest_ref,
+        manifest_sha256: "f".repeat(64),
+      },
+    };
+    await expect(gateway.finalize(principal, refused)).rejects.toMatchObject({
+      status: 409,
+      code: "CHECKPOINT_UNAVAILABLE",
+    });
+
+    expect(
+      await gateway.finalize(principal, { ...refused, checkpoint: null }),
+    ).toMatchObject({ status: "completed", checkpoint_revision: null });
+
+    // The refused body never becomes the stored one: replaying it now is a
+    // different request under a settled key.
+    await expect(gateway.finalize(principal, refused)).rejects.toMatchObject({
+      status: 409,
+      code: "IDEMPOTENCY_CONFLICT",
+    });
+  }, 60_000);
+
   test("a worker asks, uploads, finalizes with a verified checkpoint and gets a restore plan back", async () => {
     const { claimed, principal, scope, turnId } = await claimedSession();
     const sessionId = claimed.session_id;
@@ -294,7 +338,8 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       new TextEncoder().encode('{"type":"user"}\n'),
     );
     const bundleRef = await put(
-      `${prefix}checkpoints/0000000000/${claimed.attempt_id}/workspace.bundle`,
+      // Beside the manifest, in the directory this publish was handed.
+      `${asked.manifest_ref.slice(0, asked.manifest_ref.lastIndexOf("/") + 1)}workspace.bundle`,
       bundle.bytes,
     );
     const manifest: CheckpointManifest = {

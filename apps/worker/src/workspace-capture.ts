@@ -32,6 +32,14 @@ export type WorkspaceCaptureResult =
 export type WorkspaceCaptureLimits = {
   /** The control plane refuses a larger bundle (`DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`). */
   maxBundleBytes: number;
+  /** The workspace index is copied whole before anything reads it. */
+  maxIndexBytes: number;
+  /**
+   * Tracked files that differ from the index, summed before `add -u` writes
+   * them into the scratch object store: the bundle limit is only known once
+   * that disk is spent.
+   */
+  maxStagedBytes: number;
   maxUntrackedBytes: number;
   maxUntrackedFiles: number;
 };
@@ -43,6 +51,8 @@ export type WorkspaceCaptureLimits = {
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
   maxBundleBytes: 128 * 1024 * 1024,
+  maxIndexBytes: 256 * 1024 * 1024,
+  maxStagedBytes: 512 * 1024 * 1024,
   maxUntrackedBytes: 256 * 1024 * 1024,
   maxUntrackedFiles: 10_000,
 };
@@ -162,12 +172,21 @@ export async function captureWorkspace(input: {
     ]);
     if (head.code !== 0) return refused("HEAD has no commit yet");
     const headCommit = head.stdout.trim();
-    const problem = await unrepresentable(workspace, gitDirectory);
-    if (problem !== undefined) return refused(problem);
-
+    // Copied, bounded, before any git command reads it: an index a previous
+    // engine grew to gigabytes would otherwise be loaded whole by the checks.
     const index = join(scratch, "index");
-    const copied = await copyIndex(gitDirectory, index);
+    const copied = await copyIndex(gitDirectory, index, limits.maxIndexBytes);
     if (copied !== undefined) return refused(copied);
+    const indexed: Git = (args) =>
+      run(args, {
+        GIT_DIR: gitDirectory,
+        GIT_INDEX_FILE: index,
+        GIT_WORK_TREE: root,
+      });
+    const problem = await unrepresentable(indexed, gitDirectory);
+    if (problem !== undefined) return refused(problem);
+    const staged = await stagedBytes(indexed, root, limits.maxStagedBytes);
+    if (staged !== undefined) return refused(staged);
     await check(
       run(["init", "--quiet", "--bare", repository], {}),
       "init scratch",
@@ -241,7 +260,12 @@ export async function captureWorkspace(input: {
     }
     let others: string;
     try {
-      others = new TextDecoder("utf-8", { fatal: true }).decode(listed);
+      // ignoreBOM: a leading U+FEFF is part of the name (`\ufeff.env` is
+      // not `.env`), not a byte-order mark to drop.
+      others = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true,
+      }).decode(listed);
     } catch {
       return refused("an untracked file's name is not valid UTF-8");
     }
@@ -369,12 +393,40 @@ async function unrepresentable(
 }
 
 /**
+ * What `add -u` would write into the scratch object store: the tracked files
+ * whose disk content differs from the index, by their size on disk (an
+ * upper bound on the loose objects they become). Refused past `limit`.
+ */
+async function stagedBytes(
+  git: Git,
+  root: string,
+  limit: number,
+): Promise<string | undefined> {
+  const modified = await required(
+    git(["ls-files", "-z", "--modified"]),
+    "ls-files",
+  );
+  let total = 0;
+  for (const path of new Set(modified.split("\0"))) {
+    if (path === "") continue;
+    const found = await lstat(join(root, path)).catch(() => null);
+    if (found?.isFile() !== true) continue;
+    total += found.size;
+    if (total > limit) {
+      return `the tracked changes are over the ${limit} bytes a checkpoint stages`;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Copies the workspace index without following a symlink planted in its
  * place; the copy is what gets staged into. A missing index is an empty one.
  */
 async function copyIndex(
   gitDirectory: string,
   destination: string,
+  limit: number,
 ): Promise<string | undefined> {
   let handle: Awaited<ReturnType<typeof open>>;
   try {
@@ -389,10 +441,26 @@ async function copyIndex(
     throw error;
   }
   try {
-    if (!(await handle.stat()).isFile()) {
-      return "the workspace index is not a regular file";
+    const info = await handle.stat();
+    if (!info.isFile()) return "the workspace index is not a regular file";
+    if (info.size > limit) {
+      return `the workspace index is ${info.size} bytes, over the ${limit} a checkpoint reads`;
     }
-    await writeFile(destination, await handle.readFile());
+    // One byte past what fstat said, so an index still growing is noticed.
+    const buffer = new Uint8Array(info.size + 1);
+    let filled = 0;
+    while (filled < buffer.byteLength) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        filled,
+        buffer.byteLength - filled,
+      );
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    if (filled !== info.size)
+      return "the workspace index changed while it was read";
+    await writeFile(destination, buffer.subarray(0, filled));
     return undefined;
   } finally {
     await handle.close().catch(() => undefined);

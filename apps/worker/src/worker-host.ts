@@ -537,6 +537,13 @@ export class WorkerHost {
       // Before asking for input, not after: a delivered input the engine is
       // never given would be left for recovery as if it might have run.
       if (!(await this.interruptSettled())) return;
+      if (this.mirrorError !== undefined) {
+        // The next turn would run on a transcript that can no longer be
+        // checkpointed; the gateway blocks new turns once the heartbeat
+        // records it, and this stops the one that could slip in before.
+        this.stop({ kind: "drain", reason: this.mirrorError });
+        return;
+      }
       // Between turns, the one safe boundary a pause waits for.
       if (this.pauseControl !== undefined) {
         await this.commitPause(this.pauseControl);
@@ -1286,11 +1293,16 @@ export class WorkerHost {
     if (native.type === "system" && native.subtype === "mirror_error") {
       // Latched for the run like the ledger's own: the SDK has given up on a
       // batch, and no later write brings it back.
-      this.mirrorError ??= `Transcript mirror dropped a batch: ${
-        typeof native.error === "string" && native.error.length > 0
-          ? native.error
-          : "unspecified error"
-      }`;
+      if (this.mirrorError === undefined) {
+        this.mirrorError = `Transcript mirror dropped a batch: ${
+          typeof native.error === "string" && native.error.length > 0
+            ? native.error
+            : "unspecified error"
+        }`;
+        // Recorded now rather than at the next interval: until the gateway
+        // holds it, a checkpoint-less completion is still accepted.
+        this.heartbeat?.beatNow();
+      }
     }
     if (native.type !== "result") return;
     const turn = this.turn;
