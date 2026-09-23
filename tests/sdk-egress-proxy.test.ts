@@ -173,6 +173,7 @@ async function runOneTurn(
         kind: "anthropic",
         endpoint: endpoint.url,
         auth: { kind: "api_key", value: "placeholder-local" },
+        principal: { ownerScope: "owner-a" },
       },
       settingSources: ["project"],
       tools: [],

@@ -25,7 +25,17 @@ export type ClaudeNativeEnvelope = NativeEnvelope & {
 
 export type RuntimePlugin = { path: string; type: "local" };
 
-export type RuntimeProfile =
+/**
+ * Who a run acts for, said without any credential. A session belongs to an
+ * owner partition (`AuthorizationContext.owner_scope` on the platform side),
+ * so that partition is what a checkpoint belongs to as well: another user of
+ * the same partition may resume it, the same endpoint under another partition
+ * may not. It is hashed into the checkpoint fingerprint, which is why it must
+ * be stable across credential rotation and must never be the secret itself.
+ */
+export type RuntimePrincipal = { ownerScope: string };
+
+export type RuntimeProfile = (
   | {
       auth: { kind: "api_key"; value: string };
       endpoint: string;
@@ -37,11 +47,33 @@ export type RuntimeProfile =
         | { kind: "bearer"; value: string };
       endpoint: string;
       kind: "litellm";
-    };
+    }
+) & { principal: RuntimePrincipal };
+
+/**
+ * Caller-asserted identities for the parts of a config the checkpoint
+ * fingerprint cannot hash by value: an in-process MCP server is a live object
+ * graph, and a local plugin is a path whose contents can change underneath
+ * it. Each is keyed the way the SDK names it — MCP servers by registry name,
+ * plugins by path — and the value is whatever the caller can keep stable for
+ * one tool surface and change for another: a version, a content digest, a
+ * release id. The fingerprint hashes the identity in place of the object, so
+ * two runs claim compatibility exactly when their callers say so.
+ */
+export type ComponentIdentities = {
+  mcpServers?: Record<string, string>;
+  plugins?: Record<string, string>;
+};
 
 export type ClaudeRuntimeConfig = RuntimeConfig & {
   appendSystemPrompt?: string;
   claudeConfigDir: string;
+  /**
+   * Required for every plugin and for every MCP server that is not plain
+   * data; a run missing one is refused before it starts, because no
+   * checkpoint it took could say what it was compatible with.
+   */
+  identities?: ComponentIdentities;
   mcpServers?: Record<string, unknown>;
   permissionMode?: PermissionMode;
   plugins?: RuntimePlugin[];

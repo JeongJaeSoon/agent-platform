@@ -18,6 +18,7 @@ import {
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
+  launchNonceFingerprint,
 } from "@agent-platform/platform";
 import { main } from "@agent-platform/scheduler/src/main.ts";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
@@ -281,15 +282,25 @@ integration(
       expect(turn?.deliveryStartedAt).not.toBeNull();
 
       // The one thing that must never be readable anywhere: the plaintext.
-      const nonce = envOf(
-        await inspect(containerName),
-        "WORKER_BOOTSTRAP_NONCE",
-      );
+      const container = await inspect(containerName);
+      const nonce = envOf(container, "WORKER_BOOTSTRAP_NONCE");
       expect(nonce).toMatch(/^wln_/);
       const dump = await pool.query(
         "SELECT string_agg(t::text, ' ') AS rows FROM worker_launches t",
       );
       expect(String(dump.rows[0]?.rows ?? "")).not.toContain(nonce);
+      // The container's fingerprint label is what the registry's own column
+      // computes to (94S-231), and carries neither the plaintext nor the
+      // column itself.
+      const labels = container.Config.Labels ?? {};
+      if (!launch?.nonceHash) throw new Error("launch row lost its hash");
+      expect(labels[LABELS.bootstrapFingerprint]).toBe(
+        launchNonceFingerprint(launch.nonceHash),
+      );
+      expect(JSON.stringify(labels)).not.toContain(nonce);
+      expect(JSON.stringify(labels)).not.toContain(
+        Buffer.from(launch.nonceHash).toString("hex"),
+      );
     }, 600_000);
 
     /** A one-file HTTP proxy on both networks, exactly as the deployed one runs. */
@@ -393,12 +404,12 @@ integration(
     }
 
     async function inspect(name: string): Promise<{
-      Config: { Env: string[] | null };
+      Config: { Env: string[] | null; Labels: Record<string, string> | null };
       State: { Running: boolean };
     }> {
       const response = await raw("GET", `/containers/${name}/json`);
       return (await response.json()) as {
-        Config: { Env: string[] | null };
+        Config: { Env: string[] | null; Labels: Record<string, string> | null };
         State: { Running: boolean };
       };
     }

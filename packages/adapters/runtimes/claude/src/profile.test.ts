@@ -17,6 +17,7 @@ const baseConfig: ClaudeRuntimeConfig = {
     kind: "anthropic",
     endpoint: "https://api.anthropic.com",
     auth: { kind: "api_key", value: "placeholder-direct" },
+    principal: { ownerScope: "owner-a" },
   },
   tools: ["Read", "Edit"],
 };
@@ -204,6 +205,7 @@ describe("runtime profiles", () => {
         kind: "litellm",
         endpoint: "https://proxy.example.com/v1",
         auth: { kind: "bearer", value: "placeholder-bearer" },
+        principal: { ownerScope: "owner-a" },
       },
     });
     expect(bearer.ANTHROPIC_AUTH_TOKEN).toBe("placeholder-bearer");
@@ -212,6 +214,52 @@ describe("runtime profiles", () => {
       kind: "anthropic",
       endpoint: "https://api.anthropic.com",
       auth_kind: "api_key",
+      principal: { ownerScope: "owner-a" },
     });
+  });
+
+  test("a profile has to say who it acts for", () => {
+    const { principal: _principal, ...anonymous } = baseConfig.profile;
+
+    expect(() =>
+      validateRuntimeConfig(
+        { ...baseConfig, profile: anonymous as typeof baseConfig.profile },
+        policy,
+      ),
+    ).toThrow(/principal/);
+  });
+
+  test("refuses to start a run whose MCP server has no identity", () => {
+    // Every checkpoint such a run took would be unverifiable; the refusal
+    // belongs before the first turn, with the component named.
+    class McpServer {}
+    const opaque = { ...baseConfig, mcpServers: { review: new McpServer() } };
+
+    expect(() => validateRuntimeConfig(opaque, policy)).toThrow(
+      /MCP server "review" is not plain data and has no identity/,
+    );
+    expect(
+      validateRuntimeConfig(
+        { ...opaque, identities: { mcpServers: { review: "review@1" } } },
+        policy,
+      ),
+    ).toEqual({
+      ...opaque,
+      identities: { mcpServers: { review: "review@1" } },
+    });
+  });
+
+  test("refuses to resume a run whose plugin has no identity", () => {
+    const resume = {
+      ...baseConfig,
+      localTranscriptResume: true as const,
+      mode: "resume" as const,
+      plugins: [{ path: "/tenant/plugin", type: "local" as const }],
+      resume: "sdk-session-1",
+    };
+
+    expect(() => validateRuntimeConfig(resume, policy)).toThrow(
+      /Plugin "\/tenant\/plugin" has no identity/,
+    );
   });
 });

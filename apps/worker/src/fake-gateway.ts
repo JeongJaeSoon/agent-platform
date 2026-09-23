@@ -32,6 +32,8 @@ export type FakeWorkerGatewayOptions = {
   /** Where this session's turn numbering carries on from. */
   firstTurn?: number;
   leaseTtlMs?: number;
+  /** The owner partition the claim names as the checkpoint principal. */
+  ownerScope?: string;
   restore?: CheckpointRef | null;
   runtime?: SessionRuntime;
   runtimeConfig?: RuntimeConfig;
@@ -98,6 +100,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       attemptId: options.attemptId ?? "att_fake",
       firstTurn: options.firstTurn ?? 1,
       leaseTtlMs: options.leaseTtlMs ?? 30_000,
+      ownerScope: options.ownerScope ?? "fake-owner",
       restore: options.restore ?? null,
       runtime: options.runtime ?? {
         kind: "claude_agent_sdk",
@@ -197,6 +200,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           branch: "main",
         },
       },
+      principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
     };
   }

@@ -128,6 +128,18 @@ export function hashWorkerToken(value: string): Uint8Array {
   return createHash("sha256").update(value, "utf8").digest();
 }
 
+/**
+ * What a launched resource is labelled with so a later pass can tell which
+ * credential it holds without reading the credential: a digest of the hash
+ * the registry stores, so the registry can compute it from its own column
+ * and the label is never the column's lookup key itself. Labels are readable
+ * by anyone on the daemon; this reveals nothing the plaintext env var next
+ * to it does not already.
+ */
+export function launchNonceFingerprint(nonceHash: Uint8Array): string {
+  return createHash("sha256").update(nonceHash).digest("hex");
+}
+
 export function generateLaunchNonce(): string {
   return `wln_${randomBytes(32).toString("base64url")}`;
 }
@@ -534,6 +546,7 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             ...resolveProfile(binding.profileId),
             workspace: { repository: binding.repository },
+            principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
           };
         }

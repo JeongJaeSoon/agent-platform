@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type {
-  ExecutionResources,
-  LaunchIntent,
+import {
+  type ExecutionResources,
+  hashWorkerToken,
+  type LaunchIntent,
+  launchNonceFingerprint,
 } from "@agent-platform/platform";
 import {
   containerNameFor,
@@ -331,8 +333,20 @@ const RESOURCES = { cpus: 1.5, memoryBytes: 2 * 1024 ** 3, pidsLimit: 512 };
 /** How often the registry was asked for a credential; only creating asks. */
 let nonceIssues = 0;
 
+/** What the label carries for `nonce`, as the registry would compute it. */
+function fingerprintOf(nonce: string): string {
+  return launchNonceFingerprint(hashWorkerToken(nonce));
+}
+
 function intentFor(overrides: Partial<LaunchIntent> = {}): LaunchIntent {
   return {
+    // The registry accepts exactly the credential this fixture issues, so a
+    // container this backend created is always adoptable unless a test
+    // changes one side.
+    bootstrapCredentialState: async () => ({
+      claimed: false,
+      fingerprint: fingerprintOf("nonce-abc"),
+    }),
     executionId: "exec-11111111-2222-3333-4444-555555555555",
     generation: 1,
     image: "worker:test",
@@ -476,6 +490,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
       ].sort(),
     );
     expect(body.Labels).toEqual({
+      [LABELS.bootstrapFingerprint]: fingerprintOf("nonce-abc"),
       [LABELS.executionId]: intent.executionId,
       [LABELS.generation]: "1",
       [LABELS.installation]: "test-a",
@@ -558,6 +573,173 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
     expect(fresh?.body.Labels[LABELS.isolation]).toBe(
       isolationStampFor(configFor(docker.host)),
+    );
+  });
+
+  test("a race winner holding another credential is replaced, not adopted", async () => {
+    // Attempt 0 issued nonce-abc and lost the name to a container built with
+    // some other nonce; the registry only accepts nonce-abc, so that
+    // container could never claim.
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    docker.raceWinnerLabels = {
+      [LABELS.bootstrapFingerprint]: fingerprintOf("nonce-from-elsewhere"),
+    };
+    const before = nonceIssues;
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(docker.containers.size).toBe(1);
+    const fresh = docker.containers.get(containerNameFor(intent, "test-a"));
+    expect(fresh?.body.Labels[LABELS.bootstrapFingerprint]).toBe(
+      fingerprintOf("nonce-abc"),
+    );
+    // Only creates mint: one for the lost attempt, one for the replacement.
+    expect(nonceIssues - before).toBe(2);
+    expect(
+      docker.requests.filter((r) => r.method === "DELETE").map((r) => r.path),
+    ).toHaveLength(1);
+  });
+
+  test("a race winner is adopted when its credential is the accepted one", async () => {
+    // A create whose reply was lost: the daemon has the container from this
+    // very request, built with the nonce the registry holds.
+    const intent = intentFor();
+    docker.conflictNextCreate = true;
+    const result = await backend.ensureExecution(intent);
+    expect(result).toMatchObject({ created: false, state: "running" });
+    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
+      0,
+    );
+  });
+
+  test("a container from before the fingerprint label is adopted as before", async () => {
+    // It cannot be judged, and its worker may be mid-claim with a good
+    // nonce; the registry is not even asked. A wrong credential on it is
+    // left to the expiry path, exactly as before the label existed.
+    const intent = intentFor({
+      bootstrapCredentialState: async () => {
+        throw new Error("must not be consulted for an unlabelled container");
+      },
+    });
+    const body = await createBodyOf(intentFor());
+    delete body.Labels[LABELS.bootstrapFingerprint];
+    const unlabelled = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toEqual({
+      created: false,
+      providerRef: unlabelled.id,
+      state: "running",
+    });
+  });
+
+  test("a launch the registry no longer holds tears nothing down", async () => {
+    const intent = intentFor({
+      bootstrapCredentialState: async () => {
+        throw new Error("Launch is released or unknown");
+      },
+    });
+    const body = await createBodyOf(intentFor());
+    body.Labels[LABELS.bootstrapFingerprint] = fingerprintOf("whatever");
+    docker.add(containerNameFor(intent, "test-a"), body);
+
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "released or unknown",
+    );
+    expect(docker.containers.size).toBe(1);
+    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
+      0,
+    );
+  });
+
+  test("inspect reports the fingerprint label for the scheduler to judge", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    expect(await backend.inspect(intent)).toMatchObject({
+      credentialFingerprint: fingerprintOf("nonce-abc"),
+      found: true,
+    });
+    const body = await createBodyOf(intent);
+    delete body.Labels[LABELS.bootstrapFingerprint];
+    docker.containers.clear();
+    docker.add(containerNameFor(intent, "test-a"), body);
+    expect(await backend.inspect(intent)).toMatchObject({
+      credentialFingerprint: null,
+      found: true,
+    });
+  });
+
+  test("a registry that accepts no credential adopts nothing", async () => {
+    // Revoked after expiry, or never issued: whatever the container holds,
+    // there is nothing for it to match.
+    const intent = intentFor({
+      bootstrapCredentialState: async () => ({
+        claimed: false,
+        fingerprint: null,
+      }),
+    });
+    const body = await createBodyOf(intentFor());
+    const orphan = docker.add(containerNameFor(intent, "test-a"), body);
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toMatchObject({ created: true, state: "running" });
+    expect(docker.byIdOrName(orphan.id)).toBeUndefined();
+  });
+
+  test("a claimed launch's container is adopted whatever its label says", async () => {
+    // The worker already traded its nonce for a binding. The registry says
+    // so, and that is the whole of the judgement: replacing it would kill a
+    // bound worker, and adopting never issues a credential.
+    const intent = intentFor({
+      bootstrapCredentialState: async () => ({ claimed: true }),
+    });
+    const body = await createBodyOf(intentFor());
+    body.Labels[LABELS.bootstrapFingerprint] = fingerprintOf("rotated-away");
+    const bound = docker.add(containerNameFor(intent, "test-a"), body);
+    const before = nonceIssues;
+
+    const result = await backend.ensureExecution(intent);
+
+    expect(result).toEqual({
+      created: false,
+      providerRef: bound.id,
+      state: "running",
+    });
+    expect(nonceIssues).toBe(before);
+    expect(docker.requests.filter((r) => r.method === "DELETE")).toHaveLength(
+      0,
+    );
+  });
+
+  test("a credential mismatch on a container that is not ours is a conflict", async () => {
+    const intent = intentFor();
+    const body = await createBodyOf(intent);
+    body.Labels[LABELS.operationId] = "someone-else";
+    body.Labels[LABELS.bootstrapFingerprint] = fingerprintOf("theirs");
+    docker.add(containerNameFor(intent, "test-a"), body);
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      ExecutionConflictError,
+    );
+    expect(docker.containers.size).toBe(1);
+  });
+
+  test("the fingerprint label is derived from the credential and never contains it", async () => {
+    const intent = intentFor();
+    await backend.ensureExecution(intent);
+    const created = docker.containers.get(containerNameFor(intent, "test-a"));
+    const labels = created?.body.Labels ?? {};
+    expect(labels[LABELS.bootstrapFingerprint]).toBe(
+      fingerprintOf("nonce-abc"),
+    );
+    expect(labels[LABELS.bootstrapFingerprint]).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(labels)).not.toContain("nonce-abc");
+    // Not even the registry's own lookup key.
+    expect(JSON.stringify(labels)).not.toContain(
+      Buffer.from(hashWorkerToken("nonce-abc")).toString("hex"),
     );
   });
 
@@ -1073,6 +1255,25 @@ describe("LocalDockerBackend.terminate", () => {
     });
     expect(container.status).toBe("running");
     expect(docker.requests.some((r) => r.method === "DELETE")).toBe(false);
+  });
+
+  test("a terminate pinned to a provider id refuses a container that replaced it", async () => {
+    const intent = intentFor();
+    const first = await backend.ensureExecution(intent);
+    const body = await createBodyOf(intent);
+    docker.containers.clear();
+    const replacement = docker.add(containerNameFor(intent, "test-a"), body);
+
+    expect(
+      await backend.terminate(intent, { providerRef: first.providerRef }),
+    ).toEqual({
+      foundProviderRef: replacement.id,
+      outcome: "provider_mismatch",
+    });
+    expect(docker.containers.size).toBe(1);
+    expect(
+      await backend.terminate(intent, { providerRef: replacement.id }),
+    ).toEqual({ outcome: "terminated", providerRef: replacement.id });
   });
 
   test("reports absent when nothing exists for the execution", async () => {

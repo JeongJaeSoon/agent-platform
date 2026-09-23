@@ -88,7 +88,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "workspace_id",
     "created_by_user_id",
     "agent_release_id",
-    // 0103 (94S-201)
+    // 0104 (94S-201)
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",
     "last_transcript_persisted_at",
@@ -160,8 +160,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 4, total: 13 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 13 });
+      expect(first).toEqual({ adopted: 0, applied: 5, total: 14 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 14 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

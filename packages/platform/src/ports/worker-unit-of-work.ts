@@ -45,6 +45,9 @@ export type WorkerBinding = {
   authRevision: number;
   leaseExpiresAt: Date;
   profileId: string | null;
+  // The session's owner partition, straight from the row; the claim hands
+  // it to the worker as the checkpoint principal (94S-209).
+  ownerScope: string;
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;

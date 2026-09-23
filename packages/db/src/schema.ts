@@ -765,7 +765,7 @@ export const workerLaunches = pgTable(
       ),
     check(
       "worker_launches_replacement_reason_check",
-      sql`${table.replacementReason} IS NULL OR ${table.replacementReason} IN ('nonce_expired', 'stale_isolation')`,
+      sql`${table.replacementReason} IS NULL OR ${table.replacementReason} IN ('credential_mismatch', 'nonce_expired', 'stale_isolation')`,
     ),
     check(
       "worker_launches_replacement_count_check",

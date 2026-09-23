@@ -77,7 +77,7 @@ export function claudeRuntimeRegistry(
 ): RuntimeRegistry {
   const launcher: RuntimeLauncher = {
     start(launch, hooks) {
-      const { correlationId, runtimeConfig, ...plan } = launch;
+      const { correlationId, principal, runtimeConfig, ...plan } = launch;
       // The claim is the only source of what to run, so the adapter's
       // allowlist is that one endpoint and model. Left out: an allowlist
       // baked into the image to check the server against — worth adding
@@ -97,7 +97,12 @@ export function claudeRuntimeRegistry(
           home: config.runtime.home,
           model: runtimeConfig.model,
           permissionMode: runtimeConfig.permission_mode,
-          profile: runtimeConfig.provider,
+          // The catalog provider is shared across partitions; the claim's
+          // principal is what makes this session's checkpoints its own.
+          profile: {
+            ...runtimeConfig.provider,
+            principal: { ownerScope: principal.owner_scope },
+          },
           // None of the repository's own Claude settings: its hooks would run
           // commands no permission callback sees, with the provider key in
           // reach, and the claim's profile is the only policy reviewed. That

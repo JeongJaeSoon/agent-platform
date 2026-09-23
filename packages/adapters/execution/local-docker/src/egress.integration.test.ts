@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  hashWorkerToken,
   type LaunchIntent,
+  launchNonceFingerprint,
   sessionObjectPrefix,
 } from "@agent-platform/platform";
 import {
@@ -710,6 +712,10 @@ console.log("TLS " + response.status + " " + (await response.text()));
       executionId: `exec-${suffix}`,
       generation: 1,
       image: IMAGE,
+      bootstrapCredentialState: async () => ({
+        claimed: false,
+        fingerprint: launchNonceFingerprint(hashWorkerToken(`wln-${suffix}`)),
+      }),
       issueBootstrapNonce: async () => `wln-${suffix}`,
       operationId: `op-${suffix}`,
       resources: { cpus: 0.25, memoryBytes: 64 * 1024 * 1024, pidsLimit: 32 },

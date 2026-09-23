@@ -493,6 +493,7 @@ async function bindingOf(
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
     profileId: session.profileId,
+    ownerScope: session.ownerId,
     repository: {
       id: session.repositoryId,
       url: session.repoUrl,

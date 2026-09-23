@@ -76,6 +76,16 @@ export const workspaceDescriptorSchema = z
   .object({ repository: workspaceRepositorySchema })
   .strict();
 
+// Who the session acts for: its owner partition (`AuthorizationContext.
+// owner_scope`), copied from the session row. The worker hashes it into the
+// checkpoint fingerprint (94S-209), which is what keeps two partitions on one
+// shared provider endpoint from resuming each other's checkpoints. It is an
+// identifier, never a credential, and it names a partition rather than the
+// caller of the moment so another member of the same partition can resume.
+export const claimPrincipalSchema = z
+  .object({ owner_scope: z.string().min(1) })
+  .strict();
+
 const apiKeyAuthSchema = z
   .object({ kind: z.literal("api_key"), value: z.string().min(1) })
   .strict();
@@ -120,6 +130,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   runtime: sessionRuntimeSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
+  principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
 });
 
@@ -141,6 +152,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     provider_kind: response.runtime_config.provider.kind,
     repository_id: response.workspace.repository.id,
     branch: response.workspace.repository.branch,
+    owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
   };
 }
@@ -448,6 +460,7 @@ export type BootstrapClaimResponse = z.infer<
 >;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type WorkspaceDescriptor = z.infer<typeof workspaceDescriptorSchema>;
+export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;

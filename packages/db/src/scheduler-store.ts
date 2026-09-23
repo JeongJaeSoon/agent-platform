@@ -7,6 +7,7 @@ import type {
   ActiveExecution,
   ExecutionObservation,
   ExecutionRef,
+  LaunchCredentialState,
   ReplaceReason,
   ReserveLaunchInput,
   SchedulerDemand,
@@ -17,6 +18,7 @@ import {
   DEFAULT_NONCE_TTL_MS,
   generateLaunchNonce,
   hashWorkerToken,
+  launchNonceFingerprint,
 } from "@agent-platform/platform";
 import {
   and,
@@ -297,7 +299,17 @@ export function createPostgresSchedulerStore(
       ref: ExecutionRef,
       reason: ReplaceReason,
       expectedCount: number,
+      expectedNonceFingerprint?: string | null,
     ): Promise<number | null> {
+      // The fingerprint is compared inside the row lock as well, so a
+      // credential issued anew since the caller read its snapshot is never
+      // the one this write revokes.
+      const credentialFence =
+        expectedNonceFingerprint === undefined
+          ? undefined
+          : expectedNonceFingerprint === null
+            ? isNull(workerLaunches.nonceHash)
+            : sql`encode(sha256(${workerLaunches.nonceHash}), 'hex') = ${expectedNonceFingerprint}`;
       // The same guard as issuing a credential: a launch that bound a worker
       // or gave its slot back has nothing to rebuild, and saying so here is
       // what stops the caller tearing its resource down. Clearing the hash
@@ -317,6 +329,7 @@ export function createPostgresSchedulerStore(
             isNull(workerLaunches.claimedAttemptId),
             holdsSlot(),
             eq(workerLaunches.replacementCount, expectedCount),
+            credentialFence,
           ),
         )
         .returning({ count: workerLaunches.replacementCount });
@@ -335,6 +348,37 @@ export function createPostgresSchedulerStore(
         );
     },
 
+    async bootstrapCredentialState(
+      ref: ExecutionRef,
+    ): Promise<LaunchCredentialState> {
+      const [row] = await db
+        .select({
+          claimedAttemptId: workerLaunches.claimedAttemptId,
+          nonceHash: workerLaunches.nonceHash,
+        })
+        .from(workerLaunches)
+        .where(
+          and(
+            eq(workerLaunches.executionId, ref.executionId),
+            eq(workerLaunches.generation, ref.generation),
+            holdsSlot(),
+          ),
+        )
+        .limit(1);
+      if (!row) {
+        throw new Error(
+          `Launch ${ref.executionId} generation ${ref.generation} is released or unknown; it accepts no bootstrap credential`,
+        );
+      }
+      if (row.claimedAttemptId !== null) return { claimed: true };
+      return {
+        claimed: false,
+        fingerprint: row.nonceHash
+          ? launchNonceFingerprint(row.nonceHash)
+          : null,
+      };
+    },
+
     async listActiveExecutions(backend): Promise<ActiveExecution[]> {
       const rows = await db
         .select({
@@ -345,6 +389,7 @@ export function createPostgresSchedulerStore(
           generation: workerLaunches.generation,
           nonceExpiresAt: workerLaunches.nonceExpiresAt,
           nonceExpired: sql<boolean>`${workerLaunches.nonceExpiresAt} <= ${DB_NOW}`,
+          nonceHash: workerLaunches.nonceHash,
           observedState: executions.observedState,
           operationId: executions.launchOperationId,
           providerRef: executions.providerRef,
@@ -370,6 +415,9 @@ export function createPostgresSchedulerStore(
         nonceExpiresAt: row.nonceExpiresAt,
         // Null while no credential was issued; the comparison yields null too.
         nonceExpired: row.nonceExpired === true,
+        nonceFingerprint: row.nonceHash
+          ? launchNonceFingerprint(row.nonceHash)
+          : null,
         observedState: observedStateOf(row.observedState),
         operationId: row.operationId,
         providerRef: row.providerRef,
@@ -496,6 +544,7 @@ const OBSERVED_STATES = new Set<ExecutionObservation["state"]>([
 ]);
 
 const REPLACE_REASONS = new Set<ReplaceReason>([
+  "credential_mismatch",
   "nonce_expired",
   "stale_isolation",
 ]);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { RuntimeConfig } from "@agent-platform/contracts";
+import type { ClaimPrincipal, RuntimeConfig } from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
   type FakeStep,
@@ -86,10 +86,12 @@ function harness(
       : { resumedTranscript: overrides.resumedTranscript },
   );
   const launched: RuntimeConfig[] = [];
+  const principals: ClaimPrincipal[] = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, ...launch }, hooks) => {
         launched.push(runtimeConfig);
+        principals.push(principal);
         const wrap = overrides.wrap ?? ((run: AgentRun) => run);
         return wrap(
           runtime.start(
@@ -98,7 +100,10 @@ function harness(
               cwd: "/tmp/fake/workspace",
               home: "/tmp/fake/home",
               model: runtimeConfig.model,
-              profile: runtimeConfig.provider,
+              profile: {
+                ...runtimeConfig.provider,
+                principal: { ownerScope: principal.owner_scope },
+              },
               tools: runtimeConfig.tools,
               ...launch,
             },
@@ -118,7 +123,7 @@ function harness(
     workspace: overrides.workspace ?? noWorkspace,
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
   });
-  return { gateway, host, launched, runtime };
+  return { gateway, host, launched, principals, runtime };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -827,6 +832,7 @@ describe("inputUuid", () => {
 describe("WorkerHost before the engine starts", () => {
   test("runs the engine the claim resolved, not one of its own", async () => {
     const gateway = new FakeWorkerGateway({
+      ownerScope: "owner-b",
       runtimeConfig: {
         model: "claimed-model",
         tools: ["Read"],
@@ -838,7 +844,7 @@ describe("WorkerHost before the engine starts", () => {
         },
       },
     });
-    const { host, launched } = harness(
+    const { host, launched, principals } = harness(
       [
         { type: "await-input" },
         { type: "emit", message: resultMessage(uuidForTurn(1)) },
@@ -850,6 +856,8 @@ describe("WorkerHost before the engine starts", () => {
 
     await host.runLoop();
 
+    // The checkpoint principal is the claim's owner, never a worker default.
+    expect(principals).toEqual([{ owner_scope: "owner-b" }]);
     expect(launched).toEqual([
       {
         model: "claimed-model",
