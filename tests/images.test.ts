@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@agent-platform/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
+import {
+  SHUTDOWN_CLOSE_MS,
+  SHUTDOWN_DRAIN_MS,
+} from "../apps/api/src/shutdown.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -57,6 +61,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test.each(apps)("compose builds %s from apps/%s/Dockerfile", (app) => {
     expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
+  });
+
+  test("compose gives the API longer to stop than its drain takes", () => {
+    const apiBlock = compose.slice(compose.indexOf("\n  api:"));
+    const graceSeconds = Number(
+      apiBlock.match(/^ {4}stop_grace_period: (\d+)s$/m)?.[1],
+    );
+    expect(graceSeconds * 1000).toBeGreaterThan(
+      SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS,
+    );
   });
 
   test("the scheduler loop surfaces persistent failure", () => {

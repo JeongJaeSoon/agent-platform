@@ -173,6 +173,11 @@ services:
       dockerfile: apps/api/Dockerfile
     image: ${API_IMAGE:-agent-platform-api:dev}
     profiles: ["apps"]
+    # Docker's default 10s would SIGKILL a shutdown that may run to
+    # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
+    # apps/api/src/shutdown.ts); one open SSE stream is enough to use the
+    # whole drain. Keep this above the sum.
+    stop_grace_period: 45s
     # No `init: true`: the image's own ENTRYPOINT is tini (apps/api/Dockerfile),
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
