@@ -23,21 +23,25 @@ export type ProviderFailure = {
  * reports nothing (a request that never reached the provider) — so it
  * neither charges nor moves the baseline.
  *
- * A turn whose results carried no usable total settles with no cost at all,
- * not zero, so the API can tell an unknown cost from a zero one (94S-275).
- * Zero is a figure only while nothing has been spent, when it agrees with
- * the baseline.
+ * A turn whose own result carried no usable total settles with no cost at
+ * all, not zero, so the API can tell an unknown cost from a zero one
+ * (94S-275). Zero is a figure only while nothing has been spent, when it
+ * agrees with the baseline. What was carried from other results then waits
+ * for the next turn that does report, rather than lending this one a figure.
  */
 export class TurnAccounting {
   private lastTotalUsd = 0;
   private lastSessionId: string | undefined;
   private unsettledUsd = 0;
-  private reported = false;
+  // Whether the latest result gave a usable total. Settlement follows the
+  // settling turn's own result, so this is that turn's report.
+  private lastResultReported = false;
   private providerFailure: ProviderFailure | undefined;
 
   observe(native: NativeSdkMessage): void {
     if (native.type === "result") {
       const total = native.total_cost_usd;
+      this.lastResultReported = false;
       if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
         return;
       }
@@ -54,10 +58,10 @@ export class TurnAccounting {
           this.lastTotalUsd = 0;
           this.lastSessionId = sessionId;
         }
-        if (this.lastTotalUsd === 0) this.reported = true;
+        this.lastResultReported = this.lastTotalUsd === 0;
         return;
       }
-      this.reported = true;
+      this.lastResultReported = true;
       const restarted =
         total < this.lastTotalUsd ||
         (this.lastSessionId !== undefined && sessionId !== this.lastSessionId);
@@ -100,11 +104,11 @@ export class TurnAccounting {
     providerFailure: ProviderFailure | undefined;
   } {
     const settled = {
-      costUsd: this.reported ? this.unsettledUsd : undefined,
+      costUsd: this.lastResultReported ? this.unsettledUsd : undefined,
       providerFailure: this.providerFailure,
     };
-    this.unsettledUsd = 0;
-    this.reported = false;
+    if (this.lastResultReported) this.unsettledUsd = 0;
+    this.lastResultReported = false;
     this.providerFailure = undefined;
     return settled;
   }

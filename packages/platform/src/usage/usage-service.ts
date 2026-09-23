@@ -35,9 +35,10 @@ export function createUsageService(deps: {
   const { authorization, reader, limits } = deps;
 
   return {
-    // Every authenticated principal may read it (94S-275 decision): alpha
-    // users are internal staff and the scope model has no installation
-    // operator to reserve it for. Revisit before external exposure.
+    // Any principal holding sessions:read may read it, whoever's sessions
+    // they own (94S-275 decision): alpha users are internal staff and the
+    // scope model has no installation operator to reserve it for. Revisit
+    // before external exposure.
     async getInstallationLimits(): Promise<InstallationLimitsResponse> {
       const usage = await reader.installationUsage();
       return {

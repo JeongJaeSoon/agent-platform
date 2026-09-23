@@ -70,6 +70,18 @@ describe("TurnAccounting", () => {
     ]);
   });
 
+  test("a turn that reports nothing leaves carried cost for the next turn that does", () => {
+    const accounting = new TurnAccounting();
+    accounting.observe(result(1));
+    expect(accounting.settle().costUsd).toBe(1);
+    // Another turn's result, then this turn's own unusable zero.
+    accounting.observe(result(1.25));
+    accounting.observe(result(0));
+    expect(accounting.settle().costUsd).toBeUndefined();
+    accounting.observe(result(2));
+    expect(accounting.settle().costUsd).toBe(1);
+  });
+
   test("a result nobody settled rides on the next settlement", () => {
     const accounting = new TurnAccounting();
     accounting.observe(result(0.25));
