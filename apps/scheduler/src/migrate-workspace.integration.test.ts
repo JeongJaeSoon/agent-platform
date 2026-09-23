@@ -64,6 +64,7 @@ integration("a legacy session relaunched after migrate-workspace", () => {
     // suite covers the bounded copy on the daemon that can.
     EXECUTION_WORKSPACE_QUOTA: "off",
     MAX_TURN_SECONDS: "3600",
+    PROVIDER_MAX_RETRIES: "2",
     QUEUED_INPUT_LIMIT_PER_SESSION: "20",
     S3_BUCKET: "claude-sessions",
     SESSION_COST_LIMIT_USD: "25",
