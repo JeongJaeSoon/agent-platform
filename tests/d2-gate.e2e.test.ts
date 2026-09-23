@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import {
   Bucket,
   Chaos,
+  type ChaosEntry,
   type CheckpointRow,
   database,
   GateReport,
@@ -438,13 +439,25 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       entry.path.endsWith("/append-events"),
     );
     const lostAt = appendLog.find((entry) => entry.rule === lost);
-    const retried = appendLog.filter(
+    const attemptOf = (entry: ChaosEntry | undefined) =>
+      entry?.batch?.key.split(":")[0];
+    // The attempt's next append after the lost one must resend that batch:
+    // every lost sequence, byte for byte, before anything later lands.
+    const replay = appendLog.find(
       (entry) =>
         lostAt !== undefined &&
         entry.index > lostAt.index &&
-        entry.rule === null &&
-        entry.status === 200,
+        attemptOf(entry) === attemptOf(lostAt),
     );
+    const lostEvents = Object.entries(lostAt?.batch?.events ?? {});
+    const replayed =
+      replay !== undefined &&
+      replay.rule === null &&
+      replay.status === 200 &&
+      lostEvents.length > 0 &&
+      lostEvents.every(
+        ([sequence, digest]) => replay.batch?.events[sequence] === digest,
+      );
     const numbering = await eventNumbering(sessionId);
     report.check({
       id: "A-04",
@@ -453,17 +466,26 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "an append whose response was lost is retried into the same events, once",
       input: "lose_response on the first append-events of turn 2",
       expected:
-        "the rule fired, a later append succeeded, events numbered without gap or repeat",
+        "the rule fired after the upstream committed; the attempt's next append resent every lost event unchanged and succeeded; events numbered without gap or repeat",
       actual: {
         fired: appendLog.filter((entry) => entry.rule === lost).length,
         committed_upstream: lostAt?.upstreamStatus ?? null,
-        later_appends_ok: retried.length,
+        lost_batch: lostAt?.batch ?? null,
+        replay:
+          replay === undefined
+            ? null
+            : {
+                batch: replay.batch,
+                index: replay.index,
+                rule: replay.rule,
+                status: replay.status,
+              },
         per_attempt: numbering.attempts,
         problems: numbering.problems,
       },
       pass:
         lostAt?.upstreamStatus === 200 &&
-        retried.length > 0 &&
+        replayed &&
         numbering.problems.length === 0,
     });
 

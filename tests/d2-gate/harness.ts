@@ -735,6 +735,8 @@ export type ChaosRule = {
 
 export type ChaosEntry = {
   at: string;
+  /** append-events only: the batch key and each event's sha256 by source_sequence. */
+  batch: { events: Record<string, string>; key: string } | null;
   /** Arrival order at the fault injector. */
   index: number;
   method: string;

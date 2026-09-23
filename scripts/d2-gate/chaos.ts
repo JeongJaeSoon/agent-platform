@@ -27,8 +27,16 @@ type Rule = {
   upstream: Upstream;
 };
 
+type Batch = {
+  key: string;
+  /** source_sequence → sha256 of the event as sent. */
+  events: Record<number, string>;
+};
+
 type Entry = {
   at: string;
+  /** An append-events call's batch, so a retry can be matched to its original. */
+  batch: Batch | null;
   bodyBytes: number;
   index: number;
   method: string;
@@ -74,6 +82,25 @@ function matching(
   );
 }
 
+function batchOf(path: string, body: string): Batch | null {
+  if (!path.endsWith("/append-events")) return null;
+  try {
+    const parsed = JSON.parse(body) as {
+      batch_key: string;
+      events: { source_sequence: number }[];
+    };
+    const events: Record<number, string> = {};
+    for (const event of parsed.events) {
+      events[event.source_sequence] = new Bun.CryptoHasher("sha256")
+        .update(JSON.stringify(event))
+        .digest("hex");
+    }
+    return { key: parsed.batch_key, events };
+  } catch {
+    return null;
+  }
+}
+
 function s3Error(): Response {
   return new Response(
     '<?xml version="1.0" encoding="UTF-8"?><Error><Code>InternalError</Code><Message>injected by the D2 gate</Message></Error>',
@@ -95,6 +122,7 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   if (rule) rule.fired++;
   const entry: Entry = {
     at: new Date().toISOString(),
+    batch: upstream === "gateway" ? batchOf(url.pathname, body) : null,
     bodyBytes: bytes.byteLength,
     index: log.length,
     method: request.method,
