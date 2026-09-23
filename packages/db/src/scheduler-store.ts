@@ -205,6 +205,7 @@ export function createPostgresSchedulerStore(
         .where(
           and(
             inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+            isNull(sessions.executionRevokedAt),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run.
             lt(sessions.costUsd, options.sessionCostLimitUsd),
@@ -248,6 +249,7 @@ export function createPostgresSchedulerStore(
           .select({
             admissionState: sessions.admissionState,
             costUsd: sessions.costUsd,
+            executionRevokedAt: sessions.executionRevokedAt,
           })
           .from(sessions)
           .where(eq(sessions.id, input.sessionId))
@@ -255,7 +257,8 @@ export function createPostgresSchedulerStore(
           .for("update");
         if (
           !session ||
-          !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState)
+          !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
+          session.executionRevokedAt !== null
         ) {
           return null;
         }

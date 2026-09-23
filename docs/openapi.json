@@ -2481,7 +2481,8 @@
               "pause",
               "terminate",
               "resume",
-              "recovery_decision"
+              "recovery_decision",
+              "revoke_execution"
             ]
           },
           "target_ref": {

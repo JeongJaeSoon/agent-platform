@@ -225,6 +225,15 @@ export function createSessionService(deps: {
     );
   }
 
+  // 403 rather than a state conflict: no retry or later request by the
+  // owner changes the answer, only the operator's restore does.
+  function executionRevoked(): never {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "An operator revoked this session's execution authority; it cannot run again until the operator restores it",
+    );
+  }
+
   return {
     async createSession(
       actor: Principal,
@@ -456,6 +465,8 @@ export function createSessionService(deps: {
             "The stopped session's workspace is being reclaimed; retry the same request shortly",
             { afterSeconds: 10 },
           );
+        case "execution_revoked":
+          throw executionRevoked();
         default:
           return result.response;
       }
@@ -516,6 +527,8 @@ export function createSessionService(deps: {
             // did not answer; then the next pass settles it.
             { afterSeconds: 10 },
           );
+        case "execution_revoked":
+          throw executionRevoked();
         default:
           return result.response;
       }

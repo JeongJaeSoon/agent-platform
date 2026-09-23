@@ -33,7 +33,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { PostgresSessionNotifier } from "./events/notifications.ts";
-import { DatabaseApiKeyStore, hashApiKey, issueApiKey } from "./keys.ts";
+import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
@@ -495,7 +495,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   test("a revoked API key ends the stream within one keepalive", async () => {
     const sessionId = await createdSession();
     const store = new DatabaseApiKeyStore(db);
-    const plaintext = await issueApiKey(store, {
+    const { keyId, plaintext } = await issueApiKey(store, {
       ownerId: owner,
       scopes: [...SESSION_SCOPE_VALUES],
     });
@@ -511,10 +511,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       ": keepalive\n\n",
     );
     const revokedAt = Date.now();
-    await db
-      .update(apiKeys)
-      .set({ revokedAt: new Date() })
-      .where(eq(apiKeys.keyHash, hashApiKey(plaintext)));
+    expect((await store.revoke(keyId)).outcome).toBe("revoked");
     let done = false;
     while (!done) {
       const chunk = await Promise.race([
@@ -533,6 +530,13 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
           record.fields?.reason === "credential_revoked",
       ),
     ).toBe(true);
+    // And the key opens nothing new.
+    const reopened = await stream(
+      sessionId,
+      { Authorization: `Bearer ${plaintext}` },
+      apiKeyApp,
+    );
+    expect(reopened.status).toBe(401);
   }, 15_000);
 
   test("a disconnecting client releases the server handle", async () => {
