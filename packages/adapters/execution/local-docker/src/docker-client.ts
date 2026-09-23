@@ -99,6 +99,17 @@ export type ContainerInspect = {
    */
   Mounts: Array<{ Destination: string; Name?: string; Type: string }>;
   Name: string;
+  /**
+   * Every network the container is attached to, keyed by name. `Aliases`
+   * holds the names asked for at connect time (older daemons add the short
+   * container id); a created, never-started container is listed too.
+   */
+  NetworkSettings?: {
+    Networks?: Record<
+      string,
+      { Aliases?: string[] | null; IPAddress?: string; NetworkID?: string }
+    > | null;
+  };
   State: {
     ExitCode: number;
     Running: boolean;
@@ -107,17 +118,23 @@ export type ContainerInspect = {
 };
 
 export type NetworkInspect = {
+  /** Running endpoints only: a created, never-started container is absent. */
   Containers: Record<string, { Name: string }> | null;
+  /** RFC 3339. */
+  Created?: string;
   Driver: string;
+  EnableIPv6?: boolean;
   Id: string;
   /** The bridge address the host holds inside the network, when it has one. */
   IPAM?: { Config?: Array<{ Gateway?: string; Subnet?: string }> };
   Internal: boolean;
+  Labels?: Record<string, string> | null;
   Name: string;
 };
 
 export type NetworkCreateBody = {
   Driver?: string;
+  EnableIPv6?: boolean;
   Internal: boolean;
   Labels?: Record<string, string>;
   Name: string;
@@ -283,13 +300,72 @@ export class DockerClient {
     return response.json();
   }
 
-  /** Idempotent: a network that is already gone is success. */
+  /**
+   * Idempotent: a network that is already gone is success. A network that
+   * still has endpoints answers 403 and is left to the caller.
+   */
   async removeNetwork(idOrName: string): Promise<void> {
     await this.request(
       "DELETE",
       `/networks/${encodeURIComponent(idOrName)}`,
       undefined,
       [204, 404],
+    );
+  }
+
+  async listNetworks(labels: string[]): Promise<NetworkInspect[]> {
+    const filters = encodeURIComponent(JSON.stringify({ label: labels }));
+    return (await this.request("GET", `/networks?filters=${filters}`)).json();
+  }
+
+  /**
+   * Every container attached to the network, stopped and never-started ones
+   * included — what `NetworkInspect.Containers` leaves out. Asked by name
+   * and by id: a created container records the network by name only, and
+   * the id catches one that joined by id (Docker 29, measured).
+   */
+  async listContainersOn(network: {
+    Id: string;
+    Name: string;
+  }): Promise<ContainerSummary[]> {
+    const filters = encodeURIComponent(
+      JSON.stringify({ network: [network.Name, network.Id] }),
+    );
+    const response = await this.request(
+      "GET",
+      `/containers/json?all=true&filters=${filters}`,
+    );
+    return response.json();
+  }
+
+  /**
+   * Not idempotent on the daemon's side: a container that is already
+   * attached answers 403. Callers judge the outcome by inspecting the
+   * attachment afterwards, not by the status code.
+   */
+  async connectNetwork(
+    network: string,
+    container: string,
+    aliases: string[],
+  ): Promise<void> {
+    await this.request(
+      "POST",
+      `/networks/${encodeURIComponent(network)}/connect`,
+      { Container: container, EndpointConfig: { Aliases: aliases } },
+      [200],
+    );
+  }
+
+  /**
+   * A container that is not attached answers 500 ("is not connected"), not
+   * 404, so callers re-inspect rather than trust any particular code.
+   */
+  async disconnectNetwork(network: string, container: string): Promise<void> {
+    await this.request(
+      "POST",
+      `/networks/${encodeURIComponent(network)}/disconnect`,
+      { Container: container, Force: true },
+      [200],
     );
   }
 

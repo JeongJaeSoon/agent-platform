@@ -4,6 +4,7 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { LocalDockerBackend } from "@agent-platform/execution-local-docker";
 import { createLogger } from "@agent-platform/observability";
 import {
+  reclaimNetworks,
   reclaimWorkspaces,
   runScheduler,
   type SchedulerRunSummary,
@@ -35,9 +36,6 @@ export async function main(
   try {
     const db = drizzle(pool, { schema });
     const backend = new LocalDockerBackend(config.docker);
-    // Before anything is launched: the egress policy is only worth what the
-    // worker network's `internal` flag is worth, and only the daemon knows.
-    await backend.verifyNetworkIsolation();
     if (config.docker.workspaceQuota.mode === "off") {
       // The one warning the opt-out costs. Losing the quota by accident —
       // a daemon that cannot carry one — stops the process instead.
@@ -57,6 +55,27 @@ export async function main(
       },
     );
     const store = latch.store;
+    // Before anything is launched: without exactly one running proxy there
+    // is nothing to give a worker network. The network reconcile still runs,
+    // under the pass lock like the pass itself, since two running proxies are
+    // exactly when it has to take them off the live networks; the error is
+    // rethrown either way.
+    try {
+      await backend.verifyNetworkIsolation();
+    } catch (error) {
+      logger.error(
+        "Egress proxy preflight failed; reconciling worker networks before giving up",
+        { error: messageOf(error) },
+      );
+      await reclaimNetworks({ backend, logger, store }).catch(
+        (reconcileError: unknown) => {
+          logger.error("Worker network reconcile failed", {
+            error: messageOf(reconcileError),
+          });
+        },
+      );
+      throw error;
+    }
     try {
       await backend.verifyWorkspaceQuota();
     } catch (error) {
@@ -106,6 +125,10 @@ function messageOf(error: unknown): string {
 export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.failedLaunches.length > 0 ||
     summary.killFailed.length > 0 ||
+    // A network that could be neither removed nor repaired is a leaked
+    // address pool or a worker without egress; both need someone to look.
+    summary.networkScanFailed ||
+    summary.networksFailed.length > 0 ||
     summary.orphansUnresolved.length > 0 ||
     summary.reclaimFailed.length > 0 ||
     summary.reconcileFailed.length > 0 ||

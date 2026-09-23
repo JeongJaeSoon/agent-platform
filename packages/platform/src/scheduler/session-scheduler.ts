@@ -5,6 +5,7 @@ import type {
   ExecutionResources,
   LaunchIntent,
   ManagedWorkspace,
+  NetworkReconcileResult,
   TerminateExecutionResult,
   TerminateOptions,
 } from "../ports/execution-backend.ts";
@@ -84,6 +85,18 @@ export type SchedulerRunSummary = {
   killed: ExecutionRef[];
   /** Kill intents the provider did not carry out; each row keeps its slot. */
   killFailed: ExecutionRef[];
+  /**
+   * Isolation resources (worker networks) the backend could neither remove
+   * nor repair. A fault: each one is either a leaked address pool or a
+   * worker cut off from its egress, so the exit code carries it.
+   */
+  networksFailed: string[];
+  /** Worker networks whose execution was gone, removed by this pass. */
+  networksReclaimed: string[];
+  /** Worker networks that had lost their egress proxy and were given it back. */
+  networksRepaired: string[];
+  /** true when the backend could not even list its worker networks. */
+  networkScanFailed: boolean;
   /** Terminate receipts flipped to unknown because the kill took too long. */
   terminationsOverdue: number;
   /**
@@ -113,7 +126,10 @@ export type SchedulerRunSummary = {
  * 1. Every live execution row is inspected; a missing resource is re-ensured
  *    from the stored intent, an exited one is recorded and reclaimed, and
  *    one with a kill intent is torn down.
- * 2. Provider resources without a matching row are logged and terminated.
+ * 2. Provider resources without a matching row are logged and terminated,
+ *    then isolation resources whose execution is gone are removed and the
+ *    ones that lost their attachments repaired — before admission, so a
+ *    launch never waits on an address pool held by a leak.
  * 3. Remaining slots are filled: reserve (commit) then ensure, never inside
  *    the transaction.
  * Terminate receipts whose kill was not confirmed within the deadline are
@@ -181,6 +197,35 @@ export async function reclaimWorkspaces(
   }
   lock.signal.throwIfAborted();
   return summary;
+}
+
+/**
+ * The network half of step 2 on its own, under the same lock: for the caller
+ * whose egress proxy preflight refused the pass. Two running proxies are
+ * exactly when the live worker networks have to lose them, and a pass that
+ * never starts would leave them attached.
+ */
+export async function reclaimNetworks(
+  options: ReclaimOptions,
+): Promise<SchedulerRunSummary> {
+  const release = await options.store.acquirePassLock();
+  if (release === null) {
+    options.logger.warn("Another scheduling pass holds the lock; skipping");
+    return { ...emptySummary(0), skipped: true };
+  }
+  const summary = emptySummary(0);
+  try {
+    await reconcileNetworks(options, summary);
+    options.logger.info("Worker network reconcile completed", {
+      network_failed_count: summary.networksFailed.length,
+      network_reclaimed_count: summary.networksReclaimed.length,
+      network_repaired_count: summary.networksRepaired.length,
+      network_scan_failed: summary.networkScanFailed,
+    });
+    return summary;
+  } finally {
+    await release();
+  }
 }
 
 /**
@@ -267,6 +312,47 @@ async function collectWorkspaces(
   }
 }
 
+/**
+ * The second half of step 2. A backend that creates no isolation resources
+ * of its own leaves the method out and this does nothing.
+ */
+async function reconcileNetworks(
+  options: ReclaimOptions,
+  summary: SchedulerRunSummary,
+): Promise<void> {
+  const { backend, logger } = options;
+  if (!backend.reconcileNetworks) return;
+  let result: NetworkReconcileResult;
+  try {
+    result = await backend.reconcileNetworks();
+  } catch (error) {
+    summary.networkScanFailed = true;
+    logger.error("Listing worker networks failed; none reconciled", {
+      error: messageOf(error),
+    });
+    return;
+  }
+  summary.networksReclaimed.push(...result.removed);
+  summary.networksRepaired.push(...result.repaired);
+  for (const id of result.removed) {
+    logger.info("Worker network of a vanished execution removed", {
+      network_id: id,
+    });
+  }
+  for (const id of result.repaired) {
+    logger.warn("Worker network had lost its egress proxy; reattached", {
+      network_id: id,
+    });
+  }
+  for (const { error, id } of result.failed) {
+    summary.networksFailed.push(id);
+    logger.error("Worker network could not be reconciled", {
+      error,
+      network_id: id,
+    });
+  }
+}
+
 function emptySummary(slotLimit: number): SchedulerRunSummary {
   return {
     activeAfter: 0,
@@ -279,6 +365,10 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     reconcileFailed: [],
     killFailed: [],
     killed: [],
+    networkScanFailed: false,
+    networksFailed: [],
+    networksReclaimed: [],
+    networksRepaired: [],
     reensured: [],
     replaced: [],
     replacementsExhausted: [],
@@ -940,6 +1030,7 @@ async function pass(
     }
     summary.orphansTerminated.push(refOf(resource));
   }
+  await reconcileNetworks(options, summary);
 
   // 3. Fill free slots.
   const demand = await store.inspectDemand({ limit: options.slotLimit });
@@ -1022,6 +1113,10 @@ async function pass(
     kill_failed_count: summary.killFailed.length,
     killed_count: summary.killed.length,
     launched_count: summary.launched.length,
+    network_failed_count: summary.networksFailed.length,
+    network_reclaimed_count: summary.networksReclaimed.length,
+    network_repaired_count: summary.networksRepaired.length,
+    network_scan_failed: summary.networkScanFailed,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
     reclaim_failed_count: summary.reclaimFailed.length,

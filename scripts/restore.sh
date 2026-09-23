@@ -85,7 +85,6 @@ export RESTORE_POSTGRES_PORT="$PORT_BASE"
 export RESTORE_LOCALSTACK_PORT="$((PORT_BASE + 1))"
 export RESTORE_GITEA_HTTP_PORT="$((PORT_BASE + 2))"
 export RESTORE_GITEA_SSH_PORT="$((PORT_BASE + 3))"
-export RESTORE_WORKER_NETWORK="${INTO}-worker"
 
 # --- fresh services ----------------------------------------------------------
 log "restore: starting postgres, localstack, gitea as project '$INTO' (ports ${RESTORE_POSTGRES_PORT}..${RESTORE_GITEA_SSH_PORT})"
@@ -219,7 +218,7 @@ restore: done — project '$INTO'
   source's ports while Gitea keeps advertising these ones)
              RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
-             RESTORE_WORKER_NETWORK=$RESTORE_WORKER_NETWORK POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
+             POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
              docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d postgres localstack gitea
   tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
 EOF

@@ -18,16 +18,16 @@ export type WorkspaceQuota =
   | { mode: "off" };
 
 export type LocalDockerBackendConfig = {
-  /** Only networks in this list may be used; the empty list means none. */
-  allowedNetworks: string[];
   apiVersion: string;
   /** Overrides the image entrypoint; tests use it to run a sleeping busybox. */
   command?: string[];
   dockerHost: string;
   /**
-   * The forward proxy that is the worker network's only route off itself.
+   * The forward proxy that is each worker network's only route off itself.
    * Handed to the worker as `HTTP_PROXY`/`HTTPS_PROXY`; the destination
-   * allowlist lives in the proxy, not here.
+   * allowlist lives in the proxy, not here. Its host must be a name: the
+   * proxy container joins every worker's network under that alias, and its
+   * address differs on each one.
    */
   egressProxyUrl: string;
   /** Handed to the worker as `WORKER_GATEWAY_URL`. */
@@ -40,7 +40,6 @@ export type LocalDockerBackendConfig = {
    * same id are ever listed, adopted or reaped.
    */
   installationId: string;
-  network: string;
   /**
    * Where the worker mirrors transcripts and publishes checkpoints. Handed
    * to the container as the same `S3_BUCKET`/`AWS_*` variables the control
@@ -99,8 +98,6 @@ export type LocalDockerBackendEnvironment = {
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
   EXECUTION_EGRESS_PROXY_URL?: string | undefined;
   EXECUTION_INSTALLATION_ID?: string | undefined;
-  EXECUTION_DOCKER_NETWORK?: string | undefined;
-  EXECUTION_DOCKER_NETWORK_ALLOWLIST?: string | undefined;
   EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC?: string | undefined;
   EXECUTION_DOCKER_STOP_TIMEOUT_SEC?: string | undefined;
   EXECUTION_DOCKER_TMPFS_SIZE_MB?: string | undefined;
@@ -119,12 +116,14 @@ export const DEFAULT_WORKER_USER = "1000:1000";
 export const DEFAULT_INSTALLATION_ID = "local";
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 /**
- * Not `bridge`: a worker must sit on a network with no route off the daemon,
- * with the egress proxy as its only peer that has one.
+ * The settings of the shared worker network that per-execution networks
+ * replaced (94S-216). Set, they mean an operator expects a network this host
+ * no longer uses, so startup stops and says what changed.
  */
-export const DEFAULT_WORKER_NETWORK = "agent-platform-worker";
-/** Networks that can never satisfy the isolation contract, whatever the allowlist says. */
-const NEVER_ALLOWED_NETWORKS = new Set(["bridge", "default", "host", "none"]);
+const RETIRED_NETWORK_SETTINGS = [
+  "EXECUTION_DOCKER_NETWORK",
+  "EXECUTION_DOCKER_NETWORK_ALLOWLIST",
+] as const;
 
 export function localDockerConfigFromEnv(
   environment: LocalDockerBackendEnvironment,
@@ -135,19 +134,19 @@ export function localDockerConfigFromEnv(
   if (!egressProxyUrl) {
     throw new Error("EXECUTION_EGRESS_PROXY_URL is required");
   }
-  const network =
-    environment.EXECUTION_DOCKER_NETWORK ?? DEFAULT_WORKER_NETWORK;
-  const allowedNetworks = (
-    environment.EXECUTION_DOCKER_NETWORK_ALLOWLIST ?? DEFAULT_WORKER_NETWORK
-  )
-    .split(",")
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0);
+  for (const name of RETIRED_NETWORK_SETTINGS) {
+    if ((environment[name] ?? "").trim() !== "") {
+      throw new Error(
+        `${name} is no longer read: every worker now gets an internal network of its own, ` +
+          "created and removed by the scheduler, and the egress proxy is found by its " +
+          "agent-platform.egress-proxy label. Remove the setting and label the proxy container.",
+      );
+    }
+  }
   const command = (environment.EXECUTION_DOCKER_COMMAND ?? "")
     .split(/\s+/)
     .filter((part) => part.length > 0);
   return validateLocalDockerConfig({
-    allowedNetworks,
     apiVersion: environment.DOCKER_API_VERSION ?? DEFAULT_DOCKER_API_VERSION,
     ...(command.length > 0 ? { command } : {}),
     dockerHost: environment.DOCKER_HOST ?? DEFAULT_DOCKER_HOST,
@@ -156,7 +155,6 @@ export function localDockerConfigFromEnv(
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
     installationId:
       environment.EXECUTION_INSTALLATION_ID ?? DEFAULT_INSTALLATION_ID,
-    network,
     objectStore: objectStoreAccessFromEnv(environment),
     requestTimeoutMs:
       environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
@@ -248,16 +246,6 @@ function requiredValue(value: string | undefined, name: string): string {
 export function validateLocalDockerConfig(
   config: LocalDockerBackendConfig,
 ): LocalDockerBackendConfig {
-  if (!config.allowedNetworks.includes(config.network)) {
-    throw new Error(
-      `Docker network ${config.network} is not in the allowlist [${config.allowedNetworks.join(", ")}]`,
-    );
-  }
-  if (NEVER_ALLOWED_NETWORKS.has(config.network)) {
-    throw new Error(
-      `Docker network ${config.network} is never allowed for workers; use a dedicated internal network`,
-    );
-  }
   // Docker accepts any decimal spelling of uid 0 ("00", "000:1000"), so
   // compare the parsed number, not the string.
   const [uid, gid] = config.user.split(":");
@@ -309,6 +297,15 @@ export function validateLocalDockerConfig(
   if (proxy.pathname !== "/" || proxy.search !== "" || proxy.hash !== "") {
     throw new Error(
       `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name only a host and port`,
+    );
+  }
+  // The worker finds the proxy through the alias it is given on each worker
+  // network. An address would be right on at most one of them, and localhost
+  // is the worker itself.
+  const proxyHost = proxy.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(proxyHost) !== 0 || proxyHost === "localhost") {
+    throw new Error(
+      `EXECUTION_EGRESS_PROXY_URL ${config.egressProxyUrl} must name the proxy by a host name; it joins every worker network under that name`,
     );
   }
   if (

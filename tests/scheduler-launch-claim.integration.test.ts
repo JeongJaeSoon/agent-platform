@@ -15,6 +15,7 @@ import {
   LABELS,
   workspaceVolumePrefixFor,
 } from "@agent-platform/execution-local-docker";
+import { removeWorkerNetworks } from "@agent-platform/execution-local-docker/testing";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
@@ -115,7 +116,6 @@ integration(
     });
     const suffix = crypto.randomUUID().slice(0, 8);
     const installationId = `lc-${suffix}`;
-    const workerNetwork = `ap-lc-worker-${suffix}`;
     const outerNetwork = `ap-lc-outer-${suffix}`;
     const proxyName = `ap-lc-proxy-${suffix}`;
     const proxyUrl = `http://${proxyName}:3128`;
@@ -138,8 +138,6 @@ integration(
       DATABASE_URL: database.url,
       DOCKER_HOST: dockerHost,
       EXECUTION_DOCKER_COMMAND: "bun /workspace/claim.js",
-      EXECUTION_DOCKER_NETWORK: workerNetwork,
-      EXECUTION_DOCKER_NETWORK_ALLOWLIST: workerNetwork,
       EXECUTION_EGRESS_PROXY_URL: proxyUrl,
       EXECUTION_INSTALLATION_ID: installationId,
       EXECUTION_SLOT_LIMIT: "1",
@@ -160,7 +158,6 @@ integration(
       for (const image of [WORKER_IMAGE, SHELL_IMAGE]) {
         await client.pullImage(image);
       }
-      await client.createNetwork({ Internal: true, Name: workerNetwork });
       await client.createNetwork({ Internal: false, Name: outerNetwork });
 
       database = await createTempDatabase({ prefix: "launch_claim_it" });
@@ -235,9 +232,9 @@ integration(
           () => undefined,
         );
       }
-      for (const network of [workerNetwork, outerNetwork]) {
-        await client.removeNetwork(network).catch(() => undefined);
-      }
+      // The worker's own network, made by the backend; empty by now.
+      await removeWorkerNetworks(client, installationId).catch(() => undefined);
+      await client.removeNetwork(outerNetwork).catch(() => undefined);
       await pool?.end();
       await database?.drop();
     }, 300_000);
@@ -303,7 +300,10 @@ integration(
       );
     }, 600_000);
 
-    /** A one-file HTTP proxy on both networks, exactly as the deployed one runs. */
+    /**
+     * The real proxy, labelled for this installation so the backend attaches
+     * it to the worker's network, exactly as the deployed one runs.
+     */
     async function startProxy(port: number): Promise<void> {
       created.push(proxyName);
       const response = await raw(
@@ -323,17 +323,10 @@ integration(
             NetworkMode: outerNetwork,
           },
           Image: WORKER_IMAGE,
+          Labels: { [LABELS.egressProxy]: installationId },
         },
       );
       expect(response.status).toBe(201);
-      const connected = await raw(
-        "POST",
-        `/networks/${workerNetwork}/connect`,
-        {
-          Container: proxyName,
-        },
-      );
-      expect(connected.status).toBe(200);
       await client.startContainer(proxyName);
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline) {

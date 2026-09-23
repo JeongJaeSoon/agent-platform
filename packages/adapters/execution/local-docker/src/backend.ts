@@ -11,6 +11,7 @@ import {
   launchNonceFingerprint,
   type ManagedExecution,
   type ManagedWorkspace,
+  type NetworkReconcileResult,
   sessionObjectPrefix,
   type TerminateExecutionResult,
   type TerminateOptions,
@@ -24,9 +25,11 @@ import {
 import {
   type ContainerCreateBody,
   type ContainerInspect,
+  type ContainerSummary,
   DockerApiError,
   DockerClient,
   type ImageInspect,
+  type NetworkInspect,
   type VolumeInspect,
 } from "./docker-client.ts";
 
@@ -37,6 +40,12 @@ export const LABELS = {
    * it is about to adopt holds the nonce the registry currently accepts.
    */
   bootstrapFingerprint: "agent-platform.bootstrap-fingerprint",
+  /**
+   * On the egress proxy container, set by whoever deploys it: which
+   * installation's workers it serves. The backend attaches that container,
+   * and only that one, to each worker network it creates.
+   */
+  egressProxy: "agent-platform.egress-proxy",
   executionId: "agent-platform.session-execution-id",
   generation: "agent-platform.generation",
   /** Which isolation contract the container was created under. */
@@ -53,6 +62,8 @@ export const LABELS = {
    * leave alone. This label is what makes the probe ours to delete.
    */
   quotaProbe: "agent-platform.quota-probe",
+  /** On a per-execution worker network, beside the execution's own labels. */
+  workerNetwork: "agent-platform.worker-network",
   /** On the workspace volume: which ceiling it was created under. */
   workspaceQuota: "agent-platform.workspace-quota",
 } as const;
@@ -118,8 +129,13 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  * 2: internal worker network and egress proxy, no host-gateway mapping.
  * 3: object store access and the session prefix are part of the boundary.
  * 4: the workspace volume is created explicitly, under a byte quota.
+ * 5: each worker on an internal network of its own, shared only with the
+ *    egress proxy, so workers no longer reach one another (94S-216).
  */
-export const ISOLATION_CONTRACT = 4;
+export const ISOLATION_CONTRACT = 5;
+
+/** The first contract whose workers each sit on a network of their own. */
+const PER_EXECUTION_NETWORK_CONTRACT = 5;
 
 /**
  * What goes in the label: the contract version and a fingerprint of the
@@ -131,7 +147,6 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
     config.homeDir,
-    config.network,
     NO_PROXY_VALUE,
     config.tmpfsSizeBytes,
     config.user,
@@ -159,6 +174,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
 }
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
+const NETWORK_PREFIX = "ap-net-";
 const VOLUME_PREFIX = "ap-ws-";
 /** The preflight probe's volume; see `LABELS.quotaProbe` for its labels. */
 const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
@@ -167,22 +183,39 @@ const NO_QUOTA_SUPPORT = "no quota support";
 // Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*
 const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
-/** Deterministic per intent, so a retried create collides instead of doubling. */
 /**
- * Container and volume names are daemon-global, so both carry the
- * installation id: two installations sharing a daemon (or a cloned database
- * with the same ids) never collide on names or mount each other's workspace.
+ * Deterministic per intent, so a retried create collides instead of
+ * doubling. Container, network and volume names are daemon-global, so all
+ * carry the installation id: two installations sharing a daemon (or a cloned
+ * database with the same ids) never collide on names or mount each other's
+ * workspace.
  */
 export function containerNameFor(
   ref: ExecutionRef,
   installationId: string,
 ): string {
+  return `${CONTAINER_NAME_PREFIX}${installationId}-${safeExecutionId(ref)}-g${ref.generation}`;
+}
+
+/**
+ * The execution's own network, named after the same launch as its container.
+ * A replacement of the same launch comes back to it; the next generation
+ * gets another.
+ */
+export function networkNameFor(
+  ref: ExecutionRef,
+  installationId: string,
+): string {
+  return `${NETWORK_PREFIX}${installationId}-${safeExecutionId(ref)}-g${ref.generation}`;
+}
+
+function safeExecutionId(ref: ExecutionRef): string {
   if (!SAFE_NAME.test(ref.executionId)) {
     throw new Error(
       `Execution id ${ref.executionId} cannot be used as a Docker name`,
     );
   }
-  return `${CONTAINER_NAME_PREFIX}${installationId}-${ref.executionId}-g${ref.generation}`;
+  return ref.executionId;
 }
 
 /**
@@ -285,6 +318,23 @@ function isQuotaUnsupported(error: unknown): boolean {
   );
 }
 
+/**
+ * A worker network is not the one this host would create, or cannot be made
+ * into it: routable, dual-stack, someone else's, or holding members other
+ * than its worker and the egress proxy. Refused rather than repaired — every
+ * one of those is a path from the worker to something it must not reach, and
+ * a network whose members are unknown is not one to start a worker on.
+ */
+export class NetworkIsolationError extends Error {
+  constructor(
+    readonly network: string,
+    readonly reason: string,
+  ) {
+    super(`Worker network ${network} ${reason}`);
+    this.name = "NetworkIsolationError";
+  }
+}
+
 export class ExecutionConflictError extends Error {
   constructor(
     readonly ref: ExecutionRef,
@@ -346,23 +396,14 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   /**
-   * Refuses to launch onto a network a worker could route off. The whole
-   * egress policy rests on the worker network being `internal`, so this is
-   * checked against the daemon once per process rather than assumed from a
-   * name in the environment.
+   * Refuses to start without the egress proxy every worker network needs.
+   * The networks themselves are this backend's own, created `internal` per
+   * execution and checked each time one is created or reused; what the
+   * daemon has to supply is the one proxy container to attach to them.
+   * Checked once per process, before anything is launched.
    */
   async verifyNetworkIsolation(): Promise<void> {
-    const network = await this.client.inspectNetwork(this.config.network);
-    if (network === null) {
-      throw new Error(
-        `Docker network ${this.config.network} does not exist; create it before launching workers`,
-      );
-    }
-    if (!network.Internal) {
-      throw new Error(
-        `Docker network ${this.config.network} is not internal; a worker on it can reach the host and the LAN directly`,
-      );
-    }
+    await this.egressProxy();
   }
 
   /**
@@ -477,11 +518,17 @@ export class LocalDockerBackend implements ExecutionBackend {
 
   async ensureExecution(intent: LaunchIntent): Promise<EnsureExecutionResult> {
     const name = containerNameFor(intent, this.config.installationId);
+    const proxy = await this.egressProxy();
     // A tag is mutable: the image inspected here and the image a later create
     // resolves need not be the same one. Creating from the id that was
     // actually inspected closes that window.
     const image = await this.inspectedImage(intent.image);
     const volume = await this.ensureWorkspaceVolume(intent.sessionId);
+    const network = await this.ensureWorkerNetwork(
+      intent,
+      proxy,
+      await this.launchedContainerId(intent),
+    );
     // Two passes at most. The second is the one that follows a lost create
     // race, and it judges the winner by the same rules — a container that
     // appeared out of a race is not more trustworthy than one that was
@@ -491,15 +538,30 @@ export class LocalDockerBackend implements ExecutionBackend {
       const existing = await this.client.inspectContainer(name);
       if (existing) {
         const verdict = contractVerdictOf(existing, this.config);
-        if (verdict === "newer") {
-          throw new IsolationContractError(
-            intent,
-            existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+        try {
+          if (verdict === "newer") {
+            throw new IsolationContractError(
+              intent,
+              existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+            );
+          }
+          // Ownership first: a container that is not this launch's is a
+          // conflict whatever else is wrong with it, never ours to destroy.
+          this.assertSameLaunch(intent, existing);
+          if (verdict === "current") assertOnlyOn(existing, network);
+        } catch (error) {
+          // The proxy is on the network by now. A container that took the
+          // name since `launchedContainerId` looked, or one of ours that is
+          // on another network besides, must not keep it through a refusal.
+          // A detach that did not hold is said in the refusal; the next
+          // `reconcileNetworks` tries again and fails the pass until it does.
+          const detached = await this.detachProxies(
+            network,
+            new Set([proxy.Id]),
           );
+          if (error instanceof Error) error.message += `; ${detached}`;
+          throw error;
         }
-        // Ownership first: a container that is not this launch's is a
-        // conflict whatever else is wrong with it, never ours to destroy.
-        this.assertSameLaunch(intent, existing);
         if (
           verdict === "current" &&
           (await this.holdsAcceptedCredential(intent, existing))
@@ -517,7 +579,7 @@ export class LocalDockerBackend implements ExecutionBackend {
           this.config.stopTimeoutSeconds,
         );
       }
-      const body = await this.createBody(intent, image, volume);
+      const body = await this.createBody(intent, image, volume, network.Id);
       try {
         // The credential is minted here and nowhere else: it lives in this
         // one request body, reaches the container as an env var, and is only
@@ -583,22 +645,109 @@ export class LocalDockerBackend implements ExecutionBackend {
   }
 
   /**
-   * Whether a replacement for this intent could be created, asked without
-   * changing anything. A stale verdict is a demolition order: the container
-   * is destroyed and then re-created, and everything the create can refuse
-   * on — an image this daemon does not have, one that declares its own
-   * `VOLUME`, a workspace `ensureWorkspaceVolume` would reject — would leave
-   * the session with neither worker, the old one gone and nothing to retry
-   * into. Nothing is pinned here and `ensureExecution` resolves the image
-   * again, so this narrows the window rather than closing it; that is as
-   * much as a question asked before a teardown can do.
+   * Whether a replacement for this intent could be created, asked before the
+   * teardown. A stale verdict is a demolition order: the container is
+   * destroyed and then re-created, and everything the create can refuse on —
+   * an image this daemon does not have, one that declares its own `VOLUME`,
+   * a workspace `ensureWorkspaceVolume` would reject, a network that cannot
+   * be made — would leave the session with neither worker, the old one gone
+   * and nothing to retry into. Nothing is pinned here and `ensureExecution`
+   * resolves the image again, so this narrows the window rather than closing
+   * it; that is as much as a question asked before a teardown can do.
+   *
+   * The one thing it changes is the worker network, which it makes ready
+   * rather than inspects: whether the daemon still has an address pool to
+   * give is only answered by a create. The replacement is the same launch
+   * and comes back to that network; if it never happens, the old container
+   * still carries the name and `reconcileNetworks` leaves the network be
+   * until it is gone.
+   *
+   * A refusal leaves the old container running — except one from before
+   * contract 5, which sits on a network it shares with every other such
+   * worker. That one is taken off all its networks: the session is stalled
+   * either way until the replacement can launch, and left connected it
+   * could keep reaching its neighbours for as long as that takes.
    */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
-    await this.inspectedImage(intent.image);
-    const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
-    if (workspace !== null) {
-      this.replacementWorkspaces.set(intent.sessionId, workspace);
+    try {
+      const proxy = await this.egressProxy();
+      await this.inspectedImage(intent.image);
+      const workspace = await this.assertWorkspaceReplaceable(intent.sessionId);
+      await this.ensureWorkerNetwork(
+        intent,
+        proxy,
+        await this.launchedContainerId(intent),
+      );
+      if (workspace !== null) {
+        this.replacementWorkspaces.set(intent.sessionId, workspace);
+      }
+    } catch (error) {
+      const isolated = await this.isolateSharedNetworkWorker(intent).catch(
+        (cause) => `could not be taken off its networks (${messageOf(cause)})`,
+      );
+      // Appended rather than wrapped: callers tell refusals apart by class.
+      if (isolated !== null && error instanceof Error) {
+        error.message += `; the old container ${isolated}`;
+      }
+      throw error;
     }
+  }
+
+  /**
+   * Disconnects this launch's pre-contract-5 container from every network,
+   * and says what happened; null when there is no such container. A
+   * container that is not this launch's is left alone.
+   */
+  private async isolateSharedNetworkWorker(
+    intent: LaunchIntent,
+  ): Promise<string | null> {
+    const existing = await this.client.inspectContainer(
+      containerNameFor(intent, this.config.installationId),
+    );
+    if (existing === null) return null;
+    const stamp = existing.Config.Labels?.[LABELS.isolation];
+    const version = Number(stamp?.split(":")[0]);
+    if (
+      Number.isInteger(version) &&
+      version >= PER_EXECUTION_NETWORK_CONTRACT
+    ) {
+      return null;
+    }
+    try {
+      this.assertSameLaunch(intent, existing);
+    } catch {
+      return null;
+    }
+    // Only an unclaimed launch: a claimed one is torn down by the scheduler,
+    // with a SIGTERM to drain on, without asking this at all.
+    if ((await intent.bootstrapCredentialState()).claimed) return null;
+    const networks = Object.keys(existing.NetworkSettings?.Networks ?? {});
+    for (const network of networks) {
+      await this.client
+        .disconnectNetwork(network, existing.Id)
+        .catch(() => undefined);
+    }
+    // No fence spans the read above and the disconnects, so the claim is
+    // asked again: one that landed in between gets its networks back and is
+    // left to the scheduler's teardown like any other claimed worker.
+    if ((await intent.bootstrapCredentialState()).claimed) {
+      for (const network of networks) {
+        await this.client
+          .connectNetwork(network, existing.Id, [])
+          .catch(() => undefined);
+      }
+      const restored = await this.client.inspectContainer(existing.Id);
+      const back = Object.keys(restored?.NetworkSettings?.Networks ?? {});
+      const missing = networks.filter((network) => !back.includes(network));
+      return missing.length === 0
+        ? `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and was put back`
+        : `(isolation ${stamp ?? "<none>"}) was claimed while being taken off its networks and could NOT be put back on ${missing.sort().join(", ")}`;
+    }
+    const after = await this.client.inspectContainer(existing.Id);
+    const left = Object.keys(after?.NetworkSettings?.Networks ?? {});
+    return left.length === 0
+      ? `(isolation ${stamp ?? "<none>"}) was taken off its networks until the replacement can launch`
+      : `(isolation ${stamp ?? "<none>"}) could NOT be taken off ${left.sort().join(", ")}`;
   }
 
   async listManaged(): Promise<ManagedExecution[]> {
@@ -661,7 +810,404 @@ export class LocalDockerBackend implements ExecutionBackend {
       container.Id,
       this.config.stopTimeoutSeconds,
     );
+    // Best effort: the container is what the caller asked to be rid of, and
+    // it is. A network left behind here is found again by
+    // `reconcileNetworks`, which reports it if it cannot be removed either.
+    await this.removeWorkerNetwork(ref).catch(() => undefined);
     return { outcome: "terminated", providerRef: container.Id };
+  }
+
+  /**
+   * Removes the worker networks whose container is gone and gives the proxy
+   * back to the ones whose container is still there. The container, not a
+   * launch row, is what a network is judged by: it exists for exactly one
+   * container name, and a launch the scheduler still means to run has had its
+   * container re-ensured by the time this runs. A proxy recreated by
+   * `compose up` comes back attached to none of them, which is the repair.
+   *
+   * A live network is held to the same shape it was created with, every
+   * pass: a stranger that joined, a same-named container that is not ours,
+   * or a worker that also joined another network is reported, and a network
+   * with a stranger on it loses the proxy — nothing unknown keeps this
+   * installation's allowlist.
+   */
+  async reconcileNetworks(): Promise<NetworkReconcileResult> {
+    const { installationId } = this.config;
+    const networks = await this.client.listNetworks([
+      `${LABELS.workerNetwork}=true`,
+      `${LABELS.installation}=${installationId}`,
+    ]);
+    const result: NetworkReconcileResult = {
+      failed: [],
+      removed: [],
+      repaired: [],
+    };
+    if (networks.length === 0) return result;
+    const proxies = await this.client.listContainers([
+      `${LABELS.egressProxy}=${installationId}`,
+    ]);
+    const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
+    // Settled once, before any network is judged: only the one running
+    // proxy may stay on a live network. A stopped predecessor would rejoin
+    // under the same alias the moment it started.
+    let sole: ContainerSummary | null = null;
+    let noSoleProxy = "";
+    try {
+      sole = soleRunningProxy(proxies, this.config);
+    } catch (error) {
+      noSoleProxy = messageOf(error);
+    }
+    const contested =
+      proxies.filter((proxy) => proxy.State === "running").length > 1;
+    for (const listed of networks) {
+      try {
+        // A listing leaves out the members; only an inspect has them.
+        const network = await this.client.inspectNetwork(listed.Id);
+        if (network === null) continue;
+        const labels = network.Labels ?? {};
+        const ref = {
+          executionId: labels[LABELS.executionId] ?? "",
+          generation: Number(labels[LABELS.generation]),
+        };
+        if (ref.executionId === "" || !Number.isInteger(ref.generation)) {
+          throw new NetworkIsolationError(
+            network.Name,
+            `names no execution; ${await this.detachProxies(network, proxyIds)}`,
+          );
+        }
+        const container = await this.client.inspectContainer(
+          containerNameFor(ref, installationId),
+        );
+        if (container === null) {
+          await this.removeUnusedNetwork(network, proxies);
+          result.removed.push(network.Name);
+          continue;
+        }
+        await this.assertLiveNetwork(network, ref, container, proxies);
+        if (sole === null) {
+          // More than one to choose from: every labelled proxy comes off
+          // until the installation has exactly one again. None running is
+          // left as it is — a proxy that starts alone is the one to trust.
+          throw new NetworkIsolationError(
+            network.Name,
+            contested
+              ? `${noSoleProxy}; ${await this.detachProxies(network, proxyIds)}`
+              : noSoleProxy,
+          );
+        }
+        const retired = await this.detachRetiredProxies(
+          network,
+          new Set([...proxyIds].filter((id) => id !== sole?.Id)),
+        );
+        if ((await this.attachProxy(network, sole)) || retired) {
+          result.repaired.push(network.Name);
+        }
+      } catch (error) {
+        result.failed.push({ error: messageOf(error), id: listed.Name });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * What `reconcileNetworks` requires of a network whose container exists.
+   * Only a stale worker may be off it — an old-contract container whose
+   * replacement had its network made ready ahead of the teardown. The
+   * verdict comes from labels, which a container cannot change after create.
+   */
+  private async assertLiveNetwork(
+    network: NetworkInspect,
+    ref: ExecutionRef,
+    container: ContainerInspect,
+    proxies: ContainerSummary[],
+  ): Promise<void> {
+    const labels = container.Config.Labels ?? {};
+    const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
+    const strangers = strangersIn(
+      await this.membersOf(network),
+      new Set([container.Id, ...proxyIds]),
+    );
+    const joined = network.Name in (container.NetworkSettings?.Networks ?? {});
+    const problem =
+      workerNetworkProblem(network, ref, this.config.installationId) ??
+      (labels[LABELS.installation] !== this.config.installationId ||
+      labels[LABELS.executionId] !== ref.executionId ||
+      labels[LABELS.generation] !== String(ref.generation)
+        ? `is named for ${container.Name}, which is not this installation's worker for it`
+        : strangers.length > 0
+          ? `has members other than its worker and the egress proxy (${strangers.join(", ")})`
+          : joined || contractVerdictOf(container, this.config) === "current"
+            ? onlyOnProblem(container, network)
+            : null);
+    if (problem !== null) {
+      throw new NetworkIsolationError(
+        network.Name,
+        `${problem}; ${await this.detachProxies(network, proxyIds)}`,
+      );
+    }
+  }
+
+  /**
+   * Takes labelled proxies other than the running one off a live network,
+   * and answers whether there were any. One that will not come off fails
+   * the network: it would serve the worker under the same alias.
+   */
+  private async detachRetiredProxies(
+    network: NetworkInspect,
+    retiredIds: Set<string>,
+  ): Promise<boolean> {
+    const attached = async (current: NetworkInspect) =>
+      [...(await this.membersOf(current)).keys()].filter((id) =>
+        retiredIds.has(id),
+      );
+    const before = await attached(network);
+    if (before.length === 0) return false;
+    for (const id of before) {
+      await this.client
+        .disconnectNetwork(network.Id, id)
+        .catch(() => undefined);
+    }
+    const after = await this.client.inspectNetwork(network.Id);
+    if (after !== null && (await attached(after)).length > 0) {
+      throw new NetworkIsolationError(
+        network.Name,
+        "still has an egress proxy that is no longer the running one, and it could not be detached",
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Everything attached to the network, id → name: the running endpoints
+   * the inspect lists and the stopped or never-started containers it
+   * leaves out, which rejoin the moment they start.
+   */
+  private async membersOf(
+    network: NetworkInspect,
+  ): Promise<Map<string, string>> {
+    const members = new Map<string, string>();
+    for (const [id, member] of Object.entries(network.Containers ?? {})) {
+      members.set(id, member.Name);
+    }
+    for (const container of await this.client.listContainersOn(network)) {
+      members.set(
+        container.Id,
+        container.Names[0]?.replace(/^\//, "") ?? container.Id,
+      );
+    }
+    return members;
+  }
+
+  /**
+   * Takes this installation's proxies off a network that is being left for
+   * someone to look at, and says whether that held. Checked afterwards,
+   * since a disconnect's status code says nothing reliable.
+   */
+  private async detachProxies(
+    network: NetworkInspect,
+    proxyIds: Set<string>,
+  ): Promise<string> {
+    const attached = async (current: NetworkInspect) =>
+      [...(await this.membersOf(current)).keys()].filter((id) =>
+        proxyIds.has(id),
+      );
+    for (const id of await attached(network)) {
+      await this.client
+        .disconnectNetwork(network.Id, id)
+        .catch(() => undefined);
+    }
+    const after = await this.client.inspectNetwork(network.Id);
+    const left = after === null ? [] : await attached(after);
+    return left.length === 0
+      ? "the egress proxy was detached and the network left in place"
+      : "the egress proxy could NOT be detached; the network still reaches the allowlist";
+  }
+
+  /**
+   * The id of the container already under this launch's name, once it is
+   * known to be this launch's — the one member besides the proxy a worker
+   * network may have. Refuses a container that is not, before anything is
+   * attached to the network it sits on.
+   */
+  private async launchedContainerId(
+    intent: LaunchIntent,
+  ): Promise<string | null> {
+    const existing = await this.client.inspectContainer(
+      containerNameFor(intent, this.config.installationId),
+    );
+    if (existing === null) return null;
+    if (contractVerdictOf(existing, this.config) === "newer") {
+      throw new IsolationContractError(
+        intent,
+        existing.Config.Labels?.[LABELS.isolation] ?? "<none>",
+      );
+    }
+    this.assertSameLaunch(intent, existing);
+    return existing.Id;
+  }
+
+  /**
+   * The one running container labelled as this installation's egress proxy.
+   * Asked of the daemon every time rather than remembered: a proxy recreated
+   * under a running control host has a new id, and attaching the old one
+   * would fail anyway.
+   */
+  private async egressProxy(): Promise<ContainerSummary> {
+    return soleRunningProxy(
+      await this.client.listContainers([
+        `${LABELS.egressProxy}=${this.config.installationId}`,
+      ]),
+      this.config,
+    );
+  }
+
+  /**
+   * The execution's own network, created if it is not there yet and checked
+   * either way, with the egress proxy on it under the name the worker
+   * dials. Answers with the network as the daemon holds it; the container is
+   * created against its id, so a network recreated under the same name in
+   * between cannot stand in for it.
+   */
+  private async ensureWorkerNetwork(
+    intent: LaunchIntent,
+    proxy: ContainerSummary,
+    workerId: string | null,
+  ): Promise<NetworkInspect> {
+    const { installationId } = this.config;
+    const name = networkNameFor(intent, installationId);
+    let network = await this.client.inspectNetwork(name);
+    if (network === null) {
+      try {
+        await this.client.createNetwork({
+          Driver: "bridge",
+          // Explicit: a daemon configured for IPv6 by default would otherwise
+          // give the network a second address family nothing here checks.
+          EnableIPv6: false,
+          Internal: true,
+          Labels: {
+            [LABELS.executionId]: intent.executionId,
+            [LABELS.generation]: String(intent.generation),
+            [LABELS.installation]: installationId,
+            [LABELS.sessionId]: intent.sessionId,
+            [LABELS.workerNetwork]: "true",
+          },
+          Name: name,
+        });
+      } catch (error) {
+        // Lost a create race; the winner is judged below like any network
+        // that was already there.
+        if (!(error instanceof DockerApiError) || error.status !== 409) {
+          throw error;
+        }
+      }
+      network = await this.client.inspectNetwork(name);
+      if (network === null) {
+        throw new NetworkIsolationError(name, "vanished as it was created");
+      }
+    }
+    const problem = workerNetworkProblem(network, intent, installationId);
+    if (problem !== null) throw new NetworkIsolationError(name, problem);
+    // By id, not by name: a container under the worker's name that is not
+    // this launch's was already refused by `launchedContainerId`.
+    const strangers = strangersIn(
+      await this.membersOf(network),
+      new Set(workerId === null ? [proxy.Id] : [proxy.Id, workerId]),
+    );
+    if (strangers.length > 0) {
+      throw new NetworkIsolationError(
+        name,
+        `has members other than its worker and the egress proxy (${strangers.join(", ")})`,
+      );
+    }
+    await this.attachProxy(network, proxy);
+    return network;
+  }
+
+  /**
+   * Puts the proxy on the network under the alias the worker's `HTTP_PROXY`
+   * names, and answers whether anything had to change. Judged by what the
+   * proxy container reports afterwards, not by the status code: an attach
+   * that already exists answers 403, and one made without the alias answers
+   * nothing at all but leaves the worker unable to resolve the proxy.
+   */
+  private async attachProxy(
+    network: NetworkInspect,
+    proxy: ContainerSummary,
+  ): Promise<boolean> {
+    const alias = new URL(this.config.egressProxyUrl).hostname;
+    const attachment = async (): Promise<"absent" | "ready" | "unaliased"> => {
+      const inspected = await this.client.inspectContainer(proxy.Id);
+      const endpoint = inspected?.NetworkSettings?.Networks?.[network.Name];
+      if (!endpoint) return "absent";
+      return endpoint.Aliases?.includes(alias) ? "ready" : "unaliased";
+    };
+    const before = await attachment();
+    if (before === "ready") return false;
+    if (before === "unaliased") {
+      await this.client
+        .disconnectNetwork(network.Id, proxy.Id)
+        .catch(() => undefined);
+    }
+    try {
+      await this.client.connectNetwork(network.Id, proxy.Id, [alias]);
+    } catch (error) {
+      if (!(error instanceof DockerApiError) || error.status !== 403) {
+        throw error;
+      }
+    }
+    if ((await attachment()) !== "ready") {
+      throw new NetworkIsolationError(
+        network.Name,
+        `could not be given the egress proxy under the name ${alias}`,
+      );
+    }
+    return true;
+  }
+
+  /** `terminate`'s half of the cleanup; see `removeUnusedNetwork`. */
+  private async removeWorkerNetwork(ref: ExecutionRef): Promise<void> {
+    const { installationId } = this.config;
+    const network = await this.client.inspectNetwork(
+      networkNameFor(ref, installationId),
+    );
+    if (network === null) return;
+    const labels = network.Labels ?? {};
+    if (
+      labels[LABELS.workerNetwork] !== "true" ||
+      labels[LABELS.installation] !== installationId
+    ) {
+      return;
+    }
+    await this.removeUnusedNetwork(
+      network,
+      await this.client.listContainers([
+        `${LABELS.egressProxy}=${installationId}`,
+      ]),
+    );
+  }
+
+  /**
+   * Detaches the proxy and removes the network, by id, when the proxy is all
+   * that is left on it. Anything else still attached stays where it is —
+   * forcing a stranger off would hide it — but the proxy comes off, so what
+   * is left behind cannot use this installation's allowlist. A removal the
+   * daemon refuses because something joined in between (403) is reported
+   * as it is; nothing is put back for a member nobody vouched for.
+   */
+  private async removeUnusedNetwork(
+    network: NetworkInspect,
+    proxies: ContainerSummary[],
+  ): Promise<void> {
+    const proxyIds = new Set(proxies.map((proxy) => proxy.Id));
+    const strangers = strangersIn(await this.membersOf(network), proxyIds);
+    if (strangers.length > 0) {
+      throw new NetworkIsolationError(
+        network.Name,
+        `still has members other than the egress proxy (${strangers.join(", ")}); ${await this.detachProxies(network, proxyIds)}`,
+      );
+    }
+    await this.detachProxies(network, proxyIds);
+    await this.client.removeNetwork(network.Id);
   }
 
   /**
@@ -959,6 +1505,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     intent: LaunchIntent,
     image: string,
     workspace: string,
+    network: string,
   ): Promise<ContainerCreateBody> {
     const { config } = this;
     // Docker reads 0 (and for pids, -1) as "no limit"; the isolation contract
@@ -997,7 +1544,7 @@ export class LocalDockerBackend implements ExecutionBackend {
           },
         ],
         NanoCpus: nanoCpus,
-        NetworkMode: config.network,
+        NetworkMode: network,
         PidsLimit: intent.resources.pidsLimit,
         ReadonlyRootfs: true,
         RestartPolicy: { Name: "no" },
@@ -1079,6 +1626,111 @@ function workspaceVolumeProblem(
     );
   }
   return null;
+}
+
+/**
+ * What is wrong with a network under this execution's network name, or null
+ * when it is exactly the one this host would create.
+ */
+function workerNetworkProblem(
+  network: NetworkInspect,
+  ref: ExecutionRef,
+  installationId: string,
+): string | null {
+  const labels = network.Labels ?? {};
+  const name = networkNameFor(ref, installationId);
+  if (network.Name !== name) {
+    return `carries this execution's labels under another name than ${name}`;
+  }
+  if (
+    labels[LABELS.workerNetwork] !== "true" ||
+    labels[LABELS.installation] !== installationId ||
+    labels[LABELS.executionId] !== ref.executionId ||
+    labels[LABELS.generation] !== String(ref.generation)
+  ) {
+    return (
+      `is not this execution's (installation=${labels[LABELS.installation] ?? "<none>"}, ` +
+      `execution=${labels[LABELS.executionId] ?? "<none>"}, generation=${labels[LABELS.generation] ?? "<none>"})`
+    );
+  }
+  if (network.Driver !== "bridge")
+    return `uses driver ${network.Driver}, not bridge`;
+  if (!network.Internal) {
+    return "is not internal; a worker on it could reach the host and the LAN directly";
+  }
+  if (network.EnableIPv6 === true) {
+    return "has IPv6 enabled, an address family this host does not check";
+  }
+  return null;
+}
+
+/**
+ * A container of this launch that is attached anywhere but its own network
+ * — another network besides, or a network of the same name that has since
+ * been recreated — reaches what that network reaches. It is never adopted.
+ */
+function assertOnlyOn(
+  container: ContainerInspect,
+  network: NetworkInspect,
+): void {
+  const problem = onlyOnProblem(container, network);
+  if (problem !== null) {
+    throw new NetworkIsolationError(
+      network.Name,
+      `${problem}; the container is not adopted`,
+    );
+  }
+}
+
+function onlyOnProblem(
+  container: ContainerInspect,
+  network: NetworkInspect,
+): string | null {
+  const attached = Object.entries(container.NetworkSettings?.Networks ?? {});
+  const [only] = attached;
+  if (
+    attached.length === 1 &&
+    only !== undefined &&
+    only[0] === network.Name &&
+    (only[1].NetworkID === undefined ||
+      only[1].NetworkID === "" ||
+      only[1].NetworkID === network.Id)
+  ) {
+    return null;
+  }
+  return `is not the only network ${container.Name} is attached to (${
+    attached
+      .map(([name]) => name)
+      .sort()
+      .join(", ") || "none"
+  })`;
+}
+
+/** Members outside `allowed`, by name, sorted for a stable message. */
+function strangersIn(
+  members: Map<string, string>,
+  allowed: Set<string>,
+): string[] {
+  return [...members]
+    .filter(([id]) => !allowed.has(id))
+    .map(([, name]) => name)
+    .sort();
+}
+
+function soleRunningProxy(
+  proxies: ContainerSummary[],
+  config: LocalDockerBackendConfig,
+): ContainerSummary {
+  const running = proxies.filter((proxy) => proxy.State === "running");
+  const [only] = running;
+  if (running.length === 1 && only !== undefined) return only;
+  const label = `${LABELS.egressProxy}=${config.installationId}`;
+  throw new Error(
+    running.length === 0
+      ? `No running container carries ${label}. Label this installation's egress proxy ` +
+          "and start it: every worker network is given that container and no other route off it."
+      : `${running.length} running containers carry ${label}; exactly one proxy serves an installation`,
+  );
 }
 
 /**
