@@ -30,6 +30,13 @@ export type LocalDockerBackendConfig = {
    * address differs on each one.
    */
   egressProxyUrl: string;
+  /**
+   * The port of the same proxy's credential routes (94S-252), where the
+   * worker's provider and repository calls pick up the credentials it never
+   * holds. Same host as `egressProxyUrl`, since only that alias resolves on
+   * a worker network; handed to the worker as `WORKER_EGRESS_CREDENTIAL_URL`.
+   */
+  egressCredentialPort: number;
   /** Handed to the worker as `WORKER_GATEWAY_URL`. */
   gatewayUrl: string;
   /** Mounted as tmpfs so the read-only rootfs still has a writable HOME. */
@@ -102,6 +109,7 @@ export type LocalDockerBackendEnvironment = {
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
   EXECUTION_DOCKER_COMMAND?: string | undefined;
   EXECUTION_DOCKER_HOME_DIR?: string | undefined;
+  EXECUTION_EGRESS_CREDENTIAL_PORT?: string | undefined;
   EXECUTION_EGRESS_PROXY_URL?: string | undefined;
   EXECUTION_INSTALLATION_ID?: string | undefined;
   EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC?: string | undefined;
@@ -156,6 +164,10 @@ export function localDockerConfigFromEnv(
     apiVersion: environment.DOCKER_API_VERSION ?? DEFAULT_DOCKER_API_VERSION,
     ...(command.length > 0 ? { command } : {}),
     dockerHost: environment.DOCKER_HOST ?? DEFAULT_DOCKER_HOST,
+    egressCredentialPort: port(
+      environment.EXECUTION_EGRESS_CREDENTIAL_PORT ?? "3129",
+      "EXECUTION_EGRESS_CREDENTIAL_PORT",
+    ),
     egressProxyUrl,
     gatewayUrl,
     homeDir: environment.EXECUTION_DOCKER_HOME_DIR ?? "/home/worker",
@@ -315,6 +327,16 @@ export function validateLocalDockerConfig(
     );
   }
   if (
+    !Number.isInteger(config.egressCredentialPort) ||
+    config.egressCredentialPort < 1 ||
+    config.egressCredentialPort > 65_535 ||
+    String(config.egressCredentialPort) === proxy.port
+  ) {
+    throw new Error(
+      `EXECUTION_EGRESS_CREDENTIAL_PORT ${config.egressCredentialPort} must be a port other than the proxy's own`,
+    );
+  }
+  if (
     config.workspaceQuota.mode === "enforced" &&
     (!Number.isInteger(config.workspaceQuota.sizeBytes) ||
       config.workspaceQuota.sizeBytes < 1)
@@ -405,4 +427,12 @@ function stopGrace(seconds: number): number {
     );
   }
   return seconds;
+}
+
+function port(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
+    throw new Error(`${name} ${value} is not a port`);
+  }
+  return parsed;
 }

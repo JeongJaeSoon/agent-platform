@@ -20,6 +20,8 @@ import {
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
   checkpointReasonHoldsWork,
+  type EgressAuthorization,
+  type EgressPurpose,
   type FailResumeInput,
   type FailResumeResult,
   type FenceRejection,
@@ -759,15 +761,36 @@ async function bindingOf(
   };
 }
 
-async function issueCredential(
+async function issueCredentials(
   tx: Database,
-  input: Pick<ClaimInput, "attemptId" | "credentialHash" | "credentialTtlMs">,
+  input: Pick<ClaimInput, "credentialHash" | "credentialTtlMs" | "egress">,
+  attemptId: string,
+  session: Pick<SessionRow, "profileId" | "repositoryId">,
 ) {
-  await tx.insert(workerCredentials).values({
-    tokenHash: input.credentialHash,
-    attemptId: input.attemptId,
-    expiresAt: fromDbNow(input.credentialTtlMs),
-  });
+  const expiresAt = fromDbNow(input.credentialTtlMs);
+  const bindings = input.egress.bindingsOf(session);
+  await tx.insert(workerCredentials).values([
+    {
+      tokenHash: input.credentialHash,
+      attemptId,
+      purpose: "gateway",
+      expiresAt,
+    },
+    {
+      tokenHash: input.egress.providerHash,
+      attemptId,
+      purpose: "provider",
+      binding: bindings.provider,
+      expiresAt,
+    },
+    {
+      tokenHash: input.egress.repositoryHash,
+      attemptId,
+      purpose: "repository",
+      binding: bindings.repository,
+      expiresAt,
+    },
+  ]);
 }
 
 async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
@@ -876,11 +899,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             return { outcome: "profile_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
-          await issueCredential(tx, {
-            attemptId: bound.attempt.id,
-            credentialHash: input.credentialHash,
-            credentialTtlMs,
-          });
+          await issueCredentials(
+            tx,
+            { ...input, credentialTtlMs },
+            bound.attempt.id,
+            bound.session,
+          );
           // Revoking the old token does not stop a request that authenticated
           // before it: the auth revision moves so anything already in flight
           // fails its fence, and only the new holder can write.
@@ -1039,7 +1063,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               observedAt: input.now,
             },
           });
-        await issueCredential(tx, input);
+        await issueCredentials(tx, input, attempt.id, session);
         await tx
           .update(workerLaunches)
           .set({ claimedAttemptId: attempt.id })
@@ -1070,6 +1094,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         .where(
           and(
             eq(workerCredentials.tokenHash, tokenHash),
+            // An egress token authorizes the proxy's routes and nothing
+            // here, whatever else about it is valid.
+            eq(workerCredentials.purpose, "gateway"),
             isNull(workerCredentials.revokedAt),
             gt(workerCredentials.expiresAt, DB_NOW),
             notInArray(attempts.state, ENDED_ATTEMPT_STATES),
@@ -1083,6 +1110,56 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         .where(eq(workerLaunches.nonceHash, tokenHash))
         .limit(1);
       return launch ? { kind: "bootstrap" } : null;
+    },
+
+    authorizeEgressAtomic(input: {
+      tokenHash: Uint8Array;
+      purpose: EgressPurpose;
+    }): Promise<EgressAuthorization> {
+      return db.transaction(async (tx) => {
+        const [token] = await tx
+          .select({
+            binding: workerCredentials.binding,
+            sessionId: attempts.sessionId,
+            attemptId: attempts.id,
+            leaseEpoch: attempts.leaseEpoch,
+            executionGeneration: attempts.executionGeneration,
+            authRevision: attempts.authRevision,
+          })
+          .from(workerCredentials)
+          .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+          .where(
+            and(
+              eq(workerCredentials.tokenHash, input.tokenHash),
+              eq(workerCredentials.purpose, input.purpose),
+              isNull(workerCredentials.revokedAt),
+              gt(workerCredentials.expiresAt, DB_NOW),
+            ),
+          )
+          .limit(1);
+        if (!token || token.binding === null) {
+          return { outcome: "invalid_token" };
+        }
+        // The attempt's own numbers as the fence: what has to hold is that
+        // the session still names this attempt and its lease has not run
+        // out, not merely that the token is unexpired. A token outlives a
+        // lost lease until the reconciler gets to it; the proxy must not.
+        const { binding, ...fence } = token;
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        return {
+          outcome: "ok",
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+          binding,
+          profileId: fenced.session.profileId,
+          repository: {
+            id: fenced.session.repositoryId,
+            url: fenced.session.repoUrl,
+            branch: fenced.session.branch,
+          },
+        };
+      });
     },
 
     nextInputAtomic(input: NextInputInput): Promise<NextInputResult> {

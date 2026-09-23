@@ -59,6 +59,7 @@ integration("workspace volumes against a real daemon", () => {
     apiVersion: "v1.44",
     command: ["sleep", "600"],
     dockerHost,
+    egressCredentialPort: 3129,
     egressProxyUrl: "http://egress-proxy:3128",
     gatewayUrl: "http://host.docker.internal:3000",
     homeDir: "/home/worker",

@@ -22,6 +22,7 @@ describe("worker composition surface", () => {
   test("builds a host from the environment the launcher provides", () => {
     const host = createWorkerHost({
       bootstrapNonce: "wln_test",
+      egressCredentialUrl: "http://egress-proxy:3129",
       executionGeneration: 1,
       executionId: "exec-1",
       gatewayUrl: "http://control-host:8080",

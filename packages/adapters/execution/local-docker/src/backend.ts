@@ -99,6 +99,8 @@ export const ENV = {
   executionGeneration: "WORKER_EXECUTION_GENERATION",
   executionId: "WORKER_EXECUTION_ID",
   gatewayUrl: "WORKER_GATEWAY_URL",
+  /** The egress proxy's credential routes (94S-252). */
+  egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
   /**
@@ -139,8 +141,35 @@ export const ENV = {
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
 } as const;
 
+/**
+ * The credential routes, on the alias the proxy has on every worker network.
+ * Plain http: the network holds only the worker and the proxy.
+ */
+export function egressCredentialUrlOf(
+  config: Pick<
+    LocalDockerBackendConfig,
+    "egressCredentialPort" | "egressProxyUrl"
+  >,
+): string {
+  const url = new URL(config.egressProxyUrl);
+  url.port = String(config.egressCredentialPort);
+  return url.toString().replace(/\/$/, "");
+}
+
 /** The worker's own loopback is the only thing worth not proxying. */
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
+
+/**
+ * Plus the proxy's own name: its credential routes are reached directly,
+ * and through the forward proxy they would be refused (94S-252). The worker
+ * could reach that name on any port anyway; it is the only other member of
+ * its network.
+ */
+export function noProxyValueFor(
+  config: Pick<LocalDockerBackendConfig, "egressProxyUrl">,
+): string {
+  return `${NO_PROXY_VALUE},${new URL(config.egressProxyUrl).hostname}`;
+}
 
 /**
  * Bumped whenever the isolation a worker container is created with changes.
@@ -185,6 +214,8 @@ const GATEWAY_MODE_MIN_API = [1, 48] as const;
 export function isolationStampFor(config: LocalDockerBackendConfig): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
+    // A worker holding the old credential port would lose its provider.
+    config.egressCredentialPort,
     config.homeDir,
     NO_PROXY_VALUE,
     config.tmpfsSizeBytes,
@@ -2074,14 +2105,15 @@ export function workerEnvironmentFor(
     `${ENV.executionGeneration}=${intent.generation}`,
     `${ENV.executionId}=${intent.executionId}`,
     `${ENV.gatewayUrl}=${config.gatewayUrl}`,
+    `${ENV.egressCredentialUrl}=${egressCredentialUrlOf(config)}`,
     `${ENV.home}=${config.homeDir}`,
     `${ENV.workspaceDir}=${config.workspaceDir}`,
     `${ENV.httpProxy}=${config.egressProxyUrl}`,
     `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
     `${ENV.httpsProxy}=${config.egressProxyUrl}`,
     `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
-    `${ENV.noProxy}=${NO_PROXY_VALUE}`,
-    `${ENV.noProxyLower}=${NO_PROXY_VALUE}`,
+    `${ENV.noProxy}=${noProxyValueFor(config)}`,
+    `${ENV.noProxyLower}=${noProxyValueFor(config)}`,
     `${ENV.objectAccessKeyId}=${objectStore.accessKeyId}`,
     `${ENV.objectBucket}=${objectStore.bucket}`,
     ...(objectStore.endpoint === undefined

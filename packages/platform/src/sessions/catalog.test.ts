@@ -6,6 +6,9 @@ import {
   describeConfigError,
   environmentCredentials,
   profileFingerprint,
+  providerUpstreamOf,
+  repositoryBinding,
+  repositoryUpstreamOf,
   resolveSessionCatalog,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
@@ -69,11 +72,17 @@ describe("catalog config schema", () => {
     };
     expect(catalog.profiles.p).toEqual(expected);
     expect(catalog.repositories.app).toEqual(repository);
-    // What the worker protocol carries has no reference in it.
-    expect(runtimeProviderOf(expected)).toEqual({
+    // What the worker protocol carries is neither the value nor where it
+    // came from (94S-252): only the upstream and the proxy's token.
+    expect(runtimeProviderOf(expected, "wep_t")).toEqual({
       kind: "anthropic",
       endpoint: "https://api.anthropic.invalid",
-      auth: { kind: "api_key", value: "resolved-key" },
+      auth: { kind: "egress_token", token: "wep_t" },
+    });
+    // The proxy is the one handed the value, as the header it injects.
+    expect(providerUpstreamOf(expected)).toEqual({
+      url: "https://api.anthropic.invalid",
+      headers: [["x-api-key", "resolved-key"]],
     });
   });
 
@@ -119,6 +128,90 @@ describe("catalog config schema", () => {
     ).toThrow(
       /^profiles\.p\.provider\.auth\.value_env: ANTHROPIC_KEY_MAIN is not set$/,
     );
+  });
+
+  test("a repository credential is a reference too, resolved at load and kept out of the revision (94S-252)", () => {
+    const withAuth = {
+      ...repository,
+      auth: { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },
+    };
+    const lookup = (value: string) =>
+      environmentCredentials({
+        ANTHROPIC_KEY_MAIN: "resolved-key",
+        REPO_TOKEN: value,
+      });
+    const catalog = load(
+      config(configured, { app: withAuth }),
+      lookup("repo-secret"),
+    );
+    expect(catalog.repositories.app?.auth).toEqual({
+      kind: "basic",
+      username: "reader",
+      value: "repo-secret",
+      ref: { value_env: "REPO_TOKEN" },
+    });
+    const app = catalog.repositories.app;
+    if (!app) throw new Error("no repository");
+    expect(repositoryUpstreamOf(app)).toEqual({
+      url: repository.url,
+      headers: [
+        [
+          "authorization",
+          `Basic ${Buffer.from("reader:repo-secret").toString("base64")}`,
+        ],
+      ],
+    });
+    // Neither the revision nor the binding carries the value, and neither
+    // moves when only the value behind the same reference is rotated.
+    const rotated = load(
+      config(configured, { app: withAuth }),
+      lookup("rotated-value"),
+    );
+    expect(catalogRevision(rotated)).toBe(catalogRevision(catalog));
+    expect(catalogRevision(catalog)).not.toContain("repo-secret");
+    const rotatedApp = rotated.repositories.app;
+    if (!rotatedApp) throw new Error("no repository");
+    expect(repositoryBinding("app", rotatedApp)).toBe(
+      repositoryBinding("app", app),
+    );
+    expect(repositoryBinding("app", app)).not.toContain("repo-secret");
+    // A missing value names where the reference sits.
+    expect(() => load(config(configured, { app: withAuth }))).toThrow(
+      /^repositories\.app\.auth\.value_env: REPO_TOKEN is not set$/,
+    );
+    // Shorter than the proxy's response check covers: refused at load.
+    expect(() =>
+      load(config(configured, { app: withAuth }), lookup("seven77")),
+    ).toThrow(
+      /^repositories\.app\.auth\.value_env: REPO_TOKEN is shorter than 8 bytes$/,
+    );
+    // Nor one the proxy would refuse to put in a header.
+    for (const bad of [
+      "resolved-value\n",
+      " resolved-value",
+      "resolved\tvalue",
+    ]) {
+      expect(() =>
+        load(config(configured, { app: withAuth }), lookup(bad)),
+      ).toThrow(
+        /^repositories\.app\.auth\.value_env: REPO_TOKEN has a control character or surrounding whitespace$/,
+      );
+    }
+    // basic needs a login, bearer takes none, and there is exactly one ref.
+    for (const auth of [
+      { kind: "basic", value_env: "REPO_TOKEN" },
+      { kind: "bearer", username: "reader", value_env: "REPO_TOKEN" },
+      { kind: "bearer" },
+      { kind: "bearer", value_env: "A", secret_id: "B" },
+      { kind: "bearer", value: "inline" },
+      { kind: "basic", username: "a:b", value_env: "REPO_TOKEN" },
+    ]) {
+      expect(
+        sessionCatalogConfigSchema.safeParse(
+          config(configured, { app: { ...repository, auth } }),
+        ).success,
+      ).toBe(false);
+    }
   });
 
   test("the repository's CLAUDE.md is let in only when the profile says so, and hooks never are", () => {
@@ -247,6 +340,37 @@ test("only web addresses: the worker's one way out is the HTTP(S) proxy", () => 
       url,
     ).toThrow(/repositories\.app\.url: must be an http/);
   }
+  // The proxy refuses an upstream with a fragment, so the catalog does too.
+  expect(() =>
+    load(
+      config({
+        ...configured,
+        provider: {
+          ...configured.provider,
+          endpoint: "https://api.example.invalid/#x",
+        },
+      }),
+    ),
+  ).toThrow(/profiles\.p\.provider\.endpoint: must not carry a fragment/);
+  for (const endpoint of ["https://10.0.0.5/", "https://[::1]:8443/"]) {
+    expect(() =>
+      load(
+        config({
+          ...configured,
+          provider: { ...configured.provider, endpoint },
+        }),
+      ),
+    ).toThrow(/profiles\.p\.provider\.endpoint: https must name its host/);
+  }
+  // Plain http by address stays allowed (a compose service on its IP).
+  expect(() =>
+    load(
+      config({
+        ...configured,
+        provider: { ...configured.provider, endpoint: "http://10.0.0.5:4000/" },
+      }),
+    ),
+  ).not.toThrow();
 });
 
 describe("profile fingerprint and catalog revision", () => {
@@ -297,7 +421,10 @@ describe("profile fingerprint and catalog revision", () => {
     expect(revision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(
       catalogRevision(
-        load(config(), environmentCredentials({ ANTHROPIC_KEY_MAIN: "other" })),
+        load(
+          config(),
+          environmentCredentials({ ANTHROPIC_KEY_MAIN: "other-value" }),
+        ),
       ),
     ).toBe(revision);
     expect(

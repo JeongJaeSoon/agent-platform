@@ -10,7 +10,19 @@
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query
-# string); repository access is granted to the worker separately.
+# string).
+#
+# A private repository names its login under `auth`, by reference like a
+# profile's provider key (value_env or secret_id, exactly one). The worker
+# never receives it (94S-252): it clones through the egress proxy's
+# repository route with a token scoped to its attempt, and the proxy adds
+# this login on the way out. Read access is all the route serves; nothing is
+# ever pushed through it.
+#
+#   auth:
+#     kind: basic            # or bearer, which takes no username
+#     username: agent
+#     value_env: SAMPLE_APP_GIT_PASSWORD
 #
 # The example is the compose Gitea. Creating the sample repository in it is
 # not automated yet (94S-52).

@@ -253,6 +253,8 @@ function workerOn(input: {
 }): WorkerHost {
   const { gateway, home, logger, workspace } = input;
   const config = {
+    // The fake server stands in for the egress proxy's provider route too.
+    egressCredentialUrl: (server?.url ?? "").replace(/\/$/, ""),
     runtime: { claudeConfigDir: home, cwd: workspace, home },
   } as WorkerConfig;
   const engines = new EngineProcesses();
@@ -316,7 +318,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
       provider: {
         kind: "anthropic",
         endpoint: server.url,
-        auth: { kind: "api_key", value: "placeholder-local" },
+        auth: { kind: "egress_token", token: "wep_placeholder-local" },
       },
     };
 
@@ -490,7 +492,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
         provider: {
           kind: "anthropic",
           endpoint: server.url,
-          auth: { kind: "api_key", value: "placeholder-local" },
+          auth: { kind: "egress_token", token: "wep_placeholder-local" },
         },
       },
       sessionId: SESSION_ID,

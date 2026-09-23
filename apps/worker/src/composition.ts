@@ -1,5 +1,6 @@
 import type {
   BootstrapClaimResponse,
+  RuntimeConfig,
   SessionRuntime,
 } from "@agent-platform/contracts";
 import {
@@ -9,6 +10,7 @@ import {
   type ClaudeRuntimeConfig,
   ClaudeSdkRuntime,
   claudeProfileFingerprint,
+  type RuntimeProfile,
 } from "@agent-platform/runtime-claude";
 import type {
   CheckpointObjectStore,
@@ -61,7 +63,9 @@ export function createWorkerHost(
       credential: config.bootstrapNonce,
       requestTimeoutMs: config.timeouts.requestTimeoutMs,
     });
-  const workspace = overrides.workspace ?? new GitWorkspace(config.runtime.cwd);
+  const workspace =
+    overrides.workspace ??
+    new GitWorkspace(config.runtime.cwd, config.egressCredentialUrl);
   return new WorkerHost({
     checkpoints:
       overrides.checkpoints ??
@@ -84,6 +88,7 @@ export function createWorkerHost(
     gateway,
     logger,
     runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
+    secrets: [config.objectStore.secretAccessKey],
     timeouts: config.timeouts,
     workspace,
   });
@@ -191,12 +196,13 @@ function claudeRunConfig(
     permissionMode: runtimeConfig.permission_mode,
     // The catalog provider is shared across partitions; the claim's
     // principal is what makes this session's checkpoints its own.
-    profile: {
-      ...runtimeConfig.provider,
-      principal: { ownerScope: principal.owner_scope },
-    },
+    profile: engineProfile(
+      runtimeConfig.provider,
+      principal.owner_scope,
+      config.egressCredentialUrl,
+    ),
     // None of the repository's own Claude settings: its hooks would run
-    // commands no permission callback sees, with the provider key in reach,
+    // commands no permission callback sees, with the egress token in reach,
     // and the claim's profile is the only policy reviewed. Its CLAUDE.md
     // comes back only when that profile says so, as committed on the branch
     // rather than as the checkout now reads (`projectSettingsSchema`).
@@ -226,4 +232,28 @@ export function claudeClaimFingerprint(
       ),
     ),
   });
+}
+
+/**
+ * The claim's provider as the engine sees it: the upstream endpoint stays
+ * (policy approves it and the checkpoint fingerprint names it), but the
+ * calls go to the egress proxy's provider route with the attempt's token,
+ * and the proxy adds the credential (94S-252).
+ */
+export function engineProfile(
+  provider: RuntimeConfig["provider"],
+  ownerScope: string,
+  egressCredentialUrl: string,
+): RuntimeProfile {
+  const auth = {
+    kind: "egress_token" as const,
+    token: provider.auth.token,
+    transport: `${egressCredentialUrl}/provider`,
+  };
+  // The catalog provider is shared across partitions; the claim's
+  // principal is what makes this session's checkpoints its own.
+  const principal = { ownerScope };
+  return provider.kind === "anthropic"
+    ? { kind: "anthropic", endpoint: provider.endpoint, auth, principal }
+    : { kind: "litellm", endpoint: provider.endpoint, auth, principal };
 }

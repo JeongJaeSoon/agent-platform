@@ -7,6 +7,7 @@ import { EngineProcesses } from "./engine-processes.ts";
 
 const config: WorkerConfig = {
   bootstrapNonce: "wln_test",
+  egressCredentialUrl: "http://egress-proxy:3129",
   executionGeneration: 1,
   executionId: "exec-1",
   gatewayUrl: "http://control-host:8080",
@@ -104,7 +105,7 @@ describe("claudeRuntimeRegistry", () => {
             provider: {
               kind: "anthropic",
               endpoint: "http://127.0.0.1:9",
-              auth: { kind: "api_key", value: "placeholder" },
+              auth: { kind: "egress_token", token: "placeholder" },
             },
             project_settings: { claude_md: true },
           },

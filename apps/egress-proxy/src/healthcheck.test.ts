@@ -69,6 +69,30 @@ describe("checkHealth", () => {
     });
   });
 
+  test("credential routes that do not answer make it unhealthy", async () => {
+    const dir = checkout();
+    const server = await proxy(sourceDigest(dir));
+    const credential = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response("ok"),
+    });
+    const credentialUrl = `http://127.0.0.1:${credential.port}/healthz`;
+    expect(
+      await checkHealth({ dir, url: healthz(server), credentialUrl }),
+    ).toEqual({ healthy: true });
+    credential.stop(true);
+    const verdict = await checkHealth({
+      dir,
+      url: healthz(server),
+      credentialUrl,
+    });
+    expect(verdict.healthy).toBe(false);
+    if (!verdict.healthy) {
+      expect(verdict.reason).toStartWith("credential /healthz failed");
+    }
+  });
+
   test("no proxy listening is unhealthy", async () => {
     const dir = checkout();
     const server = await proxy(sourceDigest(dir));

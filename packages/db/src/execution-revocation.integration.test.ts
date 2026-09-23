@@ -322,7 +322,8 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       receiptStatus: "accepted",
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
-      revokedCredentials: 1,
+      // The attempt's gateway credential and both egress tokens (94S-252).
+      revokedCredentials: 3,
     });
 
     const after = await sessionRow(session.session_id);
@@ -340,11 +341,26 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       .where(eq(executions.id, l.executionId));
     expect(execution?.desiredState).toBe("terminated");
     const tokens = await db
-      .select({ revokedAt: workerCredentials.revokedAt })
+      .select({
+        purpose: workerCredentials.purpose,
+        revokedAt: workerCredentials.revokedAt,
+      })
       .from(workerCredentials)
       .where(eq(workerCredentials.attemptId, claimed.attempt_id));
-    expect(tokens.length).toBeGreaterThan(0);
-    expect(tokens.every((token) => token.revokedAt !== null)).toBe(true);
+    // Every purpose: an egress token left live would keep the proxy calling
+    // the provider or the repository for a revoked execution.
+    expect(
+      tokens
+        .map((token) => ({
+          purpose: token.purpose,
+          revoked: token.revokedAt !== null,
+        }))
+        .sort((a, b) => a.purpose.localeCompare(b.purpose)),
+    ).toEqual([
+      { purpose: "gateway", revoked: true },
+      { purpose: "provider", revoked: true },
+      { purpose: "repository", revoked: true },
+    ]);
     expect(await turnStatuses(session.session_id)).toEqual([
       { sequence: 1, status: "running" },
       { sequence: 2, status: "cancelled" },

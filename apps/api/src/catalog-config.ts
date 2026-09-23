@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import {
   CatalogCredentialError,
   type CredentialRef,
-  credentialRefOf,
+  catalogCredentialRefs,
   describeConfigError,
   resolveSessionCatalog,
   type SessionCatalog,
@@ -121,16 +121,14 @@ export async function loadSessionCatalog(options: {
   }
   const config = await readCatalogConfig(options.dir);
   const secrets = new Map<string, string>();
-  for (const [id, profile] of Object.entries(config.profiles)) {
-    const { kind: _kind, ...fields } = profile.provider.auth;
-    const ref = credentialRefOf(fields);
+  for (const { path, ref } of catalogCredentialRefs(config)) {
     if (!("secret_id" in ref) || secrets.has(ref.secret_id)) continue;
     let value: string | undefined;
     try {
       value = await options.readSecret(ref.secret_id);
     } catch (error) {
       throw new CatalogCredentialError(
-        id,
+        path,
         ref,
         `could not be read (${error instanceof Error ? error.name : "error"})`,
       );

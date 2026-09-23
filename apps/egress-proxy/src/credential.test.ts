@@ -1,0 +1,960 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  type CredentialProxyServer,
+  type EgressGrant,
+  parseGrant,
+  responseHeaders,
+  routeOf,
+  secretGuard,
+  secretsOf,
+  startCredentialProxy,
+  tokenOf,
+  upstreamRequestHeaders,
+} from "./credential.ts";
+import { createProxyLogger } from "./logger.ts";
+import type { EgressPolicy } from "./policy.ts";
+
+const AUTHORIZER_TOKEN = "authorizer-token-for-tests-0123456789";
+const WORKER_TOKEN = "wep_worker-egress-token";
+const PROVIDER_KEY = "sk-provider-key-kept-from-the-worker";
+const silent = createProxyLogger("error", () => {});
+
+describe("routeOf", () => {
+  test("routes the Messages API and git's read half, nothing else", () => {
+    expect(routeOf("POST", "/provider/v1/messages", "")).toEqual({
+      purpose: "provider",
+      path: "/v1/messages",
+      search: "",
+    });
+    expect(
+      routeOf("POST", "/provider/v1/messages", "?beta=true"),
+    ).toMatchObject({ purpose: "provider", search: "?beta=true" });
+    expect(
+      routeOf("POST", "/provider/v1/messages/count_tokens", ""),
+    ).toMatchObject({ path: "/v1/messages/count_tokens" });
+    expect(
+      routeOf("GET", "/repository/info/refs", "?service=git-upload-pack"),
+    ).toEqual({
+      purpose: "repository",
+      path: "/info/refs",
+      search: "?service=git-upload-pack",
+    });
+    expect(routeOf("POST", "/repository/git-upload-pack", "")).toMatchObject({
+      path: "/git-upload-pack",
+    });
+    for (const [method, path, search] of [
+      ["GET", "/provider/v1/messages", ""],
+      ["POST", "/provider/v1/models", ""],
+      ["POST", "/provider/v1/messages/batches", ""],
+      ["POST", "/provider/v1/messages", "?beta=true&x=1"],
+      ["POST", "/provider/v1/messages/", ""],
+      ["POST", "/provider/../v1/messages", ""],
+      ["GET", "/repository/info/refs", "?service=git-receive-pack"],
+      ["POST", "/repository/git-receive-pack", ""],
+      ["POST", "/repository/git-upload-pack", "?x=1"],
+      ["GET", "/", ""],
+    ] as const) {
+      expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+});
+
+describe("tokenOf", () => {
+  test("takes exactly one carrier", () => {
+    const h = (init: Record<string, string>) => new Headers(init);
+    expect(tokenOf(h({ "x-api-key": "t1" }), "provider")).toBe("t1");
+    expect(tokenOf(h({ authorization: "Bearer t2" }), "provider")).toBe("t2");
+    expect(tokenOf(h({ authorization: "Bearer t3" }), "repository")).toBe("t3");
+    // git has no x-api-key; a repository call carries a bearer or nothing.
+    expect(tokenOf(h({ "x-api-key": "t1" }), "repository")).toBeNull();
+    expect(
+      tokenOf(h({ "x-api-key": "t", authorization: "Bearer t" }), "provider"),
+    ).toBeNull();
+    expect(
+      tokenOf(h({ authorization: "Basic dTpw" }), "repository"),
+    ).toBeNull();
+    expect(tokenOf(h({ authorization: "Bearer " }), "provider")).toBeNull();
+    expect(tokenOf(h({}), "provider")).toBeNull();
+  });
+});
+
+describe("parseGrant", () => {
+  const good = {
+    session_id: "s",
+    attempt_id: "a",
+    upstream: { url: "https://api.test", headers: [["X-Api-Key", "k"]] },
+  };
+
+  test("accepts the authorizer's shape and lowercases header names", () => {
+    expect(parseGrant(good)).toEqual({
+      sessionId: "s",
+      attemptId: "a",
+      upstream: new URL("https://api.test"),
+      headers: [["x-api-key", "k"]],
+    });
+  });
+
+  test("refuses anything it would have to guess about", () => {
+    for (const bad of [
+      null,
+      "x",
+      { ...good, session_id: 1 },
+      { ...good, upstream: { ...good.upstream, url: "ftp://api.test" } },
+      { ...good, upstream: { ...good.upstream, url: "https://u:p@api.test" } },
+      { ...good, upstream: { ...good.upstream, url: "https://api.test/?q" } },
+      { ...good, upstream: { ...good.upstream, url: "not a url" } },
+      { ...good, upstream: { ...good.upstream, headers: [["bad name", "v"]] } },
+      {
+        ...good,
+        upstream: { ...good.upstream, headers: [["x-api-key", "a\r\nb: c"]] },
+      },
+      { ...good, upstream: { ...good.upstream, headers: [["x"]] } },
+      { ...good, upstream: { ...good.upstream, headers: {} } },
+    ]) {
+      expect(parseGrant(bad)).toBeNull();
+    }
+  });
+});
+
+describe("upstreamRequestHeaders", () => {
+  test("drops the worker's token, hop headers and what Connection names", () => {
+    const grant = parseGrant({
+      session_id: "s",
+      attempt_id: "a",
+      upstream: {
+        url: "https://api.test/base",
+        headers: [["x-api-key", PROVIDER_KEY]],
+      },
+    }) as EgressGrant;
+    const out = upstreamRequestHeaders(
+      new Headers({
+        authorization: `Bearer ${WORKER_TOKEN}`,
+        connection: "keep-alive, x-secret-hop",
+        "x-secret-hop": "1",
+        "accept-encoding": "gzip",
+        "anthropic-version": "2023-06-01",
+        cookie: "a=b",
+        host: "proxy.internal",
+        "proxy-authorization": "Basic x",
+      }),
+      grant,
+    );
+    expect(Object.fromEntries(out)).toEqual({
+      "accept-encoding": "identity",
+      "anthropic-version": "2023-06-01",
+      host: "api.test",
+      "x-api-key": PROVIDER_KEY,
+    });
+  });
+});
+
+describe("secretGuard", () => {
+  async function through(chunks: string[], values: string[]) {
+    const matched: string[] = [];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(new TextEncoder().encode(chunk));
+        }
+        controller.close();
+      },
+    }).pipeThrough(secretGuard(values, () => matched.push("match")));
+    const reader = stream.getReader();
+    let out = "";
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        out += new TextDecoder().decode(next.value);
+      }
+      return { out, broken: false, matched };
+    } catch {
+      return { out, broken: true, matched };
+    }
+  }
+
+  test("passes a clean body through whole, across chunk boundaries", async () => {
+    expect(await through(["abc", "def", "ghi"], ["value-12345678"])).toEqual({
+      out: "abcdefghi",
+      broken: false,
+      matched: [],
+    });
+  });
+
+  test("breaks before any byte of a value, even one split over chunks", async () => {
+    const result = await through(
+      ["head value-1", "2345678 tail"],
+      ["value-12345678"],
+    );
+    expect(result.broken).toBe(true);
+    expect(result.matched).toEqual(["match"]);
+    expect(result.out).not.toContain("value-1");
+  });
+
+  test("does not look for values too short to tell from chance", async () => {
+    expect((await through(["pass word"], ["pass"])).broken).toBe(false);
+  });
+});
+
+describe("responseHeaders", () => {
+  test("drops a header whose value or name echoes a value (Codex R3)", () => {
+    const out = responseHeaders(
+      new Headers({
+        "content-type": "application/json",
+        "x-echo": `key=${PROVIDER_KEY}`,
+        [`x-${PROVIDER_KEY}`]: "1",
+      }),
+      [PROVIDER_KEY],
+    );
+    expect(Object.fromEntries(out)).toEqual({
+      "content-type": "application/json",
+    });
+  });
+});
+
+describe("secretsOf", () => {
+  test("covers the header value, its token and a basic password", () => {
+    const basic = Buffer.from("reader:repo-password").toString("base64");
+    const grant = parseGrant({
+      session_id: "s",
+      attempt_id: "a",
+      upstream: {
+        url: "https://git.test",
+        headers: [["authorization", `Basic ${basic}`]],
+      },
+    }) as EgressGrant;
+    expect(secretsOf(grant)).toEqual(
+      expect.arrayContaining([
+        `Basic ${basic}`,
+        basic,
+        "reader:repo-password",
+        "repo-password",
+      ]),
+    );
+  });
+});
+
+type Seen = { url: string; headers: Record<string, string>; body: string };
+
+describe("startCredentialProxy", () => {
+  let directory: string;
+  let certificate: { cert: string; key: string };
+  const servers: Array<{ stop(force?: boolean): void }> = [];
+
+  beforeAll(async () => {
+    directory = await mkdtemp(join(tmpdir(), "credential-proxy-"));
+    certificate = await mintCertificate(directory, "upstream.test");
+  });
+
+  afterAll(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    for (const server of servers.splice(0)) server.stop(true);
+  });
+
+  function upstream(
+    handle: (request: Request, seen: Seen[]) => Response | Promise<Response>,
+    tls?: { cert: string; key: string },
+  ): { port: number; seen: Seen[] } {
+    const seen: Seen[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      ...(tls === undefined ? {} : { tls }),
+      async fetch(request) {
+        const body = await request.text();
+        seen.push({
+          url: request.url,
+          headers: Object.fromEntries(request.headers),
+          body,
+        });
+        return handle(request, seen);
+      },
+    });
+    servers.push(server);
+    return { port: server.port ?? 0, seen };
+  }
+
+  function authorizer(
+    answer: (body: { token: string; purpose: string }) => Response,
+  ): { url: string; asked: Array<{ token: string; purpose: string }> } {
+    const asked: Array<{ token: string; purpose: string }> = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        if (
+          request.headers.get("authorization") !== `Bearer ${AUTHORIZER_TOKEN}`
+        ) {
+          return new Response("no", { status: 401 });
+        }
+        const body = (await request.json()) as {
+          token: string;
+          purpose: string;
+        };
+        asked.push(body);
+        return answer(body);
+      },
+    });
+    servers.push(server);
+    return { url: `http://127.0.0.1:${server.port}`, asked };
+  }
+
+  function granting(url: string, headers: Array<[string, string]>) {
+    return (body: { token: string }) =>
+      body.token === WORKER_TOKEN
+        ? Response.json({
+            session_id: "sess-1",
+            attempt_id: "att-1",
+            upstream: { url, headers },
+          })
+        : new Response("unknown", { status: 401 });
+  }
+
+  function proxy(
+    authorizerUrl: string,
+    upstreamPort: number,
+    options: Partial<Parameters<typeof startCredentialProxy>[0]> = {},
+  ): CredentialProxyServer {
+    const policy: EgressPolicy = {
+      allow: [],
+      allowPrivate: [{ host: "upstream.test", port: upstreamPort }],
+    };
+    const server = startCredentialProxy({
+      authorizer: { url: authorizerUrl, token: AUTHORIZER_TOKEN },
+      hostname: "127.0.0.1",
+      logger: silent,
+      policy,
+      port: 0,
+      resolve: async (host) => (host === "upstream.test" ? ["127.0.0.1"] : []),
+      ...options,
+    });
+    servers.push(server);
+    return server;
+  }
+
+  function messages(
+    port: number,
+    init: {
+      headers?: Record<string, string>;
+      body?: string;
+      path?: string;
+    } = {},
+  ) {
+    return fetch(
+      `http://127.0.0.1:${port}${init.path ?? "/provider/v1/messages?beta=true"}`,
+      {
+        method: "POST",
+        headers: init.headers ?? { "x-api-key": WORKER_TOKEN },
+        body: init.body ?? '{"model":"m"}',
+      },
+    );
+  }
+
+  test("injects the provider key and passes the exchange through", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const withPort = authorizer(
+      granting(`http://upstream.test:${up.port}/base`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(withPort.url, up.port);
+    const response = await messages(server.port, {
+      headers: {
+        "x-api-key": WORKER_TOKEN,
+        "anthropic-version": "2023-06-01",
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: "msg_1" });
+    expect(withPort.asked).toEqual([
+      { token: WORKER_TOKEN, purpose: "provider" },
+    ]);
+    const [seen] = up.seen;
+    expect(new URL(seen?.url ?? "").pathname).toBe("/base/v1/messages");
+    expect(new URL(seen?.url ?? "").search).toBe("?beta=true");
+    expect(seen?.headers["x-api-key"]).toBe(PROVIDER_KEY);
+    expect(seen?.headers.host).toBe(`upstream.test:${up.port}`);
+    expect(seen?.headers["anthropic-version"]).toBe("2023-06-01");
+    expect(seen?.body).toBe('{"model":"m"}');
+    expect(JSON.stringify(seen)).not.toContain(WORKER_TOKEN);
+  });
+
+  test("streams a response body as it arrives", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const up = upstream(
+      () =>
+        new Response(
+          new ReadableStream({
+            async start(controller) {
+              controller.enqueue(new TextEncoder().encode("event: one\n\n"));
+              await gate;
+              controller.enqueue(new TextEncoder().encode("event: two\n\n"));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const response = await messages(server.port);
+    const reader = response.body?.getReader();
+    const first = await reader?.read();
+    expect(new TextDecoder().decode(first?.value)).toBe("event: one\n\n");
+    release();
+    let rest = "";
+    for (;;) {
+      const next = await reader?.read();
+      if (next === undefined || next.done) break;
+      rest += new TextDecoder().decode(next.value);
+    }
+    expect(rest).toBe("event: two\n\n");
+  });
+
+  test("the authorizer's refusal reaches the worker, and nothing is sent upstream", async () => {
+    const up = upstream(() => new Response("ok"));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    expect(
+      (await messages(server.port, { headers: { "x-api-key": "wep_other" } }))
+        .status,
+    ).toBe(401);
+    expect((await messages(server.port, { headers: {} })).status).toBe(401);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("an authorizer that is down, errs or answers junk fails closed", async () => {
+    const up = upstream(() => new Response("ok"));
+    for (const answer of [
+      () => new Response("boom", { status: 500 }),
+      () => Response.json({ session_id: "s" }),
+      () => new Response("not json"),
+    ]) {
+      const auth = authorizer(answer);
+      const server = proxy(auth.url, up.port);
+      expect((await messages(server.port)).status).toBe(503);
+    }
+    const nowhere = proxy("http://127.0.0.1:1", up.port);
+    expect((await messages(nowhere.port)).status).toBe(503);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("the authorizer's 409 and 403 pass through", async () => {
+    const up = upstream(() => new Response("ok"));
+    for (const status of [403, 409]) {
+      const auth = authorizer(() => new Response("x", { status }));
+      const server = proxy(auth.url, up.port);
+      expect((await messages(server.port)).status).toBe(status);
+    }
+  });
+
+  test("an unrouted operation never reaches the authorizer", async () => {
+    const up = upstream(() => new Response("ok"));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    expect(
+      (await messages(server.port, { path: "/provider/v1/models" })).status,
+    ).toBe(404);
+    expect(
+      (
+        await messages(server.port, {
+          path: "/repository/git-receive-pack",
+          headers: { authorization: `Bearer ${WORKER_TOKEN}` },
+        })
+      ).status,
+    ).toBe(404);
+    expect(auth.asked).toEqual([]);
+    expect(
+      (await fetch(`http://127.0.0.1:${server.port}/healthz`)).status,
+    ).toBe(200);
+  });
+
+  test("an upstream outside the policy is refused even when the authorizer names it", async () => {
+    const up = upstream(() => new Response("ok"));
+    const auth = authorizer(
+      granting(`http://elsewhere.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, {
+      resolve: async () => ["127.0.0.1"],
+    });
+    expect((await messages(server.port)).status).toBe(403);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("a redirect is not followed and not relayed", async () => {
+    const up = upstream(
+      () =>
+        new Response(null, {
+          status: 307,
+          headers: { location: "http://attacker.test/steal" },
+        }),
+    );
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const response = await messages(server.port);
+    expect(response.status).toBe(502);
+    expect(response.headers.get("location")).toBeNull();
+    expect(up.seen).toHaveLength(1);
+  });
+
+  test("an error body that echoes the credential is withheld", async () => {
+    const up = upstream(
+      (request) =>
+        new Response(
+          `invalid key ${request.headers.get("x-api-key")}; set-cookie`,
+          { status: 401, headers: { "set-cookie": "s=1" } },
+        ),
+    );
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const response = await messages(server.port);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const text = await response.text();
+    expect(text).not.toContain(PROVIDER_KEY);
+    expect(text).toContain("withheld");
+  });
+
+  test("an ordinary error body is relayed, and an encoded one is not", async () => {
+    let encoded = false;
+    const up = upstream(() =>
+      encoded
+        ? new Response("\x1f\x8b....", {
+            status: 400,
+            headers: { "content-encoding": "gzip" },
+          })
+        : Response.json(
+            { type: "error", error: { type: "invalid_request_error" } },
+            { status: 400 },
+          ),
+    );
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const plain = await messages(server.port);
+    expect(plain.status).toBe(400);
+    expect(await plain.json()).toEqual({
+      type: "error",
+      error: { type: "invalid_request_error" },
+    });
+    encoded = true;
+    const hidden = await messages(server.port);
+    expect(hidden.status).toBe(400);
+    expect(hidden.headers.get("content-encoding")).toBeNull();
+    expect(await hidden.text()).toContain("withheld");
+  });
+
+  test("dials https by the judged address and checks the catalog's name", async () => {
+    const up = upstream(() => Response.json({ ok: true }), certificate);
+    const auth = authorizer(
+      granting(`https://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // Kept so a failed dial says why instead of just 502.
+    const lines: string[] = [];
+    const server = proxy(auth.url, up.port, {
+      upstreamCa: certificate.cert,
+      logger: createProxyLogger("warn", (line) => lines.push(line)),
+    });
+    const right = await messages(server.port);
+    if (right.status !== 200) {
+      throw new Error(`expected 200, got ${right.status}: ${lines.join("\n")}`);
+    }
+    expect(up.seen).toHaveLength(1);
+
+    // Same address, a name the certificate does not carry: nothing is sent.
+    const other = authorizer(
+      granting(`https://other.test:${up.port}`, [["x-api-key", PROVIDER_KEY]]),
+    );
+    const wrong = proxy(other.url, up.port, {
+      upstreamCa: certificate.cert,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "other.test", port: up.port }],
+      },
+      resolve: async () => ["127.0.0.1"],
+    });
+    expect((await messages(wrong.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+
+    // And a certificate from no trusted root is refused too.
+    const untrusted = proxy(auth.url, up.port);
+    expect((await messages(untrusted.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+
+    // An https upstream by address has no name to check: refused, unsent.
+    const byAddress = authorizer(
+      granting(`https://127.0.0.1:${up.port}`, [["x-api-key", PROVIDER_KEY]]),
+    );
+    const literal = proxy(byAddress.url, up.port, {
+      upstreamCa: certificate.cert,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "127.0.0.1", port: up.port }],
+      },
+      resolve: async (host) => [host],
+    });
+    expect((await messages(literal.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+  });
+
+  test("routes git's read half with the repository credential", async () => {
+    const basic = `Basic ${Buffer.from("reader:repo-pass").toString("base64")}`;
+    const up = upstream(
+      () =>
+        new Response("001e# service=git-upload-pack\n0000", {
+          headers: {
+            "content-type": "application/x-git-upload-pack-advertisement",
+          },
+        }),
+    );
+    const auth = authorizer((body) =>
+      body.purpose === "repository" && body.token === WORKER_TOKEN
+        ? Response.json({
+            session_id: "s",
+            attempt_id: "a",
+            upstream: {
+              url: `http://upstream.test:${up.port}/agent/app.git`,
+              headers: [["authorization", basic]],
+            },
+          })
+        : new Response("no", { status: 401 }),
+    );
+    const server = proxy(auth.url, up.port);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/repository/info/refs?service=git-upload-pack`,
+      { headers: { authorization: `Bearer ${WORKER_TOKEN}` } },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("git-upload-pack");
+    expect(new URL(up.seen[0]?.url ?? "").pathname).toBe(
+      "/agent/app.git/info/refs",
+    );
+    expect(up.seen[0]?.headers.authorization).toBe(basic);
+  });
+
+  test("a success that echoes the credential is cut off before the value (Codex R1)", async () => {
+    let mode: "header" | "body" | "split" | "encoded" = "header";
+    const up = upstream((request) => {
+      const echoed = request.headers.get("x-api-key") ?? "";
+      if (mode === "header") {
+        return Response.json(
+          { id: "msg_1" },
+          { headers: { "x-debug": echoed } },
+        );
+      }
+      if (mode === "encoded") {
+        return new Response("\x1f\x8b....", {
+          headers: { "content-encoding": "gzip" },
+        });
+      }
+      const text = `data: {"debug":"${echoed}"}\n\n`;
+      const at = text.indexOf(echoed) + 5;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            const bytes = new TextEncoder().encode(text);
+            if (mode === "split") {
+              // The value straddles two chunks.
+              controller.enqueue(bytes.subarray(0, at));
+              controller.enqueue(bytes.subarray(at));
+            } else {
+              controller.enqueue(bytes);
+            }
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+
+    const header = await messages(server.port);
+    expect(header.status).toBe(200);
+    expect(header.headers.get("x-debug")).toBeNull();
+    expect(await header.json()).toEqual({ id: "msg_1" });
+
+    for (const shape of ["body", "split"] as const) {
+      mode = shape;
+      const response = await messages(server.port);
+      expect(response.status).toBe(200);
+      const received = await response.text().catch(() => "<broken>");
+      expect(received).not.toContain(PROVIDER_KEY);
+    }
+
+    mode = "encoded";
+    expect((await messages(server.port)).status).toBe(502);
+  });
+
+  test("a request body trickled past the deadline ends the exchange and frees its slot (Codex R5)", async () => {
+    const up = upstream(() => Response.json({ ok: true }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, {
+      exchangeTimeoutMs: 300,
+      maxExchangesPerClient: 1,
+    });
+    // Promises 100 bytes, sends 2, then goes quiet.
+    const socket = await Bun.connect({
+      hostname: "127.0.0.1",
+      port: server.port,
+      socket: { data() {} },
+    });
+    socket.write(
+      `POST /provider/v1/messages HTTP/1.1\r\nhost: proxy\r\nx-api-key: ${WORKER_TOKEN}\r\ncontent-length: 100\r\n\r\n{}`,
+    );
+    const started = performance.now();
+    let next = await messages(server.port);
+    while (next.status === 503 && performance.now() - started < 5_000) {
+      await next.text();
+      await Bun.sleep(50);
+      next = await messages(server.port);
+    }
+    expect(next.status).toBe(200);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    // The trickled request never reached the upstream.
+    expect(up.seen).toHaveLength(1);
+    socket.end();
+  });
+
+  test("caps open exchanges per client, and frees the slot when one ends", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const up = upstream(
+      () =>
+        new Response(
+          new ReadableStream({
+            async start(controller) {
+              controller.enqueue(new TextEncoder().encode("a"));
+              await gate;
+              controller.close();
+            },
+          }),
+        ),
+    );
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, { maxExchangesPerClient: 1 });
+    const held = await messages(server.port);
+    expect(held.status).toBe(200);
+    expect((await messages(server.port)).status).toBe(503);
+    release();
+    await held.text();
+    // The slot frees as the body ends; give the stream a tick to close.
+    await Bun.sleep(20);
+    const next = await messages(server.port);
+    expect(next.status).toBe(200);
+    await next.text();
+  });
+
+  test("an open exchange is cut once its grant ends, not when the authorizer blips (Codex R2)", async () => {
+    // The first exchange's gate opens; the later ones' never do.
+    let release: () => void = () => {};
+    const gates = [
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+      new Promise<void>(() => {}),
+      new Promise<void>(() => {}),
+    ];
+    let upstreamAborted = false;
+    const up = upstream(
+      (request) =>
+        new Response(
+          new ReadableStream({
+            async start(controller) {
+              request.signal.addEventListener("abort", () => {
+                upstreamAborted = true;
+              });
+              controller.enqueue(new TextEncoder().encode("a"));
+              await gates.shift();
+              controller.enqueue(new TextEncoder().encode("b"));
+              controller.close();
+            },
+          }),
+        ),
+    );
+    let answer: "grant" | "down" | "gone" = "grant";
+    const grant = granting(`http://upstream.test:${up.port}`, [
+      ["x-api-key", PROVIDER_KEY],
+    ]);
+    const auth = authorizer((body) =>
+      answer === "grant"
+        ? grant(body)
+        : new Response("x", { status: answer === "down" ? 500 : 409 }),
+    );
+    const server = proxy(auth.url, up.port, {
+      regrantIntervalMs: 20,
+      regrantGraceMs: 60_000,
+    });
+
+    // The authorizer failing is not the grant ending: the stream goes on.
+    const kept = await messages(server.port);
+    const keptReader = kept.body?.getReader();
+    expect(new TextDecoder().decode((await keptReader?.read())?.value)).toBe(
+      "a",
+    );
+    answer = "down";
+    const asked = auth.asked.length;
+    while (auth.asked.length < asked + 3) await Bun.sleep(10);
+    answer = "grant";
+    release();
+    expect(new TextDecoder().decode((await keptReader?.read())?.value)).toBe(
+      "b",
+    );
+    expect((await keptReader?.read())?.done).toBe(true);
+
+    // A refusal while the upstream is still streaming ends the exchange.
+    const cut = await messages(server.port);
+    const cutReader = cut.body?.getReader();
+    expect((await cutReader?.read())?.done).toBe(false);
+    answer = "gone";
+    // Bun ends the relayed body rather than resetting the connection, so
+    // the worker sees a cut-short stream (no `b`, never an SSE stop or a
+    // pack's trailer) where the upstream would have waited forever.
+    let rest = "";
+    try {
+      for (;;) {
+        const next = await cutReader?.read();
+        if (next === undefined || next.done) break;
+        rest += new TextDecoder().decode(next.value);
+      }
+    } catch {}
+    expect(rest).toBe("");
+    await Bun.sleep(20);
+    expect(upstreamAborted).toBe(true);
+
+    // An authorizer that stays down past the grace ends it too (Codex R3).
+    upstreamAborted = false;
+    answer = "grant";
+    const strict = proxy(auth.url, up.port, {
+      regrantIntervalMs: 20,
+      regrantGraceMs: 100,
+    });
+    const outage = await messages(strict.port);
+    const outageReader = outage.body?.getReader();
+    expect((await outageReader?.read())?.done).toBe(false);
+    answer = "down";
+    let after = "";
+    try {
+      for (;;) {
+        const next = await outageReader?.read();
+        if (next === undefined || next.done) break;
+        after += new TextDecoder().decode(next.value);
+      }
+    } catch {}
+    expect(after).toBe("");
+    await Bun.sleep(20);
+    expect(upstreamAborted).toBe(true);
+  });
+
+  test("a privately listed upstream that resolves publicly gets no login (Codex R3)", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, {
+      resolve: async () => ["127.0.0.1", "8.8.8.8"],
+    });
+    const response = await messages(server.port);
+    expect(response.status).toBe(403);
+    expect(up.seen).toEqual([]);
+  });
+});
+
+async function mintCertificate(
+  directory: string,
+  name: string,
+): Promise<{ cert: string; key: string }> {
+  const keyPath = join(directory, `${name}.key`);
+  const certPath = join(directory, `${name}.crt`);
+  const generate = Bun.spawn(
+    [
+      "openssl",
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+      "-nodes",
+      "-days",
+      "1",
+      "-subj",
+      `/CN=${name}`,
+      "-addext",
+      `subjectAltName=DNS:${name}`,
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+    ],
+    { stderr: "pipe", stdout: "ignore" },
+  );
+  if ((await generate.exited) !== 0) {
+    throw new Error(
+      `openssl could not mint a test certificate:\n${await new Response(generate.stderr).text()}`,
+    );
+  }
+  return {
+    cert: await Bun.file(certPath).text(),
+    key: await Bun.file(keyPath).text(),
+  };
+}

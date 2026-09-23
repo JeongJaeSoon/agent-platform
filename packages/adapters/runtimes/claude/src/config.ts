@@ -35,16 +35,29 @@ export type RuntimePlugin = { path: string; type: "local" };
  */
 export type RuntimePrincipal = { ownerScope: string };
 
+/**
+ * What a worker holds in place of a provider credential (94S-252): a token
+ * the egress proxy at `transport` exchanges for the real one. `endpoint`
+ * stays the upstream the proxy forwards to, which is what policy approves
+ * and the checkpoint fingerprint names.
+ */
+export type EgressTokenAuth = {
+  kind: "egress_token";
+  token: string;
+  transport: string;
+};
+
 export type RuntimeProfile = (
   | {
-      auth: { kind: "api_key"; value: string };
+      auth: { kind: "api_key"; value: string } | EgressTokenAuth;
       endpoint: string;
       kind: "anthropic";
     }
   | {
       auth:
         | { kind: "api_key"; value: string }
-        | { kind: "bearer"; value: string };
+        | { kind: "bearer"; value: string }
+        | EgressTokenAuth;
       endpoint: string;
       kind: "litellm";
     }

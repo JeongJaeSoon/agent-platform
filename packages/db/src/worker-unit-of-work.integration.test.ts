@@ -350,8 +350,11 @@ integration("worker gateway on PostgreSQL", () => {
         id: "sample-app",
         url: "https://example.invalid/app.git",
         branch: "main",
+        access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
       },
     });
+    // The provider key stays on the server (94S-252); the worker gets the
+    // upstream's name and a token for the egress proxy's route.
     expect(first.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read", "Edit", "Bash"],
@@ -359,9 +362,10 @@ integration("worker gateway on PostgreSQL", () => {
       provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
-        auth: { kind: "api_key", value: "catalog-provider-key" },
+        auth: { kind: "egress_token", token: expect.stringMatching(/^wep_/) },
       },
     });
+    expect(JSON.stringify(first)).not.toContain("catalog-provider-key");
 
     const retry = await claim(l);
     expect(retry.session_id).toBe(first.session_id);
@@ -399,6 +403,161 @@ integration("worker gateway on PostgreSQL", () => {
       leaseEpoch: retry.lease_epoch,
       executionGeneration: retry.execution_generation,
       authRevision: retry.auth_revision,
+    });
+  });
+
+  test("egress tokens live and die with the attempt, each for its own route only (94S-252)", async () => {
+    const partition = partitionFor("egress");
+    const session = await queuedSession(partition);
+    const l = await launch(partition);
+    const first = await claim(l);
+    const providerOf = (claimed: typeof first) =>
+      claimed.runtime_config.provider.auth.token;
+    const repositoryOf = (claimed: typeof first) =>
+      claimed.workspace.repository.access?.token ?? "";
+    const authorize = (token: string, purpose: "provider" | "repository") =>
+      failure(gateway.authorizeEgress({ token, purpose }));
+
+    // A lost claim response is replayed with fresh tokens, and the old ones
+    // are revoked with the old session credential.
+    const retry = await claim(l);
+    expect(providerOf(retry)).not.toBe(providerOf(first));
+    expect(await authorize(providerOf(first), "provider")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    expect(await authorize(repositoryOf(first), "repository")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+
+    // The live ones answer for their own route, with the claim's upstream.
+    const provider = await gateway.authorizeEgress({
+      token: providerOf(retry),
+      purpose: "provider",
+    });
+    expect(provider).toEqual({
+      session_id: session.session_id,
+      attempt_id: retry.attempt_id,
+      upstream: {
+        url: "https://litellm.invalid",
+        headers: [["x-api-key", "catalog-provider-key"]],
+      },
+    });
+    expect(
+      await gateway.authorizeEgress({
+        token: repositoryOf(retry),
+        purpose: "repository",
+      }),
+    ).toEqual({
+      session_id: session.session_id,
+      attempt_id: retry.attempt_id,
+      upstream: { url: "https://example.invalid/app.git", headers: [] },
+    });
+    // Using a token is using the binding: the claim can no longer be
+    // replayed out from under the worker that is already cloning with it.
+    const [started] = await db
+      .select()
+      .from(attempts)
+      .where(eq(attempts.id, retry.attempt_id));
+    expect(started?.state).toBe("starting");
+    expect(await failure(claim(l))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+
+    // No token crosses purposes: not between the two routes, not into the
+    // gateway, and the session credential is not an egress token.
+    expect(await authorize(providerOf(retry), "repository")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    expect(await authorize(repositoryOf(retry), "provider")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    expect(await authorize(retry.session_credential, "provider")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    for (const token of [providerOf(retry), repositoryOf(retry)]) {
+      expect(await failure(gateway.authenticate(token))).toEqual({
+        status: 401,
+        code: "UNAUTHORIZED",
+      });
+    }
+
+    // A heartbeat extends all three together.
+    await gateway.heartbeat(principalOf(retry), {
+      ...scopeOf(retry),
+      attempt_state: "draining",
+    });
+    const live = await pool.query(
+      "SELECT purpose, expires_at FROM worker_credentials WHERE attempt_id = $1 AND revoked_at IS NULL ORDER BY purpose",
+      [retry.attempt_id],
+    );
+    expect(live.rows.map((row) => row.purpose)).toEqual([
+      "gateway",
+      "provider",
+      "repository",
+    ]);
+    expect(new Set(live.rows.map((row) => String(row.expires_at))).size).toBe(
+      1,
+    );
+    // A draining attempt still owns its session and still needs the provider
+    // to finish its turn.
+    expect(
+      (
+        await gateway.authorizeEgress({
+          token: providerOf(retry),
+          purpose: "provider",
+        })
+      ).attempt_id,
+    ).toBe(retry.attempt_id);
+
+    // Ownership moving is enough, before anything revokes a token: here the
+    // session's fence moves on without this attempt.
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} + 1` })
+      .where(eq(sessions.id, session.session_id));
+    expect(await authorize(providerOf(retry), "provider")).toEqual({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    await db
+      .update(sessions)
+      .set({ leaseEpoch: sql`${sessions.leaseEpoch} - 1` })
+      .where(eq(sessions.id, session.session_id));
+
+    // A lease that ran out is refused while the token itself is unexpired:
+    // the reconciler may not have got to it yet, and the proxy must not
+    // wait for it.
+    await db
+      .update(attempts)
+      .set({ leaseExpiresAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(attempts.id, retry.attempt_id));
+    expect(await authorize(providerOf(retry), "provider")).toEqual({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    await db
+      .update(attempts)
+      .set({ leaseExpiresAt: sql`clock_timestamp() + interval '1 minute'` })
+      .where(eq(attempts.id, retry.attempt_id));
+
+    // A release ends the attempt and revokes every token it held.
+    await gateway.release(principalOf(retry), {
+      ...scopeOf(retry),
+      reason: "idle_timeout",
+    });
+    expect(await authorize(providerOf(retry), "provider")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    expect(await authorize(repositoryOf(retry), "repository")).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
     });
   });
 
@@ -2540,6 +2699,7 @@ integration("worker gateway on PostgreSQL", () => {
         id: "sample-app",
         url: "https://example.invalid/app.git",
         branch: "main",
+        access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
       },
     });
     expect(again.runtime_config.model).toBe("claude-sonnet-5");
