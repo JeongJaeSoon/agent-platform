@@ -4,7 +4,7 @@
 
 호스트에 필요한 것: docker + compose v2.24 이상(`!override` 병합), git, jq, `sha256sum` 또는 `shasum`, 그리고 `bun install`을 마친 이 저장소 checkout. restore의 `migrate` 서비스가 checkout을 마운트하고, 세 스크립트 모두 `bun run scripts/lib/checkpoint-pins-cli.ts`로 production codec과 S3 어댑터를 부른다(published postgres·localstack 포트로 붙는다). verify는 `scripts/lib/decode-manifest.ts`도 부른다. pg_dump·psql·awslocal은 컨테이너 안에서 실행한다.
 
-macOS에서 Homebrew bash 5.3이 PATH 앞에 있으면 1 KB가 넘는 here-string·heredoc에서 멈춘다(backup의 gitea 단계 등). `/bin`을 PATH 앞에 두고 실행한다.
+macOS에서 Homebrew bash 5.3.9가 PATH 앞에 있으면 1 KB가 넘는 here-string·heredoc에서 멈춘다(`cat <<< "$(seq 1 300)"`가 돌아오지 않는다. backup의 gitea 단계 heredoc이 여기에 걸린다). 스크립트는 `#!/usr/bin/env bash`이므로 `/bin`을 PATH 앞에 두어 /bin/bash 3.2로 실행한다.
 
 ## 백업
 
@@ -121,7 +121,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229)
 재고정은 다음 규칙을 지킨다. Codex와 합의했다.
 
 - **key는 그대로 둔다.** manifest는 원래 key(`manifestRefFor(session, revision, attempt)`)에 다시 쓴다. 복원 sync가 그 key를 뺐으므로 새 bucket에서는 이것이 첫 create-only 쓰기다. 그래서 finalize의 key 규칙과 `putImmutable` 규칙이 그대로 성립한다.
-- **바뀌는 것은 version과 manifest digest다.** manifest의 `version` 필드만 바뀐다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
+- **바뀌는 것은 version과 manifest digest다.** manifest 안 각 object ref(transcript part, bundle, untracked)의 `version` 필드만 바뀐다. 최상위 schema `version`(2)은 그대로다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
 - **`versions_held=true`는 모든 검증을 마친 뒤에만 쓴다.** 재고정 도구는 DB와 bucket 권한을 모두 가진 신뢰된 발급자다. locked finalize와 똑같이 모든 version을 version 단위로 해시하고 hold를 건 뒤에만 true로 둔다. false로 남기면 `getRestorePlan`이 이 값을 올리지 않으므로, 매 복원마다 transcript 전체를 다시 해시하게 된다.
 - **`turns.result_json`의 finalize digest는 원래 요청 그대로 둔다.** 원래 요청의 replay는 계속 맞고, 재고정한 필드로 온 요청은 충돌한다. 복원본에는 원래 worker가 없으므로 실제로 오는 요청은 없다.
 - **백업 원본은 바뀌지 않는다.** `objects/`의 manifest는 원래 바이트 그대로 남는다.
