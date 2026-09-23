@@ -1,5 +1,6 @@
 import * as schema from "@agent-platform/db";
 import { createPostgresSchedulerStore } from "@agent-platform/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { LocalDockerBackend } from "@agent-platform/execution-local-docker";
 import { createLogger } from "@agent-platform/observability";
 import {
@@ -8,8 +9,8 @@ import {
   type SchedulerRunSummary,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import { schedulerConfigFromEnv } from "./config.ts";
+import { latchOnConnectionLoss } from "./connection-latch.ts";
 
 /**
  * One scheduling pass, then exit: the same shape as `apps/reconciler`. This
@@ -23,7 +24,14 @@ export async function main(
   const logger = createLogger(
     config.logLevel === undefined ? {} : { level: config.logLevel },
   );
-  const pool = new Pool({ connectionString: config.databaseUrl });
+  // The pass-lock client comes out of this pool too, so a frozen database
+  // fails the lock query as well instead of holding the pass open.
+  const pool = createEnforcedPool(
+    config.databaseUrl,
+    logger,
+    "scheduler",
+    JOB_POOL_TIMEOUTS,
+  );
   try {
     const db = drizzle(pool, { schema });
     const backend = new LocalDockerBackend(config.docker);
@@ -38,9 +46,17 @@ export async function main(
           "a runaway worker can fill this daemon's disk",
       );
     }
-    const store = createPostgresSchedulerStore(db, {
-      connectForLock: () => pool.connect(),
-    });
+    const latch = latchOnConnectionLoss(
+      createPostgresSchedulerStore(db, {
+        connectForLock: () => pool.connect(),
+      }),
+      (error) => {
+        logger.error("Database connection lost; failing the rest of the pass", {
+          error: messageOf(error),
+        });
+      },
+    );
+    const store = latch.store;
     try {
       await backend.verifyWorkspaceQuota();
     } catch (error) {
@@ -63,7 +79,7 @@ export async function main(
       );
       throw error;
     }
-    return await runScheduler({
+    const summary = await runScheduler({
       backend,
       image: config.image,
       logger,
@@ -71,6 +87,12 @@ export async function main(
       slotLimit: config.slotLimit,
       store,
     });
+    // The pass records a lost connection against each execution it was
+    // reconciling and can still come back with a summary; the database being
+    // gone is the process's failure, not theirs.
+    const lost = latch.lost();
+    if (lost !== undefined) throw lost;
+    return summary;
   } finally {
     await pool.end();
   }
