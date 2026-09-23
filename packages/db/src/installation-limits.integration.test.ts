@@ -444,9 +444,8 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
     test("every claim hands the engine what is left, so a resumed attempt gets less (94S-279)", async () => {
       const { session, claimed, launched } = await bound();
       expect(claimed.remaining_budget_usd).toBe(COST_LIMIT_USD);
-      expect((await append(session, "second input")).outcome).toBe("accepted");
-      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
-      await finalize(claimed, "1", { costUsd: 4.25 });
+      // Spent without delivering a turn: a delivered turn no checkpoint covers would hold the session back from the next claim (94S-288).
+      await spend(session.session_id, 4.25);
       await gateway.release(principalOf(claimed), {
         ...scopeOf(claimed),
         reason: "drained",
