@@ -60,6 +60,8 @@ export class DockerApiError extends Error {
 
 export type ContainerCreateBody = {
   Cmd?: string[];
+  /** Replaces the image's; the image's `Cmd` is then dropped as well. */
+  Entrypoint?: string[];
   Env: string[];
   HostConfig: {
     CapAdd?: string[];
@@ -152,6 +154,8 @@ export type NetworkCreateBody = {
 };
 
 export type ContainerSummary = {
+  /** Unix seconds, by the daemon's clock. */
+  Created?: number;
   Id: string;
   Labels: Record<string, string> | null;
   Names: string[];
@@ -264,6 +268,22 @@ export class DockerClient {
       undefined,
       [204, 304],
     );
+  }
+
+  /**
+   * Blocks until the container is no longer running and answers its exit
+   * status; a container that has already exited answers at once.
+   */
+  async waitContainer(idOrName: string, timeoutMs: number): Promise<number> {
+    const response = await this.request(
+      "POST",
+      `/containers/${encodeURIComponent(idOrName)}/wait?condition=not-running`,
+      undefined,
+      [200],
+      timeoutMs,
+    );
+    const { StatusCode } = (await response.json()) as { StatusCode: number };
+    return StatusCode;
   }
 
   /** null when the container does not exist. */

@@ -422,7 +422,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
         EXECUTION_WORKSPACE_QUOTA: "on",
         EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: "0",
       }),
-    ).rejects.toThrow("cannot put a size quota");
+    ).rejects.toThrow("cannot put a size and inode quota");
 
     expect(await client.inspectVolume(name)).toBeNull();
   }, 180_000);

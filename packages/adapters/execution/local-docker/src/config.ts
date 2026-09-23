@@ -8,13 +8,27 @@ import {
 /**
  * `enforced` puts a byte ceiling on the per-session workspace volume through
  * the `local` driver's `size` option, which only holds on a daemon whose
- * storage sits on a quota-capable filesystem (xfs with `prjquota`). `off` is
- * the deliberate opt-out for daemons that cannot: it is never the fallback a
+ * storage sits on a quota-capable filesystem (xfs with `prjquota`), and an
+ * inode ceiling on the same xfs project, which Docker has no option for and
+ * a helper container sets instead (`workspace-inodes.ts`). `off` is the
+ * deliberate opt-out for daemons that cannot: it is never the fallback a
  * missing capability drops into, because an unbounded workspace lets one
- * worker fill the host out from under every other session on the daemon.
+ * worker fill the host out from under every other session on the daemon —
+ * with bytes, or with millions of empty files.
  */
 export type WorkspaceQuota =
-  | { mode: "enforced"; sizeBytes: number }
+  | {
+      mode: "enforced";
+      sizeBytes: number;
+      inodes: number;
+      /**
+       * What the inode helper runs from: the scheduler's own worker image
+       * (`WORKER_IMAGE`), which carries xfsprogs. Never a launch's image —
+       * the helper holds CAP_SYS_ADMIN, and which image gets that is the
+       * operator's choice, not something a catalog entry can steer.
+       */
+      helperImage: string;
+    }
   | { mode: "off" };
 
 export type LocalDockerBackendConfig = {
@@ -121,8 +135,11 @@ export type LocalDockerBackendEnvironment = {
   /** `on` (default) or `off`; anything else is a typo, not an opt-out. */
   EXECUTION_WORKSPACE_QUOTA?: string | undefined;
   EXECUTION_WORKSPACE_QUOTA_MB?: string | undefined;
+  EXECUTION_WORKSPACE_QUOTA_INODES?: string | undefined;
   S3_BUCKET?: string | undefined;
   WORKER_GATEWAY_URL?: string | undefined;
+  /** The worker image, and what the workspace inode helper runs from. */
+  WORKER_IMAGE?: string | undefined;
   [key: string]: string | undefined;
 };
 
@@ -209,6 +226,13 @@ export function localDockerConfigFromEnv(
 }
 
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
+/**
+ * Room for a large monorepo checkout with its dependencies installed (a few
+ * hundred thousand files) several times over. Empty files cost the byte
+ * quota nothing — xfs does not charge inodes to a project's blocks — so
+ * without this a loop of them only stops when the daemon's filesystem does.
+ */
+export const DEFAULT_WORKSPACE_QUOTA_INODES = 1_000_000;
 export const DEFAULT_WORKSPACE_GC_MIN_AGE_SEC = 3600;
 
 function workspaceQuotaFromEnv(
@@ -223,7 +247,14 @@ function workspaceQuotaFromEnv(
       `EXECUTION_WORKSPACE_QUOTA ${mode} must be "on" or "off"; "off" is the explicit opt-out`,
     );
   }
+  const helperImage = environment.WORKER_IMAGE;
+  if (!helperImage) {
+    throw new Error(
+      "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
+    );
+  }
   return {
+    helperImage,
     mode: "enforced",
     sizeBytes:
       positiveInteger(
@@ -233,6 +264,11 @@ function workspaceQuotaFromEnv(
       ) *
       1024 *
       1024,
+    inodes: positiveInteger(
+      environment.EXECUTION_WORKSPACE_QUOTA_INODES ??
+        String(DEFAULT_WORKSPACE_QUOTA_INODES),
+      "EXECUTION_WORKSPACE_QUOTA_INODES",
+    ),
   };
 }
 
@@ -344,6 +380,21 @@ export function validateLocalDockerConfig(
     throw new Error(
       `Workspace quota ${config.workspaceQuota.sizeBytes} is not a positive byte limit`,
     );
+  }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    (!Number.isInteger(config.workspaceQuota.inodes) ||
+      config.workspaceQuota.inodes < 1)
+  ) {
+    throw new Error(
+      `Workspace quota ${config.workspaceQuota.inodes} is not a positive inode limit`,
+    );
+  }
+  if (
+    config.workspaceQuota.mode === "enforced" &&
+    config.workspaceQuota.helperImage.trim() === ""
+  ) {
+    throw new Error("Workspace quota needs an image to run its inode helper");
   }
   if (
     !Number.isInteger(config.workspaceGcMinAgeMs) ||

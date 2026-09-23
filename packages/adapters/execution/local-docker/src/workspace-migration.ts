@@ -1,5 +1,6 @@
 import {
   LABELS,
+  LocalDockerBackend,
   legacySessionOf,
   legacyWorkspaceVolumeName,
   quotaStampOf,
@@ -296,6 +297,18 @@ export class WorkspaceMigrator {
       { createdAt: plannedCreatedAt ?? "", name: source },
       fail,
     );
+    // The whole ceiling before the copy, inodes included: a tree with more
+    // files than a worker may hold fails the copy, as one too large does.
+    try {
+      await new LocalDockerBackend(this.config, this.client).requireInodeLimit(
+        target,
+      );
+    } catch (error) {
+      await this.client.removeVolume(target).catch(() => undefined);
+      throw fail(
+        `${error instanceof Error ? error.message : String(error)}; ${source} is untouched`,
+      );
+    }
 
     signal?.throwIfAborted();
     await this.client.createContainer(helper, {

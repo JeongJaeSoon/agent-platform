@@ -33,6 +33,7 @@ import {
   type NetworkInspect,
   type VolumeInspect,
 } from "./docker-client.ts";
+import { applyInodeLimit } from "./workspace-inodes.ts";
 
 export const LABELS = {
   /**
@@ -235,6 +236,12 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // in place. Making it stale forces the replacement through
     // `ensureWorkspaceVolume`, which is what reports the mismatch.
     quotaStampOf(config.workspaceQuota),
+    // The inode ceiling is not on the volume's label — it can be set in
+    // place — but a container from before it has never been through
+    // `ensureWorkspaceVolume` with it, and replacing it is what gets it there.
+    config.workspaceQuota.mode === "enforced"
+      ? config.workspaceQuota.inodes
+      : null,
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
@@ -390,7 +397,7 @@ export class ImageVolumeError extends Error {
 export class WorkspaceQuotaUnsupportedError extends Error {
   constructor(cause: string) {
     super(
-      `This Docker daemon cannot put a size quota on a local volume (${cause}). ` +
+      `This Docker daemon cannot put a size and inode quota on a local volume (${cause}). ` +
         "An unbounded workspace lets one worker fill the daemon's disk and take " +
         "every other session on it down, so nothing is launched. Move the daemon's " +
         "storage onto xfs with prjquota, or opt out deliberately with " +
@@ -574,6 +581,13 @@ export class LocalDockerBackend implements ExecutionBackend {
         throw new WorkspaceQuotaUnsupportedError(
           `the daemon accepted size=${quota.sizeBytes} but recorded ${volume.Options?.size ?? "no size option"}`,
         );
+      }
+      // The inode half has no create-time answer; the helper that sets it on
+      // every workspace is run here once, on the probe, so a daemon that
+      // refuses it fails now rather than one launch at a time.
+      const problem = await this.applyInodeLimit(name, quota);
+      if (problem !== null) {
+        throw new WorkspaceQuotaUnsupportedError(`inode limit: ${problem}`);
       }
     } finally {
       await this.client.removeVolume(name).catch(() => undefined);
@@ -1436,6 +1450,9 @@ export class LocalDockerBackend implements ExecutionBackend {
       const problem = workspaceVolumeProblem(existing, sessionId, config);
       if (problem !== null)
         throw new WorkspaceQuotaError(existing.Name, problem);
+      // A volume from before the inode ceiling gets it here, and one whose
+      // project id the daemon handed out again after a restart gets it back.
+      await this.requireInodeLimit(existing.Name);
       this.replacementWorkspaces.delete(sessionId);
       return existing.Name;
     }
@@ -1475,7 +1492,37 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
     const problem = workspaceVolumeProblem(volume, sessionId, config);
     if (problem !== null) throw new WorkspaceQuotaError(name, problem);
+    await this.requireInodeLimit(name);
     return name;
+  }
+
+  /**
+   * Sets the workspace's inode ceiling, or says why it could not. On every
+   * launch rather than once per volume: the limit lives in the filesystem,
+   * not on anything Docker reports, so there is nothing cheaper to check it
+   * against, and setting it again is idempotent.
+   */
+  async requireInodeLimit(volume: string): Promise<void> {
+    const quota = this.config.workspaceQuota;
+    if (quota.mode === "off") return;
+    const problem = await this.applyInodeLimit(volume, quota);
+    if (problem !== null) {
+      throw new WorkspaceQuotaError(volume, `has no inode limit: ${problem}`);
+    }
+  }
+
+  private async applyInodeLimit(
+    volume: string,
+    quota: Extract<WorkspaceQuota, { mode: "enforced" }>,
+  ): Promise<string | null> {
+    return applyInodeLimit(this.client, {
+      image: await this.inspectedImage(quota.helperImage),
+      inodes: quota.inodes,
+      installationId: this.config.installationId,
+      timeoutMs: this.config.requestTimeoutMs,
+      volume,
+      workspaceDir: this.config.workspaceDir,
+    });
   }
 
   /**

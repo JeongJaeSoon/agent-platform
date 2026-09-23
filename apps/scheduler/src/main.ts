@@ -40,8 +40,8 @@ export async function main(
       // The one warning the opt-out costs. Losing the quota by accident —
       // a daemon that cannot carry one — stops the process instead.
       logger.warn(
-        "Worker workspaces have no disk quota (EXECUTION_WORKSPACE_QUOTA=off); " +
-          "a runaway worker can fill this daemon's disk",
+        "Worker workspaces have no disk or inode quota (EXECUTION_WORKSPACE_QUOTA=off); " +
+          "a runaway worker can fill this daemon's disk or exhaust its inodes",
       );
     }
     const latch = latchOnConnectionLoss(
