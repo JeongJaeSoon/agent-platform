@@ -85,7 +85,8 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
 api_key="$(dc exec -T api bun run apps/api/src/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-dc up -d --wait scheduler >>"$out/up.log" 2>&1
+# The reconciler runs as the product runs it, on its own loop (94S-320).
+dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
 echo "== gate" >&2
 export D2_GATE=1

@@ -114,21 +114,21 @@ integration("reconciler passes that overlap", () => {
   async function runningSession() {
     const partition = `overlap-${crypto.randomUUID()}`;
     const owner = { ownerId: `owner-${crypto.randomUUID()}` };
-    const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic(
-      {
-        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-        principal: owner,
-        idempotencyKey: crypto.randomUUID(),
-        payloadHash: crypto.randomUUID(),
-        profileId: "claude-coding-v1",
-        repository: {
-          id: "sample-app",
-          url: "https://example.invalid/app.git",
-          branch: "main",
-        },
-        message: "first input",
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
       },
-    );
+      message: "first input",
+    });
     if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
     const sessionId = accepted.response.session_id;
     await db
@@ -276,9 +276,7 @@ integration("reconciler passes that overlap", () => {
         run.interrupts.filter(({ sessionId }) => sessionId === stuck.sessionId),
       ),
     ).toHaveLength(1);
-    expect(
-      runs.reduce((sum, run) => sum + run.interruptsOverdue, 0),
-    ).toBe(1);
+    expect(runs.reduce((sum, run) => sum + run.interruptsOverdue, 0)).toBe(1);
     expect(
       runs.flatMap((run) =>
         run.orphans.filter(({ sessionId }) => sessionId === orphanId),
