@@ -4,7 +4,18 @@ import type {
   PendingRequestService,
   SessionService,
 } from "@agent-platform/platform";
-import { createApiApp, probeRouteErrors, rootRouteErrors } from "./app.ts";
+import {
+  createApiApp,
+  mutationRouteErrors,
+  probeRouteErrors,
+  rootRouteErrors,
+} from "./app.ts";
+import type { BootstrapGate, IdentityStore } from "./auth.ts";
+import {
+  authRouteErrors,
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/auth.ts";
 import { eventRouteErrors, registerEventRoutes } from "./routes/events.ts";
 import { pendingRouteErrors, registerPendingRoutes } from "./routes/pending.ts";
 import {
@@ -23,10 +34,17 @@ const NOT_YET_IMPLEMENTED = [
   "POST /v1/sessions/{id}/pause",
 ];
 
-function honoRoutes(): Set<string> {
+function honoRoutes(only?: "public"): Set<string> {
+  const auth = {
+    identity: {} as IdentityStore,
+    bootstrap: {} as BootstrapGate,
+  };
   const app = createApiApp({
     authMode: "none",
+    registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
     registerRoutes: (router) => {
+      if (only === "public") return;
+      registerAuthRoutes(router, auth);
       registerSessionRoutes(router, {} as SessionService);
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
@@ -84,19 +102,29 @@ test("every Hono handler is declared in the OpenAPI route table", () => {
 
 test("each handler's error statuses match its OpenAPI operation", () => {
   const declared = openApiOperations();
+  const publicRoutes = honoRoutes("public");
   for (const route of honoRoutes()) {
     const implemented =
       route === "GET /v1"
         ? rootRouteErrors
         : (probeRouteErrors[route] ??
+          authRouteErrors[route] ??
           receiptRouteErrors[route] ??
           eventRouteErrors[route] ??
           pendingRouteErrors[route] ??
           sessionRouteErrors[route]);
     expect(implemented, `${route} has no error status table`).toBeDefined();
+    // Errors the /v1 middleware adds before the handler runs.
+    const middleware =
+      route.startsWith("POST /v1") && !publicRoutes.has(route)
+        ? mutationRouteErrors
+        : [];
     const expected = [
-      ...(implemented ?? []),
-      ...(DECLARED_ONLY_ERRORS[route] ?? []),
+      ...new Set([
+        ...(implemented ?? []),
+        ...(DECLARED_ONLY_ERRORS[route] ?? []),
+        ...middleware,
+      ]),
     ].sort();
     expect([...(declared.get(route)?.errors ?? [])].sort(), route).toEqual(
       expected,

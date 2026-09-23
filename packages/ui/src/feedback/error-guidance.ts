@@ -8,6 +8,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   BAD_REQUEST: "입력을 확인하고 다시 보내세요.",
   UNAUTHORIZED: "로그인이 만료됐습니다 — 다시 로그인하세요.",
   FORBIDDEN: "권한이 없습니다 — 관리자에게 요청하세요.",
+  BOOTSTRAP_DONE: "이미 관리자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
   NOT_FOUND: "대상을 찾을 수 없습니다 — 목록에서 다시 여세요.",
   PAYLOAD_TOO_LARGE: "내용이 너무 큽니다 — 나눠서 보내세요.",
   UNSUPPORTED_CAPABILITY: "이 런타임이 지원하지 않는 기능입니다.",

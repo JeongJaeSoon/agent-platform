@@ -11,6 +11,38 @@ describe("OpenAPI document", () => {
     );
   });
 
+  test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
+    const document = buildOpenApiDocument();
+    const checked: string[] = [];
+    for (const [path, operations] of Object.entries(document.paths)) {
+      for (const [method, raw] of Object.entries(operations)) {
+        const operation = raw as {
+          security: Array<Record<string, string[]>>;
+          parameters: Array<{ name: string; in: string; required: boolean }>;
+          responses: Record<string, unknown>;
+        };
+        const cookie = operation.security.some((s) => "cookieSession" in s);
+        const header = operation.parameters.find(
+          (p) => p.in === "header" && p.name === "X-Requested-With",
+        );
+        if (path === "/v1/auth/login") {
+          // Login sets the cookie, so every caller sends the header.
+          expect(header?.required, path).toBe(true);
+          expect(operation.responses, path).toHaveProperty("403");
+        } else if (method === "post" && cookie) {
+          checked.push(`${method} ${path}`);
+          expect(header?.required, path).toBe(false);
+          expect(operation.responses, path).toHaveProperty("403");
+        } else {
+          expect(header, `${method} ${path}`).toBeUndefined();
+        }
+      }
+    }
+    expect(checked).toContain("post /v1/sessions");
+    expect(checked).toContain("post /v1/auth/logout");
+    expect(checked).not.toContain("post /v1/auth/login");
+  });
+
   test("documents every api.md endpoint with $ref components", () => {
     const document = buildOpenApiDocument();
     expect(Object.keys(document.paths).sort()).toEqual(
@@ -18,6 +50,10 @@ describe("OpenAPI document", () => {
         "/healthz",
         "/readyz",
         "/v1",
+        "/v1/auth/bootstrap",
+        "/v1/auth/login",
+        "/v1/auth/logout",
+        "/v1/auth/me",
         "/v1/receipts/{id}",
         "/v1/sessions",
         "/v1/sessions/{id}",

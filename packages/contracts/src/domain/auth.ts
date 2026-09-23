@@ -15,8 +15,13 @@ import {
   workspaceSlugSchema,
 } from "./workspaces.ts";
 
-/** Cookie the web surface authenticates with: HttpOnly, Secure, SameSite=Lax. */
-export const WEB_SESSION_COOKIE_NAME = "ap_session";
+/**
+ * Cookie the web surface authenticates with: HttpOnly, Secure, SameSite=Lax.
+ * The `__Host-` prefix makes browsers refuse it with a Domain attribute or a
+ * Path other than `/`, so a sibling subdomain cannot plant a same-named
+ * cookie that shadows the real one (fixation or a lasting 401).
+ */
+export const WEB_SESSION_COOKIE_NAME = "__Host-ap_session";
 /** Cookie-path mutations must also carry this header (03 §3.2 CSRF). */
 export const CSRF_HEADER_NAME = "x-requested-with";
 export const CSRF_HEADER_VALUE = "agent-platform-web";
