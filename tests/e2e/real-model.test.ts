@@ -113,10 +113,10 @@ describe("real-model compose overlay", () => {
       .services;
     const endpoint = new URL("https://api.anthropic.com");
     const proxy = egressProxyConfigFromEnv(defaults(base["egress-proxy"]));
-    expect(proxy.allow).toContainEqual({
-      host: endpoint.hostname,
-      port: 443,
-    });
+    // The provider route's upstream, never the forward proxy's (94S-383).
+    const destination = { host: endpoint.hostname, port: 443 };
+    expect(proxy.credential?.allow).toContainEqual(destination);
+    expect(proxy.allow).not.toContainEqual(destination);
     expect(overlay["egress-proxy"]).toBeUndefined();
     for (const name of ["api", "scheduler"]) {
       const limits = installationLimitsFromEnv(

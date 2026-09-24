@@ -26,9 +26,12 @@ services:
       - "127.0.0.1::3000"
   egress-proxy:
     environment:
-      EGRESS_ALLOWLIST: "api.anthropic.com:443"
-      EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000,gate-messages:4010,gitea:3000"
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gate-s3:4566"
+      # As compose's defaults (94S-383): the gateway alone on the forward
+      # proxy, the provider and repository on the credential routes only.
+      EGRESS_ALLOWLIST: ""
+      EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000"
+      EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443"
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gate-messages:4010,gitea:3000,gate-s3:4566"
   api:
     ports: !override
       - "127.0.0.1::3000"

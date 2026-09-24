@@ -803,7 +803,7 @@ runtime/provider 설정은 서버가 허용한 profile ID로 선택한다. 사�
 | `DATABASE_URL`, S3·git 설정, `POD_ID` | 기존 인프라 계약을 재사용하며 SDK subprocess에는 필요한 값만 전달 |
 | timeout | `IDLE_TIMEOUT_SEC=1800`, `QUESTION_TIMEOUT_SEC=1800`를 기본 후보로 실측 |
 
-TypeScript SDK의 `options.env`는 상속 환경을 대체하므로 필요한 `PATH`와 세션별 `HOME`을 포함한 최소 allowlist를 명시한다. `...process.env`를 그대로 복사하지 않는다. beta 기능 일괄 비활성화는 기본값이 아니며 gateway 호환 실패 시 기능 손실까지 gate에서 판단한다. 이 설정 표는 목표 계약이고 현재 `.env.example`의 `FAKE_SDK` 등 placeholder가 runtime에서 동작한다는 뜻이 아니다. 94S-18·94S-52에서 `SDK_MODE`로 실제 구현과 예시를 함께 정리한다.
+TypeScript SDK의 `options.env`는 상속 환경을 대체하므로 필요한 `PATH`와 세션별 `HOME`을 포함한 최소 allowlist를 명시한다. `...process.env`를 그대로 복사하지 않는다. beta 기능 일괄 비활성화는 기본값이 아니며 gateway 호환 실패 시 기능 손실까지 gate에서 판단한다. 이 설정 표는 목표 계약이다. 94S-18·94S-52에서 `SDK_MODE`로 실제 구현과 예시를 함께 정리한다.
 
 LiteLLM은 선택 provider 경로이며 M0 필수 서비스에 추가하지 않는다. 94S-91에서 SDK/CLI·LiteLLM 버전을 함께 고정하고 `/v1/messages` streaming, tool payload, version/beta headers, cache metadata, 모델 alias, error·timeout·취소 전달을 local fake upstream으로 확인한다. non-Claude 모델 라우팅은 본 프로젝트의 지원 범위가 아니다.
 
