@@ -427,7 +427,12 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     const audit = await db
       .select({ type: events.type, payload: events.payload })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(
+        and(
+          eq(events.sessionId, session.session_id),
+          eq(events.type, "system"),
+        ),
+      );
     expect(audit).toEqual([
       {
         type: "system",
@@ -546,7 +551,12 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     const [audit] = await db
       .select({ payload: events.payload })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(
+        and(
+          eq(events.sessionId, session.session_id),
+          eq(events.type, "system"),
+        ),
+      );
     expect(audit?.payload).toMatchObject({
       decision: "confirm_completed",
       evidence_ref: "s3://audit/session/turn-1/verified.json",
@@ -1113,7 +1123,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       .from(events)
       .where(eq(events.sessionId, session.session_id))
       .orderBy(asc(events.id));
-    expect(audit[1]).toEqual({
+    expect(audit.at(-1)).toEqual({
       type: "status",
       payload: expect.objectContaining({
         phase: "queued",

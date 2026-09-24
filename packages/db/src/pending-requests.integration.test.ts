@@ -926,7 +926,8 @@ integration("pending requests and answers on PostgreSQL", () => {
     return { requestId, response };
   }
 
-  // The session's stream as a client reads it, reduced to what orders.
+  // The session's stream as a client reads it, reduced to what orders. It
+  // opens with the status:running the delivery of turn 1 wrote (94S-294).
   async function stream(sessionId: string) {
     const rows = await db
       .select({
@@ -962,6 +963,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       toolUseId: "toolu_first",
     });
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${first.requestId}`,
       "status:needs_input",
     ]);
@@ -992,6 +994,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       toolUseId: "toolu_first",
     });
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${first.requestId}`,
       "status:needs_input",
       `question:${second.requestId}`,
@@ -1035,12 +1038,13 @@ integration("pending requests and answers on PostgreSQL", () => {
       key,
     );
     // One is still open.
-    expect((await stream(sessionId)).slice(3)).toEqual([]);
+    expect((await stream(sessionId)).slice(4)).toEqual([]);
 
     await poll(worker, 0, [
       { request_id: second.requestId, outcome: "cancelled" },
     ]);
     const settledOnce = [
+      "status:running",
       `question:${first.requestId}`,
       "status:needs_input",
       `question:${second.requestId}`,
@@ -1085,6 +1089,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       decision: "deny",
     });
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${requestId}`,
       "status:needs_input",
       "status:running",
@@ -1094,6 +1099,125 @@ integration("pending requests and answers on PostgreSQL", () => {
       sessionId,
     );
     expect(detail?.status).toBe("running");
+  });
+
+  test("GET and the stream's last status agree at every turn boundary, each written once (94S-294)", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const agreed = async () => {
+      const detail = await createPostgresSessionReader(db).getSession(
+        owner.ownerId,
+        sessionId,
+      );
+      const last = (await stream(sessionId))
+        .filter((entry) => entry.startsWith("status:"))
+        .at(-1);
+      expect(last).toBe(`status:${detail?.status}`);
+      return detail?.status;
+    };
+    expect(await agreed()).toBe("running");
+    // Handing the same turn to the same attempt again starts nothing.
+    const again = await gateway.nextInput(worker.principal, {
+      ...worker.scope,
+      turn_id: null,
+    });
+    expect(again.input?.turn_id).toBe("1");
+    expect(await stream(sessionId)).toEqual(["status:running"]);
+
+    const { requestId } = await ask(worker, permission());
+    expect(await agreed()).toBe("needs_input");
+    await answer(owner, sessionId, {
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(await agreed()).toBe("running");
+    const queued = await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "second input",
+    });
+    expect(queued.outcome).toBe("accepted");
+    expect(await agreed()).toBe("running");
+
+    await gateway.appendEvents(worker.principal, {
+      ...(worker.scope as WorkerScope & { turn_id: string }),
+      batch_key: "result",
+      events: [
+        {
+          event: "result",
+          data: { type: "result", subtype: "success", session_id: "sdk" },
+          source_sequence: 1,
+          occurred_at: new Date().toISOString(),
+        },
+      ],
+    });
+    const finalize = () =>
+      gateway.finalize(worker.principal, {
+        ...(worker.scope as WorkerScope & { turn_id: string }),
+        turn_id: "1",
+        finalize_key: "fin-1",
+        final_source_sequence: 1,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      });
+    expect((await finalize()).status).toBe("completed");
+    expect(await agreed()).toBe("idle");
+    // The replay is answered from the stored turn and writes nothing.
+    expect((await finalize()).status).toBe("completed");
+
+    const next = await gateway.nextInput(worker.principal, {
+      ...worker.scope,
+      turn_id: null,
+    });
+    expect(next.input?.turn_id).toBe("2");
+    expect(await agreed()).toBe("running");
+    // The turn's end comes after its result, and each boundary once.
+    expect(await stream(sessionId)).toEqual([
+      "status:running",
+      `question:${requestId}`,
+      "status:needs_input",
+      "status:running",
+      "result",
+      "status:idle",
+      "status:running",
+    ]);
+    expect(await announced(sessionId)).toBe(false);
+  });
+
+  test("an input to a failed session puts queued on the stream with the read (94S-294)", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    await gateway.finalize(worker.principal, {
+      ...(worker.scope as WorkerScope & { turn_id: string }),
+      turn_id: "1",
+      finalize_key: "fin-failed",
+      final_source_sequence: 0,
+      terminal: { status: "failed", reason: "boom", result: null, usage: null },
+      checkpoint: null,
+    });
+    expect((await stream(sessionId)).at(-1)).toBe("status:failed");
+    const queued = await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "try again",
+    });
+    expect(queued.outcome).toBe("accepted");
+    const detail = await createPostgresSessionReader(db).getSession(
+      owner.ownerId,
+      sessionId,
+    );
+    expect(detail?.status).toBe("queued");
+    expect((await stream(sessionId)).at(-1)).toBe("status:queued");
   });
 
   test("an expiry is reported once by the reconciler, not by the settlement that follows it", async () => {
@@ -1106,6 +1230,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     // The worker's own timer settles it: the wait had already ended.
     await poll(worker, 0, [{ request_id: requestId, outcome: "expired" }]);
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${requestId}`,
       "status:needs_input",
     ]);
@@ -1117,6 +1242,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(swept).toContainEqual({ sessionId, phase: "running" });
     await announceLapsedInputWaits(db, { limit: 1_000, dryRun: false });
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${requestId}`,
       "status:needs_input",
       "status:running",
@@ -1135,7 +1261,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       dryRun: true,
     });
     expect(swept).toContainEqual({ sessionId, phase: "running" });
-    expect(await stream(sessionId)).toHaveLength(2);
+    expect(await stream(sessionId)).toHaveLength(3);
     expect(await announced(sessionId)).toBe(true);
   });
 
@@ -1165,6 +1291,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       .where(eq(pendingRequests.requestId, first.requestId));
     const second = await ask(worker, permission("pwd"), { inputHash: HASH_B });
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${first.requestId}`,
       "status:needs_input",
       "status:running",
@@ -1185,6 +1312,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     });
     expect(accepted.outcome).toBe("accepted");
     expect(await stream(interrupted.sessionId)).toEqual([
+      "status:running",
       `question:${asked.requestId}`,
       "status:needs_input",
       "status:running",
@@ -1211,6 +1339,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       terminated.sessionId,
     );
     expect(await stream(terminated.sessionId)).toEqual([
+      "status:running",
       `question:${pending.requestId}`,
       "status:needs_input",
       `status:${detail?.status}`,
@@ -1241,6 +1370,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     // The worker drains on its own lease, so its question still stands.
     expect(detail?.status).toBe("needs_input");
     expect(await stream(sessionId)).toEqual([
+      "status:running",
       `question:${requestId}`,
       "status:needs_input",
       "status:needs_input",
@@ -1265,16 +1395,16 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(await announced(sessionId)).toBe(true);
   });
 
-  test("a worker that publishes its own question gets no events from the gateway", async () => {
+  test("a worker that publishes its own question gets no question events from the gateway", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const { requestId } = await register(worker, permission());
-    expect(await stream(sessionId)).toEqual([]);
+    expect(await stream(sessionId)).toEqual(["status:running"]);
     await answer(owner, sessionId, {
       request_id: requestId,
       kind: "permission",
       decision: "allow",
     });
-    expect(await stream(sessionId)).toEqual([]);
+    expect(await stream(sessionId)).toEqual(["status:running"]);
     expect(await announced(sessionId)).toBe(false);
   });
 });
