@@ -49,6 +49,10 @@ let workers: Workers;
 
 const container = (service: string) => `${env?.project}-${service}-1`;
 
+/** The reasons `main.ts <role> --health` gives for an unhealthy loop. */
+const UNHEALTHY =
+  /no pass has succeeded since|failed pass\(es\) since the last success|running past its deadline|no status file/;
+
 /**
  * The gate publishes api and postgres on ephemeral host ports, and Docker
  * picks new ones when a container restarts: the clients are rebuilt on the
@@ -332,9 +336,9 @@ describe.skipIf(env === null)("control host roles (94S-117)", () => {
         240_000,
         2000,
       );
-      // Each loop's own judgement, asked the way the healthcheck asks it. A
-      // loop that already gave up is restarting and cannot answer: that is
-      // not healthy either.
+      // Each loop's own judgement, asked the way the healthcheck asks it. Only
+      // its answer counts: an exec that fails because the loop gave up and is
+      // restarting is asked again.
       judged = await waitFor(
         "both loops to judge themselves unhealthy",
         async () => {
@@ -353,11 +357,9 @@ describe.skipIf(env === null)("control host roles (94S-117)", () => {
               ],
               { allowFail: true },
             );
-            if (asked.code === 0) return null;
-            found[service] = {
-              code: asked.code,
-              output: `${asked.stdout}${asked.stderr}`.trim().slice(0, 300),
-            };
+            const output = `${asked.stdout}${asked.stderr}`.trim();
+            if (asked.code !== 1 || !UNHEALTHY.test(output)) return null;
+            found[service] = { code: asked.code, output: output.slice(0, 300) };
           }
           return found;
         },
@@ -474,7 +476,10 @@ describe.skipIf(env === null)("control host roles (94S-117)", () => {
       evidence.h5_failed_passes = failed.slice(0, 3);
       // Asked while the substitute still runs: nothing was reserved for the
       // session it kept failing in front of.
+      const running = () => inspect<boolean>(substitute, ".State.Running");
+      expect(await running()).toBe(true);
       const reserved = await executions(sessionWaiting);
+      expect(await running()).toBe(true);
       evidence.h5_reserved_while_failing = reserved;
       expect(reserved).toEqual([]);
       await run(["docker", "rm", "-f", substitute]);
