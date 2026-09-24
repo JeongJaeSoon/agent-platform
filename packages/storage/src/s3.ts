@@ -106,31 +106,85 @@ export class BoundedNodeHttpHandler extends NodeHttpHandler {
  *
  * https is left to Bun: dialing an address would lose the server name the
  * certificate is checked against, and no https endpoint here is a container
- * that restarts. So is any request while `http_proxy` is set: Bun then sends
+ * that restarts. So is any request while `http_proxy` (or `all_proxy`) is
+ * set: Bun then sends
  * it to the proxy, which dials the name itself, and both the proxy's
  * allowlist and `NO_PROXY` judge it by name — the worker's case, which is
  * why its handlers stay {@link BoundedNodeHttpHandler}.
  */
 export class FreshAddressHttpHandler extends BoundedNodeHttpHandler {
+  readonly #lookupMs: number;
+
+  constructor(bounds: S3RequestBounds) {
+    super(bounds);
+    this.#lookupMs = bounds.connectionTimeout;
+  }
+
   override async handle(
     ...[request, options]: Parameters<NodeHttpHandler["handle"]>
   ): ReturnType<NodeHttpHandler["handle"]> {
-    return super.handle(await atFreshAddress(request), options);
+    const signal = options?.abortSignal as AbortSignal | undefined;
+    // Aborted before or while the name is looked up: the request goes on
+    // unchanged and the parent rejects it the way it rejects any aborted one.
+    const dialed = signal?.aborted
+      ? undefined
+      : await withinLookupBounds(
+          atFreshAddress(request),
+          this.#lookupMs,
+          signal,
+        );
+    return super.handle(dialed ?? request, options);
+  }
+}
+
+// The parent's timers start once it has the request, so a stalled resolver
+// must not hold the call here: the lookup counts against the connection
+// bound, and an abort ends the wait.
+async function withinLookupBounds(
+  lookup: Promise<HttpRequest>,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<HttpRequest | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const bounds = new Promise<undefined>((resolve, reject) => {
+    if (ms > 0) {
+      timer = setTimeout(
+        () =>
+          reject(
+            Object.assign(
+              new Error(`S3 endpoint name was not resolved within ${ms}ms`),
+              { name: "TimeoutError" },
+            ),
+          ),
+        ms,
+      );
+    }
+    onAbort = () => resolve(undefined);
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([lookup, bounds]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener?.("abort", onAbort);
   }
 }
 
 async function atFreshAddress(request: HttpRequest): Promise<HttpRequest> {
   const { hostname, port, protocol } = request;
   if (protocol !== "http:" || isIP(hostname) !== 0) return request;
-  if (process.env.http_proxy || process.env.HTTP_PROXY) return request;
-  const [first] = await resolveEveryTime(hostname);
-  if (!first) {
-    throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), {
-      code: "ENOTFOUND",
-    });
+  const { env } = process;
+  if (env.http_proxy || env.HTTP_PROXY || env.all_proxy || env.ALL_PROXY) {
+    return request;
   }
+  const addresses = await resolveEveryTime(hostname);
+  // One answer, as Docker gives for a container. A name with several (a
+  // dual-stack `localhost`) stays with Bun, which tries each in turn.
+  const [only] = addresses;
+  if (addresses.length !== 1 || !only) return request;
   const dialed = HttpRequest.clone(request);
-  dialed.hostname = first.address;
+  dialed.hostname = only.address;
   const named = Object.keys(dialed.headers).some(
     (name) => name.toLowerCase() === "host",
   );

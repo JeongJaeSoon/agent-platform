@@ -1528,9 +1528,6 @@ console.log("TLS " + response.status + " " + (await response.text()));
     }
 
     await raw("POST", `/containers/${allowedName}/stop?t=1`);
-    // Only the restarted upstream can answer after this: the daemon stamps
-    // each log line, and the watcher's lines from here on are asked for below.
-    const stoppedAtSec = Math.ceil(Date.now() / 1000);
     const placeholder = `ap-it-old-address-${suffix}`;
     created.push(placeholder);
     const parked = await raw("POST", `/containers/create?name=${placeholder}`, {
@@ -1540,6 +1537,10 @@ console.log("TLS " + response.status + " " + (await response.text()));
     });
     expect(parked.status).toBe(201);
     await client.startContainer(placeholder);
+    // Only the restarted upstream can answer after this: the daemon stamps
+    // each log line, and the watcher's lines from the next whole second on,
+    // well after the stop, are the ones asked for below.
+    const sinceSec = Math.ceil(Date.now() / 1000);
     await Bun.sleep(1_100);
     await client.startContainer(allowedName);
     const restartedAt = Date.now();
@@ -1557,7 +1558,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
           proxyAfterMs = Date.now() - restartedAt;
         }
       }
-      const lines = await followed(stoppedAtSec);
+      const lines = await followed(sinceSec);
       last = lines.at(-1) ?? last;
       if (
         handlerAfterMs === undefined &&
