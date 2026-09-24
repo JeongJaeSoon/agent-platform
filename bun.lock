@@ -125,21 +125,6 @@
         "@agent-platform/testkit": "workspace:*",
       },
     },
-    "packages/queue": {
-      "name": "@agent-platform/queue",
-      "version": "0.0.0",
-      "dependencies": {
-        "@agent-platform/contracts": "workspace:*",
-        "@agent-platform/db": "workspace:*",
-        "drizzle-orm": "0.45.2",
-      },
-      "devDependencies": {
-        "@agent-platform/testkit": "workspace:*",
-        "@electric-sql/pglite": "0.3.10",
-        "@types/pg": "8.15.5",
-        "pg": "8.16.3",
-      },
-    },
     "packages/runtime-core": {
       "name": "@agent-platform/runtime-core",
       "version": "0.0.0",
@@ -207,8 +192,6 @@
     "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
     "@agent-platform/platform": ["@agent-platform/platform@workspace:packages/platform"],
-
-    "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
 
     "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
