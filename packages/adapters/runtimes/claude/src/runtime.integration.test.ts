@@ -311,6 +311,63 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     await waitFor(() => exitedPids.length === 1, 5_000);
   }, 30_000);
 
+  test("an interrupt sent in the same tick as its input still ends that turn (94S-351)", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-351-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(async () => {
+      await Bun.sleep(15_000);
+      return textReply("COMPLETED_DESPITE_INTERRUPT");
+    });
+    const runtime = new ClaudeSdkRuntime(
+      { endpoints: [server.url], models: ["claude-sonnet-4-5"] },
+      { onSpawn: () => {}, onExit: () => {} },
+    );
+    const run = runtime.start(
+      {
+        claudeConfigDir: home,
+        correlationId: "same-tick-interrupt",
+        mode: "new",
+        cwd: workspace,
+        home,
+        model: "claude-sonnet-4-5",
+        profile: {
+          kind: "anthropic",
+          endpoint: server.url,
+          auth: { kind: "api_key", value: "placeholder-local" },
+          principal: { ownerScope: "owner-a" },
+        },
+        settingSources: [],
+        tools: [],
+      },
+      {
+        onPermission: async () => ({
+          behavior: "deny",
+          message: "No tools expected",
+        }),
+      },
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) {
+        frames.push(frame);
+        if (frame.envelope.message.type === "result") return;
+      }
+    })();
+    await run.ready();
+    // What the worker does with an interrupt taken while the input was being
+    // checked: before the fix it reached the engine first and was a no-op.
+    run.send({ message: "wait for the response", uuid: crypto.randomUUID() });
+    await run.interrupt();
+    await withTimeout(consume, 5_000, "The interrupt did not end the turn");
+    run.close();
+
+    const result = frames.at(-1)?.envelope.message as {
+      terminal_reason?: string;
+    };
+    expect(result.terminal_reason).toBe("aborted_streaming");
+    expect(JSON.stringify(frames)).not.toContain("COMPLETED_DESPITE_INTERRUPT");
+  }, 30_000);
+
   test("aborts the whole adapter run and reaps its process", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-18-" });
     const { home, workspace } = isolated;

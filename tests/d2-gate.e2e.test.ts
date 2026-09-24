@@ -36,7 +36,9 @@ import {
  *    workspace volume and HOME, with one append response lost on the way;
  * B. a publish that fails at the manifest, then one that succeeds;
  * C. a transcript mirror that fails;
- * D. a worker that loses its lease while its turn is open.
+ * D. a worker that loses its lease while its turn is open;
+ * E. interrupts repeated on fresh sessions, as early as the API takes them
+ *    and mid-response (D2_GATE_INTERRUPT_REPEAT rounds, 6 by default).
  */
 
 const env = gateEnv();
@@ -1066,4 +1068,99 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     });
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
   }, 900_000);
+
+  test("E: an accepted interrupt stops its turn, however early it lands (94S-351)", async () => {
+    const rounds = Number(process.env.D2_GATE_INTERRUPT_REPEAT ?? "6");
+    const outcomes: Array<Record<string, unknown>> = [];
+    for (let round = 0; round < rounds; round++) {
+      // Early: the first 202, which a fresh session gives as soon as the
+      // worker takes the input — its engine may still be booting. Streaming:
+      // once the model call is out, where QA saw one no-op in four.
+      const mode = round % 2 === 0 ? "early" : "streaming";
+      const specId = `E${round}`;
+      const created = await api.createSession(
+        prompt("Hold the answer.", {
+          id: specId,
+          steps: [],
+          final: `${specId} DONE`,
+          finalDelayMs: 15_000,
+        }),
+      );
+      const sessionId = created.session_id;
+      if (mode === "streaming") {
+        await waitFor(
+          `the model call of ${specId}`,
+          async () => (await messages.requests(specId)).length > 0,
+          TURN_MS,
+          100,
+        );
+      }
+      // 409 TURN_NOT_STARTED while the turn is still queued.
+      const accepted = await waitFor(
+        `an interrupt of ${sessionId} to be accepted`,
+        async () => {
+          const answer = await api.call(
+            "POST",
+            `/v1/sessions/${sessionId}/interrupt`,
+            { target_turn_id: "1" },
+          );
+          return answer.status === 202 ? answer : null;
+        },
+        TURN_MS,
+        25,
+      );
+      const acceptedAt = Date.now();
+      const receiptId = (accepted.body as { receipt_id: string }).receipt_id;
+      const receipt = await waitFor(
+        `receipt ${receiptId} to settle`,
+        async () => {
+          const found = (await api.call("GET", `/v1/receipts/${receiptId}`))
+            .body as { status: string; result: unknown };
+          return found.status === "accepted" ? null : found;
+        },
+        120_000,
+      );
+      const settledMs = Date.now() - acceptedAt;
+      const [turn] = await turnRows(sessionId);
+      outcomes.push({
+        mode,
+        session: sessionId,
+        receipt: receipt.status,
+        result: receipt.result,
+        turn: turn?.status,
+        reason: turn?.terminal_reason,
+        settled_ms: settledMs,
+        model_calls: (await messages.requests(specId)).length,
+      });
+      // Frees the execution slot for the next round.
+      await api.call("POST", `/v1/sessions/${sessionId}/terminate`, {
+        expected_revision: (await api.session(sessionId)).revision,
+        reason: "d2 gate E",
+      });
+    }
+    const stopped = (outcome: Record<string, unknown>) => {
+      const result = outcome.result as { no_op?: boolean } | null;
+      return (
+        outcome.receipt === "succeeded" &&
+        result?.no_op === false &&
+        outcome.turn === "interrupted" &&
+        (outcome.settled_ms as number) < 15_000
+      );
+    };
+    report.check({
+      id: "E-01",
+      criterion: "interrupt",
+      title:
+        "every accepted interrupt ends its turn; none is acknowledged and then outrun by the answer",
+      input: `${rounds} fresh sessions whose answer takes 15s, interrupted alternately at the first 202 and after the model call`,
+      expected:
+        "each receipt succeeded with no_op false and each turn interrupted, well before the 15s answer",
+      actual: {
+        stopped: outcomes.filter(stopped).length,
+        rounds: outcomes,
+      },
+      pass: outcomes.length === rounds && outcomes.every(stopped),
+    });
+    expect(report.failed().filter((c) => c.id.startsWith("E-"))).toEqual([]);
+  }, 3_600_000);
 });
