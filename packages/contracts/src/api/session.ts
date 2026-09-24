@@ -191,7 +191,10 @@ export const sessionSummarySchema = z.object({
   revision: revisionSchema,
   admission_state: admissionStateSchema,
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
-  runtime: sessionRuntimeSchema,
+  // What the catalog says the session's profile runs, or null when it cannot
+  // say: a legacy row with no profile key, or a key the catalog no longer
+  // has (detail reports CATALOG_MISMATCH). Never an estimate (94S-197).
+  runtime: sessionRuntimeSchema.nullable(),
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials (94S-147).
