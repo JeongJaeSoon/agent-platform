@@ -975,6 +975,36 @@ describe("startCredentialProxy", () => {
       await admitted(h, server.port);
     });
 
+    test("a worker hanging up while the upstream name is resolving frees the slot (Codex R2)", async () => {
+      const h = holding();
+      let lookups = 0;
+      const server = proxy(h.auth.url, h.up.port, {
+        maxExchanges: 1,
+        // The first lookup never answers.
+        resolve: (host) => {
+          lookups += 1;
+          return lookups === 1
+            ? new Promise<string[]>(() => {})
+            : Promise.resolve(host === "upstream.test" ? ["127.0.0.1"] : []);
+        },
+      });
+      const worker = new AbortController();
+      const stuck = fetch(
+        `http://127.0.0.1:${server.port}/provider/v1/messages`,
+        {
+          method: "POST",
+          headers: { "x-api-key": WORKER_TOKEN },
+          body: '{"model":"m"}',
+          signal: worker.signal,
+        },
+      ).catch(() => null);
+      while (lookups === 0) await Bun.sleep(5);
+      worker.abort();
+      await stuck;
+      await Bun.sleep(60);
+      await admitted(h, server.port);
+    });
+
     test("cut and hung-up exchanges never run the cap out", async () => {
       const h = holding();
       const server = capped(h, 2);

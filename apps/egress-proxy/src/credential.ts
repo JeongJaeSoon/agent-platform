@@ -608,10 +608,9 @@ export function startCredentialProxy(
     };
     // The upstream is the catalog's, not the worker's, and it is still held
     // to the same allowlist and address rules as anything a worker asks for.
-    const decision = await decideEgress(
-      options.policy,
-      { host, port },
-      resolve,
+    const decision = await untilEnded(
+      decideEgress(options.policy, { host, port }, resolve),
+      signal,
     );
     if (!decision.allowed) {
       logger.warn("Credential route denied", {
@@ -942,6 +941,18 @@ export function startCredentialProxy(
 }
 
 class BodyTooLargeError extends Error {}
+
+/** `work`, or the signal's reason if it fires first: a hung lookup too. */
+function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    work
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+  });
+}
 
 /**
  * The request body in one piece, given up the moment `signal` fires or it
