@@ -49,6 +49,7 @@ import {
   SecretScrubber,
 } from "@agent-platform/worker";
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 
@@ -369,6 +370,39 @@ describe("credential routes end to end (94S-252)", () => {
     for (const value of held) {
       if (value !== undefined) expect(scrubbed).not.toContain(value);
     }
+  }, 60_000);
+
+  test("94S-394: a direct call on the engine's token stops once the session has spent its limit", async () => {
+    const { claim, credentialUrl } = await topology();
+    if (client === undefined || messages === undefined) {
+      throw new Error("no topology");
+    }
+    const direct = () =>
+      fetch(`${credentialUrl}/provider/v1/messages`, {
+        method: "POST",
+        headers: {
+          "x-api-key": claim.runtime_config.provider.auth.token,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: claim.runtime_config.model,
+          max_tokens: 16,
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+    const within = await direct();
+    expect(within.status).toBe(200);
+    await within.text();
+    const served = messages.requests.length;
+    await drizzle(client, { schema })
+      .update(schema.sessions)
+      .set({ costUsd: 1_000 })
+      .where(eq(schema.sessions.id, claim.session_id));
+    const over = await direct();
+    expect(over.status).toBe(403);
+    await over.text();
+    expect(messages.requests).toHaveLength(served);
   }, 60_000);
 
   test("the route refuses a token for the other purpose and one it never issued", async () => {
