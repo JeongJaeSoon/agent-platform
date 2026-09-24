@@ -86,18 +86,21 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
   );
   const { createLogger } = await import("@agent-platform/observability");
   const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
+  let passEnv: Record<string, string> | undefined;
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
     const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
       "./scheduler/config.ts"
     );
-    const { quotaPreflightMarkerPath } = await import(
+    const { QUOTA_PREFLIGHT_MARKER_ENV } = await import(
       "./scheduler/quota-preflight.ts"
     );
     const { docker } = schedulerConfigFromEnv(process.env);
     assertPassOutlastsStop(config.passTimeoutMs, docker);
     // The first pass of every loop probes the workspace quota afresh.
-    await rm(quotaPreflightMarkerPath(process.env), { force: true });
+    const marker = `${config.statusFile}.quota-verified`;
+    await rm(marker, { force: true });
+    passEnv = { [QUOTA_PREFLIGHT_MARKER_ENV]: marker };
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
@@ -133,6 +136,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
       role,
       "--once",
     ],
+    ...(passEnv === undefined ? {} : { env: passEnv }),
     config,
     logger,
     signal: shutdown.signal,

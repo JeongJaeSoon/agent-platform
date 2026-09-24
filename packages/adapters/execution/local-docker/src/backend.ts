@@ -2149,12 +2149,6 @@ function soleRunningProxy(
 }
 
 /**
- * A daemon error carries the daemon's whole reply in its message, and a
- * reply to a refused create can quote the request. The scheduler logs that
- * message, so the one value in the body that must never reach a log — the
- * bootstrap nonce — is blanked out of it first.
- */
-/**
  * A Docker call that may have created or started the container and got no
  * answer: whether it took is for the next pass's inspect to say (94S-393).
  */
@@ -2172,6 +2166,12 @@ async function outcomeUnknownOnTimeout<T>(
   }
 }
 
+/**
+ * A daemon error carries the daemon's whole reply in its message, and a
+ * reply to a refused create can quote the request. The scheduler logs that
+ * message, so the one value in the body that must never reach a log — the
+ * bootstrap nonce — is blanked out of it first.
+ */
 function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
   if (!(error instanceof Error)) return error;
   const secrets = body.Env.filter((entry) =>

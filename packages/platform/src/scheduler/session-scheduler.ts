@@ -917,6 +917,25 @@ async function pass(
       });
       return;
     }
+    if (
+      !observed.found &&
+      !execution.claimed &&
+      execution.observedState === "unknown" &&
+      execution.nonceFingerprint !== null &&
+      storedIntentOf(execution) !== null
+    ) {
+      // An ensure the provider never answered kept its credential for this
+      // look (94S-393). Nothing landed, so the launch did fail after all,
+      // and it is counted now — a create that never takes cannot hold its
+      // slot forever. Fenced on that credential, which the record revokes:
+      // a create landing later is torn down as a failed attempt.
+      await launchFailed(
+        execution,
+        "the provider never answered the launch and no resource was created",
+        execution.nonceFingerprint,
+      );
+      return;
+    }
     const running = up && observed.state !== "pending";
     // A replacement an earlier pass committed to and did not get to finish:
     // its teardown half happened, or the host died between the two halves.

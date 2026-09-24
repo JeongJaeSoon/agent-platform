@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  quotaPreflightMarkerPath,
-  verifyWorkspaceQuotaOnce,
-} from "./quota-preflight.ts";
+import { verifyWorkspaceQuotaOnce } from "./quota-preflight.ts";
 
 const quiet = { warn: () => undefined };
 
@@ -91,12 +88,18 @@ describe("verifyWorkspaceQuotaOnce (94S-393)", () => {
     expect(warnings).toHaveLength(2);
   });
 
-  test("the note sits beside the loop's status file", () => {
-    expect(quotaPreflightMarkerPath({})).toBe(
-      "/tmp/scheduler-status.json.quota-verified",
-    );
-    expect(
-      quotaPreflightMarkerPath({ SCHEDULER_STATUS_FILE: "/run/s.json" }),
-    ).toBe("/run/s.json.quota-verified");
+  test("a pass run outside the loop has no note to trust and always probes", async () => {
+    let probes = 0;
+    for (let pass = 0; pass < 2; pass += 1) {
+      await verifyWorkspaceQuotaOnce({
+        logger: quiet,
+        marker: undefined,
+        settings: {},
+        verify: async () => {
+          probes += 1;
+        },
+      });
+    }
+    expect(probes).toBe(2);
   });
 });

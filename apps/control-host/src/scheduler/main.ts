@@ -14,7 +14,7 @@ import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerConfigFromEnv } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
 import {
-  quotaPreflightMarkerPath,
+  QUOTA_PREFLIGHT_MARKER_ENV,
   verifyWorkspaceQuotaOnce,
 } from "./quota-preflight.ts";
 
@@ -87,7 +87,7 @@ export async function main(
     }
     await verifyWorkspaceQuotaOnce({
       logger,
-      marker: quotaPreflightMarkerPath(environment),
+      marker: environment[QUOTA_PREFLIGHT_MARKER_ENV],
       // Any setting, not just the quota's: a new daemon or installation id
       // is as much a reason to probe again.
       settings: config.docker,
