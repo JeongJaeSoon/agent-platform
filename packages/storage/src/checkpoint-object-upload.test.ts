@@ -8,6 +8,7 @@ import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import {
   BoundedNodeHttpHandler,
   DEFAULT_BODY_READ_BOUNDS,
+  readBudgetMs,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
@@ -24,6 +25,11 @@ describe("transfer budgets grow with the object (94S-318)", () => {
     expect(transferBudgetMs(256 * MiB, 300_000)).toBe(300_000);
     expect(transferBudgetMs(512 * MiB, 300_000)).toBe(600_000);
     expect(transferBudgetMs(1024 * MiB, 300_000)).toBe(1_200_000);
+  });
+
+  test("a read is budgeted by the size the store claims, up to the largest object anything writes", () => {
+    expect(readBudgetMs(512 * MiB, 300_000)).toBe(600_000);
+    expect(readBudgetMs(1024 * 1024 * MiB, 300_000)).toBe(600_000);
   });
 
   test("a streamed upload asks for a request timeout sized to its body", async () => {

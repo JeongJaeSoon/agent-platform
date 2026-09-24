@@ -75,6 +75,20 @@ export function transferBudgetMs(bytes: number, floorMs: number): number {
 }
 
 /**
+ * The largest body a read budget is sized for: the most any checkpoint
+ * writer stores in one object (the egress proxy's cap, twice the bundle
+ * ceiling). The size a read is budgeted by is the store's own answer, so a
+ * larger claim — a misreported length, a stranger at the key — earns no
+ * more time than this.
+ */
+export const MAX_BUDGETED_READ_BYTES = 512 * 1024 * 1024;
+
+/** `transferBudgetMs` for a read of a body the store says is `bytes`. */
+export function readBudgetMs(bytes: number, floorMs: number): number {
+  return transferBudgetMs(Math.min(bytes, MAX_BUDGETED_READ_BYTES), floorMs);
+}
+
+/**
  * `NodeHttpHandler` with every response body on a leash.
  *
  * Both request timeouts are cleared the moment the response *headers* arrive,
@@ -369,7 +383,7 @@ export async function streamObjectVersion(
   // failing a large object on a link that is merely slow.
   const bodyBounds = {
     ...bounds,
-    maxReadMs: transferBudgetMs(size ?? 0, bounds.maxReadMs),
+    maxReadMs: readBudgetMs(size ?? 0, bounds.maxReadMs),
   };
 
   async function* chunks(): AsyncGenerator<Uint8Array> {
