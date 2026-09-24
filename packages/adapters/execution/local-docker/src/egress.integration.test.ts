@@ -1470,10 +1470,13 @@ console.log("TLS " + response.status + " " + (await response.text()));
   });
 
   test("an upstream back on a new address is followed at once by the proxy and by the S3 handler (94S-344)", async () => {
-    // Stop the upstream, park a placeholder on its old address so dialing
-    // that is refused, and start it again on another one. Docker's DNS gave
-    // the old answer a TTL of 600s; a resolver that kept it would miss the
-    // new address for ten minutes.
+    // Stop the upstream, start a placeholder in the gap and the upstream again,
+    // so it comes back on another address. Docker's DNS gave the old answer a
+    // TTL of 600s; a resolver that kept it would miss the new address for ten
+    // minutes. The placeholder cannot be pinned to the old address (the
+    // runner's daemon refuses a static IP on a network without a configured
+    // subnet), but it keeps the upstream from being handed that address back
+    // by an allocator that reuses the lowest free one.
     const addressOf = async (name: string): Promise<string> =>
       (await client.inspectContainer(name))?.NetworkSettings?.Networks?.[
         outerNetwork
@@ -1534,11 +1537,6 @@ console.log("TLS " + response.status + " " + (await response.text()));
       Cmd: ["sleep", "600"],
       HostConfig: { NetworkMode: outerNetwork },
       Image: IMAGE,
-      NetworkingConfig: {
-        EndpointsConfig: {
-          [outerNetwork]: { IPAMConfig: { IPv4Address: oldAddress } },
-        },
-      },
     });
     expect(parked.status).toBe(201);
     await client.startContainer(placeholder);
