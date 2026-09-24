@@ -7,7 +7,8 @@
 # checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
 # then runs tests/d2-gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
-# and tests/d2-gate/control-host-roles.e2e.test.ts against it. The report (JSON and
+# and tests/d2-gate/control-host-roles.e2e.test.ts against it and prints each
+# test's result (.github/scripts/d2-gate-verdict.ts). The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
 # D2_GATE_COMPOSE_OVERRIDE: more compose files after the gate's, separated by
@@ -124,11 +125,18 @@ fi
 # The gate, then 94S-320's recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
 status=0
+# Fresh, so a reused D2_GATE_OUT cannot pass on an older run's reports.
+rm -f "$out/gate.junit.xml" "$out/roles.junit.xml"
 bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  --reporter=junit --reporter-outfile="$out/gate.junit.xml" \
   --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
 # Last, 94S-117's role checks, which restart the services and stop
 # PostgreSQL, so nothing may run after them on this stack. A run of its own:
 # bun orders the files of one run by path, not as given.
 bun test tests/d2-gate/control-host-roles.e2e.test.ts \
+  --reporter=junit --reporter-outfile="$out/roles.junit.xml" \
   --timeout 1800000 2>&1 | tee -a "$out/test.log" || status=$?
+# Every test by name and result; one that skipped or never ran fails too.
+bun .github/scripts/d2-gate-verdict.ts "$out/gate.junit.xml" "$out/roles.junit.xml" \
+  2>&1 | tee "$out/verdict.txt" || status=$?
 exit "$status"

@@ -40,7 +40,8 @@ jobs:
       contents: read
       issues: write
     # Image builds as in ci.yml's e2e, then the three suites one after
-    # another on one stack.
+    # another on one stack. The gate step has a ceiling of its own below it:
+    # a job timeout cancels the job, and the issue step would never run.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,20 +54,23 @@ jobs:
         env:
           D2_GATE_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml:scripts/d2-gate/compose.ci-mirror.yml
           D2_GATE_OUT: ${{ runner.temp }}/d2-gate
+        timeout-minutes: 50
         run: scripts/d2-gate/run.sh
-      # A–E's criteria table, into the log and onto the run's summary page;
-      # R1–R2 and H1–H5 are the `(pass)` lines of the step above.
+      # Each test's result (run.sh printed it above too) and A–E's criteria
+      # table, onto the run's summary page.
       - if: '!cancelled()'
         name: Report
         env:
-          REPORT: ${{ runner.temp }}/d2-gate/report.md
+          OUT: ${{ runner.temp }}/d2-gate
         run: |
-          if [ -f "$REPORT" ]; then
-            cat "$REPORT"
-            cat "$REPORT" >>"$GITHUB_STEP_SUMMARY"
-          else
-            echo "no report: the gate stopped before its tests (see the d2-gate-record artifact)" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            if [ -f "$OUT/verdict.txt" ]; then
+              printf '```text\n%s\n```\n\n' "$(cat "$OUT/verdict.txt")"
+              cat "$OUT/report.md" 2>/dev/null || echo "no A–E report"
+            else
+              echo "no verdict: the gate stopped before its tests (see the d2-gate-record artifact)"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # run.sh removes the images it built; what compose pulled stays.
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
