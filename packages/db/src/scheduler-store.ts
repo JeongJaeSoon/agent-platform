@@ -46,6 +46,7 @@ import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import type { Database } from "./queries.ts";
+import { restoreRetryDue } from "./restore-failures.ts";
 import {
   executions,
   sessions,
@@ -207,8 +208,10 @@ export function createPostgresSchedulerStore(
             inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
             isNull(sessions.executionRevokedAt),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
-            // out the ones that can still run.
+            // out the ones that can still run, nor sessions waiting out a
+            // restore backoff (94S-345).
             lt(sessions.costUsd, options.sessionCostLimitUsd),
+            restoreRetryDue(),
             notExists(
               db
                 .select({ one: sql`1` })
@@ -250,6 +253,7 @@ export function createPostgresSchedulerStore(
             admissionState: sessions.admissionState,
             costUsd: sessions.costUsd,
             executionRevokedAt: sessions.executionRevokedAt,
+            restoreRetryAt: sessions.restoreRetryAt,
           })
           .from(sessions)
           .where(eq(sessions.id, input.sessionId))
@@ -258,7 +262,9 @@ export function createPostgresSchedulerStore(
         if (
           !session ||
           !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
-          session.executionRevokedAt !== null
+          session.executionRevokedAt !== null ||
+          (session.restoreRetryAt !== null &&
+            session.restoreRetryAt > (await dbNow(tx)))
         ) {
           return null;
         }

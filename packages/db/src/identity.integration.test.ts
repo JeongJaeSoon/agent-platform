@@ -110,6 +110,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     // 94S-321
     "execution_revoked_at",
     "execution_revoked_reason",
+    // 94S-345; the count arrives as 0
+    "restore_attempt_id",
+    "restore_failure_count",
+    "restore_retry_at",
+    "restore_failure_reason",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],

@@ -164,6 +164,21 @@ export type ObjectHead = {
   readonly version?: string;
 };
 
+/**
+ * The store answered, but the bytes failed the transfer's own integrity check
+ * (S3's response checksum): what arrived is not what is stored. Damage, as a
+ * digest mismatch is, whatever shape the transport reported it in.
+ */
+export class ObjectIntegrityError extends Error {
+  constructor(
+    readonly key: string,
+    options?: ErrorOptions,
+  ) {
+    super(`${key} arrived damaged: it fails the store's own checksum`, options);
+    this.name = "ObjectIntegrityError";
+  }
+}
+
 export interface CheckpointObjectStore {
   /**
    * With `version`, that exact write or undefined if the store no longer has

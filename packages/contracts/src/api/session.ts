@@ -140,6 +140,17 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
   }),
+  // Workers claimed with the session's checkpoint kept ending before the
+  // restore finished (94S-345). While retry_at is set the next launch waits
+  // for it; null means the limit was reached and the session is held in
+  // recovery_required: start_fresh continues without the checkpoint, close
+  // ends the session. A restore that succeeds clears it.
+  z.object({
+    code: z.literal("RESTORE_FAILED"),
+    reason: z.string().min(1),
+    failures: z.number().int().positive(),
+    retry_at: timestampSchema.nullable(),
+  }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
