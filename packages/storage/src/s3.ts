@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
-import { ObjectIntegrityError } from "@agent-platform/runtime-core";
+import { isIP } from "node:net";
+import {
+  ObjectIntegrityError,
+  resolveEveryTime,
+} from "@agent-platform/runtime-core";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { HttpRequest } from "@smithy/core/protocols";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 export interface S3ClientLike {
@@ -117,6 +122,133 @@ export class BoundedNodeHttpHandler extends NodeHttpHandler {
     guardResponseBody(result.response.body, this.#bodyIdleMs);
     return result;
   }
+}
+
+/**
+ * {@link BoundedNodeHttpHandler} that looks a plain-http endpoint's name up
+ * again for every request (94S-344), for the control plane's long-lived
+ * processes.
+ *
+ * Under Bun, `node:http` hands a hostname to `fetch`, whose resolver keeps
+ * each answer for 30s, and it ignores an agent's `lookup` — only a request's
+ * own `lookup` reaches it, and this handler cannot pass one. So the name is
+ * resolved here and the request dialed at the address, with the name kept
+ * in the `host` header the SDK signed. A restarted LocalStack on a new
+ * address is then followed from the next request on.
+ *
+ * https is left to Bun: dialing an address would lose the server name the
+ * certificate is checked against, and no https endpoint here is a container
+ * that restarts. So is any request while `http_proxy` (or `all_proxy`) is
+ * set: Bun then sends
+ * it to the proxy, which dials the name itself, and both the proxy's
+ * allowlist and `NO_PROXY` judge it by name — the worker's case, which is
+ * why its handlers stay {@link BoundedNodeHttpHandler}.
+ */
+export class FreshAddressHttpHandler extends BoundedNodeHttpHandler {
+  readonly #lookupMs: number;
+
+  constructor(bounds: S3RequestBounds) {
+    super(bounds);
+    this.#lookupMs = bounds.connectionTimeout;
+  }
+
+  override async handle(
+    ...[request, options]: Parameters<NodeHttpHandler["handle"]>
+  ): ReturnType<NodeHttpHandler["handle"]> {
+    const signal = options?.abortSignal;
+    // Aborted before or while the name is looked up: the request goes on
+    // unchanged and the parent rejects it the way it rejects any aborted one.
+    const dialed = signal?.aborted
+      ? undefined
+      : await withinLookupBounds(
+          atFreshAddress(request),
+          this.#lookupMs,
+          signal,
+        );
+    return super.handle(dialed ?? request, options);
+  }
+}
+
+// The parent's timers start once it has the request, so a stalled resolver
+// must not hold the call here: the lookup counts against the connection
+// bound, and an abort ends the wait.
+async function withinLookupBounds(
+  lookup: Promise<HttpRequest>,
+  ms: number,
+  signal: HandlerSignal | undefined,
+): Promise<HttpRequest | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let unsubscribe = () => {};
+  const bounds = new Promise<undefined>((resolve, reject) => {
+    if (ms > 0) {
+      timer = setTimeout(
+        () =>
+          reject(
+            Object.assign(
+              new Error(`S3 endpoint name was not resolved within ${ms}ms`),
+              { name: "TimeoutError" },
+            ),
+          ),
+        ms,
+      );
+    }
+    unsubscribe = onAbort(signal, () => resolve(undefined));
+  });
+  try {
+    return await Promise.race([lookup, bounds]);
+  } finally {
+    clearTimeout(timer);
+    unsubscribe();
+  }
+}
+
+type HandlerSignal = NonNullable<
+  NonNullable<Parameters<NodeHttpHandler["handle"]>[1]>["abortSignal"]
+>;
+
+// Smithy still accepts a signal with only `onabort`. This chains onto it for
+// the lookup and puts the old handler back before the parent sets its own.
+function onAbort(
+  signal: HandlerSignal | undefined,
+  listener: () => void,
+): () => void {
+  if (!signal) return () => {};
+  if ("addEventListener" in signal) {
+    signal.addEventListener("abort", listener, { once: true });
+    return () => signal.removeEventListener("abort", listener);
+  }
+  const previous = signal.onabort;
+  signal.onabort = function (this: unknown, ...args: unknown[]) {
+    listener();
+    return (previous as ((...a: unknown[]) => unknown) | null)?.apply(
+      this,
+      args,
+    );
+  } as typeof signal.onabort;
+  return () => {
+    signal.onabort = previous;
+  };
+}
+
+async function atFreshAddress(request: HttpRequest): Promise<HttpRequest> {
+  const { hostname, port, protocol } = request;
+  if (protocol !== "http:" || isIP(hostname) !== 0) return request;
+  const { env } = process;
+  if (env.http_proxy || env.HTTP_PROXY || env.all_proxy || env.ALL_PROXY) {
+    return request;
+  }
+  const addresses = await resolveEveryTime(hostname);
+  // One answer, as Docker gives for a container. A name with several (a
+  // dual-stack `localhost`) stays with Bun, which tries each in turn.
+  const [only] = addresses;
+  if (addresses.length !== 1 || !only) return request;
+  const dialed = HttpRequest.clone(request);
+  dialed.hostname = only.address;
+  const named = Object.keys(dialed.headers).some(
+    (name) => name.toLowerCase() === "host",
+  );
+  if (!named) dialed.headers.host = port ? `${hostname}:${port}` : hostname;
+  return dialed;
 }
 
 type GuardableBody = {

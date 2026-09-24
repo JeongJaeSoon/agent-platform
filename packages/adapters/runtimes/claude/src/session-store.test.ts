@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
-import type { TranscriptEntry } from "@agent-platform/runtime-core";
+import {
+  MAX_TRANSCRIPT_PART_BYTES,
+  type TranscriptEntry,
+  type TranscriptRevision,
+} from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
@@ -9,6 +13,7 @@ import {
 import {
   ClaudeSessionStore,
   type TranscriptInheritance,
+  TranscriptTooLarge,
 } from "./session-store.ts";
 
 const projectKey = "-workspace";
@@ -849,5 +854,269 @@ describe("Claude session store across execution generations", () => {
     await pending;
 
     expect(captured?.entryCount).toBe(1);
+  });
+});
+
+describe("Claude session store merging parts (94S-314)", () => {
+  const subagent = { ...root, subpath: "agents/reviewer" };
+
+  function launch(
+    objects: MemoryCheckpointObjectStore,
+    generation: number,
+    inherit?: TranscriptInheritance,
+  ) {
+    return new ClaudeSessionStore({
+      generation,
+      objects,
+      prefix,
+      ...(inherit === undefined ? {} : { inherit }),
+    });
+  }
+
+  /** One append per entry, with a retried batch and a uuid-less frame mixed in. */
+  async function appendMany(
+    mirror: ClaudeSessionStore,
+    count: number,
+    label = "",
+  ) {
+    for (let index = 0; index < count; index += 1) {
+      const batch = [entry(`${label}${index}`, `entry ${index}`)];
+      await mirror.append(root, batch);
+      if (index % 100 === 0) {
+        await mirror.append(root, batch);
+        await mirror.append(root, [{ type: "title", title: `t${index}` }]);
+      }
+    }
+  }
+
+  test("a capture pinning too many parts merges them, and restores the same entries", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await appendMany(mirror, 600);
+    const expected = await mirror.load(root);
+
+    const transcripts = await mirror.captureTranscripts(sessionId);
+
+    const parts = transcripts?.root.parts ?? [];
+    expect(parts).toHaveLength(1);
+    expect(parts[0]?.key).toMatch(
+      /^sessions\/s1\/mirror\/generation-0000000001\/-workspace\/session-1\/main\/merged-[0-9a-f]{64}\.jsonl$/,
+    );
+    expect(transcripts?.root.entryCount).toBe(expected?.length as number);
+    expect(
+      await launch(objects, 2).loadRevision(
+        transcripts?.root as TranscriptRevision,
+      ),
+    ).toEqual(expected as TranscriptEntry[]);
+    // The engine's own view is untouched by the merge.
+    expect(await mirror.load(root)).toEqual(expected);
+  });
+
+  test("keeps merging what comes after, carrying the merged parts forward", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await appendMany(mirror, 600);
+    const first = await mirror.captureTranscripts(sessionId);
+    await mirror.append(root, [entry("after", "one more")]);
+
+    const second = await mirror.captureRevision(root);
+    expect(second?.parts.slice(0, 1)).toEqual([...(first?.root.parts ?? [])]);
+    expect(second?.parts).toHaveLength(2);
+
+    await appendMany(mirror, 600, "later-");
+    const third = await mirror.captureTranscripts(sessionId);
+    // Both runs fit in one merged part, so the earlier one is rewritten
+    // rather than kept beside a second.
+    expect(third?.root.parts).toHaveLength(1);
+    expect(
+      await launch(objects, 2).loadRevision(third?.root as TranscriptRevision),
+    ).toEqual((await mirror.load(root)) as TranscriptEntry[]);
+  });
+
+  test("merges every transcript once the session as a whole pins too many parts", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    const lanes = Array.from({ length: 9 }, (_, index) => ({
+      ...root,
+      subpath: `agents/a${index}`,
+    }));
+    await appendMany(mirror, 10);
+    for (const lane of lanes) {
+      for (let index = 0; index < 460; index += 1) {
+        await mirror.append(lane, [entry(`${lane.subpath}-${index}`, "x")]);
+      }
+    }
+
+    const transcripts = await mirror.captureTranscripts(sessionId);
+
+    expect(transcripts?.root.parts).toHaveLength(1);
+    for (const lane of lanes) {
+      const revision = transcripts?.subagents[lane.subpath];
+      expect(revision?.parts).toHaveLength(1);
+      expect(
+        await launch(objects, 2).loadRevision(revision as TranscriptRevision),
+      ).toEqual((await mirror.load(lane)) as TranscriptEntry[]);
+    }
+  });
+
+  test("a resumed generation adopts merged parts and merges what it inherited under its own", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects, 1);
+    await appendMany(first, 600);
+    await first.append(subagent, [entry("s", "subagent")]);
+    const pinned = await first.captureTranscripts(sessionId);
+    if (pinned === null) throw new Error("expected transcripts");
+
+    const second = launch(objects, 2, { sessionId, transcripts: pinned });
+    await second.verifyInherited();
+    expect(await second.load(root)).toEqual(
+      (await first.load(root)) as TranscriptEntry[],
+    );
+    await appendMany(second, 600, "second-");
+    const captured = await second.captureTranscripts(sessionId);
+
+    expect(captured?.root.parts).toHaveLength(1);
+    expect(captured?.root.parts[0]?.key).toContain("/generation-0000000002/");
+    expect(captured?.subagents["agents/reviewer"]).toEqual(
+      pinned.subagents["agents/reviewer"] as TranscriptRevision,
+    );
+    expect(
+      await launch(objects, 3).loadRevision(
+        captured?.root as TranscriptRevision,
+      ),
+    ).toEqual((await second.load(root)) as TranscriptEntry[]);
+    // Generation 1 holds only the merged part it wrote itself.
+    expect(
+      objects
+        .keys()
+        .filter(
+          (key) =>
+            key.includes("/generation-0000000001/") && key.includes("merged-"),
+        ),
+    ).toHaveLength(1);
+  });
+
+  test("a merged part is held to its digest like any other", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await appendMany(mirror, 600);
+    const transcripts = await mirror.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    const merged = transcripts.root.parts[0];
+    if (merged === undefined) throw new Error("expected a merged part");
+
+    await objects.put(merged.key, new TextEncoder().encode("{}\n"));
+
+    await expect(
+      launch(objects, 2).loadRevision(transcripts.root),
+    ).rejects.toThrow(/integrity failure/);
+    await expect(
+      launch(objects, 3, { sessionId, transcripts }).verifyInherited(),
+    ).rejects.toThrow(/Inherited transcript part changed/);
+  });
+
+  test("a merge that fails to write leaves the store pinning what it did", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await appendMany(mirror, 600);
+    const before = await mirror.captureRevision(root);
+
+    objects.failWrites(1);
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow();
+
+    expect(await mirror.captureRevision(root)).toEqual(
+      before as TranscriptRevision,
+    );
+    const retried = await mirror.captureTranscripts(sessionId);
+    expect(retried?.root.parts).toHaveLength(1);
+  });
+
+  test("a merged part is not an appended one", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects, 1);
+    await mirror.append(root, [entry("a", "first")]);
+    const main = `${prefix}/generation-0000000001/-workspace/session-1/main/`;
+    await objects.putImmutable(
+      `${main}merged-${"0".repeat(64)}.jsonl`,
+      new TextEncoder().encode("{}\n"),
+    );
+
+    // Neither the engine's view nor the next slot counts it: it is a
+    // capture's, not an append's.
+    await mirror.append(root, [entry("b", "second")]);
+
+    expect(
+      objects
+        .keys()
+        .filter((key) => key.startsWith(main))
+        .sort(),
+    ).toEqual([
+      `${main}merged-${"0".repeat(64)}.jsonl`,
+      `${main}part-0000000000.jsonl`,
+      `${main}part-0000000001.jsonl`,
+    ]);
+    expect(await mirror.load(root)).toEqual([
+      entry("a", "first"),
+      entry("b", "second"),
+    ]);
+  });
+});
+
+describe("Claude session store merging parts, the edges (94S-314, 94S-296)", () => {
+  function launch(objects: MemoryCheckpointObjectStore, generation = 1) {
+    return new ClaudeSessionStore({ generation, objects, prefix });
+  }
+
+  async function appendParts(mirror: ClaudeSessionStore, count: number) {
+    for (let index = 0; index < count; index += 1) {
+      await mirror.append(root, [entry(`u${index}`, `entry ${index}`)]);
+    }
+  }
+
+  test("names a merged part by the version the store answered", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const mirror = launch(objects);
+    await appendParts(mirror, 600);
+
+    const [merged] = (await mirror.captureTranscripts(sessionId))?.root
+      .parts ?? [undefined];
+
+    if (merged === undefined) throw new Error("expected a merged part");
+    expect(merged.version).toBeDefined();
+    expect((await objects.head(merged.key))?.version).toBe(
+      merged.version as string,
+    );
+  });
+
+  test("still refuses one uuid with two bodies once they share a merged part", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects);
+    await mirror.append(root, [entry("same", "first body")]);
+    await appendParts(mirror, 600);
+    await mirror.append(root, [entry("same", "second body")]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow(
+      /Conflicting transcript entry uuid: same/,
+    );
+  });
+
+  test("refuses a transcript past the size limit before merging anything", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects);
+    await appendParts(mirror, 600);
+    await mirror.append(root, [
+      {
+        type: "user",
+        uuid: "big",
+        message: "x".repeat(MAX_TRANSCRIPT_PART_BYTES),
+      },
+    ]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toBeInstanceOf(
+      TranscriptTooLarge,
+    );
+    expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
+      [],
+    );
   });
 });

@@ -10,11 +10,17 @@ import type {
   CheckpointObjectStore,
   CheckpointPreparation,
   CompatibilityMismatch,
+  ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
-import { workspacePathsProblem } from "@agent-platform/runtime-core";
+import {
+  transcriptGenerationOf,
+  transcriptParts,
+  transcriptSizeProblem,
+  workspacePathsProblem,
+} from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
@@ -28,6 +34,7 @@ import {
 import {
   engineOf,
   inBatches,
+  keepSet,
   own,
   parentOf,
   sha256,
@@ -177,6 +184,19 @@ export type CheckpointServiceDependencies = {
    */
   bundleSpoolRoot?: string;
   /**
+   * How long a bundle whose verification threw is answered with that same
+   * retryable error instead of being verified again (94S-271). A throw is a
+   * limit or a host fault, never a verdict, so the checkpoint is not retired;
+   * but a bundle that runs the verifier out of its limits does so on every
+   * retry, and each retry holds one of the few verification slots for up to
+   * the verifier's timeout. Keyed by the bundle's digest, the commit and the
+   * verifier's `policy`, so new limits verify it again at once. 0 turns it
+   * off.
+   */
+  bundleRetryCooldownMs?: number;
+  /** Milliseconds since the epoch; tests pin it to step the cooldown. */
+  clock?: () => number;
+  /**
    * How many workspace bundles may be read and verified at once.
    *
    * Reading one no longer holds it in memory — it is streamed to disk — but
@@ -282,6 +302,12 @@ export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
+// The git verifier's own timeout: a bundle that keeps throwing then holds a
+// verification slot at most half the time.
+export const DEFAULT_BUNDLE_RETRY_COOLDOWN_MS = 60_000;
+// Bundles cooling down at once. A full table forgets the oldest entry, which
+// only lets that bundle be verified again early.
+export const MAX_COOLING_BUNDLES = 1024;
 // One revision tried can cost the manifest's full object limit in reads plus
 // a bundle hashed whole; this is what keeps a restore from becoming a scan.
 export const MAX_RESTORE_FALLBACKS_CEILING = 10;
@@ -318,6 +344,13 @@ function newPublishId(): string {
   return randomUUID().replaceAll("-", "");
 }
 
+type CommittedReads = {
+  pointer(): Promise<CheckpointPointer | null>;
+  manifest(
+    checkpoint: CheckpointPointer,
+  ): Promise<CheckpointManifest | undefined>;
+};
+
 /**
  * Turns an uploaded manifest into the session's durable restore point, and
  * reads it back as a restore plan.
@@ -344,6 +377,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const maxRestoreFallbacks =
     deps.maxRestoreFallbacks ?? DEFAULT_MAX_RESTORE_FALLBACKS;
   const spoolRoot = deps.bundleSpoolRoot ?? tmpdir();
+  const cooling = createCooldown(
+    deps.bundleRetryCooldownMs ?? DEFAULT_BUNDLE_RETRY_COOLDOWN_MS,
+    deps.clock ?? Date.now,
+  );
   if (
     !Number.isInteger(maxRestoreFallbacks) ||
     maxRestoreFallbacks < 0 ||
@@ -529,6 +566,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`,
       );
     }
+    // From the sizes the refs claim, which the reads below hold the stored
+    // bytes to: a transcript over the limit is refused unread (94S-296).
+    const oversized = transcriptSizeProblem(
+      transcriptParts(manifest.transcripts),
+    );
+    if (oversized !== undefined) return refused(oversized);
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
@@ -643,24 +686,51 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * relationship to *this* manifest's commit, and that changes with every
    * revision even when the bytes do not.
    */
-  function badWorkspaceBundle(
+  async function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
+    const present = await bundlePresent(workspace, manifestRef);
+    if ("reason" in present) return present;
+    // After the HEAD, so a bundle gone since is still damage a restore can
+    // fall back from; before the gate and the download, which a bundle
+    // cooling down costs nothing of. Again once a slot is free, since the
+    // same bundle may have failed while this one waited for it.
+    const coolingDown = () => {
+      const cooled = cooling.pending(bundleCooldownKey(workspace));
+      if (cooled !== undefined) throw cooled;
+    };
+    coolingDown();
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
-    return bundleGate(() =>
-      readAndVerifyBundle(workspace, manifestRef, pinned),
-    );
+    return bundleGate(() => {
+      coolingDown();
+      return readAndVerifyBundle(workspace, present.head, pinned);
+    });
   }
 
-  async function readAndVerifyBundle(
+  // Where it is stored, and the commit too: the same bytes asked for
+  // another commit is other work.
+  function bundleCooldownKey(
+    workspace: CheckpointManifest["workspace"],
+  ): string {
+    const { bundle } = workspace;
+    return JSON.stringify([
+      bundles.policy ?? null,
+      bundle.key,
+      bundle.version ?? null,
+      bundle.sha256,
+      workspace.gitCommit,
+    ]);
+  }
+
+  /** Everything about the bundle a HEAD settles, before its body is read. */
+  async function bundlePresent(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
-    pinned?: PinnedVersions,
-  ): Promise<Problem | undefined> {
-    const { bundle, gitCommit } = workspace;
+  ): Promise<Problem | { head: ObjectHead }> {
+    const { bundle } = workspace;
     // One attempt's directory holds one attempt's objects. A bundle at a key
     // the session reuses across revisions is either overwritten — so the
     // committed checkpoint stops describing what is stored — or refused by
@@ -693,6 +763,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
       );
     }
+    return { head };
+  }
+
+  async function readAndVerifyBundle(
+    workspace: CheckpointManifest["workspace"],
+    head: ObjectHead,
+    pinned?: PinnedVersions,
+  ): Promise<Problem | undefined> {
+    const { bundle, gitCommit } = workspace;
     // The bundle is read exactly once, by this loop, which both hashes it
     // and spools it to a file of its own; the verifier gets the file, and
     // only after the digest proved it is the object the manifest names. A
@@ -731,12 +810,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           `workspace bundle ${bundle.key} hashes to ${body.sha256}, not ${bundle.sha256}`,
         );
       }
-      const verdict = await bundles.verify({
-        bytes: body.bytes,
-        commit: gitCommit,
-        key: bundle.key,
-        path,
-      });
+      let verdict: Awaited<ReturnType<typeof bundles.verify>>;
+      try {
+        verdict = await bundles.verify({
+          bytes: body.bytes,
+          commit: gitCommit,
+          key: bundle.key,
+          path,
+        });
+      } catch (error) {
+        // Only the verifier's own throws: a store that failed the read above
+        // says nothing about this bundle.
+        cooling.start(bundleCooldownKey(workspace), bundle.key, error);
+        throw error;
+      }
       if (verdict.status !== "restorable") {
         // The bytes are the ones committed, so it is the verifier that
         // changed.
@@ -769,9 +856,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * (`held`). Its finalize held every one before it committed (`holdAll`),
    * and nothing releases a version the live pointer names: garbage
    * collection keeps every version the pointer and its fallback window
-   * name and never touches transcript parts (checkpoint-collector.ts,
-   * 94S-281), and transcript reclaim must release only parts no retained
-   * checkpoint names (94S-326). The pointer read here is still the pointer
+   * name, transcript parts included (checkpoint-collector.ts, 94S-281,
+   * 94S-326). The pointer read here is still the pointer
    * when the finalize commits: finalize passes the revision just below its
    * candidate as `parent`, the commit takes the candidate only as the next
    * revision, and the pointer advances one revision at a time, so a pointer
@@ -782,26 +868,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function verifiedRefs(
     sessionId: string,
     parent?: number,
+    reads = committedReads(sessionId),
   ): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
-      const pointer = await store.readPointer(sessionId);
+      const pointer = await reads.pointer();
       if (pointer === null) return tokens;
       if (parent !== undefined && pointer.revision !== parent) return tokens;
       if (protection === "locked" && pointer.versionsHeld !== true) {
         return tokens;
       }
-      const bytes = await objects.get(
-        pointer.manifestRef,
-        pinnedVersion(pointer.manifestVersion),
-      );
-      if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
-        return tokens;
-      }
-      const engine = engineOf(bytes);
-      const codec = engine === undefined ? undefined : own(codecs, engine);
-      if (codec === undefined) return tokens;
-      const manifest = codec.decode(bytes);
+      const manifest = await reads.manifest(pointer);
+      if (manifest === undefined) return tokens;
       for (const ref of [
         ...manifest.transcripts.root.parts,
         ...Object.values(manifest.transcripts.subagents).flatMap(
@@ -855,19 +933,165 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       };
     }
     const pinned = pinnedVersions();
+    const reads = committedReads(sessionId);
     const verdict = await validateManifest({
       checkpoint: input.checkpoint,
       confined: true,
       held: protection === "locked",
       pinned,
       sessionId,
-      verified: await verifiedRefs(sessionId, input.checkpoint.revision - 1),
+      verified: await verifiedRefs(
+        sessionId,
+        input.checkpoint.revision - 1,
+        reads,
+      ),
     });
     if (verdict.status === "verified" && protection === "locked") {
+      const stray = await strayTranscriptPart(
+        verdict.manifest,
+        input.fence,
+        input.checkpoint.revision,
+        reads,
+      );
+      if (stray !== undefined) return { status: "rejected", reason: stray };
       await holdAll(pinned.unheld());
       return { ...verdict, versionsHeld: true };
     }
     return verdict;
+  }
+
+  /**
+   * Finalize only, and only in `locked`, where garbage collection runs
+   * (94S-326): a transcript part the finalizing attempt's generation did not
+   * write must be one the checkpoint the candidate builds on names, by the
+   * same version rule collection keeps it by. That checkpoint is the pointer
+   * — the candidate commits only as the revision after it — or, for an
+   * attempt a fallback restored, the pointer's parent; a locked restore
+   * falls back no further. A worker inherits parts only from what it
+   * restored, and every commit of its own carries them on, so a legitimate
+   * candidate never trips this.
+   *
+   * This is the fence between finalize and collection. Collection takes a
+   * part only when its generation is below the session's and no retained
+   * checkpoint names it. A part of the attempt's own generation is out of its
+   * reach while the attempt can still commit. Any other part a committable
+   * candidate names is named by a checkpoint collection keeps: the pointer it
+   * read, and its parent, or — for a pointer committed after that read —
+   * one of those, by the same rule applied to every commit in between.
+   * Without it a worker could name an old part collection had just given
+   * up, have it held, see the hold released and the version deleted, and
+   * still win the CAS.
+   *
+   * A pointer already past the candidate's parent needs no check: the CAS
+   * refuses the candidate, and the pointer never moves back.
+   */
+  async function strayTranscriptPart(
+    manifest: CheckpointManifest,
+    fence: CheckpointFence,
+    revision: number,
+    reads: CommittedReads,
+  ): Promise<string | undefined> {
+    const prefix = sessionObjectPrefix(fence.sessionId);
+    const foreign = transcriptParts(manifest.transcripts).filter((ref) => {
+      // A key outside the mirror's generation directories is nothing
+      // collection reaches, so there is no race to fence.
+      const generation = transcriptGenerationOf(ref.key, prefix);
+      return (
+        generation !== undefined && generation !== fence.executionGeneration
+      );
+    });
+    if (foreign.length === 0) return undefined;
+    const pointer = await reads.pointer();
+    if (pointer !== null && pointer.revision > revision - 1) return undefined;
+    const base = keepSet();
+    const outside = () => foreign.find((ref) => !base.has(ref));
+    if (pointer?.revision === revision - 1) {
+      const manifestOfPointer = await reads.manifest(pointer);
+      if (manifestOfPointer !== undefined) {
+        base.addManifest(pointer, manifestOfPointer);
+      }
+      const parent = parentOf(pointer);
+      if (
+        outside() !== undefined &&
+        parent !== null &&
+        maxRestoreFallbacks > 0
+      ) {
+        const [row] = await store.listCheckpoints(fence.sessionId, {
+          belowRevision: parent + 1,
+          limit: 1,
+        });
+        const manifestOfParent =
+          row?.revision === parent ? await reads.manifest(row) : undefined;
+        if (row !== undefined && manifestOfParent !== undefined) {
+          base.addManifest(row, manifestOfParent);
+        }
+      }
+    }
+    const stray = outside();
+    return stray === undefined
+      ? undefined
+      : `manifest names transcript part ${stray.key}${versionSuffix(stray.version)}, which generation ${fence.executionGeneration} did not write and the checkpoint it builds on does not name`;
+  }
+
+  /**
+   * One finalize's reads of the pointer and of committed manifests, so the
+   * checks that each need them (`verifiedRefs`, `strayTranscriptPart`) share
+   * one request instead of repeating it on every turn. A read that failed is
+   * forgotten: `verifiedRefs` shrugs a failure off, and the next check must
+   * get its own try rather than the same error.
+   */
+  function committedReads(sessionId: string): CommittedReads {
+    let pointer: Promise<CheckpointPointer | null> | undefined;
+    const manifests = new Map<
+      string,
+      Promise<CheckpointManifest | undefined>
+    >();
+    return {
+      pointer: () => {
+        pointer ??= store.readPointer(sessionId).catch((error: unknown) => {
+          pointer = undefined;
+          throw error;
+        });
+        return pointer;
+      },
+      manifest: (checkpoint) => {
+        const id = `${checkpoint.manifestRef}\n${checkpoint.manifestVersion ?? ""}\n${checkpoint.manifestSha256}`;
+        let read = manifests.get(id);
+        if (read === undefined) {
+          read = committedManifest(checkpoint).catch((error: unknown) => {
+            manifests.delete(id);
+            throw error;
+          });
+          manifests.set(id, read);
+        }
+        return read;
+      },
+    };
+  }
+
+  /**
+   * A committed checkpoint's manifest, read by the version its row recorded;
+   * undefined when it is gone, differs from what was committed or does not
+   * decode.
+   */
+  async function committedManifest(
+    checkpoint: CheckpointPointer,
+  ): Promise<CheckpointManifest | undefined> {
+    const bytes = await objects.get(
+      checkpoint.manifestRef,
+      pinnedVersion(checkpoint.manifestVersion),
+    );
+    if (bytes === undefined || sha256(bytes) !== checkpoint.manifestSha256) {
+      return undefined;
+    }
+    const engine = engineOf(bytes);
+    const codec = engine === undefined ? undefined : own(codecs, engine);
+    if (codec === undefined) return undefined;
+    try {
+      return codec.decode(bytes);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -1420,6 +1644,44 @@ function pinnedVersions() {
       return [...seen.values()]
         .filter((entry) => !entry.held)
         .map(({ key, version }) => ({ key, version }));
+    },
+  };
+}
+
+/**
+ * Bundles whose verification threw, and the error each one threw, until
+ * `cooldownMs` has passed. Every entry lives the same time, so insertion
+ * order is expiry order and the oldest is the first to drop.
+ */
+function createCooldown(cooldownMs: number, clock: () => number) {
+  if (!Number.isFinite(cooldownMs) || cooldownMs < 0) {
+    throw new Error(`Bundle retry cooldown must be at least 0: ${cooldownMs}`);
+  }
+  const entries = new Map<string, { error: Error; until: number }>();
+  return {
+    pending(id: string): Error | undefined {
+      const entry = entries.get(id);
+      if (entry === undefined) return undefined;
+      if (clock() < entry.until) return entry.error;
+      entries.delete(id);
+      return undefined;
+    },
+    start(id: string, key: string, cause: unknown) {
+      if (cooldownMs === 0) return;
+      const until = clock() + cooldownMs;
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      entries.delete(id);
+      entries.set(id, {
+        error: new Error(
+          `workspace bundle ${key} is not verified again before ${new Date(until).toISOString()}; its last verification failed: ${reason}`,
+          { cause },
+        ),
+        until,
+      });
+      for (const oldest of entries.keys()) {
+        if (entries.size <= MAX_COOLING_BUNDLES) break;
+        entries.delete(oldest);
+      }
     },
   };
 }

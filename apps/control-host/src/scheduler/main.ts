@@ -10,7 +10,7 @@ import {
   type SchedulerRunSummary,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
+import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerConfigFromEnv } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
 
@@ -133,17 +133,17 @@ function messageOf(error: unknown): string {
 
 /**
  * Non-zero when the pass left work undone, so the pass loop notices. A pass
- * that found the lock held did nothing and says so (PASS_SKIPPED_EXIT).
+ * that found the lock held did nothing and says so (PASS_SKIPPED_EXIT). One
+ * that did everything it could but left a session it cannot help this pass
+ * says that instead (PASS_DEGRADED_EXIT, 94S-368), unless something else
+ * failed too.
  */
 export function exitCodeFor(summary: SchedulerRunSummary): number {
   if (summary.skipped) return PASS_SKIPPED_EXIT;
-  return summary.failedLaunches.length > 0 ||
+  if (
+    summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
     summary.killFailed.length > 0 ||
-    // A launch waiting out its backoff is one that is failing; one given up
-    // on failed its session's input. Neither is a pass with nothing to say.
-    summary.launchesBackingOff.length > 0 ||
-    summary.launchesQuarantined.length > 0 ||
     // A network that could be neither removed nor repaired is a leaked
     // address pool or a worker without egress; both need someone to look.
     summary.networkScanFailed ||
@@ -151,12 +151,21 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
     summary.orphansUnresolved.length > 0 ||
     summary.reclaimFailed.length > 0 ||
     summary.reconcileFailed.length > 0 ||
-    summary.replacementsExhausted.length > 0 ||
     // A GC fault, not a GC judgement: `workspacesUnresolved` is deliberate
     // and stays out of this, but a scan or a removal that threw means disk
     // is being left behind for a reason nobody has looked at.
     summary.workspaceScanFailed ||
     summary.workspacesFailed.length > 0
-    ? 1
+  ) {
+    return 1;
+  }
+  // A launch waiting out its backoff is one that is failing; one given up
+  // on failed its session's input; so did a session out of replacements.
+  // Each is one session's trouble, kept in the database, that a restart of
+  // this loop would not fix.
+  return summary.launchesBackingOff.length > 0 ||
+    summary.launchesQuarantined.length > 0 ||
+    summary.replacementsExhausted.length > 0
+    ? PASS_DEGRADED_EXIT
     : 0;
 }

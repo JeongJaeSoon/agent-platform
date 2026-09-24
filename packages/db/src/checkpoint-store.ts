@@ -76,6 +76,7 @@ export function createPostgresCheckpointStore(
               attempt.authRevision !== session.authRevision,
           );
           return {
+            executionGeneration: session.executionGeneration,
             fallbackRevision: session.fallbackRevision,
             fencedAttemptIds: new Set(fenced.map((attempt) => attempt.id)),
           };

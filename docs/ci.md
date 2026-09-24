@@ -8,9 +8,9 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 6개(`integ
 
 서비스를 job마다 나누면 새 구멍이 하나 생긴다: 필요한 서비스가 없는 job에 들어간 파일은 opt-in 변수가 꺼져 있어 테스트가 실패하지 않고 **skip된다**. 그래서 각 job은 `bun test --reporter=junit`의 보고서를 같은 스크립트로 다시 읽어, 자기 파일이 전부 돌았는지, 다른 파일이 끼지 않았는지, matrix에 선언하지 않은 skip이 없는지 확인하고 하나라도 어긋나면 실패한다. 선언된 skip은 Linux에서 의도적으로 skip되는 `packages/storage/src/git-runner.test.ts`의 1건뿐이고, 선언했는데 skip되지 않아도 실패한다. skip을 세지 못하는 유일한 형태 — opt-in이 꺼지면 테스트를 아예 선언하지 않는 것 — 는 쓰지 않는다(`tests/checkpoint-flow.test.ts`의 LocalStack 변형도 `describe.skip`으로 선언한다). `apps/control-host/src/api/server.integration.ts`는 테스트 파일 이름 규칙 밖이라 `integration (api)`만 따로 돌린다.
 
-`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다(94S-305): `check (typecheck)`, `check (lint)`, `check (unit: packages)`, `check (unit: apps, tests)`. 예전 단일 job은 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초였고, integration 샤드보다 길어 PR run 전체의 임계 경로였다. 테스트만으로도 가장 긴 integration 샤드와 비슷했으므로 테스트를 한 번 더 저장소 구조로 나눴다. `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 파일을 찾아 `packages/` 아래를 `packages`로, 나머지 전부(지금은 `apps/`·`tests/`)를 `rest`로 준다. `rest`는 `packages`의 여집합이라 두 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
+`check`는 숫자 샤드가 아니라 **역할 이름이 붙은 job**으로 나뉜다(94S-305): `check (typecheck)`, `check (lint)`, `check (licenses)`, `check (unit: packages)`, `check (unit: apps, tests)`. `check (licenses)`는 아래 "제3자 라이선스와 취약점"을 본다. 예전 단일 job은 `bun run check` 한 단계가 typecheck 약 1분 → Biome 1초 → 서비스 없는 Bun 테스트 약 4분 10초를 직렬로 돌아 5분 10초였고, integration 샤드보다 길어 PR run 전체의 임계 경로였다. 테스트만으로도 가장 긴 integration 샤드와 비슷했으므로 테스트를 한 번 더 저장소 구조로 나눴다. `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 파일을 찾아 `packages/` 아래를 `packages`로, 나머지 전부(지금은 `apps/`·`tests/`)를 `rest`로 준다. `rest`는 `packages`의 여집합이라 두 부분 사이로 빠지는 파일이 없고, `test` 필터가 새 최상위 디렉터리를 잡으면 `rest`로 간다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 셋을 직렬로 돈다.
 
-브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 네 부분을, `integration`은 여섯 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `spikes`는 예전처럼 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 한 job이 실패했을 때, `!cancelled()`면 한 job이 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 동시 job: PR run 하나는 시작 순간 10개 job(`check` 부분 4 + integration 도메인 6)을 쥔다. `check (lint)`는 30초 안팎, `check (typecheck)`와 서비스가 가벼운 도메인은 1분 30초 안팎에 끝나므로 대부분의 시간은 그보다 적다. PR 2개가 한꺼번에 시작하면 free plan의 동시 job 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
+브랜치 보호의 필수 체크 이름은 그대로 `check`와 `integration`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 다섯 부분을, `integration`은 여섯 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `spikes`는 예전처럼 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다 — 기본 조건이면 한 job이 실패했을 때, `!cancelled()`면 한 job이 실패한 뒤 run이 취소됐을 때 집계 job이 skip되어 PR이 초록으로 보인다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 동시 job: PR run 하나는 시작 순간 11개 job(`check` 부분 5 + integration 도메인 6)을 쥔다. `check (lint)`는 30초 안팎, `check (typecheck)`와 서비스가 가벼운 도메인은 1분 30초 안팎에 끝나므로 대부분의 시간은 그보다 적다. PR 2개가 한꺼번에 시작하면 free plan의 동시 job 20개에 닿고, 넘는 job은 실패하지 않고 줄을 선다.
 
 `spikes`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. spike 코드를 건드린 PR은 `-f only=spikes`로 직접 확인한다.
 
@@ -37,6 +37,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 r
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
 
 bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (typecheck)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 integration 도메인 job은 읽기만 한다), `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
+
+서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러-94s-308)).
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
@@ -91,3 +93,52 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 2. `only=`를 쓴 수동 실행은 건너뛴 job을 **그 커밋에 성공으로 기록한다.** branch protection을 켠 뒤에는 PR head SHA에 대고 `only=`를 쓰지 않는다. 필요하면 PR을 열기 전 브랜치에서 쓰거나, 검증은 PR 자동 실행에 맡긴다.
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
+
+## 서드파티 이미지 미러 (94S-308)
+
+`integration` 도메인 job과 `workspace-quota`가 받는 서드파티 이미지는 Docker Hub가 아니라 `ghcr.io/jeongjaesoon/agent-platform-ci/<name>`에서 **upstream digest 그대로** 받는다. 대상은 서비스 컨테이너(PostgreSQL·LocalStack), Docker suite가 Engine API로 직접 받는 이미지(busybox·`oven/bun`·curl·LocalStack, workspace-migration helper), `workspace-quota`의 dind와 inode helper의 base다. `e2e`·`quickstart`는 제품 compose 파일을 그대로 띄우므로 아직 Docker Hub에서 받는다(94S-365). 위 표의 이름(`postgres:16` 등)은 upstream tag이고, ci.yml은 그 tag가 가리키던 digest를 고정한다. `.github/workflows/ci-image-mirror.yml`이 `skopeo copy --all --preserve-digests`로 index 전체(모든 플랫폼과 attestation)를 바이트 그대로 옮긴다. 그래서 ghcr의 digest가 Docker Hub의 digest와 같고, `docker buildx imagetools inspect postgres:16`이 보여 주는 digest를 ci.yml의 값과 바로 비교할 수 있다. suite 코드의 기본값(`busybox:1.36` 등)은 로컬 실행용으로 그대로 두고, CI만 `BUN_TEST_IMAGE`·`DOCKER_BACKEND_TEST_IMAGE`·`EGRESS_CURL_TEST_IMAGE`·`EGRESS_PROXY_TEST_IMAGE`·`EXECUTION_WORKSPACE_MIGRATION_IMAGE`·`LOCALSTACK_TEST_IMAGE`로 mirror를 가리킨다.
+
+**미러는 준비 시간을 줄이지 못했다.** 실측(94S-308 PR run)에서 ghcr의 LocalStack pull은 약 24초로 Docker Hub(약 25초)와 같았다. pull 시간은 받는 곳이 아니라 약 1 GB layer를 푸는 데 든다. `Initialize containers`의 나머지는 서비스 health 대기(LocalStack 약 14초)다. 이 미러가 주는 것은 rate limit 제거와 digest 재현성이다.
+
+미러를 고른 이유는 Docker Hub를 CI 경로에서 **아예 빼는** 유일한 방식이어서다. 익명 pull 한도(`toomanyrequests`)로 integration run이 실패한 적이 있고, 서비스 컨테이너만이 아니라 suite 안의 pull도 한도를 먹는다. 버린 두 방식과 그 이유는 이렇다.
+
+- **actions cache**(`docker save` tar를 캐시하고 `docker load`): 서비스 컨테이너는 첫 step보다 먼저 뜨므로 캐시를 쓰려면 `services:`를 step으로 다시 짜야 한다. LocalStack tar만 1 GB를 넘어 저장소 캐시 10 GB를 bun 캐시와 나눠 쓰게 되고, 캐시가 밀려나면 조용히 Docker Hub로 돌아간다. `docker load`도 layer를 푸는 시간은 pull과 같다.
+- **digest 고정 + 사전 pull만**: 재현성은 얻지만 받는 곳이 여전히 Docker Hub라 rate limit 위험이 그대로다. digest 고정은 미러와 함께 가져왔다.
+
+**`tests/ci-images.test.ts`**(`check (unit: apps, tests)`와 `integration (worker)`에서 돈다)가 지키는 것:
+
+- ci.yml의 서비스 이미지와 `*_IMAGE` 변수가 전부 mirror 참조다. mirror 목록에 있는 upstream `name:tag`는 ci.yml 어디에도 나오지 않는다.
+- ci.yml의 mirror 참조는 전부 `<name>@sha256:…`이고, 그 `name`·digest 쌍이 mirror 목록에 있다.
+- suite 파일이 읽는 `process.env.*_IMAGE`는 전부 `integration-domain`의 `env`에서 mirror로 설정돼 있다. 기본값이 문자열이면 mirror 항목의 upstream `name:tag`와 같아야 한다(로컬과 CI가 같은 버전을 돈다).
+- busybox 항목에 `DEFAULT_MIGRATION_HELPER_IMAGE`의 digest가, bun 항목에 모든 앱 Dockerfile `BUN_IMAGE`의 digest가 있다. `workspace-quota`가 빌드하는 inode helper의 `FROM`은 worker Dockerfile과 같은 digest의 미러 참조다.
+
+정적 검사는 코드가 이미지를 부르는 모양을 다 알 수 없다. 그래서 Docker를 쓰는 job은 마지막에 **daemon이 실제로 가진 이미지**를 본다. `integration-domain`의 모든 job과 `workspace-quota`(runner daemon과 중첩 daemon 둘 다)가 그렇다. `.github/scripts/assert-no-docker-hub-images.sh`가 `docker images`에 Docker Hub 이미지가 하나라도 있으면 그 이름을 `::error::`로 찍고 job을 실패시킨다. 판정은 Docker의 이름 규칙 그대로다. 첫 경로 성분에 `.`·`:`가 없거나 `localhost`가 아니면, 또는 `docker.io`면 Docker Hub다. "미러만"이 아니라 "Docker Hub 아님"으로 거는 이유는 runner 이미지에 원래 들어 있는 이미지(`ghcr.io/github/…`, `ghcr.io/dependabot/…`) 때문이다. 아무 step도 받지 않았는데 daemon에 있다. 판정 대상은 각 이미지의 `RepoDigests`, 곧 어디서 pull했는지다. daemon에서 직접 빌드한 이미지는 `RepoDigests`가 없어 건너뛴다. 빌드의 `FROM` 이미지는 image 목록에 남는다는 보장이 없으므로, 빌드 step은 base를 미러 참조로 직접 적어야 한다. 정적 가드는 ci.yml의 `*_IMAGE` 값 중 미러가 아닌 것을 같은 workflow 안의 `-t <값>` 빌드로만 허용한다. 테스트가 실패한 job에서도 돈다. 새 `docker run alpine`이든, 환경 변수 없이 Engine API로 받는 suite든, 받은 경로와 상관없이 잡힌다.
+
+**미러 갱신 절차**(digest를 올리거나 이미지를 더할 때). mirror job은 `main`에서만 돌므로 PR 두 개로 나뉜다.
+
+1. 새 digest를 확인한다: `docker buildx imagetools inspect <upstream>:<tag> --format '{{json .Manifest}}' | jq -r .digest`
+2. **PR 1**: `ci-image-mirror.yml` matrix에 새 항목을 **더한다**. 기존 digest 항목은 지우지 않는다. 같은 `name`에 digest 두 개가 있어도 된다. 머지하면 `main` push의 `CI image mirror` run이 새 digest를 ghcr에 올린다. run의 `mirror (<name>:<tag>)` job이 초록인지 확인한다.
+3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Nothing pulled from Docker Hub` step이 실패한다.
+4. 새 이미지의 ghcr package는 이 public 저장소에 연결되어 public으로 생긴다(첫 mirror run의 여섯 package가 모두 그랬다). 서비스 컨테이너와 Engine API로 받는 suite는 인증 없이 받으므로 public이어야 한다. private으로 생기면 mirror job이 로그아웃 뒤 익명 조회에서 실패한다. 그때는 GitHub의 package 설정(Package settings → Danger Zone → Change visibility)에서 public으로 바꾸고 그 job을 다시 돌린다.
+5. 목록을 바꾸지 않고 다시 복사하려면 `gh workflow run 'CI image mirror'`를 쓴다(`main`에서만 돈다). 이미 있는 blob은 건너뛴다.
+
+목록에서 지운 digest도 ghcr에는 untagged로 남는다. 이전 커밋의 CI를 다시 돌려도 받을 수 있도록 지우지 않는다.
+
+mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서만** package write를 쥔다. 그 token은 이 저장소가 쓸 수 있는 모든 package, 곧 앱 릴리스 이미지까지 쓸 수 있다. 그래서 pull request trigger가 없고, `main`이 아닌 ref에서 dispatch하면 job을 건너뛴다. 처음 설계는 digest를 올리는 PR이 자기 run에서 미러하게 했다. Codex adversarial review가 PR이 고칠 수 있는 workflow에 package write를 주는 것이 `images.yml`의 게시 경계를 우회한다고 지적해 지금의 두 단계로 바꿨다(94S-308).
+
+## 제3자 라이선스와 취약점 (94S-338)
+
+배포 이미지에 들어가는 제3자 구성요소의 목록과 고지는 저장소 루트의 `THIRD_PARTY_NOTICES.md`다. 세 이미지 모두 이 파일을 `/app`에 싣는다.
+
+```bash
+bun scripts/third-party-notices.ts            # bun.lock과 node_modules에서 다시 만든다
+bun scripts/third-party-notices.ts --check    # 최신이 아니거나 검토 안 된 라이선스가 있으면 실패
+```
+
+- **목록의 범위.** 이미지마다 Dockerfile이 설치하는 production closure를 `bun.lock`에서 계산한다. control-host는 `--filter ./apps/control-host`, worker는 모든 workspace, egress-proxy는 설치가 없다. optional 의존성은 이미지를 빌드하는 linux x64·arm64 둘 다 센다. 그래서 어느 머신에서 돌려도 같은 파일이 나온다. 라이선스와 NOTICE는 설치된 패키지에서 읽는다. 이 머신에 설치되지 않은 다른 arch 빌드는 생성할 때만 npm registry에서 라이선스를 읽고, `--check`는 커밋된 파일의 값을 쓴다. 그래서 `--check`는 네트워크가 필요 없다.
+- **라이선스 정책.** MIT·Apache-2.0·BSD 계열·ISC 같은 허용 목록 밖의 라이선스는 스크립트의 `REVIEWED`에 검토한 라이선스 문자열과 이유를 함께 적어야 통과한다. 같은 패키지라도 라이선스가 바뀌면 다시 검토해야 한다. SPDX 식은 괄호·AND·OR 우선순위대로 읽는다. 지금은 `@anthropic-ai/claude-agent-sdk`와 그 플랫폼 빌드(Anthropic 상용 약관)뿐이다. Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 고지 파일에 옮긴다(현재 closure에는 없다). 베이스 이미지(Bun이 정적 링크한 LGPL JavaScriptCore, Debian 패키지)는 고지 파일의 첫 절에 적는다.
+- **required 경로.** `check (licenses)`가 `--check`를 돈다. 의존성을 추가하고 파일을 다시 만들지 않거나 검토되지 않은 라이선스가 들어오면 필수 체크 `check`가 실패한다.
+- **실제 이미지와 대조.** images.yml의 build job이 빌드한 이미지 안에서 `--verify <image> /app`을 돌려, `/app/node_modules`의 모든 패키지가 그 이미지 몫으로 목록에 있는지 본다. Debian 패키지마다 `/usr/share/doc/<패키지>/copyright`가 있는지도 본다. 둘 중 하나라도 어긋나면 build job이 실패한다.
+- **npm 취약점.** `.github/workflows/supply-chain.yml`이 `bun audit`을 돈다. PR에서는 high 이상 advisory가 있으면 run이 실패한다(required 아님). `bun audit`은 advisory가 있을 때와 요청이 실패했을 때 모두 exit 1이라, 판정은 `--json` 출력으로 한다. JSON이 없으면 서비스가 답하지 않은 것이므로 PR은 경고만 남긴다. 매일 02:41 UTC 실행에서 기준을 넘거나 답을 받지 못하면 `ci-dependency-audit` 라벨 이슈를 열거나 기존 이슈에 덧붙인다. `bun audit`은 advisory 서비스를 부르므로 required `check`에 넣지 않았다. lockfile 전체가 대상이라 dev 의존성까지 본다.
+- **이미지 취약점.** images.yml의 build job이 이미지마다 Grype(릴리스 바이너리를 버전과 sha256으로 고정)로 Debian 패키지와 `/app`의 npm 패키지를 검사한다. 로그에는 수정 여부와 무관한 전체 표가 남고, run summary에는 수정판이 있는 high·critical만 남는다. 이 검사는 build를 실패시키지 않는다. 베이스 이미지가 digest로 고정돼 있어서 upstream에서 고쳐진 CVE가 모든 PR에 한꺼번에 뜨는데, 그것은 어느 PR의 결함도 아니기 때문이다. 매일 03:17 UTC 실행과 수동 실행(`gh workflow run Images`)에서 기준을 넘거나 검사가 돌지 못하면 `vulnerability-report` job이 `ci-image-vulnerabilities` 라벨 이슈를 연다. tag의 `publish` job은 이미지를 다시 빌드하므로, 승격될 digest에 라이선스 대조와 검사를 한 번 더 돌린다. 거기서는 검사가 돌지 못하면 실패하고, 발견 자체로는 막지 않는다(릴리스를 막을지는 94S-363에서 정한다). 두 job이 쓰는 스크립트는 `.github/scripts/image-licenses.sh`와 `image-scan.sh`다.
+- **도구를 고른 이유.** `bun audit`은 Bun에 들어 있어 새 설치가 없고 bun.lock을 그대로 읽는다. OSV-Scanner도 bun.lock을 읽지만 바이너리를 하나 더 고정해야 한다. 이미지 검사는 Grype다. Trivy는 action 태그가 탈취된 적이 있고, DB를 ghcr에서 받다가 rate limit에 걸리는 일이 잦다. Grype는 action 없이 릴리스 바이너리 하나로 돈다.

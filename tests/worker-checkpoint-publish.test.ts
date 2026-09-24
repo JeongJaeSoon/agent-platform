@@ -16,6 +16,7 @@ import {
   restorePlanOnWire,
 } from "@agent-platform/platform";
 import { claudeCheckpointCodec } from "@agent-platform/runtime-claude";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 import {
   createGitWorkspaceBundleVerifier,
   scopedCheckpointObjectStore,
@@ -48,7 +49,6 @@ import {
   type FakeCheckpointProtocol,
   FakeWorkerGateway,
 } from "../apps/worker/src/fake-gateway.ts";
-import { WorkerGatewayRequestError } from "../apps/worker/src/gateway-client.ts";
 import { SessionCheckpoints } from "../apps/worker/src/session-checkpoints.ts";
 import {
   WorkerHost,

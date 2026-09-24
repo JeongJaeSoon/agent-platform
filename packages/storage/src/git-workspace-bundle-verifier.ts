@@ -151,6 +151,7 @@ export function createGitWorkspaceBundleVerifier(
   const maxGitMemoryBytes =
     options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
   return {
+    policy: JSON.stringify({ maxGitMemoryBytes, maxPackObjects, timeoutMs }),
     async verify({ bytes, commit, path }) {
       // The structural read is the cheap gate: no git process for bytes that
       // are not a whole bundle offering the commit, and it hands back the ref

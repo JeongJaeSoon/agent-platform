@@ -815,6 +815,222 @@ describe("startCredentialProxy", () => {
     await next.text();
   });
 
+  describe("an exchange that never finishes still frees its slot (94S-366)", () => {
+    // An upstream that sends one event and then holds the stream open, the
+    // way a slow model call does while the worker is interrupted; or, once
+    // `hold()` is called, holds its next call without even a head, the way
+    // the soak's model held the call it interrupted.
+    function holding() {
+      const aborted: Promise<void>[] = [];
+      let holdNext = false;
+      const up = upstream(async (request) => {
+        const hungUp = new Promise<void>((resolve) =>
+          request.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
+        );
+        aborted.push(hungUp);
+        if (holdNext) {
+          holdNext = false;
+          await hungUp;
+          return new Response("gone", { status: 500 });
+        }
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("event: one\n\n"));
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      });
+      let answer: "grant" | "gone" = "grant";
+      const grant = granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]);
+      const auth = authorizer((body) =>
+        answer === "grant" ? grant(body) : new Response("x", { status: 409 }),
+      );
+      return {
+        up,
+        auth,
+        hold: () => {
+          holdNext = true;
+        },
+        /** The upstream saw the proxy hang up on the latest exchange. */
+        hungUp: () => aborted.at(-1) ?? Promise.resolve(),
+        end: () => {
+          answer = "gone";
+        },
+        renew: () => {
+          answer = "grant";
+        },
+      };
+    }
+
+    /** A worker's call, streaming unless the upstream holds its head. */
+    async function opened(h: ReturnType<typeof holding>, port: number) {
+      const worker = new AbortController();
+      const seen = h.up.seen.length;
+      const answered = fetch(`http://127.0.0.1:${port}/provider/v1/messages`, {
+        method: "POST",
+        headers: { "x-api-key": WORKER_TOKEN },
+        body: '{"model":"m"}',
+        signal: worker.signal,
+      });
+      let settled = false;
+      answered.then(
+        () => {
+          settled = true;
+        },
+        () => {},
+      );
+      // Past the cap, a refusal comes back without reaching the upstream.
+      while (h.up.seen.length === seen && !settled) await Bun.sleep(5);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      const read = async () => {
+        reader ??= (await answered).body?.getReader();
+        return reader?.read();
+      };
+      return {
+        hangUp: () => worker.abort(),
+        streaming: async () => {
+          expect((await answered).status).toBe(200);
+          expect((await read())?.done).toBe(false);
+        },
+        /** Whatever the worker is still sent, to its end. */
+        drain: async () => {
+          try {
+            while (!(await read())?.done) {}
+          } catch {}
+        },
+      };
+    }
+
+    /** A call is let in, then hung up on and its slot given back. */
+    async function admitted(h: ReturnType<typeof holding>, port: number) {
+      const call = await opened(h, port);
+      await call.streaming();
+      call.hangUp();
+      await h.hungUp();
+    }
+
+    function capped(h: ReturnType<typeof holding>, cap: number) {
+      return proxy(h.auth.url, h.up.port, {
+        maxExchanges: cap,
+        regrantIntervalMs: 20,
+      });
+    }
+
+    test("a grant cut frees the slot, whether or not the worker still reads", async () => {
+      const h = holding();
+      const server = capped(h, 1);
+      // Mid-stream, the worker reading to the cut.
+      const reading = await opened(h, server.port);
+      await reading.streaming();
+      h.end();
+      await reading.drain();
+      await h.hungUp();
+      h.renew();
+      await admitted(h, server.port);
+      // Mid-stream, the worker already gone.
+      const gone = await opened(h, server.port);
+      await gone.streaming();
+      gone.hangUp();
+      h.end();
+      await h.hungUp();
+      await Bun.sleep(60);
+      h.renew();
+      await admitted(h, server.port);
+      // Before the upstream's head, the worker reading the refusal.
+      h.hold();
+      const waiting = await opened(h, server.port);
+      h.end();
+      await waiting.drain();
+      await h.hungUp();
+      h.renew();
+      await admitted(h, server.port);
+    });
+
+    // The soak's leak: the worker is interrupted while the model still holds
+    // its call, so the proxy's 502 answers a connection already gone, and
+    // Bun pulls such a body once and then neither reads nor cancels it.
+    test("a worker that hangs up frees the slot, grant or not", async () => {
+      const h = holding();
+      const server = proxy(h.auth.url, h.up.port, {
+        maxExchanges: 1,
+        regrantIntervalMs: 60_000,
+      });
+      const streaming = await opened(h, server.port);
+      await streaming.streaming();
+      streaming.hangUp();
+      await h.hungUp();
+      await Bun.sleep(60);
+      await admitted(h, server.port);
+      h.hold();
+      const waiting = await opened(h, server.port);
+      waiting.hangUp();
+      await h.hungUp();
+      await Bun.sleep(60);
+      await admitted(h, server.port);
+    });
+
+    test("a worker hanging up while the upstream name is resolving frees the slot (Codex R2)", async () => {
+      const h = holding();
+      let lookups = 0;
+      const server = proxy(h.auth.url, h.up.port, {
+        maxExchanges: 1,
+        // The first lookup never answers.
+        resolve: (host) => {
+          lookups += 1;
+          return lookups === 1
+            ? new Promise<string[]>(() => {})
+            : Promise.resolve(host === "upstream.test" ? ["127.0.0.1"] : []);
+        },
+      });
+      const worker = new AbortController();
+      const stuck = fetch(
+        `http://127.0.0.1:${server.port}/provider/v1/messages`,
+        {
+          method: "POST",
+          headers: { "x-api-key": WORKER_TOKEN },
+          body: '{"model":"m"}',
+          signal: worker.signal,
+        },
+      ).catch(() => null);
+      while (lookups === 0) await Bun.sleep(5);
+      worker.abort();
+      await stuck;
+      await Bun.sleep(60);
+      await admitted(h, server.port);
+    });
+
+    test("cut and hung-up exchanges never run the cap out", async () => {
+      const h = holding();
+      const server = capped(h, 2);
+      const rounds = [
+        { head: "sent", cut: true, hangUp: false },
+        { head: "sent", cut: false, hangUp: true },
+        { head: "sent", cut: true, hangUp: true },
+        { head: "held", cut: true, hangUp: false },
+        { head: "held", cut: false, hangUp: true },
+        { head: "held", cut: true, hangUp: true },
+      ] as const;
+      for (const round of [...rounds, ...rounds]) {
+        if (round.head === "held") h.hold();
+        const call = await opened(h, server.port);
+        if (round.head === "sent") await call.streaming();
+        if (round.hangUp) call.hangUp();
+        if (round.cut) h.end();
+        if (!round.hangUp) await call.drain();
+        await h.hungUp();
+        await Bun.sleep(60);
+        h.renew();
+      }
+      await admitted(h, server.port);
+    });
+  });
+
   test("an open exchange is cut once its grant ends, not when the authorizer blips (Codex R2)", async () => {
     // The first exchange's gate opens; the later ones' never do.
     let release: () => void = () => {};

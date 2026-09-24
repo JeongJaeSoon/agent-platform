@@ -93,6 +93,48 @@ export type CheckpointTranscripts = {
   readonly subagents: Readonly<Record<string, TranscriptRevision>>;
 };
 
+/**
+ * The most transcript one checkpoint may carry, per part and in total across
+ * the root and every subagent (94S-296). The engine reads the whole
+ * transcript when it resumes, and the worker verifies and holds it before
+ * that, so this is a session-lifetime ceiling sized against the worker's
+ * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
+ * worker checks it before publishing, finalize before reading any part, and
+ * a restore before fetching any part — all against these same values. A
+ * session past it keeps running on its last checkpoint: see DESIGN §6.3.1.
+ */
+export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+
+/** Every part of the root transcript and of each subagent's. */
+export function transcriptParts(
+  transcripts: CheckpointTranscripts,
+): ObjectRef[] {
+  return [transcripts.root, ...Object.values(transcripts.subagents)].flatMap(
+    (revision) => revision.parts,
+  );
+}
+
+/**
+ * Why a session's transcript parts are over the limits above, judged from
+ * the sizes they claim — every reader holds the stored bytes to those before
+ * trusting them — so nothing has to be fetched to answer.
+ */
+export function transcriptSizeProblem(
+  parts: Iterable<{ readonly bytes: number; readonly key: string }>,
+): string | undefined {
+  let total = 0;
+  for (const part of parts) {
+    if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
+      return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
+    }
+    total += part.bytes;
+  }
+  return total > MAX_TRANSCRIPT_BYTES
+    ? `the transcript is ${total} bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit`
+    : undefined;
+}
+
 export type CheckpointManifest = {
   readonly createdAt: string;
   readonly cwd: string;
@@ -286,4 +328,32 @@ export interface TranscriptMirror {
     sessionId: string;
   }): Promise<string[]>;
   load(key: TranscriptKey): Promise<TranscriptEntry[] | null>;
+}
+
+/**
+ * The layout every transcript mirror shares under a session's object prefix
+ * (94S-203): `<session prefix>transcripts/generation-<n>/…`, one directory per
+ * execution generation, which writes nowhere else. The control plane reads a
+ * part's generation back from its key to reclaim what a generation left once
+ * it can no longer commit (94S-326), so the layout is a contract between the
+ * mirror and the control plane rather than an adapter's detail.
+ */
+export const TRANSCRIPT_MIRROR_DIRECTORY = "transcripts";
+
+export function transcriptGenerationDirectory(generation: number): string {
+  return `generation-${String(generation).padStart(10, "0")}`;
+}
+
+/**
+ * The execution generation that wrote a key under the session's transcript
+ * mirror; undefined for any key outside it or not in a generation directory.
+ */
+export function transcriptGenerationOf(
+  key: string,
+  sessionPrefix: string,
+): number | undefined {
+  const mirror = `${sessionPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}/`;
+  if (!key.startsWith(mirror)) return undefined;
+  const match = /^generation-(\d{10})\//.exec(key.slice(mirror.length));
+  return match?.[1] === undefined ? undefined : Number(match[1]);
 }

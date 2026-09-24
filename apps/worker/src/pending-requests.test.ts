@@ -12,10 +12,12 @@ import {
   type SessionEventPayload,
   type WorkerScope,
 } from "@agent-platform/contracts";
-import type { PermissionRequest } from "@agent-platform/runtime-core";
+import {
+  type PermissionRequest,
+  WorkerGatewayRequestError,
+} from "@agent-platform/runtime-core";
 
 import { FakeWorkerGateway } from "./fake-gateway.ts";
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import {
   PendingRequestRegistry,
   type PendingRequestsOptions,
