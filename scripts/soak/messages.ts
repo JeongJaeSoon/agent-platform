@@ -194,9 +194,15 @@ if (import.meta.main) {
   });
   const port = Number(process.env.FAKE_MESSAGES_PORT ?? "4010");
   const controlPort = Number(process.env.GATE_CONTROL_PORT ?? "4011");
-  startFakeAnthropicServer((request) => messages.reply(request), {
-    listen: { hostname: "0.0.0.0", port },
-  });
+  const server = startFakeAnthropicServer(
+    (request) => messages.reply(request),
+    { listen: { hostname: "0.0.0.0", port } },
+  );
+  // The testkit server keeps every request whole, conversation and all; over
+  // a day that is tens of GiB. The summaries above are the soak's record.
+  setInterval(() => {
+    server.requests.length = 0;
+  }, 10_000);
   // Read and armed by the soak from the host; workers only see `port`.
   Bun.serve({
     hostname: "0.0.0.0",

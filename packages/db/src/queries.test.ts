@@ -11,10 +11,12 @@ import {
 import * as schema from "./schema.ts";
 import {
   apiKeys,
+  executions,
   queueMessages,
   sessions,
   turns,
   unassignedSessions,
+  workerLaunches,
   workers,
 } from "./schema.ts";
 
@@ -144,6 +146,51 @@ describe("session queries", () => {
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId)),
     ).toHaveLength(1);
+  });
+
+  test("requeues an orphan into the partition it last ran in", async () => {
+    const now = new Date("2026-09-14T00:00:00Z");
+    const sessionId = await insertSession({
+      podId: "stale-owner",
+      status: "running",
+    });
+    const partition = `p-${crypto.randomUUID()}`;
+    await db.insert(executions).values({
+      backend: "local_docker",
+      desiredState: "running",
+      generation: 1,
+      id: "exec-earlier",
+      observedState: "running",
+      sessionId,
+    });
+    await db.insert(workerLaunches).values({
+      backend: "local_docker",
+      executionId: "exec-earlier",
+      generation: 1,
+      partition,
+      sessionId,
+    });
+    await db.insert(turns).values({
+      message: "retry me",
+      sequence: 1,
+      sessionId,
+      status: "queued",
+    });
+    await db.insert(queueMessages).values({
+      kind: "message",
+      payload: { message: "retry me" },
+      sessionId,
+    });
+
+    expect(await reconcileOrphanedSessions(db, { now })).toEqual([
+      expect.objectContaining({ action: "requeued", sessionId }),
+    ]);
+    expect(
+      await db
+        .select({ partition: unassignedSessions.partition })
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toEqual([{ partition }]);
   });
 
   test("does not signal an empty orphan or touch a fresh lease", async () => {

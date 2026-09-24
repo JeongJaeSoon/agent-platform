@@ -197,6 +197,20 @@
       "when": 1790209354663,
       "tag": "0118_restore_failure_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1790229985734,
+      "tag": "0119_session_profile_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1790232488784,
+      "tag": "0120_worker_credentials_object_store",
+      "breakpoints": true
     }
   ]
 }

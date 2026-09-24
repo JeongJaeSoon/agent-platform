@@ -3,7 +3,7 @@ import { apiErrorResponseSchema } from "@agent-platform/contracts";
 import { currentDeadline } from "@agent-platform/db/pool";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { createApiApp } from "./app.ts";
-import { readBodyWithin } from "./deadline.ts";
+import { CLOSING_IDLE_TIMEOUT_SECONDS, readBodyWithin } from "./deadline.ts";
 
 function appWith(
   options: Pick<
@@ -128,6 +128,27 @@ describe("request deadline", () => {
     expect((await app.request("/v1/fails", { headers: owner })).status).toBe(
       500,
     );
+  });
+  // Bun keeps a socket whose request bytes are unread open for the whole idle
+  // clock, `Connection: close` or not (94S-311).
+  test("a response that closes the connection gets the short idle clock", async () => {
+    const { app } = appWith({
+      registerRoutes: (router) => {
+        router.post("/closing", (context) => {
+          context.header("Connection", "close");
+          return context.json({ ok: false }, 408);
+        });
+      },
+    });
+    const calls: number[] = [];
+    const env = { setIdleTimeout: (seconds: number) => calls.push(seconds) };
+    const response = await app.request(
+      "/v1/closing",
+      { method: "POST", headers: owner },
+      env,
+    );
+    expect(response.status).toBe(408);
+    expect(calls.at(-1)).toBe(CLOSING_IDLE_TIMEOUT_SECONDS);
   });
 });
 

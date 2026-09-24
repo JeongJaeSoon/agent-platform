@@ -30,11 +30,12 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import { executionBackendSchema } from "@agent-platform/contracts";
-import type {
-  CheckpointRequestDecision,
-  RestoreFallback,
-  RestorePlan,
-  RestorePlanResult,
+import {
+  type CheckpointRequestDecision,
+  type RestoreFallback,
+  type RestorePlan,
+  type RestorePlanResult,
+  sessionObjectPrefix,
 } from "../checkpoints/checkpoint-service.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
@@ -166,9 +167,14 @@ function generateSessionToken(): string {
 
 // Prefixes say which route a token is for when one turns up in a log or an
 // event; the gateway never trusts them, the stored purpose decides.
+const EGRESS_TOKEN_PREFIXES: Record<EgressPurpose, string> = {
+  provider: "wep",
+  repository: "wer",
+  object_store: "weo",
+};
+
 function generateEgressToken(purpose: EgressPurpose): string {
-  const prefix = purpose === "provider" ? "wep" : "wer";
-  return `${prefix}_${randomBytes(32).toString("base64url")}`;
+  return `${EGRESS_TOKEN_PREFIXES[purpose]}_${randomBytes(32).toString("base64url")}`;
 }
 
 /** What the egress proxy is told to do with one authorized request. */
@@ -410,27 +416,36 @@ export function createWorkerGateway(deps: {
   // Only sessions this host can actually run are claimable. Letting a
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
-  // through a queue slot. It waits for a host that knows the profile — and
-  // that still lets it run against the session's repository (94S-258).
+  // through a queue slot. It waits for a host that knows the profile — as
+  // the session was created with it (94S-253) — and that still lets it run
+  // against the session's repository (94S-258).
   const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
     ([repositoryId, repository]) =>
-      repository.profiles
-        .filter((profileId) => Object.hasOwn(catalog.profiles, profileId))
-        .map((profileId) => ({
-          profileId,
-          repositoryId,
-          url: repository.url,
-          branch: repository.branch,
-        })),
+      repository.profiles.flatMap((profileId) => {
+        const profile = own(catalog.profiles, profileId);
+        return profile
+          ? [
+              {
+                profileId,
+                profileFingerprint: profileFingerprint(profile),
+                repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              },
+            ]
+          : [];
+      }),
   );
 
   // Resolved at claim time, on purpose: the catalog is where an operator
   // rotates a provider credential, and the next claim (a new generation, or
-  // a replay) is when the worker should see it. Everything else under a
-  // profile id is meant to stay put — a session's checkpoint fingerprint
-  // and transcript were made with that model and those tools, so a changed
-  // setting is a new profile id, not an edit. What the session was created
-  // against — its repository — comes from the row (WorkerBinding.repository).
+  // a replay) is when the egress route should use it. Everything else under
+  // a profile id stays put — a session's checkpoint fingerprint and
+  // transcript were made with that model and those tools — and the claim
+  // enforces it: only a profile that still hashes to the session's stored
+  // fingerprint is runnable (94S-253), so what is read here is what the
+  // session was created with. What the session was created against — its
+  // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
     providerToken: string,
@@ -471,6 +486,7 @@ export function createWorkerGateway(deps: {
   // the claim binds the session. Only a runnable pair is ever claimed, so
   // both entries exist here.
   function egressBindingsOf(session: {
+    id: string;
     profileId: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string> {
@@ -488,6 +504,7 @@ export function createWorkerGateway(deps: {
     return {
       provider: profileFingerprint(profile),
       repository: repositoryBinding(session.repositoryId, repository),
+      object_store: sessionObjectPrefix(session.id),
     };
   }
 
@@ -500,6 +517,33 @@ export function createWorkerGateway(deps: {
       "BACKEND_UNAVAILABLE",
       `The ${what} changed in the catalog since this attempt was claimed`,
     );
+  }
+
+  // What an egress token stands for once its attempt still owns the session;
+  // anything else is refused here, before any route looks at the request.
+  async function authorizedEgress(request: {
+    token: string;
+    purpose: EgressPurpose;
+  }) {
+    const result = await work.authorizeEgressAtomic({
+      tokenHash: hashWorkerToken(request.token),
+      purpose: request.purpose,
+    });
+    if (result.outcome === "invalid_token") {
+      throw new WorkerGatewayError(
+        401,
+        "UNAUTHORIZED",
+        "Egress token is missing, expired, revoked or for another route",
+      );
+    }
+    if (result.outcome !== "ok") {
+      throw new WorkerGatewayError(
+        403,
+        "FORBIDDEN",
+        "The attempt this token belongs to no longer owns its session",
+      );
+    }
+    return result;
   }
 
   // The write fence comes from the token, not from the body. Checking the
@@ -643,6 +687,7 @@ export function createWorkerGateway(deps: {
       const sessionToken = generateSessionToken();
       const providerToken = generateEgressToken("provider");
       const repositoryToken = generateEgressToken("repository");
+      const objectStoreToken = generateEgressToken("object_store");
       const result = await work.claimAtomic({
         runnable,
         costLimitUsd: deps.options.sessionCostLimitUsd,
@@ -655,6 +700,7 @@ export function createWorkerGateway(deps: {
         egress: {
           providerHash: hashWorkerToken(providerToken),
           repositoryHash: hashWorkerToken(repositoryToken),
+          objectStoreHash: hashWorkerToken(objectStoreToken),
           bindingsOf: egressBindingsOf,
         },
         leaseTtlMs,
@@ -716,6 +762,9 @@ export function createWorkerGateway(deps: {
                 access: { kind: "egress_token", token: repositoryToken },
               },
             },
+            object_store: {
+              access: { kind: "egress_token", token: objectStoreToken },
+            },
             principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
@@ -729,32 +778,42 @@ export function createWorkerGateway(deps: {
       }
     },
 
+    // The object store route's question (94S-251), asked on every request
+    // like the others: which session prefix does this token still reach?
+    // Only the prefix comes back; which requests under it are signed is the
+    // API's object store signer's to decide, since only it holds the key.
+    async authorizeObjectAccess(request: {
+      token: string;
+    }): Promise<{ session_id: string; attempt_id: string; scope: string }> {
+      const result = await authorizedEgress({
+        token: request.token,
+        purpose: "object_store",
+      });
+      // Issued from the session id, so a mismatch is a row nobody should
+      // have written; it reaches nothing rather than whatever it names.
+      if (result.binding !== sessionObjectPrefix(result.sessionId)) {
+        throw new WorkerGatewayError(
+          403,
+          "FORBIDDEN",
+          "The token's object prefix is not its session's",
+        );
+      }
+      return {
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        scope: result.binding,
+      };
+    },
+
     // The egress proxy's question, asked on every request to a credential
     // route (94S-252): what does this token stand for right now? The answer
     // carries the upstream credential, so only the authorizer listener —
     // unreachable from any worker — may put it on the wire.
     async authorizeEgress(request: {
       token: string;
-      purpose: EgressPurpose;
+      purpose: Exclude<EgressPurpose, "object_store">;
     }): Promise<EgressGrant> {
-      const result = await work.authorizeEgressAtomic({
-        tokenHash: hashWorkerToken(request.token),
-        purpose: request.purpose,
-      });
-      if (result.outcome === "invalid_token") {
-        throw new WorkerGatewayError(
-          401,
-          "UNAUTHORIZED",
-          "Egress token is missing, expired, revoked or for another route",
-        );
-      }
-      if (result.outcome !== "ok") {
-        throw new WorkerGatewayError(
-          403,
-          "FORBIDDEN",
-          "The attempt this token belongs to no longer owns its session",
-        );
-      }
+      const result = await authorizedEgress(request);
       const grant = (upstream: EgressUpstream): EgressGrant => ({
         session_id: result.sessionId,
         attempt_id: result.attemptId,

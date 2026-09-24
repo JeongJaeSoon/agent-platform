@@ -50,7 +50,7 @@ const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
  */
 const CURL_IMAGE =
   process.env.EGRESS_CURL_TEST_IMAGE ?? "curlimages/curl:8.11.1";
-/** The same tag CI runs as a service, so the pull is a cache hit there. */
+/** CI points it, like the others, at its mirror (ci-image-mirror.yml). */
 const LOCALSTACK_IMAGE =
   process.env.LOCALSTACK_TEST_IMAGE ?? "localstack/localstack:3";
 const REPOSITORY = resolve(import.meta.dir, "../../../../..");
@@ -79,10 +79,10 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const deniedName = `ap-it-denied-${suffix}`;
   const proxyName = `ap-it-proxy-${suffix}`;
   const tlsName = `ap-it-tls-${suffix}`;
-  /** LocalStack behind TLS: the https S3 endpoint the worker must reach. */
-  const s3TlsName = `ap-it-s3tls-${suffix}`;
   const proxyUrl = `http://${proxyName}:3128`;
   const localstackName = `ap-it-localstack-${suffix}`;
+  /** The API's side of the object store route, with the only key. */
+  const authorizerName = `ap-it-authorizer-${suffix}`;
   /** Answers like the API: Bun.serve, after an await (94S-299). */
   const gatewayName = `ap-it-gateway-${suffix}`;
   /** A second installation on the same daemon, with a proxy of its own. */
@@ -92,6 +92,8 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const volumes: string[] = [];
   let bucket: LocalstackBucket;
   let probeDir: string;
+  /** Where the test opens sessions and claims generations, from the host. */
+  let authorizerControl: string;
 
   // Built once the bucket exists, since its name is part of the config.
   let backend: LocalDockerBackend;
@@ -104,13 +106,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     gatewayUrl: `http://${allowedName}:8080`,
     homeDir: "/home/worker",
     installationId,
-    objectStore: {
-      accessKeyId: "test",
-      bucket: bucketName,
-      endpoint: `http://${localstackName}:4566`,
-      region: OBJECT_REGION,
-      secretAccessKey: "test",
-    },
+    objectStore: { bucket: bucketName, region: OBJECT_REGION },
     requestTimeoutMs: 60_000,
     stopTimeoutSeconds: 1,
     tmpfsSizeBytes: 16 * 1024 * 1024,
@@ -135,7 +131,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     await startServer(deniedName, "denied-upstream", true);
     await startTlsServer();
     await startLocalstack();
-    await startS3TlsFront();
+    await startAuthorizer();
     await startGateway();
     await startProxy();
   }, 300_000);
@@ -262,21 +258,44 @@ integration("worker egress is confined to the proxy allowlist", () => {
     }
   }
 
-  function workerEnv(sessionId: string, endpoint?: string): string[] {
-    const config = configFor(bucket.bucket);
+  function workerEnv(sessionId: string): string[] {
     return workerEnvironmentFor(
-      endpoint === undefined
-        ? config
-        : { ...config, objectStore: { ...config.objectStore, endpoint } },
+      configFor(bucket.bucket),
       { executionId: `exec-${suffix}`, generation: 1, sessionId },
       `wln-${suffix}`,
     );
   }
 
   /**
+   * A new session in the authorizer's database, claimed at generation 1:
+   * its id and the object store token that claim handed out.
+   */
+  async function openObjectSession(): Promise<{
+    sessionId: string;
+    token: string;
+  }> {
+    const response = await fetch(`${authorizerControl}/session`, {
+      method: "POST",
+      signal: AbortSignal.timeout(30_000),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as { sessionId: string; token: string };
+  }
+
+  /** The session's next generation claims; returns its token. */
+  async function nextGeneration(sessionId: string): Promise<string> {
+    const response = await fetch(
+      `${authorizerControl}/claim?session=${sessionId}`,
+      { method: "POST", signal: AbortSignal.timeout(30_000) },
+    );
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { token: string }).token;
+  }
+
+  /**
    * The object store, on the outer network like every other upstream and
    * published to the host so the test can make the bucket and look inside
-   * it. Workers only ever see it through the proxy.
+   * it. Workers only ever see it through the proxy's object store route.
    */
   async function startLocalstack(): Promise<void> {
     created.push(localstackName);
@@ -348,7 +367,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
         "-subj",
         `/CN=${tlsName}`,
         "-addext",
-        `subjectAltName=DNS:${tlsName},DNS:${s3TlsName}`,
+        `subjectAltName=DNS:${tlsName}`,
         "-keyout",
         join(tlsDir, "key.pem"),
         "-out",
@@ -385,33 +404,56 @@ integration("worker egress is confined to the proxy allowlist", () => {
   }
 
   /**
-   * TLS in front of LocalStack, on the outer network: it decrypts and relays
-   * bytes, so the worker's transport parses LocalStack's own HTTP over a
-   * real handshake. Same certificate and image as the TLS upstream above.
+   * The control plane's side of the object store route, on the outer
+   * network where the API would be: the real gateway over PGlite and the
+   * real authorizer and signer (`tests/object-route-fixture.ts`), holding
+   * the only key LocalStack is given. A second port, published to the host
+   * and to nothing a worker can reach, lets the test open sessions and
+   * claim generations.
    */
-  async function startS3TlsFront(): Promise<void> {
-    const tlsDir = join(probeDir, "tls");
-    await writeFile(join(tlsDir, "s3-front.ts"), s3TlsFront(localstackName));
-    created.push(s3TlsName);
-    const response = await raw("POST", `/containers/create?name=${s3TlsName}`, {
-      Cmd: ["bun", "run", "/tls/s3-front.ts"],
-      HostConfig: {
-        Binds: [`${tlsDir}:/tls:ro`],
-        NetworkMode: outerNetwork,
+  async function startAuthorizer(): Promise<void> {
+    const script = join(probeDir, "authorizer.ts");
+    await writeFile(script, AUTHORIZER);
+    created.push(authorizerName);
+    const response = await raw(
+      "POST",
+      `/containers/create?name=${authorizerName}`,
+      {
+        Cmd: ["bun", "run", "/fixture/authorizer.ts"],
+        Env: [
+          `OBJECT_STORE=${JSON.stringify({
+            ...bucket.env,
+            bucket: bucket.bucket,
+            endpoint: `http://${localstackName}:4566`,
+          })}`,
+        ],
+        ExposedPorts: { "3200/tcp": {} },
+        HostConfig: {
+          Binds: [
+            `${REPOSITORY}:/app:ro`,
+            `${script}:/fixture/authorizer.ts:ro`,
+          ],
+          NetworkMode: outerNetwork,
+          PortBindings: {
+            "3200/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }],
+          },
+        },
+        Image: PROXY_IMAGE,
+        WorkingDir: "/app",
       },
-      Image: PROXY_IMAGE,
-    });
+    );
     expect(response.status).toBe(201);
-    await client.startContainer(s3TlsName);
-    const deadline = Date.now() + 90_000;
-    while (!(await logsOf(s3TlsName)).includes("s3 front listening")) {
+    await client.startContainer(authorizerName);
+    const deadline = Date.now() + 120_000;
+    while (!(await logsOf(authorizerName)).includes("authorizer listening")) {
       if (Date.now() > deadline) {
         throw new Error(
-          `S3 TLS front never came up; logs were:\n${await logsOf(s3TlsName)}`,
+          `authorizer never came up; logs were:\n${await logsOf(authorizerName)}`,
         );
       }
       await Bun.sleep(500);
     }
+    authorizerControl = `http://127.0.0.1:${await publishedPortOf(authorizerName, "3200/tcp")}`;
   }
 
   /**
@@ -427,7 +469,6 @@ integration("worker egress is confined to the proxy allowlist", () => {
       `/containers/create?name=${gatewayName}`,
       {
         Cmd: ["bun", "run", "/gateway/gateway.ts"],
-        Env: [`OBJECT_STORE_UPSTREAM=http://${localstackName}:4566`],
         HostConfig: {
           Binds: [`${join(probeDir, "gateway.ts")}:/gateway/gateway.ts:ro`],
           NetworkMode: outerNetwork,
@@ -525,11 +566,21 @@ console.log("TLS " + response.status + " " + (await response.text()));
 
   async function startProxy(): Promise<void> {
     created.push(proxyName);
+    const fixture = (await (
+      await fetch(`${authorizerControl}/fixture`)
+    ).json()) as { authorizerToken: string };
     const response = await raw("POST", `/containers/create?name=${proxyName}`, {
       Cmd: ["bun", "run", "/app/src/main.ts"],
       Env: [
-        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${localstackName}:4566,${tlsName}:8443,${s3TlsName}:8443,${gatewayName}:3000`,
+        `EGRESS_PRIVATE_ALLOWLIST=${allowedName}:8080,${tlsName}:8443,${gatewayName}:3000`,
         "EGRESS_PROXY_PORT=3128",
+        // The object store is an upstream of the credential routes only:
+        // LocalStack takes any signature, so the forward proxy must not
+        // reach it (94S-251).
+        `EGRESS_AUTHORIZER_URL=http://${authorizerName}:3100`,
+        `EGRESS_AUTHORIZER_TOKEN=${fixture.authorizerToken}`,
+        "EGRESS_CREDENTIAL_PORT=3129",
+        `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST=${localstackName}:4566`,
       ],
       HostConfig: {
         Binds: [`${PROXY_SOURCE}:/app:ro`],
@@ -756,9 +807,13 @@ console.log("TLS " + response.status + " " + (await response.text()));
     expect(await logsOf(tlsName)).not.toContain(deniedName);
   }, 240_000);
 
-  test("through the proxy the worker's object store reaches its session prefix and nothing else", async () => {
-    const sessionId = crypto.randomUUID();
-    const result = await objectProbe(workerEnv(sessionId));
+  test("through the route the worker's object store reaches its session prefix and nothing else", async () => {
+    const session = await openObjectSession();
+    const prefix = sessionObjectPrefix(session.sessionId);
+    const result = await objectProbe([
+      ...workerEnv(session.sessionId),
+      `PROBE_OBJECT_TOKEN=${session.token}`,
+    ]);
     expect(result.output).toContain("PROBE ");
     expect(result.exitCode).toBe(0);
     const report = JSON.parse(
@@ -772,9 +827,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
       foreignPut: "ObjectScopeError",
       get: '{"revision":0}',
       head: 14,
-      list: [
-        `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
-      ],
+      list: [`${prefix}checkpoints/0000000000/a1/manifest.json`],
       put: "ok",
       putImmutable: "created",
     });
@@ -782,67 +835,107 @@ console.log("TLS " + response.status + " " + (await response.text()));
     const stored = await bucket.s3.send(
       new (await import("@aws-sdk/client-s3")).ListObjectsV2Command({
         Bucket: bucket.bucket,
-        Prefix: sessionObjectPrefix(sessionId),
+        Prefix: prefix,
       }),
     );
     expect((stored.Contents ?? []).map((o) => o.Key).sort()).toEqual([
-      `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
-      `${sessionObjectPrefix(sessionId)}transcript/part-0`,
+      `${prefix}checkpoints/0000000000/a1/manifest.json`,
+      `${prefix}transcript/part-0`,
     ]);
   }, 300_000);
 
-  test("through the proxy the worker's object store reaches an https endpoint with its own TLS", async () => {
-    // 94S-254: Bun's own https client sends a GREASE ECH the proxy refuses
-    // (the case above pins that), so the store's https transport opens the
-    // tunnel and the TLS session itself. The CA reaches it the way a
-    // deployment's would, through NODE_EXTRA_CA_CERTS.
-    const sessionId = crypto.randomUUID();
-    const before = await logsOf(proxyName);
+  // 94S-251: the wrapper above is the worker's own code, which a worker
+  // that runs anything can bypass. This is what bypassing it gets: its
+  // token as the key of a plain S3 client, from inside the worker network.
+  test("a raw S3 client with the worker's token reaches no other session's objects", async () => {
+    const mine = await openObjectSession();
+    const theirs = await openObjectSession();
+    const foreign = sessionObjectPrefix(theirs.sessionId);
+    const s3 = await import("@aws-sdk/client-s3");
+    await bucket.s3.send(
+      new s3.PutObjectCommand({
+        Body: "theirs",
+        Bucket: bucket.bucket,
+        Key: `${foreign}x`,
+      }),
+    );
     const result = await objectProbe(
       [
-        ...workerEnv(sessionId, `https://${s3TlsName}:8443`),
-        "NODE_EXTRA_CA_CERTS=/tls/cert.pem",
+        ...workerEnv(mine.sessionId),
+        `PROBE_OBJECT_TOKEN=${mine.token}`,
+        `PROBE_FOREIGN_PREFIX=${foreign}`,
       ],
-      [`${join(probeDir, "tls")}:/tls:ro`],
+      [],
+      RAW_PROBE,
     );
     expect(result.output).toContain("PROBE ");
-    expect(result.exitCode).toBe(0);
     const report = JSON.parse(
       result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
     ) as Record<string, unknown>;
-    expect(report).toMatchObject({
-      conflict: "conflict",
-      duplicate: "duplicate",
-      foreignGet: "ObjectScopeError",
-      get: '{"revision":0}',
-      head: 14,
-      put: "ok",
-      putImmutable: "created",
+    expect(report).toEqual({
+      // The same client is let through at home, so every refusal below is
+      // about where it aimed, not how it asked.
+      ownPut: "allowed",
+      foreignGet: "AccessDenied",
+      foreignPut: "AccessDenied",
+      foreignList: "AccessDenied",
+      everySessionList: "AccessDenied",
+      ownOverwrite: "AccessDenied",
+      foreignDelete: "AccessDenied",
+      ownDelete: "AccessDenied",
+      legalHold: "AccessDenied",
+      forgedToken: "InvalidAccessKeyId",
     });
-    // Every request went through a CONNECT tunnel the gate let through.
-    const after = (await logsOf(proxyName)).slice(before.length);
-    const allowed = after
-      .split("\n")
-      .filter((line) => line.includes("Egress allowed"));
-    expect(allowed.length).toBeGreaterThan(0);
-    for (const line of allowed) {
-      expect(line).toContain('"method":"connect"');
-      expect(line).toContain(`"host":"${s3TlsName}"`);
-    }
-    expect(after).not.toContain("failed the gate");
-    expect(after).not.toContain("encrypted_client_hello");
-    // And the objects are in the bucket behind the front.
+    const left = await bucket.s3.send(
+      new s3.ListObjectsV2Command({ Bucket: bucket.bucket, Prefix: foreign }),
+    );
+    expect((left.Contents ?? []).map((o) => o.Key)).toEqual([`${foreign}x`]);
+    const body = await bucket.s3.send(
+      new s3.GetObjectCommand({ Bucket: bucket.bucket, Key: `${foreign}x` }),
+    );
+    expect(await body.Body?.transformToString()).toBe("theirs");
+  }, 300_000);
+
+  test("once the next generation claims, the previous token writes nothing", async () => {
+    const session = await openObjectSession();
+    const later = await nextGeneration(session.sessionId);
+    const prefix = sessionObjectPrefix(session.sessionId);
+    const result = await objectProbe(
+      [
+        ...workerEnv(session.sessionId),
+        `PROBE_OBJECT_TOKEN=${later}`,
+        `PROBE_EARLIER_TOKEN=${session.token}`,
+      ],
+      [],
+      RAW_PROBE,
+    );
+    expect(result.output).toContain("PROBE ");
+    const report = JSON.parse(
+      result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
+    ) as { ownPut: string; earlierPut: string };
+    expect(report.ownPut).toBe("allowed");
+    expect(["AccessDenied", "InvalidAccessKeyId"]).toContain(report.earlierPut);
     const stored = await bucket.s3.send(
       new (await import("@aws-sdk/client-s3")).ListObjectsV2Command({
         Bucket: bucket.bucket,
-        Prefix: sessionObjectPrefix(sessionId),
+        Prefix: prefix,
       }),
     );
-    expect((stored.Contents ?? []).map((o) => o.Key).sort()).toEqual([
-      `${sessionObjectPrefix(sessionId)}checkpoints/0000000000/a1/manifest.json`,
-      `${sessionObjectPrefix(sessionId)}transcript/part-0`,
-    ]);
+    expect((stored.Contents ?? []).map((o) => o.Key)).toEqual([`${prefix}raw`]);
   }, 300_000);
+
+  test("the object store itself is out of reach, directly or through the forward proxy", async () => {
+    const target = `http://${localstackName}:4566/${bucket.bucket}?list-type=2`;
+    const direct = await probe(`wget -T 3 -q -O - '${target}' 2>&1`);
+    expect(direct.exitCode).not.toBe(0);
+    expect(direct.output).not.toContain("ListBucketResult");
+    const proxied = await probe(
+      `wget -T 10 -O - '${target}' 2>&1`,
+      withProxy(),
+    );
+    expect(proxied.output).toContain("403");
+    expect(proxied.output).not.toContain("ListBucketResult");
+  }, 180_000);
 
   // 94S-299: every new session's worker died here. Its gateway claim left
   // the pooled proxy connection open (Bun.serve ignores `connection: close`
@@ -852,50 +945,29 @@ console.log("TLS " + response.status + " " + (await response.text()));
   // gateway, keeps its connection open: Bun's node:http reuses a connection
   // after a 404 even when told to close, so the PUT after the slot read went
   // down a hop the proxy had stopped forwarding and was never answered.
-  test.each([
-    ["the object store", () => undefined],
-    [
-      "a relay in front of the object store",
-      () => `http://${gatewayName}:3000`,
-    ],
-  ])(
-    "a new session's first object calls after a gateway call reach %s",
-    async (_name, endpoint) => {
-      const sessionId = crypto.randomUUID();
-      const result = await objectProbe(
-        [
-          ...workerEnv(sessionId, endpoint()),
-          `GATEWAY_PROBE_URL=http://${gatewayName}:3000`,
-        ],
-        [],
-        SESSION_START_PROBE,
-      );
-      expect(result.output).toContain("PROBE ");
-      const report = JSON.parse(
-        result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
-      ) as Record<string, unknown>;
-      expect(report).toEqual({
-        append: "ok",
-        claim: "gateway /internal/worker/bootstrap-claim",
-        fresh: "ok",
-        heartbeat: "gateway /internal/worker/heartbeat",
-        load: 1,
-      });
-      expect(result.exitCode).toBe(0);
-    },
-    300_000,
-  );
-
-  test("without the proxy variables the same object store reaches nothing", async () => {
-    // A refusal by the wrapper looks nothing like this: the request leaves
-    // the process and dies on the internal network, so the first call fails
-    // with a network error and the probe exits non-zero before "PROBE".
-    const environment = workerEnv(crypto.randomUUID()).filter(
-      (entry) => !/^(https?_proxy|HTTPS?_PROXY)=/.test(entry),
+  test("a new session's first object calls after a gateway call reach the object store", async () => {
+    const session = await openObjectSession();
+    const result = await objectProbe(
+      [
+        ...workerEnv(session.sessionId),
+        `PROBE_OBJECT_TOKEN=${session.token}`,
+        `GATEWAY_PROBE_URL=http://${gatewayName}:3000`,
+      ],
+      [],
+      SESSION_START_PROBE,
     );
-    const result = await objectProbe(environment);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.output).not.toContain("PROBE ");
+    expect(result.output).toContain("PROBE ");
+    const report = JSON.parse(
+      result.output.slice(result.output.indexOf("PROBE ") + "PROBE ".length),
+    ) as Record<string, unknown>;
+    expect(report).toEqual({
+      append: "ok",
+      claim: "gateway /internal/worker/bootstrap-claim",
+      fresh: "ok",
+      heartbeat: "gateway /internal/worker/heartbeat",
+      load: 1,
+    });
+    expect(result.exitCode).toBe(0);
   }, 300_000);
 
   test("a worker container launched by the backend gets the proxy variables", async () => {
@@ -924,8 +996,16 @@ console.log("TLS " + response.status + " " + (await response.text()));
     expect(inspected?.Config.Env ?? []).toContain(`HTTP_PROXY=${proxyUrl}`);
     expect(inspected?.Config.Env ?? []).toContain(`http_proxy=${proxyUrl}`);
     expect(inspected?.Config.Env ?? []).toContain(
-      `${ENV.objectEndpoint}=http://${localstackName}:4566`,
+      `${ENV.egressCredentialUrl}=http://${proxyName}:3129`,
     );
+    // No way to the object store but the route: no endpoint, no key.
+    expect(
+      (inspected?.Config.Env ?? []).filter((entry) =>
+        /^AWS_(ACCESS_KEY_ID|ENDPOINT_URL|SECRET_ACCESS_KEY|SESSION_TOKEN)=/.test(
+          entry,
+        ),
+      ),
+    ).toEqual([]);
     expect(inspected?.Config.Env ?? []).toContain(
       `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     );
@@ -1403,26 +1483,41 @@ Bun.serve({
 console.log("tls listening");
 `;
 
-/** Decrypts and relays each connection to LocalStack's plain port. */
-const s3TlsFront = (localstack: string) => `
-import { connect } from "node:net";
-import { createServer } from "node:tls";
-const server = createServer(
-  {
-    cert: await Bun.file("/tls/cert.pem").text(),
-    key: await Bun.file("/tls/key.pem").text(),
+/**
+ * The authorizer container: the route's control-plane side on :3100, and a
+ * control port on :3200 for the test. Written to a file at run time like
+ * the probes.
+ */
+const AUTHORIZER = `
+const { startObjectRouteFixture } = await import("/app/tests/object-route-fixture.ts");
+const fixture = await startObjectRouteFixture({
+  hostname: "0.0.0.0",
+  objectStore: JSON.parse(process.env.OBJECT_STORE),
+  port: 3100,
+});
+const sessions = new Map();
+Bun.serve({
+  hostname: "0.0.0.0",
+  port: 3200,
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/fixture") {
+      return Response.json({ authorizerToken: fixture.authorizerToken });
+    }
+    if (url.pathname === "/session") {
+      const session = await fixture.openSession();
+      sessions.set(session.sessionId, session);
+      return Response.json({ sessionId: session.sessionId, token: await session.claim() });
+    }
+    if (url.pathname === "/claim") {
+      const session = sessions.get(url.searchParams.get("session"));
+      if (session === undefined) return new Response(null, { status: 404 });
+      return Response.json({ token: await session.claim() });
+    }
+    return new Response(null, { status: 404 });
   },
-  (client) => {
-    const upstream = connect({ host: ${JSON.stringify(localstack)}, port: 4566 });
-    client.pipe(upstream);
-    upstream.pipe(client);
-    client.on("error", () => upstream.destroy());
-    upstream.on("error", () => client.destroy());
-    client.on("close", () => upstream.destroy());
-    upstream.on("close", () => client.destroy());
-  },
-);
-server.listen(8443, "0.0.0.0", () => console.log("s3 front listening"));
+});
+console.log("authorizer listening");
 `;
 
 /**
@@ -1435,7 +1530,10 @@ const OBJECT_PROBE = `
 const { createWorkerObjectStore, objectStoreConfigFromEnv } = await import(
   "/app/apps/worker/src/object-store.ts"
 );
-const store = createWorkerObjectStore(objectStoreConfigFromEnv(process.env));
+const store = createWorkerObjectStore(
+  objectStoreConfigFromEnv(process.env, process.env.WORKER_EGRESS_CREDENTIAL_URL),
+  () => process.env.PROBE_OBJECT_TOKEN,
+);
 const prefix = process.env.WORKER_OBJECT_PREFIX;
 const key = prefix + "checkpoints/0000000000/a1/manifest.json";
 const encode = (text) => new TextEncoder().encode(text);
@@ -1451,7 +1549,7 @@ const report = {};
 report.putImmutable = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
 report.duplicate = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
 report.conflict = (await store.putImmutable(key, encode('{"revision":1}'))).outcome;
-await store.put(prefix + "transcript/part-0", encode("part"));
+await store.putImmutable(prefix + "transcript/part-0", encode("part"));
 report.put = "ok";
 report.get = new TextDecoder().decode(await store.get(key));
 report.head = (await store.head(key))?.bytes;
@@ -1461,6 +1559,85 @@ report.foreignGet = await refusal(() => store.get(foreign));
 report.foreignPut = await refusal(() => store.put(foreign, encode("x")));
 report.foreignList = await refusal(() => store.list("sessions/"));
 console.log("PROBE " + JSON.stringify(report));
+`;
+
+/**
+ * A plain S3 client, no wrapper, with the worker's token as its key and the
+ * route as its endpoint: what a worker that bypasses its own store sends.
+ * Each outcome is "allowed" or the S3 error code that came back.
+ */
+const RAW_PROBE = `
+const s3 = await import(
+  Bun.resolveSync("@aws-sdk/client-s3", "/app/packages/storage/src")
+);
+const bucket = process.env.S3_BUCKET;
+const own = process.env.WORKER_OBJECT_PREFIX;
+const foreign = process.env.PROBE_FOREIGN_PREFIX;
+const client = (token) =>
+  new s3.S3Client({
+    credentials: { accessKeyId: token, secretAccessKey: "anything" },
+    endpoint: process.env.WORKER_EGRESS_CREDENTIAL_URL + "/object-store",
+    forcePathStyle: true,
+    maxAttempts: 1,
+    region: process.env.AWS_REGION,
+  });
+const outcome = async (send) => {
+  try {
+    await send;
+    return "allowed";
+  } catch (error) {
+    return error.name;
+  }
+};
+const worker = client(process.env.PROBE_OBJECT_TOKEN);
+const report = {};
+report.ownPut = await outcome(
+  worker.send(new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "mine", Bucket: bucket, Key: own + "raw" })),
+);
+if (foreign !== undefined) {
+  report.foreignGet = await outcome(
+    worker.send(new s3.GetObjectCommand({ Bucket: bucket, Key: foreign + "x" })),
+  );
+  report.foreignPut = await outcome(
+    worker.send(new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "x", Bucket: bucket, Key: foreign + "x" })),
+  );
+  report.foreignList = await outcome(
+    worker.send(new s3.ListObjectsV2Command({ Bucket: bucket, Prefix: foreign })),
+  );
+  report.everySessionList = await outcome(
+    worker.send(new s3.ListObjectsV2Command({ Bucket: bucket, Prefix: "sessions/" })),
+  );
+  report.ownOverwrite = await outcome(
+    worker.send(new s3.PutObjectCommand({ Body: "x", Bucket: bucket, Key: own + "raw" })),
+  );
+  report.foreignDelete = await outcome(
+    worker.send(new s3.DeleteObjectCommand({ Bucket: bucket, Key: foreign + "x" })),
+  );
+  report.ownDelete = await outcome(
+    worker.send(new s3.DeleteObjectCommand({ Bucket: bucket, Key: own + "raw" })),
+  );
+  report.legalHold = await outcome(
+    worker.send(
+      new s3.PutObjectLegalHoldCommand({
+        Bucket: bucket,
+        Key: own + "raw",
+        LegalHold: { Status: "OFF" },
+      }),
+    ),
+  );
+  report.forgedToken = await outcome(
+    client("weo_forged").send(new s3.GetObjectCommand({ Bucket: bucket, Key: own + "raw" })),
+  );
+}
+if (process.env.PROBE_EARLIER_TOKEN !== undefined) {
+  report.earlierPut = await outcome(
+    client(process.env.PROBE_EARLIER_TOKEN).send(
+      new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "late", Bucket: bucket, Key: own + "late" }),
+    ),
+  );
+}
+console.log("PROBE " + JSON.stringify(report));
+process.exit(0);
 `;
 
 /**
@@ -1490,7 +1667,10 @@ const report = {};
 report.claim = await call("/internal/worker/bootstrap-claim");
 const store = new ClaudeSessionStore({
   generation: 1,
-  objects: createWorkerObjectStore(objectStoreConfigFromEnv(process.env)),
+  objects: createWorkerObjectStore(
+    objectStoreConfigFromEnv(process.env, process.env.WORKER_EGRESS_CREDENTIAL_URL),
+    () => process.env.PROBE_OBJECT_TOKEN,
+  ),
   prefix: process.env.WORKER_OBJECT_PREFIX + "transcripts",
 });
 const settle = async (work) => {
@@ -1526,11 +1706,7 @@ console.log("PROBE " + JSON.stringify(report));
 process.exit(0);
 `;
 
-// Also relays everything outside /internal/ to the object store, as the D2
-// gate's fault-injection front does: an upstream that answers after an await
-// and so never closes, whatever the request asked.
 const GATEWAY = `
-const upstream = process.env.OBJECT_STORE_UPSTREAM;
 Bun.serve({
   hostname: "0.0.0.0",
   // Bun's default of 10s would close the idle hop and let a stalled client
@@ -1539,22 +1715,6 @@ Bun.serve({
   port: 3000,
   async fetch(request) {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/internal/")) {
-      const headers = new Headers(request.headers);
-      for (const name of ["connection", "content-length", "host"]) headers.delete(name);
-      const body = ["GET", "HEAD"].includes(request.method)
-        ? undefined
-        : await request.arrayBuffer();
-      const answer = await fetch(upstream + url.pathname + url.search, {
-        body,
-        headers,
-        method: request.method,
-      });
-      const bytes = request.method === "HEAD" ? null : await answer.arrayBuffer();
-      const back = new Headers(answer.headers);
-      for (const name of ["connection", "content-encoding", "content-length", "transfer-encoding"]) back.delete(name);
-      return new Response(bytes, { headers: back, status: answer.status });
-    }
     await request.text();
     // The real gateway answers after its database; the await is what makes
     // Bun keep the connection open.

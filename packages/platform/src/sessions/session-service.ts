@@ -37,7 +37,11 @@ import type {
   ReadEventsQuery,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
-import { allowedPair, type SessionCatalog } from "./catalog.ts";
+import {
+  allowedPair,
+  profileFingerprint,
+  type SessionCatalog,
+} from "./catalog.ts";
 
 export class SessionServiceError extends Error {
   constructor(
@@ -162,20 +166,23 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
-  function catalogAllows(
-    profileId: string | null,
-    repositoryId: string | null,
-    url: string,
-    branch: string,
-  ): boolean {
+  function catalogAllows(record: {
+    profile_id: string | null;
+    repository_id: string | null;
+    repo_url: string;
+    branch: string;
+    profile_fingerprint: string | null;
+  }): boolean {
     const pair =
-      profileId && repositoryId
-        ? allowedPair(catalog, profileId, repositoryId)
+      record.profile_id && record.repository_id
+        ? allowedPair(catalog, record.profile_id, record.repository_id)
         : null;
     return (
       pair !== null &&
-      pair.repository.url === url &&
-      pair.repository.branch === branch
+      pair.repository.url === record.repo_url &&
+      pair.repository.branch === record.branch &&
+      (record.profile_fingerprint === null ||
+        profileFingerprint(pair.profile) === record.profile_fingerprint)
     );
   }
 
@@ -259,6 +266,9 @@ export function createSessionService(deps: {
               branch: pair.repository.branch,
             }
           : null,
+        ...(pair
+          ? { profileFingerprint: profileFingerprint(pair.profile) }
+          : {}),
         message: input.body.message,
         limits: inputLimits,
       });
@@ -558,19 +568,26 @@ export function createSessionService(deps: {
       if (!record) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const { profile_id, cost_usd, repo_url, branch, ...detail } = record;
+      const {
+        profile_id,
+        cost_usd,
+        repo_url,
+        branch,
+        profile_fingerprint,
+        ...detail
+      } = record;
       return {
         ...detail,
         attention:
           detail.attention ??
-          // The claim matches the same four values (isRunnable), so this
-          // says exactly when no worker of this host would take the session.
-          (catalogAllows(profile_id, detail.repository_id, repo_url, branch)
+          // The claim matches the same values (runnablePairOf), so this says
+          // exactly when no worker of this host would take the session.
+          (catalogAllows(record)
             ? null
             : {
                 code: "CATALOG_MISMATCH",
                 reason:
-                  "The catalog does not allow this session's profile and repository pair; messages will not run until an operator restores it",
+                  "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
               }) ??
           // Dispatch stops at the same predicate (nextInputAtomic), so what
           // this says and what the gateway does come from one comparison.

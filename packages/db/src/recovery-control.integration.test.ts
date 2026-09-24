@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type {
-  RecoveryDecisionRequest,
-  WorkerScope,
+import {
+  type RecoveryDecisionRequest,
+  sessionEventVariants,
+  type WorkerScope,
 } from "@agent-platform/contracts";
 import {
   createWorkerGateway,
@@ -17,7 +18,10 @@ import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -288,6 +292,30 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     return result.response;
   }
 
+  // The status events a client reads from GET /v1/sessions/{id}/events.
+  async function statusFrames(session: Session) {
+    const page = await createPostgresSessionReader(db).readEvents(
+      session.ownerId,
+      session.session_id,
+      { limit: 100, maxBytes: 1 << 20 },
+    );
+    if (!page) throw new Error("session not readable");
+    return page.items.flatMap((frame) =>
+      frame.event === "status"
+        ? [sessionEventVariants.status.shape.data.parse(frame.data.data)]
+        : [],
+    );
+  }
+
+  // What GET /v1/sessions/{id} says, in the shape of a status event.
+  async function readsAs(session: Session) {
+    const detail = await createPostgresSessionReader(db).getSession(
+      session.ownerId,
+      session.session_id,
+    );
+    return { phase: detail?.status, admission_state: detail?.admission_state };
+  }
+
   /**
    * A session whose turn 1 was delivered to a worker that then vanished
    * without a terminate (crash, lease loss): turn 1 outcome_unknown,
@@ -462,6 +490,63 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       );
     expect(signalled).toEqual([]);
   });
+
+  test.each([
+    {
+      decision: "abandon",
+      reason: "side effects reviewed",
+      admission: "stopped",
+    },
+    {
+      decision: "confirm_completed",
+      reason: "verified by hand",
+      admission: "stopped",
+    },
+    { decision: "close", reason: "give up", admission: "closed" },
+  ] as const)(
+    "$decision puts the admission it reaches on the stream, in step with GET (94S-360)",
+    async ({ decision, reason, admission }) => {
+      const { session, row } = await unknownSession(`stream-${decision}`, {
+        checkpointRevision: 3,
+        checkpointCoversTurn1: true,
+      });
+      const before = await statusFrames(session);
+      expect(before.at(-1)).toEqual({
+        phase: "failed",
+        admission_state: "recovery_required",
+      });
+      const result = await decide(
+        session,
+        decision === "close"
+          ? { decision, expected_revision: row.revision, reason }
+          : decision === "confirm_completed"
+            ? {
+                decision,
+                expected_revision: row.revision,
+                target_turn_id: "1",
+                evidence_ref: "s3://audit/verified.json",
+                reason,
+              }
+            : {
+                decision,
+                expected_revision: row.revision,
+                target_turn_id: "1",
+                reason,
+              },
+      );
+      if (result.outcome !== "accepted") throw new Error(result.outcome);
+      const after = await statusFrames(session);
+      expect(after.slice(before.length)).toEqual([
+        {
+          phase: "stopped",
+          admission_state: admission,
+          decision,
+          actor: { owner_id: session.ownerId },
+        },
+      ]);
+      expect(after.at(-1)).toMatchObject(await readsAs(session));
+    },
+  );
 
   test("abandon without any checkpoint: stopped but resumable=false, and resume is CHECKPOINT_UNAVAILABLE", async () => {
     const { session, row } = await unknownSession("nocp");
@@ -977,6 +1062,15 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(after.admissionState).toBe("closed");
     expect(after.revision).toBe(stopping.revision + 1);
     expect(after.leaseEpoch).toBe(stopping.leaseEpoch + 1);
+    // The stream leaves stopping for closed with the row (94S-360).
+    const closedFrames = await statusFrames(session);
+    expect(closedFrames.at(-1)).toEqual({
+      phase: "stopped",
+      admission_state: "closed",
+      decision: "close",
+      actor: { owner_id: session.ownerId },
+    });
+    expect(closedFrames.at(-1)).toMatchObject(await readsAs(session));
     expect(await receiptRow(terminated.receipt_id)).toMatchObject({
       status: "failed",
       error: { code: "CONTROL_SUPERSEDED" },
@@ -1008,6 +1102,8 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(settled.admissionState).toBe("closed");
     expect(settled.executionId).toBeNull();
     expect((await receiptRow(terminated.receipt_id)).status).toBe("failed");
+    // The exit behind a close announces nothing further.
+    expect(await statusFrames(session)).toEqual(closedFrames);
     // The running turn was left unresolved by the exit and is recorded as
     // unknown; close does not answer it.
     expect((await turnRows(session.session_id))[0]?.status).toBe(

@@ -32,6 +32,10 @@ const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const enabled = process.env.DOCKER_BACKEND_TEST === "1" && databaseUrl;
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
+// The helper the CLI below reads from the same environment.
+const HELPER_IMAGE =
+  process.env.EXECUTION_WORKSPACE_MIGRATION_IMAGE ||
+  DEFAULT_MIGRATION_HELPER_IMAGE;
 const dockerHost =
   process.env.DOCKER_HOST ??
   ((await Bun.file(`${process.env.HOME}/.docker/run/docker.sock`).exists())
@@ -118,7 +122,7 @@ integration("a legacy session relaunched after migrate-workspace", () => {
       timeoutMs: 110_000,
     });
     await puller.pullImage(IMAGE);
-    await puller.pullImage(DEFAULT_MIGRATION_HELPER_IMAGE);
+    await puller.pullImage(HELPER_IMAGE);
     proxy = await startStandInProxy({
       dockerHost,
       image: IMAGE,

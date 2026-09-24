@@ -64,10 +64,14 @@ export type WorkerBinding = {
 // branch the repository is registered under now. A session binds only when
 // its row matches one exactly: a host that does not know the profile cannot
 // pick the runtime, a pair the repository no longer allows must not carry
-// the profile's trust to it (94S-258), and a repository id re-pointed at
-// another URL must not carry the old grant to the new one.
+// the profile's trust to it (94S-258), a repository id re-pointed at
+// another URL must not carry the old grant to the new one, and a profile id
+// whose settings changed must not run a session created under the old ones
+// (94S-253): its fingerprint here must equal the one the session was
+// accepted with.
 export type RunnablePair = {
   profileId: string;
+  profileFingerprint: string;
   repositoryId: string;
   url: string;
   branch: string;
@@ -95,12 +99,14 @@ export type ClaimInput = {
   now: Date;
 };
 
-export type EgressPurpose = "provider" | "repository";
+export type EgressPurpose = "provider" | "repository" | "object_store";
 
 export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
+  objectStoreHash: Uint8Array;
   bindingsOf(session: {
+    id: string;
     profileId: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string>;
@@ -126,15 +132,17 @@ export type ClaimResult =
   | { outcome: "claimed" | "replayed"; binding: WorkerBinding }
   // Unknown, expired, or presented for a different execution identity.
   | { outcome: "invalid_credential" }
-  // The bound session's profile is not in this host's catalog, so the replay
-  // is refused before it rotates anything.
+  // The bound session's profile, as the session was accepted with it, is not
+  // in this host's catalog, so the replay is refused before it rotates
+  // anything.
   | { outcome: "profile_unavailable" }
   // The session's last ran turn has no trusted checkpoint covering it
   // (94S-288). Nothing was bound: the session went to recovery_required in
   // the same transaction and the launch was asked to go.
   | { outcome: "context_gap" }
   // The launch was reserved for a session whose (profile, repository, url,
-  // branch) this host's catalog no longer allows. The launch was given up on
+  // branch) this host's catalog no longer allows, or whose profile id this
+  // catalog defines with other settings (94S-253). The launch was given up on
   // in the same transaction: the session is `failed` with CATALOG_MISMATCH
   // and the launch is asked to go (94S-280).
   | { outcome: "catalog_mismatch" }

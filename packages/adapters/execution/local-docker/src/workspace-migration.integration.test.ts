@@ -31,6 +31,10 @@ import {
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
+// CI points both at its mirror (ci-image-mirror.yml) instead of Docker Hub.
+const HELPER_IMAGE =
+  process.env.EXECUTION_WORKSPACE_MIGRATION_IMAGE ||
+  DEFAULT_MIGRATION_HELPER_IMAGE;
 const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
 const QUOTA_BYTES = 64 * 1024 * 1024;
 
@@ -89,11 +93,8 @@ integration("workspace migration against a real daemon", () => {
     homeDir: "/home/worker",
     installationId,
     objectStore: {
-      accessKeyId: "migration-it",
       bucket: "claude-sessions",
-      endpoint: "http://localstack:4566",
       region: "ap-northeast-1",
-      secretAccessKey: "migration-it",
     },
     requestTimeoutMs: 30_000,
     stopTimeoutSeconds: 1,
@@ -201,7 +202,7 @@ integration("workspace migration against a real daemon", () => {
   const migrate = (sessionId: string) =>
     new WorkspaceMigrator(config(), client).migrate({
       deadlineMs: 60_000,
-      helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+      helperImage: HELPER_IMAGE,
       pollMs: 200,
       sessionId,
     });
@@ -211,7 +212,7 @@ integration("workspace migration against a real daemon", () => {
       timeoutMs: 110_000,
     });
     await puller.pullImage(IMAGE);
-    await puller.pullImage(DEFAULT_MIGRATION_HELPER_IMAGE);
+    await puller.pullImage(HELPER_IMAGE);
     proxy = await startStandInProxy({
       dockerHost,
       image: IMAGE,
@@ -372,7 +373,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(tight, client).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
       }),
@@ -397,7 +398,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(config(), client).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
         signal: lock.signal,
@@ -455,7 +456,7 @@ integration("workspace migration against a real daemon", () => {
           runB = new WorkspaceMigrator(config(), clientB)
             .migrate({
               deadlineMs: 60_000,
-              helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+              helperImage: HELPER_IMAGE,
               pollMs: 200,
               sessionId,
             })
@@ -472,7 +473,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(config(), clientA).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
       }),
@@ -521,7 +522,7 @@ integration("workspace migration against a real daemon", () => {
           runB = new WorkspaceMigrator(config(), clientB)
             .migrate({
               deadlineMs: 60_000,
-              helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+              helperImage: HELPER_IMAGE,
               pollMs: 200,
               sessionId,
             })
@@ -538,7 +539,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(config(), clientA).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
       }),
@@ -580,7 +581,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(config(), clientA).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
       }),
@@ -603,7 +604,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(config(), client).migrate({
         deadlineMs: 60_000,
-        helperImage: IMAGE,
+        helperImage: "busybox:1.36",
         sessionId,
       }),
     ).rejects.toThrow("must be pinned by digest");

@@ -133,9 +133,11 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     checkpointed_turn_id: turnIdSchema.nullable(),
   }),
   // The catalog does not allow the session's profile and repository pair as
-  // it stands now, so no worker will run it; a launch reserved for it fails
-  // the session with CATALOG_MISMATCH. Judged on every read: restoring the
-  // pair clears it, and the next message runs again (94S-280).
+  // it stands now, or defines the profile with other settings than the
+  // session was created with (94S-253), so no worker will run it; a launch
+  // reserved for it fails the session with CATALOG_MISMATCH. Judged on every
+  // read: restoring the pair or the settings clears it, and the next message
+  // runs again (94S-280).
   z.object({
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),

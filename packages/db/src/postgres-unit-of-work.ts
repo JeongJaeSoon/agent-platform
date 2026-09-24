@@ -183,6 +183,7 @@ export function createPostgresSessionUnitOfWork(
           repoUrl: input.repository.url,
           branch: input.repository.branch,
           profileId: input.profileId,
+          profileFingerprint: input.profileFingerprint ?? null,
           repositoryId: input.repository.id,
         });
         await insertQueuedTurn(tx, {
@@ -677,6 +678,7 @@ export function createPostgresSessionReader(
         cost_usd: row.costUsd,
         repo_url: row.repoUrl,
         branch: row.branch,
+        profile_fingerprint: row.profileFingerprint,
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
           checkpointFallbackRevision: row.checkpointFallbackRevision,
