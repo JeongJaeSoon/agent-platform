@@ -338,6 +338,11 @@ export function createPostgresPendingRequests(
         // reading could lapse under the remaining reads and accept an
         // answer nobody can take.
         const at = await dbNow(tx);
+        // Expiry first: by the time a request expires its attempt has
+        // usually ended too, and the answer is late, not misdirected.
+        if (pending.expiresAt.getTime() <= at.getTime()) {
+          return { outcome: "expired" };
+        }
         // The session row is locked, so nothing can move the epoch, the
         // lease or the turn while this reads them.
         const [asker] = await tx
@@ -353,11 +358,10 @@ export function createPostgresPendingRequests(
             ),
           )
           .limit(1);
+        // A fenced-out asker's requests are closed too, so this goes before
+        // resolvedAt: they are stale, not expired.
         if (!asker) return { outcome: "stale" };
         if (pending.resolvedAt !== null) return { outcome: "expired" };
-        if (pending.expiresAt.getTime() <= at.getTime()) {
-          return { outcome: "expired" };
-        }
         const mismatch = answerMismatch(
           pending.payload as StoredPayload,
           input.answer,
