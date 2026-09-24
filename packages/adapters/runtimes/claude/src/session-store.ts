@@ -127,6 +127,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * store without versions.
    */
   readonly #versions = new Map<string, string>();
+  /** The digest of each part this generation wrote; parts are write-once. */
+  readonly #digests = new Map<string, string>();
+  /**
+   * Per transcript, the entries counted so far over a prefix of its pinned
+   * part list, so a capture parses only the parts appended since the last
+   * one rather than the whole history (94S-380).
+   */
+  readonly #tallies = new Map<string, Tally>();
   /**
    * One append at a time per transcript. Two appends racing for the same
    * slot would be ordered by whichever PUT landed first, which is not the
@@ -261,6 +269,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
         continue;
       }
       this.#parts.set(key, Promise.resolve(bytes));
+      this.#digests.set(key, sha256(bytes));
       if (written.version !== undefined)
         this.#versions.set(key, written.version);
       return;
@@ -342,7 +351,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
       await this.#listParts(key),
     );
     if (base.length === 0 && own.length === 0) return null;
-    return this.#revisionOf(base, own);
+    return this.#revisionOf(key.subpath ?? "", base, own);
   }
 
   /**
@@ -371,7 +380,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
       const location = locate(objectKey.slice(this.#namespace.length));
       if (location?.sessionId !== sessionId || location.merged) continue;
       projectKeys.add(location.projectKey);
-      own.set(location.lane, [...(own.get(location.lane) ?? []), objectKey]);
+      const lane = own.get(location.lane);
+      if (lane === undefined) own.set(location.lane, [objectKey]);
+      else lane.push(objectKey);
     }
     if (projectKeys.size > 1) {
       throw new Error(
@@ -408,6 +419,10 @@ export class ClaudeSessionStore implements TranscriptMirror {
       ) {
         const projectKey =
           [...projectKeys][0] ?? this.#projectKeyOf(base[0]?.key);
+        // Counted up to what the merge replaces, so the merged parts carry
+        // the tally on: they replay exactly the entries those parts did.
+        await this.#entryCount(lane, this.#sources(base, mine));
+        const replaced = [...base.map(({ key }) => key), ...mine];
         base = await this.#merge(
           lane,
           this.#keyPrefix({
@@ -419,8 +434,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
           mine,
         );
         mine = [];
+        this.#retally(
+          lane,
+          replaced,
+          base.map(({ key }) => key),
+        );
       }
-      revisions.set(lane, await this.#revisionOf(base, mine));
+      revisions.set(lane, await this.#revisionOf(lane, base, mine));
     }
     const { "": root, ...subagents } = Object.fromEntries(revisions);
     if (root === undefined) return null;
@@ -556,37 +576,96 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 
   async #revisionOf(
+    lane: string,
     adopted: readonly ObjectRef[],
     own: readonly string[],
   ): Promise<TranscriptRevision> {
-    const [adoptedBodies, ownBodies, ownVersions] = await Promise.all([
-      Promise.all(adopted.map((part) => this.#adoptedBody(part))),
-      Promise.all(own.map((part) => this.#cached(part))),
-      Promise.all(own.map((part) => this.#versionOf(part))),
-    ]);
     // Adopted parts keep the refs the checkpoint pinned rather than ones
     // recomputed here: they are the claim a restore will check the bytes
     // against, and #adoptedBody has already held the bytes to it.
     const refs: ObjectRef[] = [
       ...adopted,
-      ...own.map((part, index) => {
-        const body = ownBodies[index] ?? new Uint8Array();
-        const version = ownVersions[index];
-        return {
-          bytes: body.byteLength,
-          key: part,
-          sha256: sha256(body),
-          ...(version === undefined ? {} : { version }),
-        };
-      }),
+      ...(await Promise.all(own.map((part) => this.#ownRef(part)))),
     ];
     return {
-      entryCount: deduplicate(
-        [...adoptedBodies, ...ownBodies].flatMap(parseEntries),
-      ).length,
+      entryCount: await this.#entryCount(lane, this.#sources(adopted, own)),
       parts: refs,
       sha256: digestParts(refs),
     };
+  }
+
+  async #ownRef(key: string): Promise<ObjectRef> {
+    const [body, version] = await Promise.all([
+      this.#cached(key),
+      this.#versionOf(key),
+    ]);
+    let digest = this.#digests.get(key);
+    if (digest === undefined) {
+      digest = sha256(body);
+      this.#digests.set(key, digest);
+    }
+    return {
+      bytes: body.byteLength,
+      key,
+      sha256: digest,
+      ...(version === undefined ? {} : { version }),
+    };
+  }
+
+  #sources(adopted: readonly ObjectRef[], own: readonly string[]): Source[] {
+    return [
+      ...adopted.map((part) => ({
+        body: () => this.#adoptedBody(part),
+        key: part.key,
+      })),
+      ...own.map((key) => ({ body: () => this.#cached(key), key })),
+    ];
+  }
+
+  /**
+   * How many distinct entries the parts replay, as `deduplicate` over all of
+   * them would count them, parsing only the parts past the tally's prefix. A
+   * part list that does not extend the tally's starts over. The tally is
+   * taken out while it advances and put back only once it has, so a part
+   * that fails to parse or conflicts leaves nothing half-counted behind.
+   */
+  async #entryCount(lane: string, parts: readonly Source[]): Promise<number> {
+    const kept = this.#tallies.get(lane);
+    this.#tallies.delete(lane);
+    const tally =
+      kept !== undefined &&
+      kept.keys.length <= parts.length &&
+      kept.keys.every((key, index) => parts[index]?.key === key)
+        ? kept
+        : { check: deduplicator(), count: 0, keys: [] };
+    const pending = parts.slice(tally.keys.length);
+    const bodies = await Promise.all(pending.map((part) => part.body()));
+    pending.forEach((part, index) => {
+      tally.count += tally.check(
+        parseEntries(bodies[index] as Uint8Array),
+      ).length;
+      tally.keys.push(part.key);
+    });
+    this.#tallies.set(lane, tally);
+    return tally.count;
+  }
+
+  /** Moves a tally over `replaced` onto the merged parts that replaced them. */
+  #retally(
+    lane: string,
+    replaced: readonly string[],
+    merged: readonly string[],
+  ): void {
+    const tally = this.#tallies.get(lane);
+    if (
+      tally === undefined ||
+      tally.keys.length !== replaced.length ||
+      tally.keys.some((key, index) => replaced[index] !== key)
+    ) {
+      this.#tallies.delete(lane);
+      return;
+    }
+    tally.keys = [...merged];
   }
 
   /**
@@ -761,6 +840,18 @@ export class ClaudeSessionStore implements TranscriptMirror {
     return `${[this.#prefix, ...segments.map(safeSegment)].join("/")}/`;
   }
 }
+
+type Source = {
+  readonly key: string;
+  readonly body: () => Promise<Uint8Array>;
+};
+
+type Tally = {
+  readonly check: (entries: readonly TranscriptEntry[]) => TranscriptEntry[];
+  count: number;
+  /** The parts counted, in pinned order. */
+  keys: string[];
+};
 
 type LaneView = {
   readonly base: readonly ObjectRef[];

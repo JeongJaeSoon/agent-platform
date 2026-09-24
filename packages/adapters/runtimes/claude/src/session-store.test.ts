@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
@@ -1118,5 +1118,113 @@ describe("Claude session store merging parts, the edges (94S-314, 94S-296)", () 
     expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
       [],
     );
+  });
+});
+
+describe("Claude session store counting entries across captures (94S-380)", () => {
+  function launch(
+    objects: MemoryCheckpointObjectStore,
+    generation = 1,
+    inherit?: TranscriptInheritance,
+  ) {
+    return new ClaudeSessionStore({
+      generation,
+      objects,
+      prefix,
+      ...(inherit === undefined ? {} : { inherit }),
+    });
+  }
+
+  /** Retried batches and uuid-less frames mixed in, as the SDK writes them. */
+  async function appendMany(
+    mirror: ClaudeSessionStore,
+    from: number,
+    to: number,
+  ) {
+    for (let index = from; index < to; index += 1) {
+      const batch = [entry(`u${index}`, `entry ${index}`)];
+      await mirror.append(root, batch);
+      if (index % 37 === 0) {
+        await mirror.append(root, batch);
+        await mirror.append(root, [{ type: "title", title: `t${index}` }]);
+      }
+    }
+  }
+
+  async function parsesDuring(work: () => Promise<unknown>): Promise<number> {
+    const parse = spyOn(JSON, "parse");
+    try {
+      await work();
+      return parse.mock.calls.length;
+    } finally {
+      parse.mockRestore();
+    }
+  }
+
+  test("parses only the parts appended since the last capture", async () => {
+    const mirror = launch(createMemoryCheckpointObjectStore());
+    await appendMany(mirror, 0, 200);
+    await mirror.captureTranscripts(sessionId);
+    await mirror.append(root, [entry("next", "one more")]);
+
+    expect(
+      await parsesDuring(() => mirror.captureTranscripts(sessionId)),
+    ).toBe(1);
+  });
+
+  test("carries the count over a merge, so the capture after it parses only what is new", async () => {
+    const mirror = launch(createMemoryCheckpointObjectStore());
+    await appendMany(mirror, 0, 600);
+    const merged = await mirror.captureTranscripts(sessionId);
+    expect(merged?.root.parts[0]?.key).toContain("/merged-");
+    await mirror.append(root, [entry("next", "one more")]);
+
+    expect(
+      await parsesDuring(() => mirror.captureTranscripts(sessionId)),
+    ).toBe(1);
+  });
+
+  test("counts what a count over the whole transcript would, capture after capture", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = launch(objects);
+    for (let to = 50; to <= 1300; to += 50) {
+      await appendMany(first, to - 50, to);
+      const captured = await first.captureTranscripts(sessionId);
+      const revision = await first.captureRevision(root);
+      const all = (await first.load(root)) as TranscriptEntry[];
+      expect(captured?.root.entryCount).toBe(all.length);
+      expect(revision?.entryCount).toBe(all.length);
+      expect(captured?.root.sha256).toBe(
+        digestParts(captured?.root.parts ?? []),
+      );
+    }
+
+    const pinned = await first.captureTranscripts(sessionId);
+    if (pinned === null) throw new Error("expected transcripts");
+    const second = launch(objects, 2, { sessionId, transcripts: pinned });
+    await second.verifyInherited();
+    await appendMany(second, 1300, 1400);
+    const resumed = await second.captureTranscripts(sessionId);
+
+    expect(resumed?.root.entryCount).toBe(
+      ((await second.load(root)) as TranscriptEntry[]).length,
+    );
+    expect(
+      await launch(objects, 3).loadRevision(resumed?.root as TranscriptRevision),
+    ).toHaveLength(resumed?.root.entryCount as number);
+  });
+
+  test("refuses one uuid with two bodies across captures, on every capture after", async () => {
+    const mirror = launch(createMemoryCheckpointObjectStore());
+    await mirror.append(root, [entry("same", "first body")]);
+    await appendMany(mirror, 0, 20);
+    await mirror.captureTranscripts(sessionId);
+    await mirror.append(root, [entry("same", "second body")]);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow(
+        /Conflicting transcript entry uuid: same/,
+      );
+    }
   });
 });
