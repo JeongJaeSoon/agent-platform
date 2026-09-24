@@ -20,6 +20,7 @@ import { checkInvariants, runningWorkers } from "./invariants.ts";
 import {
   type Criterion,
   compose,
+  composeToFile,
   container,
   criterion,
   markdownReport,
@@ -1959,23 +1960,18 @@ async function main(): Promise<number> {
     "report.md",
     markdownReport(`94S-135 campaign — ${campaign.id}`, meta, ctx.rows),
   );
-  const logs = await run(
-    [
-      "docker",
-      "compose",
-      "-p",
-      env.project,
-      ...env.composeFiles,
-      "logs",
-      "--no-color",
-      "--timestamps",
-    ],
-    { allowFail: true },
+  // With the stack's profiles, or the api, scheduler and reconciler logs
+  // are left out.
+  await composeToFile(
+    env,
+    ["logs", "--no-color", "--timestamps"],
+    join(dir, "compose.log"),
   );
-  out.text("compose.log", `${logs.stdout}${logs.stderr}`);
   out.jsonl("worker-traffic").write({ log: await ctx.chaos.log() });
   out.jsonl("model-requests").write({ log: await model.requests() });
-  await db.end();
+  // A campaign that restarted postgres has already swapped (and ended) the
+  // pool it started with.
+  await ctx.db.end();
   const failed = ctx.rows.filter((row) => row.status === "fail").length;
   console.error(
     `${campaign.id}: ${ctx.rows.length - failed}/${ctx.rows.length} pass; ${join(dir, "report.md")}`,
