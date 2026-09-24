@@ -22,6 +22,7 @@ const clean: SchedulerRunSummary = {
   networksRepaired: [],
   orphansTerminated: [],
   orphansUnresolved: [],
+  orphansStopping: [],
   reclaimFailed: [],
   reconcileFailed: [],
   reensured: [],
@@ -45,6 +46,7 @@ describe("scheduler exit code", () => {
 
   test("a kill still draining is not a failure (94S-385)", () => {
     expect(exitCodeFor({ ...clean, killsStopping: [ref] })).toBe(0);
+    expect(exitCodeFor({ ...clean, orphansStopping: [ref] })).toBe(0);
   });
 
   test("a skipped pass says so, so the loop counts it as neither", () => {

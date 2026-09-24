@@ -494,7 +494,9 @@ export class DockerClient {
    * down: the daemon carries the stop on after the request is dropped
    * (Engine 25 and later; this backend requires 28), so the SIGKILL still
    * lands `timeoutSeconds` after the SIGTERM. Asking again only sends
-   * another SIGTERM, which a draining worker ignores.
+   * another SIGTERM, which a draining worker ignores. A request that never
+   * reached the daemon reads the same; the next ask delivers it, and a
+   * daemon that takes no requests at all fails the pass's inspects instead.
    */
   async stopContainer(
     idOrName: string,

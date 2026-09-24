@@ -2336,6 +2336,31 @@ describe("runScheduler", () => {
     expect(next.launched).toHaveLength(1);
   });
 
+  test("a busy orphan is not waited on, and holds its slot until it is gone (94S-385)", async () => {
+    const { backend, records, run, store } = harness(1);
+    backend.containers.set("stray#1", {
+      exited: false,
+      generation: 1,
+      operationId: "op-stray",
+      sessionId: "s-stray",
+    });
+    backend.drainingFor.add("stray#1");
+    store.addUnassigned(1);
+
+    const summary = await run();
+    expect(summary.orphansStopping).toEqual([
+      { executionId: "stray", generation: 1 },
+    ]);
+    expect(summary.orphansUnresolved).toEqual([]);
+    expect(summary.launched).toEqual([]);
+    expect(records.filter((r) => r.level === "error")).toEqual([]);
+
+    backend.drainingFor.clear();
+    const next = await run();
+    expect(next.orphansTerminated).toHaveLength(1);
+    expect(next.launched).toHaveLength(1);
+  });
+
   test("another backend's intent is never recreated on this provider", async () => {
     const { backend, run, store } = harness();
     store.seedActive({ backend: "eks_job", observedState: "running" });

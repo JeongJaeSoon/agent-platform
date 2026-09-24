@@ -153,6 +153,11 @@ export type SchedulerRunSummary = {
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];
+  /**
+   * Orphans asked to stop and still winding down. Not a failure, but each
+   * still holds a slot until a later pass finds it gone (94S-385).
+   */
+  orphansStopping: ExecutionRef[];
   /** Exited resources whose reclaim failed; each row stays `terminating`. */
   reclaimFailed: ExecutionRef[];
   /** Rows whose reconcile threw; they stay live and are retried next pass. */
@@ -624,6 +629,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     launchesQuarantined: [],
     orphansTerminated: [],
     orphansUnresolved: [],
+    orphansStopping: [],
     reclaimFailed: [],
     reconcileFailed: [],
     killFailed: [],
@@ -1320,7 +1326,9 @@ async function pass(
       // worker has since bound; that one is refused, the row is left as is,
       // and the next pass judges the replacement on its own merits.
       // A claimed worker may be draining a turn past its drain deadline and
-      // is not waited on; an unclaimed one has none and exits at once.
+      // is not waited on. An unclaimed one has no turn and exits at once, and
+      // is waited on: every replace of it counts against the replacement
+      // limit, which asking again each pass would spend in seconds.
       outcome = await backend.terminate(ref, {
         ...pinnedTo(observed),
         waitForExit: !execution.claimed,
@@ -1589,8 +1597,11 @@ async function pass(
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
+      // Nothing is rebuilt from an orphan, so nothing is lost by not
+      // waiting on one that is busy; a later pass lists it again.
       outcome = await backend.terminate(refOf(resource), {
         providerRef: resource.providerRef,
+        waitForExit: false,
       });
     } catch (error) {
       // One stuck resource must not stop the rest of the pass; it still
@@ -1601,6 +1612,14 @@ async function pass(
         provider_ref: resource.providerRef,
       });
       summary.orphansUnresolved.push(refOf(resource));
+      continue;
+    }
+    if (outcome.outcome === "stopping") {
+      summary.orphansStopping.push(refOf(resource));
+      logger.info("Orphan resource asked to stop; still winding down", {
+        ...fieldsOf(refOf(resource)),
+        provider_ref: outcome.providerRef,
+      });
       continue;
     }
     if (outcome.outcome !== "terminated") {
@@ -1640,7 +1659,8 @@ async function pass(
     0,
     options.slotLimit -
       demand.activeExecutionCount -
-      summary.orphansUnresolved.length,
+      summary.orphansUnresolved.length -
+      summary.orphansStopping.length,
   );
   for (const sessionId of demand.eligibleSessionIds) {
     if (free <= 0) break;
@@ -1753,6 +1773,7 @@ async function pass(
     network_scan_failed: summary.networkScanFailed,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
+    orphan_stopping_count: summary.orphansStopping.length,
     reclaim_failed_count: summary.reclaimFailed.length,
     reconcile_failed_count: summary.reconcileFailed.length,
     reensured_count: summary.reensured.length,
