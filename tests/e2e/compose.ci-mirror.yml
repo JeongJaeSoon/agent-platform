@@ -1,0 +1,39 @@
+# CI-only overlay (94S-365): the `e2e` and `quickstart` jobs pull every
+# third-party image of the compose stack from the CI mirror
+# (ci-image-mirror.yml, docs/ci.md § 서드파티 이미지 미러) instead of Docker
+# Hub, by the very digests infra/docker-compose.yml and the app Dockerfiles
+# pin; the stack itself is unchanged. `e2e` passes it to tests/e2e/run.sh as
+# E2E_COMPOSE_OVERRIDE, `quickstart` through COMPOSE_FILE so that
+# docs/quickstart.md runs as written. tests/ci-images.test.ts holds every
+# reference here to the compose file and the mirror list.
+x-mirror-build-args: &mirror-build-args
+  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  # The Dockerfiles' `# syntax=docker/dockerfile:1.7`, which BuildKit would
+  # otherwise fetch from Docker Hub.
+  BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+
+services:
+  postgres:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+  localstack:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+  secrets:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+  fake-messages:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  gitea:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/gitea@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+  gitea-init:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/gitea@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+  migrate:
+    build:
+      args: *mirror-build-args
+  egress-proxy:
+    build:
+      args: *mirror-build-args
+  api:
+    build:
+      args: *mirror-build-args
+  worker:
+    build:
+      args: *mirror-build-args

@@ -226,6 +226,8 @@ describe("assert-no-docker-hub-images.sh", () => {
       );
     expect(steps("integration-domain")).toBe(true);
     expect(steps("workspace-quota")).toBe(true);
+    expect(steps("e2e")).toBe(true);
+    expect(steps("quickstart")).toBe(true);
   });
 });
 
@@ -301,5 +303,78 @@ describe("ci.yml", () => {
         expect(`${shortName(entry.source)}:${entry.tag}`).toBe(fallback);
       }
     }
+  });
+});
+
+describe("the e2e compose overlay", () => {
+  // 94S-365: `e2e` and `quickstart` start the product compose stack, whose
+  // images stay on Docker Hub for local users; CI lays this over it.
+  const OVERLAY = "tests/e2e/compose.ci-mirror.yml";
+  type Service = {
+    image?: string;
+    build?: { dockerfile?: string; args?: Record<string, string> };
+  };
+  const services = (path: string) =>
+    (Bun.YAML.parse(read(path)) as { services: Record<string, Service> })
+      .services;
+  const stack = services("infra/docker-compose.yml");
+  const overlay = services(OVERLAY);
+  /** The mirror entry a reference resolves to, or undefined. */
+  const resolve = (reference: string | undefined) => {
+    const [, name = "", digest] = (reference ?? "").match(MIRROR_REF) ?? [];
+    return entryOf(name, digest);
+  };
+
+  test("pulls every third-party image of the stack from the mirror, by the stack's digest", () => {
+    const pulled = Object.entries(stack).filter(
+      ([, { image }]) => image !== undefined && !image.includes("${"),
+    );
+    expect(pulled.length).toBeGreaterThan(0);
+    for (const [service, { image }] of pulled) {
+      const entry = resolve(overlay[service]?.image);
+      expect({ service, image }).toEqual({
+        service,
+        image:
+          entry && `${shortName(entry.source)}:${entry.tag}@${entry.digest}`,
+      });
+    }
+  });
+
+  test("builds every app on the Dockerfile's base and frontend, from the mirror", () => {
+    const built = Object.entries(stack).filter(([, { build }]) => build);
+    expect(built.length).toBeGreaterThan(0);
+    for (const [service, { build }] of built) {
+      const dockerfile = read(build?.dockerfile ?? "");
+      const base = dockerfile.match(/^ARG BUN_IMAGE=(\S+)$/m)?.[1];
+      const syntax = dockerfile.match(/^# syntax=(\S+)$/m)?.[1];
+      const args = overlay[service]?.build?.args ?? {};
+      const bun = resolve(args.BUN_IMAGE);
+      const frontend = resolve(args.BUILDKIT_SYNTAX);
+      expect({ service, base, syntax }).toEqual({
+        service,
+        base: bun && `${shortName(bun.source)}:${bun.tag}@${bun.digest}`,
+        syntax: frontend && `${shortName(frontend.source)}:${frontend.tag}`,
+      });
+    }
+  });
+
+  test("names only services the stack has", () => {
+    for (const service of Object.keys(overlay))
+      expect({ service, known: service in stack }).toEqual({
+        service,
+        known: true,
+      });
+  });
+
+  test("is laid over the stack in both jobs, the page left as written", () => {
+    const stepValues = (job: string, variable: string) =>
+      (ci.jobs[job]?.steps ?? []).flatMap(({ env = {} }) =>
+        variable in env ? [env[variable]] : [],
+      );
+    expect(stepValues("e2e", "E2E_COMPOSE_OVERRIDE")).toEqual([OVERLAY]);
+    expect(stepValues("quickstart", "COMPOSE_FILE")).toEqual([
+      `compose.yaml:${OVERLAY}`,
+    ]);
+    expect(read("docs/quickstart.md")).not.toContain("ci-mirror");
   });
 });

@@ -514,9 +514,10 @@ jobs:
   # the record the delivery plan asks for: command, tested SHA, image ids,
   # SDK and Claude Code versions, and the skip list.
   #
-  # Not a required check yet: it becomes one once it has held green on main.
   # The runner's own daemon is used; the scheduler refuses one older than
   # Docker 28 (94S-274), and the record's first line shows which it got.
+  # tests/e2e/compose.ci-mirror.yml points the stack's third-party images
+  # and the Dockerfiles' base at the CI mirror (94S-365).
   e2e:
     if: contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
@@ -528,8 +529,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Alpha path against the compose stack
         env:
+          E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
           E2E_OUT: ${{ runner.temp }}/e2e
         run: tests/e2e/run.sh
+      # run.sh removes the images it built; what compose pulled stays.
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
       # Compose, worker and suite logs: the worker containers are gone by
       # now, so this is the only copy of what they printed.
       - if: always()
@@ -544,7 +550,8 @@ jobs:
   # `bash` block of the page, in order, on its default project and ports —
   # the terminal record a new user would get, printed block by block. A page
   # edit that breaks a command fails here instead of in someone's terminal.
-  # Not a required check yet, for the same reason as `e2e`.
+  # COMPOSE_FILE adds the mirror overlay `e2e` uses (94S-365) under the
+  # page's own `docker compose` commands, so the page needs no CI-only line.
   quickstart:
     if: contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
@@ -555,8 +562,12 @@ jobs:
       - uses: ./.github/actions/bun-setup
       - name: docs/quickstart.md
         env:
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
