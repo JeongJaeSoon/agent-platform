@@ -13,6 +13,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerConfigFromEnv } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
+import {
+  quotaPreflightMarkerPath,
+  verifyWorkspaceQuotaOnce,
+} from "./quota-preflight.ts";
 
 /**
  * One scheduling pass (`main.ts scheduler --once`); the scheduler role runs
@@ -81,31 +85,40 @@ export async function main(
       );
       throw error;
     }
-    try {
-      await backend.verifyWorkspaceQuota();
-    } catch (error) {
-      // The probe needs a little disk of its own, so a daemon that is already
-      // full fails it — and that is exactly when the workspaces of finished
-      // sessions are worth reclaiming. `reclaimWorkspaces` frees them without
-      // starting or replacing anything, which a pass with no free slots would
-      // still do; the error is rethrown afterwards, so this process refuses to
-      // admit work either way.
-      logger.error(
-        "Workspace quota preflight failed; reclaiming workspaces before giving up",
-        { error: messageOf(error) },
-      );
-      await reclaimWorkspaces({
-        backend,
-        logger,
-        stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
-        store,
-      }).catch((reclaimError: unknown) => {
-        logger.error("Workspace reclaim failed", {
-          error: messageOf(reclaimError),
-        });
-      });
-      throw error;
-    }
+    await verifyWorkspaceQuotaOnce({
+      logger,
+      marker: quotaPreflightMarkerPath(environment),
+      // Any setting, not just the quota's: a new daemon or installation id
+      // is as much a reason to probe again.
+      settings: config.docker,
+      verify: async () => {
+        try {
+          await backend.verifyWorkspaceQuota();
+        } catch (error) {
+          // The probe needs a little disk of its own, so a daemon that is
+          // already full fails it — and that is exactly when the workspaces
+          // of finished sessions are worth reclaiming. `reclaimWorkspaces`
+          // frees them without starting or replacing anything, which a pass
+          // with no free slots would still do; the error is rethrown
+          // afterwards, so this process refuses to admit work either way.
+          logger.error(
+            "Workspace quota preflight failed; reclaiming workspaces before giving up",
+            { error: messageOf(error) },
+          );
+          await reclaimWorkspaces({
+            backend,
+            logger,
+            stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
+            store,
+          }).catch((reclaimError: unknown) => {
+            logger.error("Workspace reclaim failed", {
+              error: messageOf(reclaimError),
+            });
+          });
+          throw error;
+        }
+      },
+    });
     const summary = await runScheduler({
       backend,
       drainDeadlineMs: config.drainDeadlineMs,

@@ -8,6 +8,7 @@ import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
+  LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchNonceFingerprint,
   type ManagedExecution,
@@ -29,6 +30,7 @@ import {
   type ContainerSummary,
   DockerApiError,
   DockerClient,
+  DockerTimeoutError,
   type ImageInspect,
   type NetworkInspect,
   type VolumeInspect,
@@ -538,8 +540,9 @@ export class LocalDockerBackend implements ExecutionBackend {
    * Refuses to launch onto a daemon that would give the workspace no
    * ceiling. The `local` driver only honours `size` when the storage behind
    * it can carry a project quota, and it says so at create time — so the
-   * cheapest honest check is to create one and throw it away. Checked once
-   * per process, beside `verifyNetworkIsolation`.
+   * cheapest honest check is to create one and throw it away. The scheduler
+   * runs it before a pass, and only when its loop has not already seen it
+   * pass on the same settings (94S-393).
    */
   async verifyWorkspaceQuota(): Promise<void> {
     const quota = this.config.workspaceQuota;
@@ -770,7 +773,9 @@ export class LocalDockerBackend implements ExecutionBackend {
         // one request body, reaches the container as an env var, and is only
         // ever stored as a hash. Adopting an existing container skips this,
         // so a worker that is already running keeps the nonce it was given.
-        created = await this.client.createContainer(name, body);
+        created = await outcomeUnknownOnTimeout(intent, () =>
+          this.client.createContainer(name, body),
+        );
       } catch (error) {
         // Another launcher (or an earlier attempt whose reply was lost) won.
         if (!(error instanceof DockerApiError) || error.status !== 409) {
@@ -778,18 +783,22 @@ export class LocalDockerBackend implements ExecutionBackend {
         }
         continue;
       }
-      // The volume was checked before the create; a prune in between would
-      // have had Docker silently conjure an unlabelled, unbounded one for the
-      // mount. Nothing has run in the container yet, so this is the last
-      // moment the container can still be thrown away instead of bounded.
-      await this.assertWorkspaceStillBounded(name, intent.sessionId, volume);
-      await this.startOrDiscard(created.Id);
-      const started = await this.client.inspectContainer(name);
-      return {
-        created: true,
-        providerRef: started?.Id ?? name,
-        state: started ? stateOf(started.State.Status) : "pending",
-      };
+      const { Id } = created;
+      return outcomeUnknownOnTimeout(intent, async () => {
+        // The volume was checked before the create; a prune in between would
+        // have had Docker silently conjure an unlabelled, unbounded one for
+        // the mount. Nothing has run in the container yet, so this is the
+        // last moment the container can still be thrown away instead of
+        // bounded.
+        await this.assertWorkspaceStillBounded(name, intent.sessionId, volume);
+        await this.startOrDiscard(Id);
+        const started = await this.client.inspectContainer(name);
+        return {
+          created: true,
+          providerRef: started?.Id ?? name,
+          state: started ? stateOf(started.State.Status) : "pending",
+        };
+      });
     }
     throw new Error(
       `Container ${name} was taken by another launcher on every attempt`,
@@ -1791,9 +1800,11 @@ export class LocalDockerBackend implements ExecutionBackend {
         );
         throw new WorkspaceQuotaError(problem.name, problem.reason);
       }
-      await this.startOrDiscard(container.Id);
-      const started = await this.client.inspectContainer(container.Id);
-      if (started) state = stateOf(started.State.Status);
+      state = await outcomeUnknownOnTimeout(intent, async () => {
+        await this.startOrDiscard(container.Id);
+        const started = await this.client.inspectContainer(container.Id);
+        return started ? stateOf(started.State.Status) : state;
+      });
     }
     return { created: false, providerRef: container.Id, state };
   }
@@ -1803,9 +1814,11 @@ export class LocalDockerBackend implements ExecutionBackend {
    * with a refusal — an OCI runtime error, a mount it cannot make — leaves a
    * `created` container that every retry would adopt and be refused on the
    * same way, so it is removed, by id, and the next attempt creates afresh
-   * (94S-207). A start whose answer never came, a timeout or a dropped
-   * connection, may have taken: that container is left for the next pass
-   * to inspect.
+   * (94S-207). A start whose answer never came may have taken: that
+   * container is left in place, and the caller's timeout surfaces as
+   * `LaunchOutcomeUnknownError`, which the scheduler does not count as a
+   * failure — the next pass inspects it and adopts or starts it (94S-393).
+   * A dropped connection is still a counted failure.
    */
   private async startOrDiscard(containerId: string): Promise<void> {
     try {
@@ -2141,6 +2154,24 @@ function soleRunningProxy(
  * message, so the one value in the body that must never reach a log — the
  * bootstrap nonce — is blanked out of it first.
  */
+/**
+ * A Docker call that may have created or started the container and got no
+ * answer: whether it took is for the next pass's inspect to say (94S-393).
+ */
+async function outcomeUnknownOnTimeout<T>(
+  ref: ExecutionRef,
+  call: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof DockerTimeoutError) {
+      throw new LaunchOutcomeUnknownError(ref, { cause: error });
+    }
+    throw error;
+  }
+}
+
 function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
   if (!(error instanceof Error)) return error;
   const secrets = body.Env.filter((entry) =>

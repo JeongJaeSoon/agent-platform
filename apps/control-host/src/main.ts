@@ -9,6 +9,7 @@
 // `--health` judges the status file the loop writes. Each role module is
 // imported only when chosen: a process reads and validates only its own
 // role's settings, and only the scheduler ever loads the Docker backend.
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
@@ -90,8 +91,13 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
       "./scheduler/config.ts"
     );
+    const { quotaPreflightMarkerPath } = await import(
+      "./scheduler/quota-preflight.ts"
+    );
     const { docker } = schedulerConfigFromEnv(process.env);
     assertPassOutlastsStop(config.passTimeoutMs, docker);
+    // The first pass of every loop probes the workspace quota afresh.
+    await rm(quotaPreflightMarkerPath(process.env), { force: true });
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");

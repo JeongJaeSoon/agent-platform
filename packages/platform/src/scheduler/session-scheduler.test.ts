@@ -14,6 +14,7 @@ import type {
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import {
+  LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchSpecFingerprint,
 } from "../ports/execution-backend.ts";
@@ -581,6 +582,11 @@ class FakeBackend implements ExecutionBackend {
   exitOnStartFor = new Set<string>();
   /** Session ids whose create is taken but whose start the daemon cannot show. */
   createPendingFor = new Set<string>();
+  /**
+   * Session ids whose ensure gets no answer from the daemon: before anything
+   * was created, or after the create landed and before it was started.
+   */
+  unansweredFor = new Map<string, "before_create" | "after_create">();
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
@@ -671,6 +677,12 @@ class FakeBackend implements ExecutionBackend {
     if (this.failEnsureFor.has(intent.sessionId)) {
       throw new Error("docker unavailable");
     }
+    const unanswered = this.unansweredFor.get(intent.sessionId);
+    const timedOut = () =>
+      new LaunchOutcomeUnknownError(intent, {
+        cause: new Error("Docker API POST /containers/create timed out"),
+      });
+    if (unanswered === "before_create") throw timedOut();
     const existing = this.containers.get(nameOf(intent));
     if (existing) {
       if (existing.operationId !== intent.operationId) {
@@ -708,6 +720,10 @@ class FakeBackend implements ExecutionBackend {
       ...(pending ? { started: false } : {}),
     };
     this.containers.set(nameOf(intent), container);
+    if (unanswered === "after_create") {
+      container.started = false;
+      throw timedOut();
+    }
     return {
       created: true,
       providerRef: this.providerRefOf(nameOf(intent), container),
@@ -2488,6 +2504,74 @@ describe("runScheduler", () => {
     expect(second.launched).toHaveLength(0);
     expect(store.executions.size).toBe(1);
     expect(backend.containers.size).toBe(1);
+  });
+
+  test("a create the daemon never answered is adopted by the next pass, not counted (94S-393)", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "after_create");
+
+    const first = await run();
+    expect(first.failedLaunches).toHaveLength(1);
+    expect(first.launched).toHaveLength(0);
+    const [row] = store.executions.values();
+    const [container] = backend.containers.values();
+    expect(row?.observedState).toBe("unknown");
+    expect(row?.launchFailureCount).toBe(0);
+    expect(store.launchFailures).toEqual([]);
+    // The credential the container was built with is still the accepted one.
+    expect(row?.nonce).toBe(container?.nonce ?? "missing");
+
+    // No backoff to wait out: the next pass inspects, finds the container
+    // the create left behind, and starts it rather than building another.
+    const second = await run();
+    expect(second.failedLaunches).toEqual([]);
+    expect(second.reensured).toHaveLength(1);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.containers.size).toBe(1);
+    expect(container?.started).toBe(true);
+    expect(row?.observedState).toBe("running");
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.nonce).toBe(container?.nonce ?? "missing");
+  });
+
+  test("a start the daemon never answered but carried out is recorded running next pass", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "after_create");
+    await run();
+    const [container] = backend.containers.values();
+    if (!container) throw new Error("no container");
+    container.started = true;
+
+    const second = await run();
+    expect(second.failedLaunches).toEqual([]);
+    expect(second.reensured).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(store.executions.values().next().value?.observedState).toBe(
+      "running",
+    );
+    expect(store.launchFailures).toEqual([]);
+  });
+
+  test("an unanswered ensure that created nothing is created again next pass, without backoff", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "before_create");
+
+    const first = await run();
+    expect(first.failedLaunches).toHaveLength(1);
+    expect(backend.containers.size).toBe(0);
+
+    backend.unansweredFor.clear();
+    const second = await run();
+    expect(second.launchesBackingOff).toEqual([]);
+    expect(second.reensured).toHaveLength(1);
+    expect(backend.containers.size).toBe(1);
+    expect(store.launchFailures).toEqual([]);
   });
 
   test("a pass that cannot take the lock does nothing and says so", async () => {
