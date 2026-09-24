@@ -92,6 +92,73 @@ describe("the mirror list", () => {
   });
 });
 
+describe("images.yml", () => {
+  // 94S-317: the app builds pull their base and BuildKit from the mirror too.
+  type Step = { uses?: string; with?: Record<string, unknown> };
+  const imagesText = read(".github/workflows/images.yml");
+  const images = Bun.YAML.parse(imagesText) as {
+    env: Record<string, string>;
+    jobs: Record<string, { steps: Step[] }>;
+  };
+  const steps = (action: string) =>
+    Object.values(images.jobs)
+      .flatMap((job) => job.steps)
+      .filter((step) => step.uses?.startsWith(`${action}@`));
+  /** `${{ <body> }}`, spelled so the linter does not read a template slot. */
+  const expression = (body: string) => `\${{ ${body} }}`;
+  const pinned = (variable: string) => {
+    const [, name = "", digest] =
+      String(images.env[variable]).match(MIRROR_REF) ?? [];
+    return { name, entry: entryOf(name, digest) };
+  };
+
+  test("builds every app on the Dockerfiles' base and frontend, from the mirror", () => {
+    const base = pinned("BUN_IMAGE");
+    const frontend = pinned("DOCKERFILE_FRONTEND_IMAGE");
+    expect({
+      base: [base.name, base.entry !== undefined],
+      frontend: [frontend.name, frontend.entry !== undefined],
+    }).toEqual({ base: ["bun", true], frontend: ["dockerfile", true] });
+    for (const dockerfile of new Bun.Glob("apps/*/Dockerfile").scanSync(root)) {
+      const source = read(dockerfile);
+      expect(source).toContain(`@${base.entry?.digest}\n`);
+      expect(source).toStartWith(
+        `# syntax=docker/dockerfile:${frontend.entry?.tag}\n`,
+      );
+    }
+    const builds = steps("docker/build-push-action");
+    expect(builds.length).toBe(2);
+    for (const build of builds)
+      expect(build.with?.["build-args"]).toBe(
+        `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
+          `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n`,
+      );
+  });
+
+  test("runs BuildKit from the mirror wherever buildx is set up", () => {
+    const { name, entry } = pinned("BUILDKIT_IMAGE");
+    expect({ name, mirrored: entry !== undefined }).toEqual({
+      name: "buildkit",
+      mirrored: true,
+    });
+    const setups = steps("docker/setup-buildx-action");
+    expect(setups.length).toBe(3);
+    for (const setup of setups)
+      expect(setup.with?.["driver-opts"]).toBe(
+        `image=${expression("env.BUILDKIT_IMAGE")}`,
+      );
+  });
+
+  test("names no Docker Hub image", () => {
+    for (const { source, tag } of mirrored)
+      expect(imagesText).not.toContain(`${shortName(source)}:${tag}`);
+    for (const reference of imagesText.match(
+      /ghcr\.io\/jeongjaesoon\/agent-platform-ci\/[^\s'"]+/g,
+    ) ?? [])
+      expect(reference).toMatch(MIRROR_REF);
+  });
+});
+
 describe("assert-no-docker-hub-images.sh", () => {
   const script = join(root, ".github/scripts/assert-no-docker-hub-images.sh");
   /**
