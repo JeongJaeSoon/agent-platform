@@ -119,12 +119,21 @@ describe("fake Anthropic Messages API", () => {
             : undefined,
       latencyMs: 50,
     });
-    const started = Date.now();
-    const quota = await postMessages(server.url, { messages: [] });
-    const overloaded = await postMessages(server.url, { messages: [] });
-    const ok = await postMessages(server.url, { messages: [] });
+    const { url } = server;
+    const elapsed: number[] = [];
+    const timed = async () => {
+      const started = performance.now();
+      const response = await postMessages(url, { messages: [] });
+      elapsed.push(performance.now() - started);
+      return response;
+    };
+    const quota = await timed();
+    const overloaded = await timed();
+    const ok = await timed();
 
-    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+    // Bun.sleep has millisecond granularity and can wake up to 1ms before
+    // performance.now() says the full delay passed (94S-327).
+    for (const ms of elapsed) expect(ms).toBeGreaterThanOrEqual(49);
     expect(quota.status).toBe(429);
     expect(await quota.json()).toEqual({
       type: "error",
