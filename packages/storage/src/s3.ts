@@ -174,8 +174,8 @@ type HandlerSignal = NonNullable<
   NonNullable<Parameters<NodeHttpHandler["handle"]>[1]>["abortSignal"]
 >;
 
-// Smithy still accepts a signal with only `onabort`; its handler chains onto
-// it, and so does this, restoring what was there once the lookup is over.
+// Smithy still accepts a signal with only `onabort`. This chains onto it for
+// the lookup and puts the old handler back before the parent sets its own.
 function onAbort(
   signal: HandlerSignal | undefined,
   listener: () => void,
