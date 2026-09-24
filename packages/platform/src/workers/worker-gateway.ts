@@ -1220,6 +1220,7 @@ export function createWorkerGateway(deps: {
         ...(request.pause_control_id === undefined
           ? {}
           : { pauseControlId: request.pause_control_id }),
+        ...(request.stop_kind === "drain" ? { drained: true } : {}),
       });
       if ("refused" in result) {
         switch (result.refused) {

@@ -1705,6 +1705,10 @@ export class WorkerHost {
         reason:
           this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
           "loop ended",
+        // A startup a signal cut short is not a failed one (94S-302).
+        ...(this.stopping?.kind === "drain"
+          ? { stop_kind: "drain" as const }
+          : {}),
       })
       .then((response) =>
         this.logger.info("worker.released", { released: response.released }),

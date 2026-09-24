@@ -639,6 +639,28 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     ).toHaveLength(1);
   });
 
+  test("a startup a signal drained is not counted, and the failures before it still are (94S-302)", async () => {
+    const session = await newSession("drained");
+    await failStartup(session);
+    await spendBackoff(session);
+    const { worker } = await claimReserved(session);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "received SIGTERM",
+      stop_kind: "drain",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    const row = await sessionRow(session.sessionId);
+    expect(row.admissionState).toBe("active");
+    expect(row.restoreFailureCount).toBe(1);
+    expect(row.restoreFailureReason).toBe(CLONE_FAILED);
+    expect(row.restoreAttemptId).toBeNull();
+    expect(await launchable(session)).toBe(true);
+    expect(
+      await systemEvents(session.sessionId, "startup_failed"),
+    ).toHaveLength(1);
+  });
+
   test("an exit after the first turn started stays with the unknown-turn recovery, not the startup count (94S-302)", async () => {
     const session = await newSession("after-turn");
     const { worker } = await claimReserved(session);

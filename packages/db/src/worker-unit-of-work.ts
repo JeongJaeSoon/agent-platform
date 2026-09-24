@@ -1175,15 +1175,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       return db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
-        // A worker asks for input only once it has started up, restore or
-        // not, and every worker version does (94S-347): its later exit is not
-        // a failed startup, and the ones before it no longer count.
-        if (fenced.session.restoreAttemptId === fence.attemptId) {
-          await tx
-            .update(sessions)
-            .set(RESTORE_FAILURES_CLEARED)
-            .where(eq(sessions.id, fence.sessionId));
-        }
         const leaseExpiresAt = fenced.attempt.leaseExpiresAt;
         // A draining attempt is on its way out. Handing it a queued turn
         // would both walk its state back to running and leave that turn
@@ -1209,6 +1200,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
+        // A worker asks for input only once it has started up, restore or
+        // not, and every worker version does (94S-347): its later exit is not
+        // a failed startup, and the ones before it no longer count. Only an
+        // answered poll says so; one refused here may be the last it sends.
+        if (fenced.session.restoreAttemptId === fence.attemptId) {
+          await tx
+            .update(sessions)
+            .set(RESTORE_FAILURES_CLEARED)
+            .where(eq(sessions.id, fence.sessionId));
+        }
         // Read under the session lock the fence holds, and finalize adds to
         // it under the same lock, so a turn cannot start on a stale total.
         const overBudget = budgetExceeded(
@@ -1922,6 +1923,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .update(sessions)
             .set({
               leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+              // A drain was asked of it, so a startup it cut short is not
+              // counted (94S-302); the failures before it still are.
+              ...(input.drained
+                ? {
+                    restoreAttemptId: sql`NULLIF(${sessions.restoreAttemptId}, ${fence.attemptId})`,
+                  }
+                : {}),
               updatedAt: now,
             })
             .where(fencedSession(fence))

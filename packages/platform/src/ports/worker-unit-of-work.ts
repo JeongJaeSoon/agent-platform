@@ -311,6 +311,8 @@ export type ReleaseInput = {
    * its lease and engine, unless the pause can be committed now.
    */
   pauseControlId?: string;
+  /** The worker was asked to stop rather than failing (94S-302). */
+  drained?: boolean;
 };
 export type ReleaseResult =
   | { released: boolean }

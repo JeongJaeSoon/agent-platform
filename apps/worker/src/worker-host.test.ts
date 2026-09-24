@@ -1245,6 +1245,8 @@ describe("WorkerHost before the engine starts", () => {
     expect(launched).toEqual([]);
     expect(gateway.finalized).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
+    // A failure: the session counts it against its startups (94S-302).
+    expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
   });
 
   test("a drain during preparation aborts it and releases, with no engine", async () => {
@@ -1279,6 +1281,11 @@ describe("WorkerHost before the engine starts", () => {
     expect(summary.outcome).toBe("drained");
     expect(launched).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
+    // Asked to stop, not failed: not a failed startup (94S-302).
+    expect(gateway.releases[0]).toMatchObject({
+      reason: "received SIGTERM",
+      stop_kind: "drain",
+    });
   });
 });
 
