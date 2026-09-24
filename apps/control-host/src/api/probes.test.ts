@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   healthResponseSchema,
@@ -35,11 +35,20 @@ describe("GET /readyz", () => {
   });
 
   test("answers 503 NOT_READY naming the failed check", async () => {
-    const response = await app({
-      ready: false,
-      check: "schema",
-      reason: "expected 0004, database has 0003",
-    }).request("/readyz");
+    // A request id holding the digits a leak check once looked for (94S-362).
+    const uuid = spyOn(crypto, "randomUUID").mockReturnValue(
+      "aa243477-8602-4291-a70e-2270003cb766",
+    );
+    let response: Response;
+    try {
+      response = await app({
+        ready: false,
+        check: "schema",
+        reason: "expected 0004, database at pg.internal.example has 0003",
+      }).request("/readyz");
+    } finally {
+      uuid.mockRestore();
+    }
     expect(response.status).toBe(503);
     const body = apiErrorResponseSchema.parse(await response.json());
     expect(body.error).toMatchObject({
@@ -47,8 +56,10 @@ describe("GET /readyz", () => {
       retryable: true,
       details: { check: "schema" },
     });
-    // The reason stays in the log; it may name hosts or files.
-    expect(JSON.stringify(body)).not.toContain("0003");
+    // The reason stays in the log; it may name hosts or files. The host is
+    // the marker: a uuid, hex only, can never spell it.
+    expect(body.error.request_id).toBe("aa243477-8602-4291-a70e-2270003cb766");
+    expect(JSON.stringify(body)).not.toContain("pg.internal.example");
   });
 
   test("answers 503 when no probe was wired", async () => {

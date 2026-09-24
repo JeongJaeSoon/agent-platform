@@ -929,6 +929,11 @@ export const workerLaunches = pgTable(
     // or the launch was given up on.
     launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
     lastLaunchError: text("last_launch_error"),
+    // When the scheduler first asked the worker this launch bound to drain,
+    // because its resource no longer meets the isolation contract (94S-250).
+    // From then on the worker is handed no new turn; the replacement waits
+    // for the one it runs, up to a deadline counted from here.
+    drainRequestedAt: timestamp("drain_requested_at", { withTimezone: true }),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1053,4 +1058,21 @@ export const apiKeys = pgTable(
       sql`${table.scopes} IS NULL OR (${oneDimensional(table.scopes)} AND ${table.scopes} <@ ${SESSION_SCOPES_SQL})`,
     ),
   ],
+);
+
+// The catalog revision an operator activated (94S-295): only a gateway
+// whose own `catalogRevision` equals it may fail a session for a pair its
+// catalog lacks. One row at most; none means a single replica, where every
+// gateway is the authority. The API never writes it — the operator's
+// compare-and-swap does, as a rollout's first step (docs/operations.md).
+export const catalogAuthority = pgTable(
+  "catalog_authority",
+  {
+    id: integer().primaryKey(),
+    revision: text().notNull(),
+    activatedAt: timestamp("activated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
 );

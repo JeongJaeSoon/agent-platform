@@ -426,6 +426,19 @@ integration("context gap on PostgreSQL (94S-288)", () => {
         })
       ).outcome,
     ).toBe("rejected");
+
+    // Restoring the same checkpoint again would lose the same turn
+    // (94S-348): only start_fresh or close answers a gap.
+    expect(
+      await decide(session, {
+        decision: "retry_restore",
+        expected_revision: row.revision,
+        reason: "try the restore again",
+      }),
+    ).toEqual({
+      outcome: "not_restore_failed",
+      admissionState: "recovery_required",
+    });
   });
 
   test("a turn whose publish failed is shown as it ran and is a gap when the worker goes (94S-312)", async () => {

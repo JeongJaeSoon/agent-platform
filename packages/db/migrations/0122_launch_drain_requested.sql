@@ -1,0 +1,1 @@
+ALTER TABLE "worker_launches" ADD COLUMN "drain_requested_at" timestamp with time zone;

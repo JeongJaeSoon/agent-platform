@@ -360,6 +360,30 @@
               "decision"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decision": {
+                "type": "string",
+                "const": "retry_restore"
+              }
+            },
+            "required": [
+              "expected_revision",
+              "reason",
+              "decision"
+            ],
+            "additionalProperties": false
           }
         ]
       },

@@ -156,7 +156,6 @@ jobs:
             docker: false
             paths:
               - packages/db/
-              - packages/queue/
               - packages/testkit/src/postgres.
           # The HTTP surface and what it serves: routes, auth, events, the
           # reconciler, the contracts it publishes and the UI that reads them.

@@ -102,6 +102,7 @@ import {
 } from "./resume-control.ts";
 import {
   attempts,
+  catalogAuthority,
   checkpoints,
   events,
   executions,
@@ -656,20 +657,20 @@ function runnableCondition(runnable: readonly RunnablePair[]): SQL {
  * row lock (94S-280). Anything else — the session bound, paused, spent, or
  * the launch already asked to go — is left to the ordinary "nothing to claim".
  *
- * Deliberately trusts this host's catalog alone, which holds while one API
- * process serves the gateway. With several replicas mid-rollout, the one
- * that answers could fail a session another would run; 94S-295 makes the
- * judgment wait for an operator-activated catalog revision and must land
- * before the API runs as more than one replica.
+ * With several API replicas mid-rollout, the one that answers could fail a
+ * session another would run. So only a host whose catalog is the revision an
+ * operator activated gives up (94S-295); any other answers "nothing to
+ * claim" and writes nothing, leaving 94S-207's failure count as the net.
+ * With none activated there is one replica, and its catalog is the one.
  */
 async function giveUpOnCatalogMismatch(
   tx: Database,
   launch: typeof workerLaunches.$inferSelect,
   sessionId: string,
-  runnable: readonly RunnablePair[],
-  costLimitUsd: number,
+  input: Pick<ClaimInput, "runnable" | "catalogRevision" | "costLimitUsd">,
   now: Date,
 ): Promise<"catalog_mismatch" | "context_gap" | null> {
+  const { runnable } = input;
   const [session] = await tx
     .select()
     .from(sessions)
@@ -682,9 +683,21 @@ async function giveUpOnCatalogMismatch(
     !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
-    budgetExceeded(session.costUsd, costLimitUsd) ||
+    budgetExceeded(session.costUsd, input.costLimitUsd) ||
     runnablePairOf(session, runnable) !== undefined
   ) {
+    return null;
+  }
+  // Held until the claim commits, so an activation that replaces this
+  // revision waits for the give-up judged under it instead of completing
+  // while it still writes. The first activation, from none, has no row to
+  // wait on; it is made while one replica runs (docs/operations.md).
+  const [authority] = await tx
+    .select({ revision: catalogAuthority.revision })
+    .from(catalogAuthority)
+    .limit(1)
+    .for("share");
+  if (authority !== undefined && authority.revision !== input.catalogRevision) {
     return null;
   }
   // Skipped when locked, as the candidate query does: another claim holding
@@ -750,6 +763,23 @@ async function giveUpOnCatalogMismatch(
     .where(eq(workerLaunches.executionId, launch.executionId));
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
   return "catalog_mismatch";
+}
+
+async function drainRequested(
+  tx: Database,
+  attempt: Pick<AttemptRow, "executionId" | "executionGeneration">,
+): Promise<boolean> {
+  const [launch] = await tx
+    .select({ drainRequestedAt: workerLaunches.drainRequestedAt })
+    .from(workerLaunches)
+    .where(
+      and(
+        eq(workerLaunches.executionId, attempt.executionId),
+        eq(workerLaunches.generation, attempt.executionGeneration),
+      ),
+    )
+    .limit(1);
+  return launch?.drainRequestedAt != null;
 }
 
 // `at` is a database instant read after the worker sent its request, which
@@ -1019,8 +1049,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                   tx,
                   launch,
                   launch.sessionId,
-                  input.runnable,
-                  input.costLimitUsd,
+                  input,
                   input.now,
                 );
           return { outcome: givenUp ?? "no_session" };
@@ -1304,6 +1333,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
+        // The scheduler is draining the launch to replace it (94S-250): the
+        // turn this attempt runs is its last. Read under the session lock,
+        // which `requestDrain` takes before it looks for an open turn.
+        if (!redelivery && (await drainRequested(tx, fenced.attempt))) {
+          return none;
+        }
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {

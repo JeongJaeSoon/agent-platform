@@ -42,7 +42,6 @@ bun run keys create quickstart \
 |---|---|
 | `packages/contracts` | Zod 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`shared`(ID·error)로 분리. `docs/openapi.json`은 `bun run --cwd packages/contracts openapi:generate`로 생성하며 테스트가 drift를 검출. 이 파일이 유일한 정본이고 API는 이를 서빙하지 않는다(`/openapi.json`은 404) |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
-| `packages/queue` | PostgreSQL durable queue·이벤트·lease, Redis placeholder |
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
 | `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |

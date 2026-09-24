@@ -65,7 +65,8 @@ up() {
     echo "== build (${project})" >&2
     # migrate builds from the same Dockerfile under the project's own name;
     # left out, a kept stack runs an old image missing the newest migrations.
-    dc build api migrate worker egress-proxy >"$state/build.log" 2>&1
+    # SOAK_BUILD_ROOT: another checkout to build the images from (rc.sh).
+    (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
   dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$state/up.log" 2>&1

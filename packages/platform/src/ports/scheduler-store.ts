@@ -201,6 +201,17 @@ export type PendingWorkspaceReclaim = {
  * Durable side of the scheduler. Every method is its own transaction so the
  * provider call always happens after the intent is committed.
  */
+/** Where the drain of a claimed launch stands (`requestDrain`). */
+export type DrainState = {
+  /**
+   * The worker is not at a boundary yet: a turn on the session it serves is
+   * still open, or it has not asked for its first input (still starting up).
+   */
+  busy: boolean;
+  /** The first request is at least the deadline old, on the storage clock. */
+  overdue: boolean;
+};
+
 export interface SchedulerStore {
   /**
    * Serializes whole scheduling passes. Returns the held lock, or null when
@@ -261,6 +272,19 @@ export interface SchedulerStore {
     expectedCount: number,
     expectedNonceFingerprint?: string | null,
   ): Promise<number | null>;
+  /**
+   * Asks the worker a claimed launch bound to drain, before its resource is
+   * replaced for a contract it no longer meets (94S-250): from the first
+   * call on, the worker is handed no new turn, so the one it runs is its
+   * last. Idempotent — the first request's time is kept and the deadline
+   * counts from it. Answered under the lock a worker's next-input takes, so
+   * `busy: false` means no turn can start on it any more. Null when the
+   * launch holds no binding, has given its slot back, or was asked to go.
+   */
+  requestDrain(
+    ref: ExecutionRef,
+    deadlineMs: number,
+  ): Promise<DrainState | null>;
   /**
    * The replacement landed: the resource built from the intent is up. Clears
    * the pending reason and keeps the count — only while the count is still
