@@ -1161,15 +1161,25 @@ describe("Claude session store counting entries across captures (94S-380)", () =
     }
   }
 
-  test("parses only the parts appended since the last capture", async () => {
+  /**
+   * `JSON.parse` calls made by the capture after one more single-entry part,
+   * on top of `history` parts already captured. What one entry costs is the
+   * serializer's business; that it does not grow with the history is this
+   * store's.
+   */
+  async function parsesAfter(history: number): Promise<number> {
     const mirror = launch(createMemoryCheckpointObjectStore());
-    await appendMany(mirror, 0, 200);
+    await appendMany(mirror, 0, history);
     await mirror.captureTranscripts(sessionId);
     await mirror.append(root, [entry("next", "one more")]);
+    return parsesDuring(() => mirror.captureTranscripts(sessionId));
+  }
 
-    expect(await parsesDuring(() => mirror.captureTranscripts(sessionId))).toBe(
-      1,
-    );
+  test("parses only the parts appended since the last capture", async () => {
+    const one = await parsesAfter(1);
+
+    expect(one).toBeGreaterThan(0);
+    expect(await parsesAfter(200)).toBe(one);
   });
 
   test("carries the count over a merge, so the capture after it parses only what is new", async () => {
@@ -1180,7 +1190,7 @@ describe("Claude session store counting entries across captures (94S-380)", () =
     await mirror.append(root, [entry("next", "one more")]);
 
     expect(await parsesDuring(() => mirror.captureTranscripts(sessionId))).toBe(
-      1,
+      await parsesAfter(1),
     );
   });
 
