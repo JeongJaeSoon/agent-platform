@@ -426,6 +426,8 @@ async function sweepWorkerScratch(root: string): Promise<void> {
   if (found?.isDirectory() !== true) return;
   // The worker never borrows objects; a checkout that does could be
   // borrowing them from one of these, and they are kept rather than lost.
+  const objects = await lstat(join(gitDirectory, "objects")).catch(() => null);
+  if (objects?.isDirectory() !== true) return;
   for (const borrowed of ["objects/info/alternates", "commondir"]) {
     if (
       (await lstat(join(gitDirectory, borrowed)).catch(() => null)) !== null

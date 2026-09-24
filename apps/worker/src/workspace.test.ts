@@ -357,19 +357,29 @@ describe("GitWorkspace", () => {
     ).toEqual([RESTORED_CHECKPOINT_DIRECTORY]);
   });
 
-  test("keeps worker-named scratch in a checkout that borrows objects, which may be from it (94S-377)", async () => {
-    await prepare(descriptor());
-    const gitDirectory = join(root, ".git");
-    const lender = join(gitDirectory, "agent-platform-capture-q1W2e3");
-    await mkdir(join(lender, "objects"), { recursive: true });
-    await writeFile(
-      join(gitDirectory, "objects", "info", "alternates"),
-      `${join(lender, "objects")}\n`,
-    );
+  test.each(["alternates", "a linked object store"])(
+    "keeps worker-named scratch in a checkout that borrows objects through %s, which may be from it (94S-377)",
+    async (how) => {
+      await prepare(descriptor());
+      const gitDirectory = join(root, ".git");
+      const lender = join(gitDirectory, "agent-platform-capture-q1W2e3");
+      await mkdir(lender);
+      if (how === "alternates") {
+        await mkdir(join(lender, "objects"));
+        await writeFile(
+          join(gitDirectory, "objects", "info", "alternates"),
+          `${join(lender, "objects")}\n`,
+        );
+      } else {
+        // Every object the checkout has now lives in the scratch.
+        await rename(join(gitDirectory, "objects"), join(lender, "objects"));
+        await symlink(join(lender, "objects"), join(gitDirectory, "objects"));
+      }
 
-    expect(await prepare(descriptor())).toBe("reuse");
-    expect(await readdir(lender)).toEqual(["objects"]);
-  });
+      expect(await prepare(descriptor())).toBe("reuse");
+      expect(await readdir(lender)).toEqual(["objects"]);
+    },
+  );
 
   test("refuses a reuse whose .git is not a directory of its own rather than put the mirror elsewhere (94S-377)", async () => {
     await prepare(descriptor());

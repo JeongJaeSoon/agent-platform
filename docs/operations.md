@@ -180,7 +180,7 @@ checkout 전의 고정 비용은 bundle 상한 2배 + untracked 상한, 곧 768 
 | mirror clone과 로컬 fetch | 기존 W, I, T, U + mirror M + Δ | 세션 사용량 + M + Δ |
 | fetch 뒤 | W + Δ, I, T, U (mirror는 지운다) | 세션 사용량 + Δ |
 
-M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/agent-platform-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `agent-platform-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`) 그 대상일 수 있으므로 지우지 않는다.
+M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/agent-platform-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `agent-platform-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
 
 복원 뒤 `.git/agent-platform-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 94S-370 전에는 이 저장소가 사슬 전체(≈B)를 세션 내내 들고 있었다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
 
