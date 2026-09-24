@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   Api,
+  bash,
   type ErrorBody,
   e2eEnv,
   poll,
@@ -45,11 +46,6 @@ function must<T>(value: T | undefined): T {
 async function revision(sessionId: string): Promise<number> {
   return (await api.session(sessionId)).revision;
 }
-
-const bash = (command: string) => ({
-  tool: "Bash",
-  input: { command, description: command },
-});
 
 describe("alpha path over public HTTP (94S-134)", () => {
   test(
