@@ -17,6 +17,8 @@ WORKDIR /app
 # Owned by root and only readable by the proxy's user, so a compromised
 # proxy cannot rewrite the code the next start runs.
 COPY apps/egress-proxy/package.json ./
+# The licenses of what this image ships: the Bun base (94S-338).
+COPY THIRD_PARTY_NOTICES.md ./
 COPY apps/egress-proxy/src ./src
 USER 1000:1000
 ENV NODE_ENV=production

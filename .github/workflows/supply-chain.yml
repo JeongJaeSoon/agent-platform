@@ -1,0 +1,65 @@
+name: Supply chain
+
+# Known vulnerabilities in the npm dependencies (94S-338). Apart from ci.yml on
+# purpose: `bun audit` asks the npm advisory service, and a live service must
+# not make the required `check` flaky. Nothing here is a required check.
+#
+# A pull request fails this run on a high or critical advisory. The daily run
+# opens or appends to an issue instead (the 94S-238 way): an advisory
+# published overnight belongs to no pull request, and the issue is where it
+# is seen. The images' OS packages are scanned in images.yml.
+on:
+  pull_request:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      # The whole bun.lock, dev dependencies included: `bun audit` reads the
+      # lockfile, not node_modules, and has no production filter; a
+      # compromised build tool is a supply-chain problem too. Every advisory
+      # is printed first so the log shows what sits below the bar.
+      - name: bun audit (fails at high)
+        run: |
+          bun audit || true
+          echo "--- threshold: high"
+          bun audit --audit-level=high
+
+  # Only off pull requests, where no one watches the run: the failure becomes
+  # an issue. Its own job so that the audit never holds a token that writes.
+  report:
+    needs: audit
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- ci-dependency-audit -->"
+            echo "\`bun audit --audit-level=high\` failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo
+            echo "The run's log lists each advisory and the dependency path to it. Update the dependency, or record why it does not apply with \`--ignore <CVE>\` in supply-chain.yml. Close this issue once handled; the next failure opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-dependency-audit \
+            "Supply chain: high or critical npm advisory" body.md

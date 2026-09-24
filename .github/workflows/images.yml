@@ -5,11 +5,19 @@ name: Images
 # every digest as an artifact. Only a tag push publishes to ghcr.io: the
 # digests from that run are what a release manifest pins (Obsidian
 # deployment.md § 배포·승격·롤백). Registry CD beyond the push is D5.
+#
+# Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
+# and scans it for known vulnerabilities (94S-338). The scan never fails the
+# build: the base image is pinned by digest, so a CVE fixed upstream shows up
+# in every open PR at once and belongs to none of them. The daily run turns a
+# fixable high or critical finding into an issue (`vulnerability-report`).
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 # Read-only for every job but `publish`: a pull request can edit this file,
@@ -32,7 +40,7 @@ jobs:
   build:
     # Pinned rather than ubuntu-latest for the same reason as ci.yml.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +78,82 @@ jobs:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-smoke.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
+
+      # THIRD_PARTY_NOTICES.md is computed from bun.lock; this is where that
+      # model meets the built image. Every npm package under /app must be
+      # listed for this image (the script runs on the image's own Bun), and
+      # every Debian package must carry the copyright file the notices point
+      # to.
+      - name: Licenses of what the image ships
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+        run: |
+          image="${NAME}:sha-${GITHUB_SHA::12}"
+          docker run --rm --entrypoint bun -v "$PWD:/repo:ro" "$image" \
+            /repo/scripts/third-party-notices.ts --verify "$APP" /app
+          missing="$(docker run --rm --entrypoint sh "$image" -c \
+            'dpkg-query -W -f "\${Package}\n" | while read -r p; do [ -e "/usr/share/doc/$p/copyright" ] || echo "$p"; done')"
+          if [ -n "$missing" ]; then
+            echo "::error::Debian packages without /usr/share/doc/<package>/copyright: ${missing}"
+            exit 1
+          fi
+          echo "${APP}: every Debian package carries its copyright file"
+
+      # Grype over the whole image: Debian packages and the npm packages
+      # under /app. A release binary pinned by version and checksum rather
+      # than a third-party action, whose tags can be moved under us. The
+      # table in the log is unfiltered, unfixed findings included; the bar
+      # (`high` and above with a fix available) is what gets reported.
+      - name: Vulnerability scan
+        # A scan that cannot run (release download, database update) leaves
+        # `error` for the daily report rather than failing the build.
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+          GRYPE_VERSION: 0.119.0
+          GRYPE_SHA256: 3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
+        run: |
+          image="${NAME}:sha-${GITHUB_SHA::12}"
+          mkdir -p vulnerabilities
+          result=error
+          trap 'echo "$result" >"vulnerabilities/${APP}.txt"' EXIT
+          curl -fsSL --retry 3 -o grype.tar.gz \
+            "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c -
+          tar -xzf grype.tar.gz grype
+          # Grype refuses a database older than five days on its own, so a
+          # stale one is an error here, not a quiet pass.
+          ./grype db update
+          ./grype "docker:${image}" -o table -o "json=scan.json" | tee scan.txt
+          fixable="$(jq '[.matches[] | select(.vulnerability.fix.state == "fixed")
+            | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")] | length' scan.json)"
+          {
+            echo "### ${APP}: vulnerabilities"
+            echo
+            echo "${fixable} high or critical with a fix available. Full table in the step log."
+            echo
+            echo '```text'
+            jq -r '.matches[] | select(.vulnerability.fix.state == "fixed")
+              | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")
+              | "\(.artifact.name) \(.artifact.version) → \(.vulnerability.fix.versions | join(",")) \(.vulnerability.id) \(.vulnerability.severity)"' scan.json
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$fixable" -gt 0 ]; then
+            result="found ${fixable}"
+            echo "::warning::${APP}: ${fixable} high or critical vulnerabilities with a fix available"
+          else
+            result=clean
+          fi
+
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vulnerabilities-${{ matrix.app }}
+          path: vulnerabilities/${{ matrix.app }}.txt
+          if-no-files-found: ignore
 
       # One JSON per image. `digest` is the manifest digest buildx computed;
       # a tag run's `publish` job overwrites the file with the registry one.
@@ -312,3 +396,46 @@ jobs:
           name: image-digests-published
           path: digests/*.json
           if-no-files-found: error
+
+  # The daily run's findings as an issue: nobody watches a scheduled run, and
+  # a PR's findings are already in its own summary. `error` counts, since a
+  # scan that could not run found nothing either way.
+  vulnerability-report:
+    needs: build
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: vulnerabilities-*
+          path: vulnerabilities
+          merge-multiple: true
+      - env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          report=""
+          for app in control-host worker egress-proxy; do
+            result="$(cat "vulnerabilities/${app}.txt" 2>/dev/null || echo "no result")"
+            echo "${app}: ${result}"
+            [ "$result" = clean ] || report="${report}| ${app} | ${result} |"$'\n'
+          done
+          [ -n "$report" ] || exit 0
+          {
+            echo "<!-- ci-image-vulnerabilities -->"
+            echo "The daily image scan on \`${GITHUB_SHA}\` ([run ${GITHUB_RUN_ID}](${RUN_URL})) found high or critical vulnerabilities with a fix available, or could not scan."
+            echo
+            echo "| image | result |"
+            echo "| --- | --- |"
+            printf '%s' "$report"
+            echo
+            echo "Each image's findings are in the run summary. The base image is pinned by digest (apps/*/Dockerfile \`BUN_IMAGE\`), so a fix usually means moving that pin. Close this issue once handled; the next finding opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-image-vulnerabilities \
+            "Images: fixable high or critical vulnerabilities" body.md
