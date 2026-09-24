@@ -211,6 +211,13 @@
       "when": 1790232488784,
       "tag": "0120_worker_credentials_object_store",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1790234663314,
+      "tag": "0121_catalog_authority",
+      "breakpoints": true
     }
   ]
 }

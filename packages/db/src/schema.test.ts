@@ -52,6 +52,7 @@ describe("database schema", () => {
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "api_keys",
       "attempts",
+      "catalog_authority",
       "checkpoints",
       "control_intents",
       "events",

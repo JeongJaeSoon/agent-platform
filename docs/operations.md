@@ -298,7 +298,17 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
 - `repositories.<id>.profiles`가 그 저장소에서 돌 수 있는 profile allowlist다. `(profile, repository)` 쌍이 신뢰 단위이며, 목록에 없는 쌍이나 모르는 id로 `POST /v1/sessions`를 부르면 `422`다.
 - 이미 만든 세션의 쌍이 빠졌거나, id가 다른 URL·branch를 가리키게 되거나(94S-280), 같은 profile id의 설정(model·tools·permission_mode·endpoint·runtime version·project_settings·자격 증명 참조 위치)이 세션을 만들 때와 달라지면(94S-253), 세션 상세의 `attention`이 `CATALOG_MISMATCH`가 되고 그 세션으로 뜬 worker의 첫 claim이 `409 CATALOG_MISMATCH`를 받는다. 그 자리에서 대기 중이던 turn은 `failed`(`terminal_reason: catalog_mismatch`), 해당 receipt는 `CATALOG_MISMATCH`, 세션은 `failed`가 되고 status 이벤트에 같은 코드가 남는다. worker는 claim timeout을 기다리지 않고 바로 나가며, 다음 scheduler pass가 슬롯을 돌려받아 다른 세션을 띄운다. 메시지에는 저장소 id만 적히고 URL은 나오지 않는다. `resuming` 중인 세션이면 resume이 `CATALOG_MISMATCH`로 실패해 `recovery_required`로 가고, 대기 중인 입력은 복구 결정을 위해 남는다(94S-138과 같은 경로).
 - **카탈로그를 되돌려도 저절로 다시 실행되지는 않는다.** 되돌리면 `attention`이 사라지고, 그 세션에 새 메시지를 보내면 새 generation으로 다시 뜬다. 실패한 turn은 재시도되지 않으므로 필요한 입력은 다시 보낸다. 되돌리지 않은 채 메시지를 보내면 그 입력도 첫 claim에서 곧바로 같은 코드로 실패한다(추가 메시지를 422로 막지는 않는다 — 받은 입력은 receipt로 결말을 알린다).
-- 이 즉시 실패는 API가 **한 프로세스**일 때를 전제로 한다. 각 API는 기동 시 읽은 자기 카탈로그로 판단하므로, 카탈로그가 다른 replica가 섞인 rolling update 동안에는 요청을 받은 replica에 따라 세션이 실패할 수 있다. API를 둘 이상 띄우기 전에 94S-295(운영자가 활성화한 catalog revision으로만 판단)가 필요하다.
+- **이 즉시 실패는 권위 있는 카탈로그만 쓴다(94S-295).** 각 API는 기동 시 읽은 자기 카탈로그로 판단한다. 그래서 카탈로그가 다른 replica가 섞인 rolling update 동안에는 요청을 받은 replica에 따라, 다른 replica라면 돌릴 세션이 실패할 수 있다. 이를 막으려고 DB에 **활성 catalog revision**(`catalog_authority`, 행 하나)을 둔다. 기동 로그 `Session catalog loaded`의 `revision`이 활성 revision과 같은 replica만 세션을 실패시킨다. 다른 replica는 아무것도 쓰지 않고 claim에 `404 NOT_FOUND`(잡을 세션 없음)로 답한다. worker는 claim timeout 뒤 나가고, 94S-207의 launch 실패 횟수·격리가 안전망으로 남는다. 활성 revision은 API가 스스로 정하지 않고 운영자가 compare-and-swap으로만 바꾼다. API 기동은 이 행을 읽지 않고, 불일치 경로에서만 읽는다.
+  - **한 replica(compose 기본):** 행이 없으면 모든 API가 권위 있는 것으로 본다. 활성화하지 않아도 94S-280 동작(첫 claim에 즉시 실패)은 그대로다.
+  - **둘 이상 띄우기 전:** 지금 카탈로그의 revision을 활성화한다: `bun run catalog-authority activate <revision> --expected none`. compose 밖이라면 API 이미지 안에서 `DATABASE_URL`을 주고 `bun run apps/control-host/src/api/catalog-authority.ts …`로 같은 명령을 쓴다. 활성화한 뒤로는 행을 지우지 않는다.
+  - **카탈로그 변경:** 활성화를 롤아웃의 첫 단계로 한다.
+    1. 새 카탈로그로 replica 하나를 먼저 올리고, 기동 로그에서 새 revision을 읽는다.
+    2. `bun run catalog-authority activate <새 revision> --expected <옛 revision>`으로 넘긴다. 이때부터 옛 replica는 권위가 없어 어떤 세션도 즉시 실패시키지 않는다. 롤아웃 동안 옛 replica가 비권위인 것은 의도된 안전 방향이다(권위 없는 쪽은 실패를 쓰지 않을 뿐 세션을 잃지 않는다).
+    3. 나머지 replica를 올린다.
+    - 새로 **추가**한 쌍으로 세션을 만드는 것은 2 뒤에 한다. 그 전에는 옛 revision이 활성이라, 그 쌍을 모르는 옛 replica가 새 replica에서 만든 세션을 실패시킬 수 있다.
+    - 쌍을 **빼는** 변경은 2부터 새 replica가 빠진 쌍의 세션을 즉시 실패시킨다.
+  - **롤백:** 같은 순서를 거꾸로 밟는다. 옛 카탈로그 replica 하나를 올린 뒤 `activate <옛 revision> --expected <새 revision>`을 실행하고 나머지를 되돌린다. `--expected`가 지금 값과 다르면 아무것도 바꾸지 않고 `conflict`와 지금 값을 출력하며 1로 끝난다. 지금 값은 `bun run catalog-authority show`로 본다.
+  - **판단 기록:** 권위 없는 replica가 빠진 쌍의 세션을 claim까지 거절하지는 않는다. 쌍을 모르는 replica는 원래 그 세션을 claim하지 않는다. 쌍을 아는 옛 replica는 옛 카탈로그를 믿으므로 롤아웃 동안 한 번 더 돌릴 수 있다. 쌍을 빼는 일이 보안 경계라면(그 저장소에서 더는 돌면 안 되는 경우) 옛 replica를 먼저 내린 뒤 뺀다.
 - 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다.
 - 두 자격 증명 모두 8바이트보다 짧으면 API가 기동을 거부한다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
