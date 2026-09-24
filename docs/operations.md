@@ -155,6 +155,28 @@ volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든
 
 CPU·메모리·PID·tmpfs와 달리 `/workspace`에는 상한이 없었다. `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096)가 `local` 드라이버의 `size` driver option으로 그 상한이 된다. 단 이 옵션은 **daemon의 저장소가 project quota를 감당할 때만**(xfs + `prjquota`) 동작하고, 그렇지 않으면 daemon이 create를 `400 quota size requested but no quota support`로 거절한다. scheduler는 pass 전에 probe volume을 하나 만들어 보는 것으로 이 능력을 확인하고(`verifyWorkspaceQuota`), 감당하지 못하는 daemon에서는 **아무것도 띄우지 않고 종료한다.** 조용히 무제한으로 떨어지는 경로는 없고, 무제한을 감수하려면 `EXECUTION_WORKSPACE_QUOTA=off`를 명시해야 한다 — 그 경우 scheduler pass마다 경고 1건이 남는다. `on`·`off` 외의 값(`false`, `0`, `no`)은 오타로 보고 거절한다.
 
+**quota 최솟값은 1024 MiB다 (94S-370).** 이보다 작은 `EXECUTION_WORKSPACE_QUOTA_MB`는 기동 시 거절된다. checkpoint 복원이 workspace volume을 한때 이만큼 쓰기 때문이다. 복원은 root를 비운 뒤 아래 순서로 진행한다. 표의 기호는 다음과 같다.
+
+- B: bundle 사슬 합계. control plane 상한은 256 MiB다.
+- U: untracked 파일. capture 상한은 256 MiB다.
+- W: workspace `.git`이 받은 객체. 대략 B다.
+- I: instructions commit이 닿는 객체. W 이하다.
+- T: checkout된 작업 트리와 index.
+
+| 단계 | 동시에 차지하는 것 | 최대 |
+| --- | --- | --- |
+| 내려받기 | bundle 파일 B, U | 512 MiB |
+| staging | bundle 파일 B, staged 저장소 ≈B, U | ≈768 MiB |
+| workspace fetch | staged 저장소 ≈B, W, U (bundle 파일은 staging 직후 지운다) | ≈768 MiB |
+| staged 저장소 축소 | W, I, U (staged 저장소를 먼저 지운다) | ≤768 MiB |
+| checkout 이후, 세션 내내 | W, I, T, U | 2B + T + U |
+
+checkout 전의 고정 비용은 bundle 상한 2배 + untracked 상한, 곧 768 MiB다. 1024 MiB는 여기에 pack index와 여유를 더한 값이다. incremental thin pack을 채우는 delta base 사본도 이 여유에 들어간다. checkout 뒤의 T는 세션의 작업 트리 자체라 상한이 없다. 그래서 최솟값은 세션과 무관한 checkout 전 비용만 보장한다. checkout 뒤의 W + I + T + U는 같은 quota 안에서 capture할 때 그 세션이 이미 쓰던 양과 비슷하다. capture 때는 workspace `.git`, 작업 트리, untracked, scratch 저장소의 snapshot 객체, bundle 파일(≤B)이 함께 있었다. I는 B 이하다. quota를 낮춘 뒤 새 volume에 복원하는 경우는 이 보장 밖이다. 이때는 복원이 checkout 중 ENOSPC로 실패할 수 있다.
+
+복원 뒤 `.git/agent-platform-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 94S-370 전에는 이 저장소가 사슬 전체(≈B)를 세션 내내 들고 있었다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
+
+이 축소에는 대가가 있다. 다음 incremental capture는 사슬의 tip 중 아직 있는 것만 제외 대상으로 삼는다. 이전 base bundle만의 snapshot commit은 이제 남지 않는다. 마지막 bundle의 snapshot도 workspace `.git`에 참조 없이 들어 있을 뿐이다. 보통의 `git gc`는 2주 동안 이것을 지우지 않는다. 하지만 engine이 `git gc --prune=now`를 돌리면 사라진다. 그러면 남은 tip(이력에 남은 HEAD commit, instructions commit)을 기준으로 bundle을 만든다. 그 결과 bundle이 커지거나 전체 bundle로 되돌아갈 수 있다. 올바름은 그대로다. 전체 bundle이 상한을 넘는 저장소는 사슬이 32개나 상한에 닿아 재시작할 때도 어차피 거절된다.
+
 **inode 상한도 같은 project에 건다 (94S-224).** byte 상한만으로는 빈 파일 수백만 개로 inode를 소진하는 경로가 남는다. xfs는 inode를 project의 block 사용량에 매기지 않으므로 4GiB 안에서도 된다. 그러면 같은 daemon의 다른 세션과 Postgres가 파일을 만들지 못한다. `local` 드라이버에는 inode 옵션이 없고, `o=loop`로 세션마다 파일시스템을 만드는 길도 막혀 있다. 드라이버가 `mount(8)`이 아니라 mount syscall을 부르기 때문이다(`data: loop: invalid argument`). 그래서 Docker가 `size`로 만든 xfs project에 우리가 `ihard`·`isoft`(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000)를 직접 건다.
 
 - 거는 주체는 짧게 도는 helper 컨테이너(`workspace-inodes.ts`)다. 설정은 `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs이고 privileged는 아니다.
