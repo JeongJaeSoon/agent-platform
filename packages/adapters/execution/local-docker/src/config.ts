@@ -62,11 +62,11 @@ export type LocalDockerBackendConfig = {
    */
   installationId: string;
   /**
-   * Where the worker mirrors transcripts and publishes checkpoints. Handed
-   * to the container as the same `S3_BUCKET`/`AWS_*` variables the control
-   * host reads, plus the session prefix the backend computes per launch.
-   * The endpoint must be on the egress proxy's allowlist or the worker
-   * cannot reach it (`infra/docker-compose.yml`).
+   * Where the worker mirrors transcripts and publishes checkpoints: the
+   * bucket and region, plus the session prefix the backend computes per
+   * launch. No endpoint and no credential — the worker reaches the store
+   * only through the egress proxy's object store route, which the API signs
+   * for (94S-251).
    */
   objectStore: WorkerObjectStoreAccess;
   /** Deadline for each Docker Engine API call. */
@@ -98,26 +98,13 @@ export type LocalDockerBackendConfig = {
 };
 
 export type WorkerObjectStoreAccess = {
-  accessKeyId: string;
   bucket: string;
-  /** Absent means AWS itself, over https. */
-  endpoint?: string;
   region: string;
-  /**
-   * Bucket-wide today: nothing short of an STS session policy can narrow a
-   * credential to one session's prefix, and no deployment here has an
-   * identity provider to mint one. The worker confines itself with a prefix
-   * guard instead (`scopedCheckpointObjectStore`).
-   */
-  secretAccessKey: string;
 };
 
 /** Shaped like the process environment so it can be passed straight through. */
 export type LocalDockerBackendEnvironment = {
-  AWS_ACCESS_KEY_ID?: string | undefined;
-  AWS_ENDPOINT_URL?: string | undefined;
   AWS_REGION?: string | undefined;
-  AWS_SECRET_ACCESS_KEY?: string | undefined;
   DOCKER_API_VERSION?: string | undefined;
   DOCKER_HOST?: string | undefined;
   /** Whitespace-separated entrypoint override, e.g. `sleep 600` for tests. */
@@ -275,19 +262,9 @@ function workspaceQuotaFromEnv(
 function objectStoreAccessFromEnv(
   environment: LocalDockerBackendEnvironment,
 ): WorkerObjectStoreAccess {
-  const endpoint = environment.AWS_ENDPOINT_URL?.trim();
   return {
-    accessKeyId: requiredValue(
-      environment.AWS_ACCESS_KEY_ID,
-      "AWS_ACCESS_KEY_ID",
-    ),
     bucket: requiredValue(environment.S3_BUCKET, "S3_BUCKET"),
-    ...(endpoint ? { endpoint } : {}),
     region: requiredValue(environment.AWS_REGION, "AWS_REGION"),
-    secretAccessKey: requiredValue(
-      environment.AWS_SECRET_ACCESS_KEY,
-      "AWS_SECRET_ACCESS_KEY",
-    ),
   };
 }
 
@@ -410,41 +387,9 @@ export function validateLocalDockerConfig(
     throw new Error("workspaceGcMinAgeMs must be a non-negative integer");
   }
   const { objectStore } = config;
-  // The same rule the worker's `objectStoreConfigFromEnv` applies, checked
-  // here so a launch is refused before an intent is reserved rather than by
-  // every container dying at startup. No endpoint means AWS itself.
-  if (objectStore.endpoint !== undefined) {
-    let endpoint: URL;
-    try {
-      endpoint = new URL(objectStore.endpoint);
-    } catch {
-      // Not quoted: a value that failed to parse may still hold a credential.
-      throw new Error("AWS_ENDPOINT_URL is not a URL");
-    }
-    // The URL is quoted in messages and labels; a credential in it would be
-    // too, so this comes before any message that quotes it.
-    if (endpoint.username !== "" || endpoint.password !== "") {
-      throw new Error("AWS_ENDPOINT_URL must not carry credentials");
-    }
-    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
-      throw new Error(
-        `AWS_ENDPOINT_URL ${objectStore.endpoint} must be an http:// or https:// URL`,
-      );
-    }
-    if (
-      endpoint.protocol === "https:" &&
-      isIP(endpoint.hostname.replace(/^\[|\]$/g, ""))
-    ) {
-      throw new Error(
-        `AWS_ENDPOINT_URL ${objectStore.endpoint} must name its host: an https object store is not reached by address`,
-      );
-    }
-  }
   // Names only in these messages, never the values: they end up in logs.
   for (const [name, value] of [
-    ["AWS_ACCESS_KEY_ID", objectStore.accessKeyId],
     ["AWS_REGION", objectStore.region],
-    ["AWS_SECRET_ACCESS_KEY", objectStore.secretAccessKey],
     ["S3_BUCKET", objectStore.bucket],
   ] as const) {
     if (value.trim() === "" || /[\s=]/.test(value)) {
