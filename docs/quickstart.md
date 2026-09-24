@@ -64,7 +64,7 @@ KEY=$(bun run keys create quickstart \
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다. 브라우저로 로그인하거나 push하려면 `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>`로 직접 정한다.
 
-두 번째 명령은 API 컨테이너 안에서 key CLI(`apps/api/src/keys.ts`)를 돌려 key를 한 번만 출력한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 9단계의 recovery 호출이 403이다. Bun이 없으면 `docker compose --profile apps exec -T api bun run apps/api/src/keys.ts create ...`가 같은 일을 한다.
+두 번째 명령은 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌려 key를 한 번만 출력한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 9단계의 recovery 호출이 403이다. Bun이 없으면 `docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts create ...`가 같은 일을 한다.
 
 코드를 새로 받은 뒤에는 같은 `up -d --build`를 다시 실행한다. `--build` 없이 올리면 예전에 빌드한 이미지가 그대로 쓰인다.
 

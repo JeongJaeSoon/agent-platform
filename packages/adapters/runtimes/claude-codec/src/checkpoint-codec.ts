@@ -1,7 +1,7 @@
 /**
  * The Claude checkpoint manifest codec, in a package of its own so the control
  * plane can decode and validate manifests without depending on the Claude
- * Agent SDK: the API image is built without it (apps/api/Dockerfile), and the
+ * Agent SDK: the API image is built without it (apps/control-host/Dockerfile), and the
  * adapter package that runs the SDK declares it. Everything that needs the
  * runtime's configuration (the profile fingerprint) stays in the adapter.
  */

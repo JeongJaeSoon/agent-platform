@@ -10,12 +10,13 @@
         "typescript": "5.9.2",
       },
     },
-    "apps/api": {
-      "name": "@agent-platform/api",
+    "apps/control-host": {
+      "name": "@agent-platform/control-host",
       "version": "0.0.0",
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/db": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
         "@agent-platform/observability": "workspace:*",
         "@agent-platform/platform": "workspace:*",
         "@agent-platform/runtime-claude-codec": "workspace:*",
@@ -36,37 +37,6 @@
     "apps/egress-proxy": {
       "name": "@agent-platform/egress-proxy",
       "version": "0.0.0",
-    },
-    "apps/reconciler": {
-      "name": "@agent-platform/reconciler",
-      "version": "0.0.0",
-      "dependencies": {
-        "@agent-platform/db": "workspace:*",
-        "@agent-platform/observability": "workspace:*",
-        "@agent-platform/platform": "workspace:*",
-        "drizzle-orm": "0.45.2",
-        "pg": "8.16.3",
-      },
-      "devDependencies": {
-        "@agent-platform/testkit": "workspace:*",
-        "@types/pg": "8.15.5",
-      },
-    },
-    "apps/scheduler": {
-      "name": "@agent-platform/scheduler",
-      "version": "0.0.0",
-      "dependencies": {
-        "@agent-platform/db": "workspace:*",
-        "@agent-platform/execution-local-docker": "workspace:*",
-        "@agent-platform/observability": "workspace:*",
-        "@agent-platform/platform": "workspace:*",
-        "drizzle-orm": "0.45.2",
-        "pg": "8.16.3",
-      },
-      "devDependencies": {
-        "@agent-platform/testkit": "workspace:*",
-        "@types/pg": "8.15.5",
-      },
     },
     "apps/worker": {
       "name": "@agent-platform/worker",
@@ -223,9 +193,9 @@
     },
   },
   "packages": {
-    "@agent-platform/api": ["@agent-platform/api@workspace:apps/api"],
-
     "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
+
+    "@agent-platform/control-host": ["@agent-platform/control-host@workspace:apps/control-host"],
 
     "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
@@ -239,15 +209,11 @@
 
     "@agent-platform/queue": ["@agent-platform/queue@workspace:packages/queue"],
 
-    "@agent-platform/reconciler": ["@agent-platform/reconciler@workspace:apps/reconciler"],
-
     "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
     "@agent-platform/runtime-claude-codec": ["@agent-platform/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
     "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
-
-    "@agent-platform/scheduler": ["@agent-platform/scheduler@workspace:apps/scheduler"],
 
     "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 

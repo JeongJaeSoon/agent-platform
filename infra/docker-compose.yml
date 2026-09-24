@@ -63,7 +63,7 @@ services:
   migrate:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/control-host/Dockerfile
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
@@ -189,7 +189,7 @@ services:
     environment:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
-      # stays for an API started on the host with `bun run --cwd apps/api start`.
+      # stays for an API started on the host with `bun run --cwd apps/control-host start`.
       # localstack:4566 is the worker's object store (94S-244);
       # fake-messages:4010 is the example profile's Messages API (94S-132).
       # `secrets` is deliberately absent.
@@ -226,15 +226,15 @@ services:
   api:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
-    image: ${API_IMAGE:-agent-platform-api:dev}
+      dockerfile: apps/control-host/Dockerfile
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
     # Docker's default 10s would SIGKILL a shutdown that may run to
     # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
-    # apps/api/src/shutdown.ts); one open SSE stream is enough to use the
+    # apps/control-host/src/api/shutdown.ts); one open SSE stream is enough to use the
     # whole drain. Keep this above the sum.
     stop_grace_period: 45s
-    # No `init: true`: the image's own ENTRYPOINT is tini (apps/api/Dockerfile),
+    # No `init: true`: the image's own ENTRYPOINT is tini (apps/control-host/Dockerfile),
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
     #
@@ -274,7 +274,7 @@ services:
       # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
       # any X-Owner-Id as the caller's identity, so a compromised worker could
       # act as any owner. Issue a key with
-      # `docker compose exec api bun run apps/api/src/keys.ts create <owner>
+      # `docker compose exec api bun run apps/control-host/src/api/keys.ts create <owner>
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
@@ -354,52 +354,45 @@ services:
       - /tmp:uid=1000,gid=1000
       - /home/bun:uid=1000,gid=1000
 
-  # Renamed from local-scaler when the app became apps/scheduler (94S-123).
-  # apps/scheduler is one pass per process (cron/Job shape); the loop that
-  # makes a locally accepted session actually grow a worker lives here, in
-  # compose, so the app keeps its one-shot contract. The app's non-zero exit
-  # is kept observable two ways: the loop gives up after
+  # The control host's scheduler role (94S-117): the same pass loop as the
+  # reconciler below (apps/control-host/src/pass-loop), one scheduling pass
+  # per child process every SCHEDULER_INTERVAL_SEC. It gives up after
   # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
-  # engages and `compose ps` shows it restarting, and the healthcheck goes
-  # unhealthy when no pass has succeeded for SCHEDULER_HEALTH_STALE_SEC. A
-  # frozen database ends a pass on its own: JOB_POOL_TIMEOUTS
-  # (packages/db/src/pool.ts) bound the failing statement to connect 5s +
-  # read 20s and the pass-lock unlock to another 20s, and every store call
-  # after a lost connection fails at once, so the pass exits 1 about 45s in
-  # (94S-255). SCHEDULER_PASS_TIMEOUT_SEC stays above that budget as the
-  # watchdog for anything else that hangs — Docker calls have no such
-  # bound — and a killed pass counts as a failure too, since Docker never
-  # restarts a container for being unhealthy.
+  # engages, and the healthcheck is unhealthy when the last pass failed, when
+  # a pass runs past its deadline, or once no pass has succeeded for
+  # SCHEDULER_HEALTH_STALE_SEC; a pass skipped because another held the lock
+  # counts as neither. `docker compose exec scheduler cat
+  # /tmp/scheduler-status.json` shows the last outcomes. A frozen database
+  # ends a pass on its own: JOB_POOL_TIMEOUTS (packages/db/src/pool.ts) bound
+  # the failing statement to connect 5s + read 20s and the pass-lock unlock
+  # to another 20s, and every store call after a lost connection fails at
+  # once, so the pass exits 1 about 45s in (94S-255).
+  # SCHEDULER_PASS_TIMEOUT_SEC stays above that budget as the watchdog for
+  # anything else that hangs — Docker calls have no such bound.
+  #
+  # Stopping: SIGTERM stops the loop, and the pass in flight stops at its next
+  # safe point, before any further reservation; it is killed 30s later
+  # (PASS_LOOP_ROLES.scheduler.stopGraceSec). stop_grace_period leaves room
+  # for that before Docker kills the loop itself. Stopping the scheduler ends
+  # no worker: a slot is given back only once a pass has seen the worker gone.
   scheduler:
-    build:
-      context: ..
-      dockerfile: apps/scheduler/Dockerfile
-    image: ${SCHEDULER_IMAGE:-agent-platform-scheduler:dev}
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
-    command:
-      - sh
-      - -c
-      - |
-        fails=0
-        while :; do
-          if timeout -k 10 "$${SCHEDULER_PASS_TIMEOUT_SEC:-120}" bun run apps/scheduler/src/main.ts; then
-            fails=0
-            touch /tmp/scheduler-last-ok
-          else
-            fails=$$((fails + 1))
-            echo "scheduler pass failed ($$fails consecutive)" >&2
-            if [ "$$fails" -ge "$${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}" ]; then
-              echo "giving up after $$fails failed passes" >&2
-              exit 1
-            fi
-          fi
-          sleep "$${SCHEDULER_INTERVAL_SEC:-5}"
-        done
+    # The control-host image's scheduler role. `api` builds that image, and
+    # depends_on a healthy api orders the build before this container.
+    # Root on purpose: the process owns the Docker socket, and whoever
+    # holds that socket is root on the daemon host anyway. The socket's
+    # group id differs per daemon (Desktop, colima, Linux), so a fixed
+    # non-root uid would only work on some of them while buying no
+    # isolation on any.
+    user: "0:0"
+    command: ["bun", "run", "apps/control-host/src/main.ts", "scheduler"]
     restart: unless-stopped
+    stop_grace_period: 45s
     healthcheck:
-      test: ["CMD-SHELL", "find /tmp/scheduler-last-ok -newermt \"$${SCHEDULER_HEALTH_STALE_SEC:-60} seconds ago\" | grep -q ."]
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "scheduler", "--health"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 3
       start_period: 30s
     env_file:
@@ -437,7 +430,9 @@ services:
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
       SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
-      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-60}
+      # Above SCHEDULER_INTERVAL_SEC + SCHEDULER_PASS_TIMEOUT_SEC, or the
+      # scheduler refuses to start: two successes can be that far apart.
+      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-140}
       SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-120}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
@@ -460,8 +455,9 @@ services:
 
   # Lease expiry, overdue interrupts and terminations, and orphan sessions are
   # recovered by nothing else, so this runs by default with the other apps
-  # (94S-320). apps/reconciler/src/loop.ts runs one pass per child process
-  # every RECONCILER_INTERVAL_SEC, kills a pass that outlives
+  # (94S-320). The control host's reconciler role (`main.ts reconciler`, the
+  # pass loop in apps/control-host/src/pass-loop) runs one pass per child
+  # process every RECONCILER_INTERVAL_SEC, kills a pass that outlives
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after
   # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
   # policy engages. The healthcheck reads the status file the loop writes and
@@ -481,12 +477,15 @@ services:
   # service building the same tag races it on export. Starting it on its own
   # needs that image first (`docker compose build api`).
   reconciler:
-    image: ${API_IMAGE:-agent-platform-api:dev}
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
-    command: ["bun", "run", "apps/reconciler/src/loop.ts"]
+    command: ["bun", "run", "apps/control-host/src/main.ts", "reconciler"]
     restart: unless-stopped
+    # A stopped pass has 10s to roll back before the loop kills it
+    # (PASS_LOOP_ROLES.reconciler.stopGraceSec); Docker waits longer.
+    stop_grace_period: 20s
     healthcheck:
-      test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "reconciler", "--health"]
       interval: 10s
       timeout: 5s
       retries: 3

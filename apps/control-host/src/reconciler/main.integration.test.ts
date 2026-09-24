@@ -100,7 +100,13 @@ integration("reconciler process on PostgreSQL", () => {
     // the suite holds must not decide which case this is.
     const { HEARTBEAT_TTL_SEC: _inherited, ...inherited } = process.env;
     const child = Bun.spawn(
-      [process.execPath, "run", `${import.meta.dir}/main.ts`],
+      [
+        process.execPath,
+        "run",
+        `${import.meta.dir}/../main.ts`,
+        "reconciler",
+        "--once",
+      ],
       {
         env: {
           ...inherited,

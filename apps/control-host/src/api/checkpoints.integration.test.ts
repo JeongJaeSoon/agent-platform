@@ -104,7 +104,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 4 });
     db = drizzle(pool, { schema });
     await migrate(db, {
-      migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
+      migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
     });
     // Object Lock, as the compose bucket is: the composition pins and holds
     // checkpoint objects by default (94S-229).

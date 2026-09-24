@@ -4,11 +4,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { BootstrapClaimResponse } from "@agent-platform/contracts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
-} from "@agent-platform/api/src/egress-authorizer.ts";
-import type { BootstrapClaimResponse } from "@agent-platform/contracts";
+} from "@agent-platform/control-host/src/api/egress-authorizer.ts";
 import * as schema from "@agent-platform/db";
 import {
   createPostgresSessionUnitOfWork,
