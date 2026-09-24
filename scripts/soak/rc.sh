@@ -12,7 +12,8 @@
 #    before anything is measured, and refusing to go on with a field empty;
 # 2. runs every fault/contention campaign, each on its own reset stack, and
 #    stops if any failed, so no day is spent on a candidate with a defect
-#    (`soak` resumes from here once that is settled);
+#    (`soak` resumes from here once they finished, and past a failure only
+#    with SOAK_RC_OVERRIDE naming why it was accepted);
 # 3. resets the stack and runs the 24-hour soak (config/soak-24h.json).
 #
 # Campaigns go first because they share the soak135 project with the soak.
@@ -38,6 +39,7 @@ if [ "$stage" = all ]; then
   [ ! -e "$out" ] || die "${out} exists; move it aside first"
 else
   [ -f "$out/rc.json" ] || die "no ${out}/rc.json; run without a stage first"
+  [ ! -e "$out/soak" ] || die "${out}/soak exists; move it aside first"
 fi
 mkdir -p "$out"
 exec > >(tee -a "$out/rc.log") 2>&1
@@ -51,29 +53,44 @@ if [ "$stage" = all ]; then
   # A file, not a heredoc: Homebrew's bash 5.3 hangs on large ones.
   scripts/soak/stack.sh compose ps -a --format '{{.Service}} {{.Image}}' >"$out/services.txt" ||
     die "compose ps failed"
-  images=""
+  : >"$out/images.tsv"
   while read -r service image; do
     id="$(docker image inspect --format '{{.Id}}' "$image")" || die "no image ${image}"
-    images="${images}${service}	${image}	${id}
-"
+    printf '%s\t%s\t%s\n' "$service" "$image" "$id" >>"$out/images.tsv"
   done <"$out/services.txt"
   lock="$(shasum -a 256 bun.lock | cut -d' ' -f1)"
   config="$(shasum -a 256 scripts/soak/config/soak-24h.json | cut -d' ' -f1)"
   worker="$(docker image inspect --format '{{.Id}}' "$WORKER_IMAGE")" || die "no image ${WORKER_IMAGE}"
-  [ -n "$images" ] && [ -n "$lock" ] && [ -n "$config" ] || die "incomplete provenance"
-  jq -n --arg sha "$rc" --arg images "$images" --arg lock "$lock" --arg config "$config" \
+  [ -n "$lock" ] && [ -n "$config" ] || die "incomplete provenance"
+  jq -n --arg sha "$rc" --rawfile images "$out/images.tsv" --arg lock "$lock" --arg config "$config" \
     --arg worker "$WORKER_IMAGE $worker" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{rc_sha: $sha, built_at: $at, bun_lock_sha256: $lock, soak_24h_config_sha256: $config,
       worker_image: $worker,
       images: ($images | split("\n") | map(select(. != "") | split("\t") | {service: .[0], image: .[1], id: .[2]}))}' \
     >"$out/rc.json" || die "could not write rc.json"
+  jq -e '(.images | length > 0 and all(.service != null and .image != null and (.id // "" | startswith("sha256:"))))' \
+    "$out/rc.json" >/dev/null || die "rc.json has an image without an id: $out/rc.json"
   stamp "rc.json written"
 
   stamp "campaigns"
-  if ! SOAK_CAMPAIGNS_OUT="$out/campaigns" scripts/soak/campaign.sh; then
-    stamp "a campaign failed: see $out/campaigns/summary.md; once settled, $0 ${rc} soak"
+  if SOAK_CAMPAIGNS_OUT="$out/campaigns" scripts/soak/campaign.sh; then
+    echo pass >"$out/campaigns.status"
+  else
+    echo fail >"$out/campaigns.status"
+    stamp "a campaign failed: see $out/campaigns/summary.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} soak"
     exit 1
   fi
+else
+  # The soak shares the stack with the campaigns: only after they finished,
+  # and past a failed one only with the reason it was accepted on record.
+  case "$(cat "$out/campaigns.status" 2>/dev/null)" in
+    pass) ;;
+    fail)
+      [ -n "${SOAK_RC_OVERRIDE:-}" ] || die "campaigns failed; set SOAK_RC_OVERRIDE to the reason it was accepted"
+      stamp "soak past failed campaigns: ${SOAK_RC_OVERRIDE}"
+      ;;
+    *) die "campaigns have not finished (no ${out}/campaigns.status)" ;;
+  esac
 fi
 
 stamp "soak 24h"
