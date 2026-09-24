@@ -295,9 +295,6 @@ const GIT_REFUSALS = [
   "not a valid object",
   "sha1 collision",
   "pack too large",
-  // A size header running past what size_t holds: the bytes, not the host,
-  // decide it, since a 64-bit git accepts every size an object can have.
-  "object size too large for this platform",
   // rev-list: the pinned commit never arrived.
   "bad revision",
   "does not appear to be a git repository",
@@ -322,6 +319,10 @@ const HOST_FAULTS = [
   "cannot allocate memory",
   "out of memory",
   "read-only file system",
+  // index-pack reading an object size wider than its size_t (94S-369): a
+  // limit of the git that runs, like memory, so the same bytes can be a
+  // valid object to a wider git.
+  "too large for this platform",
 ];
 
 /**
