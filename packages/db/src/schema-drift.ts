@@ -26,12 +26,15 @@ export async function schemaStatements(
 // PostgreSQL prints it. Triggers and functions are read too: schema.ts cannot
 // declare them, so they surface as the migration-only difference the caller
 // names, and a migration that loses, disables or rewrites one — a function
-// by the hash of its body — no longer matches that list.
+// by its attributes and the hash of its body — no longer matches that list.
 const CATALOG = `
   SELECT 'enum ' || t.typname || ' ' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) AS line
   FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
   WHERE t.typnamespace = 'public'::regnamespace
   GROUP BY t.typname
+UNION ALL
+  SELECT 'relation ' || c.relname || ' kind=' || c.relkind::text
+  FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace
 UNION ALL
   SELECT 'column ' || c.relname || '.' || a.attname || ' ' || format_type(a.atttypid, a.atttypmod)
     || CASE WHEN a.attnotnull THEN ' not null' ELSE '' END
@@ -55,8 +58,14 @@ UNION ALL
   WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
 UNION ALL
   SELECT 'function ' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') '
-    || pg_get_function_result(p.oid) || ' body md5 ' || md5(p.prosrc)
-  FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
+    || pg_get_function_result(p.oid) || ' language ' || l.lanname
+    || ' volatility=' || p.provolatile::text || ' parallel=' || p.proparallel::text
+    || CASE WHEN p.prosecdef THEN ' security definer' ELSE '' END
+    || CASE WHEN p.proisstrict THEN ' strict' ELSE '' END
+    || coalesce(' set ' || array_to_string(p.proconfig, ','), '')
+    || ' body md5 ' || md5(p.prosrc)
+  FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+  WHERE p.pronamespace = 'public'::regnamespace
 `;
 
 export async function readCatalog(execute: Execute): Promise<string[]> {

@@ -30,12 +30,12 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // What the migrations hold that schema.ts cannot declare: Drizzle has no
 // syntax for functions or triggers, so these are written by hand in SQL.
 // Listed exactly, so a migration that loses, disables or rewrites one fails
-// as well; a migration that changes a body on purpose updates its hash here.
+// as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
   // 0000: the queue's admission count.
-  "function queue_unassigned_session_count() double precision body md5 77ab23e0fa3455549b846ff0e7980c2a",
+  "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0107: retained input is charged to storage_usage as turns are inserted.
-  "function storage_usage_charge_turn() trigger body md5 181d4bb80e87699778f44b2c2d4b738f",
+  "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
   "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
 ];
 
