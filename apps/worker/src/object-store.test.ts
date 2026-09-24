@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { ObjectIntegrityError } from "@agent-platform/runtime-core";
+import {
+  BodyLimitError,
+  BodyStallError,
+  BodyTruncatedError,
+} from "@agent-platform/storage";
 
 import {
   createWorkerObjectStore,
+  isObjectStoreOutage,
   ObjectStoreToken,
   objectStoreConfigFromEnv,
 } from "./object-store.ts";
@@ -147,5 +154,57 @@ describe("createWorkerObjectStore", () => {
     expect(put?.headers.get("authorization")).toContain(
       "Credential=weo_token/",
     );
+  });
+});
+
+describe("isObjectStoreOutage (94S-390)", () => {
+  const answered = (status: number) =>
+    Object.assign(new Error(`status ${status}`), {
+      $metadata: { httpStatusCode: status },
+    });
+  const coded = (code: string) =>
+    Object.assign(new Error(`failed: ${code}`), { code });
+
+  test("is the store failing to answer", () => {
+    for (const error of [
+      answered(500),
+      answered(503),
+      answered(408),
+      answered(429),
+      coded("ECONNREFUSED"),
+      coded("ECONNRESET"),
+      coded("ConnectionRefused"),
+      Object.assign(
+        new Error("S3 endpoint name was not resolved within 3000ms"),
+        {
+          name: "TimeoutError",
+        },
+      ),
+      new Error("S3 object body stalled 3 times: k", {
+        cause: new BodyStallError("stalled"),
+      }),
+      new BodyTruncatedError("S3 object k ended after 3 of its 9 bytes"),
+    ]) {
+      expect({
+        error: error.message,
+        outage: isObjectStoreOutage(error),
+      }).toEqual({ error: error.message, outage: true });
+    }
+  });
+
+  test("is not an answer, however unwelcome", () => {
+    for (const error of [
+      answered(400),
+      answered(401),
+      answered(403),
+      answered(404),
+      new ObjectIntegrityError("k"),
+      new BodyLimitError("too long"),
+      new Error("S3 object has no body: k"),
+      coded("ENOSPC"),
+      "ECONNRESET",
+    ]) {
+      expect(isObjectStoreOutage(error)).toBe(false);
+    }
   });
 });

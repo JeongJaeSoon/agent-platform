@@ -18,6 +18,7 @@ import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
 import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 
 import {
+  CheckpointBundleRefused,
   restoreCheckpointTree,
   stageCheckpointBundle,
   stagedClaudeMd,
@@ -436,7 +437,11 @@ describe("staging a checkpoint bundle", () => {
         repository: join(scratch, "staged-extra.git"),
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow("refs/tags/extra");
+    ).rejects.toThrow(
+      new CheckpointBundleRefused(
+        "Checkpoint bundle carries refs a capture does not write: refs/tags/extra",
+      ),
+    );
     expect(capture.gitCommit).toBe(
       (await git(repository, "rev-parse", CHECKPOINT_WORKTREE_REF)).trim(),
     );

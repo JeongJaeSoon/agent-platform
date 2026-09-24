@@ -1,5 +1,7 @@
 import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
 import {
+  BodyStallError,
+  BodyTruncatedError,
   createCheckpointObjectStore,
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
@@ -107,4 +109,54 @@ export class ObjectStoreToken {
 function required(value: string | undefined, name: string): string {
   if (!value || value.trim() === "") throw new Error(`${name} is required`);
   return value;
+}
+
+/** Node's and bun's codes for a connection that failed or was cut. */
+const TRANSPORT_FAILURES = new Set([
+  "ConnectionClosed",
+  "ConnectionRefused",
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EPIPE",
+  "ETIMEDOUT",
+]);
+
+/**
+ * The store failing to answer rather than answering no: a connection that
+ * failed or was cut, a request or name lookup past its bound, a body that
+ * kept stalling or ended short, or a 5xx, 408 or 429. Worth asking again later; a 401, 403
+ * or other 4xx, an integrity failure, or a malformed answer is not (94S-390).
+ */
+export function isObjectStoreOutage(error: unknown): boolean {
+  for (let depth = 0, current = error; depth < 5; depth += 1) {
+    if (typeof current !== "object" || current === null) return false;
+    const { $metadata, code, name } = current as {
+      $metadata?: { httpStatusCode?: unknown };
+      code?: unknown;
+      name?: unknown;
+    };
+    const status = $metadata?.httpStatusCode;
+    if (
+      typeof status === "number" &&
+      (status >= 500 || status === 408 || status === 429)
+    ) {
+      return true;
+    }
+    if (
+      current instanceof BodyStallError ||
+      current instanceof BodyTruncatedError ||
+      name === "TimeoutError" ||
+      (typeof code === "string" && TRANSPORT_FAILURES.has(code))
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }

@@ -352,6 +352,17 @@ export class BodyStallError extends Error {
 }
 
 /**
+ * A body that ended cleanly before the length its response declared: a
+ * failed read, not damage, and worth another request (94S-390).
+ */
+export class BodyTruncatedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BodyTruncatedError";
+  }
+}
+
+/**
  * A body that kept delivering but ran past {@link BodyReadBounds.maxReadMs} or
  * {@link BodyReadBounds.maxBytes}. Not retried: a peer that behaves this way
  * on one connection will behave this way on the next, and retrying only
@@ -531,7 +542,7 @@ export async function streamObjectVersion(
         // dropped connection read as an end — would otherwise reach the
         // consumer's digest and be judged damage rather than a failed read.
         if (size !== undefined && offset !== size) {
-          throw new Error(
+          throw new BodyTruncatedError(
             `S3 object ${key} ended after ${offset} of its ${size} bytes`,
           );
         }
