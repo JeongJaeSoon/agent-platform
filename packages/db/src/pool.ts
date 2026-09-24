@@ -1,7 +1,7 @@
 import { AsyncResource } from "node:async_hooks";
-import type { LookupAddress, LookupOptions } from "node:dns";
 import { Socket } from "node:net";
 import type { StructuredLogger } from "@agent-platform/observability";
+import { lookupEveryTime } from "@agent-platform/runtime-core";
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { parseIntoClientConfig } from "pg-connection-string";
 import {
@@ -268,49 +268,9 @@ class DeadlinePool extends Pool {
   }
 }
 
-type LookupCallback = (
-  error: NodeJS.ErrnoException | null,
-  address: string | LookupAddress[],
-  family?: number,
-) => void;
-
-// Bun's node:dns lookup, which net.connect uses for a hostname, answers from
-// c-ares, and c-ares keeps a record for the TTL the server gave it. Docker's
-// embedded DNS gives 600s, so in a long-lived process `postgres` stays at the
-// address it had before the container restarted — refused, or someone
-// else's — for up to ten minutes (94S-343). The libc resolver keeps no cache
-// of its own and asks on every call; a connection is rare enough that the
-// extra query does not matter.
-export function lookupEveryTime(
-  hostname: string,
-  options: LookupOptions,
-  callback: LookupCallback,
-): void {
-  const family =
-    options.family === 4 || options.family === 6 ? options.family : 0;
-  Bun.dns.lookup(hostname, { family, backend: "libc" }).then(
-    (addresses) => {
-      if (options.all) {
-        callback(
-          null,
-          addresses.map(({ address, family }) => ({ address, family })),
-        );
-        return;
-      }
-      const [first] = addresses;
-      callback(null, first?.address ?? "", first?.family);
-    },
-    (error: NodeJS.ErrnoException) => {
-      // Bun prefixes its codes (DNS_ENOTFOUND); node's, which
-      // isConnectionFailure matches, have none.
-      if (error.code?.startsWith("DNS_")) error.code = error.code.slice(4);
-      callback(error, "");
-    },
-  );
-}
-
 // What pg dials through (the `stream` option): a plain socket whose hostname
-// connect resolves with lookupEveryTime. pg calls connect(port, host), or
+// connect resolves with lookupEveryTime, so a restarted postgres is found at
+// its new address (94S-343). pg calls connect(port, host), or
 // connect(path) for a Unix socket, which needs no lookup.
 export class LookupEveryTimeSocket extends Socket {
   override connect(...args: unknown[]): this {
