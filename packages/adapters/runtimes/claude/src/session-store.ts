@@ -15,6 +15,18 @@ import type {
 const SLOT_ATTEMPTS = 64;
 
 /**
+ * When a capture merges a transcript's parts (94S-314): once one transcript
+ * pins more than `LANE_COMPACT_AT` of them, or the session more than
+ * `SESSION_COMPACT_AT` across all of its transcripts. Parts are merged into
+ * runs of at most `MERGED_PART_BYTES`, so what a capture pins is bounded by
+ * the transcript's size rather than by how many appends made it — and that
+ * size is bounded in turn (`MAX_TRANSCRIPT_BYTES`).
+ */
+const LANE_COMPACT_AT = 512;
+const SESSION_COMPACT_AT = 4096;
+const MERGED_PART_BYTES = 4 * 1024 * 1024;
+
+/**
  * What a resumed launch adopts: the transcripts of the checkpoint it resumes,
  * exactly as that manifest pinned them.
  */
@@ -72,6 +84,18 @@ export class ClaudeSessionStore implements TranscriptMirror {
   /** `<prefix>/generation-<n>`: everything this store writes starts here. */
   readonly #prefix: string;
   readonly #inherit: Inheritance | undefined;
+  /**
+   * Per transcript (`""` for the root), what a capture pins ahead of this
+   * generation's own parts once a merge replaced the adopted ones, and which
+   * own parts it already covers.
+   */
+  readonly #merged = new Map<
+    string,
+    {
+      readonly covers: ReadonlySet<string>;
+      readonly refs: readonly ObjectRef[];
+    }
+  >();
   /** Settles once the generation is known to be this launch's alone. */
   readonly #opened: Promise<void>;
   readonly #sequence = new Map<string, number>();
@@ -260,14 +284,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
   async verifyInherited(signal?: AbortSignal): Promise<void> {
     await this.#opened;
     for (const parts of this.#inherit?.parts.values() ?? []) {
-      const bodies: Uint8Array[] = [];
-      for (const part of parts) {
-        signal?.throwIfAborted();
-        bodies.push(await this.#adoptedBody(part));
-      }
       // Throws on a line that is not JSON and on one uuid with two bodies,
       // the two ways a pinned transcript fails only once the engine reads it.
-      deduplicate(bodies.flatMap(parseEntries));
+      // Part by part, so only the bytes stay held, not every parsed entry.
+      const check = deduplicator();
+      for (const part of parts) {
+        signal?.throwIfAborted();
+        check(parseEntries(await this.#adoptedBody(part)));
+      }
     }
   }
 
@@ -280,7 +304,10 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const subpaths = new Set<string>(this.#inherit?.subpaths);
     for (const objectKey of await this.#objects.list(prefix)) {
       const relative = objectKey.slice(prefix.length);
-      const marker = relative.lastIndexOf("/part-");
+      const marker = Math.max(
+        relative.lastIndexOf("/part-"),
+        relative.lastIndexOf("/merged-"),
+      );
       if (marker > 0) subpaths.add(relative.slice(0, marker));
     }
     return [...subpaths].sort();
@@ -297,10 +324,12 @@ export class ClaudeSessionStore implements TranscriptMirror {
   ): Promise<TranscriptRevision | null> {
     await this.#opened;
     await this.#writes.get(this.#keyPrefix(key));
-    const adopted = this.#pinned(key);
-    const own = await this.#listParts(key);
-    if (adopted.length === 0 && own.length === 0) return null;
-    return this.#revisionOf(adopted, own);
+    const { base, own } = this.#view(
+      key.subpath ?? "",
+      await this.#listParts(key),
+    );
+    if (base.length === 0 && own.length === 0) return null;
+    return this.#revisionOf(base, own);
   }
 
   /**
@@ -310,6 +339,11 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * the engine's own path handling, so it is read back from what the engine
    * wrote rather than recomputed and hoped to match. null when there is no
    * root transcript to pin.
+   *
+   * A transcript pinning too many parts is merged first (`#merge`), so a
+   * long session keeps fitting in a manifest. Merged parts are written under
+   * this generation like any other part, and a merge that fails leaves the
+   * store pinning what it did before.
    */
   async captureTranscripts(
     sessionId: string,
@@ -321,7 +355,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const projectKeys = new Set<string>();
     for (const objectKey of await this.#objects.list(`${this.#prefix}/`)) {
       const location = locate(objectKey.slice(this.#namespace.length));
-      if (location?.sessionId !== sessionId) continue;
+      if (location?.sessionId !== sessionId || location.merged) continue;
       projectKeys.add(location.projectKey);
       own.set(location.lane, [...(own.get(location.lane) ?? []), objectKey]);
     }
@@ -331,21 +365,164 @@ export class ClaudeSessionStore implements TranscriptMirror {
       );
     }
     const pinned = this.#inherit?.parts ?? new Map<string, never>();
-    const lanes = new Set([...pinned.keys(), ...own.keys()]);
-    if (!lanes.has("")) return null;
-    const revisions = new Map<string, TranscriptRevision>();
-    for (const lane of [...lanes].sort()) {
-      revisions.set(
+    const lanes = [...new Set([...pinned.keys(), ...own.keys()])].sort();
+    if (!lanes.includes("")) return null;
+    const views = new Map(
+      lanes.map((lane) => [
         lane,
-        await this.#revisionOf(
-          pinned.get(lane) ?? [],
-          (own.get(lane) ?? []).sort(),
-        ),
-      );
+        this.#view(lane, (own.get(lane) ?? []).sort()),
+      ]),
+    );
+    let total = 0;
+    for (const view of views.values()) {
+      total += view.base.length + view.own.length;
+    }
+    const revisions = new Map<string, TranscriptRevision>();
+    for (const lane of lanes) {
+      let { base, own: mine } = views.get(lane) as LaneView;
+      const count = base.length + mine.length;
+      if (
+        count > LANE_COMPACT_AT ||
+        (total > SESSION_COMPACT_AT && count > 1)
+      ) {
+        const projectKey =
+          [...projectKeys][0] ?? this.#projectKeyOf(base[0]?.key);
+        base = await this.#merge(
+          lane,
+          this.#keyPrefix({
+            projectKey,
+            sessionId,
+            ...(lane === "" ? {} : { subpath: lane }),
+          }),
+          base,
+          mine,
+        );
+        mine = [];
+      }
+      revisions.set(lane, await this.#revisionOf(base, mine));
     }
     const { "": root, ...subagents } = Object.fromEntries(revisions);
     if (root === undefined) return null;
     return { root, subagents };
+  }
+
+  /**
+   * What a capture of one transcript pins: the refs it carries forward — the
+   * adopted ones, or what the last merge replaced them with — then this
+   * generation's parts that those do not already cover.
+   */
+  #view(lane: string, own: readonly string[]): LaneView {
+    const merged = this.#merged.get(lane);
+    if (merged === undefined) {
+      return { base: this.#inherit?.parts.get(lane) ?? [], own };
+    }
+    return {
+      base: merged.refs,
+      own: own.filter((key) => !merged.covers.has(key)),
+    };
+  }
+
+  /**
+   * Rewrites a transcript's pinned parts as few merged parts, in order: each
+   * run of consecutive parts that fits in `MERGED_PART_BYTES` becomes one
+   * part holding their bytes back to back, so reading it replays exactly
+   * what reading them did — duplicates, uuid-less entries and all. A run of
+   * one is kept as it is, which also keeps a merged part that is already
+   * full from being rewritten.
+   *
+   * Merged parts go under this generation, as every write of this store
+   * does, at a key named by their digest: create-only, and a retry after a
+   * failure writes the same bytes to the same key rather than a second copy.
+   * The store switches to them only once every one landed.
+   */
+  async #merge(
+    lane: string,
+    directory: string,
+    base: readonly ObjectRef[],
+    own: readonly string[],
+  ): Promise<ObjectRef[]> {
+    const bodies = await Promise.all([
+      ...base.map((part) => this.#adoptedBody(part)),
+      ...own.map((part) => this.#cached(part)),
+    ]);
+    const refOf = async (index: number): Promise<ObjectRef> => {
+      const adopted = base[index];
+      if (adopted !== undefined) return adopted;
+      const key = own[index - base.length] as string;
+      const body = bodies[index] as Uint8Array;
+      const version = await this.#versionOf(key);
+      // Carried forward as an adopted ref now, so its bytes answer from here.
+      this.#adopted.set(key, Promise.resolve(body));
+      return {
+        bytes: body.byteLength,
+        key,
+        sha256: sha256(body),
+        ...(version === undefined ? {} : { version }),
+      };
+    };
+    const runs: number[][] = [];
+    let run: number[] = [];
+    let size = 0;
+    bodies.forEach((body, index) => {
+      if (run.length > 0 && size + body.byteLength > MERGED_PART_BYTES) {
+        runs.push(run);
+        run = [];
+        size = 0;
+      }
+      run.push(index);
+      size += body.byteLength;
+    });
+    if (run.length > 0) runs.push(run);
+    const refs: ObjectRef[] = [];
+    for (const indices of runs) {
+      refs.push(
+        indices.length === 1
+          ? await refOf(indices[0] as number)
+          : await this.#writeMerged(
+              directory,
+              indices.map((index) => bodies[index] as Uint8Array),
+            ),
+      );
+    }
+    const covers = new Set([...(this.#merged.get(lane)?.covers ?? []), ...own]);
+    this.#merged.set(lane, { covers, refs });
+    return refs;
+  }
+
+  async #writeMerged(
+    directory: string,
+    bodies: readonly Uint8Array[],
+  ): Promise<ObjectRef> {
+    const bytes = Buffer.concat(
+      bodies.flatMap((body) =>
+        body.byteLength === 0 || body[body.byteLength - 1] === NEWLINE
+          ? [body]
+          : [body, LINE_BREAK],
+      ),
+    );
+    const digest = sha256(bytes);
+    const key = `${directory}merged-${digest}.jsonl`;
+    const written = await this.#objects.putImmutable(key, bytes);
+    if (written.outcome === "conflict") {
+      throw new Error(`Merged transcript part ${key} holds other bytes`);
+    }
+    const version = written.version ?? (await this.#objects.head(key))?.version;
+    this.#adopted.set(key, Promise.resolve(bytes));
+    return {
+      bytes: bytes.byteLength,
+      key,
+      sha256: digest,
+      ...(version === undefined ? {} : { version }),
+    };
+  }
+
+  #projectKeyOf(key: string | undefined): string {
+    const location =
+      key === undefined ? undefined : locate(key.slice(this.#namespace.length));
+    if (location === undefined) {
+      throw new Error("No project key to merge an adopted transcript under");
+    }
+    return location.projectKey;
   }
 
   async #revisionOf(
@@ -434,17 +611,25 @@ export class ClaudeSessionStore implements TranscriptMirror {
     let last = 0;
     for (const key of await this.#objects.list(prefix)) {
       if (key.slice(prefix.length).includes("/")) continue;
-      last = Math.max(last, (partIndex(key) ?? 0) + 1);
+      const index = partIndex(key);
+      if (index !== undefined) last = Math.max(last, index + 1);
     }
     this.#sequence.set(prefix, last + 1);
     return last;
   }
 
-  /** Parts written directly under the key, excluding any nested subpath. */
+  /**
+   * Parts appended directly under the key, excluding any nested subpath and
+   * the merged parts a capture wrote.
+   */
   async #listParts(key: TranscriptKey): Promise<string[]> {
     const prefix = this.#keyPrefix(key);
     return (await this.#objects.list(prefix))
-      .filter((objectKey) => !objectKey.slice(prefix.length).includes("/"))
+      .filter(
+        (objectKey) =>
+          !objectKey.slice(prefix.length).includes("/") &&
+          partIndex(objectKey) !== undefined,
+      )
       .sort();
   }
 
@@ -547,6 +732,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 }
 
+type LaneView = {
+  readonly base: readonly ObjectRef[];
+  readonly own: readonly string[];
+};
+
+const NEWLINE = 0x0a;
+const LINE_BREAK = new Uint8Array([NEWLINE]);
+
 type Inheritance = {
   readonly sessionId: string;
   /** Pinned parts by subpath; the root transcript is `""`. */
@@ -624,6 +817,8 @@ function inheritance(
 
 type PartLocation = {
   readonly generation: number;
+  /** A part a capture merged others into, rather than one an append wrote. */
+  readonly merged: boolean;
   /** The subagent subpath, or `""` for the root transcript. */
   readonly lane: string;
   readonly projectKey: string;
@@ -634,11 +829,12 @@ type PartLocation = {
  * Reads a part key back into the transcript it belongs to. The path is
  * relative to the mirror namespace:
  * `generation-<n>/<projectKey>/<sessionId>/main/part-<i>.jsonl`, or
- * `.../subpaths/<subpath>/part-<i>.jsonl` for a subagent.
+ * `.../subpaths/<subpath>/part-<i>.jsonl` for a subagent; a merged part is
+ * `merged-<sha256>.jsonl` in the same place.
  */
 function locate(relative: string): PartLocation | undefined {
   const match = relative.match(
-    /^generation-(\d{10})\/([^/]+)\/([^/]+)\/(?:main|subpaths\/(.+))\/part-\d{10}\.jsonl$/,
+    /^generation-(\d{10})\/([^/]+)\/([^/]+)\/(?:main|subpaths\/(.+))\/(?:part-\d{10}|(merged)-[0-9a-f]{64})\.jsonl$/,
   );
   if (
     match?.[1] === undefined ||
@@ -650,6 +846,7 @@ function locate(relative: string): PartLocation | undefined {
   return {
     generation: Number(match[1]),
     lane: match[4] ?? "",
+    merged: match[5] !== undefined,
     projectKey: match[2],
     sessionId: match[3],
   };
@@ -660,20 +857,33 @@ function pad(value: number): string {
 }
 
 function deduplicate(entries: readonly TranscriptEntry[]): TranscriptEntry[] {
+  return deduplicator()(entries);
+}
+
+/**
+ * Deduplication across calls, for a transcript fed in part by part. Each
+ * uuid is remembered by the digest of its body rather than the body itself.
+ */
+function deduplicator(): (
+  entries: readonly TranscriptEntry[],
+) => TranscriptEntry[] {
   const seen = new Map<string, string>();
-  return entries.filter((entry) => {
-    if (typeof entry.uuid !== "string") return true;
-    const encoded = JSON.stringify(canonical(entry));
-    const previous = seen.get(entry.uuid);
-    if (previous !== undefined) {
-      if (previous !== encoded) {
-        throw new Error(`Conflicting transcript entry uuid: ${entry.uuid}`);
+  return (entries) =>
+    entries.filter((entry) => {
+      if (typeof entry.uuid !== "string") return true;
+      const encoded = createHash("sha256")
+        .update(JSON.stringify(canonical(entry)))
+        .digest("hex");
+      const previous = seen.get(entry.uuid);
+      if (previous !== undefined) {
+        if (previous !== encoded) {
+          throw new Error(`Conflicting transcript entry uuid: ${entry.uuid}`);
+        }
+        return false;
       }
-      return false;
-    }
-    seen.set(entry.uuid, encoded);
-    return true;
-  });
+      seen.set(entry.uuid, encoded);
+      return true;
+    });
 }
 
 /** Key order is not meaningful in JSON, so compare entries independently of it. */

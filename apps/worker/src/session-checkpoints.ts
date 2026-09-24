@@ -25,6 +25,7 @@ import {
   type RuntimeFingerprint,
   restoreCwdRefusal,
   type TranscriptRevision,
+  transcriptSizeProblem,
   type WorkerGatewayClient,
   type WorkspaceArtifact,
   workspacePathsProblem,
@@ -441,6 +442,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       manifest.workspace.untracked.map(({ path }) => path),
     );
     if (paths !== undefined) throw refuse(`untracked files: ${paths}`);
+    // Before a single part is fetched: holding and parsing a transcript this
+    // size is what would take the worker down (94S-296).
+    const oversized = transcriptSizeProblem(manifest.transcripts);
+    if (oversized !== undefined) throw refuse(oversized);
     for (const ref of [
       manifest.workspace.bundle,
       ...manifest.workspace.untracked,
@@ -686,6 +691,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       throw new MirrorLost(now.detail);
     }
 
+    const oversized = transcriptSizeProblem(transcripts);
+    if (oversized !== undefined) {
+      throw new PublishFailure("transcript", oversized);
+    }
     const referenced =
       1 +
       untracked.length +

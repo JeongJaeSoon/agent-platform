@@ -14,11 +14,13 @@ import type {
 } from "@agent-platform/contracts";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
+  ClaudeSessionStore,
   claudeCheckpointCodec,
 } from "@agent-platform/runtime-claude";
 import {
   type CheckpointManifest,
   type CheckpointPreparation,
+  MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
   type ObjectRef,
   type RuntimeFingerprint,
@@ -1299,5 +1301,157 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       "stale\n",
     );
     expect(h.port.mirror()).toBeUndefined();
+  });
+});
+
+describe("a long session's transcript (94S-314, 94S-296)", () => {
+  const context = (claim: BootstrapClaimResponse) => ({
+    scope: scopeOf(claim),
+    recheck: async () => ready,
+  });
+
+  test("publishes a mirror of 25,000 parts under the manifest's object limit", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    const expected = [];
+    for (let index = 0; index < 25_000; index += 1) {
+      const entry = { type: "user", uuid: `u${index}`, message: `m${index}` };
+      expected.push(entry);
+      await mirror.append(root, [entry]);
+    }
+
+    const ref = await h.port.capture(ready, context(claim));
+
+    expect(h.warnings).toEqual([]);
+    if (ref === null) throw new Error("nothing published");
+    const bytes = await h.objects.get(ref.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    const manifest = claudeCheckpointCodec.decode(bytes);
+    const referenced =
+      1 +
+      manifest.workspace.untracked.length +
+      manifest.transcripts.root.parts.length;
+    expect(referenced).toBeLessThan(20_000);
+    expect(manifest.transcripts.root.parts.length).toBeLessThan(10);
+    expect(manifest.transcripts.root.entryCount).toBe(25_000);
+    expect(await mirror.load(root)).toEqual(expected);
+  }, 60_000);
+
+  test("a merged part that fails to upload is publish_failed, and the next capture merges it", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const putImmutable = objects.putImmutable.bind(objects);
+    let refuse = true;
+    objects.putImmutable = async (key, bytes) => {
+      if (refuse && key.includes("/merged-")) {
+        throw new Error("store unavailable");
+      }
+      return putImmutable(key, bytes);
+    };
+    const h = harness({ objects });
+    const { claim, mirror } = await opened(h);
+    for (let index = 0; index < 600; index += 1) {
+      await mirror.append(root, [{ type: "user", uuid: `u${index}` }]);
+    }
+
+    expect(await h.port.capture(ready, context(claim))).toBeNull();
+
+    expect(
+      h.gateway.checkpointRequests
+        .map((request) => request.preparation)
+        .filter((preparation) => preparation.status === "rejected"),
+    ).toEqual([
+      {
+        status: "rejected",
+        reason: "publish_failed",
+        detail: "publish: store unavailable",
+      },
+    ]);
+    // Nothing a finalize could commit: the last checkpoint stays the one
+    // the session resumes from.
+    expect(objects.keys().some((key) => key.endsWith("/manifest.json"))).toBe(
+      false,
+    );
+
+    refuse = false;
+    const ref = await h.port.capture(ready, context(claim));
+    if (ref === null) throw new Error("nothing published");
+    const bytes = await objects.get(ref.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    const parts = claudeCheckpointCodec.decode(bytes).transcripts.root.parts;
+    expect(parts).toHaveLength(1);
+    expect(parts[0]?.key).toContain("/merged-");
+  });
+
+  test("a transcript part over the size limit is publish_failed at the transcript stage", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [
+      {
+        type: "user",
+        uuid: "big",
+        message: "x".repeat(MAX_TRANSCRIPT_PART_BYTES),
+      },
+    ]);
+
+    expect(await h.port.capture(ready, context(claim))).toBeNull();
+
+    expect(h.warnings[0]).toMatchObject({
+      event: "worker.checkpoint.failed",
+      fields: { stage: "transcript" },
+    });
+    expect(
+      h.gateway.checkpointRequests.map((request) => request.preparation),
+    ).toContainEqual({
+      status: "rejected",
+      reason: "publish_failed",
+      detail: expect.stringMatching(
+        /^transcript: .*over the \d+-byte part limit$/,
+      ),
+    });
+    expect(h.objects.keys().some((key) => key.endsWith("/manifest.json"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("restoring a transcript over the size limit (94S-296)", () => {
+  test("is refused before any transcript part is fetched", async () => {
+    const from = await published();
+    // A real revision of one part just over the limit, pinned where nothing
+    // is ever read from.
+    const elsewhere = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: `sessions/${SESSION}/transcripts`,
+    });
+    await elsewhere.append(root, [
+      {
+        type: "user",
+        uuid: "big",
+        message: "x".repeat(MAX_TRANSCRIPT_PART_BYTES),
+      },
+    ]);
+    const revision = await elsewhere.captureRevision(root);
+    if (revision === null) throw new Error("expected a revision");
+    const oversized: CheckpointManifest = {
+      ...from.manifest,
+      transcripts: { ...from.manifest.transcripts, root: revision },
+    };
+    const encoded = claudeCheckpointCodec.encode(oversized);
+    await from.objects.put(from.ref.manifest_ref, encoded.bytes);
+    const ref = { ...from.ref, manifest_sha256: encoded.sha256 };
+    await replaceWorkspaceWithLeftovers();
+    const h = restoring({ manifest: oversized, objects: from.objects, ref });
+    from.objects.resetReads();
+
+    const refused = h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(RestoreRefused);
+    await expect(refused).rejects.toThrow(/over the \d+-byte part limit/);
+    expect(from.objects.reads()).toEqual([from.ref.manifest_ref]);
+    expect(existsSync(join(workspace, "left-behind.txt"))).toBe(true);
   });
 });

@@ -93,6 +93,44 @@ export type CheckpointTranscripts = {
   readonly subagents: Readonly<Record<string, TranscriptRevision>>;
 };
 
+/**
+ * The most transcript one checkpoint may carry, per part and in total across
+ * the root and every subagent (94S-296). The engine reads the whole
+ * transcript when it resumes, and the worker verifies and holds it before
+ * that, so this is a session-lifetime ceiling sized against the worker's
+ * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
+ * worker checks it before publishing, finalize before reading any part, and
+ * a restore before fetching any part — all against these same values. A
+ * session past it keeps running on its last checkpoint: see DESIGN §6.3.1.
+ */
+export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Why a checkpoint's transcripts are over the limits above, judged from the
+ * sizes its refs claim — every reader holds the stored bytes to those before
+ * trusting them — so nothing has to be fetched to answer.
+ */
+export function transcriptSizeProblem(
+  transcripts: CheckpointTranscripts,
+): string | undefined {
+  let total = 0;
+  for (const revision of [
+    transcripts.root,
+    ...Object.values(transcripts.subagents),
+  ]) {
+    for (const part of revision.parts) {
+      if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
+        return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
+      }
+      total += part.bytes;
+    }
+  }
+  return total > MAX_TRANSCRIPT_BYTES
+    ? `the transcript is ${total} bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit`
+    : undefined;
+}
+
 export type CheckpointManifest = {
   readonly createdAt: string;
   readonly cwd: string;

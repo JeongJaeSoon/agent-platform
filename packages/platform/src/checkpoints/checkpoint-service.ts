@@ -14,7 +14,10 @@ import type {
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
-import { workspacePathsProblem } from "@agent-platform/runtime-core";
+import {
+  transcriptSizeProblem,
+  workspacePathsProblem,
+} from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
@@ -528,6 +531,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`,
       );
     }
+    // From the sizes the refs claim, which the reads below hold the stored
+    // bytes to: a transcript over the limit is refused unread (94S-296).
+    const oversized = transcriptSizeProblem(manifest.transcripts);
+    if (oversized !== undefined) return refused(oversized);
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
