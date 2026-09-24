@@ -141,6 +141,84 @@ export class Api {
       target_turn_id: turnId,
     });
   }
+
+  /** The last event id read per session, so a stream replays only what is new. */
+  private readonly cursors = new Map<string, string>();
+
+  /**
+   * Reads the session's event stream until a `status` event with `phase`
+   * for `turnId` arrives, and answers the host time it was read (null: the
+   * stream ended or `signal` aborted first). The stream opens from the last
+   * id this Api read for the session, so each probe replays only the turns
+   * since the one before it.
+   */
+  async statusPhase(
+    sessionId: string,
+    turnId: string,
+    phase: string,
+    signal: AbortSignal,
+  ): Promise<number | null> {
+    const after = this.cursors.get(sessionId);
+    let response: Response;
+    for (;;) {
+      try {
+        response = await fetch(`${this.base}/v1/sessions/${sessionId}/events`, {
+          headers: {
+            accept: "text/event-stream",
+            authorization: `Bearer ${this.key}`,
+            ...(after === undefined ? {} : { "last-event-id": after }),
+          },
+          signal,
+        });
+      } catch {
+        return null;
+      }
+      // Probes on other sessions may hold the owner's streams (8) for a
+      // moment; the event is durable, so reading it a little later is safe.
+      if (response.status !== 429) break;
+      await response.body?.cancel();
+      await Bun.sleep(100);
+    }
+    const reader = response.body?.getReader();
+    if (response.status !== 200 || reader === undefined) return null;
+    const decoder = new TextDecoder();
+    let buffered = "";
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) return null;
+        buffered += decoder.decode(chunk.value, { stream: true });
+        let end = buffered.indexOf("\n\n");
+        while (end !== -1) {
+          const frame = buffered.slice(0, end);
+          buffered = buffered.slice(end + 2);
+          end = buffered.indexOf("\n\n");
+          const field = (name: string) =>
+            frame
+              .split("\n")
+              .find((line) => line.startsWith(`${name}:`))
+              ?.slice(name.length + 1)
+              .trim();
+          const id = field("id");
+          if (id) this.cursors.set(sessionId, id);
+          if (field("event") !== "status") continue;
+          let envelope: { turn_id?: unknown; data?: { phase?: unknown } };
+          try {
+            envelope = JSON.parse(field("data") ?? "");
+          } catch {
+            continue;
+          }
+          if (envelope.turn_id === turnId && envelope.data?.phase === phase) {
+            return Date.now();
+          }
+        }
+      }
+    } catch {
+      return null;
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+  }
 }
 
 // ---------------------------------------------------------------- model
@@ -286,9 +364,12 @@ export type ControlSample = {
 
 /**
  * Interrupts a turn that is waiting on its slow model call. The effect is
- * the turn reaching a terminal status, polled every `pollMs`; the receipt is
- * timed apart from it. `continued` says whether the engine asked the model
- * for anything after the interrupt was accepted — it should not have.
+ * the engine having stopped the turn: its `status{phase:"engine_stopped"}`
+ * event read off the session's stream (94S-382). The turn reaching a
+ * terminal status (polled every `pollMs`) is timed apart as `terminalMs`,
+ * since it waits on the checkpoint, and so is the receipt. `continued` says
+ * whether the engine asked the model for anything after the interrupt was
+ * accepted — it should not have.
  *
  * A sample is `valid` only when the slow call was pending when the
  * interrupt went out, the API accepted it (202), and the settled receipt
@@ -310,7 +391,16 @@ export async function interruptProbe(
 ): Promise<ControlSample> {
   const reached = await model.reached(input.specId, 1, 120_000);
   const clock = await model.offset();
+  // Open before the POST, so the event cannot land ahead of the reader.
+  const watching = new AbortController();
+  const stopped = api.statusPhase(
+    input.sessionId,
+    input.turnId,
+    "engine_stopped",
+    watching.signal,
+  );
   const posted = await api.interrupt(input.sessionId, input.turnId);
+  const budget = setTimeout(() => watching.abort(), input.budgetMs);
   // The slow call is answered `latencyMs + slowStepMs` after it arrived, on
   // the model's clock. The interrupt counts only if the API had accepted it
   // before then — the latest the acceptance can have happened, moved onto
@@ -323,18 +413,18 @@ export async function interruptProbe(
   const pending = pendingUntil !== null && acceptedBy < pendingUntil;
   const receiptId =
     ((posted.body ?? {}) as { receipt_id?: string }).receipt_id ?? null;
-  let effectMs: number | null = null;
+  let terminalMs: number | null = null;
   let effect: string | null = null;
   let receiptMs: number | null = null;
   let receiptStatus: string | null = null;
   let receiptResult: unknown = null;
   const deadline = posted.sentAt + input.budgetMs;
-  while (Date.now() < deadline && (effectMs === null || receiptMs === null)) {
-    if (effectMs === null) {
+  while (Date.now() < deadline && (terminalMs === null || receiptMs === null)) {
+    if (terminalMs === null) {
       const turn = await api.turn(input.sessionId, input.turnId);
       const status = String(turn?.status ?? "");
       if (TERMINAL_TURN.has(status)) {
-        effectMs = Date.now() - posted.sentAt;
+        terminalMs = Date.now() - posted.sentAt;
         effect = status;
       }
     }
@@ -348,6 +438,13 @@ export async function interruptProbe(
     }
     await Bun.sleep(input.pollMs);
   }
+  // An interrupt the engine never acknowledged has no event to wait for; one
+  // it did was read long before its turn could settle.
+  if (terminalMs !== null && effect !== "interrupted") watching.abort();
+  const at = await stopped;
+  clearTimeout(budget);
+  watching.abort();
+  const effectMs = at === null ? null : at - posted.sentAt;
   const noOp = (receiptResult as { no_op?: boolean } | null)?.no_op ?? null;
   const after = (await model.requests({ spec: input.specId })).filter(
     (entry) =>
@@ -370,6 +467,7 @@ export async function interruptProbe(
       slowPendingUntil:
         pendingUntil === null ? null : new Date(pendingUntil).toISOString(),
       acceptedBy: new Date(acceptedBy).toISOString(),
+      terminalMs,
       continuedAfterInterrupt: after.length,
       receiptResult,
       valid: pending && posted.status === 202 && noOp === false,

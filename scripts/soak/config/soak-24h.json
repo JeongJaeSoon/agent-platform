@@ -43,6 +43,7 @@
   "targets": {
     "acceptP95Ms": 500,
     "interruptEffectMs": 5000,
+    "interruptTerminalMs": 50000,
     "terminateEffectMs": 30000,
     "readyzAvailability": 1
   },
@@ -58,8 +59,9 @@
       "endpoint": "POST /v1/sessions/{id}/interrupt",
       "trigger": "interruptEveryTurns번째 turn마다 두 번째 모델 호출을 slowStepMs 동안 붙잡고, 그 호출이 Messages API에 도착한 뒤 보낸다",
       "accepted": "POST 왕복 시간",
-      "effect": "POST 송신부터 GET turn이 종료 상태를 처음 보인 시점까지. pollMs 간격으로 폴링한다. receipt 정산은 따로 잰다.",
-      "judgement": "모든 표본의 effect가 interruptEffectMs 이하이고, 수락 뒤에 엔진이 다음 모델 호출을 하지 않는다"
+      "effect": "POST 송신부터 그 turn의 status{phase:\"engine_stopped\"} event를 SSE에서 처음 읽은 시점까지(94S-382). 워커는 engine이 interrupt를 acknowledged하고 abort terminal을 낸 뒤, checkpoint 캡처 전에 이 event를 durable하게 남긴다.",
+      "terminal": "POST 송신부터 GET turn이 종료 상태를 처음 보인 시점까지. pollMs 간격으로 폴링한다. checkpoint 캡처와 finalize를 포함하므로 effect와 따로 잰다. receipt 정산도 따로 잰다.",
+      "judgement": "모든 표본의 effect가 interruptEffectMs 이하이고, terminal이 interruptTerminalMs 이하이며 turn이 interrupted(checkpoint 포함)이고, 수락 뒤에 엔진이 다음 모델 호출을 하지 않는다"
     },
     "terminate": {
       "endpoint": "POST /v1/sessions/{id}/terminate",

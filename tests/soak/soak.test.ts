@@ -10,7 +10,7 @@ import {
   specIds,
   validFaults,
 } from "../../scripts/soak/messages.ts";
-import { modelEvidence, turnPrompt } from "../../scripts/soak/probes.ts";
+import { Api, modelEvidence, turnPrompt } from "../../scripts/soak/probes.ts";
 import { validConfig } from "../../scripts/soak/soak.ts";
 
 const CONFIG_DIR = join(import.meta.dir, "../../scripts/soak/config");
@@ -55,6 +55,7 @@ describe("94S-135 soak tooling", () => {
       expect(config.targets).toMatchObject({
         acceptP95Ms: 500,
         interruptEffectMs: 5000,
+        interruptTerminalMs: 50000,
         terminateEffectMs: 30000,
       });
       for (const key of [
@@ -212,5 +213,65 @@ describe("94S-135 soak tooling", () => {
         (row) => row.status,
       ),
     ).toEqual(["fail"]);
+  });
+});
+
+describe("Api.statusPhase (94S-382)", () => {
+  test("reads the turn's phase off the stream, resumes from the last id, and waits out the stream limit", async () => {
+    const seen: Array<string | null> = [];
+    let refusals = 1;
+    const frame = (id: string, turn: string, phase: string) =>
+      `id: ${id}\nevent: status\ndata: ${JSON.stringify({ turn_id: turn, data: { phase } })}\n\n`;
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        seen.push(request.headers.get("last-event-id"));
+        if (refusals > 0) {
+          refusals -= 1;
+          return new Response("busy", { status: 429 });
+        }
+        const body =
+          seen.length <= 2
+            ? `: keepalive\n\n${frame("ev_1", "11", "engine_stopped")}${frame("ev_2", "12", "interrupting")}event: result\nid: ev_3\ndata: {}\n\n${frame("ev_4", "12", "engine_stopped")}`
+            : frame("ev_9", "24", "engine_stopped");
+        return new Response(body, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    try {
+      const api = new Api(`http://localhost:${server.port}`, "test");
+      const signal = new AbortController().signal;
+      const at = await api.statusPhase("s", "12", "engine_stopped", signal);
+      expect(typeof at).toBe("number");
+      await api.statusPhase("s", "24", "engine_stopped", signal);
+      // One refusal, the first read from the start, the next from ev_4.
+      expect(seen).toEqual([null, null, "ev_4"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("answers null when the stream ends without the phase", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response("event: status\nid: ev_1\ndata: {}\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    });
+    try {
+      const api = new Api(`http://localhost:${server.port}`, "test");
+      expect(
+        await api.statusPhase(
+          "s",
+          "1",
+          "engine_stopped",
+          new AbortController().signal,
+        ),
+      ).toBeNull();
+    } finally {
+      server.stop(true);
+    }
   });
 });
