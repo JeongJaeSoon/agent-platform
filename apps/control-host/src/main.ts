@@ -84,17 +84,20 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     "./pass-loop/loop.ts"
   );
   const { createLogger } = await import("@agent-platform/observability");
+  const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
-    const { schedulerConfigFromEnv } = await import("./scheduler/config.ts");
-    schedulerConfigFromEnv(process.env);
+    const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
+      "./scheduler/config.ts"
+    );
+    const { docker } = schedulerConfigFromEnv(process.env);
+    assertPassOutlastsStop(config.passTimeoutMs, docker);
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
     reconcilerDatabaseUrl(process.env);
     reconcilerSettings(process.env);
   }
-  const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
   const logger = createLogger(
     process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
   );

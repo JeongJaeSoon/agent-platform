@@ -95,6 +95,29 @@ export function schedulerConfigFromEnv(
   };
 }
 
+/**
+ * A kill does not wait for a busy worker to drain (94S-385), but a pass can
+ * still wait out one whole stop: ensure removes a container it cannot adopt,
+ * and the teardown of an unclaimed one, before building again. A pass killed
+ * there counts as failed, and three in a row restart the scheduler.
+ */
+export function assertPassOutlastsStop(
+  passTimeoutMs: number,
+  docker: Pick<
+    LocalDockerBackendConfig,
+    "requestTimeoutMs" | "stopTimeoutSeconds"
+  >,
+): void {
+  if (
+    passTimeoutMs <=
+    docker.stopTimeoutSeconds * 1_000 + docker.requestTimeoutMs
+  ) {
+    throw new Error(
+      "SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: a pass that waits out a worker's stop would be killed and counted as failed",
+    );
+  }
+}
+
 const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
 
 /** Docker's smallest CPU quota is 0.01 CPU; below that NanoCpus rounds to "no limit". */

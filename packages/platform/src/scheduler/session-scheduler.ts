@@ -153,6 +153,11 @@ export type SchedulerRunSummary = {
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];
+  /**
+   * Orphans asked to stop and still winding down. Not a failure, but each
+   * still holds a slot until a later pass finds it gone (94S-385).
+   */
+  orphansStopping: ExecutionRef[];
   /** Exited resources whose reclaim failed; each row stays `terminating`. */
   reclaimFailed: ExecutionRef[];
   /** Rows whose reconcile threw; they stay live and are retried next pass. */
@@ -175,6 +180,12 @@ export type SchedulerRunSummary = {
   killed: ExecutionRef[];
   /** Kill intents the provider did not carry out; each row keeps its slot. */
   killFailed: ExecutionRef[];
+  /**
+   * Kill intents whose resource was asked to stop and is still draining its
+   * turn. Not a failure: each keeps its slot, and a later pass confirms it
+   * gone without having waited on it (94S-385).
+   */
+  killsStopping: ExecutionRef[];
   /**
    * Isolation resources (worker networks) the backend could neither remove
    * nor repair. A fault: each one is either a leaked address pool or a
@@ -618,10 +629,12 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     launchesQuarantined: [],
     orphansTerminated: [],
     orphansUnresolved: [],
+    orphansStopping: [],
     reclaimFailed: [],
     reconcileFailed: [],
     killFailed: [],
     killed: [],
+    killsStopping: [],
     networkScanFailed: false,
     networksFailed: [],
     networksReclaimed: [],
@@ -982,7 +995,9 @@ async function pass(
           ...fieldsOf(ref),
           ...(outcome.outcome === "generation_mismatch"
             ? { found_generation: outcome.foundGeneration }
-            : { found_provider_ref: outcome.foundProviderRef }),
+            : outcome.outcome === "provider_mismatch"
+              ? { found_provider_ref: outcome.foundProviderRef }
+              : {}),
           outcome: outcome.outcome,
           session_id: execution.sessionId,
         });
@@ -1124,7 +1139,7 @@ async function pass(
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
-      outcome = await backend.terminate(ref);
+      outcome = await backend.terminate(ref, { waitForExit: false });
     } catch (error) {
       summary.killFailed.push(ref);
       logger.error("Killing execution failed; intent kept for retry", {
@@ -1139,6 +1154,15 @@ async function pass(
       logger.error("Killing execution hit a generation mismatch", {
         ...fieldsOf(ref),
         found_generation: outcome.foundGeneration,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (outcome.outcome === "stopping") {
+      summary.killsStopping.push(ref);
+      logger.info("Execution asked to stop; confirmed gone by a later pass", {
+        ...fieldsOf(ref),
+        provider_ref: outcome.providerRef,
         session_id: execution.sessionId,
       });
       return;
@@ -1301,7 +1325,14 @@ async function pass(
       // could find a replacement another pass has since built and whose
       // worker has since bound; that one is refused, the row is left as is,
       // and the next pass judges the replacement on its own merits.
-      outcome = await backend.terminate(ref, pinnedTo(observed));
+      // A claimed worker may be draining a turn past its drain deadline and
+      // is not waited on. An unclaimed one has no turn and exits at once, and
+      // is waited on: every replace of it counts against the replacement
+      // limit, which asking again each pass would spend in seconds.
+      outcome = await backend.terminate(ref, {
+        ...pinnedTo(observed),
+        waitForExit: !execution.claimed,
+      });
     } catch (error) {
       summary.reconcileFailed.push(ref);
       logger.error("Replacing an execution resource failed", {
@@ -1314,6 +1345,15 @@ async function pass(
     }
     if (outcome.outcome === "terminated" || outcome.outcome === "absent") {
       return true;
+    }
+    if (outcome.outcome === "stopping") {
+      logger.info("Execution resource stopping for replacement", {
+        ...fieldsOf(ref),
+        provider_ref: outcome.providerRef,
+        reason,
+        session_id: execution.sessionId,
+      });
+      return false;
     }
     // Left untouched, so the row keeps its slot and the next pass retries.
     summary.reconcileFailed.push(ref);
@@ -1557,8 +1597,11 @@ async function pass(
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
+      // Nothing is rebuilt from an orphan, so nothing is lost by not
+      // waiting on one that is busy; a later pass lists it again.
       outcome = await backend.terminate(refOf(resource), {
         providerRef: resource.providerRef,
+        waitForExit: false,
       });
     } catch (error) {
       // One stuck resource must not stop the rest of the pass; it still
@@ -1569,6 +1612,14 @@ async function pass(
         provider_ref: resource.providerRef,
       });
       summary.orphansUnresolved.push(refOf(resource));
+      continue;
+    }
+    if (outcome.outcome === "stopping") {
+      summary.orphansStopping.push(refOf(resource));
+      logger.info("Orphan resource asked to stop; still winding down", {
+        ...fieldsOf(refOf(resource)),
+        provider_ref: outcome.providerRef,
+      });
       continue;
     }
     if (outcome.outcome !== "terminated") {
@@ -1608,7 +1659,8 @@ async function pass(
     0,
     options.slotLimit -
       demand.activeExecutionCount -
-      summary.orphansUnresolved.length,
+      summary.orphansUnresolved.length -
+      summary.orphansStopping.length,
   );
   for (const sessionId of demand.eligibleSessionIds) {
     if (free <= 0) break;
@@ -1711,6 +1763,7 @@ async function pass(
     image_unresolved: summary.imageUnresolved,
     kill_failed_count: summary.killFailed.length,
     killed_count: summary.killed.length,
+    kills_stopping_count: summary.killsStopping.length,
     launch_backoff_count: summary.launchesBackingOff.length,
     launch_quarantined_count: summary.launchesQuarantined.length,
     launched_count: summary.launched.length,
@@ -1720,6 +1773,7 @@ async function pass(
     network_scan_failed: summary.networkScanFailed,
     orphan_count: summary.orphansTerminated.length,
     orphan_unresolved_count: summary.orphansUnresolved.length,
+    orphan_stopping_count: summary.orphansStopping.length,
     reclaim_failed_count: summary.reclaimFailed.length,
     reconcile_failed_count: summary.reconcileFailed.length,
     reensured_count: summary.reensured.length,

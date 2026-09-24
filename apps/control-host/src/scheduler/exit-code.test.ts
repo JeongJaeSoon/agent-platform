@@ -12,6 +12,7 @@ const clean: SchedulerRunSummary = {
   imageUnresolved: false,
   killFailed: [],
   killed: [],
+  killsStopping: [],
   launched: [],
   launchesBackingOff: [],
   launchesQuarantined: [],
@@ -21,6 +22,7 @@ const clean: SchedulerRunSummary = {
   networksRepaired: [],
   orphansTerminated: [],
   orphansUnresolved: [],
+  orphansStopping: [],
   reclaimFailed: [],
   reconcileFailed: [],
   reensured: [],
@@ -40,6 +42,11 @@ const ref = { executionId: "exec-1", generation: 1 };
 describe("scheduler exit code", () => {
   test("a clean pass exits 0", () => {
     expect(exitCodeFor(clean)).toBe(0);
+  });
+
+  test("a kill still draining is not a failure (94S-385)", () => {
+    expect(exitCodeFor({ ...clean, killsStopping: [ref] })).toBe(0);
+    expect(exitCodeFor({ ...clean, orphansStopping: [ref] })).toBe(0);
   });
 
   test("a skipped pass says so, so the loop counts it as neither", () => {

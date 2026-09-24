@@ -584,6 +584,11 @@ class FakeBackend implements ExecutionBackend {
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
+  /**
+   * Containers whose worker is still draining its turn: a terminate that
+   * does not wait for the exit finds them still there.
+   */
+  drainingFor = new Set<string>();
   /** Containers whose `stop` succeeds and whose `remove` then fails. */
   failRemoveFor = new Set<string>();
   /** Containers the provider reports as built on an older isolation contract. */
@@ -818,6 +823,12 @@ class FakeBackend implements ExecutionBackend {
             outcome: "generation_mismatch",
           }
         : { outcome: "absent" };
+    }
+    if (options.waitForExit === false && this.drainingFor.has(nameOf(ref))) {
+      return {
+        outcome: "stopping",
+        providerRef: this.providerRefOf(nameOf(ref), container),
+      };
     }
     this.containers.delete(nameOf(ref));
     return { outcome: "terminated", providerRef: `ctr-${nameOf(ref)}` };
@@ -1073,6 +1084,29 @@ describe("runScheduler", () => {
             r.level === "warn" && r.message.includes("Drain deadline passed"),
         ),
       ).toHaveLength(1);
+    });
+
+    test("past the drain deadline is not waited on while it winds down (94S-385)", async () => {
+      const { backend, records, run, store } = harness(10, {
+        drainDeadlineMs: 60_000,
+      });
+      const { ref, sessionId } = claimedStale(store, backend);
+      store.busySessions.add(sessionId);
+      await run();
+      store.elapse(60_000);
+      backend.drainingFor.add("exec-1#1");
+
+      const stopping = await run();
+      expect(stopping.drainsOverdue).toEqual([ref]);
+      expect(stopping.replaced).toEqual([]);
+      expect(stopping.reconcileFailed).toEqual([]);
+      expect(store.confirmedGone).toEqual([]);
+      expect(records.filter((r) => r.level === "error")).toEqual([]);
+
+      backend.drainingFor.clear();
+      const replaced = await run();
+      expect(replaced.replaced).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
     });
   });
 
@@ -2302,6 +2336,31 @@ describe("runScheduler", () => {
     expect(next.launched).toHaveLength(1);
   });
 
+  test("a busy orphan is not waited on, and holds its slot until it is gone (94S-385)", async () => {
+    const { backend, records, run, store } = harness(1);
+    backend.containers.set("stray#1", {
+      exited: false,
+      generation: 1,
+      operationId: "op-stray",
+      sessionId: "s-stray",
+    });
+    backend.drainingFor.add("stray#1");
+    store.addUnassigned(1);
+
+    const summary = await run();
+    expect(summary.orphansStopping).toEqual([
+      { executionId: "stray", generation: 1 },
+    ]);
+    expect(summary.orphansUnresolved).toEqual([]);
+    expect(summary.launched).toEqual([]);
+    expect(records.filter((r) => r.level === "error")).toEqual([]);
+
+    backend.drainingFor.clear();
+    const next = await run();
+    expect(next.orphansTerminated).toHaveLength(1);
+    expect(next.launched).toHaveLength(1);
+  });
+
   test("another backend's intent is never recreated on this provider", async () => {
     const { backend, run, store } = harness();
     store.seedActive({ backend: "eks_job", observedState: "running" });
@@ -2590,6 +2649,37 @@ describe("runScheduler", () => {
         (r) => r.message === "Execution killed on request; resource removed",
       ),
     ).toBe(true);
+  });
+
+  test("a kill does not wait on a worker draining its turn, and a later pass confirms it gone (94S-385)", async () => {
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [launch] = [...store.executions.values()];
+    if (!launch) throw new Error("nothing launched");
+    const ref = { executionId: launch.executionId, generation: 1 };
+    launch.desiredState = "terminated";
+    launch.claimed = true;
+    store.unassigned.delete(launch.sessionId);
+    backend.drainingFor.add(`${launch.executionId}#1`);
+
+    const asked = await run();
+    expect(asked.killsStopping).toEqual([ref]);
+    expect(asked.killed).toEqual([]);
+    expect(asked.killFailed).toEqual([]);
+    expect(backend.containers.size).toBe(1);
+    expect(store.confirmedGone).toEqual([]);
+    expect(launch.slotReleased).toBe(false);
+    expect(records.filter((r) => r.level === "error")).toEqual([]);
+
+    // The daemon's SIGKILL, or the worker's own exit, ends the drain.
+    backend.drainingFor.clear();
+    const confirmed = await run();
+    expect(confirmed.killsStopping).toEqual([]);
+    expect(confirmed.killed).toEqual([ref]);
+    expect(backend.containers.size).toBe(0);
+    expect(store.confirmedGone).toEqual([launch.executionId]);
+    expect(launch.slotReleased).toBe(true);
   });
 
   test("a kill that commits while the pass is out at the provider is honoured, not re-ensured", async () => {

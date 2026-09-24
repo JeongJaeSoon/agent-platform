@@ -117,7 +117,10 @@ export type TerminateExecutionResult =
   // The name resolves to a resource other than the one the caller inspected
   // (`TerminateOptions.providerRef`): something replaced it in between, and
   // it was left untouched.
-  | { outcome: "provider_mismatch"; foundProviderRef: string };
+  | { outcome: "provider_mismatch"; foundProviderRef: string }
+  // Asked to stop and still winding down (`TerminateOptions.waitForExit`
+  // false); a later terminate finds it gone or removes what is left.
+  | { outcome: "stopping"; providerRef: string };
 
 export type TerminateOptions = {
   /**
@@ -128,6 +131,13 @@ export type TerminateOptions = {
    * refuses anything but that exact resource.
    */
   providerRef?: string;
+  /**
+   * False returns `stopping` instead of waiting out a resource that is still
+   * winding down. A busy worker spends up to its whole stop grace draining
+   * its turn, and a scheduling pass that waited on it would admit nothing
+   * meanwhile and outlast its own deadline (94S-385). Default true.
+   */
+  waitForExit?: boolean;
 };
 
 export type ManagedExecution = ExecutionRef & {

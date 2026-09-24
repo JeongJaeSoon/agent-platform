@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { schedulerConfigFromEnv } from "./config.ts";
+import { assertPassOutlastsStop, schedulerConfigFromEnv } from "./config.ts";
 
 const base = {
   AWS_ACCESS_KEY_ID: "test",
@@ -19,6 +19,32 @@ const base = {
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "agent-platform-worker:dev",
 };
+
+describe("assertPassOutlastsStop", () => {
+  const message =
+    "SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC";
+
+  test("the defaults leave a pass room for one whole worker stop", () => {
+    const { docker } = schedulerConfigFromEnv(base);
+    expect(docker.stopTimeoutSeconds * 1_000 + docker.requestTimeoutMs).toBe(
+      150_000,
+    );
+    expect(() => assertPassOutlastsStop(180_000, docker)).not.toThrow();
+  });
+
+  test("refuses a pass timeout a worker stop can outlast (94S-385)", () => {
+    const { docker } = schedulerConfigFromEnv(base);
+    expect(() => assertPassOutlastsStop(120_000, docker)).toThrow(message);
+    expect(() => assertPassOutlastsStop(150_000, docker)).toThrow(message);
+    const longer = schedulerConfigFromEnv({
+      ...base,
+      EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: "60",
+      EXECUTION_DOCKER_STOP_TIMEOUT_SEC: "300",
+    }).docker;
+    expect(() => assertPassOutlastsStop(180_000, longer)).toThrow(message);
+    expect(() => assertPassOutlastsStop(361_000, longer)).not.toThrow();
+  });
+});
 
 describe("schedulerConfigFromEnv", () => {
   test("reads the installation limits and defaults the worker resources to the documented values", () => {
