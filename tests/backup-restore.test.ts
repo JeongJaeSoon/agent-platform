@@ -1,9 +1,13 @@
-import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGitBundleChain } from "@agent-platform/testkit/git-bundle";
+import {
+  captureWorkspace,
+  DEFAULT_WORKSPACE_CAPTURE_LIMITS,
+  type WorkspaceCapture,
+} from "../apps/worker/src/workspace-capture.ts";
 
 /**
  * The refusal paths of scripts/restore.sh, exercised without Docker: the
@@ -272,73 +276,139 @@ describe("restore.sh preflight", () => {
 });
 
 describe("verify-restore bundle chain", () => {
-  async function withChain(
-    run: (paths: {
-      base: string;
-      baseCommit: string;
-      repository: string;
-      tip: string;
-      tipCommit: string;
-    }) => Promise<void>,
-  ) {
-    const chain = await createGitBundleChain();
-    const dir = await mkdtemp(join(tmpdir(), "verify-chain-"));
-    try {
-      const base = join(dir, "base.bundle");
-      const tip = join(dir, "tip.bundle");
-      await writeFile(base, chain.base.bytes);
-      await writeFile(tip, chain.tip.bytes);
-      const repository = join(dir, "verify.git");
-      expect(
-        (await bash(`git init --quiet --bare "${repository}"`, dir)).exitCode,
-      ).toBe(0);
-      await run({
-        base,
-        baseCommit: chain.base.commit,
-        repository,
-        tip,
-        tipCommit: chain.tip.commit,
-      });
-    } finally {
-      await rm(dir, { force: true, recursive: true });
-    }
+  let dir: string;
+  let root: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "verify-chain-"));
+    root = join(dir, "workspace");
+    await mkdir(root);
+    await git("init", "--quiet", "--initial-branch=main");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  // No global or system config: hooks a developer's git runs on commit have
+  // no business in a throwaway workspace.
+  async function git(...args: string[]) {
+    const handle = Bun.spawn(["git", ...args], {
+      cwd: root,
+      env: {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: dir,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "test",
+        GIT_AUTHOR_EMAIL: "test@example.test",
+        GIT_COMMITTER_NAME: "test",
+        GIT_COMMITTER_EMAIL: "test@example.test",
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      handle.exited,
+      new Response(handle.stderr).text(),
+    ]);
+    if (exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${stderr}`);
   }
-  const unbundle = (repository: string, commit: string, ...bundles: string[]) =>
-    bash(
-      `source "${lib}"; unbundle_chain "${repository}" "${commit}" ${bundles.map((b) => `"${b}"`).join(" ")}`,
+
+  async function commit(path: string, body: string) {
+    await writeFile(join(root, path), body);
+    await git("add", "--all");
+    await git("commit", "--quiet", "-m", path);
+  }
+
+  /** The worker's own capture, on top of `earlier` the way a chain grows. */
+  async function capture(
+    ...earlier: WorkspaceCapture[]
+  ): Promise<WorkspaceCapture> {
+    const result = await captureWorkspace({
+      root,
+      bundlePath: join(dir, `${randomUUID()}.bundle`),
+      signal: new AbortController().signal,
+      ...(earlier.length === 0
+        ? {}
+        : {
+            base: {
+              maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
+              tips: earlier.flatMap(({ bundle }) => bundle.tips),
+            },
+          }),
+    });
+    if (result.status !== "captured") throw new Error(result.reason);
+    return result.capture;
+  }
+
+  async function unbundle(commit: string, ...chain: WorkspaceCapture[]) {
+    const repository = join(dir, `verify-${randomUUID()}.git`);
+    expect(
+      (await bash(`git init --quiet --bare "${repository}"`, dir)).exitCode,
+    ).toBe(0);
+    return bash(
+      `source "${lib}"; unbundle_chain "${repository}" "${commit}" ${chain.map(({ bundle }) => `"${bundle.path}"`).join(" ")}`,
       repoRoot,
     );
+  }
 
   test("an incremental bundle alone does not verify in an empty repository (94S-372)", async () => {
-    await withChain(async ({ repository, tip, tipCommit }) => {
-      const result = await unbundle(repository, tipCommit, tip);
-      expect(result.exitCode).toBe(1);
-      expect(result.stdout).toContain(
-        "bundle 1 of 1: git bundle verify rejected it",
-      );
-    });
+    await commit("a.txt", "a\n");
+    const first = await capture();
+    await commit("a.txt", "a, then b\n");
+    const second = await capture(first);
+
+    expect(second.bundle.incremental).toBe(true);
+    const result = await unbundle(second.gitCommit, second);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(
+      "bundle 1 of 1: git bundle verify rejected it",
+    );
   });
 
-  test("the chain applied base first verifies, and the tip offers the checkpoint's commit", async () => {
-    await withChain(async ({ base, repository, tip, tipCommit }) => {
-      const result = await unbundle(repository, tipCommit, base, tip);
-      expect(result.stdout).toBe("");
-      expect(result.exitCode).toBe(0);
-    });
+  test("the chain applied base first verifies, and the last bundle's worktree ref is the checkpoint's commit", async () => {
+    await commit("a.txt", "a\n");
+    const first = await capture();
+    await commit("a.txt", "a, then b\n");
+    await writeFile(join(root, "a.txt"), "uncommitted\n");
+    const second = await capture(first);
+
+    expect(second.bundle.incremental).toBe(true);
+    const result = await unbundle(second.gitCommit, first, second);
+    expect(result.stdout).toBe("");
+    expect(result.exitCode).toBe(0);
   });
 
-  test("refuses the chain out of order, or a commit the last bundle does not offer", async () => {
-    await withChain(async ({ base, repository, tip, tipCommit }) => {
-      const reversed = await unbundle(repository, tipCommit, tip, base);
-      expect(reversed.exitCode).toBe(1);
-      expect(reversed.stdout).toContain("bundle 1 of 2");
-    });
-    await withChain(async ({ base, baseCommit, repository, tip }) => {
-      const stale = await unbundle(repository, baseCommit, base, tip);
-      expect(stale.exitCode).toBe(1);
-      expect(stale.stdout).toContain(
-        `${baseCommit} is not a ref tip of the last bundle`,
-      );
-    });
+  // 94S-135's fault-backup-restore-resume: both turns wrote only an
+  // untracked file, which travels outside the bundle. So the second capture
+  // changed nothing git tracks, and carries its refs as annotated tags over
+  // commits the base has: the last bundle lists the tag, never the commit. A
+  // restore peels refs/checkpoint/worktree; the verifier has to as well.
+  test("verifies a capture that changed nothing tracked, whose worktree ref is a tag over a commit of its base (94S-374)", async () => {
+    await commit("a.txt", "a\n");
+    const first = await capture();
+    const second = await capture(first);
+
+    expect(second.bundle.incremental).toBe(true);
+    expect(second.gitCommit).toBe(first.gitCommit);
+    const result = await unbundle(second.gitCommit, first, second);
+    expect(result.stdout).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("refuses the chain out of order, or a commit other than the last bundle's worktree", async () => {
+    await commit("a.txt", "a\n");
+    const first = await capture();
+    await commit("a.txt", "a, then b\n");
+    const second = await capture(first);
+
+    const reversed = await unbundle(second.gitCommit, second, first);
+    expect(reversed.exitCode).toBe(1);
+    expect(reversed.stdout).toContain("bundle 1 of 2");
+    const stale = await unbundle(first.gitCommit, first, second);
+    expect(stale.exitCode).toBe(1);
+    expect(stale.stdout).toBe(
+      `the last bundle's refs/checkpoint/worktree is ${second.gitCommit}, not ${first.gitCommit}\n`,
+    );
   });
 });
