@@ -106,3 +106,38 @@ describe("egressProxyConfigFromEnv", () => {
     ).toThrow("http or https");
   });
 });
+
+describe("forward and credential allowlists", () => {
+  const routes = {
+    EGRESS_AUTHORIZER_URL: "http://api:3100",
+    EGRESS_AUTHORIZER_TOKEN: "t".repeat(32),
+  };
+
+  // An installation upgraded with its old allowlists kept them on the
+  // forward proxy, where a worker reaches them without the route (94S-383).
+  test("refuse to start when a credential route's upstream is also forwarded", () => {
+    expect(() =>
+      egressProxyConfigFromEnv({
+        ...routes,
+        EGRESS_ALLOWLIST: "api.anthropic.com:443",
+        EGRESS_PRIVATE_ALLOWLIST: "api:3000,gitea:3000,LocalStack:4566",
+        EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
+        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000,localstack:4566",
+      }),
+    ).toThrow(
+      "api.anthropic.com:443, gitea:3000, localstack:4566 must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST alone",
+    );
+    const split = egressProxyConfigFromEnv({
+      ...routes,
+      EGRESS_PRIVATE_ALLOWLIST: "api:3000",
+      EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000,localstack:4566",
+    });
+    expect(split.allowPrivate).toEqual([{ host: "api", port: 3000 }]);
+    // Without the routes there is nothing to go round.
+    expect(
+      egressProxyConfigFromEnv({ EGRESS_PRIVATE_ALLOWLIST: "gitea:3000" })
+        .allowPrivate,
+    ).toEqual([{ host: "gitea", port: 3000 }]);
+  });
+});
