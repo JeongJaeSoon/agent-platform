@@ -1,0 +1,237 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { createHash, randomBytes } from "node:crypto";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { ImmutableObjectSource } from "@agent-platform/runtime-core";
+import { S3Client } from "@aws-sdk/client-s3";
+
+import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
+import {
+  BoundedNodeHttpHandler,
+  DEFAULT_BODY_READ_BOUNDS,
+  S3_MAX_ATTEMPTS,
+  S3_REQUEST_BOUNDS,
+  type S3ClientLike,
+  transferBudgetMs,
+} from "./s3.ts";
+
+const KEY = "sessions/s1/checkpoints/0000000000/a/p/workspace.bundle";
+const MiB = 1024 * 1024;
+
+describe("transfer budgets grow with the object (94S-318)", () => {
+  test("the floor up to 256 MiB, the same rate above it", () => {
+    expect(transferBudgetMs(0, 300_000)).toBe(300_000);
+    expect(transferBudgetMs(128 * MiB, 300_000)).toBe(300_000);
+    expect(transferBudgetMs(256 * MiB, 300_000)).toBe(300_000);
+    expect(transferBudgetMs(512 * MiB, 300_000)).toBe(600_000);
+    expect(transferBudgetMs(1024 * MiB, 300_000)).toBe(1_200_000);
+  });
+
+  test("a streamed upload asks for a request timeout sized to its body", async () => {
+    const timeouts: Array<number | undefined> = [];
+    const client: S3ClientLike = {
+      async send(command, options) {
+        const name = (command as { constructor: { name: string } }).constructor
+          .name;
+        if (name === "GetObjectCommand") {
+          throw Object.assign(new Error("no such key"), {
+            name: "NoSuchKey",
+            $metadata: { httpStatusCode: 404 },
+          });
+        }
+        timeouts.push(options?.requestTimeout);
+        return { VersionId: "v1" };
+      },
+    };
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+    // Declared large; the fake never reads the body.
+    const large = { ...sourceOf(new Uint8Array(1)), bytes: 512 * MiB };
+
+    await store.putImmutable(KEY, large);
+    await store.putImmutable(`${KEY}.small`, new Uint8Array(1));
+
+    // The small body rides the client's own bound.
+    expect(timeouts).toEqual([600_000, undefined]);
+  });
+
+  test("a streamed read of a large body gets a whole-read budget sized to it", async () => {
+    // 2 MiB dripped over ~400 ms: past a 50 ms floor, well inside the
+    // ~2.3 s the size earns at the minimum rate.
+    const size = 2 * MiB;
+    const client: S3ClientLike = {
+      async send() {
+        return {
+          Body: (async function* () {
+            for (let sent = 0; sent < size; sent += size / 4) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              yield new Uint8Array(size / 4);
+            }
+          })(),
+          ContentLength: size,
+        };
+      },
+    };
+    const store = createCheckpointObjectStore({
+      bodyRead: { ...DEFAULT_BODY_READ_BOUNDS, maxReadMs: 50 },
+      bucket: "bucket",
+      client,
+    });
+
+    let read = 0;
+    for await (const chunk of (await store.stream(KEY)) ?? []) {
+      read += chunk.byteLength;
+    }
+    expect(read).toBe(size);
+  });
+});
+
+type Received = {
+  body: Uint8Array;
+  headers: IncomingMessage["headers"];
+  method: string;
+};
+
+/**
+ * A streamed `putImmutable` through the real SDK and its node handler — the
+ * worker's transport — against a peer that records every request whole.
+ */
+describe("streamed putImmutable over HTTP", () => {
+  let server: Server | undefined;
+  let client: S3Client | undefined;
+
+  afterEach(() => {
+    client?.destroy();
+    server?.closeAllConnections();
+    server?.close();
+  });
+
+  async function peer(
+    answer: (
+      request: Received,
+      puts: number,
+    ) => {
+      status: number;
+      headers?: Record<string, string>;
+      body?: string | Uint8Array;
+    },
+  ) {
+    const received: Received[] = [];
+    server = createServer(async (request, response) => {
+      const parts: Buffer[] = [];
+      for await (const part of request) parts.push(part as Buffer);
+      const entry = {
+        body: new Uint8Array(Buffer.concat(parts)),
+        headers: request.headers,
+        method: request.method ?? "",
+      };
+      received.push(entry);
+      const puts = received.filter(({ method }) => method === "PUT").length;
+      const { body, headers, status } = answer(entry, puts);
+      response.writeHead(status, headers);
+      response.end(body);
+    });
+    await new Promise<void>((resolve) =>
+      server?.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Test peer did not bind a port");
+    }
+    client = new S3Client({
+      credentials: { accessKeyId: "id", secretAccessKey: "test" },
+      endpoint: `http://127.0.0.1:${address.port}`,
+      forcePathStyle: true,
+      maxAttempts: S3_MAX_ATTEMPTS,
+      region: "ap-northeast-1",
+      requestHandler: new BoundedNodeHttpHandler(S3_REQUEST_BOUNDS),
+    });
+    return {
+      received,
+      store: createCheckpointObjectStore({ bucket: "bucket", client }),
+    };
+  }
+
+  const missing = {
+    status: 404,
+    headers: { "content-type": "application/xml" },
+    body: "<Error><Code>NoSuchKey</Code><Message>none</Message></Error>",
+  };
+
+  test("sends the body with its length and checksum, not aws-chunked, and a fresh pass on a retry", async () => {
+    const bytes = new Uint8Array(randomBytes(3 * 64 * 1024 + 11));
+    const source = sourceOf(bytes);
+    const { received, store } = await peer((request, puts) => {
+      if (request.method === "GET") return missing;
+      return puts === 1
+        ? {
+            status: 500,
+            headers: { "content-type": "application/xml" },
+            body: "<Error><Code>InternalError</Code><Message>try again</Message></Error>",
+          }
+        : { status: 200, headers: { "x-amz-version-id": "v7" } };
+    });
+
+    expect(await store.putImmutable(KEY, source)).toEqual({
+      outcome: "created",
+      version: "v7",
+    });
+
+    const puts = received.filter(({ method }) => method === "PUT");
+    expect(puts).toHaveLength(2);
+    for (const put of puts) {
+      expect(put.body).toEqual(bytes);
+      expect(put.headers["content-length"]).toBe(String(bytes.byteLength));
+      expect(put.headers["content-encoding"]).toBeUndefined();
+      expect(put.headers["x-amz-checksum-sha256"]).toBe(
+        Buffer.from(source.sha256, "hex").toString("base64"),
+      );
+      expect(put.headers["if-none-match"]).toBe("*");
+    }
+    // One pass per attempt, and none opened for nothing.
+    expect(source.opened()).toBe(2);
+  }, 20_000);
+
+  test("a key that already holds the same bytes is a duplicate, read through without holding it", async () => {
+    const bytes = new Uint8Array(randomBytes(200 * 1024));
+    const source = sourceOf(bytes);
+    const { received, store } = await peer((request) =>
+      request.method === "GET"
+        ? {
+            status: 200,
+            headers: {
+              "content-length": String(bytes.byteLength),
+              "x-amz-version-id": "v1",
+            },
+            body: bytes,
+          }
+        : { status: 500 },
+    );
+
+    expect(await store.putImmutable(KEY, source)).toEqual({
+      outcome: "duplicate",
+      version: "v1",
+    });
+    expect(received.filter(({ method }) => method === "PUT")).toHaveLength(0);
+    expect(source.opened()).toBe(0);
+  }, 20_000);
+});
+
+function sourceOf(
+  bytes: Uint8Array,
+): ImmutableObjectSource & { opened(): number } {
+  let opened = 0;
+  return {
+    bytes: bytes.byteLength,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    async *open() {
+      opened += 1;
+      // One buffer refilled per chunk, as a file read may hand them out.
+      const buffer = new Uint8Array(64 * 1024);
+      for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
+        const piece = bytes.subarray(offset, offset + 64 * 1024);
+        buffer.set(piece);
+        yield buffer.subarray(0, piece.byteLength);
+      }
+    },
+    opened: () => opened,
+  };
+}

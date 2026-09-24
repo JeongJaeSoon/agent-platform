@@ -35,14 +35,35 @@ export type GitWorkspaceBundleVerifierOptions = {
    */
   readonly tempRoot?: string;
   /**
-   * Ceiling for each git invocation. Verifying is bounded by the bundle size
-   * the service already caps, so a git that is still running past this is
-   * wedged, not busy.
+   * Ceiling for each git invocation on a bundle of up to
+   * `GIT_VERIFY_TIMEOUT_REFERENCE_BYTES`; a larger one gets proportionally
+   * more (`gitVerifyTimeoutMs`). A git still running past that is wedged,
+   * not busy.
    */
   readonly timeoutMs?: number;
 };
 
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
+/**
+ * The bundle size the timeout is written for: 256 MiB, which the measured
+ * `git fetch` of a 133 MiB bundle (9.5–15.7 s on a loaded host, 94S-230)
+ * puts at about half of 60 s.
+ */
+export const GIT_VERIFY_TIMEOUT_REFERENCE_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Each git's timeout, and so its CPU limit, for a bundle of `bytes`:
+ * `timeoutMs` up to the reference size, and the same time per byte above it.
+ */
+export function gitVerifyTimeoutMs(
+  bytes: number,
+  timeoutMs = DEFAULT_GIT_VERIFY_TIMEOUT_MS,
+): number {
+  return Math.max(
+    timeoutMs,
+    Math.ceil((bytes / GIT_VERIFY_TIMEOUT_REFERENCE_BYTES) * timeoutMs),
+  );
+}
 export const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
 /**
  * 1.5 GiB. The largest object a pack from git's own defaults holds whole is
@@ -161,7 +182,8 @@ export function createGitWorkspaceBundleVerifier(
       const directory = await mkdtemp(
         join(options.tempRoot ?? tmpdir(), "bundle-verify-"),
       );
-      const limits = gitLimits(bytes, objects);
+      const budgetMs = gitVerifyTimeoutMs(bytes, timeoutMs);
+      const limits = gitLimits(bytes, objects, budgetMs);
       const git = (args: readonly string[], cwd: string) =>
         gitRunner(args, {
           clearGitEnvironment: true,
@@ -178,7 +200,7 @@ export function createGitWorkspaceBundleVerifier(
             TMPDIR: directory,
           },
           limits,
-          timeoutMs,
+          timeoutMs: budgetMs,
         });
       try {
         const repository = join(directory, "repo.git");
@@ -242,9 +264,13 @@ export function createGitWorkspaceBundleVerifier(
    * each file at the larger of the two keeps that true of whatever git is
    * handed. CPU gets the wall-clock budget: one thread cannot use more.
    */
-  function gitLimits(bundleBytes: number, objects: number): GitResourceLimits {
+  function gitLimits(
+    bundleBytes: number,
+    objects: number,
+    budgetMs: number,
+  ): GitResourceLimits {
     return {
-      cpuSeconds: Math.ceil(timeoutMs / 1000),
+      cpuSeconds: Math.ceil(budgetMs / 1000),
       fileSizeBytes:
         Math.max(bundleBytes, 1024 + objects * 40) + FILE_SIZE_SLACK_BYTES,
       memoryBytes: maxGitMemoryBytes,

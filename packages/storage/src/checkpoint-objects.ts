@@ -1,10 +1,14 @@
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import type {
   CheckpointObjectCollector,
   StoredObjectVersion,
 } from "@agent-platform/platform";
-import type {
-  CheckpointObjectStore,
-  PutImmutableResult,
+import {
+  type CheckpointObjectStore,
+  type ImmutableObjectSource,
+  isImmutableObjectSource,
+  type PutImmutableResult,
 } from "@agent-platform/runtime-core";
 import {
   DeleteObjectCommand,
@@ -24,10 +28,13 @@ import {
   isMissingObject,
   isPreconditionFailed,
   isUnreadableVersion,
+  S3_MAX_ATTEMPTS,
+  S3_REQUEST_BOUNDS,
   type S3ClientLike,
   sha256,
   storedVersion,
   streamObjectVersion,
+  transferBudgetMs,
 } from "./s3.ts";
 
 // Bounded: a 409 means retry, but an endpoint that answers 409 forever must
@@ -67,15 +74,69 @@ export function createCheckpointObjectStore(
     });
   }
 
+  /**
+   * What the key holds now, as a digest: read through once and never held,
+   * since the body may be a workspace bundle.
+   */
+  async function stored(
+    key: string,
+  ): Promise<{ sha256: string; version?: string } | undefined> {
+    const found = await streamObjectVersion(client, bucket, key, {
+      ...(bodyRead === undefined ? {} : { bounds: bodyRead }),
+    });
+    if (found === undefined) return undefined;
+    const hash = createHash("sha256");
+    for await (const chunk of found.chunks) hash.update(chunk);
+    const digest = hash.digest("hex");
+    return found.version === undefined
+      ? { sha256: digest }
+      : { sha256: digest, version: found.version };
+  }
+
   function compare(
-    stored: { bytes: Uint8Array; version?: string },
+    found: { sha256: string; version?: string },
     expected: string,
   ): PutImmutableResult {
-    const found = sha256(stored.bytes);
-    if (found !== expected) return { outcome: "conflict", sha256: found };
-    return stored.version === undefined
+    if (found.sha256 !== expected) {
+      return { outcome: "conflict", sha256: found.sha256 };
+    }
+    return found.version === undefined
       ? { outcome: "duplicate" }
-      : { outcome: "duplicate", version: stored.version };
+      : { outcome: "duplicate", version: found.version };
+  }
+
+  function send(key: string, body: Uint8Array | ImmutableObjectSource) {
+    if (!isImmutableObjectSource(body)) {
+      return client.send(
+        new PutObjectCommand({
+          Body: body,
+          Bucket: bucket,
+          IfNoneMatch: "*",
+          Key: key,
+        }),
+      );
+    }
+    // The length and the checksum up front keep the SDK from switching to
+    // `aws-chunked`, which the worker's object store route refuses; S3 still
+    // checks the body against both.
+    const put = () =>
+      client.send(
+        new PutObjectCommand({
+          Body: pass(body),
+          Bucket: bucket,
+          ChecksumSHA256: Buffer.from(body.sha256, "hex").toString("base64"),
+          ContentLength: body.bytes,
+          IfNoneMatch: "*",
+          Key: key,
+        }),
+        {
+          requestTimeout: transferBudgetMs(
+            body.bytes,
+            S3_REQUEST_BOUNDS.requestTimeout,
+          ),
+        },
+      );
+    return retried(put);
   }
 
   return {
@@ -162,49 +223,76 @@ export function createCheckpointObjectStore(
       );
     },
 
-    async putImmutable(key, bytes) {
-      const expected = sha256(bytes);
+    async putImmutable(key, body) {
+      const expected = isImmutableObjectSource(body)
+        ? body.sha256
+        : sha256(body);
       // The read is not the guarantee — the precondition below is — but it
       // keeps an endpoint that silently ignores If-None-Match from turning a
       // late upload into an overwrite outside the narrow concurrent window.
-      const existing = await read(key);
+      const existing = await stored(key);
       if (existing !== undefined) return compare(existing, expected);
       for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt += 1) {
         try {
-          const response = (await client.send(
-            new PutObjectCommand({
-              Body: bytes,
-              Bucket: bucket,
-              IfNoneMatch: "*",
-              Key: key,
-            }),
-          )) as { VersionId?: string };
+          const response = (await send(key, body)) as { VersionId?: string };
           const version = storedVersion(response.VersionId);
           return version === undefined
             ? { outcome: "created" }
             : { outcome: "created", version };
         } catch (error) {
           if (isPreconditionFailed(error)) {
-            const stored = await read(key);
+            const found = await stored(key);
             // Rejected, yet nothing is stored: a lifecycle rule or a delete,
             // not a second writer. Refuse rather than retry; the caller keeps
             // its pointer.
-            return stored === undefined
+            return found === undefined
               ? { outcome: "conflict", sha256: "" }
-              : compare(stored, expected);
+              : compare(found, expected);
           }
           if (!isConditionalConflict(error)) throw error;
           // 409 says the write overlapped another conditional write, not that
           // this one lost. If the winner already stored something, that is the
           // answer; otherwise nobody holds the key yet and the retry stands.
-          const stored = await read(key);
-          if (stored !== undefined) return compare(stored, expected);
+          const found = await stored(key);
+          if (found !== undefined) return compare(found, expected);
         }
       }
       // Never report "created" for a write that was not observed to land.
       throw new Error(`Conditional write to ${key} kept conflicting`);
     },
   };
+}
+
+/**
+ * One pass over a streamed body. Each chunk is copied, because the stream
+ * buffers ahead of the socket and the source may refill what it handed out.
+ */
+function pass(source: ImmutableObjectSource): Readable {
+  return Readable.from(
+    (async function* () {
+      for await (const chunk of source.open()) yield Buffer.from(chunk);
+    })(),
+  );
+}
+
+/**
+ * The SDK retries nothing whose body is a stream — it cannot send a spent
+ * stream again — so a streamed upload retries here, with a fresh pass each
+ * time, on what the SDK would have retried: a server fault or a request
+ * that never got an answer. A 4xx is the answer, the preconditions
+ * included, and goes back to the caller.
+ */
+async function retried<T>(attempt: () => Promise<T>): Promise<T> {
+  for (let tried = 1; ; tried += 1) {
+    try {
+      return await attempt();
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } })
+        .$metadata?.httpStatusCode;
+      const answered = status !== undefined && status < 500;
+      if (answered || tried >= S3_MAX_ATTEMPTS) throw error;
+    }
+  }
 }
 
 /**

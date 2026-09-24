@@ -34,10 +34,12 @@ export {
   type BodyReadBounds,
   BodyStallError,
   DEFAULT_BODY_READ_BOUNDS,
+  MIN_TRANSFER_BYTES_PER_SECOND,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,
+  transferBudgetMs,
 } from "./s3.ts";
 export * from "./scoped-objects.ts";
 export {

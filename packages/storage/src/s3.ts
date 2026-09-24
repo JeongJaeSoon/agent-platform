@@ -29,15 +29,14 @@ export type S3RequestBounds = {
  * never answers leaves `send()` pending forever.
  *
  * `requestTimeout` runs from `send()` until the response *headers* arrive, the
- * upload included, and it does not care whether bytes are moving. The default
- * therefore has to cover the largest object this client carries — a workspace
- * bundle at the worker's 128 MiB capture limit — which at five minutes means
- * a floor of ~437 KiB/s (the control plane would read up to 256 MiB, ~0.85
- * MiB/s, should that limit rise). A
- * snappier value would abort healthy checkpoint uploads on a slow link, three
- * times over, and still fail. Reads do not upload anything and so do not wait
- * on that budget: they pass {@link BodyReadBounds.requestTimeoutMs} per
- * request instead.
+ * upload included, and it does not care whether bytes are moving. Five
+ * minutes is the floor for every write; a streamed `putImmutable` stretches
+ * it to its own size ({@link transferBudgetMs}), so a workspace bundle is
+ * never held to a budget sized for a smaller one. A snappier value would
+ * abort healthy checkpoint uploads on a slow link, three times over, and
+ * still fail. Reads do not upload anything and so do not wait on that
+ * budget: they pass {@link BodyReadBounds.requestTimeoutMs} per request
+ * instead.
  *
  * `throwOnRequestTimeout` is not optional dressing: without it
  * @smithy/node-http-handler 4.12.1 logs a warning when `requestTimeout`
@@ -55,6 +54,25 @@ export const S3_REQUEST_BOUNDS: S3RequestBounds = {
   requestTimeout: 300_000,
   throwOnRequestTimeout: true,
 };
+
+/**
+ * The slowest link a checkpoint transfer is allowed: 256 MiB in five
+ * minutes, ~0.85 MiB/s, the rate the fixed 300 s budgets were sized against
+ * when 256 MiB was the largest bundle (94S-230). Scaling by it keeps every
+ * size on the same terms.
+ */
+export const MIN_TRANSFER_BYTES_PER_SECOND = (256 * 1024 * 1024) / 300;
+
+/**
+ * How long moving `bytes` may take: `floorMs`, or longer for a body that
+ * would need more at {@link MIN_TRANSFER_BYTES_PER_SECOND}.
+ */
+export function transferBudgetMs(bytes: number, floorMs: number): number {
+  return Math.max(
+    floorMs,
+    Math.ceil((bytes / MIN_TRANSFER_BYTES_PER_SECOND) * 1000),
+  );
+}
 
 /**
  * `NodeHttpHandler` with every response body on a leash.
@@ -133,7 +151,10 @@ export type BodyReadBounds = {
   readonly attempts: number;
   /** Ceiling on what one body may accumulate in memory. */
   readonly maxBytes: number;
-  /** Budget for one whole body, however steadily it trickles. */
+  /**
+   * Budget for one whole body, however steadily it trickles. A streamed read
+   * stretches it to the body's size (`transferBudgetMs`); this is the floor.
+   */
   readonly maxReadMs: number;
   /**
    * Per-request bound for the GetObject itself, in place of the client's
@@ -344,13 +365,19 @@ export async function streamObjectVersion(
   const version = storedVersion(first.VersionId);
   const etag = first.ETag;
   const size = first.ContentLength;
+  // The whole-read budget grows with the body, so it bounds a drip without
+  // failing a large object on a link that is merely slow.
+  const bodyBounds = {
+    ...bounds,
+    maxReadMs: transferBudgetMs(size ?? 0, bounds.maxReadMs),
+  };
 
   async function* chunks(): AsyncGenerator<Uint8Array> {
     let body = first.Body;
     let offset = 0;
     for (let stalls = 0; ; ) {
       try {
-        for await (const bytes of boundedChunks(body, bounds, startedAt)) {
+        for await (const bytes of boundedChunks(body, bodyBounds, startedAt)) {
           offset += bytes.byteLength;
           yield bytes;
         }
