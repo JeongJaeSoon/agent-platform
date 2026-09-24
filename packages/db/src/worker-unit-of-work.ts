@@ -89,6 +89,7 @@ import {
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
+  boundedReason,
   RESTORE_FAILURES_CLEARED,
   recordRestoreFailure,
   restoreRetryDue,
@@ -1892,7 +1893,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         }
         const [attempt] = await tx
           .update(attempts)
-          .set({ state: "exited", endedAt: now, endReason: input.reason })
+          .set({
+            state: "exited",
+            endedAt: now,
+            endReason: boundedReason(input.reason),
+          })
           .where(ownedAttempt(fence))
           .returning({ id: attempts.id, executionId: attempts.executionId });
         if (!attempt) return { released: false };

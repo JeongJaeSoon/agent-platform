@@ -1,6 +1,7 @@
 import type { SessionAttention } from "@agent-platform/contracts";
 import { launchRetryDelayMs } from "@agent-platform/platform";
 import { eq, isNull, lte, or } from "drizzle-orm";
+import { restoreBaseRevision } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { attempts, sessions, unassignedSessions } from "./schema.ts";
@@ -54,7 +55,7 @@ export async function recordRestoreFailure(
     .from(attempts)
     .where(eq(attempts.id, input.attemptId))
     .limit(1);
-  const reason = bounded(attempt?.endReason ?? "execution_gone");
+  const reason = boundedReason(attempt?.endReason ?? "execution_gone");
   const failures = session.restoreFailureCount + 1;
   const stopped = failures >= RESTORE_FAILURE_LIMIT;
   const [updated] = await tx
@@ -76,7 +77,12 @@ export async function recordRestoreFailure(
   const failure = {
     type: "system",
     subtype: "checkpoint_restore_failed",
-    checkpoint_revision: session.checkpointRevision,
+    // What the attempt was restoring: a fallback's base (94S-204) when its
+    // plan fell back, the pointer otherwise.
+    checkpoint_revision:
+      session.checkpointRestoreAttemptId === input.attemptId
+        ? restoreBaseRevision(session)
+        : session.checkpointRevision,
     failures,
     limit: RESTORE_FAILURE_LIMIT,
     reason,
@@ -129,7 +135,8 @@ export function restoreFailedAttention(
   };
 }
 
-function bounded(reason: string): string {
+/** A worker's release reason as the database keeps it: one line, bounded. */
+export function boundedReason(reason: string): string {
   const line = reason.split("\n", 1)[0]?.trim() || "execution_gone";
   return line.length <= REASON_MAX_CHARS
     ? line
