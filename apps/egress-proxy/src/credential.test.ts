@@ -887,20 +887,21 @@ describe("startCredentialProxy", () => {
       );
       // Past the cap, a refusal comes back without reaching the upstream.
       while (h.up.seen.length === seen && !settled) await Bun.sleep(5);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      const read = async () => {
+        reader ??= (await answered).body?.getReader();
+        return reader?.read();
+      };
       return {
         hangUp: () => worker.abort(),
         streaming: async () => {
-          const response = await answered;
-          expect(response.status).toBe(200);
-          const reader = response.body?.getReader();
-          expect((await reader?.read())?.done).toBe(false);
-          return reader;
+          expect((await answered).status).toBe(200);
+          expect((await read())?.done).toBe(false);
         },
         /** Whatever the worker is still sent, to its end. */
         drain: async () => {
           try {
-            const reader = (await answered).body?.getReader();
-            while (!(await reader?.read())?.done) {}
+            while (!(await read())?.done) {}
           } catch {}
         },
       };
