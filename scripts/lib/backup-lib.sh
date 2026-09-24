@@ -173,7 +173,10 @@ schema_check() {
 # refs/checkpoint/worktree, peeled, must be <commit>: that is what a restore
 # checks out. It may be an annotated tag over a commit an earlier bundle
 # carries, when the capture changed nothing (94S-374), so the bundle's header
-# never lists <commit> itself. Paths must be absolute. Says on stdout which
+# never lists <commit> itself. That is the worktree part of the rule finalize
+# and a worker restore apply to the last bundle's refs, `checkpointBundleRefs`
+# in packages/runtime-core/src/checkpoint-bundle.ts (94S-391); a bundle that
+# rule refuses never commits. Paths must be absolute. Says on stdout which
 # bundle git refused and fails.
 unbundle_chain() {
   local repository="$1" commit="$2"

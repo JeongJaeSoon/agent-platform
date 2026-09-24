@@ -90,7 +90,7 @@ scripts/verify-restore.sh --project ap-restore-1
 1. `manifest_ref`를 **`manifest_version`으로** 내려받아 sha256 = `manifest_sha256`인지 본다. 행의 `versions_held`는 true여야 한다.
 2. manifest 안의 transcript part(root·subagent), untracked 파일, workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조한다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다.
 3. 1과 2의 모든 version에 대해 HEAD의 `ObjectLockLegalHoldStatus`가 `ON`인지 본다.
-4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다(94S-374). 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`).
+4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다(94S-374). 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`). finalize와 워커 복원이 bundle ref에 적용하는 규칙 전체는 runtime-core의 `checkpointBundleRefs`에 있다. 스크립트는 그 가운데 worktree 부분만 본다(94S-391).
 
 `sessions.checkpoint_revision`과 같은 행은 `pointer`로 표시된다. pointer가 가리키는 revision에 `checkpoints` 행이 없으면 그 자체로 FAIL이다. manifest의 `sessionId`·`revision`도 행과 같아야 한다.
 

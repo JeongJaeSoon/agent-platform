@@ -118,7 +118,7 @@ describe("git workspace bundle verifier", () => {
       }),
     ).toMatchObject({
       status: "unusable",
-      reason: `tip: git bundle does not land ${chain.base.commit} as a ref or a tag over one`,
+      reason: `tip: Checkpoint bundle pins worktree ${chain.tip.commit}, not the manifest's ${chain.base.commit}`,
     });
     // The base must come first: the tip does not stand in for it.
     expect(
@@ -132,6 +132,42 @@ describe("git workspace bundle verifier", () => {
       reason: expect.stringContaining("tip: "),
     });
     await rm(directory, { force: true, recursive: true });
+  });
+
+  // The rule a restore applies (stageCheckpointBundle), so a checkpoint
+  // finalize commits is one a restore checks out.
+  test.each([
+    [
+      "without refs/checkpoint/worktree",
+      ["refs/checkpoint/head", "refs/heads/main"],
+      "Checkpoint bundle is missing refs/checkpoint/head or refs/checkpoint/worktree",
+    ],
+    [
+      "with two branches",
+      [
+        "refs/checkpoint/head",
+        "refs/checkpoint/worktree",
+        "refs/heads/a",
+        "refs/heads/b",
+      ],
+      "Checkpoint bundle carries refs a capture does not write: refs/heads/b",
+    ],
+    [
+      "with a ref no capture writes",
+      ["refs/checkpoint/head", "refs/checkpoint/worktree", "refs/tags/v1"],
+      "Checkpoint bundle carries refs a capture does not write: refs/tags/v1",
+    ],
+  ])("a bundle %s is unusable (94S-391)", async (_, refs, reason) => {
+    const odd = await createGitBundle({ refs });
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+
+    expect(
+      await verifyBundleBytes(verifier, {
+        bytes: odd.bytes,
+        commit: odd.commit,
+        key: "k",
+      }),
+    ).toEqual({ status: "unusable", reason });
   });
 
   test("a rewritten header over a whole pack is unusable", async () => {
@@ -512,7 +548,7 @@ describe("git workspace bundle verifier", () => {
     expect(fetch.stderr).toContain("did not send all necessary objects");
   });
 
-  test("a bundle recorded against HEAD, as `git bundle create … HEAD` writes it, is restorable", async () => {
+  test("a bundle recorded against HEAD, as `git bundle create … HEAD` writes it, is not a checkpoint a restore checks out (94S-391)", async () => {
     const source = await mkdtemp(join(tempRoot, "head-"));
     const env = {
       GIT_AUTHOR_EMAIL: "t@example.invalid",
@@ -542,7 +578,8 @@ describe("git workspace bundle verifier", () => {
     expect(
       await verifyBundleBytes(verifier, { bytes, commit, key: "k" }),
     ).toEqual({
-      status: "restorable",
+      status: "unusable",
+      reason: "Checkpoint bundle carries refs a capture does not write: HEAD",
     });
   });
 

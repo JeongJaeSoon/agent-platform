@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGitBundleHeader } from "@agent-platform/runtime-core";
 import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
+import { createGitBundle } from "@agent-platform/testkit/git-bundle";
 
 import {
   restoreCheckpointTree,
@@ -434,6 +435,51 @@ describe("staging a checkpoint bundle", () => {
   });
 });
 
+// Finalize and restore read a bundle's refs by one rule: what one refuses
+// the other does, so no checkpoint commits that a resume cannot check out.
+describe("a bundle finalize and restore both refuse (94S-391)", () => {
+  test.each([
+    ["without refs/checkpoint/worktree", ["refs/checkpoint/head"]],
+    [
+      "with two branches",
+      [
+        "refs/checkpoint/head",
+        "refs/checkpoint/worktree",
+        "refs/heads/a",
+        "refs/heads/b",
+      ],
+    ],
+    ["recorded against HEAD", ["HEAD"]],
+  ])(
+    "%s",
+    async (_, refs) => {
+      const odd = await createGitBundle({ refs });
+      const path = join(scratch, "odd.bundle");
+      await writeFile(path, odd.bytes);
+
+      const verdict = await createGitWorkspaceBundleVerifier({
+        tempRoot: scratch,
+      }).verify({
+        bytes: odd.bytes.byteLength,
+        commit: odd.commit,
+        key: "k",
+        path,
+      });
+      const staged = stageCheckpointBundle({
+        bundle: path,
+        gitCommit: odd.commit,
+        repository: join(scratch, "staged-odd.git"),
+        signal: new AbortController().signal,
+      });
+
+      expect(verdict).toMatchObject({ status: "unusable" });
+      if (verdict.status !== "unusable") throw new Error("unreachable");
+      await expect(staged).rejects.toThrow(verdict.reason);
+    },
+    30_000,
+  );
+});
+
 describe("a bundle built on the checkpoint before (94S-227)", () => {
   const onto = (...earlier: WorkspaceCapture[]): BundleBase => ({
     maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
@@ -488,6 +534,7 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
 
     expect(first.bundle.incremental).toBe(false);
     expect(second.bundle.incremental).toBe(true);
+    expect(await verdict(first)).toEqual({ status: "restorable" });
     expect(second.bundle.bytes).toBeLessThan(first.bundle.bytes / 10);
     await expect(staged(second)).rejects.toThrow();
     const target = await restoredFrom(second, first);
@@ -539,6 +586,22 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
       "3, uncommitted\n",
     );
   });
+
+  test("chains three deep to a capture that changed nothing, which both finalize and restore take (94S-374)", async () => {
+    await commitFiles({ "a.txt": "1\n" });
+    const first = await captured();
+    const head = await commitFiles({ "a.txt": "2\n" });
+    const second = await captured(root, undefined, onto(first));
+    const third = await captured(root, undefined, onto(first, second));
+
+    expect(third.gitCommit).toBe(head);
+    expect(await verdict(third, first, second)).toEqual({
+      status: "restorable",
+    });
+    const target = await restoredFrom(third, first, second);
+    expect((await git(target, "rev-parse", "HEAD")).trim()).toBe(head);
+    expect(await git(target, "symbolic-ref", "HEAD")).toBe("refs/heads/main\n");
+  }, 30_000);
 
   test("stands alone when history was rewritten under its base", async () => {
     await commitFiles({ "a.txt": "1\n" });
