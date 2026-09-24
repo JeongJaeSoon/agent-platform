@@ -36,6 +36,9 @@ import type {
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
+/** What the fake claim hands out for the object store route. */
+export const FAKE_OBJECT_STORE_TOKEN = "weo_fake-object-store-token";
+
 /**
  * The checkpoint half of the gateway, for a test that binds it to the real
  * CheckpointService. `commit` runs for a first-time finalize that carries a
@@ -118,6 +121,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   control: ControlIntent | null = null;
   /** Thrown by a release that answers a pause while set, as a refusal would be. */
   pauseRefusal: WorkerGatewayRequestError | undefined;
+  /** Set to refuse `stop_kind` the way a strict gateway older than it does. */
+  predatesStopKind = false;
   /** Every checkpoint request the worker made, rejected ones included. */
   readonly checkpointRequests: CheckpointRequest[] = [];
   readonly restorePlans: RestorePlanRequest[] = [];
@@ -290,6 +295,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           url: "https://git.example.test/fake.git",
           branch: "main",
         },
+      },
+      object_store: {
+        access: { kind: "egress_token", token: FAKE_OBJECT_STORE_TOKEN },
       },
       principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
@@ -520,6 +528,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     this.releases.push(request);
     if (request.pause_control_id !== undefined && this.pauseRefusal) {
       throw this.pauseRefusal;
+    }
+    if (request.stop_kind !== undefined && this.predatesStopKind) {
+      throw new WorkerGatewayRequestError(
+        400,
+        "BAD_REQUEST",
+        "POST /release failed with BAD_REQUEST: Request body is invalid",
+        false,
+      );
     }
     return { released: true };
   }

@@ -139,6 +139,13 @@ export function workerConfigFromEnv(
     environment.WORKER_STOP_GRACE_SEC === undefined
       ? undefined
       : seconds(environment.WORKER_STOP_GRACE_SEC, 0, "WORKER_STOP_GRACE_SEC");
+  const egressCredentialUrl = url(
+    required(
+      environment.WORKER_EGRESS_CREDENTIAL_URL,
+      "WORKER_EGRESS_CREDENTIAL_URL",
+    ),
+    "WORKER_EGRESS_CREDENTIAL_URL",
+  );
   return {
     bootstrapNonce: required(
       environment.WORKER_BOOTSTRAP_NONCE,
@@ -155,18 +162,12 @@ export function workerConfigFromEnv(
       environment.WORKER_EXECUTION_ID,
       "WORKER_EXECUTION_ID",
     ),
-    egressCredentialUrl: url(
-      required(
-        environment.WORKER_EGRESS_CREDENTIAL_URL,
-        "WORKER_EGRESS_CREDENTIAL_URL",
-      ),
-      "WORKER_EGRESS_CREDENTIAL_URL",
-    ),
+    egressCredentialUrl,
     gatewayUrl: url(
       required(environment.WORKER_GATEWAY_URL, "WORKER_GATEWAY_URL"),
       "WORKER_GATEWAY_URL",
     ),
-    objectStore: objectStoreConfigFromEnv(environment),
+    objectStore: objectStoreConfigFromEnv(environment, egressCredentialUrl),
     runtime: {
       claudeConfigDir:
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,

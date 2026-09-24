@@ -101,7 +101,20 @@ describe("parseGrant", () => {
       attemptId: "a",
       upstream: new URL("https://api.test"),
       headers: [["x-api-key", "k"]],
+      target: null,
     });
+    // The object store route's signed request line comes back verbatim.
+    expect(
+      parseGrant({
+        ...good,
+        upstream: { ...good.upstream, target: "/b/sessions/s1/x?versionId=v" },
+      })?.target,
+    ).toBe("/b/sessions/s1/x?versionId=v");
+    for (const target of ["b/x", "/b/x y", "/b/x\r\nhost: evil", 7]) {
+      expect(
+        parseGrant({ ...good, upstream: { ...good.upstream, target } }),
+      ).toBeNull();
+    }
   });
 
   test("refuses anything it would have to guess about", () => {

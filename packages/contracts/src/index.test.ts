@@ -667,6 +667,9 @@ describe("worker protocol", () => {
           access: { kind: "egress_token", token: "wer_repository" },
         },
       },
+      object_store: {
+        access: { kind: "egress_token", token: "object-store-token" },
+      },
       principal: { owner_scope: "owner_1" },
       restore: null,
       remaining_budget_usd: 12.5,
@@ -813,6 +816,9 @@ describe("worker protocol", () => {
           access: { kind: "egress_token", token: "repository-token" },
         },
       },
+      object_store: {
+        access: { kind: "egress_token", token: "object-store-token" },
+      },
       principal: { owner_scope: "owner_1" },
       restore: {
         revision: 4,
@@ -846,6 +852,7 @@ describe("worker protocol", () => {
       "wsc_token",
       "provider-token",
       "repository-token",
+      "object-store-token",
       "repo-token",
       "example.invalid",
     ]) {

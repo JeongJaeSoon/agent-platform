@@ -6,6 +6,7 @@ import type {
   ClaimPrincipal,
   ControlIntent,
   NextInputResponse,
+  ReleaseRequest,
   RuntimeConfig,
   SessionRuntime,
   TerminalTurnStatus,
@@ -45,6 +46,9 @@ import {
 } from "./secret-scrubber.ts";
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
+
+/** Where the claim's object store token goes (94S-251). */
+export type ObjectStoreAccess = { useToken(token: string): void };
 
 /** The gateway client plus the one thing a claim changes about it. */
 export interface WorkerGatewaySession extends WorkerGatewayClient {
@@ -117,6 +121,8 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Absent for engines that spawn no process, like the fake. */
   engines?: EngineExitWatch;
+  /** Absent when the checkpoint port is a fake that needs no token. */
+  objectStoreAccess?: ObjectStoreAccess;
   /**
    * Secrets this process holds besides the ones the claim brings, kept out
    * of events by value (`SecretScrubber`): the object store key, say.
@@ -132,6 +138,12 @@ export type WorkerHostOptions = {
 type Stop = {
   kind: "drain" | "failed" | "idle" | "lost" | "paused";
   reason: string;
+  /**
+   * A drain asked of this process from outside (`drain`), unlike the ones
+   * it decides itself: a mirror error can end a startup as surely as a
+   * failure does (94S-302).
+   */
+  requested?: true;
 };
 
 type Settlement = {
@@ -260,7 +272,7 @@ export class WorkerHost {
 
   /** Asks the loop to wind down at the next safe point; safe from a signal handler. */
   drain(reason: string): void {
-    this.stop({ kind: "drain", reason });
+    this.stop({ kind: "drain", reason, requested: true });
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
@@ -275,6 +287,7 @@ export class WorkerHost {
     }
     const { claim } = claimed;
     this.options.gateway.useCredential(claim.session_credential);
+    this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
     this.scopeValue = {
       session_id: claim.session_id,
       turn_id: null,
@@ -1697,15 +1710,38 @@ export class WorkerHost {
     // The pause commit was the release.
     if (this.released) return;
     this.released = true;
-    const releasing = this.options.gateway
-      .release({
-        ...this.scope,
-        turn_id: null,
-        // The session shows it when a restore keeps failing (94S-345).
-        reason:
-          this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
-          "loop ended",
-      })
+    const request: ReleaseRequest = {
+      ...this.scope,
+      turn_id: null,
+      // The session shows it when a restore keeps failing (94S-345).
+      reason:
+        this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
+        "loop ended",
+    };
+    const gateway = this.options.gateway;
+    // A startup a signal cut short is not a failed one (94S-302).
+    const releasing = (
+      this.stopping?.kind === "drain" && this.stopping.requested
+        ? gateway
+            .release({ ...request, stop_kind: "drain" })
+            .catch((error: unknown) => {
+              // A strict gateway older than this worker refuses the field
+              // (94S-361). The session is still handed back without it, which
+              // that gateway counts as it counted every stop before 94S-302;
+              // a lapsed lease would count it all the same, only later.
+              if (
+                !(error instanceof WorkerGatewayRequestError) ||
+                error.code !== "BAD_REQUEST"
+              ) {
+                throw error;
+              }
+              this.logger.warn("worker.release.stop_kind_refused", {
+                reason: error.message,
+              });
+              return gateway.release(request);
+            })
+        : gateway.release(request)
+    )
       .then((response) =>
         this.logger.info("worker.released", { released: response.released }),
       )

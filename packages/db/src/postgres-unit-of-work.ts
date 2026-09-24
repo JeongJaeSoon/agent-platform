@@ -74,7 +74,7 @@ import {
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { restoreFailedAttention } from "./restore-failures.ts";
+import { startupFailedAttention } from "./restore-failures.ts";
 import {
   attempts,
   checkpoints,
@@ -183,6 +183,7 @@ export function createPostgresSessionUnitOfWork(
           repoUrl: input.repository.url,
           branch: input.repository.branch,
           profileId: input.profileId,
+          profileFingerprint: input.profileFingerprint ?? null,
           repositoryId: input.repository.id,
         });
         await insertQueuedTurn(tx, {
@@ -673,10 +674,11 @@ export function createPostgresSessionReader(
         attention:
           (await pauseAttention(db, row)) ??
           (await contextGapAttention(db, row)) ??
-          restoreFailedAttention(row),
+          startupFailedAttention(row),
         cost_usd: row.costUsd,
         repo_url: row.repoUrl,
         branch: row.branch,
+        profile_fingerprint: row.profileFingerprint,
         durability: projectDurability({
           checkpointCommittedAt: row.checkpointCommittedAt,
           checkpointFallbackRevision: row.checkpointFallbackRevision,

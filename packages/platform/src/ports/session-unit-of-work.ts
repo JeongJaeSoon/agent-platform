@@ -35,6 +35,10 @@ export type AcceptSessionInput = {
   // null when the catalog no longer lists the profile/repository: a replay
   // of an earlier acceptance must still succeed, a new request must not.
   repository: { id: string; url: string; branch: string } | null;
+  // The profile's fingerprint under the catalog that allowed the pair, which
+  // every claim of the session is then held to (94S-253). Left out, the row
+  // is pinned by its first claim, as one from before the column is.
+  profileFingerprint?: string;
   message: string;
   limits: InputLimits;
 };
@@ -77,6 +81,7 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // a credential (94S-147).
   repo_url: string;
   branch: string;
+  profile_fingerprint: string | null;
 };
 
 export interface SessionUnitOfWork {

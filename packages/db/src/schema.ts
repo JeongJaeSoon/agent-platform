@@ -374,6 +374,12 @@ export const sessions = pgTable(
     authRevision: integer("auth_revision").notNull().default(0),
     executionId: text("execution_id"),
     profileId: text("profile_id"),
+    // The profile's fingerprint (catalog.ts profileFingerprint) when the
+    // session was accepted: settings and credential reference, never the
+    // value. A claim binds only on a host whose profile under this id still
+    // hashes to it (94S-253). Null on rows from before it, pinned by their
+    // next claim.
+    profileFingerprint: text("profile_fingerprint"),
     repositoryId: text("repository_id"),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
@@ -459,11 +465,13 @@ export const sessions = pgTable(
       withTimezone: true,
     }),
     executionRevokedReason: text("execution_revoked_reason"),
-    // Restores that failed before their worker reported ready (94S-345).
-    // The attempt is the one claimed with a restore and not yet ready; the
-    // count is consecutive, cleared by a ready restore, and at its limit the
-    // session waits in recovery_required. Until then no launch is made
-    // before retry_at. The reason is the last failed attempt's.
+    // Startups that failed before their worker was ready for input: a
+    // restore not reported ready (94S-345), or any claim that never asked
+    // for input (94S-347). The attempt is the one claimed and not yet ready;
+    // the count is consecutive, cleared by a ready worker, and at its limit
+    // the session waits in recovery_required. Until then no launch is made
+    // before retry_at. The reason is the last failed attempt's. Named for
+    // the restores they first counted.
     restoreAttemptId: text("restore_attempt_id"),
     restoreFailureCount: integer("restore_failure_count").notNull().default(0),
     restoreRetryAt: timestamp("restore_retry_at", { withTimezone: true }),
@@ -965,8 +973,9 @@ export const workerLaunches = pgTable(
 // Tokens handed out by bootstrapClaim; only their hashes are stored. Each
 // attempt holds one live token per purpose: `gateway` authenticates the
 // worker's own calls, `provider` and `repository` the egress proxy's
-// credential routes (94S-252). All three are issued, extended and revoked
-// together, and a token only ever works for its own purpose.
+// credential routes (94S-252), `object_store` its object store route
+// (94S-251). All of them are issued, extended and revoked together, and a
+// token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
   {
@@ -975,8 +984,8 @@ export const workerCredentials = pgTable(
       .notNull()
       .references(() => attempts.id),
     purpose: text("purpose").notNull().default("gateway"),
-    // What an egress token was issued against: the profile fingerprint or
-    // the repository binding at claim time. A catalog entry that moved since
+    // What an egress token was issued against: the profile fingerprint, the
+    // repository binding or the session's object prefix at claim time. A catalog entry that moved since
     // (a restart with an edited config) no longer matches, and the proxy is
     // refused rather than sent somewhere the attempt never agreed to.
     binding: text("binding"),
@@ -997,7 +1006,7 @@ export const workerCredentials = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "worker_credentials_purpose_check",
-      sql`${table.purpose} IN ('gateway', 'provider', 'repository')`,
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store')`,
     ),
     check(
       "worker_credentials_binding_check",

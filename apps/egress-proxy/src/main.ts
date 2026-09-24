@@ -38,7 +38,12 @@ export async function main(
     },
     hostname: config.hostname,
     logger,
-    policy,
+    // The forward allowlists plus what only these routes may reach. The
+    // upstream is always the authorizer's to name, never the worker's.
+    policy: {
+      allow: [...config.allow, ...config.credential.allow],
+      allowPrivate: [...config.allowPrivate, ...config.credential.allowPrivate],
+    },
     port: config.credential.port,
   });
   return {

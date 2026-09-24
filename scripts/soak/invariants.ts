@@ -67,12 +67,13 @@ export const QUERIES: Query[] = [
     id: "stale_write.after_attempt_end",
     invariant: "stale_write",
     title: "events written by an attempt after it ended",
-    // checkpoint_restore_failed (94S-345) is the control plane's record of an
-    // ended attempt, written when the exit is observed, not by the attempt.
+    // checkpoint_restore_failed (94S-345) and startup_failed (94S-347) are
+    // the control plane's record of an ended attempt, written when the exit
+    // is observed, not by the attempt.
     sql: `SELECT e.session_id::text, e.attempt_id, e.id, e.type, e.created_at, a.ended_at, a.end_reason
             FROM events e JOIN attempts a ON a.id = e.attempt_id
            WHERE a.ended_at IS NOT NULL
-             AND e.payload->>'subtype' IS DISTINCT FROM 'checkpoint_restore_failed'
+             AND COALESCE(e.payload->>'subtype', '') NOT IN ('checkpoint_restore_failed', 'startup_failed')
              AND e.created_at > a.ended_at + make_interval(secs => $1::double precision / 1000)`,
     params: (o) => [o.toleranceMs],
   },

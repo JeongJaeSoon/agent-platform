@@ -196,6 +196,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
+  // The object store route's capability (94S-251): the worker holds no
+  // object store credential, only this token, which reaches its session's
+  // prefix for as long as the attempt owns the session.
+  object_store: z.object({ access: egressTokenAuthSchema }).strict(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
@@ -601,10 +605,15 @@ export const finalizeResponseSchema = z.object({
 // CHECKPOINT_UNAVAILABLE while no safe checkpoint covers the session, 409
 // REQUEST_STALE once the pause is not the open one), and a refused attempt
 // keeps its lease. Without it the release is unconditional.
+// `stop_kind: "drain"` says the worker was asked to stop (SIGTERM), not that
+// it failed: a startup it ends is not counted against the session (94S-302).
+// A gateway older than the field refuses it with BAD_REQUEST, and the worker
+// then releases without it (94S-361).
 export const releaseRequestSchema = workerScopeSchema
   .extend({
     reason: z.string().min(1),
     pause_control_id: z.string().min(1).optional(),
+    stop_kind: z.literal("drain").optional(),
   })
   .strict();
 export const releaseResponseSchema = z.object({ released: z.boolean() });

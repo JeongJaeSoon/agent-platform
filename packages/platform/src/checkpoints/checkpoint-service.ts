@@ -10,11 +10,16 @@ import type {
   CheckpointObjectStore,
   CheckpointPreparation,
   CompatibilityMismatch,
+  ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
-import { workspacePathsProblem } from "@agent-platform/runtime-core";
+import {
+  transcriptParts,
+  transcriptSizeProblem,
+  workspacePathsProblem,
+} from "@agent-platform/runtime-core";
 
 import type {
   CheckpointFence,
@@ -177,6 +182,19 @@ export type CheckpointServiceDependencies = {
    */
   bundleSpoolRoot?: string;
   /**
+   * How long a bundle whose verification threw is answered with that same
+   * retryable error instead of being verified again (94S-271). A throw is a
+   * limit or a host fault, never a verdict, so the checkpoint is not retired;
+   * but a bundle that runs the verifier out of its limits does so on every
+   * retry, and each retry holds one of the few verification slots for up to
+   * the verifier's timeout. Keyed by the bundle's digest, the commit and the
+   * verifier's `policy`, so new limits verify it again at once. 0 turns it
+   * off.
+   */
+  bundleRetryCooldownMs?: number;
+  /** Milliseconds since the epoch; tests pin it to step the cooldown. */
+  clock?: () => number;
+  /**
    * How many workspace bundles may be read and verified at once.
    *
    * Reading one no longer holds it in memory — it is streamed to disk — but
@@ -281,6 +299,12 @@ export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
+// The git verifier's own timeout: a bundle that keeps throwing then holds a
+// verification slot at most half the time.
+export const DEFAULT_BUNDLE_RETRY_COOLDOWN_MS = 60_000;
+// Bundles cooling down at once. A full table forgets the oldest entry, which
+// only lets that bundle be verified again early.
+export const MAX_COOLING_BUNDLES = 1024;
 // One revision tried can cost the manifest's full object limit in reads plus
 // a bundle hashed whole; this is what keeps a restore from becoming a scan.
 export const MAX_RESTORE_FALLBACKS_CEILING = 10;
@@ -343,6 +367,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const maxRestoreFallbacks =
     deps.maxRestoreFallbacks ?? DEFAULT_MAX_RESTORE_FALLBACKS;
   const spoolRoot = deps.bundleSpoolRoot ?? tmpdir();
+  const cooling = createCooldown(
+    deps.bundleRetryCooldownMs ?? DEFAULT_BUNDLE_RETRY_COOLDOWN_MS,
+    deps.clock ?? Date.now,
+  );
   if (
     !Number.isInteger(maxRestoreFallbacks) ||
     maxRestoreFallbacks < 0 ||
@@ -528,6 +556,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`,
       );
     }
+    // From the sizes the refs claim, which the reads below hold the stored
+    // bytes to: a transcript over the limit is refused unread (94S-296).
+    const oversized = transcriptSizeProblem(
+      transcriptParts(manifest.transcripts),
+    );
+    if (oversized !== undefined) return refused(oversized);
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
@@ -642,24 +676,51 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * relationship to *this* manifest's commit, and that changes with every
    * revision even when the bytes do not.
    */
-  function badWorkspaceBundle(
+  async function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
+    const present = await bundlePresent(workspace, manifestRef);
+    if ("reason" in present) return present;
+    // After the HEAD, so a bundle gone since is still damage a restore can
+    // fall back from; before the gate and the download, which a bundle
+    // cooling down costs nothing of. Again once a slot is free, since the
+    // same bundle may have failed while this one waited for it.
+    const coolingDown = () => {
+      const cooled = cooling.pending(bundleCooldownKey(workspace));
+      if (cooled !== undefined) throw cooled;
+    };
+    coolingDown();
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
-    return bundleGate(() =>
-      readAndVerifyBundle(workspace, manifestRef, pinned),
-    );
+    return bundleGate(() => {
+      coolingDown();
+      return readAndVerifyBundle(workspace, present.head, pinned);
+    });
   }
 
-  async function readAndVerifyBundle(
+  // Where it is stored, and the commit too: the same bytes asked for
+  // another commit is other work.
+  function bundleCooldownKey(
+    workspace: CheckpointManifest["workspace"],
+  ): string {
+    const { bundle } = workspace;
+    return JSON.stringify([
+      bundles.policy ?? null,
+      bundle.key,
+      bundle.version ?? null,
+      bundle.sha256,
+      workspace.gitCommit,
+    ]);
+  }
+
+  /** Everything about the bundle a HEAD settles, before its body is read. */
+  async function bundlePresent(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
-    pinned?: PinnedVersions,
-  ): Promise<Problem | undefined> {
-    const { bundle, gitCommit } = workspace;
+  ): Promise<Problem | { head: ObjectHead }> {
+    const { bundle } = workspace;
     // One attempt's directory holds one attempt's objects. A bundle at a key
     // the session reuses across revisions is either overwritten — so the
     // committed checkpoint stops describing what is stored — or refused by
@@ -692,6 +753,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
       );
     }
+    return { head };
+  }
+
+  async function readAndVerifyBundle(
+    workspace: CheckpointManifest["workspace"],
+    head: ObjectHead,
+    pinned?: PinnedVersions,
+  ): Promise<Problem | undefined> {
+    const { bundle, gitCommit } = workspace;
     // The bundle is read exactly once, by this loop, which both hashes it
     // and spools it to a file of its own; the verifier gets the file, and
     // only after the digest proved it is the object the manifest names. A
@@ -730,12 +800,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           `workspace bundle ${bundle.key} hashes to ${body.sha256}, not ${bundle.sha256}`,
         );
       }
-      const verdict = await bundles.verify({
-        bytes: body.bytes,
-        commit: gitCommit,
-        key: bundle.key,
-        path,
-      });
+      let verdict: Awaited<ReturnType<typeof bundles.verify>>;
+      try {
+        verdict = await bundles.verify({
+          bytes: body.bytes,
+          commit: gitCommit,
+          key: bundle.key,
+          path,
+        });
+      } catch (error) {
+        // Only the verifier's own throws: a store that failed the read above
+        // says nothing about this bundle.
+        cooling.start(bundleCooldownKey(workspace), bundle.key, error);
+        throw error;
+      }
       if (verdict.status !== "restorable") {
         // The bytes are the ones committed, so it is the verifier that
         // changed.
@@ -1419,6 +1497,44 @@ function pinnedVersions() {
       return [...seen.values()]
         .filter((entry) => !entry.held)
         .map(({ key, version }) => ({ key, version }));
+    },
+  };
+}
+
+/**
+ * Bundles whose verification threw, and the error each one threw, until
+ * `cooldownMs` has passed. Every entry lives the same time, so insertion
+ * order is expiry order and the oldest is the first to drop.
+ */
+function createCooldown(cooldownMs: number, clock: () => number) {
+  if (!Number.isFinite(cooldownMs) || cooldownMs < 0) {
+    throw new Error(`Bundle retry cooldown must be at least 0: ${cooldownMs}`);
+  }
+  const entries = new Map<string, { error: Error; until: number }>();
+  return {
+    pending(id: string): Error | undefined {
+      const entry = entries.get(id);
+      if (entry === undefined) return undefined;
+      if (clock() < entry.until) return entry.error;
+      entries.delete(id);
+      return undefined;
+    },
+    start(id: string, key: string, cause: unknown) {
+      if (cooldownMs === 0) return;
+      const until = clock() + cooldownMs;
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      entries.delete(id);
+      entries.set(id, {
+        error: new Error(
+          `workspace bundle ${key} is not verified again before ${new Date(until).toISOString()}; its last verification failed: ${reason}`,
+          { cause },
+        ),
+        until,
+      });
+      for (const oldest of entries.keys()) {
+        if (entries.size <= MAX_COOLING_BUNDLES) break;
+        entries.delete(oldest);
+      }
     },
   };
 }

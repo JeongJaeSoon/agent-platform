@@ -22,17 +22,40 @@ export class ObjectScopeError extends Error {
 }
 
 /**
+ * Whether `key` names an object under `scope`. Not a bare `startsWith`:
+ * "sessions/s1" would admit "sessions/s10/…". The trailing slash the scope
+ * is required to carry rules that out, and a key that merely names the scope
+ * directory is not an object either. Dot segments are refused rather than
+ * normalized: an S3 key is a string, but the request path it becomes is
+ * parsed as a URL, and "s1/../s2/x" is s2's object by the time it reaches
+ * the endpoint.
+ */
+export function objectKeyWithin(scope: string, key: string): boolean {
+  return (
+    key.startsWith(scope) && key.length > scope.length && plainSegments(key)
+  );
+}
+
+/**
+ * A list prefix a store confined to `scope` may ask for: the scope itself,
+ * or anything under it. It usually ends in a slash, which is not an empty
+ * segment.
+ */
+export function listPrefixWithin(scope: string, prefix: string): boolean {
+  if (prefix === scope) return true;
+  return objectKeyWithin(
+    scope,
+    prefix.endsWith("/") ? prefix.slice(0, -1) : prefix,
+  );
+}
+
+/**
  * Confines a store to one prefix: every key must start with it, and a list
- * may only ask for keys under it. This is what a worker gets in place of an
- * IAM policy — LocalStack has none, and the credentials the worker holds can
- * reach the whole bucket. It is a client-side guard, not a credential
- * boundary: code that bypasses the wrapper still reaches everything. A
- * session-scoped credential (STS session policy on the session prefix) is
- * what closes that, and it is deferred to the deployment that has an
- * identity provider to mint it (EKS/MVM). Fencing an older generation's
- * still-valid credential is deferred with it: object keys carry the attempt,
- * not the generation, and a credential does not expire because a newer one
- * was minted.
+ * may only ask for keys under it. The boundary itself is the object store
+ * route (94S-251): the worker holds no object store credential, and the
+ * route signs only requests under its session's prefix. This guard is the
+ * fast failure in front of it, so a stray key is refused in the process
+ * that made it rather than after a round trip.
  */
 export function scopedCheckpointObjectStore(
   store: CheckpointObjectStore,
@@ -45,17 +68,7 @@ export function scopedCheckpointObjectStore(
     throw new Error(`Object scope ${scope} is not a plain key prefix`);
   }
   function within(key: string): string {
-    // Not a bare `startsWith`: "sessions/s1" would admit "sessions/s10/…".
-    // The trailing slash the scope is required to carry rules that out, and
-    // a key that merely names the scope directory is not an object either.
-    // Dot segments are refused rather than normalized: an S3 key is a
-    // string, but the request path it becomes is parsed as a URL, and
-    // "s1/../s2/x" is s2's object by the time it reaches the endpoint.
-    if (
-      !key.startsWith(scope) ||
-      key.length === scope.length ||
-      !plainSegments(key)
-    ) {
+    if (!objectKeyWithin(scope, key)) {
       throw new ObjectScopeError(scope, key);
     }
     return key;
@@ -73,10 +86,9 @@ export function scopedCheckpointObjectStore(
       return store.stream(within(key), version);
     },
     async list(prefix) {
-      // A list prefix may be the scope itself or anything under it, and it
-      // usually ends in a slash, which is not an empty segment.
-      const trimmed = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-      if (prefix !== scope) within(trimmed);
+      if (!listPrefixWithin(scope, prefix)) {
+        throw new ObjectScopeError(scope, prefix);
+      }
       return store.list(prefix);
     },
     async put(key, bytes) {

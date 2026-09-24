@@ -473,23 +473,28 @@ describe("WorkerGateway", () => {
     // The worker tracks the remainder the store measured, not the deadline.
     expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
-    // it registers now (94S-258): one entry per allowed pair, nothing else.
+    // it registers now (94S-258), with the profile's settings as hashed now
+    // (94S-253): one entry per allowed pair, nothing else.
+    const fingerprint = profileFingerprint(profile);
     expect(runnable).toEqual([
       [
         {
           profileId: "claude-coding-v1",
+          profileFingerprint: fingerprint,
           repositoryId: "sample-app",
           url: "https://example.invalid/app.git",
           branch: "main",
         },
         {
           profileId: "other",
+          profileFingerprint: fingerprint,
           repositoryId: "sample-app",
           url: "https://example.invalid/app.git",
           branch: "main",
         },
         {
           profileId: "other",
+          profileFingerprint: fingerprint,
           repositoryId: "docs",
           url: "https://example.invalid/docs.git",
           branch: "trunk",
@@ -527,12 +532,18 @@ describe("WorkerGateway", () => {
     expect(egress.repositoryHash).toEqual(
       hashWorkerToken(claimed.workspace.repository.access?.token ?? ""),
     );
+    expect(egress.objectStoreHash).toEqual(
+      hashWorkerToken(claimed.object_store.access.token),
+    );
+    expect(claimed.object_store.access.token).toMatch(/^weo_/);
     expect(
       egress.bindingsOf({
+        id: "s-1",
         profileId: "claude-coding-v1",
         repositoryId: "sample-app",
       }),
     ).toEqual({
+      object_store: "sessions/s-1/",
       provider: profileFingerprint(profile),
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",

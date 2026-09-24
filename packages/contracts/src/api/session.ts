@@ -133,9 +133,11 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     checkpointed_turn_id: turnIdSchema.nullable(),
   }),
   // The catalog does not allow the session's profile and repository pair as
-  // it stands now, so no worker will run it; a launch reserved for it fails
-  // the session with CATALOG_MISMATCH. Judged on every read: restoring the
-  // pair clears it, and the next message runs again (94S-280).
+  // it stands now, or defines the profile with other settings than the
+  // session was created with (94S-253), so no worker will run it; a launch
+  // reserved for it fails the session with CATALOG_MISMATCH. Judged on every
+  // read: restoring the pair or the settings clears it, and the next message
+  // runs again (94S-280).
   z.object({
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
@@ -147,6 +149,16 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // ends the session. A restore that succeeds clears it.
   z.object({
     code: z.literal("RESTORE_FAILED"),
+    reason: z.string().min(1),
+    failures: z.number().int().positive(),
+    retry_at: timestampSchema.nullable(),
+  }),
+  // The same for a session with no checkpoint to restore (94S-302, 94S-347):
+  // workers kept ending before they were ready for input, while preparing
+  // the workspace or starting the engine. At the limit start_fresh launches
+  // again once the cause is fixed; close ends the session.
+  z.object({
+    code: z.literal("STARTUP_FAILED"),
     reason: z.string().min(1),
     failures: z.number().int().positive(),
     retry_at: timestampSchema.nullable(),

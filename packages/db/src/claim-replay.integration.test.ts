@@ -12,7 +12,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
@@ -381,11 +381,13 @@ integration("claim replay against the session's current binding", () => {
       // The first claim's tokens, one per purpose, are the only ones, and
       // the auth revision is the one that claim handed out.
       expect(footprint.tokens).toEqual(
-        ["gateway", "provider", "repository"].map((purpose) => ({
-          purpose,
-          tokenHash: expect.any(String),
-          revoked: false,
-        })),
+        ["gateway", "object_store", "provider", "repository"].map(
+          (purpose) => ({
+            purpose,
+            tokenHash: expect.any(String),
+            revoked: false,
+          }),
+        ),
       );
       expect(footprint.sessionAuthRevision).toBe(claimed.auth_revision);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
@@ -607,8 +609,13 @@ integration("claim replay against the session's current binding", () => {
         code: "UNAUTHORIZED",
       });
 
-      // The replacement worker claims the session once the old one is gone.
+      // The replacement worker claims the session once the old one is gone
+      // and the startup backoff its unready exit started is over (94S-347).
       await gateway.confirmExecutionGone(old.executionId);
+      await db
+        .update(sessions)
+        .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
+        .where(eq(sessions.id, session.session_id));
       await db
         .update(unassignedSessions)
         .set({ partition })

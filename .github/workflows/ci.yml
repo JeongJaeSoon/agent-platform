@@ -179,7 +179,7 @@ jobs:
               - packages/testkit/src/localstack.
               - tests/checkpoint-flow.
               - tests/checkpoint-pins.
-              - tests/object-store-egress.
+              - tests/object-store-route.
               - tests/worker-checkpoint-publish.
             skips:
               # skipIf(linux): the runner can enforce the limits.
@@ -231,6 +231,7 @@ jobs:
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/architecture.
+              - tests/ci-images.
               - tests/d2-gate
               - tests/soak/
               - tests/ci-issue-scripts.
@@ -276,10 +277,22 @@ jobs:
                 test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"
               - file: tests/d2-gate/control-host-roles.e2e.test.ts
                 test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
+    # Every third-party image in this workflow comes from ghcr.io, not Docker
+    # Hub, pinned by its upstream digest: ci-image-mirror.yml copies it there
+    # (94S-308). These point the suites that pull their own images at it,
+    # instead of their Docker Hub defaults; unused where no daemon runs.
+    env:
+      BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+      DOCKER_BACKEND_TEST_HELPER_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      EGRESS_CURL_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+      EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+      EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     # An empty image skips the service, so each job starts only its own.
     services:
       postgres:
-        image: ${{ matrix.postgres && 'postgres:16' || '' }}
+        image: ${{ matrix.postgres && 'ghcr.io/jeongjaesoon/agent-platform-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6' || '' }}
         env:
           POSTGRES_DB: sessions
           POSTGRES_PASSWORD: dev
@@ -292,7 +305,7 @@ jobs:
           --health-timeout 3s
           --health-retries 12
       localstack:
-        image: ${{ matrix.localstack && 'localstack/localstack:3' || '' }}
+        image: ${{ matrix.localstack && 'ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7' || '' }}
         env:
           # secretsmanager: the catalog's secret_id references (94S-132).
           SERVICES: s3,secretsmanager
@@ -359,6 +372,11 @@ jobs:
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
       - if: matrix.domain == 'api'
         run: bun test ./apps/control-host/src/api/server.integration.ts
+      # Whatever the suites pulled, by whatever path: none of it from Docker
+      # Hub. Also after a failure — such a pull is worth knowing about anyway.
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
       # SIGUSR1 makes dockerd write every goroutine's stack, so a call still
       # stuck when the tests gave up shows where it is waiting.
       - if: failure() && matrix.docker
@@ -440,7 +458,8 @@ jobs:
             -e DOCKER_TLS_CERTDIR= \
             -v /mnt/xfs:/var/lib/docker \
             -v /tmp/apq:/sock \
-            docker:28-dind --host=unix:///sock/docker.sock
+            ghcr.io/jeongjaesoon/agent-platform-ci/docker@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac \
+            --host=unix:///sock/docker.sock
           for _ in $(seq 1 60); do
             docker exec apq docker version >/dev/null 2>&1 && break
             sleep 2
@@ -452,15 +471,14 @@ jobs:
           docker exec apq docker volume rm apq-probe
       # The scheduler runs the inode helper (94S-224) from the worker image.
       # Building all of that here would spend minutes on the SDK closure for
-      # one apt package, so this is the worker's own pinned base with the
-      # same xfsprogs and the same declared VOLUME; image-smoke.sh checks the
-      # real worker image carries the tools.
+      # one apt package, so this is the worker's own pinned base (from the
+      # mirror; tests/ci-images.test.ts holds it to the Dockerfile's digest)
+      # with the same xfsprogs and the same declared VOLUME; image-smoke.sh
+      # checks the real worker image carries the tools.
       - name: Inode helper image on that daemon
         run: |
-          base="$(sed -n 's/^ARG BUN_IMAGE=//p' apps/worker/Dockerfile)"
-          test -n "$base"
           printf '%s\n' \
-            "FROM ${base}" \
+            "FROM ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e" \
             "RUN apt-get update && apt-get install -y --no-install-recommends xfsprogs && rm -rf /var/lib/apt/lists/*" \
             'VOLUME ["/workspace"]' \
             | docker exec -i apq docker build -q -t ap-inode-helper:ci -
@@ -468,11 +486,20 @@ jobs:
         env:
           DOCKER_BACKEND_TEST: "1"
           DOCKER_BACKEND_TEST_HELPER_IMAGE: ap-inode-helper:ci
+          DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
           DOCKER_HOST: unix:///tmp/apq/docker.sock
+          EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
         run: >-
           bun test
           packages/adapters/execution/local-docker/src/workspace.integration.test.ts
           packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts
+      # Both daemons: the runner's holds the dind image, the nested one what
+      # the suite pulled.
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: |
+          .github/scripts/assert-no-docker-hub-images.sh docker
+          .github/scripts/assert-no-docker-hub-images.sh env DOCKER_HOST=unix:///tmp/apq/docker.sock docker
       # The daemon's own log is where a create that the suite could not
       # explain shows up. `|| true` because this step also runs when an
       # earlier one failed before the container existed.
@@ -574,7 +601,7 @@ jobs:
     continue-on-error: true
     services:
       localstack:
-        image: localstack/localstack:3
+        image: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
         env:
           SERVICES: s3
           AWS_DEFAULT_REGION: ap-northeast-1

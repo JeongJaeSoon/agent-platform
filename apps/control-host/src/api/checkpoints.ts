@@ -16,11 +16,13 @@ import {
 import {
   createCheckpointObjectStore,
   createGitWorkspaceBundleVerifier,
+  createObjectRouteSigner,
   createStorageS3Client,
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   describeBucketEncryption,
   describeBucketProtection,
   type GitCommandRunner,
+  type ObjectRouteSigner,
   type S3ClientLike,
 } from "@agent-platform/storage";
 
@@ -258,6 +260,24 @@ function checkpointS3Client(config: CheckpointStorageConfig) {
       region: config.region,
       secretAccessKey: config.secretAccessKey,
     },
+  });
+}
+
+/**
+ * What signs the workers' object store requests (94S-251): the same bucket
+ * and key the API itself uses, which is why the key stays in this process.
+ */
+export function checkpointObjectRouteSigner(
+  config: CheckpointStorageConfig,
+): ObjectRouteSigner {
+  return createObjectRouteSigner({
+    bucket: config.bucket,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+    ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+    region: config.region,
   });
 }
 
