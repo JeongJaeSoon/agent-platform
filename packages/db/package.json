@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:generate": "bun run scripts/generate-migration.ts",
     "db:migrate": "bun run src/migrate.ts",
     "db:restack": "bun run scripts/restack-migration.ts"
   },
