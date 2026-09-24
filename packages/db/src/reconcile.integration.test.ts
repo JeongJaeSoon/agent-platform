@@ -58,9 +58,9 @@ async function claim(db: Database, sessionId: string, podId: string) {
   });
 }
 // Leases end on the database clock (94S-211), so these tests wait for real
-// time to pass; short enough to keep the file quick, long enough that a
-// slow round trip does not cross a boundary on its own.
-const LEASE_TTL_MS = 600;
+// time to pass. The TTL is what a loaded runner has to reach the next call
+// inside a lease; waits past a deadline are only ever too long, never short.
+const LEASE_TTL_MS = 2_000;
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -425,7 +425,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
 
   test("lease expired before delivery: the worker is fenced, the kill requested, and the input runs again once the execution is confirmed gone", async () => {
     const b = await bound("before");
-    await sleep(LEASE_TTL_MS * 2);
+    await sleep(LEASE_TTL_MS + 100);
 
     const dry = await reconcileExpiredLeases(db, { now: clock, dryRun: true });
     expect(dry).toEqual([
@@ -503,7 +503,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     const b = await bound("after");
     const next = await gateway.nextInput(b.principal, b.scope);
     expect(next.input?.turn_id).toBe("1");
-    await sleep(LEASE_TTL_MS * 2);
+    await sleep(LEASE_TTL_MS + 100);
 
     expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
       expect.objectContaining({ action: "fenced", sessionId: b.sessionId }),
@@ -548,29 +548,36 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     ).toHaveLength(0);
   });
 
-  test("a heartbeat that lands first keeps the lease; an attempt already released is only closed", async () => {
-    const alive = await bound("alive");
-    await sleep(LEASE_TTL_MS / 2);
-    await gateway.heartbeat(alive.principal, {
-      ...alive.scope,
-      attempt_state: "running",
-    });
-    // Past the original lease, inside the extended one.
-    await sleep((LEASE_TTL_MS * 2) / 3);
-    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
+  test(
+    "a heartbeat that lands first keeps the lease; an attempt already released is only closed",
+    async () => {
+      const alive = await bound("alive");
+      // Each wait leaves the same margin to the deadline it must beat.
+      await sleep(LEASE_TTL_MS * 0.55);
+      await gateway.heartbeat(alive.principal, {
+        ...alive.scope,
+        attempt_state: "running",
+      });
+      // Past the original lease, inside the extended one.
+      await sleep(LEASE_TTL_MS * 0.55);
+      expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([]);
 
-    const gone = await bound("released");
-    await gateway.release(gone.principal, { ...gone.scope, reason: "idle" });
-    await sleep(LEASE_TTL_MS * 2);
-    // release already moved the epoch and ended the attempt: nothing to do
-    // for it (the still-bound session from above expires here instead).
-    expect(await reconcileExpiredLeases(db, { now: clock })).not.toContainEqual(
-      expect.objectContaining({ attemptId: gone.claimed.attempt_id }),
-    );
-    const [attempt] = await db
-      .select({ state: attempts.state })
-      .from(attempts)
-      .where(eq(attempts.id, gone.claimed.attempt_id));
-    expect(attempt?.state).toBe("exited");
-  });
+      const gone = await bound("released");
+      await gateway.release(gone.principal, { ...gone.scope, reason: "idle" });
+      await sleep(LEASE_TTL_MS + 100);
+      // release already moved the epoch and ended the attempt: nothing to do
+      // for it (the still-bound session from above expires here instead).
+      expect(
+        await reconcileExpiredLeases(db, { now: clock }),
+      ).not.toContainEqual(
+        expect.objectContaining({ attemptId: gone.claimed.attempt_id }),
+      );
+      const [attempt] = await db
+        .select({ state: attempts.state })
+        .from(attempts)
+        .where(eq(attempts.id, gone.claimed.attempt_id));
+      expect(attempt?.state).toBe("exited");
+    },
+    LEASE_TTL_MS * 5,
+  );
 });

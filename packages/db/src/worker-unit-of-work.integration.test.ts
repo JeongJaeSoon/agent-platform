@@ -17,6 +17,7 @@ import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { fromDbNow } from "./db-clock.ts";
 import { pauseBlocker } from "./pause-control.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
@@ -213,6 +214,19 @@ integration("worker gateway on PostgreSQL", () => {
       })
       .from(sql`(SELECT 1) AS one`);
     return Number(row?.ms);
+  }
+
+  // Steps that must succeed run under the full LEASE_TTL_MS, so a loaded
+  // runner cannot spend the lease before they reach the fence. A test about
+  // expiry then pulls the deadline in on the database clock, which judges it.
+  async function leaseEndsIn(attemptId: string, ms: number) {
+    const [row] = await db
+      .update(attempts)
+      .set({ leaseExpiresAt: fromDbNow(ms) })
+      .where(eq(attempts.id, attemptId))
+      .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
+    if (!row) throw new Error("attempt vanished");
+    return row.leaseExpiresAt.getTime();
   }
 
   // A gateway whose request clock runs `offsetMs` from this machine's: the
@@ -698,19 +712,13 @@ integration("worker gateway on PostgreSQL", () => {
   test("heartbeat extends the lease and answers 409 LEASE_EXPIRED once the TTL passed", async () => {
     const partition = partitionFor("beat");
     await queuedSession(partition);
-    const l = await launch(partition);
-    const brief = briefGateway(400);
-    const claimed = await brief.bootstrapClaim(bootstrap, {
-      execution_id: l.executionId,
-      execution_generation: l.generation,
-      credential: { kind: "launch_nonce", nonce: l.nonce },
-    });
-    await brief.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
+    const claimed = await claim(await launch(partition));
+    await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
     const before = new Date(claimed.lease_expires_at).getTime();
     await sleep(100);
     const floor = await dbNowMs();
     advance(1_000);
-    const beat = await brief.heartbeat(principalOf(claimed), {
+    const beat = await gateway.heartbeat(principalOf(claimed), {
       ...scopeOf(claimed),
       attempt_state: "running",
     });
@@ -718,8 +726,8 @@ integration("worker gateway on PostgreSQL", () => {
     const extended = new Date(beat.lease_expires_at).getTime();
     // The new deadline is the database clock plus the TTL, not the request
     // clock the gateway was handed.
-    expect(extended).toBeGreaterThanOrEqual(floor + 400);
-    expect(extended).toBeLessThanOrEqual(ceiling + 400);
+    expect(extended).toBeGreaterThanOrEqual(floor + LEASE_TTL_MS);
+    expect(extended).toBeLessThanOrEqual(ceiling + LEASE_TTL_MS);
     expect(extended).toBeGreaterThan(before);
     expect(beat.auth_revision).toBe(0);
     const [attempt] = await db
@@ -731,10 +739,11 @@ integration("worker gateway on PostgreSQL", () => {
     expect(attempt?.state).toBe("running");
 
     // The request clock does not move: only real time ends the lease.
-    await sleep(450);
+    await leaseEndsIn(claimed.attempt_id, 300);
+    await sleep(350);
     expect(
       await failure(
-        brief.heartbeat(principalOf(claimed), {
+        gateway.heartbeat(principalOf(claimed), {
           ...scopeOf(claimed),
           attempt_state: "running",
         }),
@@ -742,7 +751,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
     expect(
       await failure(
-        brief.appendEvents(principalOf(claimed), {
+        gateway.appendEvents(principalOf(claimed), {
           ...scopeOf(claimed, "1"),
           batch_key: "b1",
           events: [event(1)],
@@ -751,7 +760,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
     // Giving the binding up is still allowed on the current epoch.
     expect(
-      await brief.release(principalOf(claimed), {
+      await gateway.release(principalOf(claimed), {
         ...scopeOf(claimed),
         reason: "lease_lost",
       }),
@@ -1467,14 +1476,9 @@ integration("worker gateway on PostgreSQL", () => {
   test("a checkpoint verification that outlives the lease commits nothing", async () => {
     const partition = partitionFor("slow");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
-    const brief = briefGateway(400);
-    const claimed = await brief.bootstrapClaim(bootstrap, {
-      execution_id: l.executionId,
-      execution_generation: l.generation,
-      credential: { kind: "launch_nonce", nonce: l.nonce },
-    });
-    await brief.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
+    const claimed = await claim(await launch(partition));
+    await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
+    await leaseEndsIn(claimed.attempt_id, 400);
     // The verifier is a network call. If it returns after the lease is gone,
     // the fence has to judge the commit by the clock at commit time.
     const slow = createWorkerGateway({
@@ -1662,67 +1666,70 @@ integration("worker gateway on PostgreSQL", () => {
     await queuedSession(partition);
     const l = await launch(partition);
     const uow = createPostgresWorkerUnitOfWork(db);
-    const short = createWorkerGateway({
-      work: uow,
-      catalog: {
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
+    const withTokenTtl = (sessionTokenTtlMs: number) =>
+      createWorkerGateway({
+        work: uow,
+        catalog: {
+          profiles: {
+            "claude-coding-v1": {
+              runtime_kind: "claude_agent_sdk",
+              runtime_version: "0.3.270",
+              model: "claude-sonnet-5",
+              tools: ["Read", "Edit", "Bash"],
+              permission_mode: "default",
+              provider: {
+                kind: "litellm",
+                endpoint: "https://litellm.invalid",
+                auth: {
+                  kind: "api_key",
+                  value: "catalog-provider-key",
+                  ref: { value_env: "PROVIDER_KEY" },
+                },
               },
             },
           },
-        },
-        repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-            profiles: ["claude-coding-v1"],
+          repositories: {
+            "sample-app": {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["claude-coding-v1"],
+            },
           },
         },
-      },
-      checkpoints: {
-        async verify() {
-          return { status: "verified" };
+        checkpoints: {
+          async verify() {
+            return { status: "verified" };
+          },
         },
-      },
-      options: {
-        sessionCostLimitUsd: 1_000,
-        leaseTtlMs: LEASE_TTL_MS,
-        sessionTokenTtlMs: 600,
-        now: () => clock,
-        sleep: async () => {},
-      },
-    });
-    const claimed = await short.bootstrapClaim(bootstrap, {
+        options: {
+          sessionCostLimitUsd: 1_000,
+          leaseTtlMs: LEASE_TTL_MS,
+          sessionTokenTtlMs,
+          now: () => clock,
+          sleep: async () => {},
+        },
+      });
+    const claimed = await withTokenTtl(600).bootstrapClaim(bootstrap, {
       execution_id: l.executionId,
       execution_generation: l.generation,
       credential: { kind: "launch_nonce", nonce: l.nonce },
     });
     const token = hashWorkerToken(claimed.session_credential);
-    await sleep(400);
-    await short.heartbeat(principalOf(claimed), {
+    // The heartbeat sets a horizon a whole lease out, so the check below
+    // lands past the claim's and well inside its own on a loaded runner.
+    await withTokenTtl(LEASE_TTL_MS).heartbeat(principalOf(claimed), {
       ...scopeOf(claimed),
       attempt_state: "running",
     });
-    await sleep(400);
+    await sleep(700);
     // Past the horizon the claim set, but the heartbeat pushed it out: a
     // worker that is alive does not lose its token mid-attempt.
     expect(await uow.resolveCredential(token)).toMatchObject({
       kind: "session",
       attemptId: claimed.attempt_id,
     });
-    await sleep(700);
+    // Past the heartbeat's horizon too.
+    await sleep(LEASE_TTL_MS - 600);
     expect(await uow.resolveCredential(token)).toBeNull();
   });
 
@@ -1791,18 +1798,13 @@ integration("worker gateway on PostgreSQL", () => {
     const partition = partitionFor("claimwait");
     await queuedSession(partition);
     const l = await launch(partition);
-    const brief = briefGateway(150);
     const blocker = await pool.connect();
     await blocker.query("BEGIN");
     await blocker.query(
       "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
       [l.executionId],
     );
-    const pending = brief.bootstrapClaim(bootstrap, {
-      execution_id: l.executionId,
-      execution_generation: l.generation,
-      credential: { kind: "launch_nonce", nonce: l.nonce },
-    });
+    const pending = claim(l);
     let floor: number;
     try {
       await sleep(400);
@@ -1812,12 +1814,12 @@ integration("worker gateway on PostgreSQL", () => {
       blocker.release();
     }
     const claimed = await pending;
-    // Measured from the request the 150 ms lease would have been spent on
-    // the lock alone; it starts once the binding exists.
+    // Measured from the request the lease would have lost the 400 ms spent
+    // on the lock; it starts once the binding exists.
     expect(new Date(claimed.lease_expires_at).getTime()).toBeGreaterThanOrEqual(
-      floor + 150,
+      floor + LEASE_TTL_MS,
     );
-    const next = await brief.nextInput(principalOf(claimed), {
+    const next = await gateway.nextInput(principalOf(claimed), {
       ...scopeOf(claimed),
     });
     expect(next.input?.turn_id).toBe("1");
@@ -1867,14 +1869,8 @@ integration("worker gateway on PostgreSQL", () => {
   test("a finalize that waits out its lease on the turn row commits nothing", async () => {
     const partition = partitionFor("finwait");
     const session = await queuedSession(partition);
-    const l = await launch(partition);
-    const brief = briefGateway(400);
-    const claimed = await brief.bootstrapClaim(bootstrap, {
-      execution_id: l.executionId,
-      execution_generation: l.generation,
-      credential: { kind: "launch_nonce", nonce: l.nonce },
-    });
-    await brief.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
+    const claimed = await claim(await launch(partition));
+    await gateway.nextInput(principalOf(claimed), { ...scopeOf(claimed) });
     const [turn] = await db
       .select({ id: turns.id })
       .from(turns)
@@ -1886,8 +1882,9 @@ integration("worker gateway on PostgreSQL", () => {
     ]);
     // The fence holds when it is taken; the lease runs out while finalize
     // waits for the turn row it is about to write.
+    await leaseEndsIn(claimed.attempt_id, 400);
     const blocked = failure(
-      brief.finalize(principalOf(claimed), {
+      gateway.finalize(principalOf(claimed), {
         ...scopeOf(claimed, "1"),
         turn_id: "1",
         finalize_key: "waited-1",
@@ -2081,16 +2078,18 @@ integration("worker gateway on PostgreSQL", () => {
     } as const;
     const first = await brief.bootstrapClaim(bootstrap, request);
     // The first response was lost and the retry arrives after the lease it
-    // carried has run out, but before the nonce expires.
+    // carried has run out, but before the nonce expires. It lands on a
+    // replica with the usual TTL, so the binding has a whole lease to prove
+    // it works in.
     await sleep(350);
     const floor = await dbNowMs();
-    const second = await brief.bootstrapClaim(bootstrap, request);
+    const second = await gateway.bootstrapClaim(bootstrap, request);
     expect(second.attempt_id).toBe(first.attempt_id);
     expect(new Date(second.lease_expires_at).getTime()).toBeGreaterThanOrEqual(
-      floor + 300,
+      floor + LEASE_TTL_MS,
     );
     // The binding it just answered with actually works.
-    const next = await brief.nextInput(principalOf(second), {
+    const next = await gateway.nextInput(principalOf(second), {
       ...scopeOf(second),
     });
     expect(next.input?.turn_id).toBe("1");
@@ -2099,9 +2098,9 @@ integration("worker gateway on PostgreSQL", () => {
   test("the database clock judges the lease, not the clock of the replica handling the request", async () => {
     const partition = partitionFor("skew");
     await queuedSession(partition);
-    const real = skewedGateway(0, 300);
-    const behind = skewedGateway(-60_000, 300);
-    const ahead = skewedGateway(60_000, 300);
+    const real = skewedGateway(0, LEASE_TTL_MS);
+    const behind = skewedGateway(-60_000, LEASE_TTL_MS);
+    const ahead = skewedGateway(60_000, LEASE_TTL_MS);
     const executionId = `exec-${crypto.randomUUID()}`;
     const registered = await real.registerLaunch({
       executionId,
@@ -2124,9 +2123,10 @@ integration("worker gateway on PostgreSQL", () => {
     });
     const ceiling = await dbNowMs();
     const extended = new Date(beat.lease_expires_at).getTime();
-    expect(extended).toBeGreaterThanOrEqual(floor + 300);
-    expect(extended).toBeLessThanOrEqual(ceiling + 300);
+    expect(extended).toBeGreaterThanOrEqual(floor + LEASE_TTL_MS);
+    expect(extended).toBeLessThanOrEqual(ceiling + LEASE_TTL_MS);
 
+    const lapsed = await leaseEndsIn(claimed.attempt_id, 300);
     await sleep(350);
     // Judged by its own clock the replica running a minute behind would
     // still approve these writes; the database says the lease has ended.
@@ -2152,7 +2152,7 @@ integration("worker gateway on PostgreSQL", () => {
       .select({ leaseExpiresAt: attempts.leaseExpiresAt })
       .from(attempts)
       .where(eq(attempts.id, claimed.attempt_id));
-    expect(attempt?.leaseExpiresAt.getTime()).toBe(extended);
+    expect(attempt?.leaseExpiresAt.getTime()).toBe(lapsed);
   });
 
   test("claim and heartbeat hand the lease out as time left on the database clock, never more than the worker has (94S-322)", async () => {
