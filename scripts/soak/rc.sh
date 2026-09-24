@@ -72,7 +72,9 @@ if [ "$stage" = all ]; then
   if [ "$rc" != "$head" ]; then
     src="$state/src-${rc:0:7}"
     git worktree remove --force "$src" 2>/dev/null
-    git worktree add --detach "$src" "$rc" >/dev/null || die "could not check out ${rc}"
+    # The images copy these files as checked out: umask 077 would leave them
+    # unreadable to the containers' non-root users.
+    (umask 022 && git worktree add --detach "$src" "$rc" >/dev/null) || die "could not check out ${rc}"
   fi
   lock="$(shasum -a 256 "$src/bun.lock" | cut -d' ' -f1)"
   export SOAK_PRODUCT_BUN_LOCK="$lock"
