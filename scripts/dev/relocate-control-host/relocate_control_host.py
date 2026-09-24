@@ -384,6 +384,20 @@ replace(images_test,
         '  });\n\n'
         '  test("the scheduler loop surfaces persistent failure", () => {\n')
 
+# --- 94S-134's e2e scripts name the product images too, when they are there ---------
+for e2e in ("tests/e2e/run.sh", "tests/e2e/restore-resume.sh"):
+    if not pathlib.Path(e2e).is_file():
+        continue
+    replace(e2e, 'export API_IMAGE="agent-platform-api:${project}"\nexport SCHEDULER_IMAGE="agent-platform-scheduler:${project}"\n',
+            'export API_IMAGE="agent-platform-control-host:${project}"\n')
+    images = read(e2e).count('"$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE"')
+    assert images >= 1, e2e
+    replace(e2e, '"$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE"', '"$API_IMAGE" "$WORKER_IMAGE"', count=images)
+    if 'echo "scheduler_image: ' in read(e2e):
+        sub(e2e, r'  echo "scheduler_image: \$\{SCHEDULER_IMAGE\} \$\(image_id "\$SCHEDULER_IMAGE"\)"\n', "")
+    if "SCHEDULER_IMAGE" in read(e2e):
+        raise SystemExit(f"{e2e}: SCHEDULER_IMAGE is still used; the scheduler runs API_IMAGE")
+
 # --- the D2 gate (94S-247) runs the product images: one control-host image now ----
 run_sh = "scripts/d2-gate/run.sh"
 replace(run_sh, 'export API_IMAGE="agent-platform-api:${project}"\nexport SCHEDULER_IMAGE="agent-platform-scheduler:${project}"\n',
