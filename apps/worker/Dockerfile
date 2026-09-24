@@ -13,7 +13,10 @@
 # date, so its layer cache takes each day's security fixes once; a local
 # build keeps its cached layer. Two builds of one commit on different days
 # can differ in Debian package versions; a release pins what it shipped by
-# image digest.
+# image digest. `--error-on=any`: a source that failed to fetch would
+# otherwise leave its fixes out of a build that still passes. A fix that
+# would remove a package stays held back (no full-upgrade in an image) and
+# surfaces in images.yml's scan instead.
 ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
 
 FROM ${BUN_IMAGE} AS deps
@@ -42,8 +45,8 @@ FROM ${BUN_IMAGE} AS runtime
 # workspace-inodes.ts), so the daemon needs no second image for it.
 # The upgrade: see ARG APT_UPGRADE_KEY.
 ARG APT_UPGRADE_KEY=
-RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+RUN apt-get update --error-on=any \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
   && apt-get install -y --no-install-recommends ca-certificates git tini xfsprogs \
   && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 is what LocalDockerBackend runs the container as

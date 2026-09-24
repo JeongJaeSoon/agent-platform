@@ -73,7 +73,9 @@ describe("app Dockerfiles", () => {
     const manifest = JSON.parse(read("apps/egress-proxy/package.json"));
     expect(manifest.dependencies ?? {}).toEqual({});
     const source = basePins["egress-proxy"].source;
-    expect(source.match(/^RUN .*$/gm)).toEqual(["RUN apt-get update \\"]);
+    expect(source.match(/^RUN .*$/gm)).toEqual([
+      "RUN apt-get update --error-on=any \\",
+    ]);
     expect(source.match(/^COPY .*$/gm)).toEqual([
       "COPY apps/egress-proxy/package.json ./",
       "COPY THIRD_PARTY_NOTICES.md ./",
@@ -96,7 +98,7 @@ describe("app Dockerfiles", () => {
     const source = basePins[app].source;
     const shipped = source.slice(source.lastIndexOf("\nFROM "));
     expect(shipped).toMatch(
-      /^ARG APT_UPGRADE_KEY=\nRUN apt-get update \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \\$/m,
+      /^ARG APT_UPGRADE_KEY=\nRUN apt-get update --error-on=any \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \\$/m,
     );
   });
 

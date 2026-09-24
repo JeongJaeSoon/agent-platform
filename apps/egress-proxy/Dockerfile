@@ -16,8 +16,8 @@ FROM ${BUN_IMAGE}
 # Debian's security fixes, the only RUN: see APT_UPGRADE_KEY in
 # apps/worker/Dockerfile.
 ARG APT_UPGRADE_KEY=
-RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+RUN apt-get update --error-on=any \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Owned by root and only readable by the proxy's user, so a compromised

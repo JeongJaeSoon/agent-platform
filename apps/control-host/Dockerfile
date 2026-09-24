@@ -29,8 +29,8 @@ FROM ${BUN_IMAGE} AS runtime
 # tini: see ENTRYPOINT.
 # The upgrade: see APT_UPGRADE_KEY in apps/worker/Dockerfile.
 ARG APT_UPGRADE_KEY=
-RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+RUN apt-get update --error-on=any \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
   && apt-get install -y --no-install-recommends git tini \
   && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
