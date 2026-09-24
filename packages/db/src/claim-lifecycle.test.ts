@@ -165,6 +165,7 @@ async function queuedSession(partition = "default"): Promise<string> {
 function claim(ref: ExecutionRef, nonce: string) {
   return work.claimAtomic({
     attemptId: `att-${crypto.randomUUID()}`,
+    catalogRevision: "catalog-under-test",
     costLimitUsd: 1_000,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,

@@ -1054,3 +1054,20 @@ export const apiKeys = pgTable(
     ),
   ],
 );
+
+// The catalog revision an operator activated (94S-295): only a gateway
+// whose own `catalogRevision` equals it may fail a session for a pair its
+// catalog lacks. One row at most; none means a single replica, where every
+// gateway is the authority. The API never writes it — the operator's
+// compare-and-swap does, as a rollout's first step (docs/operations.md).
+export const catalogAuthority = pgTable(
+  "catalog_authority",
+  {
+    id: integer().primaryKey(),
+    revision: text().notNull(),
+    activatedAt: timestamp("activated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
+);

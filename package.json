@@ -15,7 +15,8 @@
     "test:spike:94s-91": "bun run --cwd spikes/94s-91 test:contract",
     "check": "bun run typecheck && bun run lint && bun run test",
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
-    "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts"
+    "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",
+    "catalog-authority": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/catalog-authority.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
