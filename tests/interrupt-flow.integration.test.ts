@@ -295,6 +295,10 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
 
     const partition = `interrupt-e2e-${crypto.randomUUID()}`;
     await db
+      .update(schema.sessions)
+      .set({ partition })
+      .where(eq(schema.sessions.id, sessionId));
+    await db
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));

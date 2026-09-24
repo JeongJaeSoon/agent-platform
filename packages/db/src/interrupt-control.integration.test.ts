@@ -192,6 +192,10 @@ integration("turn interrupts on PostgreSQL", () => {
       if (appended.outcome !== "accepted") throw new Error(appended.outcome);
     }
     await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, sessionId));
+    await db
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));

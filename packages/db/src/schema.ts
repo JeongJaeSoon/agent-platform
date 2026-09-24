@@ -476,6 +476,11 @@ export const sessions = pgTable(
     restoreFailureCount: integer("restore_failure_count").notNull().default(0),
     restoreRetryAt: timestamp("restore_retry_at", { withTimezone: true }),
     restoreFailureReason: text("restore_failure_reason"),
+    // The worker pool that may run this session (94S-367). Chosen when the
+    // session is created and never changed after: every signal and launch
+    // copies it, and a claim only binds a session whose partition is the
+    // launch's, so a claim never moves a session to another pool.
+    partition: text().notNull().default("default"),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),

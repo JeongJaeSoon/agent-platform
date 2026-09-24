@@ -16,7 +16,6 @@ import {
   type IdempotencyScope,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { lastLaunchPartition } from "./enqueue.ts";
 import { openPauseReceipt } from "./pause-control.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -279,14 +278,16 @@ async function resumePaused(
     .where(eq(sessions.id, session.id));
   // Signalled whether or not input is queued: the receipt waits on a worker
   // proving the checkpoint restores, and nothing else would launch one.
-  const launch = await lastLaunchPartition(tx, session.id);
-  const partition = launch?.partition ?? "default";
   await tx
     .insert(unassignedSessions)
-    .values({ sessionId: session.id, signaledAt: now, partition })
+    .values({
+      sessionId: session.id,
+      signaledAt: now,
+      partition: session.partition,
+    })
     .onConflictDoUpdate({
       target: unassignedSessions.sessionId,
-      set: { signaledAt: now, partition },
+      set: { signaledAt: now, partition: session.partition },
     });
   await recordStatus(tx, {
     sessionId: session.id,

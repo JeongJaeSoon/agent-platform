@@ -2,7 +2,6 @@ import type { SessionScope, TurnStatus } from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { DB_NOW, dbNow } from "./db-clock.ts";
-import { lastLaunchPartition } from "./enqueue.ts";
 import type * as schema from "./schema.ts";
 import {
   apiKeys,
@@ -181,7 +180,11 @@ export async function reconcileOrphanedSessions(
       if (candidate.podId === null) continue;
       const stalePodId = candidate.podId;
       const [current] = await tx
-        .select({ podId: sessions.podId, status: sessions.status })
+        .select({
+          partition: sessions.partition,
+          podId: sessions.podId,
+          status: sessions.status,
+        })
         .from(sessions)
         .where(
           and(eq(sessions.id, candidate.id), eq(sessions.podId, stalePodId)),
@@ -292,13 +295,12 @@ export async function reconcileOrphanedSessions(
           and(eq(sessions.id, candidate.id), eq(sessions.podId, stalePodId)),
         );
       if (action === "requeued") {
-        const launch = await lastLaunchPartition(tx, candidate.id);
         await tx
           .insert(unassignedSessions)
           .values({
             sessionId: candidate.id,
             signaledAt: at,
-            ...(launch ? { partition: launch.partition } : {}),
+            partition: current.partition,
           })
           .onConflictDoNothing({ target: unassignedSessions.sessionId });
       } else {

@@ -26,7 +26,6 @@ import {
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { lastLaunchPartition } from "./enqueue.ts";
 import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -542,7 +541,7 @@ async function startFresh(
       workspaceReclaimedAt: null,
     })
     .where(eq(sessions.id, session.id));
-  await signalQueuedInput(tx, session.id, queued, now);
+  await signalQueuedInput(tx, session, queued, now);
   await recordStatus(tx, {
     sessionId: session.id,
     phase: queued > 0 ? "queued" : "idle",
@@ -610,7 +609,7 @@ async function retryRestore(
       workspaceReclaimedAt: null,
     })
     .where(eq(sessions.id, session.id));
-  await signalQueuedInput(tx, session.id, queued, now);
+  await signalQueuedInput(tx, session, queued, now);
   return null;
 }
 
@@ -624,34 +623,33 @@ async function queuedTurnCount(tx: Database, sessionId: string) {
 
 /**
  * Puts a session that admits work again back in line for a worker when it
- * has input waiting, in the partition it last ran in; the row may still be
+ * has input waiting, in its partition; the row may still be
  * there from before, in which case it is re-dated. With nothing queued a
  * leftover signal would launch a worker with no input, so it goes; the next
  * message re-signals.
  */
 async function signalQueuedInput(
   tx: Database,
-  sessionId: string,
+  session: Pick<SessionRow, "id" | "partition">,
   queued: number,
   now: Date,
 ) {
   if (queued === 0) {
     await tx
       .delete(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, sessionId));
+      .where(eq(unassignedSessions.sessionId, session.id));
     return;
   }
-  const launch = await lastLaunchPartition(tx, sessionId);
   await tx
     .insert(unassignedSessions)
     .values({
-      sessionId,
+      sessionId: session.id,
       signaledAt: now,
-      partition: launch?.partition ?? "default",
+      partition: session.partition,
     })
     .onConflictDoUpdate({
       target: unassignedSessions.sessionId,
-      set: { signaledAt: now, partition: launch?.partition ?? "default" },
+      set: { signaledAt: now, partition: session.partition },
     });
 }
 
@@ -916,7 +914,7 @@ export function resumeAtomic(
         workspaceReclaimedAt: null,
       })
       .where(eq(sessions.id, sessionId));
-    await signalQueuedInput(tx, sessionId, queued, now);
+    await signalQueuedInput(tx, session, queued, now);
     // The revision the next worker restores: after a fallback, not the
     // damaged pointer (94S-204).
     const restoredFrom =

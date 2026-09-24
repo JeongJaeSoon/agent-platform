@@ -134,6 +134,10 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
     });
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, result.response.session_id));
+    await db
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, result.response.session_id));

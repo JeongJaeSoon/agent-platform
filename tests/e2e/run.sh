@@ -41,9 +41,11 @@ export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
+# E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
+# tests/e2e/compose.ci-mirror.yml to pull from its image mirror (94S-365).
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
-    --profile apps "$@"
+    ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
 events_pid=""

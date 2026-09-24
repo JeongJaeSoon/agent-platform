@@ -258,6 +258,7 @@ export function createPostgresSchedulerStore(
             admissionState: sessions.admissionState,
             costUsd: sessions.costUsd,
             executionRevokedAt: sessions.executionRevokedAt,
+            partition: sessions.partition,
             restoreRetryAt: sessions.restoreRetryAt,
           })
           .from(sessions)
@@ -277,7 +278,7 @@ export function createPostgresSchedulerStore(
           return null;
         }
         const [signal] = await tx
-          .select({ partition: unassignedSessions.partition })
+          .select({ sessionId: unassignedSessions.sessionId })
           .from(unassignedSessions)
           .where(eq(unassignedSessions.sessionId, input.sessionId))
           .limit(1);
@@ -324,8 +325,7 @@ export function createPostgresSchedulerStore(
           executionId: intent.executionId,
           generation: intent.generation,
           image: intent.image,
-          // The claim has to find the session where it is waiting.
-          partition: signal.partition,
+          partition: session.partition,
           resources: intent.resources,
           sessionId: intent.sessionId,
           slotReservedAt: input.now,
