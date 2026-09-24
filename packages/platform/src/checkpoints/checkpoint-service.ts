@@ -16,6 +16,7 @@ import type {
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 import {
+  transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
   workspacePathsProblem,
@@ -33,6 +34,7 @@ import {
 import {
   engineOf,
   inBatches,
+  keepSet,
   own,
   parentOf,
   sha256,
@@ -340,6 +342,13 @@ const PUBLISH_ID = /^[0-9a-f]{32}$/;
 function newPublishId(): string {
   return randomUUID().replaceAll("-", "");
 }
+
+type CommittedReads = {
+  pointer(): Promise<CheckpointPointer | null>;
+  manifest(
+    checkpoint: CheckpointPointer,
+  ): Promise<CheckpointManifest | undefined>;
+};
 
 /**
  * Turns an uploaded manifest into the session's durable restore point, and
@@ -846,9 +855,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * (`held`). Its finalize held every one before it committed (`holdAll`),
    * and nothing releases a version the live pointer names: garbage
    * collection keeps every version the pointer and its fallback window
-   * name and never touches transcript parts (checkpoint-collector.ts,
-   * 94S-281), and transcript reclaim must release only parts no retained
-   * checkpoint names (94S-326). The pointer read here is still the pointer
+   * name, transcript parts included (checkpoint-collector.ts, 94S-281,
+   * 94S-326). The pointer read here is still the pointer
    * when the finalize commits: finalize passes the revision just below its
    * candidate as `parent`, the commit takes the candidate only as the next
    * revision, and the pointer advances one revision at a time, so a pointer
@@ -859,26 +867,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function verifiedRefs(
     sessionId: string,
     parent?: number,
+    reads = committedReads(sessionId),
   ): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
-      const pointer = await store.readPointer(sessionId);
+      const pointer = await reads.pointer();
       if (pointer === null) return tokens;
       if (parent !== undefined && pointer.revision !== parent) return tokens;
       if (protection === "locked" && pointer.versionsHeld !== true) {
         return tokens;
       }
-      const bytes = await objects.get(
-        pointer.manifestRef,
-        pinnedVersion(pointer.manifestVersion),
-      );
-      if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
-        return tokens;
-      }
-      const engine = engineOf(bytes);
-      const codec = engine === undefined ? undefined : own(codecs, engine);
-      if (codec === undefined) return tokens;
-      const manifest = codec.decode(bytes);
+      const manifest = await reads.manifest(pointer);
+      if (manifest === undefined) return tokens;
       for (const ref of [
         ...manifest.transcripts.root.parts,
         ...Object.values(manifest.transcripts.subagents).flatMap(
@@ -932,19 +932,165 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       };
     }
     const pinned = pinnedVersions();
+    const reads = committedReads(sessionId);
     const verdict = await validateManifest({
       checkpoint: input.checkpoint,
       confined: true,
       held: protection === "locked",
       pinned,
       sessionId,
-      verified: await verifiedRefs(sessionId, input.checkpoint.revision - 1),
+      verified: await verifiedRefs(
+        sessionId,
+        input.checkpoint.revision - 1,
+        reads,
+      ),
     });
     if (verdict.status === "verified" && protection === "locked") {
+      const stray = await strayTranscriptPart(
+        verdict.manifest,
+        input.fence,
+        input.checkpoint.revision,
+        reads,
+      );
+      if (stray !== undefined) return { status: "rejected", reason: stray };
       await holdAll(pinned.unheld());
       return { ...verdict, versionsHeld: true };
     }
     return verdict;
+  }
+
+  /**
+   * Finalize only, and only in `locked`, where garbage collection runs
+   * (94S-326): a transcript part the finalizing attempt's generation did not
+   * write must be one the checkpoint the candidate builds on names, by the
+   * same version rule collection keeps it by. That checkpoint is the pointer
+   * — the candidate commits only as the revision after it — or, for an
+   * attempt a fallback restored, the pointer's parent; a locked restore
+   * falls back no further. A worker inherits parts only from what it
+   * restored, and every commit of its own carries them on, so a legitimate
+   * candidate never trips this.
+   *
+   * This is the fence between finalize and collection. Collection takes a
+   * part only when its generation is below the session's and no retained
+   * checkpoint names it. A part of the attempt's own generation is out of its
+   * reach while the attempt can still commit. Any other part a committable
+   * candidate names is named by a checkpoint collection keeps: the pointer it
+   * read, and its parent, or — for a pointer committed after that read —
+   * one of those, by the same rule applied to every commit in between.
+   * Without it a worker could name an old part collection had just given
+   * up, have it held, see the hold released and the version deleted, and
+   * still win the CAS.
+   *
+   * A pointer already past the candidate's parent needs no check: the CAS
+   * refuses the candidate, and the pointer never moves back.
+   */
+  async function strayTranscriptPart(
+    manifest: CheckpointManifest,
+    fence: CheckpointFence,
+    revision: number,
+    reads: CommittedReads,
+  ): Promise<string | undefined> {
+    const prefix = sessionObjectPrefix(fence.sessionId);
+    const foreign = transcriptParts(manifest.transcripts).filter((ref) => {
+      // A key outside the mirror's generation directories is nothing
+      // collection reaches, so there is no race to fence.
+      const generation = transcriptGenerationOf(ref.key, prefix);
+      return (
+        generation !== undefined && generation !== fence.executionGeneration
+      );
+    });
+    if (foreign.length === 0) return undefined;
+    const pointer = await reads.pointer();
+    if (pointer !== null && pointer.revision > revision - 1) return undefined;
+    const base = keepSet();
+    const outside = () => foreign.find((ref) => !base.has(ref));
+    if (pointer?.revision === revision - 1) {
+      const manifestOfPointer = await reads.manifest(pointer);
+      if (manifestOfPointer !== undefined) {
+        base.addManifest(pointer, manifestOfPointer);
+      }
+      const parent = parentOf(pointer);
+      if (
+        outside() !== undefined &&
+        parent !== null &&
+        maxRestoreFallbacks > 0
+      ) {
+        const [row] = await store.listCheckpoints(fence.sessionId, {
+          belowRevision: parent + 1,
+          limit: 1,
+        });
+        const manifestOfParent =
+          row?.revision === parent ? await reads.manifest(row) : undefined;
+        if (row !== undefined && manifestOfParent !== undefined) {
+          base.addManifest(row, manifestOfParent);
+        }
+      }
+    }
+    const stray = outside();
+    return stray === undefined
+      ? undefined
+      : `manifest names transcript part ${stray.key}${versionSuffix(stray.version)}, which generation ${fence.executionGeneration} did not write and the checkpoint it builds on does not name`;
+  }
+
+  /**
+   * One finalize's reads of the pointer and of committed manifests, so the
+   * checks that each need them (`verifiedRefs`, `strayTranscriptPart`) share
+   * one request instead of repeating it on every turn. A read that failed is
+   * forgotten: `verifiedRefs` shrugs a failure off, and the next check must
+   * get its own try rather than the same error.
+   */
+  function committedReads(sessionId: string): CommittedReads {
+    let pointer: Promise<CheckpointPointer | null> | undefined;
+    const manifests = new Map<
+      string,
+      Promise<CheckpointManifest | undefined>
+    >();
+    return {
+      pointer: () => {
+        pointer ??= store.readPointer(sessionId).catch((error: unknown) => {
+          pointer = undefined;
+          throw error;
+        });
+        return pointer;
+      },
+      manifest: (checkpoint) => {
+        const id = `${checkpoint.manifestRef}\n${checkpoint.manifestVersion ?? ""}\n${checkpoint.manifestSha256}`;
+        let read = manifests.get(id);
+        if (read === undefined) {
+          read = committedManifest(checkpoint).catch((error: unknown) => {
+            manifests.delete(id);
+            throw error;
+          });
+          manifests.set(id, read);
+        }
+        return read;
+      },
+    };
+  }
+
+  /**
+   * A committed checkpoint's manifest, read by the version its row recorded;
+   * undefined when it is gone, differs from what was committed or does not
+   * decode.
+   */
+  async function committedManifest(
+    checkpoint: CheckpointPointer,
+  ): Promise<CheckpointManifest | undefined> {
+    const bytes = await objects.get(
+      checkpoint.manifestRef,
+      pinnedVersion(checkpoint.manifestVersion),
+    );
+    if (bytes === undefined || sha256(bytes) !== checkpoint.manifestSha256) {
+      return undefined;
+    }
+    const engine = engineOf(bytes);
+    const codec = engine === undefined ? undefined : own(codecs, engine);
+    if (codec === undefined) return undefined;
+    try {
+      return codec.decode(bytes);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
