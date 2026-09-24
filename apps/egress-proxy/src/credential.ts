@@ -79,9 +79,10 @@ const MAX_OBJECT_BODY_BYTES = 512 * 1024 * 1024;
 /**
  * Request body bytes all exchanges together may hold (94S-388). Bun takes a
  * body off the socket as fast as the client sends it, read or not, so a
- * body is held from the moment its request is admitted until it has gone
- * upstream. Each admission reserves its declared length, or the route's cap
- * when it declares none, and one that does not fit is refused at once,
+ * body is held from the moment its request is admitted until its exchange
+ * ends: the upstream answers from its head, while the body may still be
+ * going out. Each admission reserves its declared length, or the route's
+ * cap when it declares none, and one that does not fit is refused at once,
  * before Bun has taken any of it. Two of the largest bundles fit; the
  * container's mem_limit in infra/docker-compose.yml is sized from this.
  */
@@ -610,8 +611,6 @@ export function startCredentialProxy(
     // The route's body as read since admission; null for the object store,
     // whose body streams upstream.
     whole: Promise<UpstreamBody> | null,
-    // Its reservation ends once it has gone upstream, or failed to.
-    bodySent: () => void,
   ): Promise<Response> {
     const upstream = grant.upstream;
     const host = normalizeHost(upstream.hostname);
@@ -722,8 +721,6 @@ export function startCredentialProxy(
         error: error instanceof Error ? error.message : String(error),
       });
       return reply(502, "upstream connection failed", route.purpose);
-    } finally {
-      bodySent();
     }
     logger.info("Credential route", { ...fields, status: response.status });
     if (response.status >= 300 && response.status < 400) {
@@ -980,7 +977,6 @@ export function startCredentialProxy(
           client,
           ends,
           whole,
-          bodyHeld,
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,
@@ -1027,8 +1023,9 @@ function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /**
  * The request body, all of it in hand before the upstream is dialled, given
- * up the moment `signal` fires or it passes `max`. Replayed chunk by chunk
- * rather than joined, so it is never held twice.
+ * up the moment `signal` fires or it passes `max`. Copied into one buffer of
+ * the reserved size as it arrives, so neither a copy nor a trickle of tiny
+ * chunks holds more than the reservation.
  */
 async function readWhole(
   body: ReadableStream<Uint8Array> | null,
@@ -1043,28 +1040,21 @@ async function readWhole(
   signal.throwIfAborted();
   signal.addEventListener("abort", stop, { once: true });
   try {
-    const chunks: Uint8Array[] = [];
+    const whole = new Uint8Array(max);
     let total = 0;
     for (;;) {
       const next = await reader.read();
       signal.throwIfAborted();
       if (next.done) break;
-      chunks.push(next.value);
-      total += next.value.byteLength;
-      if (total > max) {
+      if (total + next.value.byteLength > max) {
         // Bun would otherwise go on taking the rest off the socket.
         reader.cancel().catch(() => {});
         throw new BodyTooLargeError();
       }
+      whole.set(next.value, total);
+      total += next.value.byteLength;
     }
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        const chunk = chunks.shift();
-        if (chunk === undefined) controller.close();
-        else controller.enqueue(chunk);
-      },
-    });
-    return { stream, length: total };
+    return whole.subarray(0, total);
   } finally {
     signal.removeEventListener("abort", stop);
   }

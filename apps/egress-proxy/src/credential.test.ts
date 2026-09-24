@@ -966,11 +966,55 @@ describe("startCredentialProxy", () => {
     held.socket.write(body.slice(2));
     expect(await held.answered()).toStartWith("HTTP/1.1 200");
     held.socket.end();
+    // Its reservation goes with the exchange, once the answer has ended.
+    await Bun.sleep(50);
     const next = await messages(server.port, {
       body: `{"model":"${"m".repeat(18)}"}`,
     });
     expect(next.status).toBe(200);
     expect(up.seen.map((seen) => seen.body.length)).toEqual([80, 30]);
+  });
+
+  test("an upstream that answers before the body is out keeps the reservation until the exchange ends (94S-388, Codex R1)", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Answers from the head and never reads the body.
+    const early = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            async start(controller) {
+              controller.enqueue(new TextEncoder().encode("a"));
+              await gate;
+              controller.close();
+            },
+          }),
+        ),
+    });
+    servers.push(early);
+    const port = early.port ?? 0;
+    const auth = authorizer(
+      granting(`http://upstream.test:${port}`, [["x-api-key", PROVIDER_KEY]]),
+    );
+    const server = proxy(auth.url, port, { maxBodyBytesInFlight: 100 });
+    const held = await messages(server.port, {
+      body: `{"model":"${"m".repeat(68)}"}`,
+    });
+    expect(held.status).toBe(200);
+    const over = await messages(server.port, {
+      body: `{"model":"${"m".repeat(18)}"}`,
+    });
+    expect(over.status).toBe(503);
+    release();
+    await held.text();
+    await Bun.sleep(50);
+    const next = await messages(server.port);
+    expect(next.status).toBe(200);
+    await next.text();
   });
 
   describe("an exchange that never finishes still frees its slot (94S-366)", () => {
