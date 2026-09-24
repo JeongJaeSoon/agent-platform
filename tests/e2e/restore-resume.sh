@@ -30,7 +30,10 @@
 # Knobs: RR_PROJECT (source project; the restored one is <it>r),
 # RR_INSTALLATION_ID (EXECUTION_INSTALLATION_ID for both), RR_PORT_BASE
 # (the restored project's four loopback ports, default 24320), RR_KEEP=1
-# leaves both projects' images and the backup behind.
+# leaves both projects' images and the backup behind. RR_IMAGES_FROM=<p>
+# builds nothing and runs the images project <p> already has (a stack from
+# scripts/soak/stack.sh or scripts/d2-gate/run.sh), retagged for both projects:
+# a release candidate is tested on its own images, not on this checkout's.
 #
 # Needs what tests/e2e/run.sh and scripts/restore.sh need: Docker Engine 28+,
 # compose v2.24+, bun, jq. On macOS put /bin ahead of Homebrew's bash 5.3,
@@ -98,7 +101,8 @@ cleanup() {
     src down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     dst down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     remove_installation
-    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" \
+      "${project}-migrate:latest" "${restored}-migrate:latest" >/dev/null 2>&1 || true
     rm -rf "$out/backup"
   fi
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
@@ -171,7 +175,26 @@ session_image() {
 
 # --- 1. source: two turns, then pause ----------------------------------------
 note "== source project ${project} (installation ${EXECUTION_INSTALLATION_ID})"
-src up -d --build >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
+build=--build
+if [ -n "${RR_IMAGES_FROM:-}" ]; then
+  from="$RR_IMAGES_FROM"
+  # Cleanup removes this run's tags; on the source's own names it would take
+  # the source's images with it.
+  [ "$from" != "$project" ] && [ "$from" != "$restored" ] \
+    || fail "RR_IMAGES_FROM must name another project than ${project} and ${restored}"
+  # A tag gone missing must fail the run, not be rebuilt from this checkout.
+  build=--no-build
+  for repo in control-host worker egress-proxy; do
+    docker tag "agent-platform-${repo}:${from}" "agent-platform-${repo}:${project}" \
+      || fail "project ${from} has no agent-platform-${repo} image"
+  done
+  # restore.sh runs migrate on the restored project, under its own default name.
+  for name in "$project" "$restored"; do
+    docker tag "${from}-migrate:latest" "${name}-migrate:latest" \
+      || fail "project ${from} has no migrate image"
+  done
+fi
+src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
 api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/docker-compose.yml:tests/e2e/compose.yml" \
   bun run --silent keys create rr-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control)"
@@ -181,6 +204,7 @@ image_id() { docker image inspect --format '{{.Id}}' "$1"; }
 {
   echo "command: tests/e2e/restore-resume.sh"
   echo "tested_sha: $(git rev-parse HEAD) (uncommitted paths: $(git status --porcelain | wc -l | tr -d ' '))"
+  [ -z "${RR_IMAGES_FROM:-}" ] || echo "images_from: ${RR_IMAGES_FROM} (tested_sha is the tools checkout)"
   echo "docker_engine: $(docker version --format '{{.Server.Version}}')"
   echo "compose: $(docker compose version --short)"
   for image in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
@@ -238,7 +262,7 @@ manifest "$restored" "$session" "$revision" >"$out/manifest-restored.json"
 
 echo restored >"$out/phase"
 store_before="$(dst ps -q localstack)"
-dst up -d >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2; exit 1; }
+dst up -d --no-build >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2; exit 1; }
 # LocalStack keeps no S3 state across a recreate here; the restored objects
 # live only in the container restore.sh started.
 [ "$(dst ps -q localstack)" = "$store_before" ] || fail "starting the apps recreated the restored localstack"

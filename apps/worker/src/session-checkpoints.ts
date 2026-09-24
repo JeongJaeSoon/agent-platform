@@ -374,6 +374,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         signal,
       });
       const claudeMd = await stagedClaudeMd(staged, signal);
+      // Staged, so their disk is free before the workspace fetches a copy.
+      await Promise.all(
+        artifacts
+          .filter(({ name }) => name.endsWith(".bundle"))
+          .map(({ name }) => rm(join(spool, name), { force: true })),
+      );
 
       signal.throwIfAborted();
       const tree = await restoreCheckpointTree({

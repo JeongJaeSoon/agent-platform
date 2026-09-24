@@ -9,6 +9,7 @@ import {
   PublicApi,
   prompt,
   run,
+  UNHEALTHY,
   Workers,
   waitFor,
   write,
@@ -48,10 +49,6 @@ let messages: Messages;
 let workers: Workers;
 
 const container = (service: string) => `${env?.project}-${service}-1`;
-
-/** The reasons `main.ts <role> --health` gives for an unhealthy loop. */
-const UNHEALTHY =
-  /no pass has succeeded since|failed pass\(es\) since the last success|running past its deadline|no status file/;
 
 /**
  * The gate publishes api and postgres on ephemeral host ports, and Docker

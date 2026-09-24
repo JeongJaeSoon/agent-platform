@@ -204,6 +204,75 @@ describe("restoring a captured checkout", () => {
     ).rejects.toThrow();
   });
 
+  test("keeps only what the instructions commit reaches, which a capture still bundles once the engine pruned its own copy (94S-370)", async () => {
+    const pinned = await commitFiles({ "CLAUDE.md": "rules\n" });
+    const noise = () =>
+      crypto.getRandomValues(new Uint8Array(256 * 1024)).join();
+    await commitFiles({ "later.txt": noise() });
+    await writeFile(join(root, "uncommitted.txt"), noise());
+    await git(root, "add", "--intent-to-add", "uncommitted.txt");
+    const capture = await captured(root, { commit: pinned });
+    const later = (await git(root, "rev-parse", "HEAD:later.txt")).trim();
+    const target = await staleRoot();
+    const keep = join(target, ".agent-platform-restore-test");
+    await mkdir(keep);
+    const signal = new AbortController().signal;
+
+    const { staged } = await restoreCheckpointTree({
+      keep,
+      origin: "https://git.example.test/acme/app.git",
+      root: target,
+      signal,
+      staged: await stageCheckpointBundle({
+        bundle: capture.bundle.path,
+        gitCommit: capture.gitCommit,
+        repository: join(keep, "checkpoint.git"),
+        signal,
+      }),
+    });
+
+    const repository = join(
+      target,
+      ".git",
+      "agent-platform-checkpoint",
+      "checkpoint.git",
+    );
+    expect(staged.repository).toBe(repository);
+    await expect(
+      git(repository, "cat-file", "-e", `${pinned}:CLAUDE.md`),
+    ).resolves.toBe("");
+    await expect(git(repository, "cat-file", "-e", later)).rejects.toThrow();
+    const counted = await git(repository, "count-objects", "-v");
+    const kib = (field: string) =>
+      Number(new RegExp(`^${field}: (\\d+)$`, "m").exec(counted)?.[1]);
+    expect((kib("size") + kib("size-pack")) * 1024).toBeLessThan(
+      capture.bundle.bytes / 4,
+    );
+    expect(await git(target, "for-each-ref")).not.toContain("refs/restore/");
+
+    // The engine rewrites history and prunes the commit it started from.
+    await git(target, "checkout", "--quiet", "--orphan", "rewritten");
+    await git(target, "commit", "--quiet", "-m", "rewritten");
+    await git(target, "branch", "--quiet", "-D", "main");
+    await git(target, "reflog", "expire", "--expire=now", "--all");
+    await git(target, "gc", "--quiet", "--prune=now");
+    await expect(git(target, "cat-file", "-e", pinned)).rejects.toThrow();
+    const next = await captured(target, {
+      commit: pinned,
+      objects: join(staged.repository, "objects"),
+    });
+    const again = await stageCheckpointBundle({
+      bundle: next.bundle.path,
+      gitCommit: next.gitCommit,
+      repository: join(scratch, "again.git"),
+      signal,
+    });
+    expect(await stagedClaudeMd(again, signal)).toEqual({
+      kind: "text",
+      text: "rules\n",
+    });
+  }, 30_000);
+
   test("clears a root holding more names than one pass reads", async () => {
     await commitFiles({ "a.txt": "a\n" });
     const capture = await captured();
