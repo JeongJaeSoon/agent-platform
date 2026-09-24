@@ -28,6 +28,7 @@ import {
 } from "./control-shared.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
+import { RESTORE_FAILURES_CLEARED } from "./restore-failures.ts";
 import { RESUME, resumePauseFamily } from "./resume-control.ts";
 import {
   checkpoints,
@@ -507,6 +508,8 @@ async function startFresh(
       // goes with it.
       checkpointFallbackRevision: null,
       checkpointRestoreAttemptId: null,
+      // The failing restore was of a checkpoint that is retired now.
+      ...RESTORE_FAILURES_CLEARED,
       updatedAt: now,
       workspaceReclaimedAt: null,
     })

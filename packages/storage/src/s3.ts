@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ObjectIntegrityError } from "@agent-platform/runtime-core";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
@@ -284,6 +285,9 @@ export async function getObjectVersion(
       if (options.version !== undefined && isUnreadableVersion(error)) {
         return undefined;
       }
+      if (isResponseChecksumMismatch(error)) {
+        throw new ObjectIntegrityError(key, { cause: error });
+      }
       if (!(error instanceof BodyStallError)) throw error;
       lastError = error;
     }
@@ -360,6 +364,9 @@ export async function streamObjectVersion(
         }
         return;
       } catch (error) {
+        if (isResponseChecksumMismatch(error)) {
+          throw new ObjectIntegrityError(key, { cause: error });
+        }
         if (!(error instanceof BodyStallError)) throw error;
         stalls += 1;
         if (stalls >= bounds.attempts) {
@@ -483,6 +490,22 @@ export function isUnreadableVersion(error: unknown): boolean {
     value?.Code === "MethodNotAllowed" ||
     value?.$metadata?.httpStatusCode === 400 ||
     value?.$metadata?.httpStatusCode === 405
+  );
+}
+
+/**
+ * The SDK's response checksum validation failing. It throws a plain Error
+ * whose message is the only mark it carries, so this reads the message;
+ * `checksum-mismatch.test.ts` drives the real client into it, and an SDK that
+ * reports it differently fails there instead of passing damage off as an
+ * ordinary read failure.
+ */
+function isResponseChecksumMismatch(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /^Checksum mismatch: .* in response header "x-amz-checksum-/.test(
+      error.message,
+    )
   );
 }
 
