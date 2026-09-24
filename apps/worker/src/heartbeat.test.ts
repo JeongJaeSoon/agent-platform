@@ -307,7 +307,7 @@ describe("Heartbeat", () => {
       { remainingMs: 200, safetyMarginMs: 100, monotonicNow: () => 0 },
     );
     beat.start();
-    await until(() => calls === 1);
+    await until(() => calls >= 1);
     await beat.beatOnce();
     // Past the hanging beat's 100ms race.
     await Bun.sleep(250);
@@ -315,6 +315,98 @@ describe("Heartbeat", () => {
     expect(lost).toEqual([]);
     expect(beat.leaseLeftMs).toBe(30_000 - 100);
     await beat.stop();
+  });
+
+  test("a beat stuck while the gateway restarts does not hold the lease: the next one renews it (94S-346)", async () => {
+    // The first beat went out while the API was down and sits in the
+    // network; the API is back for every beat after it.
+    let calls = 0;
+    const lost: string[] = [];
+    const instance = new Heartbeat({
+      gateway: {
+        heartbeat: () => {
+          calls += 1;
+          return calls === 1
+            ? new Promise(() => {})
+            : Promise.resolve(answer(30_000));
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 400,
+      lease: { remainingMs: 1_000, sentAt: performance.now() },
+      safetyMarginMs: 200,
+      onLost: (reason) => lost.push(reason),
+    });
+    instance.start();
+    await until(() => calls >= 2);
+    await settle();
+    await instance.stop();
+
+    expect(lost).toEqual([]);
+    expect(instance.leaseLeftMs).toBeGreaterThan(1_000);
+  });
+
+  test("a stuck beat's answer still counts when it lands after the next beat went out", async () => {
+    let release: (response: HeartbeatResponse) => void = () => {};
+    let calls = 0;
+    const { heartbeat: beat, lost } = heartbeat(
+      () => {
+        calls += 1;
+        return calls === 1
+          ? new Promise((resolve) => {
+              release = resolve;
+            })
+          : new Promise(() => {});
+      },
+      { remainingMs: 2_000, safetyMarginMs: 500, monotonicNow: () => 0 },
+    );
+    beat.start();
+    await until(() => calls >= 2);
+    release(answer(30_000));
+    await settle();
+    await beat.stop();
+
+    expect(lost).toEqual([]);
+    expect(beat.leaseLeftMs).toBe(30_000 - 500);
+  });
+
+  test("a stuck beat that lands revoked loses the attempt; once stopped, nothing does", async () => {
+    const revoked = new WorkerGatewayRequestError(
+      401,
+      "UNAUTHORIZED",
+      "Worker token is missing, expired or revoked",
+      false,
+    );
+    const rejects: ((error: Error) => void)[] = [];
+    const run = () => {
+      const made = heartbeat(
+        () =>
+          new Promise((_, reject) => {
+            rejects.push(reject);
+          }),
+        { remainingMs: 2_000, safetyMarginMs: 500, monotonicNow: () => 0 },
+      );
+      made.heartbeat.start();
+      return made;
+    };
+
+    const live = run();
+    await until(() => rejects.length >= 2);
+    rejects[0]?.(revoked);
+    await settle();
+    expect(live.lost).toEqual([
+      "UNAUTHORIZED: Worker token is missing, expired or revoked",
+    ]);
+    await live.heartbeat.stop();
+
+    rejects.length = 0;
+    const stopped = run();
+    await until(() => rejects.length >= 2);
+    await stopped.heartbeat.stop();
+    for (const reject of rejects) reject(revoked);
+    await settle();
+    expect(stopped.lost).toEqual([]);
   });
 
   test("an answer that comes back after the lease was given up does not revive it", async () => {

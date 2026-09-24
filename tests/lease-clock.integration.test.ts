@@ -34,7 +34,10 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
-import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import {
+  type FetchLike,
+  HttpWorkerGatewayClient,
+} from "../apps/worker/src/gateway-client.ts";
 import {
   WorkerHost,
   type WorkerLogger,
@@ -169,7 +172,11 @@ integration("worker lease on the monotonic clock end to end", () => {
     return row.leaseExpiresAt.getTime();
   }
 
-  test("a wall clock jump moves nothing; an unreachable gateway loses the lease a margin before the database does", async () => {
+  /** A session waiting in a partition of its own, and the launch to claim it. */
+  async function launchSession(): Promise<{
+    executionId: string;
+    nonce: string;
+  }> {
     const created = await fetch(`http://127.0.0.1:${server.port}/v1/sessions`, {
       method: "POST",
       headers: {
@@ -200,6 +207,72 @@ integration("worker lease on the monotonic clock end to end", () => {
       backend: "local_docker",
     });
     if (launch.nonce === null) throw new Error("launch already registered");
+    return { executionId, nonce: launch.nonce };
+  }
+
+  function workerHost(input: {
+    executionId: string;
+    nonce: string;
+    runtime: FakeAgentRuntime;
+    logger: WorkerLogger;
+    fetch: FetchLike;
+    requestTimeoutMs: number;
+  }): WorkerHost {
+    const { runtime } = input;
+    return new WorkerHost({
+      checkpoints: noCheckpoints,
+      execution: {
+        bootstrapNonce: input.nonce,
+        generation: 1,
+        id: input.executionId,
+      },
+      gateway: new HttpWorkerGatewayClient({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        credential: input.nonce,
+        requestTimeoutMs: input.requestTimeoutMs,
+        fetch: input.fetch,
+      }),
+      logger: input.logger,
+      runtimes: {
+        launcherFor: () => ({
+          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
+            runtime.start(
+              {
+                claudeConfigDir: "/tmp/fake/config",
+                cwd: "/tmp/fake/workspace",
+                home: "/tmp/fake/home",
+                model: runtimeConfig.model,
+                profile: {
+                  ...runtimeConfig.provider,
+                  principal: { ownerScope: principal.owner_scope },
+                },
+                tools: runtimeConfig.tools,
+                ...rest,
+              },
+              hooks,
+            ),
+        }),
+      },
+      timeouts: {
+        answerPollIntervalMs: 1_000,
+        claimTimeoutMs: 5_000,
+        drainTimeoutMs: 5_000,
+        heartbeatIntervalMs: HEARTBEAT_MS,
+        idleTimeoutMs: 60_000,
+        leaseSafetyMarginMs: MARGIN_MS,
+        maxTurnMs: 60_000,
+        nextInputRetryTimeoutMs: 60_000,
+        nextInputWaitMs: 100,
+        questionTimeoutMs: 5_000,
+        requestTimeoutMs: input.requestTimeoutMs,
+        startupTimeoutMs: 60_000,
+      },
+      workspace: noWorkspace,
+    });
+  }
+
+  test("a wall clock jump moves nothing; an unreachable gateway loses the lease a margin before the database does", async () => {
+    const { executionId, nonce } = await launchSession();
 
     // The first turn runs for a minute: only the lease can end this attempt.
     const runtime = new FakeAgentRuntime([
@@ -232,62 +305,20 @@ integration("worker lease on the monotonic clock end to end", () => {
       warn: () => {},
       error: () => {},
     };
-    const host = new WorkerHost({
-      checkpoints: noCheckpoints,
-      execution: {
-        bootstrapNonce: launch.nonce,
-        generation: 1,
-        id: executionId,
-      },
-      gateway: new HttpWorkerGatewayClient({
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        credential: launch.nonce,
-        requestTimeoutMs: 5_000,
-        fetch: (input, init) =>
-          unreachable
-            ? Promise.reject(
-                new TypeError(
-                  `connect ECONNREFUSED (${input.endsWith("/heartbeat") ? refusedBeats++ : "-"})`,
-                ),
-              )
-            : globalThis.fetch(input, init),
-      }),
+    const host = workerHost({
+      executionId,
+      nonce,
+      runtime,
       logger,
-      runtimes: {
-        launcherFor: () => ({
-          start: ({ runtimeConfig, principal, ...rest }, hooks) =>
-            runtime.start(
-              {
-                claudeConfigDir: "/tmp/fake/config",
-                cwd: "/tmp/fake/workspace",
-                home: "/tmp/fake/home",
-                model: runtimeConfig.model,
-                profile: {
-                  ...runtimeConfig.provider,
-                  principal: { ownerScope: principal.owner_scope },
-                },
-                tools: runtimeConfig.tools,
-                ...rest,
-              },
-              hooks,
-            ),
-        }),
-      },
-      timeouts: {
-        answerPollIntervalMs: 1_000,
-        claimTimeoutMs: 5_000,
-        drainTimeoutMs: 5_000,
-        heartbeatIntervalMs: HEARTBEAT_MS,
-        idleTimeoutMs: 60_000,
-        leaseSafetyMarginMs: MARGIN_MS,
-        maxTurnMs: 60_000,
-        nextInputRetryTimeoutMs: 60_000,
-        nextInputWaitMs: 100,
-        questionTimeoutMs: 5_000,
-        requestTimeoutMs: 5_000,
-        startupTimeoutMs: 60_000,
-      },
-      workspace: noWorkspace,
+      requestTimeoutMs: 5_000,
+      fetch: (input, init) =>
+        unreachable
+          ? Promise.reject(
+              new TypeError(
+                `connect ECONNREFUSED (${input.endsWith("/heartbeat") ? refusedBeats++ : "-"})`,
+              ),
+            )
+          : globalThis.fetch(input, init),
     });
     const loop = host.runLoop();
     await until(() => runtime.inputs.length === 1, "turn 1 running", 30_000);
@@ -344,5 +375,97 @@ integration("worker lease on the monotonic clock end to end", () => {
     expect(leaseAtLoss - (loss.at + offset.low)).toBeLessThan(
       MARGIN_MS + 3_000,
     );
+  }, 90_000);
+
+  test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401 (94S-346)", async () => {
+    const { executionId, nonce } = await launchSession();
+    const runtime = new FakeAgentRuntime([
+      { type: "await-input" },
+      { type: "delay", delayMs: 60_000 },
+    ]);
+    // What the API's SIGKILL leaves in the network: a request sent while
+    // it is down waits in the connect's retries and reaches whichever API
+    // is listening when it finally gets through. The test decides when.
+    let down = false;
+    const held: {
+      sentAt: number;
+      deliver: () => Promise<{ status: number; body: string }>;
+    }[] = [];
+    let attemptId: string | undefined;
+    let lostReason: string | undefined;
+    const logger: WorkerLogger = {
+      info: (event, fields) => {
+        if (event === "worker.claimed") attemptId = String(fields?.attempt_id);
+        if (event === "worker.stopping" && fields?.kind === "lost") {
+          lostReason = String(fields?.reason);
+        }
+      },
+      warn: () => {},
+      error: () => {},
+    };
+    const host = workerHost({
+      executionId,
+      nonce,
+      runtime,
+      logger,
+      // As in production: longer than what a lease has left between beats.
+      requestTimeoutMs: 30_000,
+      fetch: (input, init) => {
+        if (!down) return globalThis.fetch(input, init);
+        if (!input.endsWith("/heartbeat")) {
+          return Promise.reject(new TypeError("connect ECONNREFUSED"));
+        }
+        return new Promise<Response>((resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          );
+          held.push({
+            sentAt: performance.now(),
+            deliver: async () => {
+              const { signal: _, ...rest } = init;
+              const response = await globalThis.fetch(input, rest);
+              const body = await response.text();
+              resolve(new Response(body, { status: response.status }));
+              return { status: response.status, body };
+            },
+          });
+        });
+      },
+    });
+    const loop = host.runLoop();
+    await until(() => runtime.inputs.length === 1, "turn 1 running", 30_000);
+    const id = attemptId;
+    if (id === undefined) throw new Error("the claim was not logged");
+
+    // Down for a few beats, then back; what was sent meanwhile stays held
+    // past the point this attempt's last renewal gives the lease up at.
+    const leaseAtKill = await leaseOf(id);
+    down = true;
+    await until(() => held.length > 0, "a beat sent while down");
+    await Bun.sleep(2_000);
+    down = false;
+    await Bun.sleep(LEASE_TTL_MS);
+
+    expect(lostReason).toBeUndefined();
+    expect(await leaseOf(id)).toBeGreaterThan(leaseAtKill + LEASE_TTL_MS / 2);
+
+    // Delivered late to an attempt still alive, the same token is good.
+    const [first] = held;
+    const last = held.at(-1);
+    if (first === undefined || last === undefined || first === last) {
+      throw new Error("expected several beats held while the API was down");
+    }
+    expect((await first.deliver()).status).toBe(200);
+
+    // The scheduler observes the execution gone and ends the attempt, which
+    // revokes its token; a beat the network only now lets through is
+    // answered 401 — the response 94S-135's control-kill campaign logged.
+    await gateway.confirmExecutionGone(executionId);
+    const late = await last.deliver();
+    expect(late.status).toBe(401);
+    expect(late.body).toContain("Worker token is missing, expired or revoked");
+
+    const summary = await loop;
+    expect(summary.outcome).toBe("lease_lost");
   }, 90_000);
 });

@@ -173,6 +173,46 @@ describe("/internal/worker", () => {
     expect(v1.status).toBe(401);
   });
 
+  test("a token the database cannot be asked about yet is a retryable 503, never 401 (94S-346)", async () => {
+    // What an API that restarted ahead of its database meets: PostgreSQL
+    // answering that it is still starting up.
+    const work = createPostgresWorkerUnitOfWork(db);
+    const starting = createApiApp({
+      authMode: "api-key",
+      registerInternalRoutes: (router) =>
+        registerWorkerRoutes(
+          router,
+          createWorkerGateway({
+            work: {
+              ...work,
+              resolveCredential: async () => {
+                throw Object.assign(
+                  new Error("the database system is starting up"),
+                  { code: "57P03" },
+                );
+              },
+            },
+            catalog: { profiles: {}, repositories: {} },
+            checkpoints: acceptAllCheckpoints,
+            options: { sessionCostLimitUsd: 1_000, leaseTtlMs: LEASE_TTL_MS },
+          }),
+        ),
+    });
+    const response = await starting.request("/internal/worker/heartbeat", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer wsc_valid",
+      },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(503);
+    expect(
+      apiErrorResponseSchema.parse(await response.json()).error.retryable,
+    ).toBe(true);
+  });
+
   test("the bootstrap token can only call bootstrap-claim", async () => {
     await seedSession();
     const { nonce, binding } = await claimed();
