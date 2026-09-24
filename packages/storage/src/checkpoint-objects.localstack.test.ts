@@ -3,10 +3,16 @@ import {
   localstackEnabled,
   withLocalstackBucket,
 } from "@agent-platform/testkit/localstack";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  PutBucketEncryptionCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 import {
   createCheckpointObjectStore,
+  describeBucketEncryption,
   describeBucketProtection,
 } from "./checkpoint-objects.ts";
 import {
@@ -39,6 +45,47 @@ localstackTest(
         );
         expect(stale.outcome).toBe("conflict");
         expect(await store.get(key)).toEqual(published);
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+// 94S-337: checkpoint writes name no encryption, so the bucket default the
+// API checks at startup is what every object is stored with.
+localstackTest(
+  "checkpoint objects are stored with the bucket's SSE-S3 default",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        await s3.send(
+          new PutBucketEncryptionCommand({
+            Bucket: bucket,
+            ServerSideEncryptionConfiguration: {
+              Rules: [
+                {
+                  ApplyServerSideEncryptionByDefault: {
+                    SSEAlgorithm: "AES256",
+                  },
+                },
+              ],
+            },
+          }),
+        );
+        expect(await describeBucketEncryption(s3, bucket)).toBe("AES256");
+
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const manifest = "sessions/s1/checkpoints/0000000000/manifest.json";
+        const part = "sessions/s1/mirror/part-0000000000.jsonl";
+        await store.putImmutable(manifest, encode("{}"));
+        await store.put(part, encode("one\n"));
+        for (const key of [manifest, part]) {
+          const head = await s3.send(
+            new HeadObjectCommand({ Bucket: bucket, Key: key }),
+          );
+          expect(head.ServerSideEncryption).toBe("AES256");
+        }
       },
       { prefix: "checkpoint-objects-it" },
     );
