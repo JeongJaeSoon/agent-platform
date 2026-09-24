@@ -460,6 +460,8 @@ checkpoint publish가 실패하면 완료 event와 input ACK를 보류하고 이
 
 `POST /stop`은 **현재 턴만 취소하는 interrupt**다. SDK turn을 중단하고 pending request를 cancelled로 닫으며, 처리 중 입력은 소비 완료로 남겨 재큐잉하지 않는다. turn의 재실행 금지·`interrupted` 상태와 session의 `stopped` 상태를 durable하게 확정하고, 가능한 안전 경계에서 checkpoint를 시도한다. checkpoint 실패를 이유로 사용자의 취소를 되돌리거나 입력을 다시 실행하지 않는다. 같은 pod는 유지하며 다음 메시지는 새 turn으로 `stopped → running` 전이한다. public `status`·`result`의 순서는 한 번만 기록되어야 한다.
 
+interrupt의 효과와 turn의 확정은 따로 기록한다(94S-382). engine이 interrupt를 acknowledged하고 abort terminal을 내면, 워커는 그 turn의 stream cut 안에 `status{phase:"engine_stopped", control_id}`를 먼저 durable하게 남긴다. "interrupt 관찰 5초"는 이 event까지를 잰다. 그 뒤 checkpoint 캡처는 engine 정지 grace(5초)와 분리된 예산(30초)으로 진행한다. turn은 캡처한 checkpoint를 실은 finalize로만 `interrupted`가 되고, 캡처가 실패하거나 예산을 넘기면 `outcome_unknown`으로 recovery에 넘어간다.
+
 SIGTERM·노드 drain은 **인프라 abort**다. 사용자가 요청한 작업을 취소한 것이 아니므로, 성공적으로 publish된 checkpoint와 durable turn 상태를 기준으로 현재 turn attempt를 재시도할 수 있다. 반면 소유권을 잃은 워커와 사용자 stop turn은 입력을 재큐잉하지 않는다. 사용자 interrupt와 인프라 abort는 SDK/Claude Code process에 미치는 범위를 94S-91에서 별도 runtime 계약으로 고정하고, queue acknowledgment와 상태 전이 정책도 공유하지 않는다.
 
 `terminationGracePeriodSeconds: 120`. SIGTERM 수신 시:

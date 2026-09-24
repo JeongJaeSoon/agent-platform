@@ -378,7 +378,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
           : undefined,
       "turn 1 running",
     );
-    const stream = await streamUntil(sessionId, '"phase":"interrupting"');
+    const stream = await streamUntil(sessionId, '"phase":"engine_stopped"');
 
     // AC1 + AC2: 202 with a receipt, settled within 5s of the request.
     const asked = performance.now();
@@ -405,6 +405,10 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
     expect(await turnStatus(sessionId, 1)).toBe("interrupted");
     const streamed = await stream.seen;
     expect(streamed).toContain('"phase":"interrupting"');
+    // The effect is stored as its own event, named by the intent (94S-382).
+    expect(streamed.indexOf('"phase":"interrupting"')).toBeLessThan(
+      streamed.indexOf('"phase":"engine_stopped"'),
+    );
 
     // AC5: the input behind it is untouched and runs on the same engine.
     const summary = await loop;

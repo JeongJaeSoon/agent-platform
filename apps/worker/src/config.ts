@@ -58,6 +58,13 @@ export type WorkerTimeouts = {
    * default is the shutdown's interrupt grace.
    */
   interruptGraceMs?: number;
+  /**
+   * How long an interrupted turn's checkpoint capture may run once the engine
+   * has stopped, apart from the grace above (94S-382). Not configurable from
+   * the environment; the default stays well inside the reconciler's settle
+   * deadline for an interrupt.
+   */
+  interruptCaptureMs?: number;
   /** Release the session and exit after this long with no input. */
   idleTimeoutMs: number;
   /**

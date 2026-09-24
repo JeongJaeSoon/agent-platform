@@ -96,6 +96,8 @@ export type SoakConfig = {
   targets: {
     acceptP95Ms: number;
     interruptEffectMs: number;
+    /** POST to the turn settling `interrupted`, checkpoint included (94S-382). */
+    interruptTerminalMs: number;
     terminateEffectMs: number;
     readyzAvailability: number;
   };
@@ -167,6 +169,16 @@ export function validConfig(value: unknown): SoakConfig {
   positive("reconciler.intervalSec", config.reconciler?.intervalSec);
   positive("reconciler.staleSec", config.reconciler?.staleSec);
   positive("targets.acceptP95Ms", config.targets?.acceptP95Ms);
+  if (
+    !(
+      config.targets?.interruptTerminalMs >
+      Math.max(config.targets?.interruptEffectMs ?? 0, 0)
+    )
+  ) {
+    problems.push(
+      "targets.interruptTerminalMs must outlast targets.interruptEffectMs: the turn settles only after its engine stopped",
+    );
+  }
   try {
     validFaults(config.messagesFaults);
   } catch (error) {
@@ -824,6 +836,14 @@ export function judge(
   const valid = (samples: ControlSample[]) =>
     samples.filter((sample) => sample.extra?.valid === true);
   const validInterrupts = valid(interrupts);
+  const terminalMsOf = (sample: ControlSample): number | null =>
+    typeof sample.extra?.terminalMs === "number"
+      ? sample.extra.terminalMs
+      : null;
+  const settledInTime = (sample: ControlSample) => {
+    const ms = terminalMsOf(sample);
+    return ms !== null && ms <= targets.interruptTerminalMs;
+  };
   const validTerminates = valid(terminates);
 
   const stages = (samples: StartupSample[]) => {
@@ -966,8 +986,8 @@ export function judge(
       id: "P-3",
       area: "성능·종료 의미",
       input: `interrupt ${interrupts.length}건 (유효 ${validInterrupts.length}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}`,
-      expected: `유효하지 않은 표본 0, 모든 표본이 ${targets.interruptEffectMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0`,
-      actual: `effect ${JSON.stringify(effect(validInterrupts))}, 무효 ${interrupts.length - validInterrupts.length}, 관찰 못 함 ${interrupts.filter((s) => s.effectMs === null).length}, interrupted 아님 ${interrupts.filter((s) => s.effect !== "interrupted").length}, 계속 호출 ${continued.length}`,
+      expected: `유효하지 않은 표본 0, 모든 표본이 ${targets.interruptEffectMs}ms 안에 engine_stopped 관찰, ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0`,
+      actual: `effect ${JSON.stringify(effect(validInterrupts))}, terminal ${JSON.stringify(distribution(interrupts.map(terminalMsOf).filter((ms): ms is number => ms !== null)))}, 무효 ${interrupts.length - validInterrupts.length}, 관찰 못 함 ${interrupts.filter((s) => s.effectMs === null).length}, interrupted 아님 ${interrupts.filter((s) => s.effect !== "interrupted").length}, 확정 늦음 ${interrupts.filter((s) => !settledInTime(s)).length}, 계속 호출 ${continued.length}`,
       pass:
         interrupts.length > 0 &&
         validInterrupts.length === interrupts.length &&
@@ -975,7 +995,8 @@ export function judge(
           (sample) =>
             sample.effect === "interrupted" &&
             sample.effectMs !== null &&
-            sample.effectMs <= targets.interruptEffectMs,
+            sample.effectMs <= targets.interruptEffectMs &&
+            settledInTime(sample),
         ) &&
         continued.length === 0,
     }),

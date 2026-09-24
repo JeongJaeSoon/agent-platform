@@ -161,8 +161,12 @@ type Settlement = {
 type Turn = {
   /** Past its terminal: what the engine emits now belongs to no turn. */
   closed: boolean;
+  /** Its settlement is decided and its stream cut; later ones are ignored. */
+  cut: boolean;
   /** An interrupt intent for this turn has been taken. */
   interrupting: boolean;
+  /** The intent that interrupted the turn, named by its engine_stopped event. */
+  controlId?: string;
   /**
    * How the engine answered the interrupt sent for this turn, if one was.
    * The SDK ends every abort alike, so only an acknowledged interrupt makes
@@ -173,7 +177,8 @@ type Turn = {
   interruptAnswered?: Promise<void>;
   /**
    * When the interrupt's grace runs out (performance.now()): it bounds the
-   * whole way to a terminal, checkpoint capture included, not each step.
+   * whole way to the engine's terminal, not each step. The checkpoint capture
+   * after it has a budget of its own (94S-382).
    */
   interruptDeadline?: number;
   /** The input went to the engine: an interrupt can only reach it from here. */
@@ -191,6 +196,12 @@ const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
 /** How long an interrupted engine gets to produce its terminal frame. */
 const INTERRUPT_GRACE_MS = 5_000;
+/**
+ * How long an interrupted turn's capture gets once the engine has stopped.
+ * With the grace before it and finalize after it, the turn settles well
+ * before the reconciler fences an interrupt still unsettled at 60s (94S-273).
+ */
+const INTERRUPT_CAPTURE_MS = 30_000;
 /** How long a closed engine gets to exit, and a killed one after that. */
 const ENGINE_EXIT_GRACE_MS = 5_000;
 /** Kept back from the stop grace for the release call. */
@@ -1069,11 +1080,7 @@ export class WorkerHost {
             // none. Any other turn fails the worker, and its budget above
             // starts the drain that ends the wait.
             interrupted
-              ? this.withinInterruptGrace(
-                  capturing,
-                  turnId,
-                  this.turn?.interruptDeadline,
-                )
+              ? this.withinCaptureBudget(capturing, turnId)
               : capturing,
           );
         } finally {
@@ -1216,6 +1223,7 @@ export class WorkerHost {
     });
     const turn: Turn = {
       closed: false,
+      cut: false,
       interrupting: false,
       sent: false,
       settled,
@@ -1229,19 +1237,64 @@ export class WorkerHost {
     return turn;
   }
 
-  /** A pending settlement still cuts the stream now, at the terminal frame. */
-  private settleTurn(settlement: Settlement | Promise<Settlement>): void {
+  private settleTurn(settlement: Settlement): void {
     const turn = this.turn;
     if (turn === undefined) return;
-    // The stream is cut here, at the terminal frame, and not wherever it has
-    // reached by the time finalize is sent: the engine keeps emitting after
-    // its result, and the gateway closes the turn only at the exact end.
+    this.closeTurn(turn);
+    this.cutTurn(turn, settlement);
+  }
+
+  /**
+   * The stream is cut here, at the terminal frame, and not wherever it has
+   * reached by the time finalize is sent: the engine keeps emitting after
+   * its result, and the gateway closes the turn only at the exact end. Only
+   * the first settlement counts; a later one is a no-op.
+   */
+  private cutTurn(turn: Turn, settlement: Settlement): void {
+    if (turn.cut) return;
+    turn.cut = true;
+    this.recordEngineStopped(turn, settlement);
+    this.publisher?.hold();
+    turn.settle(settlement);
+  }
+
+  private closeTurn(turn: Turn): void {
     turn.closed = true;
     clearTurnTimers(turn);
     // Nothing can interrupt a turn that has ended; the next one watches anew.
     this.pending?.watch(false);
-    this.publisher?.hold();
-    turn.settle(settlement);
+  }
+
+  /**
+   * The interrupt's effect, recorded ahead of the checkpoint (94S-382): the
+   * engine ended the turn by abort after acknowledging the interrupt, so it
+   * does no more work for it. Inside the turn's stream, before the cut, so
+   * it is durable before the capture starts; it settles nothing, and the
+   * turn is `interrupted` only once finalize carries its checkpoint.
+   */
+  private recordEngineStopped(turn: Turn, settlement: Settlement): void {
+    if (settlement.status !== "interrupted" || settlement.synthetic === true) {
+      return;
+    }
+    this.logger.info("worker.turn.engine_stopped", {
+      turn_id: turn.turnId,
+      control_id: turn.controlId ?? null,
+    });
+    this.publisher?.publish(
+      [
+        {
+          id: `engine-stopped:${turn.turnId}`,
+          event: "status",
+          data: {
+            phase: "engine_stopped",
+            ...(turn.controlId === undefined
+              ? {}
+              : { control_id: turn.controlId }),
+          },
+        },
+      ],
+      turn.turnId,
+    );
   }
 
   /**
@@ -1271,6 +1324,7 @@ export class WorkerHost {
       return;
     }
     turn.interrupting = true;
+    turn.controlId = control.control_id;
     this.logger.info("worker.turn.interrupting", {
       turn_id: turn.turnId,
       control_id: control.control_id,
@@ -1360,15 +1414,17 @@ export class WorkerHost {
   }
 
   /**
-   * A capture for an interrupted turn, bounded by what is left of the
-   * interrupt's grace. One that fails or runs late counts as no checkpoint;
-   * a lease it takes after that is let go as soon as it arrives, since
-   * nothing will commit what it guards.
+   * A capture for an interrupted turn, bounded by a budget of its own that
+   * starts once the engine has stopped: the interrupt's effect is already
+   * recorded (engine_stopped), so the capture no longer shares its grace. One
+   * that fails or runs late counts as no checkpoint; a lease it takes after
+   * that is let go as soon as it arrives, since nothing will commit what it
+   * guards. A drain already under way can only cut it shorter
+   * (untilAbandoned).
    */
-  private withinInterruptGrace(
+  private withinCaptureBudget(
     capturing: Promise<Captured>,
     turnId: string,
-    deadline: number | undefined,
   ): Promise<Captured> {
     const none: Captured = { lease: null, ref: null };
     const tolerant = capturing.catch((error: unknown): Captured => {
@@ -1378,22 +1434,18 @@ export class WorkerHost {
       });
       return none;
     });
-    // An engine interrupted on its own (no intent taken) gets a grace of its own.
-    const leftMs = Math.max(
-      0,
-      (deadline ?? performance.now() + this.interruptGraceMs()) -
-        performance.now(),
-    );
+    const budgetMs =
+      this.options.timeouts.interruptCaptureMs ?? INTERRUPT_CAPTURE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<Captured>((resolve) => {
       timer = setTimeout(() => {
         this.logger.warn("worker.checkpoint.late", {
           turn_id: turnId,
-          left_ms: Math.round(leftMs),
+          budget_ms: budgetMs,
         });
         tolerant.then(({ lease }) => lease?.release());
         resolve(none);
-      }, leftMs);
+      }, budgetMs);
     });
     return Promise.race([tolerant, late]).finally(() => clearTimeout(timer));
   }
@@ -1430,7 +1482,7 @@ export class WorkerHost {
             frame.events,
             this.turn?.closed === true ? null : this.scope.turn_id,
           );
-          this.observe(frame.envelope.message);
+          await this.observe(frame.envelope.message);
         }
       } catch (error) {
         this.logger.warn("worker.stream.ended", { reason: describe(error) });
@@ -1471,7 +1523,11 @@ export class WorkerHost {
     };
   }
 
-  private observe(native: NativeSdkMessage): void {
+  /**
+   * A promise only while an aborted terminal waits for its interrupt's
+   * receipt: the pump awaits it before taking the next frame.
+   */
+  private observe(native: NativeSdkMessage): Promise<void> | undefined {
     this.accounting.observe(native);
     if (this.accounting.restarted) {
       // `/clear` starts the engine's count over, and the budget the claim
@@ -1529,13 +1585,14 @@ export class WorkerHost {
       turn.interruptReceipt === "pending" &&
       endedByAbort(native)
     ) {
-      this.settleTurn(
-        this.onceAnswered(turn, (acknowledged) => ({
-          ...terminalOf(native, providerFailure, acknowledged),
-          ...cost,
-        })),
-      );
-      return;
+      // Closed now, cut once the receipt decides: until then the pump takes
+      // no further frame (it awaits this), so the cut still lands right
+      // after the terminal, with engine_stopped ahead of it if it applies.
+      this.closeTurn(turn);
+      return this.onceAnswered(turn, (acknowledged) => ({
+        ...terminalOf(native, providerFailure, acknowledged),
+        ...cost,
+      })).then((settlement) => this.cutTurn(turn, settlement));
     }
     this.settleTurn({
       ...(attributed.includes(turn.uuid)

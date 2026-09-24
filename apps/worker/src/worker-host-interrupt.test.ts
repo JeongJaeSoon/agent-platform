@@ -197,12 +197,25 @@ describe("WorkerHost interrupt", () => {
       { turnId: "2", status: "completed", reason: null },
     ]);
     expect(gateway.finalized[0]?.checkpoint).toEqual(checkpoints.refs[0]);
-    // The status event is in turn 1's stream, ahead of its terminal.
+    // Both status events are in turn 1's stream: interrupting ahead of its
+    // terminal, engine_stopped right behind it and inside the cut finalize
+    // closes the turn at (94S-382).
     const turnOne = gateway.batches
       .filter((batch) => batch.turn_id === "1")
       .flatMap((batch) => batch.events);
-    expect(turnOne.map((event) => event.event)).toEqual(["status", "result"]);
+    expect(turnOne.map((event) => event.event)).toEqual([
+      "status",
+      "result",
+      "status",
+    ]);
     expect(turnOne[0]?.data).toEqual({ phase: "interrupting" });
+    expect(turnOne[2]?.data).toEqual({
+      phase: "engine_stopped",
+      control_id: "ctl-1",
+    });
+    expect(gateway.finalized[0]?.final_source_sequence).toBe(
+      turnOne[2]?.source_sequence,
+    );
     // The follow-up went to the same engine session, not a new run.
     expect(runtime.inputs.map((input) => input.message)).toEqual([
       "long task",
@@ -533,8 +546,13 @@ describe("WorkerHost interrupt", () => {
     ).toBeGreaterThan(3);
     expect(calls).toBe(1);
     expect(
-      gateway.events.filter((event) => event.event === "status"),
-    ).toHaveLength(1);
+      gateway.events
+        .filter((event) => event.event === "status")
+        .map((event) => event.data),
+    ).toEqual([
+      { phase: "interrupting" },
+      { phase: "engine_stopped", control_id: "ctl-1" },
+    ]);
   });
 
   test("the next input waits for the engine to answer an interrupt that arrived as the turn ended", async () => {
@@ -788,10 +806,10 @@ describe("WorkerHost interrupt", () => {
     expect(runtime.inputs).toHaveLength(0);
   });
 
-  test("a checkpoint capture that hangs after an interrupt ends the turn unknown within the grace", async () => {
+  test("a checkpoint capture that hangs after an interrupt ends the turn unknown within its budget", async () => {
     let captures = 0;
     const { gateway, host, runtime } = harness(TWO_TURNS, {
-      timeouts: { interruptGraceMs: 50, idleTimeoutMs: 60_000 },
+      timeouts: { interruptCaptureMs: 50, idleTimeoutMs: 60_000 },
       checkpoints: {
         restorePlan: async () => ({ mode: "new" }),
         capture: () => {
@@ -842,43 +860,69 @@ describe("WorkerHost interrupt", () => {
     ]);
   });
 
-  test("a capture after a late engine terminal gets only what is left of the interrupt's grace", async () => {
-    let captures = 0;
+  test("a capture that outlasts the interrupt's grace still commits within its own budget", async () => {
+    const checkpoints = capturing();
+    let stoppedBeforeCapture = false;
     const { gateway, host, runtime } = harness(TWO_TURNS, {
-      timeouts: { interruptGraceMs: 400, idleTimeoutMs: 60_000 },
+      timeouts: {
+        interruptGraceMs: 400,
+        interruptCaptureMs: 2_000,
+      },
       // The engine stops near the end of the grace.
       wrap: withInterrupt(async (original) => {
         await Bun.sleep(300);
         return original();
       }),
       checkpoints: {
-        restorePlan: async () => ({ mode: "new" }),
-        capture: () => {
-          captures += 1;
-          return new Promise(() => {});
+        ...checkpoints,
+        capture: async (preparation, context) => {
+          // The effect is durable before the capture starts (94S-382).
+          stoppedBeforeCapture = gateway.events.some(
+            (event) =>
+              event.event === "status" &&
+              (event.data as { phase?: string }).phase === "engine_stopped",
+          );
+          // Longer than all of the grace, well inside the capture's budget.
+          await Bun.sleep(500);
+          return checkpoints.capture(preparation, context);
         },
       },
     });
     gateway.enqueue("long task");
     const loop = host.runLoop();
     await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
-    const asked = performance.now();
     gateway.interrupt("1");
-    await waitFor(() => gateway.finalized.length === 1, "turn 1 finalized");
-    const tookMs = performance.now() - asked;
 
     const summary = await loop;
 
-    expect(captures).toBe(1);
-    // A fresh grace for the capture would finalize near 700ms.
-    expect(tookMs).toBeLessThan(600);
-    expect(summary.turns).toEqual([
-      {
-        turnId: "1",
-        status: "outcome_unknown",
-        reason: "interrupt_checkpoint_unavailable",
-      },
-    ]);
+    expect(stoppedBeforeCapture).toBe(true);
+    expect(summary.turns[0]).toEqual({
+      turnId: "1",
+      status: "interrupted",
+      reason: "error_during_execution",
+    });
+    expect(gateway.finalized[0]?.checkpoint).toEqual(checkpoints.refs[0]);
+  });
+
+  test("an interrupt the engine never acknowledges records no engine_stopped", async () => {
+    const { gateway, host, runtime } = harness(TWO_TURNS, {
+      timeouts: { interruptGraceMs: 30 },
+      wrap: withInterrupt(() => new Promise(() => {})),
+    });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+
+    expect(
+      gateway.events.filter(
+        (event) =>
+          event.event === "status" &&
+          (event.data as { phase?: string }).phase === "engine_stopped",
+      ),
+    ).toHaveLength(0);
   });
 
   test("a refused checkpoint gives its lease back even when the unknown fallback never lands", async () => {

@@ -2237,7 +2237,8 @@
                           "idle",
                           "failed",
                           "stopped",
-                          "interrupting"
+                          "interrupting",
+                          "engine_stopped"
                         ]
                       },
                       "admission_state": {
