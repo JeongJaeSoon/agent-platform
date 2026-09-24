@@ -18,6 +18,7 @@ import {
   type CheckpointObjectStore,
   type CheckpointPreparation,
   type CheckpointTranscripts,
+  ObjectIntegrityError,
   type ObjectRef,
   type ReadyCheckpoint,
   type RejectedCheckpoint,
@@ -189,7 +190,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (claim.restore !== null) {
       try {
         return await this.#restore(claim, claim.restore, runtime, signal);
-      } catch (error) {
+      } catch (caught) {
+        // Bytes that fail the store's checksum are as damaged as bytes that
+        // fail the manifest's digest; only the layer that caught them differs.
+        const error =
+          caught instanceof ObjectIntegrityError
+            ? new RestoreRefused("CHECKPOINT_UNAVAILABLE", caught.message)
+            : caught;
         if (error instanceof RestoreRefused) {
           this.#options.logger.error("worker.checkpoint.restore_refused", {
             code: error.code,

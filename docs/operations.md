@@ -85,6 +85,19 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 
 업그레이드 뒤 옛 공유 네트워크(`agent-platform-worker`, `EXECUTION_DOCKER_NETWORK`로 이름을 바꿨다면 그 이름)는 compose가 더 이상 선언하지 않는다. 그래도 저절로 지워지지는 않고, 주소 풀의 subnet 하나를 계속 차지한다. 계약 4 컨테이너가 모두 교체된 뒤 `docker network rm agent-platform-worker`로 지운다. 실행 중인 컨테이너가 붙어 있으면 Docker가 삭제를 거부한다(403). 그래서 쓰는 중인 네트워크를 실수로 지울 일은 없다. **이미 claim된 worker는 교체되지 않고 teardown된다.** 진행 중이던 turn은 `outcome_unknown`으로 닫힌다. 업그레이드는 진행 중인 turn이 없을 때 한다. 계약이 바뀔 때 claim된 worker를 drain하는 경로는 94S-250이다.
 
+### checkpoint 복원이 계속 실패하는 세션 (94S-345)
+
+복원을 넘겨받은 worker가 ready를 보고하기 전에 끝나면 scheduler는 곧바로 다시 띄우지 않는다. 이런 종료가 두 번째까지는 30초, 60초를 기다린다. 세 번째에는 세션이 `recovery_required`로 멈추고 새 generation을 만들지 않는다. 기다리는 동안이나 멈춘 뒤의 세션 상세 attention은 `RESTORE_FAILED`다.
+- `reason`: 마지막 worker가 남긴 오류다. release 없이 죽었으면 `execution_gone`이다.
+- `failures`: 이어진 실패 횟수다.
+- `retry_at`: 다음 시도 시각이다. 멈춘 뒤에는 null이다.
+
+이벤트 스트림에는 실패마다 system `checkpoint_restore_failed`가 남는다. worker 로그의 `worker.checkpoint.restore_refused`, `worker.failed`에서 원인을 확인한다. 저장소 응답 checksum 불일치(전송 중 손상)도 `CHECKPOINT_UNAVAILABLE`로 분류된다.
+- checkpoint를 포기해도 되면 `start_fresh`로 이어간다. checkpoint 없이 새 engine session이 시작된다.
+- 세션을 끝내려면 `close`를 쓴다.
+
+원인(프록시, 저장소 경로)을 고친 뒤 같은 checkpoint로 다시 복원하게 하는 결정은 아직 없다.
+
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다 (94S-252)
 
 worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로그인이 없다. claim은 attempt마다 새로 만든 **egress token** 두 개만 준다(`runtime_config.provider.auth = {kind: "egress_token", token}`, `workspace.repository.access`). 두 token은 session credential과 수명이 같다. claim 재생이면 폐기하고 다시 발급하며, heartbeat가 연장하고, attempt가 끝나면 폐기한다. 두 token 모두 claim 시점의 profile fingerprint 또는 저장소 binding에 묶여 있다.
