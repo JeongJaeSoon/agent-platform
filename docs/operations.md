@@ -502,7 +502,7 @@ digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다
 
 worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=agent-platform`, `user.email=noreply@agent-platform.invalid`를 둔다. 그래서 Claude가 workspace에서 만든 commit은 저장소나 세션이 따로 정하지 않는 한 author와 committer가 모두 `agent-platform <noreply@agent-platform.invalid>`다. 이 값이 없으면 git이 commit을 거부하고, Claude는 사용자에게 이름과 주소를 묻는다. `.invalid`는 어디에도 배달되지 않는 예약 도메인이라 실제 사람의 주소와 겹치지 않는다. checkpoint의 내부 commit은 이 값을 쓰지 않는다(`checkpoint@agent-platform.invalid`).
 
-system 설정은 git 설정 중 우선순위가 가장 낮다. 저장소의 `.git/config`나 세션 안에서 실행한 `git config`(`--global`은 tmpfs HOME에 쓰인다), `git commit --author`가 있으면 그쪽이 이긴다. 카탈로그나 설치 설정으로 이 값을 바꾸는 기능은 두지 않았다. 세션마다 다른 작성자가 필요하면 위 방법으로 바꾸면 되고, 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
+system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
 
 ### worker·control-host 롤백과 incremental checkpoint (94S-227)
 
