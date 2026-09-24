@@ -96,25 +96,62 @@ describe("control host executable", () => {
         expect(missing.stderr).toContain("no status file");
 
         const now = new Date().toISOString();
-        await writeFile(
-          statusFile,
-          JSON.stringify({
-            loopStartedAt: now,
-            passes: 1,
-            lastSuccessAt: now,
-            lastFailureAt: null,
-            lastFailureReason: null,
-            lastSkippedAt: null,
-            lastPassDurationMs: 10,
-            consecutiveFailures: 0,
-            passDeadlineAt: null,
-          }),
-        );
-        const healthy = await run(["scheduler", "--health"], {
-          SCHEDULER_STATUS_FILE: statusFile,
-        });
+        const status = {
+          loopStartedAt: now,
+          passes: 1,
+          lastSuccessAt: now,
+          lastFailureAt: null,
+          lastFailureReason: null,
+          lastSkippedAt: null,
+          lastDegradedAt: null,
+          lastPassDurationMs: 10,
+          consecutiveFailures: 0,
+          passDeadlineAt: null,
+        };
+        const health = async (written: Record<string, unknown>) => {
+          await writeFile(
+            statusFile,
+            JSON.stringify({ ...status, ...written }),
+          );
+          return run(["scheduler", "--health"], {
+            SCHEDULER_STATUS_FILE: statusFile,
+          });
+        };
+        const healthy = await health({});
         expect(healthy.exitCode).toBe(0);
         expect(healthy.stdout).toContain("last successful pass");
+
+        // A recent degraded pass is healthy and says it was degraded
+        // (94S-368); an old one, a failure after it, or a pass past its
+        // deadline is not.
+        const old = new Date(Date.now() - 600_000).toISOString();
+        const degraded = await health({
+          lastSuccessAt: old,
+          lastDegradedAt: now,
+        });
+        expect(degraded.exitCode).toBe(0);
+        expect(degraded.stdout).toContain("completed degraded");
+        const stale = await health({
+          lastSuccessAt: null,
+          lastDegradedAt: old,
+        });
+        expect(stale.exitCode).toBe(1);
+        expect(stale.stderr).toContain("completed degraded");
+        const failed = await health({
+          lastDegradedAt: now,
+          consecutiveFailures: 1,
+          lastFailureAt: now,
+          lastFailureReason: "pass exited with code 1",
+        });
+        expect(failed.exitCode).toBe(1);
+        expect(failed.stderr).toContain("pass exited with code 1");
+        const overdue = await health({
+          lastDegradedAt: now,
+          passDeadlineAt: old,
+        });
+        expect(overdue.exitCode).toBe(1);
+        expect(overdue.stderr).toContain("past its deadline");
+
         // The reconciler reads its own file, not the scheduler's.
         const other = await run(["reconciler", "--health"], {
           RECONCILER_STATUS_FILE: join(dir, "reconciler.json"),

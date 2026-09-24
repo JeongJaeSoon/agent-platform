@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
-import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
+import {
+  createCheckpointObjectStore,
+  describeBucketEncryption,
+} from "./checkpoint-objects.ts";
 import type { S3ClientLike } from "./s3.ts";
 
 type Command = {
@@ -250,5 +253,58 @@ describe("checkpoint object store", () => {
     await store.put("part", encode("two"));
 
     expect(await store.get("part")).toEqual(encode("two"));
+  });
+});
+
+describe("bucket default encryption", () => {
+  const answering = (answer: () => unknown): S3ClientLike => ({
+    async send(command) {
+      expect(commandName(command)).toBe("GetBucketEncryptionCommand");
+      return answer();
+    },
+  });
+  const rule = (SSEAlgorithm: string) => ({
+    ServerSideEncryptionConfiguration: {
+      Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm } }],
+    },
+  });
+
+  test("reports the algorithm of the default rule", async () => {
+    expect(
+      await describeBucketEncryption(
+        answering(() => rule("AES256")),
+        "b",
+      ),
+    ).toBe("AES256");
+    expect(
+      await describeBucketEncryption(
+        answering(() => rule("aws:kms")),
+        "b",
+      ),
+    ).toBe("aws:kms");
+  });
+
+  test("reports none for a bucket without an encryption configuration", async () => {
+    const missing = answering(() => {
+      throw Object.assign(new Error("not found"), {
+        name: "ServerSideEncryptionConfigurationNotFoundError",
+      });
+    });
+    expect(await describeBucketEncryption(missing, "b")).toBe("none");
+    expect(
+      await describeBucketEncryption(
+        answering(() => ({})),
+        "b",
+      ),
+    ).toBe("none");
+  });
+
+  test("does not read a refused lookup as a bucket without encryption", async () => {
+    const denied = answering(() => {
+      throw Object.assign(new Error("denied"), { name: "AccessDenied" });
+    });
+    await expect(describeBucketEncryption(denied, "b")).rejects.toThrow(
+      "denied",
+    );
   });
 });

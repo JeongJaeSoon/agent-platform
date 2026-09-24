@@ -19,12 +19,14 @@ import {
   type CheckpointObjectStore,
   type CheckpointPreparation,
   type CheckpointTranscripts,
+  isOwnershipLost,
   ObjectIntegrityError,
   type ObjectRef,
   type ReadyCheckpoint,
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptRevision,
   transcriptParts,
   transcriptSizeProblem,
@@ -44,7 +46,6 @@ import {
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
-import { isOwnershipLost } from "./gateway-client.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
 import {
@@ -461,7 +462,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   #transcriptPrefix(): string {
-    return `${this.#options.objectPrefix}transcripts`;
+    return `${this.#options.objectPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}`;
   }
 
   mirror(): { persistedAt: Date | null } | undefined {
