@@ -1225,6 +1225,59 @@ describe("WorkerHost before the engine starts", () => {
     expect(logged.join("\n")).not.toContain("git.example.test");
   });
 
+  test("a failure that quotes the claim's secrets reaches the log without them (94S-386)", async () => {
+    const providerValue = "wep_provider-log-one";
+    const repositoryValue = "wep_repository-log-one";
+    const gateway = new FakeWorkerGateway({
+      runtimeConfig: {
+        model: "fake-model",
+        tools: [],
+        permission_mode: "default",
+        provider: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          auth: { kind: "egress_token", token: providerValue },
+        },
+      },
+      workspace: {
+        repository: {
+          id: "sample-app",
+          url: "https://git.example.test/sample.git",
+          branch: "main",
+          access: { kind: "egress_token", token: repositoryValue },
+        },
+      },
+    });
+    const logged: string[] = [];
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      logger: {
+        info: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        warn: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        error: (event, fields) => logged.push(event, JSON.stringify(fields)),
+      },
+      workspace: {
+        committedClaudeMd: () => null,
+        instructionsCommit: () => null,
+        async prepare() {
+          throw new Error(
+            `clone of ${repositoryValue} failed; provider ${providerValue}, nonce wln_test`,
+          );
+        },
+      },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    const text = logged.join("\n");
+    expect(text).toContain("worker.failed");
+    expect(text).toContain("<redacted>");
+    for (const held of [providerValue, repositoryValue, "wln_test"]) {
+      expect(text).not.toContain(held);
+    }
+  });
+
   test("gives the session back without starting an engine when the workspace is refused", async () => {
     const gateway = new FakeWorkerGateway();
     const { host, launched } = harness([{ type: "await-input" }], {
