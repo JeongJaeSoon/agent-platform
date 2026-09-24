@@ -588,6 +588,9 @@ function render(
     [
       "docker",
       "compose",
+      // Nothing from a checkout's .env files: the tests compare defaults.
+      "--env-file",
+      "/dev/null",
       "--profile",
       "apps",
       ...files.flatMap((file) => ["-f", join(root, file)]),
@@ -634,7 +637,7 @@ describe("compose layers", () => {
   test.each([
     [
       LOCAL_LAYERS[1],
-      ["build", "environment", "depends_on"],
+      ["build", "env_file", "environment", "depends_on"],
       [
         "AWS_ENDPOINT_URL",
         "AWS_ENDPOINT_URL_SECRETS_MANAGER",
@@ -708,6 +711,8 @@ describe("compose layers", () => {
     expect(read(CORE)).not.toMatch(
       /AWS_ENDPOINT_URL|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY/,
     );
+    // A checkout's env file is the local stack's alone.
+    expect(read(CORE)).not.toMatch(/^ +env_file:/m);
   });
 
   test("docker-compose.yml renders the core with the local layer, as the tests merge them", () => {

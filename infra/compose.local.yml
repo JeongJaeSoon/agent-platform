@@ -109,10 +109,15 @@ services:
       context: ..
       dockerfile: apps/egress-proxy/Dockerfile
 
+  # A developer's overrides (README rule). Not the reconciler's: it refuses
+  # to start with the API's HEARTBEAT_TTL_SEC.
   api:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       AWS_ENDPOINT_URL_SECRETS_MANAGER: ${AWS_ENDPOINT_URL_SECRETS_MANAGER:-http://secrets:4566}
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
@@ -132,6 +137,9 @@ services:
       dockerfile: apps/worker/Dockerfile
 
   scheduler:
+    env_file:
+      - path: ../.env
+        required: false
     depends_on:
       localstack:
         condition: service_healthy
