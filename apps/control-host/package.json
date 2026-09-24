@@ -1,0 +1,36 @@
+{
+  "name": "@agent-platform/control-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "bun --watch src/main.ts api",
+    "start": "bun run src/main.ts api",
+    "scheduler": "bun run src/main.ts scheduler --once",
+    "reconciler": "bun run src/main.ts reconciler --once",
+    "keys": "bun run src/api/keys.ts",
+    "grants": "bun run src/api/grants.ts",
+    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
+  },
+  "dependencies": {
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/db": "workspace:*",
+    "@agent-platform/execution-local-docker": "workspace:*",
+    "@agent-platform/observability": "workspace:*",
+    "@agent-platform/platform": "workspace:*",
+    "@agent-platform/runtime-claude-codec": "workspace:*",
+    "@agent-platform/storage": "workspace:*",
+    "@aws-sdk/client-secrets-manager": "^3.888.0",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.7",
+    "pg": "8.16.3",
+    "yaml": "^2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@agent-platform/testkit": "workspace:*",
+    "@electric-sql/pglite": "0.3.10",
+    "@types/pg": "8.15.5"
+  }
+}

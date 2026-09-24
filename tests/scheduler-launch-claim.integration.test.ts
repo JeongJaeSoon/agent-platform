@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { createApiApp } from "@agent-platform/api/src/app.ts";
-import { createEgressAuthorizer } from "@agent-platform/api/src/egress-authorizer.ts";
-import { registerWorkerRoutes } from "@agent-platform/api/src/routes/worker.ts";
+import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
+import { createEgressAuthorizer } from "@agent-platform/control-host/src/api/egress-authorizer.ts";
+import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
+import { main } from "@agent-platform/control-host/src/scheduler/main.ts";
 import * as schema from "@agent-platform/db";
 import {
   attempts,
@@ -23,7 +24,6 @@ import {
   createWorkerGateway,
   launchNonceFingerprint,
 } from "@agent-platform/platform";
-import { main } from "@agent-platform/scheduler/src/main.ts";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import {
   type FakeAnthropicServer,

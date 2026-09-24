@@ -1,5 +1,6 @@
 import type {
   AttemptState,
+  HeartbeatResponse,
   TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
@@ -19,6 +20,13 @@ import {
  * clock, the worker's or the database's, enters the sum (94S-322).
  */
 export type LeaseGrant = { remainingMs: number; sentAt: number };
+
+/**
+ * The least time between beats sent over one still unanswered, so that a
+ * gateway which swallows requests is not sent a burst of them as the lease
+ * runs down.
+ */
+const MIN_BEAT_SPACING_MS = 250;
 
 export type HeartbeatOptions = {
   gateway: Pick<WorkerGatewayClient, "heartbeat">;
@@ -133,86 +141,121 @@ export class Heartbeat {
   }
 
   private async loop(): Promise<void> {
+    let overdue = false;
     while (!this.stopped && !this.lost) {
       // Wakes by halfway to the point the lease is given up at: one granted
       // with less left than the interval (a slow answer, a long interval)
       // must still be beaten while a renewal can land, and one that runs
-      // out between beats noticed when it does.
-      if (!this.owed) {
-        await this.pause(
-          Math.min(this.options.intervalMs, Math.floor(this.leaseLeftMs / 2)),
-        );
-      }
+      // out between beats noticed when it does. A beat still unanswered
+      // when the next one is due has already used that wait.
+      if (!this.owed && !overdue) await this.pause(this.nextBeatInMs());
       if (this.stopped || this.lost) return;
       this.owed = false;
-      await this.beat();
+      overdue = !(await this.beat(
+        Math.max(this.nextBeatInMs(), MIN_BEAT_SPACING_MS),
+      ));
     }
   }
 
-  private async beat(): Promise<void> {
+  private nextBeatInMs(): number {
+    return Math.min(this.options.intervalMs, Math.floor(this.leaseLeftMs / 2));
+  }
+
+  /**
+   * Sends one beat and waits for its answer at most `patienceMs`, and never
+   * past the point the lease is given up at. False when it stopped waiting
+   * with lease still left: the beat stays in flight and its answer still
+   * counts when it lands, but the loop sends the next one meanwhile. A beat
+   * sent while the gateway was down can sit in the network — a connect
+   * retrying against an address with nobody behind it — well after the
+   * gateway is back, and must not take the lease down with it (94S-346).
+   */
+  private async beat(patienceMs = Number.POSITIVE_INFINITY): Promise<boolean> {
     const scope = this.options.scope();
     const transcript = this.options.transcript?.();
     if (this.leaseLeftMs <= 0) {
       this.giveUp("no beat renewed it in time");
-      return;
+      return true;
     }
     const sentAt = this.clock();
-    try {
-      const response = await this.beforeLeaseRunsOut(
-        this.options.gateway.heartbeat({
-          ...scope,
-          attempt_state: this.options.attemptState(),
-          ...(transcript === undefined ? {} : { transcript }),
-        }),
+    let waiting = true;
+    const answered = this.options.gateway
+      .heartbeat({
+        ...scope,
+        attempt_state: this.options.attemptState(),
+        ...(transcript === undefined ? {} : { transcript }),
+      })
+      .then(
+        (response) => {
+          if (waiting || !this.stopped) {
+            this.renew(response, sentAt, scope, transcript);
+          }
+        },
+        (error: unknown) => {
+          if (waiting || !this.stopped) this.refused(error);
+        },
       );
-      // The request timeout can be longer than what is left of the lease,
-      // and a stalled event loop can fire the race's timer late: an answer
-      // is taken only if it came back before the lease was given up. The
-      // lease is judged as it stands now — an overlapping beat may have
-      // renewed it while this one was waiting.
-      if (this.leaseLeftMs <= 0) {
-        this.giveUp("the gateway had not answered the beat renewing it");
-        return;
-      }
-      if (response === undefined) return;
-      // Overlapping beats can answer out of order; neither shortens the
-      // lease the other already granted, as on the database side.
-      this.deadline = Math.max(
-        this.deadline,
-        sentAt + response.lease_remaining_ms,
-      );
-      if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
-      if (response.control_pending) this.options.onControlPending?.();
-      if (response.auth_revision !== scope.auth_revision) {
-        // The session's authorization moved on, so this token's binding is
-        // already behind and every write it makes would be fenced out.
-        this.declareLost(`auth_revision advanced to ${response.auth_revision}`);
-      }
-    } catch (error) {
-      if (isOwnershipLost(error)) {
-        this.declareLost(message(error));
-        return;
-      }
-      if (!isRetryable(error)) {
-        this.declareLost(message(error));
-        return;
-      }
-      // A gateway that is merely unreachable is survivable right up to the
-      // point where the lease it granted is given up.
-      if (this.leaseLeftMs <= 0) this.giveUp("the gateway is unreachable");
+    const settled = await this.within(
+      answered,
+      Math.min(patienceMs, this.leaseLeftMs),
+    );
+    waiting = false;
+    if (settled || this.lost) return true;
+    // The request timeout can be longer than what is left of the lease, and
+    // a stalled event loop can fire the timer late: the lease is judged as
+    // it stands now — an overlapping beat may have renewed it meanwhile.
+    if (this.leaseLeftMs <= 0) {
+      this.giveUp("the gateway had not answered the beat renewing it");
+      return true;
+    }
+    return false;
+  }
+
+  private renew(
+    response: HeartbeatResponse,
+    sentAt: number,
+    scope: WorkerScope,
+    transcript: TranscriptReport | undefined,
+  ): void {
+    if (this.lost) return;
+    // An answer is taken only if it came back before the lease was given up.
+    if (this.leaseLeftMs <= 0) {
+      this.giveUp("the gateway had not answered the beat renewing it");
+      return;
+    }
+    // Overlapping beats can answer out of order; neither shortens the
+    // lease the other already granted, as on the database side.
+    this.deadline = Math.max(
+      this.deadline,
+      sentAt + response.lease_remaining_ms,
+    );
+    if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
+    if (response.control_pending) this.options.onControlPending?.();
+    if (response.auth_revision !== scope.auth_revision) {
+      // The session's authorization moved on, so this token's binding is
+      // already behind and every write it makes would be fenced out.
+      this.declareLost(`auth_revision advanced to ${response.auth_revision}`);
     }
   }
 
-  private async beforeLeaseRunsOut<T>(
-    request: Promise<T>,
-  ): Promise<T | undefined> {
-    request.catch(() => {});
+  private refused(error: unknown): void {
+    if (isOwnershipLost(error) || !isRetryable(error)) {
+      this.declareLost(message(error));
+      return;
+    }
+    // A gateway that is merely unreachable is survivable right up to the
+    // point where the lease it granted is given up.
+    if (this.leaseLeftMs <= 0) this.giveUp("the gateway is unreachable");
+  }
+
+  /** True when `work` settled within `ms`. */
+  private async within(work: Promise<void>, ms: number): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<undefined>((resolve) => {
-      timer = setTimeout(() => resolve(undefined), this.leaseLeftMs);
+    const expired = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), ms);
     });
     try {
-      return await Promise.race([request, expired]);
+      return await Promise.race([work.then(() => true), expired]);
     } finally {
       clearTimeout(timer);
     }

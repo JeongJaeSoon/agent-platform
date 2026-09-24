@@ -17,7 +17,7 @@ export interface AuthorizationPolicy {
 }
 
 // Owner match only. Scopes are checked at the HTTP edge before a service is
-// called (apps/api/src/scope-policy.ts, 94S-132); this policy is where they
+// called (apps/control-host/src/api/scope-policy.ts, 94S-132); this policy is where they
 // move once something other than the API calls these services.
 export const ownerScopedPolicy: AuthorizationPolicy = {
   authorize(actor, _action, resource) {

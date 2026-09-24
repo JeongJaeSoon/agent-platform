@@ -110,6 +110,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     // 94S-321
     "execution_revoked_at",
     "execution_revoked_reason",
+    // 94S-345; the count arrives as 0
+    "restore_attempt_id",
+    "restore_failure_count",
+    "restore_retry_at",
+    "restore_failure_reason",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
@@ -178,8 +183,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 18, total: 27 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 27 });
+      expect(first).toEqual({ adopted: 0, applied: 19, total: 28 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 28 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

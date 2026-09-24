@@ -494,6 +494,36 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
+  test("the control host is one app with one executable and three roles", async () => {
+    const host = join(root, "apps", "control-host", "src");
+    const missing: string[] = [];
+    for (const name of [
+      "main.ts",
+      join("api", "server.ts"),
+      join("scheduler", "main.ts"),
+      join("reconciler", "main.ts"),
+    ]) {
+      if (!(await Bun.file(join(host, name)).exists())) missing.push(name);
+    }
+    expect(missing).toEqual([]);
+    for (const gone of ["api", "scheduler", "reconciler"])
+      expect(existsSync(join(root, "apps", gone))).toBe(false);
+  });
+
+  test("only the control host's scheduler role reaches the Docker backend", async () => {
+    const host = join(root, "apps", "control-host");
+    const importing = (
+      await filesImporting(
+        await sourceFiles(join(host, "src")),
+        "@agent-platform/execution-local-docker",
+      )
+    ).map((file) => relative(join(host, "src"), file));
+    expect(importing.length).toBeGreaterThan(0);
+    expect(
+      importing.filter((file) => !file.startsWith(`scheduler${sep}`)),
+    ).toEqual([]);
+  });
+
   test("the worker keeps its process layout: entry, composition, host, transport, heartbeat", async () => {
     // The composition root is a named file rather than a habit: it is what
     // keeps the turn loop from reaching for a database pool of its own.

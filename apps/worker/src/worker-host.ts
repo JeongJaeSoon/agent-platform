@@ -220,6 +220,7 @@ export class WorkerHost {
   /** The restore in flight or done, settled either way; see `shutdown`. */
   private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
+  private scrubber: SecretScrubber | undefined;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
   private readonly abandoned: Promise<void>;
@@ -289,13 +290,11 @@ export class WorkerHost {
     });
 
     // Everything this process holds that the engine's tools could print.
-    const scrubbed = scrubbingGateway(
-      this.options.gateway,
-      new SecretScrubber([
-        ...claimSecrets(claim, this.options.execution.bootstrapNonce),
-        ...(this.options.secrets ?? []),
-      ]),
-    );
+    this.scrubber = new SecretScrubber([
+      ...claimSecrets(claim, this.options.execution.bootstrapNonce),
+      ...(this.options.secrets ?? []),
+    ]);
+    const scrubbed = scrubbingGateway(this.options.gateway, this.scrubber);
     const publisher = new EventPublisher({
       gateway: scrubbed,
       scope: () => this.scope,
@@ -1702,7 +1701,10 @@ export class WorkerHost {
       .release({
         ...this.scope,
         turn_id: null,
-        reason: this.stopping?.reason ?? "loop ended",
+        // The session shows it when a restore keeps failing (94S-345).
+        reason:
+          this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
+          "loop ended",
       })
       .then((response) =>
         this.logger.info("worker.released", { released: response.released }),

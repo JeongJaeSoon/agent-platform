@@ -39,7 +39,6 @@ export type GateEnv = {
   out: string;
   project: string;
   s3Url: string;
-  schedulerImage: string;
   workerImage: string;
 };
 
@@ -66,7 +65,6 @@ export function gateEnv(): GateEnv | null {
     out: need("D2_GATE_OUT"),
     project: need("D2_GATE_PROJECT"),
     s3Url: need("D2_GATE_S3_URL"),
-    schedulerImage: need("SCHEDULER_IMAGE"),
     workerImage: need("WORKER_IMAGE"),
   };
 }
