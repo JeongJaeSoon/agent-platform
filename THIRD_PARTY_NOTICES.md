@@ -19,7 +19,7 @@
 
 ### Debian 패키지와 대응 소스
 
-- **라이선스 전문.** 각 패키지의 저작권·라이선스 전문은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL 전문은 `/usr/share/common-licenses/`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.
+- **라이선스.** 각 패키지의 저작권 표시와 라이선스 조건은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL·Apache-2.0처럼 여러 패키지가 쓰는 라이선스는 이 파일이 전문 대신 `/usr/share/common-licenses/`의 사본을 가리킨다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.
 - **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.
 - **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
 
@@ -35,9 +35,7 @@
 
 - `@anthropic-ai/claude-agent-sdk@0.3.270` (SEE LICENSE IN README.md): Anthropic 독점 소프트웨어다(패키지 LICENSE.md: © Anthropic PBC. All rights reserved). Anthropic Commercial Terms와 Claude Code를 제품에 싣는 조건을 따른다(위 "Claude Code 실행 파일" 절). worker 이미지에만 들어간다.
 - `@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
-- `@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
 - `@anthropic-ai/claude-agent-sdk-linux-x64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
-- `@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
 
 Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "NOTICE 전문"에 옮긴다.
 
@@ -47,9 +45,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 |---|---|---|---|
 | @anthropic-ai/claude-agent-sdk | 0.3.270 | SEE LICENSE IN README.md | worker |
 | @anthropic-ai/claude-agent-sdk-linux-arm64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
-| @anthropic-ai/claude-agent-sdk-linux-arm64-musl | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/claude-agent-sdk-linux-x64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
-| @anthropic-ai/claude-agent-sdk-linux-x64-musl | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/sdk | 0.125.0 | MIT | worker |
 | @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker |
 | @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker |
@@ -248,7 +244,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 
 ## 라이선스 파일이 없는 npm 패키지
 
-아래 패키지는 배포본에 라이선스 파일을 싣지 않는다. package.json이 밝힌 라이선스와 저작권자를 적고, 라이선스 전문은 이 절에 대신 싣는다. images.yml은 이미지의 `/app/node_modules`에서 라이선스 파일이 없는 패키지가 모두 여기에 있는지 확인한다.
+아래 패키지는 배포본에 라이선스 파일도 저작권 표시도 싣지 않는다. package.json이 밝힌 라이선스와 author(저작자 표기)·저장소를 적고, 라이선스 전문은 이 절에 대신 싣는다. author는 package.json의 표기일 뿐 확인된 저작권자가 아니다. 실제 저작권 표시는 각 저장소에서 확인해야 한다. images.yml은 이미지의 `/app/node_modules`에서 라이선스 파일이 없는 패키지가 모두 여기에 있는지 확인한다.
 
 - `@aws-sdk/credential-provider-http@3.972.73` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@aws-sdk/credential-provider-http@3.972.74` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
@@ -265,7 +261,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 
 ### MIT 전문
 
-위 MIT 패키지마다 적힌 저작권자가 아래 "<저작권자>" 자리에 들어간다.
+위 MIT 패키지의 허락 조건이다. "<저작권자>"는 각 패키지의 저작권자이며, 위 목록의 author는 그 표기다.
 
 ```text
 MIT License

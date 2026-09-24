@@ -19,6 +19,7 @@ import {
   parseRows,
   problemsOf,
   type Row,
+  removedFrom,
   render,
   renderDebianSources,
   snapshotUrl,
@@ -489,5 +490,28 @@ describe("the Bun inside the Claude Code executable", () => {
     );
     expect(embeddedBunVersions(binary)).toEqual(["1.4.3", "1.4.30"]);
     expect(embeddedBunVersions(Buffer.from("no runtime here"))).toEqual([]);
+  });
+});
+
+describe("packages a Dockerfile deletes", () => {
+  test("the worker's musl builds are in the closure but not the image", () => {
+    expect(
+      removedFrom("worker", "@anthropic-ai/claude-agent-sdk-linux-x64-musl"),
+    ).toBe(true);
+    expect(
+      removedFrom("worker", "@anthropic-ai/claude-agent-sdk-linux-x64"),
+    ).toBe(false);
+    expect(
+      removedFrom(
+        "control-host",
+        "@anthropic-ai/claude-agent-sdk-linux-x64-musl",
+      ),
+    ).toBe(false);
+    const listed = parseRows(
+      readFileSync(join(root, "THIRD_PARTY_NOTICES.md"), "utf8"),
+    );
+    expect([...listed.keys()].filter((id) => id.includes("-musl@"))).toEqual(
+      [],
+    );
   });
 });

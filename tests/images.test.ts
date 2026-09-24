@@ -8,6 +8,7 @@ import {
   SHUTDOWN_DRAIN_MS,
 } from "../apps/control-host/src/api/shutdown.ts";
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
+import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -124,6 +125,17 @@ describe("app Dockerfiles", () => {
   // (94S-224); image-smoke.sh runs the tools themselves.
   test("the worker carries xfsprogs for the inode helper", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
+  // The notices list what the image holds, so a package the Dockerfile
+  // deletes after install is left out of them (94S-375).
+  test("the worker deletes exactly what the notices leave out", () => {
+    const [pattern] = REMOVED_AFTER_INSTALL.worker;
+    expect(basePins.worker.source).toContain(
+      `rm -rf node_modules/${pattern}\n`,
+    );
+    expect(REMOVED_AFTER_INSTALL["control-host"]).toEqual([]);
+    expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
   });
 
   test("only the worker carries the Agent SDK", () => {
