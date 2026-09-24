@@ -299,6 +299,33 @@ describe("profile fingerprint pinned at create (94S-253)", () => {
     expect(grant.upstream.headers).toEqual([["x-api-key", "provider-key-two"]]);
   });
 
+  test("a row from before the column, bound before it, replays only under the settings its first claim issued the provider token for", async () => {
+    const sessionId = await createSession(ORIGINAL);
+    const original = gatewayOf(ORIGINAL);
+    const l = await launch(original, sessionId, false);
+    const first = await claim(original, l);
+    // As a claim made before 0119 left it: bound, nothing pinned.
+    await db
+      .update(sessions)
+      .set({ profileFingerprint: null })
+      .where(eq(sessions.id, sessionId));
+
+    expect(await refusal(claim(gatewayOf(WIDENED), l))).toEqual({
+      status: 409,
+      code: "BACKEND_UNAVAILABLE",
+    });
+    expect(await storedFingerprint(sessionId)).toBeNull();
+    expect(await original.authenticate(first.session_credential)).toMatchObject(
+      { kind: "session", sessionId, authRevision: first.auth_revision },
+    );
+
+    const replayed = await claim(original, l);
+    expect(replayed.auth_revision).toBe(first.auth_revision + 1);
+    expect(await storedFingerprint(sessionId)).toBe(
+      profileFingerprint(profile()),
+    );
+  });
+
   test("a row from before the column is pinned by its first claim", async () => {
     const sessionId = crypto.randomUUID();
     await db.insert(sessions).values({

@@ -813,6 +813,24 @@ async function issueCredentials(
   ]);
 }
 
+async function firstProviderBinding(
+  tx: Database,
+  attemptId: string,
+): Promise<string | null> {
+  const [issued] = await tx
+    .select({ binding: workerCredentials.binding })
+    .from(workerCredentials)
+    .where(
+      and(
+        eq(workerCredentials.attemptId, attemptId),
+        eq(workerCredentials.purpose, "provider"),
+      ),
+    )
+    .orderBy(asc(workerCredentials.createdAt))
+    .limit(1);
+  return issued?.binding ?? null;
+}
+
 async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
   await tx
     .update(workerCredentials)
@@ -915,7 +933,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
           // holds a token for and a retry that mutates again.
-          if (runnablePairOf(bound.session, input.runnable) === undefined) {
+          const pair = runnablePairOf(bound.session, input.runnable);
+          if (
+            pair === undefined ||
+            // A row from before 94S-253 bound by a claim that did not pin it:
+            // the provider token that claim issued names the settings it ran
+            // under, and a replay may not trade them for this catalog's.
+            (bound.session.profileFingerprint === null &&
+              (await firstProviderBinding(tx, bound.attempt.id)) !==
+                pair.profileFingerprint)
+          ) {
             return { outcome: "profile_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
@@ -932,6 +959,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .update(sessions)
             .set({
               authRevision: sql`${sessions.authRevision} + 1`,
+              profileFingerprint: pair.profileFingerprint,
               updatedAt: input.now,
             })
             .where(eq(sessions.id, bound.session.id))
