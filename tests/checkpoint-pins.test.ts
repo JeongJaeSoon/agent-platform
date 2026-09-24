@@ -23,7 +23,11 @@ import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@agent-platform/testkit/checkpoint-objects";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import {
+  createGitBundle,
+  createGitBundleChain,
+  type GitBundleFixture,
+} from "@agent-platform/testkit/git-bundle";
 import {
   applyRepin,
   CheckpointPinError,
@@ -43,12 +47,15 @@ import {
 
 const codecs = { [claudeCheckpointCodec.engine]: claudeCheckpointCodec };
 
+const publishId = () => randomUUID().replaceAll("-", "");
+
 type Seeded = { manifest: CheckpointManifest; row: CheckpointRow };
 
 /** One committed checkpoint as a locked finalize leaves it (seed-checkpoint.ts). */
 async function seed(
   objects: MemoryCheckpointObjectStore,
   untracked: readonly { path: string; text: string }[] = [],
+  workspaceBundle?: GitBundleFixture,
 ): Promise<Seeded> {
   const sessionId = randomUUID();
   const attemptId = `attempt-${randomUUID().slice(0, 8)}`;
@@ -75,9 +82,10 @@ async function seed(
     ...revision,
     parts: await Promise.all(revision.parts.map(withVersion)),
   });
-  const manifestRef = manifestRefFor(sessionId, 0, attemptId);
+  const manifestRef = manifestRefFor(sessionId, 0, attemptId, publishId());
   const prefix = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
-  const bundle = await createGitBundle({ message: sessionId });
+  const bundle =
+    workspaceBundle ?? (await createGitBundle({ message: sessionId }));
   const bundlePut = await objects.putImmutable(
     `${prefix}workspace.bundle`,
     bundle.bytes,
@@ -196,13 +204,14 @@ function pointerOf(row: {
   manifestRef: string;
   manifestSha256: string;
   manifestVersion: string;
+  revision?: number;
 }): CheckpointPointer {
   return {
     committedAt: new Date(0),
     manifestRef: row.manifestRef,
     manifestSha256: row.manifestSha256,
     manifestVersion: row.manifestVersion,
-    revision: 0,
+    revision: row.revision ?? 0,
     turnId: null,
     versionsHeld: true,
   };
@@ -221,6 +230,7 @@ async function restorePlan(
       commitAtomic: () => {
         throw new Error("restore does not commit");
       },
+      listCheckpoints: async () => [],
       readPointer: async () => pointer,
     },
     workspaceBundles: createGitWorkspaceBundleVerifier(),
@@ -495,7 +505,12 @@ describe("backup → restore re-pin", () => {
       // Revision 1 of the same session: the transcript parts carry over, the
       // bundle is the new attempt's own.
       const attempt = `attempt-${randomUUID().slice(0, 8)}`;
-      const manifestRef = manifestRefFor(first.row.sessionId, 1, attempt);
+      const manifestRef = manifestRefFor(
+        first.row.sessionId,
+        1,
+        attempt,
+        publishId(),
+      );
       const bundle = await createGitBundle({ message: "revision 1" });
       const bundleKey = manifestRef.replace(
         "manifest.json",
@@ -564,6 +579,101 @@ describe("backup → restore re-pin", () => {
           expect((await restored.head(ref.key, ref.version))?.held).toBe(true);
         }
       }
+    });
+  });
+
+  test("an incremental checkpoint's base bundles are captured, re-pinned and held (94S-372)", async () => {
+    await withDir(async (dir) => {
+      const source = createMemoryCheckpointObjectStore({ versioned: true });
+      const chain = await createGitBundleChain();
+      const first = await seed(source, [], chain.base);
+      const base = first.manifest.workspace.bundle;
+      // Revision 1 uploads only the tip and names revision 0's bundle, where
+      // revision 0 wrote it, as its base.
+      const manifestRef = manifestRefFor(
+        first.row.sessionId,
+        1,
+        `attempt-${randomUUID().slice(0, 8)}`,
+        publishId(),
+      );
+      const tipKey = manifestRef.replace("manifest.json", "workspace.bundle");
+      const tipPut = await source.putImmutable(tipKey, chain.tip.bytes);
+      const incremental: CheckpointManifest = {
+        ...first.manifest,
+        revision: 1,
+        workspace: {
+          ...first.manifest.workspace,
+          baseBundles: [base],
+          bundle: {
+            bytes: chain.tip.bytes.byteLength,
+            key: tipKey,
+            sha256: chain.tip.sha256,
+            ...(tipPut.outcome === "created"
+              ? { version: tipPut.version }
+              : {}),
+          },
+          gitCommit: chain.tip.commit,
+        },
+      };
+      const sealed = claudeCheckpointCodec.encode(incremental);
+      const put = await source.putImmutable(manifestRef, sealed.bytes);
+      const second: CheckpointRow = {
+        manifestRef,
+        manifestSha256: sealed.sha256,
+        manifestVersion:
+          put.outcome === "created" ? (put.version ?? null) : null,
+        revision: 1,
+        sessionId: first.row.sessionId,
+      };
+      expect(refsOf(incremental).map((ref) => ref.key)).toContain(base.key);
+
+      // Only revision 1 is backed up, as after revision 0 was collected: its
+      // base must come from its own manifest. The sync saw the key already
+      // overwritten, so only a capture by version keeps the base's bytes.
+      await source.put(base.key, new TextEncoder().encode("overwritten"));
+      await syncDown(source, dir);
+      const { replaced } = await captureCheckpointObjects({
+        codecs,
+        objects: source,
+        objectsDir: dir,
+        rows: [second],
+      });
+      expect(replaced).toEqual([base.key]);
+
+      const restored = await restoredBucket();
+      await syncUp(
+        dir,
+        restored,
+        new Set([first.row.manifestRef, manifestRef]),
+      );
+      const planned = await planRepin({
+        codecs,
+        objects: restored,
+        objectsDir: dir,
+        rows: [second],
+      });
+      const [row] = await applyRepin({ objects: restored, planned });
+      if (row === undefined) throw new Error("no row");
+      const bytes = await restored.get(manifestRef, row.manifestVersion);
+      if (bytes === undefined) throw new Error("manifest not written");
+      const written = claudeCheckpointCodec.decode(bytes);
+      const [repinnedBase, ...rest] = written.workspace.baseBundles ?? [];
+      expect(rest).toEqual([]);
+      expect(repinnedBase?.version).toBeDefined();
+      expect(repinnedBase?.version).not.toBe(base.version);
+      expect(repinnedBase?.version).toBe(
+        (await restored.head(base.key))?.version,
+      );
+      for (const ref of refsOf(written)) {
+        expect((await restored.head(ref.key, ref.version))?.held).toBe(true);
+      }
+
+      const result = await restorePlan(
+        restored,
+        pointerOf({ ...second, ...row, revision: 1 }),
+        { manifest: incremental, row: second },
+      );
+      expect(result.status).toBe("ready");
     });
   });
 });
