@@ -243,6 +243,7 @@ jobs:
               - tests/integration-jobs.
               - tests/retry-flaky.
               - tests/test-files.
+              - tests/third-party-notices.
               - tests/unit-part.
               - tests/workspace.
             skips:
