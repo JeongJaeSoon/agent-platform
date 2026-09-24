@@ -53,8 +53,8 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
       HOME: scratch,
       GIT_CONFIG_NOSYSTEM: "1",
       // As `runGit` does. Otherwise `commit` detaches
-      // `git maintenance run --auto`, whose cruft repack (git >= 2.52) can
-      // race a later `gc --prune=now` and keep what it pruned (94S-412).
+      // `git maintenance run --auto`, whose cruft repack (git >= 2.54) can
+      // race a later `gc --prune=now` and keep the commit it prunes (94S-412).
       GIT_CONFIG_COUNT: "2",
       GIT_CONFIG_KEY_0: "maintenance.auto",
       GIT_CONFIG_VALUE_0: "false",

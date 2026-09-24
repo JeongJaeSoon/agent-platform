@@ -55,6 +55,13 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       HOME: scratch,
       GIT_CONFIG_NOSYSTEM: "1",
+      // As `runGit` does: a detached `git maintenance run --auto` would
+      // repack under a comparison of the repository's objects (94S-412).
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "maintenance.auto",
+      GIT_CONFIG_VALUE_0: "false",
+      GIT_CONFIG_KEY_1: "gc.auto",
+      GIT_CONFIG_VALUE_1: "0",
       GIT_AUTHOR_NAME: "test",
       GIT_AUTHOR_EMAIL: "test@example.test",
       GIT_COMMITTER_NAME: "test",
