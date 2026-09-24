@@ -1358,12 +1358,13 @@ describe("authorizeEgress (94S-252)", () => {
       ref: { secret_id: "repo" },
     },
   };
-  const granted = (binding: string): EgressAuthorization => ({
+  const granted = (binding: string, costUsd = 0): EgressAuthorization => ({
     outcome: "ok",
     sessionId: scope.session_id,
     attemptId: "att_1",
     binding,
     profileId: "p",
+    costUsd,
     repository: { id: "app", url: repository.url, branch: "main" },
   });
 
@@ -1482,6 +1483,25 @@ describe("authorizeEgress (94S-252)", () => {
         }),
       ).rejects.toMatchObject({ status: 403 });
     }
+  });
+
+  test("a session at its cost limit gets no provider grant, and still its repository (94S-394)", async () => {
+    const binding = profileFingerprint(profile);
+    const under = await authorizer(
+      granted(binding, 999.99),
+    ).instance.authorizeEgress({ token: "tok", purpose: "provider" });
+    expect(under.session_id).toBe(scope.session_id);
+    await expect(
+      authorizer(granted(binding, 1_000)).instance.authorizeEgress({
+        token: "tok",
+        purpose: "provider",
+      }),
+    ).rejects.toMatchObject({ status: 403, code: "BUDGET_EXCEEDED" });
+    // The checkout a recovery needs is not a provider call.
+    const repositoryGrant = await authorizer(
+      granted(repositoryBinding("app", repository), 1_000),
+    ).instance.authorizeEgress({ token: "tok", purpose: "repository" });
+    expect(repositoryGrant.session_id).toBe(scope.session_id);
   });
 
   test("a catalog that moved since the claim is refused, a rotated value is not", async () => {

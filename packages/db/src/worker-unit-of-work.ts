@@ -1261,6 +1261,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             url: fenced.session.repoUrl,
             branch: fenced.session.branch,
           },
+          costUsd: fenced.session.costUsd,
         };
       });
     },

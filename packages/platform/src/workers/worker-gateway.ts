@@ -38,6 +38,7 @@ import {
   sessionObjectPrefix,
 } from "../checkpoints/checkpoint-service.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
+import { budgetExceeded } from "../limits/installation-limits.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
@@ -824,6 +825,17 @@ export function createWorkerGateway(deps: {
         upstream,
       });
       if (request.purpose === "provider") {
+        // The engine's own calls are also held to the limit by the SDK's
+        // budget, but a tool that calls the route directly with the engine's
+        // token is counted nowhere; a session past its limit gets no more
+        // provider calls at all (94S-394).
+        if (budgetExceeded(result.costUsd, deps.options.sessionCostLimitUsd)) {
+          throw new WorkerGatewayError(
+            403,
+            "BUDGET_EXCEEDED",
+            "The session has spent its cost limit",
+          );
+        }
         const profile = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
