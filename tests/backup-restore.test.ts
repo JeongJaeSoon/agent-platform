@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createGitBundleChain } from "@agent-platform/testkit/git-bundle";
 
 /**
  * The refusal paths of scripts/restore.sh, exercised without Docker: the
@@ -266,6 +267,78 @@ describe("restore.sh preflight", () => {
       );
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("project name must match");
+    });
+  });
+});
+
+describe("verify-restore bundle chain", () => {
+  async function withChain(
+    run: (paths: {
+      base: string;
+      baseCommit: string;
+      repository: string;
+      tip: string;
+      tipCommit: string;
+    }) => Promise<void>,
+  ) {
+    const chain = await createGitBundleChain();
+    const dir = await mkdtemp(join(tmpdir(), "verify-chain-"));
+    try {
+      const base = join(dir, "base.bundle");
+      const tip = join(dir, "tip.bundle");
+      await writeFile(base, chain.base.bytes);
+      await writeFile(tip, chain.tip.bytes);
+      const repository = join(dir, "verify.git");
+      expect(
+        (await bash(`git init --quiet --bare "${repository}"`, dir)).exitCode,
+      ).toBe(0);
+      await run({
+        base,
+        baseCommit: chain.base.commit,
+        repository,
+        tip,
+        tipCommit: chain.tip.commit,
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  }
+  const unbundle = (repository: string, commit: string, ...bundles: string[]) =>
+    bash(
+      `source "${lib}"; unbundle_chain "${repository}" "${commit}" ${bundles.map((b) => `"${b}"`).join(" ")}`,
+      repoRoot,
+    );
+
+  test("an incremental bundle alone does not verify in an empty repository (94S-372)", async () => {
+    await withChain(async ({ repository, tip, tipCommit }) => {
+      const result = await unbundle(repository, tipCommit, tip);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain(
+        "bundle 1 of 1: git bundle verify rejected it",
+      );
+    });
+  });
+
+  test("the chain applied base first verifies, and the tip offers the checkpoint's commit", async () => {
+    await withChain(async ({ base, repository, tip, tipCommit }) => {
+      const result = await unbundle(repository, tipCommit, base, tip);
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  test("refuses the chain out of order, or a commit the last bundle does not offer", async () => {
+    await withChain(async ({ base, repository, tip, tipCommit }) => {
+      const reversed = await unbundle(repository, tipCommit, tip, base);
+      expect(reversed.exitCode).toBe(1);
+      expect(reversed.stdout).toContain("bundle 1 of 2");
+    });
+    await withChain(async ({ base, baseCommit, repository, tip }) => {
+      const stale = await unbundle(repository, baseCommit, base, tip);
+      expect(stale.exitCode).toBe(1);
+      expect(stale.stdout).toContain(
+        `${baseCommit} is not a ref tip of the last bundle`,
+      );
     });
   });
 });

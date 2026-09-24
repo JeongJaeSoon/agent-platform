@@ -7,8 +7,9 @@
 # is then opened and every object it pins (workspace bundle, untracked files,
 # transcript parts of root and subagents) is downloaded at the version it
 # names and compared the same way; every one of those versions must carry a
-# legal hold, and the row must say versions_held; the bundle is finally
-# handed to `git bundle verify` and must offer workspace.gitCommit as a ref
+# legal hold, and the row must say versions_held; the bundles are finally
+# fetched into one empty repository, workspace.baseBundles oldest first and
+# then workspace.bundle, and the last must offer workspace.gitCommit as a ref
 # tip. Rows that are the session's current pointer (sessions.checkpoint_revision)
 # are marked `pointer`. Last, the restored API's own path is asked: its
 # `locked` startup bucket check and a restore plan for every pointer.
@@ -25,7 +26,7 @@ PROJECT=""
 BUCKET=claude-sessions
 
 usage() {
-  sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -42,7 +43,6 @@ require_tools docker jq git bun
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-git init --quiet --bare "$WORK/verify.git"
 
 # `fetch_object <key> <version>`: that exact version's bytes on stdout. The
 # key and version travel as arguments, never inside the script text.
@@ -166,22 +166,32 @@ while IFS='|' read -r session revision ref expected manifest_version held is_poi
     while IFS= read -r -d '' key && IFS= read -r -d '' version && IFS= read -r -d '' sha && IFS= read -r -d '' bytes; do
       check_ref "$tag part" "$key" "$version" "$sha" "$WORK/part" "$bytes" || ok=0
     done < "$refs"
-    bundle_key="$(jq -r '.workspace.bundle.key' "$manifest")"
-    bundle_version="$(jq -r '.workspace.bundle.version // ""' "$manifest")"
-    bundle_sha="$(jq -r '.workspace.bundle.sha256' "$manifest")"
-    bundle_bytes="$(jq -r '.workspace.bundle.bytes' "$manifest")"
-    commit="$(jq -r '.workspace.gitCommit' "$manifest")"
-    if check_ref "$tag bundle" "$bundle_key" "$bundle_version" "$bundle_sha" "$WORK/bundle" "$bundle_bytes"; then
-      if ! git -C "$WORK/verify.git" bundle verify "$WORK/bundle" >/dev/null 2>&1; then
-        fail "$tag bundle: git bundle verify rejected $bundle_key"
-        ok=0
-      elif ! git -C "$WORK/verify.git" bundle list-heads "$WORK/bundle" | grep -q "^${commit} "; then
-        fail "$tag bundle: $commit is not a ref tip of $bundle_key"
-        ok=0
-      fi
-    else
-      ok=0
+    # The chain oldest first, as a restore fetches it: an incremental bundle
+    # (94S-227) verifies only on top of the ones before it.
+    chain_ok=1
+    chain="$WORK/chain-$ROWS"
+    if ! jq -j '((.workspace.baseBundles // []) + [.workspace.bundle])[] | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest" > "$chain"; then
+      fail "$tag manifest: could not list its bundles"
+      chain_ok=0
     fi
+    bundles=()
+    while IFS= read -r -d '' key && IFS= read -r -d '' version && IFS= read -r -d '' sha && IFS= read -r -d '' bytes; do
+      bundle="$WORK/bundle-$ROWS-${#bundles[@]}"
+      check_ref "$tag bundle" "$key" "$version" "$sha" "$bundle" "$bytes" || chain_ok=0
+      bundles+=("$bundle")
+    done < "$chain"
+    if [ "$chain_ok" = 1 ]; then
+      commit="$(jq -r '.workspace.gitCommit' "$manifest")"
+      repository="$WORK/verify-$ROWS.git"
+      git init --quiet --bare "$repository"
+      if ! refused="$(unbundle_chain "$repository" "$commit" "${bundles[@]}")"; then
+        fail "$tag bundle: $refused ($(jq -r '.workspace.bundle.key' "$manifest"))"
+        chain_ok=0
+      fi
+      rm -rf "$repository"
+    fi
+    [ "${#bundles[@]}" -eq 0 ] || rm -f "${bundles[@]}"
+    [ "$chain_ok" = 1 ] || ok=0
   fi
   if [ "$ok" = 1 ]; then
     PASSED=$((PASSED + 1))

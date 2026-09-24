@@ -39,7 +39,7 @@ backup-20260923T101500Z/
 - `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있으니 api·scheduler·worker를 멈추고 받는다. 스크립트는 실행 중이면 경고만 한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`, 94S-281)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - bucket sync는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
-  - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
+  - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint(94S-227)의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
   - sha256과 크기를 대조한다.
   - `objects/<key>`가 고정된 바이트와 다르거나 없으면 고정된 바이트로 바꾸고 경고한다. 커밋 뒤 덮어쓰기나 delete marker가 있어도 백업이 손상본을 담지 않게 하려는 것이다.
 - 다음 경우에는 백업이 실패한다(exit 1).
@@ -88,9 +88,9 @@ scripts/verify-restore.sh --project ap-restore-1
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
 1. `manifest_ref`를 **`manifest_version`으로** 내려받아 sha256 = `manifest_sha256`인지 본다. 행의 `versions_held`는 true여야 한다.
-2. manifest 안의 transcript part(root·subagent), untracked 파일, workspace bundle을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조한다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다.
+2. manifest 안의 transcript part(root·subagent), untracked 파일, workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조한다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다.
 3. 1과 2의 모든 version에 대해 HEAD의 `ObjectLockLegalHoldStatus`가 `ON`인지 본다.
-4. bundle을 `git bundle verify`에 넣고 `workspace.gitCommit`이 ref tip인지 확인한다.
+4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle이 `workspace.gitCommit`을 ref tip으로 내놓는지 확인한다. 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`).
 
 `sessions.checkpoint_revision`과 같은 행은 `pointer`로 표시된다. pointer가 가리키는 revision에 `checkpoints` 행이 없으면 그 자체로 FAIL이다. manifest의 `sessionId`·`revision`도 행과 같아야 한다.
 
@@ -122,7 +122,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229)
 재고정은 다음 규칙을 지킨다. Codex와 합의했다.
 
 - **key는 그대로 둔다.** manifest는 원래 key(`manifestRefFor(session, revision, attempt)`)에 다시 쓴다. 복원 sync가 그 key를 뺐으므로 새 bucket에서는 이것이 첫 create-only 쓰기다. 그래서 finalize의 key 규칙과 `putImmutable` 규칙이 그대로 성립한다.
-- **바뀌는 것은 version과 manifest digest다.** manifest 안 각 object ref(transcript part, bundle, untracked)의 `version` 필드만 바뀐다. 최상위 schema `version`(2)은 그대로다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
+- **바뀌는 것은 version과 manifest digest다.** manifest 안 각 object ref(transcript part, bundle, base bundle, untracked)의 `version` 필드만 바뀐다. 한 key는 복원 bucket에서 version 하나만 가지므로, 뒤 revision의 `baseBundles`는 앞 revision의 `workspace.bundle`과 같은 새 version을 가리킨다. 그래서 복원된 pointer 위에서 다음 finalize가 요구하는 사슬 일치(`baseBundles` = 앞 checkpoint의 사슬)도 그대로 성립한다. 최상위 schema `version`(2)은 그대로다. transcript part-list digest(`digestParts`)는 version을 덮지 않으므로 그대로 유효하다. 행의 `manifest_sha256`·`manifest_version`은 새 값이 된다.
 - **`versions_held=true`는 모든 검증을 마친 뒤에만 쓴다.** 재고정 도구는 DB와 bucket 권한을 모두 가진 신뢰된 발급자다. locked finalize와 똑같이 모든 version을 version 단위로 해시하고 hold를 건 뒤에만 true로 둔다. false로 남기면 `getRestorePlan`이 이 값을 올리지 않으므로, 매 복원마다 transcript 전체를 다시 해시하게 된다.
 - **`turns.result_json`의 finalize digest는 원래 요청 그대로 둔다.** 원래 요청의 replay는 계속 맞고, 재고정한 필드로 온 요청은 충돌한다. 복원본에는 원래 worker가 없으므로 실제로 오는 요청은 없다.
 - **백업 원본은 바뀌지 않는다.** `objects/`의 manifest는 원래 바이트 그대로 남는다.
@@ -171,7 +171,7 @@ engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session
 | 모델 호출 | `rr1`, `rr2` | 없음(새 스택) | `rr3`만, history `[rr1, rr2, rr3]` | PASS |
 | worker image | backup `images.worker` = 원본 worker | — | 복원본 worker와 같음 | PASS |
 
-verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 원본은 backup 뒤 installation 라벨의 container·volume과 compose project 자원이 하나도 남지 않았다(이 실행 뒤 스크립트는 installation 라벨 network까지 확인한다).
+verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 이 실행은 incremental checkpoint(#217, 94S-227) 이전이라 bundle이 모두 홀로 선 것이었다. base bundle 사슬이 있는 checkpoint로 다시 돌린 기록은 94S-372에 남긴다. 원본은 backup 뒤 installation 라벨의 container·volume과 compose project 자원이 하나도 남지 않았다(이 실행 뒤 스크립트는 installation 라벨 network까지 확인한다).
 
 ## 로컬에서 끝까지 돌려 보기
 
@@ -200,4 +200,4 @@ CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # 
 docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v
 ```
 
-`tests/backup-restore.test.ts`는 docker 없이 schema 게이트와 SHA256SUMS 게이트를, `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로, 재고정한 checkpoint의 locked `getRestorePlan`을 검사하며 `bun run test`에 포함된다.
+`tests/backup-restore.test.ts`는 docker 없이 schema 게이트와 SHA256SUMS 게이트, verify-restore의 bundle 사슬 적용(`unbundle_chain`)을, `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로(base bundle 사슬 포함), 재고정한 checkpoint의 locked `getRestorePlan`을 검사하며 `bun run test`에 포함된다.

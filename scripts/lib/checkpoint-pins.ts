@@ -64,6 +64,9 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
       .flatMap(
         (subpath) => manifest.transcripts.subagents[subpath]?.parts ?? [],
       ),
+    // Bases live in the directories of the checkpoints that wrote them, and
+    // this one restores only if every one of them does (94S-227).
+    ...(manifest.workspace.baseBundles ?? []),
     manifest.workspace.bundle,
     ...manifest.workspace.untracked,
   ];
@@ -409,6 +412,14 @@ export async function planRepin(input: {
         },
         workspace: {
           ...manifest.workspace,
+          ...(manifest.workspace.baseBundles === undefined
+            ? {}
+            : {
+                baseBundles: await sequential(
+                  manifest.workspace.baseBundles,
+                  pin,
+                ),
+              }),
           bundle: await pin(manifest.workspace.bundle),
           untracked: await sequential(manifest.workspace.untracked, pin),
         },
