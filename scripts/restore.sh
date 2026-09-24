@@ -12,9 +12,10 @@
 # LocalStack and the backup's bucket name, creating the bucket if its init
 # did not. --object-store env uses the store the environment names
 # (AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL
-# unless it is AWS S3) and needs --bucket; the new project then runs no
-# LocalStack. A bucket the backup was taken from is refused there before
-# anything else is looked at.
+# unless it is AWS S3) and needs --bucket, which may not carry the name of
+# the bucket the backup was taken from; the new project then runs no
+# LocalStack. The bucket must be this restore's alone: no check can keep
+# another writer out of it once the upload starts.
 #
 # Checkpoint objects get new VersionIds in the new bucket; every checkpoint
 # is re-pinned to them and held, so the restored API runs `locked`.
@@ -75,9 +76,9 @@ MANIFEST="$BACKUP/manifest.json"
 schema_check "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
 BUCKET="${BUCKET:-$(jq -r '.objects.bucket' "$MANIFEST")}"
 
-# `check_target [--create]`: the target bucket is new, empty and locked, or
-# the restore stops with the CLI's reason; 4 when it is the source's own
-# bucket or holds anything.
+# `check_target [--create|--source-bucket <b>]`: the target bucket is new,
+# empty and locked, or the restore stops with the CLI's reason; 4 when it
+# has the source's bucket name or holds anything.
 check_target() {
   local status=0
   object_store "$INTO" "$BUCKET" check-target "$@" || status=$?
@@ -85,14 +86,10 @@ check_target() {
   [ "$status" != "$EXIT_TARGET_NOT_EMPTY" ] || exit "$EXIT_TARGET_NOT_EMPTY"
   die "bucket $BUCKET cannot take this restore"
 }
-# The source's bucket, as the backup recorded it; an older backup has no
-# endpoint, and then the name alone decides.
-SOURCE_ARGS=(--source-bucket "$(jq -r '.objects.bucket' "$MANIFEST")")
-SOURCE_ENDPOINT="$(jq -r '.objects.endpoint // empty' "$MANIFEST")"
-[ -z "$SOURCE_ENDPOINT" ] || SOURCE_ARGS+=(--source-endpoint "$SOURCE_ENDPOINT")
+SOURCE_BUCKET="$(jq -r '.objects.bucket' "$MANIFEST")"
 # An outside store exists before the project does, so it is checked before
 # docker is: a live bucket is refused without a container started.
-[ "$OBJECT_STORE" != env ] || check_target "${SOURCE_ARGS[@]}"
+[ "$OBJECT_STORE" != env ] || check_target --source-bucket "$SOURCE_BUCKET"
 if project_has_resources "$INTO"; then
   log "restore: project '$INTO' already has containers, volumes or networks; pick an unused name"
   exit "$EXIT_TARGET_NOT_EMPTY"
@@ -153,14 +150,18 @@ MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpo
 SKIP_KEYS="$(mktemp)"
 trap 'rm -f "$SKIP_KEYS"; docker network rm "$LOCK" >/dev/null 2>&1 || true' EXIT
 printf '%s\n' "$MANIFEST_KEYS" > "$SKIP_KEYS"
-# Checked again right before the first write: an outside bucket may have
-# been written to since the preflight. The project's own LocalStack made the
-# bucket at init, or gets it made here.
+# The project's own LocalStack made the bucket at init, or gets it made
+# here. The store must enforce If-None-Match before anything relies on it;
+# the probe removes what it wrote, and the bucket is checked empty again
+# right before the first write.
 if [ "$OBJECT_STORE" = env ]; then
-  check_target "${SOURCE_ARGS[@]}"
+  check_target --source-bucket "$SOURCE_BUCKET"
 else
   check_target --create
 fi
+object_store "$INTO" "$BUCKET" create-only-check \
+  || die "bucket $BUCKET does not refuse a second create-only write; restoring into it could replace objects"
+check_target
 # Create-only: a key someone wrote meanwhile stops the upload.
 object_store "$INTO" "$BUCKET" upload "$BACKUP/objects" "$SKIP_KEYS" >/dev/null \
   || die "objects could not be uploaded to $BUCKET; project '$INTO' is unusable — tear it down and restore into a fresh project and bucket"

@@ -15,6 +15,7 @@ import {
   DEFAULT_WORKSPACE_CAPTURE_LIMITS,
   type WorkspaceCapture,
 } from "../apps/worker/src/workspace-capture.ts";
+import { backupPath } from "../scripts/lib/checkpoint-pins.ts";
 
 /**
  * The refusal paths of scripts/restore.sh, exercised without Docker: the
@@ -425,16 +426,17 @@ describe("restore target bucket (--object-store env)", () => {
       endpoint: s3.endpoint.replace("127.0.0.1", "localhost"),
     });
     expect(result.stderr).toContain(
-      "is the source installation's bucket; restore only into a new, empty bucket",
+      "has the source installation's bucket name; restore only into a new, empty bucket of another name",
     );
     expect(result.exitCode).toBe(4);
     expect(s3.requests).toEqual([]);
   }, 30_000);
 
-  test("an older backup without an endpoint is refused by the bucket name alone", async () => {
+  test("the source's bucket name is refused at another endpoint too", async () => {
     const result = await restoreInto("claude-sessions", {
       bucket: "claude-sessions",
       count: 0,
+      endpoint: "https://s3.ap-northeast-1.amazonaws.com",
     });
     expect(result.exitCode).toBe(4);
     expect(s3.requests).toEqual([]);
@@ -492,7 +494,7 @@ describe("restore target bucket (--object-store env)", () => {
 
   test("accepts a new, empty, locked SSE-S3 bucket", async () => {
     const result = await bash(
-      `bun run scripts/lib/object-store-cli.ts check-target --source-bucket claude-sessions --source-endpoint http://127.0.0.1:4566`,
+      `bun run scripts/lib/object-store-cli.ts check-target --source-bucket claude-sessions`,
       repoRoot,
       { ...storeEnv(), S3_BUCKET: "fresh" },
     );
@@ -509,6 +511,24 @@ describe("restore target bucket (--object-store env)", () => {
  * before the first byte is copied: which services and installation-labelled
  * containers run. Everything else fails, as a dead daemon would.
  */
+describe("backup object paths", () => {
+  test("a key only maps to a path inside objects/", () => {
+    expect(backupPath("/b/objects", "sessions/s/part-1")).toBe(
+      "/b/objects/sessions/s/part-1",
+    );
+    for (const key of [
+      "../db.sql",
+      "a/../../db.sql",
+      "/etc/x",
+      "a//b",
+      "./a",
+      "",
+    ]) {
+      expect(() => backupPath("/b/objects", key)).toThrow("has no single path");
+    }
+  });
+});
+
 describe("backup.sh writers", () => {
   let dir: string;
   let out: string;
@@ -524,10 +544,15 @@ describe("backup.sh writers", () => {
         "for last; do :; done",
         'case "$*" in',
         '  *" ps -q --status running "*) case " $FAKE_RUNNING " in *" $last "*) echo "cid-$last" ;; esac ;;',
-        '  *" ps -aq scheduler") [ -z "$FAKE_INSTALLATION" ] || echo cid-scheduler ;;',
+        '  "ps -q -a --filter label=com.docker.compose.project=fixture --filter label=com.docker.compose.service=scheduler")',
+        '    [ -z "$FAKE_INSTALLATION" ] || echo cid-scheduler ;;',
+        '  "ps -q --filter label=com.docker.compose.project=fixture --filter label=com.docker.compose.service="*)',
+        '    service="$(printf %s "$last" | sed "s/.*=//")"',
+        '    case " $FAKE_RUNNING " in *" $service "*) echo "cid-$service" ;; esac ;;',
         '  "inspect "*) printf "EXECUTION_INSTALLATION_ID=%s\\n" "$FAKE_INSTALLATION" ;;',
+        '  "ps -q --filter label=agent-platform.installation") [ -z "$FAKE_WORKERS_OF" ] || echo cid-worker ;;',
         '  "ps -q --filter label=agent-platform.installation=$FAKE_WORKERS_OF") echo cid-worker ;;',
-        '  "ps -q --filter "*) ;;',
+        '  "ps -q --filter label=agent-platform.installation="*) ;;',
         '  *) echo "fake docker: no answer for: $*" >&2; exit 1 ;;',
         "esac",
         "",
@@ -578,10 +603,10 @@ describe("backup.sh writers", () => {
     expect(await written()).toEqual([]);
   }, 30_000);
 
-  test("with no scheduler container, looks for compose's default installation", async () => {
-    const result = await backup({ FAKE_WORKERS_OF: "local" });
+  test("with no scheduler container to name the installation, a worker of any installation counts", async () => {
+    const result = await backup({ FAKE_WORKERS_OF: "someone-else" });
     expect(result.stderr).toContain(
-      "worker container(s) of installation local",
+      "1 worker container(s) of any installation (project 'fixture' names none)",
     );
     expect(result.exitCode).toBe(1);
   }, 30_000);

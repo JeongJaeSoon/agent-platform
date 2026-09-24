@@ -63,17 +63,40 @@ for service in "${STORES[@]}"; do
 done
 # pg_dump is consistent on its own; the objects and repositories are copied
 # afterwards, so a checkpoint committed in between has a pointer without its
-# object. The scheduler's workers carry its installation label; with no
-# scheduler container left, compose's own default names the installation.
+# object. api, scheduler and worker are found by compose's own labels, so
+# a container outside the active profiles still counts. The scheduler's
+# workers carry its installation label. With no scheduler container left,
+# the installation cannot be named, so a running container of any
+# installation counts.
+service_containers() {
+  local service="$1"
+  shift
+  docker ps -q "$@" --filter "label=com.docker.compose.project=${PROJECT}" \
+    --filter "label=com.docker.compose.service=${service}"
+}
 WRITERS=""
 for service in api scheduler worker; do
-  [ -z "$(compose "$PROJECT" ps -q --status running "$service" 2>/dev/null)" ] || WRITERS="$WRITERS $service"
+  running="$(service_containers "$service")" \
+    || die "docker ps failed; cannot tell whether '$service' of project '$PROJECT' runs"
+  [ -z "$running" ] || WRITERS="$WRITERS $service"
 done
-INSTALLATION="$(inspect_env "$PROJECT" scheduler EXECUTION_INSTALLATION_ID 2>/dev/null || true)"
-INSTALLATION="${INSTALLATION:-${EXECUTION_INSTALLATION_ID:-local}}"
-WORKERS="$(docker ps -q --filter "label=agent-platform.installation=${INSTALLATION}")" \
-  || die "docker ps failed; cannot tell whether workers of installation ${INSTALLATION} run"
-[ -z "$WORKERS" ] || WRITERS="$WRITERS $(printf '%s\n' "$WORKERS" | grep -c .) worker container(s) of installation ${INSTALLATION}"
+SCHEDULER="$(service_containers scheduler -a | head -n1)" || die "docker ps failed; cannot find the scheduler of project '$PROJECT'"
+INSTALLATION=""
+if [ -n "$SCHEDULER" ]; then
+  INSTALLATION="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SCHEDULER" \
+    | sed -n 's/^EXECUTION_INSTALLATION_ID=//p' | head -n1)" \
+    || die "cannot read the installation id of the scheduler of project '$PROJECT'"
+fi
+if [ -n "$INSTALLATION" ]; then
+  LABEL="agent-platform.installation=${INSTALLATION}"
+  WORKERS_OF="installation ${INSTALLATION}"
+else
+  LABEL="agent-platform.installation"
+  WORKERS_OF="any installation (project '$PROJECT' names none)"
+fi
+WORKERS="$(docker ps -q --filter "label=${LABEL}")" \
+  || die "docker ps failed; cannot tell whether workers of ${WORKERS_OF} run"
+[ -z "$WORKERS" ] || WRITERS="$WRITERS $(printf '%s\n' "$WORKERS" | grep -c .) worker container(s) of ${WORKERS_OF}"
 if [ -n "$WRITERS" ]; then
   [ "$ALLOW_RUNNING_WRITERS" = 1 ] \
     || die "writers are running:${WRITERS}; stop them first (docs/backup-restore.md) or pass --allow-running-writers"

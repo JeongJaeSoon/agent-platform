@@ -5,7 +5,7 @@
  * any S3-compatible store, AWS S3 included:
  *
  *   bun run scripts/lib/object-store-cli.ts download <dir>
- *   bun run scripts/lib/object-store-cli.ts check-target [--create] [--source-bucket <b>] [--source-endpoint <url>]
+ *   bun run scripts/lib/object-store-cli.ts check-target [--create] [--source-bucket <b>]
  *   bun run scripts/lib/object-store-cli.ts upload <dir> [<skip-keys-file>]
  *   bun run scripts/lib/object-store-cli.ts count
  *   bun run scripts/lib/object-store-cli.ts read <key> <version> <out-file>
@@ -70,45 +70,28 @@ function required(name: string): string {
 }
 
 /**
- * One spelling per endpoint, so the same store named two ways still counts
- * as the same: no endpoint is AWS S3 itself, and `localhost` is the loopback
- * the scripts publish on.
- */
-export function endpointIdentity(endpoint: string | undefined): string {
-  if (!endpoint) return "aws";
-  try {
-    const url = new URL(endpoint);
-    const host = url.hostname === "localhost" ? "127.0.0.1" : url.hostname;
-    return `${url.protocol}//${host}:${url.port || (url.protocol === "https:" ? "443" : "80")}`;
-  } catch {
-    return endpoint.trim().toLowerCase();
-  }
-}
-
-/**
- * Refuses a restore target that is not a fresh, locked bucket: the source
- * installation's own bucket, a bucket missing versioning, Object Lock or
- * SSE-S3, or one that holds a single object version or delete marker. Reads
- * only; `create` makes a missing bucket first (the restore's own LocalStack).
- * `source.endpoint` undefined means the backup did not record one, and then
- * the bucket name alone decides.
+ * Refuses a restore target that is not a fresh, locked bucket: one named
+ * like the source installation's bucket, a bucket missing versioning, Object
+ * Lock or SSE-S3, or one that holds a single object version or delete
+ * marker. Reads only; `create` makes a missing bucket first (the restore's
+ * own LocalStack).
+ *
+ * The name alone decides "the source's bucket": one store answers under
+ * several endpoint spellings (AWS S3's global, regional and dual-stack
+ * names, a loopback alias), and no spelling comparison proves two of them
+ * apart. A drill into another store under the same name is refused too;
+ * it takes a bucket of another name.
  */
 export async function checkRestoreTarget(input: {
   readonly bucket: string;
   readonly client: S3ClientLike;
   readonly create?: { readonly region: string };
-  readonly endpoint: string | undefined;
-  readonly source?: { readonly bucket: string; readonly endpoint?: string };
+  readonly sourceBucket?: string;
 }): Promise<void> {
-  const { bucket, client, source } = input;
-  if (
-    source !== undefined &&
-    source.bucket === bucket &&
-    (source.endpoint === undefined ||
-      endpointIdentity(source.endpoint) === endpointIdentity(input.endpoint))
-  ) {
+  const { bucket, client } = input;
+  if (input.sourceBucket === bucket) {
     throw new TargetRefusedError(
-      `bucket ${bucket} at ${endpointIdentity(input.endpoint)} is the source installation's bucket; restore only into a new, empty bucket`,
+      `bucket ${bucket} has the source installation's bucket name; restore only into a new, empty bucket of another name`,
     );
   }
   if (input.create !== undefined && !(await bucketExists(client, bucket))) {
@@ -212,6 +195,74 @@ function isPreconditionFailed(error: unknown): boolean {
   );
 }
 
+/**
+ * The store must refuse to replace an object: a scratch key is written
+ * once, then again with If-None-Match, which has to fail with 412; any other
+ * failure leaves the object untouched for the wrong reason. Every version
+ * and delete marker of the scratch key is then deleted by id, and the check
+ * fails unless none is left, so the bucket reads as it did before.
+ */
+async function createOnlyCheck(
+  client: S3ClientLike,
+  bucket: string,
+): Promise<number> {
+  const key = `create-only-check/${Date.now()}-${process.pid}`;
+  const put = (body: string) =>
+    client.send(
+      new PutObjectCommand({
+        Body: body,
+        Bucket: bucket,
+        IfNoneMatch: "*",
+        Key: key,
+      }),
+    );
+  let verdict = 0;
+  try {
+    await put("one");
+    try {
+      await put("two");
+      console.error(`create-only-check: a second write to ${key} was accepted`);
+      verdict = 1;
+    } catch (error) {
+      if (!isPreconditionFailed(error)) throw error;
+    }
+  } finally {
+    for (const version of await scratchVersions(client, bucket, key)) {
+      await client.send(
+        new DeleteObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          VersionId: version,
+        }),
+      );
+    }
+    const left = await scratchVersions(client, bucket, key);
+    if (left.length > 0) {
+      console.error(
+        `create-only-check: ${key} still has ${left.length} version(s) or delete marker(s)`,
+      );
+      verdict = 1;
+    }
+  }
+  return verdict;
+}
+
+async function scratchVersions(
+  client: S3ClientLike,
+  bucket: string,
+  key: string,
+): Promise<string[]> {
+  const page = (await client.send(
+    new ListObjectVersionsCommand({ Bucket: bucket, Prefix: key }),
+  )) as {
+    DeleteMarkers?: Array<{ Key?: string; VersionId?: string }>;
+    Versions?: Array<{ Key?: string; VersionId?: string }>;
+  };
+  return [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
+    .filter((entry) => entry.Key === key)
+    .map((entry) => entry.VersionId ?? "null");
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...args] = argv;
   const bucket = required("S3_BUCKET");
@@ -226,6 +277,19 @@ async function main(argv: readonly string[]): Promise<number> {
         const [dir] = args;
         if (!dir) return usage();
         const keys = await objects.list("");
+        // Two keys one file name apart on a case-insensitive or
+        // normalizing file system would leave one file for both.
+        const folded = new Map<string, string>();
+        for (const key of keys) {
+          const fold = key.normalize("NFC").toLowerCase();
+          const other = folded.get(fold);
+          if (other !== undefined) {
+            throw new Error(
+              `keys ${JSON.stringify(other)} and ${JSON.stringify(key)} may share one file in a backup directory`,
+            );
+          }
+          folded.set(fold, key);
+        }
         for (const key of keys) {
           const path = backupPath(dir, key);
           const chunks = await objects.stream(key);
@@ -246,27 +310,17 @@ async function main(argv: readonly string[]): Promise<number> {
       case "check-target": {
         let create = false;
         let sourceBucket: string | undefined;
-        let sourceEndpoint: string | undefined;
         for (let i = 0; i < args.length; i += 1) {
           const arg = args[i];
           if (arg === "--create") create = true;
           else if (arg === "--source-bucket") sourceBucket = args[++i];
-          else if (arg === "--source-endpoint") sourceEndpoint = args[++i];
           else return usage();
         }
         await checkRestoreTarget({
           bucket,
           client,
           ...(create ? { create: { region: s3.region } } : {}),
-          endpoint: s3.endpoint,
-          ...(sourceBucket === undefined
-            ? {}
-            : {
-                source: {
-                  bucket: sourceBucket,
-                  ...(sourceEndpoint ? { endpoint: sourceEndpoint } : {}),
-                },
-              }),
+          ...(sourceBucket === undefined ? {} : { sourceBucket }),
         });
         console.error(
           `check-target: bucket ${bucket} is versioned, Object Lock, SSE-S3 and empty`,
@@ -325,68 +379,8 @@ async function main(argv: readonly string[]): Promise<number> {
         console.log(head?.held === true ? "ON" : "OFF");
         return 0;
       }
-      // The store must still refuse to replace an object: a scratch key is
-      // written once, then again with If-None-Match, which has to fail with
-      // 412. Any other failure leaves the object untouched for the wrong
-      // reason. The scratch version is deleted by id, leaving no marker.
-      case "create-only-check": {
-        const key = `verify-restore/${Date.now()}-${process.pid}`;
-        const first = await client.send(
-          new PutObjectCommand({
-            Body: "one",
-            Bucket: bucket,
-            IfNoneMatch: "*",
-            Key: key,
-          }),
-        );
-        const versions = [(first as { VersionId?: string }).VersionId];
-        try {
-          try {
-            const second = await client.send(
-              new PutObjectCommand({
-                Body: "two",
-                Bucket: bucket,
-                IfNoneMatch: "*",
-                Key: key,
-              }),
-            );
-            versions.push((second as { VersionId?: string }).VersionId);
-            console.error(
-              `create-only-check: a second write to ${key} was accepted`,
-            );
-            return 1;
-          } catch (error) {
-            if (!isPreconditionFailed(error)) throw error;
-          }
-          const stored = await objects.get(key);
-          if (
-            stored === undefined ||
-            new TextDecoder().decode(stored) !== "one"
-          ) {
-            console.error(
-              `create-only-check: ${key} no longer holds the first write`,
-            );
-            return 1;
-          }
-          return 0;
-        } finally {
-          for (const version of versions) {
-            await client
-              .send(
-                new DeleteObjectCommand({
-                  Bucket: bucket,
-                  Key: key,
-                  VersionId: version,
-                }),
-              )
-              .catch((error: Error) =>
-                console.error(
-                  `create-only-check: warning — ${key} left behind: ${error.message}`,
-                ),
-              );
-          }
-        }
-      }
+      case "create-only-check":
+        return await createOnlyCheck(client, bucket);
       default:
         return usage();
     }
@@ -397,7 +391,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: object-store-cli.ts download <dir> | check-target [--create] [--source-bucket <b>] [--source-endpoint <url>] | upload <dir> [<skip-keys-file>] | count | read <key> <version> <out> | create-only-check",
+    "usage: object-store-cli.ts download <dir> | check-target [--create] [--source-bucket <b>] | upload <dir> [<skip-keys-file>] | count | read <key> <version> <out> | create-only-check",
   );
   return 2;
 }

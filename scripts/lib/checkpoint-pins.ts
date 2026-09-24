@@ -73,12 +73,18 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
 }
 
 /**
- * Where `aws s3 sync` put a key under the backup's objects/ directory. Only
- * keys that map to exactly one plain path are accepted; checkpoint keys are
- * `sessions/<id>/...` and never need more.
+ * Where a key lives under the backup's objects/ directory. Only keys that
+ * map to exactly one plain path inside it are accepted: `normalize` leaves
+ * a leading `..` in place, so those are refused by segment. Checkpoint keys
+ * are `sessions/<id>/...` and never need more.
  */
 export function backupPath(objectsDir: string, key: string): string {
-  if (key === "" || key.startsWith("/") || normalize(key) !== key) {
+  if (
+    key === "" ||
+    key.startsWith("/") ||
+    normalize(key) !== key ||
+    key.split("/").includes("..")
+  ) {
     throw new CheckpointPinError([
       `object key ${JSON.stringify(key)} has no single path in a backup`,
     ]);
