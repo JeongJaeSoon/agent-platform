@@ -25,6 +25,7 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   API_CHECKPOINT_CODECS,
+  assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
   createApiCheckpointService,
 } from "../../apps/control-host/src/api/checkpoints.ts";
@@ -125,6 +126,10 @@ async function repin(dir: string) {
       `restored bucket ${bucket} has versioning ${protection.versioning} and Object Lock ${protection.objectLock ? "enabled" : "not configured"}; re-pinning needs both`,
     );
   }
+  await assertCheckpointBucketEncryption(
+    { ...s3, bucket, protection: "locked" },
+    { client, warn: () => {} },
+  );
   const rows = await readRows();
   const planned = await planRepin({ codecs, objects, objectsDir: dir, rows });
   const repinned = await applyRepin({ objects, planned });
@@ -180,6 +185,7 @@ async function plans(): Promise<number> {
   try {
     const found = await describeBucketProtection(client, bucket);
     await assertCheckpointBucketProtection(config);
+    await assertCheckpointBucketEncryption(config, { client, warn: () => {} });
     console.log(
       `PASS bucket ${bucket}: ${JSON.stringify(found)}, passes the locked startup check`,
     );
