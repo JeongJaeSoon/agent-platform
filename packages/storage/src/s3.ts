@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
-import { ObjectIntegrityError } from "@agent-platform/runtime-core";
+import { isIP } from "node:net";
+import {
+  ObjectIntegrityError,
+  resolveEveryTime,
+} from "@agent-platform/runtime-core";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { HttpRequest } from "@smithy/core/protocols";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 export interface S3ClientLike {
@@ -57,6 +62,47 @@ export const S3_REQUEST_BOUNDS: S3RequestBounds = {
 };
 
 /**
+ * `NodeHttpHandler` that looks a plain-http endpoint's name up again for every
+ * request (94S-344).
+ *
+ * Under Bun, `node:http` hands a hostname to `fetch`, whose resolver keeps
+ * each answer for 30s, and it ignores an agent's `lookup` — only a request's
+ * own `lookup` reaches it, and this handler cannot pass one. So the name is
+ * resolved here and the request dialed at the address, with the name kept
+ * in the `host` header the SDK signed. A restarted LocalStack on a new
+ * address is then followed from the next request on.
+ *
+ * https is left to Bun: dialing an address would lose the server name the
+ * certificate is checked against, and no https endpoint here is a container
+ * that restarts.
+ */
+export class FreshAddressHttpHandler extends NodeHttpHandler {
+  override async handle(
+    ...[request, options]: Parameters<NodeHttpHandler["handle"]>
+  ): ReturnType<NodeHttpHandler["handle"]> {
+    return super.handle(await atFreshAddress(request), options);
+  }
+}
+
+async function atFreshAddress(request: HttpRequest): Promise<HttpRequest> {
+  const { hostname, port, protocol } = request;
+  if (protocol !== "http:" || isIP(hostname) !== 0) return request;
+  const [first] = await resolveEveryTime(hostname);
+  if (!first) {
+    throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), {
+      code: "ENOTFOUND",
+    });
+  }
+  const dialed = HttpRequest.clone(request);
+  dialed.hostname = first.address;
+  const named = Object.keys(dialed.headers).some(
+    (name) => name.toLowerCase() === "host",
+  );
+  if (!named) dialed.headers.host = port ? `${hostname}:${port}` : hostname;
+  return dialed;
+}
+
+/**
  * `NodeHttpHandler` with every response body on a leash.
  *
  * Both request timeouts are cleared the moment the response *headers* arrive,
@@ -70,7 +116,7 @@ export const S3_REQUEST_BOUNDS: S3RequestBounds = {
  * The bound is idle time, not total: it is armed from the socket's own data
  * events, so a 128 MiB GetObject that keeps arriving keeps resetting it.
  */
-export class BoundedNodeHttpHandler extends NodeHttpHandler {
+export class BoundedNodeHttpHandler extends FreshAddressHttpHandler {
   readonly #bodyIdleMs: number;
 
   constructor(bounds: S3RequestBounds) {

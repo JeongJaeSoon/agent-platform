@@ -1468,6 +1468,117 @@ console.log("TLS " + response.status + " " + (await response.text()));
       expect(await client.inspectNetwork(network)).toBeNull();
     }, 60_000);
   });
+
+  test("an upstream back on a new address is followed at once by the proxy and by the S3 handler (94S-344)", async () => {
+    // Stop the upstream, park a placeholder on its old address so dialing
+    // that is refused, and start it again on another one. Docker's DNS gave
+    // the old answer a TTL of 600s; a resolver that kept it would miss the
+    // new address for ten minutes.
+    const addressOf = async (name: string): Promise<string> =>
+      (await client.inspectContainer(name))?.NetworkSettings?.Networks?.[
+        outerNetwork
+      ]?.IPAddress ?? "";
+    const proxied = () =>
+      probe(`wget -T 5 -q -O - http://${allowedName}:8080/`, withProxy());
+    const oldAddress = await addressOf(allowedName);
+    expect(oldAddress).not.toBe("");
+    expect((await proxied()).output).toContain("allowed-upstream");
+
+    // One long-lived process on the upstream's network, the way the API and
+    // the scheduler reach LocalStack: the storage package's S3 handler, and
+    // node:dns beside it as the control.
+    const watcher = `ap-it-follow-${suffix}`;
+    const script = join(probeDir, `${watcher}.ts`);
+    await writeFile(script, FOLLOW_PROBE);
+    created.push(watcher);
+    const watched = await raw("POST", `/containers/create?name=${watcher}`, {
+      Cmd: ["bun", "run", "/probe/probe.ts"],
+      Env: [`TARGET=${allowedName}`],
+      HostConfig: {
+        Binds: [`${REPOSITORY}:/app:ro`, `${script}:/probe/probe.ts:ro`],
+        NetworkMode: outerNetwork,
+      },
+      Image: PROXY_IMAGE,
+      Tty: true,
+      WorkingDir: "/app",
+    });
+    expect(watched.status).toBe(201);
+    await client.startContainer(watcher);
+    const followed = async (since: number): Promise<FollowLine[]> => {
+      const response = await raw(
+        "GET",
+        `/containers/${watcher}/logs?stdout=true&stderr=true&since=${since}`,
+      );
+      return (await response.text())
+        .split("\n")
+        .filter((line) => line.startsWith("FOLLOW "))
+        .map((line) => JSON.parse(line.slice("FOLLOW ".length)));
+    };
+    const warmDeadline = Date.now() + 60_000;
+    while (!(await followed(0)).some((line) => line.handler === "ok")) {
+      if (Date.now() > warmDeadline) {
+        throw new Error(
+          `watcher never reached ${allowedName}:\n${await logsOf(watcher)}`,
+        );
+      }
+      await Bun.sleep(500);
+    }
+
+    await raw("POST", `/containers/${allowedName}/stop?t=1`);
+    // Only the restarted upstream can answer after this: the daemon stamps
+    // each log line, and the watcher's lines from here on are asked for below.
+    const stoppedAtSec = Math.ceil(Date.now() / 1000);
+    const placeholder = `ap-it-old-address-${suffix}`;
+    created.push(placeholder);
+    const parked = await raw("POST", `/containers/create?name=${placeholder}`, {
+      Cmd: ["sleep", "600"],
+      HostConfig: { NetworkMode: outerNetwork },
+      Image: IMAGE,
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [outerNetwork]: { IPAMConfig: { IPv4Address: oldAddress } },
+        },
+      },
+    });
+    expect(parked.status).toBe(201);
+    await client.startContainer(placeholder);
+    await Bun.sleep(1_100);
+    await client.startContainer(allowedName);
+    const restartedAt = Date.now();
+    const newAddress = await addressOf(allowedName);
+    expect(newAddress).not.toBe("");
+    expect(newAddress).not.toBe(oldAddress);
+
+    let proxyAfterMs: number | undefined;
+    let handlerAfterMs: number | undefined;
+    let last: FollowLine | undefined;
+    while (Date.now() - restartedAt <= 60_000) {
+      if (proxyAfterMs === undefined) {
+        const through = await proxied();
+        if (through.output.includes("allowed-upstream")) {
+          proxyAfterMs = Date.now() - restartedAt;
+        }
+      }
+      const lines = await followed(stoppedAtSec);
+      last = lines.at(-1) ?? last;
+      if (
+        handlerAfterMs === undefined &&
+        lines.some((l) => l.handler === "ok")
+      ) {
+        handlerAfterMs = Date.now() - restartedAt;
+      }
+      if (proxyAfterMs !== undefined && handlerAfterMs !== undefined) break;
+      await Bun.sleep(500);
+    }
+    console.log(
+      `94S-344: ${allowedName} ${oldAddress} -> ${newAddress}; proxy back after ${proxyAfterMs}ms, S3 handler after ${handlerAfterMs}ms; node:dns still answers ${last?.cares}`,
+    );
+    expect(proxyAfterMs).toBeDefined();
+    expect(handlerAfterMs).toBeDefined();
+    // The control: node:dns in the same process still hands out the old
+    // address, so this run did reproduce the cache the fix steps around.
+    expect(last?.cares).toBe(oldAddress);
+  }, 240_000);
 });
 
 /** Answers one line over TLS; written to the fixture directory at run time. */
@@ -1479,6 +1590,7 @@ Bun.serve({
     console.log("served " + new URL(request.url).host);
     return new Response("tls-upstream");
   },
+
 });
 console.log("tls listening");
 `;
@@ -1518,6 +1630,47 @@ Bun.serve({
   },
 });
 console.log("authorizer listening");
+`;
+
+type FollowLine = { cares: string; handler: string };
+
+/**
+ * A long-lived process calling one upstream every half second through the
+ * storage package's S3 handler, with node:dns's answer for the same name
+ * beside each result (94S-344).
+ */
+const FOLLOW_PROBE = `
+import { lookup } from "node:dns/promises";
+const { BoundedNodeHttpHandler, S3_REQUEST_BOUNDS } = await import(
+  "/app/packages/storage/src/s3.ts"
+);
+const hostname = process.env.TARGET;
+const handler = new BoundedNodeHttpHandler({
+  ...S3_REQUEST_BOUNDS,
+  connectionTimeout: 1_000,
+  requestTimeout: 2_000,
+});
+for (;;) {
+  let result;
+  try {
+    const { response } = await handler.handle({
+      headers: {},
+      hostname,
+      method: "GET",
+      path: "/",
+      port: 8080,
+      protocol: "http:",
+      query: {},
+    });
+    response.body.resume();
+    result = response.statusCode === 200 ? "ok" : "status " + response.statusCode;
+  } catch (error) {
+    result = "error " + (error.code ?? error.name);
+  }
+  const cares = await lookup(hostname).then((entry) => entry.address, () => "none");
+  console.log("FOLLOW " + JSON.stringify({ handler: result, cares }));
+  await Bun.sleep(500);
+}
 `;
 
 /**

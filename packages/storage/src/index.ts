@@ -34,6 +34,7 @@ export {
   type BodyReadBounds,
   BodyStallError,
   DEFAULT_BODY_READ_BOUNDS,
+  FreshAddressHttpHandler,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,

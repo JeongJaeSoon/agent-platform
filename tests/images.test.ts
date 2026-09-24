@@ -166,16 +166,20 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     compose.indexOf("\n  worker:"),
   );
 
-  test("the API image itself runs under an init that reaps the git helpers it orphans", () => {
-    // In the image, not compose, so `docker run` and other orchestrators get
-    // it too; image-smoke.sh checks the running container.
-    expect(basePins["control-host"].source).toMatch(
-      /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
-    );
-    expect(basePins["control-host"].source).toMatch(
-      /apt-get install .*\btini\b/,
-    );
-  });
+  // The API for the git helpers its bundle verifier orphans (94S-272), the
+  // worker for those of a git killed as a group and for the tools Claude Code
+  // leaves behind (94S-301). In the image, not compose or HostConfig, so
+  // `docker run` and a scheduler that overrides Cmd get it too; image-smoke.sh
+  // checks the running container.
+  test.each(["control-host", "worker"] as const)(
+    "the %s image runs under an init that reaps the processes it orphans",
+    (app) => {
+      expect(basePins[app].source).toMatch(
+        /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
+      );
+      expect(basePins[app].source).toMatch(/apt-get install .*\btini\b/);
+    },
+  );
 
   test("the API's memory limit and git cap are set side by side", () => {
     expect(apiBlock).toContain("mem_limit: $" + "{API_MEMORY_MB:-7168}m");

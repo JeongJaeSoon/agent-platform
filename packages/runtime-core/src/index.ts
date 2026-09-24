@@ -10,6 +10,7 @@ export {
   transcriptParts,
   transcriptSizeProblem,
 } from "./checkpoint-manifest.ts";
+export * from "./fresh-lookup.ts";
 export * from "./git-bundle.ts";
 export * from "./git-process.ts";
 export * from "./worker-gateway-client.ts";
