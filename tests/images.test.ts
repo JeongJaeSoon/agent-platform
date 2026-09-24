@@ -73,7 +73,7 @@ describe("app Dockerfiles", () => {
     const manifest = JSON.parse(read("apps/egress-proxy/package.json"));
     expect(manifest.dependencies ?? {}).toEqual({});
     const source = basePins["egress-proxy"].source;
-    expect(source).not.toMatch(/^RUN /m);
+    expect(source.match(/^RUN .*$/gm)).toEqual(["RUN apt-get update \\"]);
     expect(source.match(/^COPY .*$/gm)).toEqual([
       "COPY apps/egress-proxy/package.json ./",
       "COPY THIRD_PARTY_NOTICES.md ./",
@@ -88,6 +88,16 @@ describe("app Dockerfiles", () => {
       /^COPY (?:[^\n]* )?THIRD_PARTY_NOTICES\.md \.\/$/m,
     );
     expect(basePins[app].source).toMatch(/^WORKDIR \/app$/m);
+  });
+
+  // The Bun pin freezes Debian too, so the stage that ships upgrades it,
+  // under the key images.yml changes daily (94S-363).
+  test.each(apps)("%s upgrades Debian in the stage it ships", (app) => {
+    const source = basePins[app].source;
+    const shipped = source.slice(source.lastIndexOf("\nFROM "));
+    expect(shipped).toMatch(
+      /^ARG APT_UPGRADE_KEY=\nRUN apt-get update \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \\$/m,
+    );
   });
 
   // The scheduler runs the worker image as the workspace inode helper

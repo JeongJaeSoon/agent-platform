@@ -6,6 +6,14 @@
 # Base pinned by the multi-arch index digest of oven/bun:1.3.10 so amd64 CI
 # and arm64 laptops build from one file. tests/images.test.ts keeps the three
 # app Dockerfiles on the same digest; bump them together.
+#
+# The pin fixes Bun, not Debian: oven/bun does not rebuild a released tag, so
+# the base's packages age with it (94S-363). Every shipped stage therefore
+# runs `apt-get upgrade`, keyed by APT_UPGRADE_KEY: images.yml passes the UTC
+# date, so its layer cache takes each day's security fixes once; a local
+# build keeps its cached layer. Two builds of one commit on different days
+# can differ in Debian package versions; a release pins what it shipped by
+# image digest.
 ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
 
 FROM ${BUN_IMAGE} AS deps
@@ -32,7 +40,10 @@ FROM ${BUN_IMAGE} AS runtime
 # launch, as a short-lived helper that puts the inode ceiling on the session
 # volume (xfs_io, xfs_quota; packages/adapters/execution/local-docker
 # workspace-inodes.ts), so the daemon needs no second image for it.
+# The upgrade: see ARG APT_UPGRADE_KEY.
+ARG APT_UPGRADE_KEY=
 RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
   && apt-get install -y --no-install-recommends ca-certificates git tini xfsprogs \
   && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 is what LocalDockerBackend runs the container as

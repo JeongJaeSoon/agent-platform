@@ -131,7 +131,8 @@ describe("images.yml", () => {
     for (const build of builds)
       expect(build.with?.["build-args"]).toBe(
         `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
-          `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n`,
+          `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n` +
+          `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n`,
       );
   });
 
