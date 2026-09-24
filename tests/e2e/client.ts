@@ -151,7 +151,11 @@ export class Api {
     return response.body;
   }
 
-  createSession(message: string, idempotencyKey?: string) {
+  createSession(
+    message: string,
+    idempotencyKey?: string,
+    profileId = PROFILE_ID,
+  ) {
     return this.request<{
       receipt_id: string;
       session_id: string;
@@ -160,7 +164,7 @@ export class Api {
     }>(
       "POST",
       "/v1/sessions",
-      { profile_id: PROFILE_ID, repository_id: REPOSITORY_ID, message },
+      { profile_id: profileId, repository_id: REPOSITORY_ID, message },
       idempotencyKey,
     );
   }
