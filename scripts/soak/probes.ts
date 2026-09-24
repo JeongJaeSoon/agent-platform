@@ -147,10 +147,12 @@ export class Api {
 
   /**
    * Reads the session's event stream until a `status` event with `phase`
-   * for `turnId` arrives, and answers the host time it was read (null: the
-   * stream ended or `signal` aborted first). The stream opens from the last
-   * id this Api read for the session, so each probe replays only the turns
-   * since the one before it.
+   * for `turnId` arrives, and answers the host time it was read (null:
+   * `signal` aborted first, or the API refused the stream for good). The
+   * stream opens from the last id this Api read for the session, so each
+   * probe replays only the turns since the one before it, and a stream the
+   * API closes or turns away for now is reopened from there: the event is
+   * durable, so it is read late, never lost.
    */
   async statusPhase(
     sessionId: string,
@@ -158,35 +160,50 @@ export class Api {
     phase: string,
     signal: AbortSignal,
   ): Promise<number | null> {
-    const after = this.cursors.get(sessionId);
-    let response: Response;
-    for (;;) {
-      try {
-        response = await fetch(`${this.base}/v1/sessions/${sessionId}/events`, {
-          headers: {
-            accept: "text/event-stream",
-            authorization: `Bearer ${this.key}`,
-            ...(after === undefined ? {} : { "last-event-id": after }),
-          },
-          signal,
-        });
-      } catch {
-        return null;
-      }
-      // Probes on other sessions may hold the owner's streams (8) for a
-      // moment; the event is durable, so reading it a little later is safe.
-      if (response.status !== 429) break;
-      await response.body?.cancel();
+    while (!signal.aborted) {
+      const at = await this.readPhase(sessionId, turnId, phase, signal);
+      if (at !== undefined) return at;
       await Bun.sleep(100);
     }
+    return null;
+  }
+
+  /** One stream: when `phase` was read, null if it never can be, else undefined. */
+  private async readPhase(
+    sessionId: string,
+    turnId: string,
+    phase: string,
+    signal: AbortSignal,
+  ): Promise<number | null | undefined> {
+    const after = this.cursors.get(sessionId);
+    let response: Response;
+    try {
+      response = await fetch(`${this.base}/v1/sessions/${sessionId}/events`, {
+        headers: {
+          accept: "text/event-stream",
+          authorization: `Bearer ${this.key}`,
+          ...(after === undefined ? {} : { "last-event-id": after }),
+        },
+        signal,
+      });
+    } catch {
+      return undefined;
+    }
     const reader = response.body?.getReader();
-    if (response.status !== 200 || reader === undefined) return null;
+    if (response.status !== 200 || reader === undefined) {
+      await reader?.cancel().catch(() => {});
+      // Other probes holding the owner's streams (8), or a server error, are
+      // worth another try; anything else would be refused the same way.
+      return response.status === 429 || response.status >= 500
+        ? undefined
+        : null;
+    }
     const decoder = new TextDecoder();
     let buffered = "";
     try {
       for (;;) {
         const chunk = await reader.read();
-        if (chunk.done) return null;
+        if (chunk.done) return undefined;
         buffered += decoder.decode(chunk.value, { stream: true });
         let end = buffered.indexOf("\n\n");
         while (end !== -1) {
@@ -214,7 +231,7 @@ export class Api {
         }
       }
     } catch {
-      return null;
+      return undefined;
     } finally {
       reader.cancel().catch(() => {});
     }

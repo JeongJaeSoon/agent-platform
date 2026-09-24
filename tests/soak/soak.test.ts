@@ -252,22 +252,62 @@ describe("Api.statusPhase (94S-382)", () => {
     }
   });
 
-  test("answers null when the stream ends without the phase", async () => {
+  test("reopens a stream the API closed from the last id it read", async () => {
+    const seen: Array<string | null> = [];
     const server = Bun.serve({
       port: 0,
-      fetch: () =>
-        new Response("event: status\nid: ev_1\ndata: {}\n\n", {
+      fetch(request) {
+        seen.push(request.headers.get("last-event-id"));
+        const body =
+          seen.length === 1
+            ? "event: status\nid: ev_1\ndata: {}\n\n"
+            : `id: ev_2\nevent: status\ndata: ${JSON.stringify({ turn_id: "1", data: { phase: "engine_stopped" } })}\n\n`;
+        return new Response(body, {
           headers: { "content-type": "text/event-stream" },
-        }),
+        });
+      },
+    });
+    try {
+      const api = new Api(`http://localhost:${server.port}`, "test");
+      const at = await api.statusPhase(
+        "s",
+        "1",
+        "engine_stopped",
+        new AbortController().signal,
+      );
+      expect(typeof at).toBe("number");
+      expect(seen).toEqual([null, "ev_1"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("answers null once aborted, and at once for a stream refused for good", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) =>
+        new URL(request.url).pathname.includes("gone")
+          ? new Response("no", { status: 404 })
+          : new Response(": keepalive\n\n", {
+              headers: { "content-type": "text/event-stream" },
+            }),
     });
     try {
       const api = new Api(`http://localhost:${server.port}`, "test");
       expect(
         await api.statusPhase(
-          "s",
+          "gone",
           "1",
           "engine_stopped",
           new AbortController().signal,
+        ),
+      ).toBeNull();
+      expect(
+        await api.statusPhase(
+          "s",
+          "1",
+          "engine_stopped",
+          AbortSignal.timeout(300),
         ),
       ).toBeNull();
     } finally {
