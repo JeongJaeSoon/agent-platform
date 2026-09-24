@@ -1330,7 +1330,9 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     await expect(
       h.port.restorePlan(await claimOf(h.gateway), neverStopped()),
     ).rejects.toThrow("not the bytes the manifest pinned");
-    expect(existsSync(join(workspace, "left-behind.txt"))).toBe(true);
+    // Cleared before the download, which then needs no room beside it; the
+    // spool goes with the failure.
+    expect(await readdir(workspace)).toEqual([]);
   });
 
   test("refuses a transcript part that is gone, before touching the workspace", async () => {

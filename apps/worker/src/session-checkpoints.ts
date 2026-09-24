@@ -40,6 +40,7 @@ import type {
   WorkerCheckpointPort,
 } from "./checkpoint.ts";
 import {
+  clearWorkspace,
   restoreCheckpointTree,
   stageCheckpointBundle,
   stagedClaudeMd,
@@ -231,18 +232,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   /**
-   * Restores the checkpoint the claim names, in two halves.
+   * Restores the checkpoint the claim names, in three steps.
    *
-   * Everything that can refuse runs first, while the workspace is untouched:
-   * the gateway's plan (whose fingerprint verdict is made against this
-   * worker's recomputed one, 94S-261), the manifest the claim pinned by
-   * digest — the authority for everything else — checked against the claim,
-   * this runtime and this workspace root, and every object it names
-   * downloaded and held to its digest: the bundle fetched and its refs
-   * checked in a repository of the worker's own, the untracked files spooled,
-   * the inherited transcript parts read and parsed.
+   * What needs no disk runs first, while the workspace is untouched: the
+   * gateway's plan (whose fingerprint verdict is made against this worker's
+   * recomputed one, 94S-261), the manifest the claim pinned by digest — the
+   * authority for everything else — checked against the claim, this runtime
+   * and this workspace root, and the inherited transcript parts read and
+   * parsed.
    *
-   * Only then is the workspace replaced, and the untracked files written
+   * Then the old tree is cleared, to make room on the one disk the worker
+   * has, and every object the manifest names is downloaded there and held to
+   * its digest: the bundle fetched and its refs checked in a repository of
+   * the worker's own, the untracked files spooled.
+   *
+   * Only then is the checkout written, and the untracked files written
    * back without following a link the checkout brought. The signal is
    * checked between every step, and nothing that finishes late starts
    * touching files once it has fired; a restore stopped half way leaves a
@@ -304,10 +308,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     await store.ready();
     await store.verifyInherited(signal);
 
-    // On the workspace volume, the only disk a worker has, beside the tree
-    // it replaces; the clearing spares it and moves it into the new `.git`.
-    // Its staged repository outlives the restore there: later captures take
-    // the instructions commit's objects from it.
+    // On the workspace volume, the only disk a worker has, and so only once
+    // the tree it replaces is gone: the volume's quota must not have to hold
+    // both. Nothing reads that tree after a restore has a plan — this one
+    // replaces it, and so does any restore after one that fails from here.
+    // The restore moves the spool into the new `.git`, where its staged
+    // repository outlives it: later captures take the instructions commit's
+    // objects from it.
+    signal.throwIfAborted();
+    await clearWorkspace(workspaceRoot, signal);
     let spool = await mkdtemp(join(workspaceRoot, ".agent-platform-restore-"));
     const spooled = new Map<string, string>();
     const artifacts = [
