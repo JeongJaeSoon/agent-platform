@@ -66,19 +66,15 @@ export function createApiCheckpointService(
 }
 
 /**
- * Smallest cap accepted: twice what a bundle near the old 128 MiB ceiling
- * needed in the API image (one incompressible 120 MiB file: refused at
- * 96 MiB, verified at 128 MiB). A cap below what ordinary bundles need fails
- * every verification, so no checkpoint would ever commit; refusing to start
- * says that once instead of on every turn.
- *
- * Deliberately not raised with the service's 256 MiB ceiling: workers still
- * stop at 128 MiB, so no bundle can yet need more, and raising it would stop
- * deployments that start today. What git needs follows the largest file, a
- * little over its size, so the worker capture limit going past 128 MiB is
- * what should move this to ~512.
+ * Smallest cap accepted: twice what the largest bundle a worker writes may
+ * need. What git needs follows the largest file, a little over its size
+ * (one incompressible 120 MiB file: refused at 96 MiB, verified at 128 MiB),
+ * and workers now write bundles up to the service's 256 MiB ceiling
+ * (94S-318), so a single 250 MiB file needs ~256 MiB. A cap below what
+ * ordinary bundles need fails every verification, so no checkpoint would
+ * ever commit; refusing to start says that once instead of on every turn.
  */
-export const MIN_CHECKPOINT_GIT_MEMORY_MB = 256;
+export const MIN_CHECKPOINT_GIT_MEMORY_MB = 512;
 
 /**
  * `CHECKPOINT_GIT_MEMORY_MB`: the address space, in MiB, each git process

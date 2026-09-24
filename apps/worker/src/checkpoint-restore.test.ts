@@ -81,6 +81,7 @@ async function captured(
 ): Promise<WorkspaceCapture> {
   const result = await captureWorkspace({
     root: from,
+    bundlePath: join(scratch, `capture-${crypto.randomUUID()}.bundle`),
     signal: new AbortController().signal,
     ...(instructions === undefined ? {} : { instructions }),
   });
@@ -89,10 +90,8 @@ async function captured(
 }
 
 async function stage(capture: WorkspaceCapture, name = "staged.git") {
-  const bundle = join(scratch, `${name}.bundle`);
-  await writeFile(bundle, capture.bundle);
   return stageCheckpointBundle({
-    bundle,
+    bundle: capture.bundle.path,
     gitCommit: capture.gitCommit,
     repository: join(scratch, name),
     signal: new AbortController().signal,
@@ -329,9 +328,13 @@ describe("staging a checkpoint bundle", () => {
     // The same objects, bundled with one more ref.
     const repository = join(scratch, "extra.git");
     await git(scratch, "init", "--quiet", "--bare", repository);
-    const bundle = join(scratch, "capture.bundle");
-    await writeFile(bundle, capture.bundle);
-    await git(repository, "fetch", "--quiet", bundle, "refs/*:refs/*");
+    await git(
+      repository,
+      "fetch",
+      "--quiet",
+      capture.bundle.path,
+      "refs/*:refs/*",
+    );
     await git(repository, "update-ref", "refs/tags/extra", capture.gitCommit);
     await git(
       repository,

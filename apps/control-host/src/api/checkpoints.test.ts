@@ -192,7 +192,7 @@ describe("API checkpoint composition", () => {
       bundle.commit,
     );
     const maxGitMemoryBytes = checkpointGitMemoryBytesFromEnv({
-      CHECKPOINT_GIT_MEMORY_MB: "384",
+      CHECKPOINT_GIT_MEMORY_MB: "768",
     });
     const service = createApiCheckpointService({
       codecs,
@@ -205,7 +205,7 @@ describe("API checkpoint composition", () => {
     const verdict = await service.validateManifest({ checkpoint, sessionId });
     expect(verdict.status).toBe("verified");
     expect(memory.length).toBeGreaterThan(0);
-    expect(new Set(memory)).toEqual(new Set([384 * 1024 * 1024]));
+    expect(new Set(memory)).toEqual(new Set([768 * 1024 * 1024]));
   });
 
   test("keeps the verifier's default cap when the environment names none", () => {

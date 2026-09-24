@@ -274,13 +274,17 @@ async function drain(
   for await (const chunk of source.open()) {
     chunks.push(chunk.byteLength);
     if (filled + chunk.byteLength > source.bytes) {
-      throw new Error(`${key}: the body is longer than its ${source.bytes} bytes`);
+      throw new Error(
+        `${key}: the body is longer than its ${source.bytes} bytes`,
+      );
     }
     bytes.set(chunk, filled);
     filled += chunk.byteLength;
   }
   if (filled !== source.bytes) {
-    throw new Error(`${key}: the body ended at ${filled} of its ${source.bytes} bytes`);
+    throw new Error(
+      `${key}: the body ended at ${filled} of its ${source.bytes} bytes`,
+    );
   }
   if (sha256(bytes) !== source.sha256) {
     throw new Error(`${key}: the body does not match its declared sha256`);
