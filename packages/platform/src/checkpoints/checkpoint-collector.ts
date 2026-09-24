@@ -1,7 +1,9 @@
-import type {
-  CheckpointCodec,
-  CheckpointManifest,
-  CheckpointObjectStore,
+import {
+  type CheckpointCodec,
+  type CheckpointManifest,
+  type CheckpointObjectStore,
+  TRANSCRIPT_MIRROR_DIRECTORY,
+  transcriptGenerationOf,
 } from "@agent-platform/runtime-core";
 
 import type {
@@ -18,6 +20,7 @@ import {
 import {
   engineOf,
   inBatches,
+  keepSet,
   own,
   parentOf,
   sha256,
@@ -46,10 +49,11 @@ export type SessionCollection =
  * Releases and deletes the checkpoint objects no restore can reach and no
  * finalize can still commit (94S-281).
  *
- * Only versions under `<session>/checkpoints/<revision>/<attempt>/` are ever
- * touched: manifests, workspace bundles and untracked files, which each
- * belong to the one attempt that wrote them. Transcript parts are shared by
- * every revision that inherits them and are left alone.
+ * Two kinds of version are collected. Under
+ * `<session>/checkpoints/<revision>/<attempt>/`: manifests, workspace bundles
+ * and untracked files, which each belong to the one attempt that wrote them.
+ * Under `<session>/transcripts/generation-<n>/`: transcript parts, which every
+ * revision that inherits them shares (94S-326). Nothing else is touched.
  *
  * A version goes only when both hold:
  *
@@ -59,13 +63,19 @@ export type SessionCollection =
  *   (the window of the commit built on it). Only the attempt that
  *   holds the fence restores anything that matters, and the pointer does not
  *   move until that attempt commits, so its plan is always among these.
- * - *No finalize can commit it.* Its directory is at or below the pointer's
- *   revision — the pointer CAS accepts only the next one — or belongs to an
- *   attempt that lost its fence. Finalize accepts a manifest naming
- *   directory objects only in its own attempt's directory
+ * - *No finalize can commit it.* For a checkpoint directory: it is at or
+ *   below the pointer's revision — the pointer CAS accepts only the next
+ *   one — or belongs to an attempt that lost its fence. Finalize accepts a
+ *   manifest naming directory objects only in its own attempt's directory
  *   (`verifyAttemptManifest`), so whatever a finalize in flight has held
  *   sits in a directory that is neither, whatever order its hold, this
- *   collection and its CAS run in.
+ *   collection and its CAS run in. For a transcript part: its generation is
+ *   below the session's, so every attempt that could write it is fenced.
+ *   Finalize accepts a part of another generation only when the checkpoint
+ *   the candidate builds on names it (`strayTranscriptPart`) — the pointer,
+ *   or the parent a fallback restored — and the pointer's window keeps both,
+ *   so a part a finalize in flight has held is either of a generation this
+ *   collection does not reach or one it keeps.
  *
  * Both conditions only ever grow more true, so reading the database before
  * listing the objects needs no lock — only the order the two reads run in
@@ -184,20 +194,11 @@ export function createCheckpointCollector(
       if (typeof manifest === "string") {
         return { status: "skipped", reason: manifest };
       }
-      // Only a row a locked finalize committed vouches for its versions.
-      // Any other named whatever the worker reported, which a restore
-      // re-reads by key and re-holds, so every version of those keys stays.
-      const trusted = checkpoint.versionsHeld === true;
-      keep.add(
-        checkpoint.manifestRef,
-        trusted ? (checkpoint.manifestVersion ?? undefined) : undefined,
-      );
-      for (const ref of manifestObjects(manifest)) {
-        keep.add(ref.key, trusted ? ref.version : undefined);
-      }
+      keep.addManifest(checkpoint, manifest);
     }
     const pointerRevision = pointer?.revision ?? -1;
-    const directories = `${sessionObjectPrefix(sessionId)}checkpoints/`;
+    const sessionPrefix = sessionObjectPrefix(sessionId);
+    const directories = `${sessionPrefix}checkpoints/`;
     const doomed: StoredObjectVersion[] = [];
     let kept = 0;
     for (const entry of await collector.listVersions(directories)) {
@@ -206,6 +207,17 @@ export function createCheckpointCollector(
         directory !== undefined &&
         (directory.revision <= pointerRevision ||
           fences.fencedAttemptIds.has(directory.attemptId));
+      if (collectible && !keep.has(entry)) doomed.push(entry);
+      else kept += 1;
+    }
+    // A dead generation's tail past its last checkpoint, and parts only a
+    // revision this collection gave up named. The generation is read with
+    // the fences, before the pointer, for the same reason they are.
+    const mirror = `${sessionPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}/`;
+    for (const entry of await collector.listVersions(mirror)) {
+      const generation = transcriptGenerationOf(entry.key, sessionPrefix);
+      const collectible =
+        generation !== undefined && generation < fences.executionGeneration;
       if (collectible && !keep.has(entry)) doomed.push(entry);
       else kept += 1;
     }
@@ -276,33 +288,4 @@ function attemptDirectory(
   const match = /^(\d{10})\/([^/]+)\/./.exec(key.slice(prefix.length));
   if (match === null || !key.startsWith(prefix)) return undefined;
   return { revision: Number(match[1]), attemptId: match[2] as string };
-}
-
-function manifestObjects(manifest: CheckpointManifest) {
-  return [
-    ...manifest.transcripts.root.parts,
-    ...Object.values(manifest.transcripts.subagents).flatMap(
-      (revision) => revision.parts,
-    ),
-    manifest.workspace.bundle,
-    ...manifest.workspace.untracked,
-  ];
-}
-
-/** Versions to keep, and keys whose every version is kept. */
-function keepSet() {
-  const keys = new Set<string>();
-  const versions = new Set<string>();
-  return {
-    add(key: string, version: string | undefined) {
-      if (version === undefined) keys.add(key);
-      else versions.add(JSON.stringify([key, version]));
-    },
-    has(entry: StoredObjectVersion) {
-      return (
-        keys.has(entry.key) ||
-        versions.has(JSON.stringify([entry.key, entry.version]))
-      );
-    },
-  };
 }
