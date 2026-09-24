@@ -1385,6 +1385,10 @@ describe("a long session's transcript (94S-314, 94S-296)", () => {
   test("a transcript part over the size limit is publish_failed at the transcript stage", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);
+    // Enough parts that a capture within the limit would merge them.
+    for (let index = 0; index < 600; index += 1) {
+      await mirror.append(root, [{ type: "user", uuid: `u${index}` }]);
+    }
     await mirror.append(root, [
       {
         type: "user",
@@ -1408,9 +1412,14 @@ describe("a long session's transcript (94S-314, 94S-296)", () => {
         /^transcript: .*over the \d+-byte part limit$/,
       ),
     });
-    expect(h.objects.keys().some((key) => key.endsWith("/manifest.json"))).toBe(
-      false,
-    );
+    // Refused before anything was merged, let alone committed.
+    expect(
+      h.objects
+        .keys()
+        .some(
+          (key) => key.endsWith("/manifest.json") || key.includes("/merged-"),
+        ),
+    ).toBe(false);
   });
 });
 

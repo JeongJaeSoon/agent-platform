@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
-import type {
-  TranscriptEntry,
-  TranscriptRevision,
+import {
+  MAX_TRANSCRIPT_PART_BYTES,
+  type TranscriptEntry,
+  type TranscriptRevision,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -12,6 +13,7 @@ import {
 import {
   ClaudeSessionStore,
   type TranscriptInheritance,
+  TranscriptTooLarge,
 } from "./session-store.ts";
 
 const projectKey = "-workspace";
@@ -1057,5 +1059,64 @@ describe("Claude session store merging parts (94S-314)", () => {
       entry("a", "first"),
       entry("b", "second"),
     ]);
+  });
+});
+
+describe("Claude session store merging parts, the edges (94S-314, 94S-296)", () => {
+  function launch(objects: MemoryCheckpointObjectStore, generation = 1) {
+    return new ClaudeSessionStore({ generation, objects, prefix });
+  }
+
+  async function appendParts(mirror: ClaudeSessionStore, count: number) {
+    for (let index = 0; index < count; index += 1) {
+      await mirror.append(root, [entry(`u${index}`, `entry ${index}`)]);
+    }
+  }
+
+  test("names a merged part by the version the store answered", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const mirror = launch(objects);
+    await appendParts(mirror, 600);
+
+    const [merged] = (await mirror.captureTranscripts(sessionId))?.root
+      .parts ?? [undefined];
+
+    if (merged === undefined) throw new Error("expected a merged part");
+    expect(merged.version).toBeDefined();
+    expect((await objects.head(merged.key))?.version).toBe(
+      merged.version as string,
+    );
+  });
+
+  test("still refuses one uuid with two bodies once they share a merged part", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects);
+    await mirror.append(root, [entry("same", "first body")]);
+    await appendParts(mirror, 600);
+    await mirror.append(root, [entry("same", "second body")]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toThrow(
+      /Conflicting transcript entry uuid: same/,
+    );
+  });
+
+  test("refuses a transcript past the size limit before merging anything", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = launch(objects);
+    await appendParts(mirror, 600);
+    await mirror.append(root, [
+      {
+        type: "user",
+        uuid: "big",
+        message: "x".repeat(MAX_TRANSCRIPT_PART_BYTES),
+      },
+    ]);
+
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toBeInstanceOf(
+      TranscriptTooLarge,
+    );
+    expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
+      [],
+    );
   });
 });

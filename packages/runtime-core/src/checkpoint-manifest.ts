@@ -106,25 +106,29 @@ export type CheckpointTranscripts = {
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 
+/** Every part of the root transcript and of each subagent's. */
+export function transcriptParts(
+  transcripts: CheckpointTranscripts,
+): ObjectRef[] {
+  return [transcripts.root, ...Object.values(transcripts.subagents)].flatMap(
+    (revision) => revision.parts,
+  );
+}
+
 /**
- * Why a checkpoint's transcripts are over the limits above, judged from the
- * sizes its refs claim — every reader holds the stored bytes to those before
+ * Why a session's transcript parts are over the limits above, judged from
+ * the sizes they claim — every reader holds the stored bytes to those before
  * trusting them — so nothing has to be fetched to answer.
  */
 export function transcriptSizeProblem(
-  transcripts: CheckpointTranscripts,
+  parts: Iterable<{ readonly bytes: number; readonly key: string }>,
 ): string | undefined {
   let total = 0;
-  for (const revision of [
-    transcripts.root,
-    ...Object.values(transcripts.subagents),
-  ]) {
-    for (const part of revision.parts) {
-      if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
-        return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
-      }
-      total += part.bytes;
+  for (const part of parts) {
+    if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
+      return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
     }
+    total += part.bytes;
   }
   return total > MAX_TRANSCRIPT_BYTES
     ? `the transcript is ${total} bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit`

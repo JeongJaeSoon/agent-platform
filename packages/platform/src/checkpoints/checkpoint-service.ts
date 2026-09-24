@@ -15,6 +15,7 @@ import type {
   WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 import {
+  transcriptParts,
   transcriptSizeProblem,
   workspacePathsProblem,
 } from "@agent-platform/runtime-core";
@@ -533,7 +534,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     }
     // From the sizes the refs claim, which the reads below hold the stored
     // bytes to: a transcript over the limit is refused unread (94S-296).
-    const oversized = transcriptSizeProblem(manifest.transcripts);
+    const oversized = transcriptSizeProblem(
+      transcriptParts(manifest.transcripts),
+    );
     if (oversized !== undefined) return refused(oversized);
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, manifest.workspace.bundle]) {

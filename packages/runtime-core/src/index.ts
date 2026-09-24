@@ -7,6 +7,7 @@ export {
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
+  transcriptParts,
   transcriptSizeProblem,
 } from "./checkpoint-manifest.ts";
 export * from "./git-bundle.ts";

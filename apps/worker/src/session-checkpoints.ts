@@ -11,6 +11,7 @@ import type {
 import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
+  TranscriptTooLarge,
 } from "@agent-platform/runtime-claude";
 import {
   type CheckpointCodec,
@@ -25,6 +26,7 @@ import {
   type RuntimeFingerprint,
   restoreCwdRefusal,
   type TranscriptRevision,
+  transcriptParts,
   transcriptSizeProblem,
   type WorkerGatewayClient,
   type WorkspaceArtifact,
@@ -444,7 +446,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (paths !== undefined) throw refuse(`untracked files: ${paths}`);
     // Before a single part is fetched: holding and parsing a transcript this
     // size is what would take the worker down (94S-296).
-    const oversized = transcriptSizeProblem(manifest.transcripts);
+    const oversized = transcriptSizeProblem(
+      transcriptParts(manifest.transcripts),
+    );
     if (oversized !== undefined) throw refuse(oversized);
     for (const ref of [
       manifest.workspace.bundle,
@@ -670,9 +674,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       upload(key, bytes),
     );
 
-    const transcripts = await bound.store.captureTranscripts(
-      preparation.checkpoint.resume,
-    );
+    const transcripts = await bound.store
+      .captureTranscripts(preparation.checkpoint.resume)
+      .catch((error: unknown) => {
+        throw error instanceof TranscriptTooLarge
+          ? new PublishFailure("transcript", error.message)
+          : error;
+      });
     if (transcripts === null) {
       throw new PublishFailure(
         "transcript",
@@ -691,7 +699,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       throw new MirrorLost(now.detail);
     }
 
-    const oversized = transcriptSizeProblem(transcripts);
+    const oversized = transcriptSizeProblem(transcriptParts(transcripts));
     if (oversized !== undefined) {
       throw new PublishFailure("transcript", oversized);
     }

@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
-import type {
-  CheckpointObjectStore,
-  CheckpointTranscripts,
-  ObjectRef,
-  PutImmutableResult,
-  TranscriptEntry,
-  TranscriptKey,
-  TranscriptMirror,
-  TranscriptRevision,
+import {
+  type CheckpointObjectStore,
+  type CheckpointTranscripts,
+  type ObjectRef,
+  type PutImmutableResult,
+  type TranscriptEntry,
+  type TranscriptKey,
+  type TranscriptMirror,
+  type TranscriptRevision,
+  transcriptSizeProblem,
 } from "@agent-platform/runtime-core";
 
 /** Give up rather than spin if a slot keeps being taken from under us. */
@@ -25,6 +26,17 @@ const SLOT_ATTEMPTS = 64;
 const LANE_COMPACT_AT = 512;
 const SESSION_COMPACT_AT = 4096;
 const MERGED_PART_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A capture refused because the transcript is past the limits a checkpoint
+ * carries (`MAX_TRANSCRIPT_BYTES`), before anything was merged or written.
+ */
+export class TranscriptTooLarge extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "TranscriptTooLarge";
+  }
+}
 
 /**
  * What a resumed launch adopts: the transcripts of the checkpoint it resumes,
@@ -343,7 +355,8 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * A transcript pinning too many parts is merged first (`#merge`), so a
    * long session keeps fitting in a manifest. Merged parts are written under
    * this generation like any other part, and a merge that fails leaves the
-   * store pinning what it did before.
+   * store pinning what it did before. A session past the transcript limits
+   * is refused (`TranscriptTooLarge`) before any of that.
    */
   async captureTranscripts(
     sessionId: string,
@@ -374,9 +387,16 @@ export class ClaudeSessionStore implements TranscriptMirror {
       ]),
     );
     let total = 0;
+    const sizes: Array<{ bytes: number; key: string }> = [];
     for (const view of views.values()) {
       total += view.base.length + view.own.length;
+      sizes.push(...view.base);
+      for (const key of view.own) {
+        sizes.push({ bytes: (await this.#cached(key)).byteLength, key });
+      }
     }
+    const oversized = transcriptSizeProblem(sizes);
+    if (oversized !== undefined) throw new TranscriptTooLarge(oversized);
     const revisions = new Map<string, TranscriptRevision>();
     for (const lane of lanes) {
       let { base, own: mine } = views.get(lane) as LaneView;
@@ -484,8 +504,17 @@ export class ClaudeSessionStore implements TranscriptMirror {
             ),
       );
     }
-    const covers = new Set([...(this.#merged.get(lane)?.covers ?? []), ...own]);
+    const previous = this.#merged.get(lane);
+    const covers = new Set([...(previous?.covers ?? []), ...own]);
     this.#merged.set(lane, { covers, refs });
+    // A merged part this store wrote and has now rewritten is pinned by
+    // nothing it will capture again; a capture still reading it fetches it.
+    const current = new Set(refs.map((ref) => ref.key));
+    for (const { key } of previous?.refs ?? []) {
+      if (!current.has(key) && key.startsWith(`${this.#prefix}/`)) {
+        this.#adopted.delete(key);
+      }
+    }
     return refs;
   }
 
