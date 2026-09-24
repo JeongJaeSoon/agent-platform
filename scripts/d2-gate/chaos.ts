@@ -2,9 +2,15 @@
  * The D2 gate's fault injector (94S-247): a pass-through HTTP proxy that
  * sits between workers and the two things they write to — the Worker
  * Gateway (`:3000` → api:3000) and the object store (`:4566` →
- * localstack:4566). The scheduler hands workers these addresses in place of
- * the real ones, and the egress proxy allowlists only these, so every write
- * a worker makes is seen here and none can go around it.
+ * localstack:4566). The scheduler hands workers the gateway address, and
+ * the API signs the workers' object store requests for this address, which
+ * the egress proxy's object store route then sends here (94S-251); the
+ * proxy allows nothing else of ours, so every write a worker makes is seen
+ * here and none can go around it.
+ *
+ * The API's own object store calls use the same address (one endpoint signs
+ * for both), so on `:4566` only requests from the egress proxy are the
+ * workers': anything else goes straight through, unmatched and unlogged.
  *
  * Faults are rules armed from the host over the control port (`:8099`):
  * - `lose_response`: forward, let the upstream commit, answer the worker a
@@ -72,6 +78,16 @@ const UPSTREAMS: Record<Upstream, { listen: number; target: string }> = {
   },
 };
 
+// Whose requests on the object store port are the workers', by name.
+const WORKER_CLIENT = process.env.CHAOS_WORKER_CLIENT ?? "egress-proxy";
+
+async function fromWorkers(address: string | undefined): Promise<boolean> {
+  if (address === undefined) return false;
+  const bare = address.replace(/^::ffff:/, "");
+  const found = await Bun.dns.lookup(WORKER_CLIENT).catch(() => []);
+  return found.some((entry) => entry.address === bare);
+}
+
 const rules: Rule[] = [];
 /** Release switches of `hold` rules, by rule id. */
 const gates = new Map<string, () => void>();
@@ -128,13 +144,24 @@ function s3Error(): Response {
   );
 }
 
-async function proxy(upstream: Upstream, request: Request): Promise<Response> {
+async function proxy(
+  upstream: Upstream,
+  request: Request,
+  client: string | undefined,
+): Promise<Response> {
   const url = new URL(request.url);
   const path = `${url.pathname}${url.search}`;
   const bytes =
     request.method === "GET" || request.method === "HEAD"
       ? new Uint8Array()
       : new Uint8Array(await request.arrayBuffer());
+  if (upstream === "s3" && !(await fromWorkers(client))) {
+    const response = await forward(upstream, request, path, bytes);
+    return new Response(response.body, {
+      headers: sentOn(response),
+      status: response.status,
+    });
+  }
   // Only gateway bodies are JSON worth reading; object bodies can be large
   // binary and are matched by key alone.
   const body = upstream === "gateway" ? new TextDecoder().decode(bytes) : "";
@@ -171,17 +198,8 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     entry.status = 500;
     return s3Error();
   }
-  const headers = new Headers(request.headers);
-  for (const name of HOP_HEADERS) headers.delete(name);
-  // S3 signs the host header; LocalStack does not check signatures, and the
-  // gateway ignores it, so the upstream's own name is what goes out.
   entry.forwardedAt = new Date().toISOString();
-  const response = await fetch(`${UPSTREAMS[upstream].target}${path}`, {
-    method: request.method,
-    headers,
-    ...(bytes.byteLength > 0 ? { body: bytes } : {}),
-    redirect: "manual",
-  });
+  const response = await forward(upstream, request, path, bytes);
   entry.upstreamStatus = response.status;
   if (rule?.action === "lose_response") {
     await response.arrayBuffer();
@@ -191,12 +209,7 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     });
   }
   entry.status = response.status;
-  // fetch has already decoded the body, so its length and coding no longer
-  // describe what is sent on.
-  const out = new Headers(response.headers);
-  out.delete("content-encoding");
-  out.delete("content-length");
-  out.delete("transfer-encoding");
+  const out = sentOn(response);
   if (upstream === "gateway" && response.status >= 400) {
     const text = await response.text();
     entry.errorBody = text.slice(0, 1000);
@@ -217,12 +230,41 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   });
 }
 
+function forward(
+  upstream: Upstream,
+  request: Request,
+  path: string,
+  bytes: Uint8Array,
+): Promise<Response> {
+  const headers = new Headers(request.headers);
+  for (const name of HOP_HEADERS) headers.delete(name);
+  // S3 signs the host header; LocalStack does not check signatures, and the
+  // gateway ignores it, so the upstream's own name is what goes out.
+  return fetch(`${UPSTREAMS[upstream].target}${path}`, {
+    method: request.method,
+    headers,
+    ...(bytes.byteLength > 0 ? { body: bytes } : {}),
+    redirect: "manual",
+  });
+}
+
+// fetch has already decoded the body, so its length and coding no longer
+// describe what is sent on.
+function sentOn(response: Response): Headers {
+  const out = new Headers(response.headers);
+  out.delete("content-encoding");
+  out.delete("content-length");
+  out.delete("transfer-encoding");
+  return out;
+}
+
 for (const upstream of Object.keys(UPSTREAMS) as Upstream[]) {
   Bun.serve({
     hostname: "0.0.0.0",
     idleTimeout: 255,
     port: UPSTREAMS[upstream].listen,
-    fetch: (request) => proxy(upstream, request),
+    fetch: (request, server) =>
+      proxy(upstream, request, server.requestIP(request)?.address),
   });
 }
 

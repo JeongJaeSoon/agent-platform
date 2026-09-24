@@ -52,7 +52,7 @@ for id in "${campaigns[@]}"; do
 done
 
 {
-  echo "# 94S-135 campaigns ($(git rev-parse HEAD))"
+  echo "# 94S-135 campaigns (images ${SOAK_PRODUCT_SHA:-$(git rev-parse HEAD)}, tools $(git rev-parse HEAD))"
   echo
   for id in "${campaigns[@]}"; do
     [ -f "$out/$id/report.md" ] || { echo "## ${id}: no report"; continue; }
