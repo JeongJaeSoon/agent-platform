@@ -1987,6 +1987,8 @@ const backupRestoreResume: Campaign = {
     const code = await logged(["tests/e2e/restore-resume.sh"], log, {
       RR_OUT: rr,
       RR_PROJECT: "soak135rr",
+      // The stack's images, built from the RC, not from this tools checkout.
+      RR_IMAGES_FROM: "soak135",
       // Homebrew's bash 5.3 hangs on the backup's heredoc (docs/backup-restore.md).
       PATH: `/bin:${process.env.PATH}`,
     });

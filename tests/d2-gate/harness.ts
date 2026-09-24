@@ -42,6 +42,13 @@ export type GateEnv = {
   workerImage: string;
 };
 
+/**
+ * The reasons `main.ts <role> --health` gives for an unhealthy loop
+ * (apps/control-host/src/pass-loop/health.ts; health.test.ts keeps them in step).
+ */
+export const UNHEALTHY =
+  /no pass has completed since|failed pass\(es\) since the last completed one|running past its deadline|no status file/;
+
 /** Null unless run.sh started the stack; the gate never starts one itself. */
 export function gateEnv(): GateEnv | null {
   const vars = process.env;
