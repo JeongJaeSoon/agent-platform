@@ -721,14 +721,25 @@ const controlKill: Campaign = {
       const unblocked = await Promise.all(
         turns.map((t) => unblock(ctx, t.sessionId, t.turnId)),
       );
+      // A next turn the kill still cost (refused, or not completed) fails
+      // this row; it must not also keep the next service's round from
+      // starting.
       const nextTurns = await Promise.all(
-        sessions.map((s) => startTurn(ctx, s.sessionId, "normal")),
+        sessions.map((s) =>
+          startTurn(ctx, s.sessionId, "normal").catch(
+            (error: unknown) => `refused: ${String(error)}`,
+          ),
+        ),
       );
-      const next = await Promise.all(nextTurns.map((t) => finish(ctx, t)));
-      // A next turn the kill still cost fails this row; it must not also
-      // keep the next service's round from starting.
+      const next = await Promise.all(
+        nextTurns.map((t) =>
+          typeof t === "string" ? { status: t } : finish(ctx, t),
+        ),
+      );
       await Promise.all(
-        nextTurns.map((t) => unblock(ctx, t.sessionId, t.turnId)),
+        nextTurns.map((t) =>
+          typeof t === "string" ? null : unblock(ctx, t.sessionId, t.turnId),
+        ),
       );
       results[service] = {
         readyMs,
