@@ -360,11 +360,12 @@ jobs:
           if-no-files-found: error
 
   # The daily run's findings as an issue: nobody watches a scheduled run, and
-  # a PR's findings are already in its own summary. `error` counts, since a
-  # scan that could not run found nothing either way.
+  # a PR's findings are already in its own summary. A manual run reports too,
+  # so the path can be exercised on demand. `error` counts, since a scan that
+  # could not run found nothing either way.
   vulnerability-report:
     needs: build
-    if: always() && github.event_name == 'schedule'
+    if: always() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
