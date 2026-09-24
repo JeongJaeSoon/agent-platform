@@ -96,7 +96,11 @@ export function describeComponents(
   const declared = config.plugins ?? [];
   const plugins = Array.from({ length: declared.length }, (_, i) => declared[i])
     .filter((plugin): plugin is NonNullable<typeof plugin> => plugin != null)
-    .sort((left, right) => left.path.localeCompare(right.path))
+    // Code-unit order, as canonicalJson sorts keys: the fingerprint must not
+    // depend on the host's locale (94S-400).
+    .sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    )
     .map((plugin) => ({
       identity: declaredIdentity(
         config.identities?.plugins,

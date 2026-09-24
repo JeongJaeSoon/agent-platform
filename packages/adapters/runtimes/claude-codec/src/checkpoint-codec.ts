@@ -6,6 +6,7 @@
  * runtime's configuration (the profile fingerprint) stays in the adapter.
  */
 import { createHash } from "node:crypto";
+import { canonicalJsonOfJson } from "@agent-platform/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -136,7 +137,7 @@ export function encodeCheckpointManifest(manifest: CheckpointManifest): {
 } {
   // Canonical key order: the manifest's digest is its identity in the object
   // store, so the same manifest must serialize to the same bytes every time.
-  const text = `${JSON.stringify(canonical(manifestSchema.parse(manifest)))}\n`;
+  const text = `${canonicalJsonOfJson(manifestSchema.parse(manifest))}\n`;
   return { bytes: new TextEncoder().encode(text), sha256: sha256Hex(text) };
 }
 
@@ -213,16 +214,6 @@ export const claudeCheckpointCodec: CheckpointCodec = {
   engine: CLAUDE_CHECKPOINT_ENGINE,
   validateCompatibility,
 };
-
-export function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonical(nested)]),
-  );
-}
 
 export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
