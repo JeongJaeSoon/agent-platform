@@ -55,7 +55,10 @@ describe("app Dockerfiles", () => {
     expect(runtime).toBeDefined();
     expect(manifest.packageManager).toBe(`bun@${runtime}`);
     expect(manifest.devDependencies["@types/bun"]).toBe(runtime);
-    expect(read("bun.lock")).toContain(`"bun-types": ["bun-types@${runtime}"`);
+    const lock = read("bun.lock");
+    expect(lock).toContain(`"@types/bun": "${runtime}"`);
+    expect(lock).toContain(`"@types/bun": ["@types/bun@${runtime}"`);
+    expect(lock).toContain(`"bun-types": ["bun-types@${runtime}"`);
   });
 
   test.each(installingApps)("%s installs from the frozen lockfile", (app) => {
