@@ -385,8 +385,9 @@ export function decideRecoveryAtomic(
       .from(sessions)
       .where(eq(sessions.id, sessionId));
     if (!after) throw new Error(`Session ${sessionId} vanished mid-decision`);
-    // start_fresh announced its own; the others put the admission they
-    // reached on the stream, as announceStopped does for a stop (94S-360).
+    // start_fresh announced its own; the others, retry_restore included,
+    // put the admission they reached on the stream, as announceStopped does
+    // for a stop (94S-360).
     if (
       reset === null &&
       (after.admissionState !== session.admissionState ||
@@ -610,13 +611,6 @@ async function retryRestore(
     })
     .where(eq(sessions.id, session.id));
   await signalQueuedInput(tx, session.id, queued, now);
-  await recordStatus(tx, {
-    sessionId: session.id,
-    phase: queued > 0 ? "queued" : "idle",
-    extra: { admission_state: "active" },
-    turnRowId: null,
-    now,
-  });
   return null;
 }
 

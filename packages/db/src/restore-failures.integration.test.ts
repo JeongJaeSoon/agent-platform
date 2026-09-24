@@ -471,8 +471,31 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     const held = await sessionRow(session.sessionId);
     expect(held.admissionState).toBe("recovery_required");
 
+    const statusEvents = async () =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, session.sessionId),
+              eq(events.type, "status"),
+            ),
+          )
+          .orderBy(asc(events.id))
+      ).map(({ payload }) => payload);
+    const statusBefore = (await statusEvents()).length;
     const decided = await decide(session, "retry_restore", "proxy fixed");
     expect(decided.outcome).toBe("accepted");
+    // One status event says where it went (94S-360).
+    expect((await statusEvents()).slice(statusBefore)).toEqual([
+      {
+        phase: "queued",
+        admission_state: "active",
+        decision: "retry_restore",
+        actor: { owner_id: session.ownerId },
+      },
+    ]);
     const retried = await sessionRow(session.sessionId);
     expect(retried).toMatchObject({
       admissionState: "active",
