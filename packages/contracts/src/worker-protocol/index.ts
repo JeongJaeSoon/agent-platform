@@ -603,6 +603,8 @@ export const finalizeResponseSchema = z.object({
 // keeps its lease. Without it the release is unconditional.
 // `stop_kind: "drain"` says the worker was asked to stop (SIGTERM), not that
 // it failed: a startup it ends is not counted against the session (94S-302).
+// A gateway older than the field refuses it with BAD_REQUEST, and the worker
+// then releases without it (94S-361).
 export const releaseRequestSchema = workerScopeSchema
   .extend({
     reason: z.string().min(1),
