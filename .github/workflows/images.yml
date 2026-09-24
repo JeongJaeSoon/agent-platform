@@ -7,10 +7,12 @@ name: Images
 # deployment.md § 배포·승격·롤백). Registry CD beyond the push is D5.
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
-# and scans it for known vulnerabilities (94S-338). The scan never fails the
-# build: a CVE in the pinned base, a Debian package or the lockfile shows up
-# in every open PR at once and belongs to none of them. The daily run turns a
-# fixable high or critical finding into an issue (`vulnerability-report`).
+# and scans it for known vulnerabilities (94S-338). The `supply-chain` job is
+# the verdict, a required check: a high or critical vulnerability with a fix
+# available, in an image or anywhere in bun.lock, fails it; one without a fix
+# is only reported (94S-363). A tag's release waits for the same verdict on
+# the build and on the digest it promotes. The daily run turns a failed
+# verdict into an issue (`vulnerability-report`).
 on:
   push:
     branches: [main]
@@ -107,9 +109,9 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
-      # Findings never fail the build (see the top of this file), and a scan
-      # that cannot run (release download, database update) leaves `error`
-      # for the daily report rather than failing it either.
+      # Findings never fail the build: `supply-chain` judges them, so the
+      # build's check stays about the build. A scan that cannot run (release
+      # download, database update) leaves `error` for that job as well.
       - name: Vulnerability scan
         continue-on-error: true
         timeout-minutes: 10
@@ -122,7 +124,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vulnerabilities-${{ matrix.app }}
-          path: vulnerabilities/${{ matrix.app }}.txt
+          path: vulnerabilities/${{ matrix.app }}.*
           if-no-files-found: ignore
 
       # One JSON per image. `digest` is the manifest digest buildx computed;
@@ -161,6 +163,45 @@ jobs:
           path: digests/${{ matrix.app }}.json
           if-no-files-found: error
 
+  # The required check (94S-363). One job name whatever the event, so branch
+  # protection can hold on to it. `always()`, not `!cancelled()`: a skipped
+  # required check counts as passed (docs/ci.md), so it runs even when a
+  # build failed or the run was cancelled, and then fails for the missing
+  # result: no image, no verdict. The npm audit runs here rather than in its
+  # own workflow so that one check covers both. When a scan got no answer
+  # from its advisory service, a pull request or main push only warns: an
+  # outage must not stop every merge, and the daily run and the release
+  # still need a verdict.
+  supply-chain:
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: vulnerabilities-*
+          path: vulnerabilities
+          merge-multiple: true
+        # No artifact at all is judged below as missing results.
+        continue-on-error: true
+      - name: bun audit
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun .github/scripts/npm-audit.ts vulnerabilities
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-results
+          path: vulnerabilities/
+          if-no-files-found: ignore
+      - name: Verdict (fails on a fixable high or critical)
+        env:
+          NO_VERDICT: ${{ contains(fromJSON('["pull_request","push"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && 'warn' || 'fail' }}
+        run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT"
+
   # Release path, three stages so a failed verification never leaves a
   # consumable version tag behind:
   #   publish  – per image: rebuild from the gha cache, push under a staging
@@ -173,7 +214,7 @@ jobs:
   # tagged commit must already be on main — a tag is not a review. The
   # `release` environment is where the repository adds required reviewers.
   publish:
-    needs: build
+    needs: [build, supply-chain]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -236,9 +277,9 @@ jobs:
           .github/scripts/image-smoke.sh "$APP" "${NAME}@${DIGEST}"
       # The digest that gets promoted, not the build job's image: this job
       # builds again, and the apt layer is not pinned (a build job that ran
-      # before UTC midnight upgraded on another key). The licenses must hold
-      # and the scan must run; its findings are reported, not gating —
-      # whether a release waits for them is not decided yet (94S-363).
+      # before UTC midnight upgraded on another key). The licenses must hold,
+      # the scan must run, and a fixable high or critical finding stops the
+      # release as it does `supply-chain` (94S-363).
       - name: Licenses and vulnerabilities of the pushed digest
         timeout-minutes: 10
         env:
@@ -248,6 +289,11 @@ jobs:
         run: |
           .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}"
           .github/scripts/image-scan.sh "$APP" "${NAME}@${DIGEST}" vulnerabilities
+          result="$(cat "vulnerabilities/${APP}.txt")"
+          if [ "$result" != clean ]; then
+            echo "::error::${APP}@${DIGEST}: ${result#found } high or critical with a fix available"
+            exit 1
+          fi
       - name: Record staged digest
         env:
           APP: ${{ matrix.app }}
@@ -390,13 +436,12 @@ jobs:
           path: digests/*.json
           if-no-files-found: error
 
-  # The daily run's findings as an issue: nobody watches a scheduled run, and
-  # a PR's findings are already in its own summary. A manual run reports too,
-  # so the path can be exercised on demand. `error` counts, since a scan that
-  # could not run found nothing either way.
+  # The daily run's failed verdict as an issue: nobody watches a scheduled
+  # run, and a PR's findings are already in its own checks. A manual run
+  # reports too, so the path can be exercised on demand.
   vulnerability-report:
-    needs: build
-    if: always() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)
+    needs: [build, supply-chain]
+    if: always() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.supply-chain.result != 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -406,30 +451,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: vulnerabilities-*
+          name: supply-chain-results
           path: vulnerabilities
-          merge-multiple: true
+        continue-on-error: true
       - env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          report=""
-          for app in control-host worker egress-proxy; do
-            result="$(cat "vulnerabilities/${app}.txt" 2>/dev/null || echo "no result")"
-            echo "${app}: ${result}"
-            [ "$result" = clean ] || report="${report}| ${app} | ${result} |"$'\n'
-          done
-          [ -n "$report" ] || exit 0
           {
-            echo "<!-- ci-image-vulnerabilities -->"
-            echo "The daily image scan on \`${GITHUB_SHA}\` ([run ${GITHUB_RUN_ID}](${RUN_URL})) found high or critical vulnerabilities with a fix available, or could not scan."
+            echo "<!-- ci-supply-chain -->"
+            echo "The daily supply-chain check on \`${GITHUB_SHA}\` ([run ${GITHUB_RUN_ID}](${RUN_URL})) found high or critical vulnerabilities with a fix available, or could not scan."
             echo
-            echo "| image | result |"
+            echo "| scan | result |"
             echo "| --- | --- |"
-            printf '%s' "$report"
+            for scan in control-host worker egress-proxy npm; do
+              echo "| ${scan} | $(cat "vulnerabilities/${scan}.txt" 2>/dev/null || echo "no result") |"
+            done
             echo
-            echo "Each image's findings are in the run summary. The base image is pinned by digest (apps/*/Dockerfile \`BUN_IMAGE\`), so a fix usually means moving that pin. Close this issue once handled; the next finding opens a new one."
+            echo "Each finding is in the run summary and the \`supply-chain-results\` artifact. Update the package or base image, or record an exception with its reason and expiry in \`.github/vulnerability-exceptions.json\` (docs/operations.md § 공급망 취약점 정책). Until then every pull request's \`supply-chain\` check fails too. Close this issue once handled; the next finding opens a new one."
           } >body.md
-          .github/scripts/upsert-ci-issue.sh ci-image-vulnerabilities \
-            "Images: fixable high or critical vulnerabilities" body.md
+          .github/scripts/upsert-ci-issue.sh ci-supply-chain \
+            "Supply chain: fixable high or critical vulnerabilities" body.md

@@ -5,18 +5,21 @@
 # Grype over the whole image: Debian packages and the npm packages under
 # /app. A release binary pinned by version and checksum rather than a
 # third-party action, whose tags can be moved under us. The log gets the
-# unfiltered table, unfixed findings included; the bar (high or critical
-# with a fix available) goes to the step summary and to <result dir>/<app>.txt
-# as `clean` or `found <n>`.
+# unfiltered table. High and critical findings go to the step summary and to
+# <result dir>/<app>.json, split by whether a fix is available; only the
+# fixable ones that .github/vulnerability-exceptions.json does not cover
+# count, and <result dir>/<app>.txt says `clean` or `found <n>`.
 #
 # Findings never fail this script: whether they fail anything is the
-# caller's policy. A scan that could not run exits non-zero and leaves
-# `error` in the result file.
+# caller's policy (the `supply-chain` job and `publish` in images.yml). A
+# scan that could not run exits non-zero and leaves `error` in the result
+# file.
 set -euo pipefail
 
 app="$1"
 image="$2"
 results="$3"
+exceptions="$(dirname "$0")/../vulnerability-exceptions.json"
 
 GRYPE_VERSION=0.119.0
 GRYPE_SHA256=3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
@@ -35,18 +38,41 @@ curl -fsSL --retry 3 -o "${work}/grype.tar.gz" \
 "${work}/grype" db update
 "${work}/grype" "docker:${image}" -o table -o "json=${work}/scan.json"
 
-fixable='[.matches[] | select(.vulnerability.fix.state == "fixed")
-  | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")]'
-count="$(jq "${fixable} | length" "${work}/scan.json")"
+# Same shape as npm-audit.ts's findings. `fix` is null for `not-fixed`,
+# `wont-fix` and `unknown` alike: none of them has a version to move to.
+jq --slurpfile exceptions "$exceptions" --arg today "$(date -u +%F)" '
+  [.matches[]
+    | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")
+    | {package: .artifact.name, version: .artifact.version,
+       id: .vulnerability.id, severity: (.vulnerability.severity | ascii_downcase),
+       fix: (if .vulnerability.fix.state == "fixed"
+             then (.vulnerability.fix.versions | join(",")) else null end)}
+    | . as $f
+    | ($exceptions[0] | map(select(.id == $f.id and .package == $f.package
+        and .expires >= $today)) | first) as $e
+    | if $e then . + {excepted: $e.reason} else . end]
+  | unique' "${work}/scan.json" >"${results}/${app}.json"
+
+count="$(jq '[.[] | select(.fix != null and .excepted == null)] | length' "${results}/${app}.json")"
+unfixed="$(jq '[.[] | select(.fix == null)] | length' "${results}/${app}.json")"
+line='"\(.severity) \(.package) \(.version) → \(.fix // "no fix") \(.id)\(if .excepted then " (excepted: \(.excepted))" else "" end)"'
 {
   echo "### ${app}: vulnerabilities"
   echo
-  echo "${count} high or critical with a fix available. Full table in the step log."
+  echo "${count} high or critical with a fix available, ${unfixed} without one (reported, not blocking). Full table in the step log."
   echo
   echo '```text'
-  jq -r "${fixable}"'[] | "\(.artifact.name) \(.artifact.version) → \(.vulnerability.fix.versions | join(",")) \(.vulnerability.id) \(.vulnerability.severity)"' \
-    "${work}/scan.json"
+  jq -r ".[] | select(.fix != null) | ${line}" "${results}/${app}.json"
   echo '```'
+  echo
+  echo "<details><summary>${unfixed} without a fix</summary>"
+  echo
+  echo '```text'
+  jq -r ".[] | select(.fix == null) | ${line}" "${results}/${app}.json"
+  echo '```'
+  echo
+  echo "</details>"
+  echo
 } >>"${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 
 if [ "$count" -gt 0 ]; then
