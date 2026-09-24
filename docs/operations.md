@@ -447,6 +447,22 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-24 기준 `oven/bun:1.3.10`의 마지막 빌드는 2026-02-26이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
+### 공급망 취약점 정책 (94S-363)
+
+2026-09-24 사용자 결정이다. **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.
+
+- **무엇을 보나.** 세 이미지(Grype, Debian 패키지와 `/app`의 npm 패키지)와 `bun.lock` 전체(`bun audit`, dev 의존성 포함)다. "수정판이 있다"는 이미지에서는 Grype의 `fix.state`가 `fixed`인 것이고, npm에서는 GitHub advisory database에서 잠긴 버전을 포함하는 범위에 `first_patched_version`이 있는 것이다. Debian의 `not-fixed`·`wont-fix`와 수정판 없는 npm advisory는 막지 않는다.
+- **어디서 막나.** images.yml의 `supply-chain` job이 판정하고, branch protection의 required check다. PR, main push, 매일 03:17 UTC 실행, 수동 실행, `v*` tag에서 모두 돈다. tag의 `publish`는 `supply-chain`을 기다리고, 승격할 digest를 다시 검사해 같은 기준으로 막는다.
+- **검사가 답을 못 받으면.** Grype DB나 advisory 서비스가 응답하지 않은 `error`는 PR과 main push에서 경고만 남긴다. 외부 서비스 장애로 모든 머지가 멈추면 안 되기 때문이다. 매일 실행과 tag에서는 실패한다. 이미지가 빌드되지 않아 결과가 아예 없으면 어디서든 실패한다.
+- **보고.** 수정판 없는 high·critical도 각 검사의 step summary(접힌 목록)와 `supply-chain-results` artifact(검사마다 JSON 하나, 항목마다 `fix`가 null)에 남는다. 매일 실행이나 수동 실행이 실패하면 `ci-supply-chain` 라벨 이슈가 열린다.
+- **밤사이 새 advisory.** 수정판이 있는 advisory가 새로 나오면 main을 포함해 모든 PR의 `supply-chain`이 한꺼번에 빨개진다. 의도한 동작이다. 의존성이나 base를 올리는 PR 하나로 푼다. Debian 패키지는 다음 날의 `APT_UPGRADE_KEY`로 새 빌드가 받는다. 당일에 받으려면 수동 실행(`gh workflow run Images`)이 그날 key로 빌드한다.
+- **예외.** 올릴 수 없는 수정(예: `upgrade`가 보류한 Debian 패키지, 코드 경로가 닿지 않는 advisory)은 `.github/vulnerability-exceptions.json`에 `{"id", "package", "reason", "expires"}`로 적는다. `id`는 검사 결과의 `id`(CVE-… 또는 GHSA-…), `package`는 패키지 이름이다. `reason`과 `expires`(YYYY-MM-DD, 그날까지 적용)가 없으면 npm 검사가 `error`가 된다. 만료되면 다시 막는다. 예외는 PR 리뷰를 거친다.
+
+```bash
+bun .github/scripts/npm-audit.ts /tmp/sc && cat /tmp/sc/npm.txt   # npm 판정을 로컬에서
+.github/scripts/supply-chain-verdict.sh /tmp/sc warn              # 결과 파일 넷(control-host·worker·egress-proxy·npm)의 판정
+```
+
 | 이미지 | 내용 | 실행 주체 |
 |---|---|---|
 | `agent-platform-control-host` | `apps/control-host` 실행물 하나로 api·scheduler·reconciler role을 모두 돌린다. `--filter`로 그 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). 기본 uid 1000, scheduler role만 compose `user: "0:0"`로 root가 되어 Docker socket을 쥔다 | `bun run apps/control-host/src/main.ts <role>` (CMD 기본은 `api`) |
