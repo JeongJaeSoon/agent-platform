@@ -85,12 +85,10 @@ function setup(
       executionId: "exec-1",
       gatewayUrl: "http://127.0.0.1:9",
       objectStore: {
-        accessKeyId: "unused",
         bucket: "unused",
         endpoint: "http://127.0.0.1:9",
         region: "ap-northeast-1",
         scope: `sessions/${SESSION_ID}/`,
-        secretAccessKey: "unused",
       },
       runtime: {
         claudeConfigDir: home,

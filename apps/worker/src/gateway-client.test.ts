@@ -96,6 +96,9 @@ describe("HttpWorkerGatewayClient", () => {
             branch: "main",
           },
         },
+        object_store: {
+          access: { kind: "egress_token", token: "weo_object-store" },
+        },
         principal: { owner_scope: "owner-a" },
         restore: null,
         remaining_budget_usd: 25,

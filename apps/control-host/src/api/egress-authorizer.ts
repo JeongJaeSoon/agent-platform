@@ -5,6 +5,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
 } from "@agent-platform/platform";
+import type { ObjectRouteSigner } from "@agent-platform/storage";
 import { z } from "zod";
 import { isStorageUnavailable } from "./app.ts";
 
@@ -15,11 +16,16 @@ import { isStorageUnavailable } from "./app.ts";
  * this is a listener of its own rather than a route on the API's port: the
  * API's port is on the workers' egress allowlist, and this one must never
  * be. The shared bearer is the second lock, not the first.
+ *
+ * The object store route (94S-251) asks the same question and one more:
+ * whether this one S3 request is one the session may make. Its answer is a
+ * signature for that request, made here with the API's own key.
  */
 
 export const EGRESS_AUTHORIZER_PATH = "/authorize";
-// A token and a purpose; anything bigger is not a request from the proxy.
-const MAX_BODY_BYTES = 4 * 1024;
+// A token, a purpose and, for the object store, one S3 request line and its
+// headers; anything bigger is not a request from the proxy.
+const MAX_BODY_BYTES = 16 * 1024;
 // The proxy waits for this before the worker's request goes anywhere, so a
 // slow database answers 503 rather than holding the engine's call open.
 export const AUTHORIZE_DEADLINE_MS = 10_000;
@@ -64,12 +70,31 @@ export function egressAuthorizerConfigFromEnv(
   };
 }
 
-const authorizeRequestSchema = z
-  .object({
-    token: z.string().min(1).max(512),
-    purpose: z.enum(["provider", "repository"]),
-  })
-  .strict();
+const tokenSchema = z.string().min(1).max(512);
+
+const authorizeRequestSchema = z.union([
+  z
+    .object({
+      token: tokenSchema,
+      purpose: z.enum(["provider", "repository"]),
+    })
+    .strict(),
+  z
+    .object({
+      token: tokenSchema,
+      purpose: z.literal("object_store"),
+      request: z
+        .object({
+          method: z.string().regex(/^[A-Z]{1,16}$/),
+          target: z.string().min(1).max(4096),
+          headers: z
+            .array(z.tuple([z.string().min(1).max(128), z.string().max(1024)]))
+            .max(32),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
@@ -80,11 +105,44 @@ function problem(status: number, code: string, message: string): Response {
 }
 
 export function createEgressAuthorizer(deps: {
-  gateway: Pick<WorkerGateway, "authorizeEgress">;
+  gateway: Pick<WorkerGateway, "authorizeEgress" | "authorizeObjectAccess">;
   logger: StructuredLogger;
+  /** Absent when the API runs without an object store: the route refuses. */
+  objectStore?: ObjectRouteSigner;
   token: string;
   deadlineMs?: number;
 }): (request: Request) => Promise<Response> {
+  const { objectStore } = deps;
+  // The fence first, then the request: a token whose attempt lost its
+  // session learns nothing about which of its requests would have passed.
+  async function authorizeObjectStore(
+    token: string,
+    request: z.infer<typeof authorizeRequestSchema> & {
+      purpose: "object_store";
+    },
+  ) {
+    const access = await deps.gateway.authorizeObjectAccess({ token });
+    if (objectStore === undefined) {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "This API has no object store to sign for",
+      );
+    }
+    const signed = await objectStore.sign(request.request, access.scope);
+    if (signed.kind === "refused") {
+      throw new WorkerGatewayError(403, "FORBIDDEN", signed.reason);
+    }
+    return {
+      session_id: access.session_id,
+      attempt_id: access.attempt_id,
+      upstream: {
+        url: signed.url,
+        target: signed.target,
+        headers: signed.headers,
+      },
+    };
+  }
   const expected = digest(`Bearer ${deps.token}`);
   const deadlineMs = deps.deadlineMs ?? AUTHORIZE_DEADLINE_MS;
   return async (request) => {
@@ -114,7 +172,11 @@ export function createEgressAuthorizer(deps: {
     try {
       body = authorizeRequestSchema.parse(JSON.parse(text));
     } catch {
-      return problem(400, "BAD_REQUEST", "Expected {token, purpose}");
+      return problem(
+        400,
+        "BAD_REQUEST",
+        "Expected {token, purpose} and, for the object store, {request}",
+      );
     }
     const deadline = new RequestDeadline(performance.now() + deadlineMs);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -122,7 +184,9 @@ export function createEgressAuthorizer(deps: {
       timer = setTimeout(() => resolve("expired"), deadlineMs);
     });
     const answered = runWithDeadline(deadline, () =>
-      deps.gateway.authorizeEgress(body),
+      body.purpose === "object_store"
+        ? authorizeObjectStore(body.token, body)
+        : deps.gateway.authorizeEgress(body),
     );
     try {
       const outcome = await Promise.race([answered, expired]);
@@ -145,6 +209,15 @@ export function createEgressAuthorizer(deps: {
           purpose: body.purpose,
           status: error.status,
           code: error.code,
+          // Which object store request was refused and why; a key is not a
+          // secret, and the worker is told only that it was refused.
+          ...(body.purpose === "object_store"
+            ? {
+                method: body.request.method,
+                target: body.request.target.split("?")[0],
+                reason: error.message,
+              }
+            : {}),
         });
         return problem(error.status, error.code, error.message);
       }

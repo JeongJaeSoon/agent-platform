@@ -16,7 +16,7 @@ bun run keys create quickstart \
 
 그다음 curl로 세션 한 바퀴(생성 → 이벤트 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume → terminate → 복구 결정 → resume)를 도는 절차는 **[docs/quickstart.md](docs/quickstart.md)**에 있다. CI가 그 문서의 명령을 새 clone에서 그대로 실행하고(`quickstart` job), 같은 시나리오를 `tests/e2e`로 돈다(`e2e` job).
 
-**private alpha는 신뢰된 내부 인원 한정이다.** worker 안에서 실행되는 코드는 bucket 전체 credential([94S-251](https://linear.app/94soon/issue/94S-251))에 닿을 수 있다. provider key와 저장소 credential은 worker에 가지 않지만([94S-252](https://linear.app/94soon/issue/94S-252)), attempt가 살아 있는 동안은 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소를 부를 수 있다. 외부 공개 전에 251·253을 닫는다.
+**private alpha는 신뢰된 내부 인원 한정이다.** provider key, 저장소 credential, object store credential은 worker에 가지 않지만([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)), attempt가 살아 있는 동안은 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 자기 세션 prefix 안의 object를 부를 수 있다. 외부 공개 전에 253을 닫는다.
 
 ## 정본과 다음 단계
 

@@ -105,9 +105,11 @@ class ClaimingBackend implements ExecutionBackend {
         egress: {
           providerHash: hashWorkerToken(`wep-${randomUUID()}`),
           repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+          objectStoreHash: hashWorkerToken(`weo-${randomUUID()}`),
           bindingsOf: () => ({
             provider: "provider",
             repository: "repository",
+            object_store: "sessions/s/",
           }),
         },
         leaseTtlMs: 60_000,
@@ -376,7 +378,12 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
       egress: {
         providerHash: hashWorkerToken(`wep-${randomUUID()}`),
         repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
-        bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+        objectStoreHash: hashWorkerToken(`weo-${randomUUID()}`),
+        bindingsOf: () => ({
+          provider: "provider",
+          repository: "repository",
+          object_store: "sessions/s/",
+        }),
       },
       leaseTtlMs: 60_000,
       now: new Date(),
@@ -445,7 +452,12 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
       egress: {
         providerHash: hashWorkerToken(`wep-${randomUUID()}`),
         repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
-        bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+        objectStoreHash: hashWorkerToken(`weo-${randomUUID()}`),
+        bindingsOf: () => ({
+          provider: "provider",
+          repository: "repository",
+          object_store: "sessions/s/",
+        }),
       },
       leaseTtlMs: 60_000,
       now: new Date(),
@@ -513,9 +525,11 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
         egress: {
           providerHash: hashWorkerToken(`wep-${randomUUID()}`),
           repositoryHash: hashWorkerToken(`wer-${randomUUID()}`),
+          objectStoreHash: hashWorkerToken(`weo-${randomUUID()}`),
           bindingsOf: () => ({
             provider: "provider",
             repository: "repository",
+            object_store: "sessions/s/",
           }),
         },
         leaseTtlMs: 60_000,

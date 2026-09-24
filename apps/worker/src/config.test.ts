@@ -14,10 +14,7 @@ const launched: WorkerEnvironment = {
   WORKER_EGRESS_CREDENTIAL_URL: "http://egress-proxy:3129/",
   WORKER_GATEWAY_URL: "http://control-host:8080/",
   WORKER_WORKSPACE_DIR: "/workspace",
-  AWS_ACCESS_KEY_ID: "test",
-  AWS_ENDPOINT_URL: "http://localstack:4566",
   AWS_REGION: "ap-northeast-1",
-  AWS_SECRET_ACCESS_KEY: "test",
   S3_BUCKET: "claude-sessions",
   WORKER_OBJECT_PREFIX: "sessions/abc/",
 };

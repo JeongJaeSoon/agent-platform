@@ -15,9 +15,9 @@ import { connect as tlsConnect } from "node:tls";
  * certificate holds.
  *
  * Deliberately minimal: one request per connection (`connection: close`),
- * the request body sent whole with a length (the listener already caps it),
- * no `Expect: 100-continue`, no pooling. Trigger to stream request bodies:
- * a route whose uploads approach that cap.
+ * the request body sent with a length — whole, or streamed at a length
+ * known up front (the object store route's uploads, 94S-251) — no
+ * `Expect: 100-continue`, no pooling.
  */
 
 /** A response head bigger than this is refused. */
@@ -36,13 +36,23 @@ export type UpstreamTarget = {
   tls: { serverName: string; ca?: string } | null;
 };
 
+/**
+ * Whole bytes, or a stream that must deliver exactly `length` bytes: more
+ * or fewer fails the exchange rather than sending a body that disagrees
+ * with the length it was announced (and, for S3, signed) with.
+ */
+export type UpstreamBody =
+  | Uint8Array
+  | { stream: ReadableStream<Uint8Array>; length: number }
+  | null;
+
 export type UpstreamCall = {
   method: string;
   /** Path and query, as the request line carries them. */
   target: string;
   /** Host included; framing headers are set here. */
   headers: Array<[string, string]>;
-  body: Uint8Array | null;
+  body: UpstreamBody;
   signal: AbortSignal;
 };
 
@@ -189,13 +199,36 @@ export function upstreamExchange(
         lines.push(`${name}: ${value}`);
       }
       lines.push("connection: close");
-      const length = call.body?.byteLength ?? 0;
+      const { body } = call;
+      const length =
+        body === null
+          ? 0
+          : body instanceof Uint8Array
+            ? body.byteLength
+            : body.length;
       if (length > 0 || call.method === "POST" || call.method === "PUT") {
         lines.push(`content-length: ${length}`);
       }
       socket.write(`${lines.join("\r\n")}\r\n\r\n`, "latin1");
-      if (call.body !== null && length > 0) void writeBody(call.body);
+      if (body instanceof Uint8Array) {
+        if (length > 0) void writeBody(body);
+      } else if (body !== null) {
+        streamBody(body.stream, body.length).catch((error: unknown) =>
+          fail(error instanceof Error ? error : new Error(String(error))),
+        );
+      }
     };
+
+    const drained = () =>
+      new Promise<void>((resume) => {
+        const go = () => {
+          socket.off("drain", go);
+          socket.off("close", go);
+          resume();
+        };
+        socket.once("drain", go);
+        socket.once("close", go);
+      });
 
     // Slice by slice, each after the last drained: an upstream that stops
     // reading holds one slice in the socket, not the whole body.
@@ -203,17 +236,38 @@ export function upstreamExchange(
       for (let at = 0; at < bytes.byteLength; at += WRITE_SLICE_BYTES) {
         if (socket.destroyed) return;
         const slice = bytes.subarray(at, at + WRITE_SLICE_BYTES);
-        if (!socket.write(slice)) {
-          await new Promise<void>((resume) => {
-            const go = () => {
-              socket.off("drain", go);
-              socket.off("close", go);
-              resume();
-            };
-            socket.once("drain", go);
-            socket.once("close", go);
-          });
+        if (!socket.write(slice)) await drained();
+      }
+    };
+
+    // Chunk by chunk as the client sends it, each after the last drained,
+    // and never a byte past `length`.
+    const streamBody = async (
+      stream: ReadableStream<Uint8Array>,
+      length: number,
+    ) => {
+      const reader = stream.getReader();
+      const stop = () => {
+        reader.cancel(call.signal.reason).catch(() => {});
+      };
+      call.signal.addEventListener("abort", stop, { once: true });
+      try {
+        let sent = 0;
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) break;
+          sent += next.value.byteLength;
+          if (sent > length) {
+            throw new Error("request body is longer than its length");
+          }
+          if (socket.destroyed) return;
+          if (!socket.write(next.value)) await drained();
         }
+        if (sent !== length) {
+          throw new Error("request body is shorter than its length");
+        }
+      } finally {
+        call.signal.removeEventListener("abort", stop);
       }
     };
 

@@ -25,7 +25,10 @@ import {
   workerEnvironmentFor,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
-import type { LocalDockerBackendConfig } from "./config.ts";
+import {
+  type LocalDockerBackendConfig,
+  localDockerConfigFromEnv,
+} from "./config.ts";
 import {
   type ContainerCreateBody,
   DockerApiError,
@@ -772,11 +775,8 @@ function configFor(host: string): LocalDockerBackendConfig {
     homeDir: "/home/worker",
     installationId: "test-a",
     objectStore: {
-      accessKeyId: "AKIATEST",
       bucket: "claude-sessions",
-      endpoint: "http://localstack:4566",
       region: "ap-northeast-1",
-      secretAccessKey: "test-secret-value",
     },
     requestTimeoutMs: 5_000,
     stopTimeoutSeconds: 3,
@@ -936,12 +936,9 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.httpsProxyLower}=http://egress-proxy:3128`,
         `${ENV.noProxy}=${NO_PROXY_VALUE},egress-proxy`,
         `${ENV.noProxyLower}=${NO_PROXY_VALUE},egress-proxy`,
-        `${ENV.objectAccessKeyId}=AKIATEST`,
         `${ENV.objectBucket}=claude-sessions`,
-        `${ENV.objectEndpoint}=http://localstack:4566`,
         `${ENV.objectPrefix}=sessions/${intent.sessionId}/`,
         `${ENV.objectRegion}=ap-northeast-1`,
-        `${ENV.objectSecretAccessKey}=test-secret-value`,
         `${ENV.stopGrace}=3`,
       ].sort(),
     );
@@ -2990,23 +2987,12 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     }
   });
 
-  test("the isolation stamp tracks where objects go and which key, never the secret", () => {
+  test("the isolation stamp tracks the bucket and region the worker names", () => {
     const base = configFor("tcp://127.0.0.1:1");
     const stamp = isolationStampFor(base);
     expect(stamp.startsWith("7:")).toBe(true);
-    expect(stamp).not.toContain(base.objectStore.secretAccessKey);
-    // A secret rotated under the same key id is not a new boundary: the
-    // container keeps running, and the operator replaces it deliberately.
-    expect(
-      isolationStampFor({
-        ...base,
-        objectStore: { ...base.objectStore, secretAccessKey: "rotated" },
-      }),
-    ).toBe(stamp);
     for (const change of [
-      { accessKeyId: "AKIAOTHER" },
       { bucket: "other-bucket" },
-      { endpoint: "http://s3.other:4566" },
       { region: "us-east-1" },
     ]) {
       expect(
@@ -3016,8 +3002,38 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
         }),
       ).not.toBe(stamp);
     }
-    const { endpoint: _dropped, ...aws } = base.objectStore;
-    expect(isolationStampFor({ ...base, objectStore: aws })).not.toBe(stamp);
+  });
+
+  test("a worker is handed no object store credential or endpoint (94S-251)", () => {
+    // Built the way the scheduler builds it, from an environment that holds
+    // the control host's own key: none of it reaches the container.
+    const config = localDockerConfigFromEnv({
+      AWS_ACCESS_KEY_ID: "control-host-key-id",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "control-host-secret",
+      AWS_SESSION_TOKEN: "control-host-session",
+      EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+      S3_BUCKET: "claude-sessions",
+      WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+      WORKER_IMAGE: "agent-platform-worker:dev",
+    } as Parameters<typeof localDockerConfigFromEnv>[0]);
+    const launched = workerEnvironmentFor(
+      config,
+      { executionId: "exec-1", generation: 1, sessionId: "s-1" },
+      "wln-nonce",
+    );
+    for (const name of [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_ENDPOINT_URL",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+    ]) {
+      expect(launched.filter((entry) => entry.startsWith(`${name}=`))).toEqual(
+        [],
+      );
+    }
+    for (const entry of launched) expect(entry).not.toContain("control-host");
   });
 
   test("a daemon reply that quotes the create body reaches the caller without the secrets", async () => {
@@ -3035,10 +3051,8 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     expect(error.status).toBe(400);
     // The daemon really did echo the body, so the redaction is not vacuous.
     expect(error.message).toContain(`${ENV.objectBucket}=claude-sessions`);
-    expect(error.message).toContain(`${ENV.objectSecretAccessKey}=[redacted]`);
     expect(error.message).toContain(`${ENV.bootstrapNonce}=[redacted]`);
     for (const text of [error.message, error.body, JSON.stringify(error)]) {
-      expect(text).not.toContain("test-secret-value");
       expect(text).not.toContain("nonce-secret-xyz");
     }
   });
