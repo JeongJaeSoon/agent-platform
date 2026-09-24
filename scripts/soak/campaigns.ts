@@ -1834,7 +1834,7 @@ const hooks: Campaign[] = [
     waitsFor: {
       ticket: "94S-324",
       reason:
-        "backup 복원 뒤 새 process가 같은 checkpoint의 native session으로 재개되는지의 실제 스택 검증이 아직 없다. 착지하면 scripts/backup.sh·restore.sh로 복원한 스택에서 resume → 다음 turn이 직전 turn을 기억하는지 여기서 본다.",
+        "94S-324가 tests/e2e/restore-resume.sh로 착지했다(backup → 새 project restore → 새 worker가 같은 native session으로 재개). 그 스크립트는 자기 project 둘을 쓰므로 soak135 스택 안에서는 돌리지 않고, 94S-117 착지 뒤 그 스크립트를 다시 돌린 결과를 이 행의 근거로 삼는다.",
     },
   },
   {
