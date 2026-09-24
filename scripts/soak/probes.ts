@@ -417,7 +417,10 @@ export async function interruptProbe(
     watching.signal,
   );
   const posted = await api.interrupt(input.sessionId, input.turnId);
-  const budget = setTimeout(() => watching.abort(), input.budgetMs);
+  const budget = setTimeout(
+    () => watching.abort(),
+    Math.max(0, posted.sentAt + input.budgetMs - Date.now()),
+  );
   // The slow call is answered `latencyMs + slowStepMs` after it arrived, on
   // the model's clock. The interrupt counts only if the API had accepted it
   // before then — the latest the acceptance can have happened, moved onto
