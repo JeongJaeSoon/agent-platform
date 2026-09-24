@@ -477,24 +477,61 @@ export class DockerClient {
     idOrName: string,
     timeoutSeconds: number,
   ): Promise<void> {
-    const encoded = encodeURIComponent(idOrName);
     // The daemon answers a stop only once the container is gone, which a
     // draining worker may take the whole grace for; the usual deadline would
     // cut that short and report a healthy daemon as stalled.
-    await this.request(
-      "POST",
-      `/containers/${encoded}/stop?t=${timeoutSeconds}`,
-      undefined,
-      [204, 304, 404],
+    await this.postStop(
+      idOrName,
+      timeoutSeconds,
       timeoutSeconds * 1_000 + this.timeoutMs,
     );
+    await this.removeContainer(idOrName);
+  }
+
+  /**
+   * Stops (SIGTERM, then SIGKILL after `timeoutSeconds`), waiting at most
+   * `waitMs` for the container to be gone. False when it is still winding
+   * down: the daemon carries the stop on after the request is dropped
+   * (Engine 25 and later; this backend requires 28), so the SIGKILL still
+   * lands `timeoutSeconds` after the SIGTERM. Asking again only sends
+   * another SIGTERM, which a draining worker ignores.
+   */
+  async stopContainer(
+    idOrName: string,
+    timeoutSeconds: number,
+    waitMs: number,
+  ): Promise<boolean> {
+    try {
+      await this.postStop(idOrName, timeoutSeconds, waitMs);
+      return true;
+    } catch (error) {
+      if (error instanceof DockerTimeoutError) return false;
+      throw error;
+    }
+  }
+
+  private async postStop(
+    idOrName: string,
+    timeoutSeconds: number,
+    waitMs: number,
+  ): Promise<void> {
+    await this.request(
+      "POST",
+      `/containers/${encodeURIComponent(idOrName)}/stop?t=${timeoutSeconds}`,
+      undefined,
+      [204, 304, 404],
+      waitMs,
+    );
+  }
+
+  async removeContainer(idOrName: string): Promise<void> {
     // `v=true` takes the container's *anonymous* volumes with it — the ones
     // Docker materializes for every `VOLUME` an image declares. Named volumes
     // are untouched by it, so the session workspace still outlives this call
     // and is reclaimed by GC instead.
     await this.request(
       "DELETE",
-      `/containers/${encoded}?force=true&v=true`,
+      `/containers/${encodeURIComponent(idOrName)}?force=true&v=true`,
       undefined,
       [204, 404],
     );

@@ -258,6 +258,9 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
   return `${ISOLATION_CONTRACT}:${digest}`;
 }
 
+/** How long `terminate` without `waitForExit` waits on a stop (94S-385). */
+const STOP_WAIT_MS = 5_000;
+
 const CONTAINER_NAME_PREFIX = "ap-worker-";
 const NETWORK_PREFIX = "ap-net-";
 const VOLUME_PREFIX = "ap-ws-";
@@ -990,10 +993,22 @@ export class LocalDockerBackend implements ExecutionBackend {
     ) {
       return { foundProviderRef: container.Id, outcome: "provider_mismatch" };
     }
-    await this.client.stopAndRemoveContainer(
-      container.Id,
-      this.config.stopTimeoutSeconds,
-    );
+    if (options.waitForExit === false) {
+      // Long enough for an idle worker to exit, so the usual kill still ends
+      // in the call that asked for it; a busy one drains on without us.
+      const stopped = await this.client.stopContainer(
+        container.Id,
+        this.config.stopTimeoutSeconds,
+        Math.min(STOP_WAIT_MS, this.config.requestTimeoutMs),
+      );
+      if (!stopped) return { outcome: "stopping", providerRef: container.Id };
+      await this.client.removeContainer(container.Id);
+    } else {
+      await this.client.stopAndRemoveContainer(
+        container.Id,
+        this.config.stopTimeoutSeconds,
+      );
+    }
     // Best effort: the container is what the caller asked to be rid of, and
     // it is. A network left behind here is found again by
     // `reconcileNetworks`, which reports it if it cannot be removed either.

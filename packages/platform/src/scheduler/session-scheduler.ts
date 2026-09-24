@@ -176,6 +176,12 @@ export type SchedulerRunSummary = {
   /** Kill intents the provider did not carry out; each row keeps its slot. */
   killFailed: ExecutionRef[];
   /**
+   * Kill intents whose resource was asked to stop and is still draining its
+   * turn. Not a failure: each keeps its slot, and a later pass confirms it
+   * gone without having waited on it (94S-385).
+   */
+  killsStopping: ExecutionRef[];
+  /**
    * Isolation resources (worker networks) the backend could neither remove
    * nor repair. A fault: each one is either a leaked address pool or a
    * worker cut off from its egress, so the exit code carries it.
@@ -622,6 +628,7 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
     reconcileFailed: [],
     killFailed: [],
     killed: [],
+    killsStopping: [],
     networkScanFailed: false,
     networksFailed: [],
     networksReclaimed: [],
@@ -982,7 +989,9 @@ async function pass(
           ...fieldsOf(ref),
           ...(outcome.outcome === "generation_mismatch"
             ? { found_generation: outcome.foundGeneration }
-            : { found_provider_ref: outcome.foundProviderRef }),
+            : outcome.outcome === "provider_mismatch"
+              ? { found_provider_ref: outcome.foundProviderRef }
+              : {}),
           outcome: outcome.outcome,
           session_id: execution.sessionId,
         });
@@ -1124,7 +1133,7 @@ async function pass(
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
-      outcome = await backend.terminate(ref);
+      outcome = await backend.terminate(ref, { waitForExit: false });
     } catch (error) {
       summary.killFailed.push(ref);
       logger.error("Killing execution failed; intent kept for retry", {
@@ -1139,6 +1148,15 @@ async function pass(
       logger.error("Killing execution hit a generation mismatch", {
         ...fieldsOf(ref),
         found_generation: outcome.foundGeneration,
+        session_id: execution.sessionId,
+      });
+      return;
+    }
+    if (outcome.outcome === "stopping") {
+      summary.killsStopping.push(ref);
+      logger.info("Execution asked to stop; confirmed gone by a later pass", {
+        ...fieldsOf(ref),
+        provider_ref: outcome.providerRef,
         session_id: execution.sessionId,
       });
       return;
@@ -1301,7 +1319,12 @@ async function pass(
       // could find a replacement another pass has since built and whose
       // worker has since bound; that one is refused, the row is left as is,
       // and the next pass judges the replacement on its own merits.
-      outcome = await backend.terminate(ref, pinnedTo(observed));
+      // A claimed worker may be draining a turn past its drain deadline and
+      // is not waited on; an unclaimed one has none and exits at once.
+      outcome = await backend.terminate(ref, {
+        ...pinnedTo(observed),
+        waitForExit: !execution.claimed,
+      });
     } catch (error) {
       summary.reconcileFailed.push(ref);
       logger.error("Replacing an execution resource failed", {
@@ -1314,6 +1337,15 @@ async function pass(
     }
     if (outcome.outcome === "terminated" || outcome.outcome === "absent") {
       return true;
+    }
+    if (outcome.outcome === "stopping") {
+      logger.info("Execution resource stopping for replacement", {
+        ...fieldsOf(ref),
+        provider_ref: outcome.providerRef,
+        reason,
+        session_id: execution.sessionId,
+      });
+      return false;
     }
     // Left untouched, so the row keeps its slot and the next pass retries.
     summary.reconcileFailed.push(ref);
@@ -1711,6 +1743,7 @@ async function pass(
     image_unresolved: summary.imageUnresolved,
     kill_failed_count: summary.killFailed.length,
     killed_count: summary.killed.length,
+    kills_stopping_count: summary.killsStopping.length,
     launch_backoff_count: summary.launchesBackingOff.length,
     launch_quarantined_count: summary.launchesQuarantined.length,
     launched_count: summary.launched.length,

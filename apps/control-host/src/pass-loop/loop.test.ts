@@ -564,7 +564,7 @@ describe("pass loop configuration", () => {
   test("defaults: the scheduler's", () => {
     expect(passLoopConfigFromEnv({}, SCHEDULER)).toEqual({
       intervalMs: 5_000,
-      passTimeoutMs: 120_000,
+      passTimeoutMs: 180_000,
       killGraceMs: 30_000,
       maxConsecutiveFailures: 3,
       statusFile: "/tmp/scheduler-status.json",

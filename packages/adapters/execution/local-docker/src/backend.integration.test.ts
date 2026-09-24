@@ -366,6 +366,32 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(await backend.terminate(gen2)).toEqual({ outcome: "absent" });
   }, 60_000);
 
+  test("a stop not waited for still ends in SIGKILL at the stop timeout (94S-385)", async () => {
+    // busybox's `sleep` ignores SIGTERM, like a worker draining its turn.
+    const draining = new LocalDockerBackend(
+      { ...backendConfig(), requestTimeoutMs: 1_000, stopTimeoutSeconds: 6 },
+      client,
+    );
+    const intent = intentFor();
+    const { providerRef } = await draining.ensureExecution(intent);
+
+    expect(await draining.terminate(intent, { waitForExit: false })).toEqual({
+      outcome: "stopping",
+      providerRef,
+    });
+    expect(await draining.inspect(intent)).toMatchObject({ state: "running" });
+    const deadline = Date.now() + 20_000;
+    while ((await draining.inspect(intent)).state === "running") {
+      if (Date.now() > deadline) throw new Error("the stop was dropped");
+      await Bun.sleep(500);
+    }
+    expect(await draining.terminate(intent, { waitForExit: false })).toEqual({
+      outcome: "terminated",
+      providerRef,
+    });
+    expect((await draining.inspect(intent)).found).toBe(false);
+  }, 60_000);
+
   test("the non-root worker can write to HOME and /tmp", async () => {
     // busybox has no uid 1000 in /etc/passwd, so a writable HOME must come
     // from the mount options and the HOME env, not from the image.

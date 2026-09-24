@@ -374,15 +374,20 @@ services:
   # ends a pass on its own: JOB_POOL_TIMEOUTS (packages/db/src/pool.ts) bound
   # the failing statement to connect 5s + read 20s and the pass-lock unlock
   # to another 20s, and every store call after a lost connection fails at
-  # once, so the pass exits 1 about 45s in (94S-255).
-  # SCHEDULER_PASS_TIMEOUT_SEC stays above that budget as the watchdog for
-  # anything else that hangs — Docker calls have no such bound.
+  # once, so the pass exits 1 about 45s in (94S-255). Docker calls are
+  # bounded by EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC, except a stop: the daemon
+  # answers it only once the worker has drained, up to
+  # EXECUTION_DOCKER_STOP_TIMEOUT_SEC. A kill asks and does not wait (the next
+  # pass confirms the worker gone), but a pass can still wait out one whole
+  # stop, so SCHEDULER_PASS_TIMEOUT_SEC must exceed stop + request timeout or
+  # the scheduler refuses to start (94S-385). It is the watchdog for the rest.
   #
   # Stopping: SIGTERM stops the loop, and the pass in flight stops at its next
   # safe point, before any further reservation; it is killed 30s later
-  # (PASS_LOOP_ROLES.scheduler.stopGraceSec). stop_grace_period leaves room
-  # for that before Docker kills the loop itself. Stopping the scheduler ends
-  # no worker: a slot is given back only once a pass has seen the worker gone.
+  # (PASS_LOOP_ROLES.scheduler.stopGraceSec). A worker stop it was waiting on
+  # goes on in the daemon. stop_grace_period leaves room for that before
+  # Docker kills the loop itself. Stopping the scheduler ends no worker: a
+  # slot is given back only once a pass has seen the worker gone.
   scheduler:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
@@ -438,8 +443,9 @@ services:
       SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
       # Above SCHEDULER_INTERVAL_SEC + SCHEDULER_PASS_TIMEOUT_SEC, or the
       # scheduler refuses to start: two successes can be that far apart.
-      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-140}
-      SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-120}
+      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-200}
+      # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout (94S-385).
+      SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-180}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

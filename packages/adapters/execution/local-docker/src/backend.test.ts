@@ -91,6 +91,11 @@ class FakeDocker {
   readonly others = new Map<string, FakeProxy>();
   /** Every network connect answers 403 without attaching anything. */
   refuseConnects = false;
+  /**
+   * Container names whose worker is draining its turn: a stop is not
+   * answered, the way the daemon answers only once the container is gone.
+   */
+  readonly draining = new Set<string>();
   /** Every network disconnect answers 500 and leaves the endpoint. */
   refuseDisconnects = false;
   /** The next network create answers 409 as if a racer had just made it. */
@@ -668,6 +673,9 @@ class FakeDocker {
     if (request.method === "POST" && action === "stop") {
       if (container.status !== "running")
         return new Response(null, { status: 304 });
+      if (this.draining.has(container.name)) {
+        return new Promise<Response>(() => undefined);
+      }
       container.status = "exited";
       return new Response(null, { status: 204 });
     }
@@ -1871,6 +1879,32 @@ describe("LocalDockerBackend.terminate", () => {
     expect(
       await backend.terminate(intent, { providerRef: replacement.id }),
     ).toEqual({ outcome: "terminated", providerRef: replacement.id });
+  });
+
+  test("without waitForExit, a worker still draining is left stopping and removed by a later call (94S-385)", async () => {
+    const quick = new LocalDockerBackend({
+      ...configFor(docker.host),
+      requestTimeoutMs: 200,
+    });
+    const intent = intentFor();
+    const name = containerNameFor(intent, "test-a");
+    const container = docker.add(name, await createBodyOf(intent));
+    docker.draining.add(name);
+
+    expect(await quick.terminate(intent, { waitForExit: false })).toEqual({
+      outcome: "stopping",
+      providerRef: container.id,
+    });
+    expect(docker.containers.get(name)).toBe(container);
+    expect(workerRemovals(docker)).toHaveLength(0);
+
+    docker.draining.delete(name);
+    container.status = "exited";
+    expect(await quick.terminate(intent, { waitForExit: false })).toEqual({
+      outcome: "terminated",
+      providerRef: container.id,
+    });
+    expect(docker.containers.has(name)).toBe(false);
   });
 
   test("reports absent when nothing exists for the execution", async () => {

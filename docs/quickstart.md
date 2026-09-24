@@ -330,6 +330,7 @@ docker events --filter label=agent-platform.installation=local --filter type=con
 | 증상 | 원인과 조치 |
 |---|---|
 | `up`이 scheduler에서 멈추거나 scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError` | Docker Engine이 28 미만이다. 엔진을 올린다 |
+| scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다([94S-385](https://linear.app/94soon/issue/94S-385)). 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다 |
 | `bind: address already in use` | 위 포트 중 하나를 다른 프로세스·다른 스택이 쓰고 있다 |
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(위 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401 | `Authorization: Bearer <key>`가 빠졌거나 key가 다른 스택의 DB에서 발급됐다 |

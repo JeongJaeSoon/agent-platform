@@ -50,11 +50,14 @@ export const PASS_LOOP_ROLES = {
   scheduler: {
     prefix: "SCHEDULER",
     intervalSec: 5,
-    passTimeoutSec: 120,
+    // Above one worker's whole stop, EXECUTION_DOCKER_STOP_TIMEOUT_SEC plus
+    // the request timeout; the scheduler refuses to start otherwise.
+    passTimeoutSec: 180,
     maxConsecutiveFailures: 3,
-    healthStaleSec: 140,
-    // A stopped pass finishes the Docker call it is in (each bounded by the
-    // backend's own timeouts) and stops before the next reservation.
+    healthStaleSec: 200,
+    // A stopped pass stops before the next reservation. A Docker stop cut
+    // short here is not: the daemon carries it on, and the next pass
+    // removes what it leaves.
     stopGraceSec: 30,
     statusFile: "/tmp/scheduler-status.json",
   },
