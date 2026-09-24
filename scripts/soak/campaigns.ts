@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   GetObjectCommand,
@@ -47,8 +47,9 @@ import {
  * reset stack (scripts/soak/campaign.sh resets between them), drives a few
  * sessions from outside, injects one kind of trouble, and records rows of
  * the criteria table: 입력·기대·실제·pass/fail/skip, plus the invariants
- * after it. Campaigns whose feature has not landed are hooks that record
- * a skip with the ticket that unblocks them.
+ * after it. Two campaigns run a whole existing check instead: the D2 gate's
+ * control-host role test on this stack, and tests/e2e/restore-resume.sh on
+ * projects of its own.
  *
  *   source "$SOAK_STATE/vars.sh"
  *   bun scripts/soak/campaigns.ts list
@@ -72,9 +73,13 @@ type Campaign = {
   id: string;
   kind: "fault" | "race";
   title: string;
-  /** Set on a hook: the campaign records a skip naming what it waits for. */
-  waitsFor?: { ticket: string; reason: string };
   run?: (ctx: Ctx) => Promise<void>;
+  /**
+   * Instead of `run`, for a campaign that brings compose projects of its
+   * own: campaign.sh takes the soak stack down first (the host holds two
+   * stacks at most), and the rows come from what this returns.
+   */
+  standalone?: (out: Output) => Promise<Criterion[]>;
 };
 
 const TURN_MS = 300_000;
@@ -99,6 +104,14 @@ async function startAgain(
   service: "api" | "postgres" | "scheduler",
 ): Promise<void> {
   await docker(["start", container(ctx.env, service)]);
+  await follow(ctx, service);
+}
+
+/** Points the runner at the host port a restarted service has now. */
+async function follow(
+  ctx: Ctx,
+  service: "api" | "postgres" | "scheduler",
+): Promise<void> {
   const hostPort = async (port: number) => {
     const result = await compose(ctx.env, ["port", service, String(port)]);
     const found = result.stdout.trim().split(":").at(-1);
@@ -1847,31 +1860,165 @@ const grantRevoke: Campaign = {
   },
 };
 
-// ---------------------------------------------------------------- hooks
+// ------------------------------------------------- existing checks, run whole
 
-const hooks: Campaign[] = [
-  {
-    id: "fault-backup-restore-resume",
-    kind: "fault",
-    title: "backup restored into a new environment, resumed by a new process",
-    waitsFor: {
-      ticket: "94S-324",
-      reason:
-        "94S-324가 tests/e2e/restore-resume.sh로 착지했다(backup → 새 project restore → 새 worker가 같은 native session으로 재개). 그 스크립트는 자기 project 둘을 쓰므로 soak135 스택 안에서는 돌리지 않고, 94S-117 착지 뒤 그 스크립트를 다시 돌린 결과를 이 행의 근거로 삼는다.",
-    },
+/** Runs `command` with its stdout and stderr in `log`; resolves to its exit code. */
+async function logged(
+  command: string[],
+  log: string,
+  vars: Record<string, string>,
+): Promise<number> {
+  const child = Bun.spawn(["sh", "-c", '"$@" >"$0" 2>&1', log, ...command], {
+    env: { ...process.env, ...vars },
+  });
+  return await child.exited;
+}
+
+/**
+ * One row per test case of a bun test JUnit report (a non-TTY bun test
+ * prints no line for a passing test). A skip, or a case that asserted
+ * nothing (the gate tests return early without their env), did not run.
+ */
+export function bunTestRows(
+  id: string,
+  input: string,
+  junit: string,
+  code: number,
+  minimum: number,
+): Criterion[] {
+  const xml = existsSync(junit) ? readFileSync(junit, "utf8") : "";
+  const rows = [
+    ...xml.matchAll(
+      /<testcase name="([^"]*)"[^>]*? assertions="(\d+)"\s*(?:\/>|>([\s\S]*?)<\/testcase>)/g,
+    ),
+  ].map(([, name = "", assertions = "0", body = ""]) => {
+    const status = body.includes("<failure")
+      ? "fail"
+      : body.includes("<skipped")
+        ? "skip"
+        : assertions === "0"
+          ? "검증 없이 끝남"
+          : "pass";
+    return criterion({
+      id: `${id}/${name.match(/\bH\d+\b/)?.[0] ?? name.slice(0, 40)}`,
+      area: "장애",
+      input: name.replaceAll("&quot;", '"').replaceAll("&amp;", "&"),
+      expected: "테스트 통과",
+      actual: `${status} (assertions ${assertions})`,
+      pass: status === "pass",
+    });
+  });
+  if (
+    rows.length < minimum ||
+    (code !== 0 && rows.every((row) => row.status === "pass"))
+  ) {
+    rows.push(
+      criterion({
+        id: `${id}/exit`,
+        area: "장애",
+        input,
+        expected: `bun test가 테스트 ${minimum}개 이상을 돌리고 0으로 끝난다`,
+        actual: `exit ${code}, 테스트 ${rows.length}개; ${junit}`,
+        pass: false,
+      }),
+    );
+  }
+  return rows;
+}
+
+/**
+ * 94S-117's role checks (tests/d2-gate/control-host-roles.e2e.test.ts,
+ * H1–H5) on the soak stack instead of the gate's: its overlay only swaps
+ * the Messages API for one that answers the same `/requests`.
+ */
+const controlHostRoles: Campaign = {
+  id: "fault-control-host-role",
+  kind: "fault",
+  title:
+    "control-host roles (api/scheduler/reconciler, one image): restart, PostgreSQL stop, scheduler without Docker",
+  async run(ctx) {
+    const log = join(ctx.out.dir, "control-host-roles.log");
+    const junit = join(ctx.out.dir, "control-host-roles.junit.xml");
+    const code = await logged(
+      [
+        "bun",
+        "test",
+        "tests/d2-gate/control-host-roles.e2e.test.ts",
+        "--timeout",
+        "1800000",
+        "--reporter=junit",
+        `--reporter-outfile=${junit}`,
+      ],
+      log,
+      {
+        D2_GATE: "1",
+        D2_GATE_OUT: ctx.out.dir,
+        D2_GATE_PROJECT: ctx.env.project,
+        D2_GATE_COMMAND: `scripts/soak/campaign.sh ${ctx.id}`,
+        D2_GATE_API_URL: ctx.env.apiUrl,
+        D2_GATE_API_KEY: ctx.env.apiKey,
+        D2_GATE_DATABASE_URL: ctx.env.databaseUrl,
+        D2_GATE_S3_URL: ctx.env.s3Url,
+        D2_GATE_CHAOS_URL: ctx.env.chaosUrl,
+        D2_GATE_MESSAGES_URL: ctx.env.messagesUrl,
+        D2_GATE_NETWORK: ctx.env.network,
+      },
+    );
+    ctx.rows.push(...bunTestRows(ctx.id, this.title, junit, code, 5));
+    // The test restarted both, and Docker gave them new host ports.
+    await follow(ctx, "api");
+    await follow(ctx, "postgres");
+    await invariants(ctx, "control-host role 검사 뒤");
   },
-  {
-    id: "fault-control-host-role",
-    kind: "fault",
-    title:
-      "control-host roles (api/scheduler/reconciler in one image) killed one by one",
-    waitsFor: {
-      ticket: "94S-117",
-      reason:
-        "94S-117이 착지하며 role별 재시작·DB/Docker 장애 복구를 tests/d2-gate/control-host-roles.e2e.test.ts(scripts/d2-gate/run.sh 마지막 단계, H1~H5)로 검증한다. api·scheduler SIGKILL 뒤 turn 연속성은 fault-control-kill이 잰다. 이 행은 그 두 결과를 근거로 삼는다.",
-    },
+};
+
+/**
+ * 94S-324's tests/e2e/restore-resume.sh: backup, restore into a new
+ * project, and a new worker resuming the same native session. It builds
+ * and removes projects of its own, named after soak135.
+ */
+const backupRestoreResume: Campaign = {
+  id: "fault-backup-restore-resume",
+  kind: "fault",
+  title: "backup restored into a new project, resumed by a new process",
+  async standalone(out) {
+    const rr = join(out.dir, "rr");
+    const log = join(out.dir, "restore-resume.log");
+    const code = await logged(["tests/e2e/restore-resume.sh"], log, {
+      RR_OUT: rr,
+      RR_PROJECT: "soak135rr",
+      // Homebrew's bash 5.3 hangs on the backup's heredoc (docs/backup-restore.md).
+      PATH: `/bin:${process.env.PATH}`,
+    });
+    const record = join(rr, "record.txt");
+    const lines = existsSync(record) ? readFileSync(record, "utf8") : "";
+    const rows = [...lines.matchAll(/^(PASS|FAIL) (.+)$/gm)].map(
+      ([, status = "", name = ""], index) =>
+        criterion({
+          id: `${this.id}/${index + 1}`,
+          area: "장애",
+          input: name,
+          expected: "PASS",
+          actual: status,
+          pass: status === "PASS",
+        }),
+    );
+    rows.push(
+      criterion({
+        id: `${this.id}/exit`,
+        area: "장애",
+        input: "tests/e2e/restore-resume.sh",
+        expected: "0으로 끝나고 record.txt에 FAIL이 없다",
+        actual: `exit ${code}, PASS ${rows.filter((row) => row.status === "pass").length}건; ${record}`,
+        pass:
+          code === 0 &&
+          rows.length > 0 &&
+          rows.every((row) => row.status === "pass"),
+      }),
+    );
+    return rows;
   },
-];
+};
 
 export const CAMPAIGNS: Campaign[] = [
   dbOutage,
@@ -1889,7 +2036,8 @@ export const CAMPAIGNS: Campaign[] = [
   resumeClose,
   concurrentPut,
   grantRevoke,
-  ...hooks,
+  controlHostRoles,
+  backupRestoreResume,
 ];
 
 // ---------------------------------------------------------------- main
@@ -1899,7 +2047,7 @@ async function main(): Promise<number> {
   if (!which || which === "list") {
     for (const campaign of CAMPAIGNS) {
       console.log(
-        `${campaign.id}\t${campaign.kind}\t${campaign.waitsFor ? `hook (${campaign.waitsFor.ticket})` : "runs"}\t${campaign.title}`,
+        `${campaign.id}\t${campaign.kind}\t${campaign.standalone ? "own-stack" : "runs"}\t${campaign.title}`,
       );
     }
     return which ? 0 : 2;
@@ -1917,23 +2065,25 @@ async function main(): Promise<number> {
       join(process.env.SOAK_STATE ?? ".", `campaign-${campaign.id}-${stamp}`),
   );
   const out = new Output(dir);
-  if (campaign.waitsFor || !campaign.run) {
-    const row = criterion({
-      id: `${campaign.id}/hook`,
-      area: campaign.kind === "race" ? "경합" : "장애",
-      input: campaign.title,
-      expected: "사유에 적은 검증이 이 캠페인을 대신한다",
-      actual: `skip (${campaign.waitsFor?.ticket}) — ${campaign.waitsFor?.reason}`,
-      pass: null,
-    });
-    out.json("criteria", [row]);
+  if (campaign.standalone) {
+    const meta = {
+      campaign: campaign.id,
+      run_started_at: new Date().toISOString(),
+    };
+    const rows = await campaign.standalone(out);
+    out.json("meta", meta);
+    out.json("criteria", rows);
     out.text(
       "report.md",
-      markdownReport(`94S-135 campaign — ${campaign.id}`, {}, [row]),
+      markdownReport(`94S-135 campaign — ${campaign.id}`, meta, rows),
     );
-    console.error(`${campaign.id}: skip (${campaign.waitsFor?.ticket})`);
-    return 0;
+    const failed = rows.filter((row) => row.status === "fail").length;
+    console.error(
+      `${campaign.id}: ${rows.length - failed}/${rows.length} pass; ${join(dir, "report.md")}`,
+    );
+    return failed === 0 ? 0 : 1;
   }
+  if (!campaign.run) throw new Error(`${campaign.id} has nothing to run`);
   const env = soakEnv();
   const meta = await reproMeta(env, {
     campaign: campaign.id,

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RecordedRequest } from "../../packages/testkit/src/fake-anthropic.ts";
-import { CAMPAIGNS } from "../../scripts/soak/campaigns.ts";
+import { bunTestRows, CAMPAIGNS } from "../../scripts/soak/campaigns.ts";
 import { distribution, percentile } from "../../scripts/soak/lib.ts";
 import {
   createMessages,
@@ -163,16 +164,53 @@ describe("94S-135 soak tooling", () => {
     ).toEqual({ contextKept: false, startsAnswered: 2, faults: 1 });
   });
 
-  test("campaign ids are unique and hooks name the ticket they wait for", () => {
+  test("campaign ids are unique and each has exactly one way to run", () => {
     const ids = CAMPAIGNS.map((campaign) => campaign.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const campaign of CAMPAIGNS) {
-      expect(Boolean(campaign.run) !== Boolean(campaign.waitsFor)).toBe(true);
+      expect(Boolean(campaign.run) !== Boolean(campaign.standalone)).toBe(true);
     }
     expect(
-      CAMPAIGNS.filter((campaign) => campaign.waitsFor)
-        .map((campaign) => campaign.waitsFor?.ticket)
-        .sort(),
-    ).toEqual(["94S-117", "94S-324"]);
+      CAMPAIGNS.filter((campaign) => campaign.standalone).map(
+        (campaign) => campaign.id,
+      ),
+    ).toEqual(["fault-backup-restore-resume"]);
+  });
+
+  test("a bun test report passes only cases that ran and asserted", () => {
+    const junit = join(mkdtempSync(join(tmpdir(), "soak-junit-")), "r.xml");
+    const report = (cases: string) => {
+      writeFileSync(
+        junit,
+        `<testsuites><testsuite>${cases}</testsuite></testsuites>`,
+      );
+      return bunTestRows("c", "input", junit, 0, 2).map((row) => [
+        row.id,
+        row.status,
+      ]);
+    };
+    expect(
+      report(
+        '<testcase name="H1: a &amp; b" line="1" assertions="3" />' +
+          '<testcase name="H2: b" line="2" assertions="1">\n<failure type="x" />\n</testcase>' +
+          '<testcase name="H3: c" line="3" assertions="0">\n<skipped />\n</testcase>' +
+          '<testcase name="H4: d" line="4" assertions="0" />',
+      ),
+    ).toEqual([
+      ["c/H1", "pass"],
+      ["c/H2", "fail"],
+      ["c/H3", "fail"],
+      ["c/H4", "fail"],
+    ]);
+    // Fewer cases than required, or none at all, fails the run.
+    expect(report('<testcase name="H1" line="1" assertions="1" />')).toEqual([
+      ["c/H1", "pass"],
+      ["c/exit", "fail"],
+    ]);
+    expect(
+      bunTestRows("c", "input", join(tmpdir(), "no-such.xml"), 1, 1).map(
+        (row) => row.status,
+      ),
+    ).toEqual(["fail"]);
   });
 });
