@@ -30,13 +30,27 @@ jobs:
       - uses: ./.github/actions/bun-setup
       # The whole bun.lock, dev dependencies included: `bun audit` reads the
       # lockfile, not node_modules, and has no production filter; a
-      # compromised build tool is a supply-chain problem too. Every advisory
-      # is printed first so the log shows what sits below the bar.
+      # compromised build tool is a supply-chain problem too. Its exit code
+      # is 1 both for advisories and for a request that failed, so the
+      # verdict comes from the JSON: no JSON means the advisory service did
+      # not answer. That fails no pull request, but the daily run reports it.
       - name: bun audit (fails at high)
         run: |
-          bun audit || true
-          echo "--- threshold: high"
-          bun audit --audit-level=high
+          bun audit --json >audit.json 2>audit.err || true
+          if ! jq -e 'type == "object"' audit.json >/dev/null 2>&1; then
+            cat audit.err
+            echo "::warning::bun audit got no answer from the advisory service; no verdict"
+            [ "$GITHUB_EVENT_NAME" = pull_request ] && exit 0
+            exit 1
+          fi
+          jq -r 'keys[] as $name | .[$name][]
+            | "\(.severity)\t\($name) \(.vulnerable_versions)\t\(.url)"' audit.json
+          high="$(jq '[.[][] | select(.severity == "high" or .severity == "critical")] | length' audit.json)"
+          echo "--- ${high} high or critical"
+          if [ "$high" -gt 0 ]; then
+            echo "::error::${high} high or critical npm advisories"
+            exit 1
+          fi
 
   # Only off pull requests, where no one watches the run: the failure becomes
   # an issue. Its own job so that the audit never holds a token that writes.
@@ -57,9 +71,9 @@ jobs:
         run: |
           {
             echo "<!-- ci-dependency-audit -->"
-            echo "\`bun audit --audit-level=high\` failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo "\`bun audit\` found a high or critical advisory, or got no answer from the advisory service, on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
             echo
-            echo "The run's log lists each advisory and the dependency path to it. Update the dependency, or record why it does not apply with \`--ignore <CVE>\` in supply-chain.yml. Close this issue once handled; the next failure opens a new one."
+            echo "The run's log lists each advisory with its severity and link. Update the dependency, or, if it does not apply, exclude its advisory from the count in supply-chain.yml with the reason next to it. Close this issue once handled; the next failure opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-dependency-audit \
             "Supply chain: high or critical npm advisory" body.md

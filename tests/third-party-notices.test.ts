@@ -158,6 +158,14 @@ describe("license policy", () => {
     expect(isPermissive("LGPL-2.1")).toBe(false);
     expect(isPermissive("SEE LICENSE IN LICENSE.md")).toBe(false);
     expect(isPermissive("UNKNOWN")).toBe(false);
+    // AND binds tighter than OR, and parentheses group: GPL-2.0 is required.
+    expect(isPermissive("(MIT OR GPL-3.0) AND GPL-2.0")).toBe(false);
+    expect(isPermissive("MIT OR GPL-3.0 AND GPL-2.0")).toBe(true);
+    expect(isPermissive("GPL-2.0 AND (MIT OR ISC)")).toBe(false);
+    expect(isPermissive("((MIT))")).toBe(true);
+    expect(isPermissive("GPL-2.0 WITH Classpath-exception-2.0")).toBe(false);
+    expect(isPermissive("MIT OR")).toBe(false);
+    expect(isPermissive("(MIT")).toBe(false);
   });
 
   test("reads the legacy license shapes", () => {
@@ -192,6 +200,10 @@ describe("license policy", () => {
         ),
       ]),
     ).toEqual([]);
+    // A review covers the license it read; new terms need a new one.
+    expect(
+      problemsOf([row("@anthropic-ai/claude-agent-sdk", "GPL-3.0")]),
+    ).toHaveLength(1);
   });
 
   test("the file round-trips: every row render writes, parseRows reads back", () => {

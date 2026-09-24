@@ -20,8 +20,8 @@
  * committed file when checking, so `--check` needs no network.
  *
  * A license outside PERMISSIVE fails both modes unless REVIEWED names the
- * package with the reason it may ship. That is the point where a new
- * copyleft or proprietary dependency gets a person's attention.
+ * package, with that license, and the reason it may ship. That is the point
+ * where a new copyleft or proprietary dependency gets a person's attention.
  */
 
 import {
@@ -63,14 +63,22 @@ const PERMISSIVE = new Set([
 ]);
 
 /**
- * Packages whose license is not in PERMISSIVE, each with why it ships. Keyed
- * by name, or by a name prefix ending in `*` for a family of platform builds.
+ * Packages whose license is not in PERMISSIVE, each with the license that was
+ * reviewed and why it may ship. Keyed by name, or by a name prefix ending in
+ * `*` for a family of platform builds. A package whose license changes is
+ * no longer covered: the new terms need their own review.
  */
-export const REVIEWED: Record<string, string> = {
-  "@anthropic-ai/claude-agent-sdk":
-    "Anthropic 상용 약관(패키지의 README.md·LICENSE.md). worker 이미지에만 들어간다. 약관 검토는 94S-338 범위 밖이다.",
-  "@anthropic-ai/claude-agent-sdk-linux-*":
-    "위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.",
+export const REVIEWED: Record<string, { license: string; reason: string }> = {
+  "@anthropic-ai/claude-agent-sdk": {
+    license: "SEE LICENSE IN README.md",
+    reason:
+      "Anthropic 상용 약관(패키지의 README.md·LICENSE.md). worker 이미지에만 들어간다. 약관 검토는 94S-338 범위 밖이다.",
+  },
+  "@anthropic-ai/claude-agent-sdk-linux-*": {
+    license: "SEE LICENSE IN LICENSE.md",
+    reason:
+      "위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.",
+  },
 };
 
 export type LockPackage = {
@@ -251,23 +259,61 @@ function dependencyNames(
 
 /** Whether an SPDX expression can be satisfied with PERMISSIVE ids alone. */
 export function isPermissive(expression: string): boolean {
-  const bare = expression.replace(/[()]/g, " ").trim();
-  if (bare === "") return false;
-  return bare
-    .split(/\s+OR\s+/)
-    .some((alternative) =>
-      alternative.split(/\s+AND\s+/).every((id) => PERMISSIVE.has(id.trim())),
-    );
+  // SPDX precedence: parentheses, then AND, then OR. Anything that does not
+  // parse as an expression ("SEE LICENSE IN ...") is not permissive.
+  const tokens = expression.match(/\(|\)|[^\s()]+/g) ?? [];
+  let at = 0;
+  const either = (): boolean => {
+    let value = both();
+    while (tokens[at] === "OR") {
+      at += 1;
+      const right = both();
+      value = value || right;
+    }
+    return value;
+  };
+  const both = (): boolean => {
+    let value = single();
+    while (tokens[at] === "AND") {
+      at += 1;
+      const right = single();
+      value = value && right;
+    }
+    return value;
+  };
+  const single = (): boolean => {
+    const token = tokens[at++];
+    if (token === "(") {
+      const value = either();
+      if (tokens[at++] !== ")") throw new SyntaxError(expression);
+      return value;
+    }
+    if (token === undefined || [")", "AND", "OR", "WITH"].includes(token)) {
+      throw new SyntaxError(expression);
+    }
+    // An exception changes the terms; that is a person's call.
+    if (tokens[at] === "WITH") {
+      at += 2;
+      return false;
+    }
+    return PERMISSIVE.has(token);
+  };
+  try {
+    const value = either();
+    return at === tokens.length && value;
+  } catch {
+    return false;
+  }
 }
 
-export function reviewFor(name: string): string | undefined {
-  if (REVIEWED[name] !== undefined) return REVIEWED[name];
-  for (const [pattern, reason] of Object.entries(REVIEWED)) {
-    if (pattern.endsWith("*") && name.startsWith(pattern.slice(0, -1))) {
-      return reason;
-    }
-  }
-  return undefined;
+export function reviewFor(name: string, license: string): string | undefined {
+  const review =
+    REVIEWED[name] ??
+    Object.entries(REVIEWED).find(
+      ([pattern]) =>
+        pattern.endsWith("*") && name.startsWith(pattern.slice(0, -1)),
+    )?.[1];
+  return review?.license === license ? review.reason : undefined;
 }
 
 export type PackageInfo = {
@@ -349,7 +395,9 @@ async function fetchRegistry(pkg: LockPackage): Promise<PackageInfo> {
 
 export function problemsOf(rows: readonly Row[]): string[] {
   return rows
-    .filter((row) => !isPermissive(row.license) && !reviewFor(row.name))
+    .filter(
+      (row) => !isPermissive(row.license) && !reviewFor(row.name, row.license),
+    )
     .map(
       (row) =>
         `${row.name}@${row.version} is ${row.license}: not in PERMISSIVE and not REVIEWED in scripts/third-party-notices.ts`,
@@ -385,7 +433,7 @@ export function render(rows: readonly Row[]): string {
       ? ["없음."]
       : flagged.map(
           (row) =>
-            `- \`${row.name}@${row.version}\` (${row.license}): ${reviewFor(row.name)}`,
+            `- \`${row.name}@${row.version}\` (${row.license}): ${reviewFor(row.name, row.license)}`,
         )),
     "",
     'Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "NOTICE 전문"에 옮긴다.',

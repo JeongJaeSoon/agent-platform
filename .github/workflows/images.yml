@@ -79,74 +79,23 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-smoke.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
-      # THIRD_PARTY_NOTICES.md is computed from bun.lock; this is where that
-      # model meets the built image. Every npm package under /app must be
-      # listed for this image (the script runs on the image's own Bun), and
-      # every Debian package must carry the copyright file the notices point
-      # to.
+      # THIRD_PARTY_NOTICES.md against what the image really holds (94S-338).
       - name: Licenses of what the image ships
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
-        run: |
-          image="${NAME}:sha-${GITHUB_SHA::12}"
-          docker run --rm --entrypoint bun -v "$PWD:/repo:ro" "$image" \
-            /repo/scripts/third-party-notices.ts --verify "$APP" /app
-          missing="$(docker run --rm --entrypoint sh "$image" -c \
-            'dpkg-query -W -f "\${Package}\n" | while read -r p; do [ -e "/usr/share/doc/$p/copyright" ] || echo "$p"; done')"
-          if [ -n "$missing" ]; then
-            echo "::error::Debian packages without /usr/share/doc/<package>/copyright: ${missing}"
-            exit 1
-          fi
-          echo "${APP}: every Debian package carries its copyright file"
+        run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
-      # Grype over the whole image: Debian packages and the npm packages
-      # under /app. A release binary pinned by version and checksum rather
-      # than a third-party action, whose tags can be moved under us. The
-      # table in the log is unfiltered, unfixed findings included; the bar
-      # (`high` and above with a fix available) is what gets reported.
+      # Findings never fail the build (see the top of this file), and a scan
+      # that cannot run (release download, database update) leaves `error`
+      # for the daily report rather than failing it either.
       - name: Vulnerability scan
-        # A scan that cannot run (release download, database update) leaves
-        # `error` for the daily report rather than failing the build.
         continue-on-error: true
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
-          GRYPE_VERSION: 0.119.0
-          GRYPE_SHA256: 3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
-        run: |
-          image="${NAME}:sha-${GITHUB_SHA::12}"
-          mkdir -p vulnerabilities
-          result=error
-          trap 'echo "$result" >"vulnerabilities/${APP}.txt"' EXIT
-          curl -fsSL --retry 3 -o grype.tar.gz \
-            "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
-          echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c -
-          tar -xzf grype.tar.gz grype
-          # Grype refuses a database older than five days on its own, so a
-          # stale one is an error here, not a quiet pass.
-          ./grype db update
-          ./grype "docker:${image}" -o table -o "json=scan.json" | tee scan.txt
-          fixable="$(jq '[.matches[] | select(.vulnerability.fix.state == "fixed")
-            | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")] | length' scan.json)"
-          {
-            echo "### ${APP}: vulnerabilities"
-            echo
-            echo "${fixable} high or critical with a fix available. Full table in the step log."
-            echo
-            echo '```text'
-            jq -r '.matches[] | select(.vulnerability.fix.state == "fixed")
-              | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")
-              | "\(.artifact.name) \(.artifact.version) → \(.vulnerability.fix.versions | join(",")) \(.vulnerability.id) \(.vulnerability.severity)"' scan.json
-            echo '```'
-          } >>"$GITHUB_STEP_SUMMARY"
-          if [ "$fixable" -gt 0 ]; then
-            result="found ${fixable}"
-            echo "::warning::${APP}: ${fixable} high or critical vulnerabilities with a fix available"
-          else
-            result=clean
-          fi
+        run: .github/scripts/image-scan.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
 
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -257,6 +206,19 @@ jobs:
         run: |
           docker pull "${NAME}@${DIGEST}"
           .github/scripts/image-smoke.sh "$APP" "${NAME}@${DIGEST}"
+      # The digest that gets promoted, not the build job's image: this job
+      # builds again, and the apt layer is not pinned. The licenses must
+      # hold and the scan must run; its findings are reported, not gating —
+      # whether a release waits for them is 94S-363's decision.
+      - name: Licenses and vulnerabilities of the pushed digest
+        timeout-minutes: 10
+        env:
+          APP: ${{ matrix.app }}
+          NAME: ${{ steps.meta.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}"
+          .github/scripts/image-scan.sh "$APP" "${NAME}@${DIGEST}" vulnerabilities
       - name: Record staged digest
         env:
           APP: ${{ matrix.app }}
