@@ -53,6 +53,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
+  catalogRevision,
   type EgressUpstream,
   profileFingerprint,
   providerUpstreamOf,
@@ -437,6 +438,8 @@ export function createWorkerGateway(deps: {
       }),
   );
 
+  const revision = catalogRevision(catalog);
+
   // Resolved at claim time, on purpose: the catalog is where an operator
   // rotates a provider credential, and the next claim (a new generation, or
   // a replay) is when the egress route should use it. Everything else under
@@ -690,6 +693,7 @@ export function createWorkerGateway(deps: {
       const objectStoreToken = generateEgressToken("object_store");
       const result = await work.claimAtomic({
         runnable,
+        catalogRevision: revision,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,

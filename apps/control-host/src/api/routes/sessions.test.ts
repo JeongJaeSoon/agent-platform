@@ -632,25 +632,44 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
     ).toBe(400);
   });
 
-  test("start_fresh reaches the transaction as it was sent", async () => {
-    const body = {
-      decision: "start_fresh" as const,
-      expected_revision: 3,
-      reason: "the checkpoint is gone; continue without it",
-    };
-    const response = await decide(body, {
-      decideRecoveryAtomic: async (input) => {
-        expect(input.decision).toEqual(body);
-        return {
-          outcome: "accepted",
-          response: {
-            receipt_id: crypto.randomUUID(),
-            receipt_status: "succeeded",
-          },
-        };
+  test("start_fresh and retry_restore reach the transaction as they were sent", async () => {
+    for (const body of [
+      {
+        decision: "start_fresh" as const,
+        expected_revision: 3,
+        reason: "the checkpoint is gone; continue without it",
       },
-    });
-    expect(response.status).toBe(202);
+      {
+        decision: "retry_restore" as const,
+        expected_revision: 3,
+        reason: "the proxy is fixed; restore the same checkpoint",
+      },
+    ]) {
+      const response = await decide(body, {
+        decideRecoveryAtomic: async (input) => {
+          expect(input.decision).toEqual(body);
+          return {
+            outcome: "accepted",
+            response: {
+              receipt_id: crypto.randomUUID(),
+              receipt_status: "succeeded",
+            },
+          };
+        },
+      });
+      expect(response.status).toBe(202);
+    }
+    // retry_restore names no turn either: it restores the same pointer.
+    expect(
+      (
+        await decide({
+          decision: "retry_restore",
+          expected_revision: 1,
+          reason: "r",
+          target_turn_id: "1",
+        })
+      ).status,
+    ).toBe(400);
   });
 
   test("maps every refusal to its status and code", async () => {
@@ -689,6 +708,11 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
       ],
       [{ outcome: "unknown_turn_left", turnId: "2" }, 409, "RECOVERY_REQUIRED"],
       [{ outcome: "workspace_reclaiming" }, 503, "BACKEND_UNAVAILABLE"],
+      [
+        { outcome: "not_restore_failed", admissionState: "recovery_required" },
+        409,
+        "REQUEST_STALE",
+      ],
     ];
     for (const [result, status, code] of cases) {
       const response = await decide(abandon, {

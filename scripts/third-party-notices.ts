@@ -406,7 +406,7 @@ export function problemsOf(rows: readonly Row[]): string[] {
 
 const BASE_IMAGE_SECTION = `## 베이스 이미지와 OS 패키지
 
-세 이미지 모두 \`oven/bun:1.3.10\`(digest 고정, Dockerfile의 \`BUN_IMAGE\`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다.
+세 이미지 모두 \`oven/bun:1.3.10\`(digest 고정, Dockerfile의 \`BUN_IMAGE\`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 \`apt-get upgrade\`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
 
 - **Bun 1.3.10** (\`/usr/local/bin/bun\`): MIT. Bun은 JavaScriptCore·WebKit(LGPL-2.1)을 정적으로 링크한다. 그 밖에 함께 링크된 라이브러리와 각 라이선스, LGPL에 따른 재링크 방법은 https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md 에 있다. Bun이 쓰는 WebKit 수정본의 소스는 https://github.com/oven-sh/webkit 이다.
 - **Debian 패키지**: 각 패키지의 저작권·라이선스 전문은 이미지 안 \`/usr/share/doc/<패키지>/copyright\`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 이 파일이 있는지 확인한다. 소스는 https://sources.debian.org/ 와 https://snapshot.debian.org/ 에서 받을 수 있다.

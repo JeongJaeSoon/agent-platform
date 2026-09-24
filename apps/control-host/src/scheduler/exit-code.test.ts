@@ -6,6 +6,8 @@ import { exitCodeFor } from "./main.ts";
 const clean: SchedulerRunSummary = {
   activeAfter: 0,
   activeBefore: 0,
+  draining: [],
+  drainsOverdue: [],
   failedLaunches: [],
   imageUnresolved: false,
   killFailed: [],

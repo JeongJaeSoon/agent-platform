@@ -20,10 +20,6 @@ import {
   type S3RequestBounds,
   sha256,
 } from "./s3.ts";
-import {
-  type EgressRoute,
-  TlsTunnelHttpHandler,
-} from "./tls-tunnel-handler.ts";
 
 export * from "./checkpoint-objects.ts";
 export * from "./git-runner.ts";
@@ -45,13 +41,6 @@ export {
   transferBudgetMs,
 } from "./s3.ts";
 export * from "./scoped-objects.ts";
-export {
-  bypassesProxy,
-  type EgressRoute,
-  type EgressRouteEnvironment,
-  egressRouteFromEnv,
-  TlsTunnelHttpHandler,
-} from "./tls-tunnel-handler.ts";
 
 export const DEFAULT_TRANSCRIPT_CHUNK_BYTES = 5 * 1024 * 1024;
 const META_VERSION = 1;
@@ -193,17 +182,11 @@ export function storageConfigFromEnv(
  * The one place this package builds an S3 client, so the bounds it runs under
  * are the ones in {@link S3_REQUEST_BOUNDS}. `bounds` exists for tests that
  * cannot wait out the shipped values. Only the `s3` settings are read, so a
- * caller with no git configuration (the worker) can build one too.
- *
- * `egress` is for a caller whose only way out is an SNI-checking CONNECT
- * proxy (the worker): its https requests — an https endpoint, or none,
- * which is AWS — then go through {@link TlsTunnelHttpHandler}, whose
- * ClientHello the proxy accepts.
+ * caller with no git configuration can build one too.
  */
 export function createStorageS3Client(
   config: Pick<StorageConfig, "s3">,
   bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
-  egress?: EgressRoute,
 ): S3Client {
   const s3Config: S3ClientConfig = {
     credentials: {
@@ -212,9 +195,7 @@ export function createStorageS3Client(
     },
     maxAttempts: S3_MAX_ATTEMPTS,
     region: config.s3.region,
-    requestHandler: egress
-      ? new TlsTunnelHttpHandler(bounds, egress)
-      : new FreshAddressHttpHandler(bounds),
+    requestHandler: new FreshAddressHttpHandler(bounds),
     ...(config.s3.endpoint === undefined
       ? {}
       : { endpoint: config.s3.endpoint, forcePathStyle: true }),

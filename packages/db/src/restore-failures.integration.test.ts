@@ -242,6 +242,30 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
       .where(eq(sessions.id, session.sessionId));
   }
 
+  async function decide(
+    session: Session,
+    decision: "retry_restore" | "start_fresh",
+    reason = "the cause is fixed",
+  ) {
+    return controls().decideRecoveryAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      decision: {
+        decision,
+        expected_revision: (await sessionRow(session.sessionId)).revision,
+        reason,
+      },
+      now: new Date(),
+    });
+  }
+
+  const NOT_RESTORE_FAILED = {
+    outcome: "not_restore_failed",
+    admissionState: "recovery_required",
+  } as const;
+
   /**
    * Turn 1 ran and committed checkpoint 0 and its worker went idle; a
    * second input now waits for a worker that has to restore checkpoint 0.
@@ -432,6 +456,89 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     );
   });
 
+  test("retry_restore restores the same checkpoint again, with the count started over (94S-348)", async () => {
+    const session = await checkpointedSession("retry");
+    await failRestore(session);
+    // Backing off is not stopped: the scheduler is still retrying on its own.
+    expect(await decide(session, "retry_restore")).toEqual({
+      ...NOT_RESTORE_FAILED,
+      admissionState: "active",
+    });
+    for (let failures = 2; failures <= RESTORE_FAILURE_LIMIT; failures++) {
+      await spendBackoff(session);
+      await failRestore(session);
+    }
+    const held = await sessionRow(session.sessionId);
+    expect(held.admissionState).toBe("recovery_required");
+
+    const statusEvents = async () =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, session.sessionId),
+              eq(events.type, "status"),
+            ),
+          )
+          .orderBy(asc(events.id))
+      ).map(({ payload }) => payload);
+    const statusBefore = (await statusEvents()).length;
+    const decided = await decide(session, "retry_restore", "proxy fixed");
+    expect(decided.outcome).toBe("accepted");
+    // One status event says where it went (94S-360).
+    expect((await statusEvents()).slice(statusBefore)).toEqual([
+      {
+        phase: "queued",
+        admission_state: "active",
+        decision: "retry_restore",
+        actor: { owner_id: session.ownerId },
+      },
+    ]);
+    const retried = await sessionRow(session.sessionId);
+    expect(retried).toMatchObject({
+      admissionState: "active",
+      status: "queued",
+      revision: held.revision + 1,
+      leaseEpoch: held.leaseEpoch + 1,
+      restoreFailureCount: 0,
+      restoreFailureReason: null,
+      restoreRetryAt: null,
+      restoreAttemptId: null,
+      checkpointRevision: held.checkpointRevision,
+    });
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toBeNull();
+    expect(
+      (await systemEvents(session.sessionId, "recovery_decision")).at(-1),
+    ).toMatchObject({
+      decision: "retry_restore",
+      reason: "proxy fixed",
+      resulting_admission_state: "active",
+      checkpoint_revision: 0,
+      resumable: false,
+    });
+    // Signalled again for its queued input.
+    expect(await launchable(session)).toBe(true);
+
+    // The next claim restores the checkpoint the failing ones did, on trial
+    // again: a fourth failure is the first of a new count.
+    const claimed = await failRestore(session);
+    expect(claimed.restore?.revision).toBe(0);
+    const again = await sessionRow(session.sessionId);
+    expect(again.admissionState).toBe("active");
+    expect(again.restoreFailureCount).toBe(1);
+    expect(
+      (await systemEvents(session.sessionId, "checkpoint_restore_failed")).map(
+        ({ failures }) => failures,
+      ),
+    ).toEqual([1, 2, 3, 1]);
+  });
+
   test("a restore reported ready clears the count, and its later exit is not a restore failure", async () => {
     const session = await checkpointedSession("ready");
     await failRestore(session);
@@ -572,6 +679,9 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
       reason: "startup_failed",
     });
 
+    // Nothing to restore: retry_restore is not the way on (94S-348).
+    expect(await decide(session, "retry_restore")).toEqual(NOT_RESTORE_FAILED);
+
     // Once the cause is fixed, start_fresh launches again.
     const decided = await controls().decideRecoveryAtomic({
       principal: { ownerId: session.ownerId },
@@ -676,6 +786,8 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(row.restoreFailureCount).toBe(0);
     expect(row.restoreRetryAt).toBeNull();
     expect(await systemEvents(session.sessionId, "startup_failed")).toEqual([]);
+    // An unknown turn is abandon's or confirm_completed's (94S-348).
+    expect(await decide(session, "retry_restore")).toEqual(NOT_RESTORE_FAILED);
   });
 
   test("a startup the session asked to stop is not a failed one (94S-302)", async () => {

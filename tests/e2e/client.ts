@@ -50,6 +50,11 @@ export function scripted(
   return `GATE-SPEC ${JSON.stringify(spec)}`;
 }
 
+export const bash = (command: string): Step => ({
+  tool: "Bash",
+  input: { command, description: command },
+});
+
 export type ApiResponse<T> = { body: T; headers: Headers; status: number };
 
 export type ErrorBody = {
@@ -58,9 +63,15 @@ export type ErrorBody = {
 
 export type SessionDetail = {
   admission_state: string;
-  attention: unknown;
+  attention: ({ code: string } & Record<string, unknown>) | null;
   checkpoint_revision: number | null;
   current_turn_id: string | null;
+  durability: {
+    checkpoint_pending_reason: string | null;
+    checkpoint_revision: number | null;
+    last_checkpointed_turn_id: string | null;
+    last_completed_turn_id: string | null;
+  };
   id: string;
   pending_request_count: number;
   queued_turn_count: number;
