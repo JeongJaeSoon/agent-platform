@@ -539,9 +539,11 @@ describe("architecture", () => {
     expect(missing).toEqual([]);
   });
 
-  test("the worker imports runtime-core, the Claude adapter, contracts and storage only", async () => {
+  test("the worker imports runtime-core, the Claude adapter, contracts, storage and observability only", async () => {
     const allowed = new Set([
       "@agent-platform/contracts",
+      // The log format and masking rules; it imports nothing itself (94S-386).
+      "@agent-platform/observability",
       "@agent-platform/runtime-claude",
       "@agent-platform/runtime-core",
       storage,

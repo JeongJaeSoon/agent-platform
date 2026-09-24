@@ -75,6 +75,24 @@ describe("structured logging", () => {
     expect(sink.records[1]?.message).toBe("[REDACTED]");
   });
 
+  test("drops the login from a URL and keeps the rest of it (94S-386)", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+
+    logger.warn("fetch https://agent:tok123@gitea:3000/a.git failed", {
+      remote: "https://tok123@github.com/o/r.git",
+      mail: "someone@example.test",
+    });
+
+    expect(sink.records[0]?.message).toBe(
+      "fetch https://[REDACTED]@gitea:3000/a.git failed",
+    );
+    expect(sink.records[0]?.fields).toEqual({
+      remote: "https://[REDACTED]@github.com/o/r.git",
+      mail: "someone@example.test",
+    });
+  });
+
   test("does not propagate logging preparation failures", () => {
     const logger = createLogger({
       sinks: [new MemoryLogSink()],

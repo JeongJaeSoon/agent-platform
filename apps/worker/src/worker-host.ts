@@ -17,6 +17,13 @@ import {
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
 } from "@agent-platform/contracts";
+import {
+  LOG_LEVELS,
+  type LogLevel,
+  resolveLogLevel,
+  sanitizeFields,
+  sanitizeText,
+} from "@agent-platform/observability";
 import { endedByAbort } from "@agent-platform/runtime-claude";
 import {
   type AgentRun,
@@ -41,6 +48,7 @@ import {
   claimSecrets,
   SecretScrubber,
   scrubbingGateway,
+  scrubbingLogger,
 } from "./secret-scrubber.ts";
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
@@ -241,7 +249,7 @@ export class WorkerHost {
   /** The restore in flight or done, settled either way; see `shutdown`. */
   private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
-  private scrubber: SecretScrubber | undefined;
+  private scrubber: SecretScrubber;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
   private readonly abandoned: Promise<void>;
@@ -267,7 +275,15 @@ export class WorkerHost {
   constructor(options: WorkerHostOptions) {
     this.options = options;
     this.checkpoints = options.checkpoints;
-    this.logger = options.logger ?? consoleLogger;
+    // Until a claim names the rest, the nonce and the host's own secrets.
+    this.scrubber = new SecretScrubber([
+      options.execution.bootstrapNonce,
+      ...(options.secrets ?? []),
+    ]);
+    this.logger = scrubbingLogger(
+      options.logger ?? consoleLogger,
+      () => this.scrubber,
+    );
     this.abandoned = new Promise<void>((resolve) => {
       this.announceAbandon = () => {
         this.abandonedNow = true;
@@ -277,6 +293,11 @@ export class WorkerHost {
     this.stopped = new Promise<void>((resolve) => {
       this.announceStop = resolve;
     });
+  }
+
+  /** The secrets this process holds so far, for loggers built before it. */
+  get secrets(): SecretScrubber {
+    return this.scrubber;
   }
 
   /** Asks the loop to wind down at the next safe point; safe from a signal handler. */
@@ -1769,9 +1790,7 @@ export class WorkerHost {
       ...this.scope,
       turn_id: null,
       // The session shows it when a restore keeps failing (94S-345).
-      reason:
-        this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
-        "loop ended",
+      reason: this.scrubber.scrub(this.stopping?.reason ?? "loop ended"),
     };
     const gateway = this.options.gateway;
     // A startup a signal cut short is not a failed one (94S-302).
@@ -2100,16 +2119,40 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export const consoleLogger: WorkerLogger = {
-  info: (event, fields) => log("info", event, fields),
-  warn: (event, fields) => log("warn", event, fields),
-  error: (event, fields) => log("error", event, fields),
-};
-
-function log(
-  level: string,
-  event: string,
-  fields: Record<string, unknown> | undefined,
-): void {
-  console.log(JSON.stringify({ level, event, ...fields }));
+/**
+ * One JSON object per line: `timestamp`, `level`, `event`, then the fields,
+ * masked by the platform's log rules (94S-386). Keys that name a message
+ * body are kept: the worker logs no bodies, and the rule would drop
+ * `input_id`.
+ */
+export function createConsoleLogger(
+  options: {
+    level?: string;
+    now?: () => Date;
+    write?: (line: string) => void;
+  } = {},
+): WorkerLogger {
+  const threshold = LOG_LEVELS.indexOf(resolveLogLevel(options.level));
+  const now = options.now ?? (() => new Date());
+  const write = options.write ?? ((line: string) => console.log(line));
+  const emit =
+    (level: LogLevel) =>
+    (event: string, fields?: Record<string, unknown>): void => {
+      if (LOG_LEVELS.indexOf(level) < threshold) return;
+      const head = {
+        timestamp: now().toISOString(),
+        level,
+        event: sanitizeText(event),
+      };
+      // Assigned again after the fields, so a field named `level` or
+      // `event` cannot replace the record's own.
+      write(
+        JSON.stringify(
+          Object.assign({ ...head }, sanitizeFields(fields ?? {}, true), head),
+        ),
+      );
+    };
+  return { info: emit("info"), warn: emit("warn"), error: emit("error") };
 }
+
+export const consoleLogger: WorkerLogger = createConsoleLogger();

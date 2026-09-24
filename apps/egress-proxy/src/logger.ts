@@ -1,10 +1,11 @@
+import { sanitizeFields, sanitizeText } from "./redaction.ts";
+
 /**
- * A three-line logger instead of `@agent-platform/observability`.
- *
- * The proxy has to boot from a bare `oven/bun` image with only its own
- * directory mounted — no workspace, no `node_modules` — so it carries no
- * workspace dependency. The record shape matches the platform logger's so
- * the lines still parse the same way.
+ * A small logger instead of `@agent-platform/observability`: the proxy's
+ * image copies only its own directory and installs nothing
+ * (tests/images.test.ts), so it carries no workspace dependency. It masks by
+ * the platform's rules all the same (`./redaction.ts`, 94S-386), and the
+ * record shape matches the platform logger's so the lines parse the same way.
  */
 
 export const PROXY_LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
@@ -46,9 +47,9 @@ export function createProxyLogger(
       write(
         JSON.stringify({
           level: at,
-          message,
+          message: sanitizeText(message),
           timestamp: new Date().toISOString(),
-          ...(fields === undefined ? {} : { fields }),
+          ...(fields === undefined ? {} : { fields: sanitizeFields(fields) }),
         }),
       );
     };

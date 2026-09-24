@@ -1,6 +1,8 @@
 import type { BootstrapClaimResponse } from "@agent-platform/contracts";
 import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
 
+import type { WorkerLogger } from "./worker-host.ts";
+
 /**
  * A value this short is replaced only where it stands alone: the local
  * object store's key is `test`, and replacing it inside every word would
@@ -116,5 +118,32 @@ export function scrubbingGateway(
     pendingControl: (request) => gateway.pendingControl(request),
     registerPending: (request) =>
       gateway.registerPending(scrubber.scrub(request)),
+  };
+}
+
+/**
+ * The log gets the same treatment (94S-386): an error message can quote what
+ * the process holds. `scrubber` is read per line, because the claim that
+ * brings most of the secrets arrives after the logger is handed out.
+ */
+export function scrubbingLogger(
+  logger: WorkerLogger,
+  scrubber: () => SecretScrubber | undefined,
+): WorkerLogger {
+  const scrubbed =
+    (write: WorkerLogger["info"]) =>
+    (event: string, fields?: Record<string, unknown>): void => {
+      const current = scrubber();
+      write(
+        event,
+        current === undefined || fields === undefined
+          ? fields
+          : current.scrub(fields),
+      );
+    };
+  return {
+    info: scrubbed((event, fields) => logger.info(event, fields)),
+    warn: scrubbed((event, fields) => logger.warn(event, fields)),
+    error: scrubbed((event, fields) => logger.error(event, fields)),
   };
 }
