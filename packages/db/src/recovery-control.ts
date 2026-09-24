@@ -27,6 +27,7 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { lastLaunchPartition } from "./enqueue.ts";
+import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { RESTORE_FAILURES_CLEARED } from "./restore-failures.ts";
 import { RESUME, resumePauseFamily } from "./resume-control.ts";
@@ -377,6 +378,25 @@ export function decideRecoveryAtomic(
       .from(sessions)
       .where(eq(sessions.id, sessionId));
     if (!after) throw new Error(`Session ${sessionId} vanished mid-decision`);
+    // start_fresh announced its own; the others put the admission they
+    // reached on the stream, as announceStopped does for a stop (94S-360).
+    if (
+      reset === null &&
+      (after.admissionState !== session.admissionState ||
+        after.status !== session.status)
+    ) {
+      await recordStatus(tx, {
+        sessionId,
+        phase: publicStatus(after.status, false),
+        extra: {
+          admission_state: after.admissionState,
+          decision: decision.decision,
+          actor: { owner_id: input.principal.ownerId },
+        },
+        turnRowId: null,
+        now,
+      });
+    }
     const result: RecoveryDecisionReceiptResult = {
       resulting_admission_state: after.admissionState,
       // The revision a resume would restore from, as `resumable` judges it;
