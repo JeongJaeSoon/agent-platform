@@ -1287,6 +1287,40 @@ describe("WorkerHost before the engine starts", () => {
       stop_kind: "drain",
     });
   });
+
+  test("a gateway older than stop_kind still gets the drained session back", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.predatesStopKind = true;
+    let started!: () => void;
+    const preparing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      workspace: {
+        committedClaudeMd: () => null,
+        instructionsCommit: () => null,
+        prepare: ({ signal }) =>
+          new Promise((_, reject) => {
+            started();
+            signal.addEventListener("abort", () => reject(signal.reason));
+          }),
+      },
+    });
+    const loop = host.runLoop();
+    await preparing;
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    // The strict gateway refused the field it does not know; the release
+    // without it is the one it kept (94S-361).
+    expect(gateway.releases).toHaveLength(2);
+    expect(gateway.releases[0]).toMatchObject({ stop_kind: "drain" });
+    expect(gateway.releases[1]).toMatchObject({ reason: "received SIGTERM" });
+    expect(gateway.releases[1]).not.toHaveProperty("stop_kind");
+  });
 });
 
 describe("WorkerHost shutdown with a wedged engine", () => {
