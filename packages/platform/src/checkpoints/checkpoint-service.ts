@@ -671,13 +671,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
     // Before the gate and the download: a bundle cooling down costs neither.
-    const cooled = cooling.pending(bundleCooldownKey(workspace));
-    if (cooled !== undefined) throw cooled;
+    // Again once a slot is free, since the same bundle may have failed while
+    // this one waited for it.
+    const coolingDown = () => {
+      const cooled = cooling.pending(bundleCooldownKey(workspace));
+      if (cooled !== undefined) throw cooled;
+    };
+    coolingDown();
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
-    return bundleGate(() =>
-      readAndVerifyBundle(workspace, manifestRef, pinned),
-    );
+    return bundleGate(() => {
+      coolingDown();
+      return readAndVerifyBundle(workspace, manifestRef, pinned);
+    });
   }
 
   // The commit too: the same bytes asked for another commit is other work.

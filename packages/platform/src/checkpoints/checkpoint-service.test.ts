@@ -1145,6 +1145,36 @@ describe("a bundle whose verification threw cools down (94S-271)", () => {
     expect(streamed).toBe(1);
   });
 
+  test("retries queued behind the failing verification do not start it again", async () => {
+    const verifier = flakyVerifier();
+    const slow: WorkspaceBundleVerifier = {
+      async verify() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return verifier.verify();
+      },
+    };
+    const cooled = createCheckpointService({
+      bundleRetryCooldownMs: 60_000,
+      clock: () => 0,
+      codecs: { [runtime.engine]: codec },
+      maxConcurrentBundleVerifications: 1,
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: slow,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, () =>
+        cooled.validateManifest({ checkpoint, sessionId }),
+      ),
+    );
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(verifier.calls).toBe(1);
+  });
+
   test("verifies again once the cooldown has passed", async () => {
     const verifier = flakyVerifier();
     const now = { ms: 0 };
