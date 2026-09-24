@@ -21,10 +21,27 @@ echo "::group::${app}: /app/DEBIAN_SOURCES.md"
 docker run --rm --entrypoint cat "$image" /app/DEBIAN_SOURCES.md
 echo "::endgroup::"
 
+# Whether snapshot.debian.org really holds every listed source. It imports
+# the archive every few hours, so a build right after a Debian security
+# release can list a version it does not hold yet, and it is a volunteer
+# service that can be down: both only warn on a pull request, a push or the
+# daily run, and fail a tag's release, whose publish job runs this too.
+if ! docker run --rm --entrypoint bun -v "$PWD:/repo:ro" "$image" \
+  /repo/scripts/third-party-notices.ts --snapshot-check /app/DEBIAN_SOURCES.md; then
+  case "${GITHUB_REF:-}" in
+    refs/tags/v*)
+      echo "::error::${app}: snapshot.debian.org does not hold every source /app/DEBIAN_SOURCES.md names"
+      exit 1
+      ;;
+    *) echo "::warning::${app}: snapshot.debian.org does not hold every source /app/DEBIAN_SOURCES.md names (fails on a release)" ;;
+  esac
+fi
+
 # \${Package} reaches the image's sh as ${Package} inside double quotes, which
-# dpkg-query, not the shell, expands.
+# dpkg-query, not the shell, expands. Installed packages only: one removed
+# with its configuration kept is still listed, without its docs.
 missing="$(docker run --rm --entrypoint sh "$image" -c \
-  'dpkg-query -W -f "\${Package}\n" | while read -r p; do [ -e "/usr/share/doc/$p/copyright" ] || echo "$p"; done')"
+  'dpkg-query -W -f "\${db:Status-Status} \${Package}\n" | while read -r s p; do [ "$s" = installed ] || continue; [ -e "/usr/share/doc/$p/copyright" ] || echo "$p"; done')"
 if [ -n "$missing" ]; then
   echo "::error::${app}: Debian packages without /usr/share/doc/<package>/copyright: ${missing//$'\n'/ }"
   exit 1

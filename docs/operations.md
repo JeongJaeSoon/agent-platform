@@ -460,7 +460,7 @@ digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다
 
 배포 이미지의 제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)는 업계 관행에 맞춘 초안이다. 최종 판단은 외부 공개 전에 사람이 한다. 판단할 질문은 아래와 같다. 괄호 안은 지금 고지가 택한 답이다.
 
-1. **Debian GPL·LGPL 패키지의 소스를 snapshot.debian.org를 가리키는 것으로 제공해도 되는가.** (지금: 이미지마다 source package와 정확한 버전, snapshot 주소를 적어 가리킨다. written offer는 없다.)
+1. **Debian GPL·LGPL 패키지의 소스를 snapshot.debian.org를 가리키는 것으로 제공해도 되는가.** (지금: 이미지마다 source package와 정확한 버전, snapshot 주소를 적어 가리킨다. written offer는 없다. images.yml은 빌드할 때 snapshot이 그 소스를 모두 갖고 있는지 확인하고, 릴리스에서는 하나라도 없으면 실패한다. 그러나 그 뒤로도 계속 남아 있는지는 보장하지 못한다.)
    - GPL-2.0 §3은 상업적 배포에서 소스를 함께 주거나(a) 3년 이상 유효한 서면 제공 약속을 붙이라고 한다(b). 이미지를 받은 곳에서 소스도 받게 하는 것도 소스 배포로 친다(§3 마지막 단락). 제3자 서버는 명시돼 있지 않다. https://www.gnu.org/licenses/old-licenses/gpl-2.0.html#section3
    - GPL-3.0 §6(d)는 다른 서버를 허용하지만, 필요한 기간 동안 그 소스가 계속 있도록 배포자가 보장해야 한다. snapshot.debian.org는 우리가 보장할 수 있는 서버가 아니다. https://www.gnu.org/licenses/gpl-3.0.html#section6
    - FSF FAQ: https://www.gnu.org/licenses/gpl-faq.html#SourceAndBinaryOnDifferentSites , https://www.gnu.org/licenses/gpl-faq.html#AnonFTPAndSendSources
@@ -481,7 +481,10 @@ digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다
    - 고객이 자기 key를 자기 사용자에게 쓰게 하는 설정은 명시적으로 허용된다.
    - credential route는 카탈로그에 있는 운영자 key를 모든 세션에 붙인다. 그래서 고객이 자기 key로 직접 운영하는 형태는 허용 범위다. 우리가 key를 쥐고 여러 고객에게 서비스하는 형태는 별도 계약 없이는 어긋날 수 있다.
 6. **이름 사용.** "Claude Code를 실행한다"는 평이한 서술은 허용된다. 제품명이나 로고에 Claude Code·Anthropic을 쓰는 것은 허락이 필요하다. 외부 문서와 UI가 이 선을 지키는지 본다. https://code.claude.com/docs/en/legal-and-compliance , https://www.anthropic.com/legal/trademark-guidelines
-7. **MIT·BSD 고지를 링크로 대신해도 되는가.** npm 패키지의 라이선스 전문은 `/app/node_modules/<패키지>/`에 함께 들어 있다. Bun 자체의 MIT 고지는 이미지에 전문이 없고 LICENSE.md 링크만 있다. https://opensource.org/license/mit
+7. **라이선스 전문을 대신 싣거나 링크로 가리키는 것으로 충분한가.** (지금: npm 패키지는 자기 라이선스 파일을 `/app/node_modules/<패키지>/`에 싣는다. 싣지 않은 11개는 고지가 package.json의 저작권자와 MIT 전문, 또는 이미지 안 Apache-2.0 사본을 대신 싣는다. Bun 자체의 MIT 고지는 LICENSE.md 링크만 있다.)
+   - MIT는 저작권 표시와 허락 문구를 사본에 포함하라고 한다. package.json의 author가 실제 저작권자와 다를 수 있다. https://opensource.org/license/mit
+   - Apache-2.0 §4(a)는 라이선스 사본을 주라고 한다. https://www.apache.org/licenses/LICENSE-2.0#redistribution
+   - Bun의 LICENSE.md에는 MIT 전문이 없다("Bun itself is MIT-licensed"). 전문을 우리가 만들어 넣어야 하는가.
 
 ### 공급망 취약점 정책 (94S-363)
 

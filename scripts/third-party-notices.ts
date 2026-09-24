@@ -367,6 +367,12 @@ export type PackageInfo = {
   license: string;
   /** Verbatim NOTICE files the package ships, which Apache-2.0 §4(d) says to pass on. */
   notices: string[];
+  /**
+   * Set only when the package ships no license file of its own: the
+   * copyright holder its package.json names, for the text the notices carry
+   * in its place.
+   */
+  holder?: string;
 };
 
 export type Row = {
@@ -375,7 +381,45 @@ export type Row = {
   license: string;
   images: Image[];
   notices: string[];
+  holder?: string;
 };
+
+/** LICENSE, LICENSE.md, LICENSE-MIT, LICENCE, COPYING, ... */
+export function isLicenseFile(file: string): boolean {
+  return /^(licen[cs]e|copying)([.-].*)?$/i.test(file);
+}
+
+/**
+ * The licenses whose text the notices carry for a package without its own
+ * license file: MIT in full (with the package's holder), Apache-2.0 by the
+ * copy Debian's base-files puts in every image. Any other license without a
+ * file fails, so its text is added before it ships.
+ */
+const CARRIED_TEXTS = new Set(["MIT", "Apache-2.0"]);
+
+/** Who package.json says holds the copyright, and where the package lives. */
+export function holderOf(manifest: {
+  author?: unknown;
+  repository?: unknown;
+}): string {
+  const { author, repository } = manifest;
+  // The name only: a maintainer's address is not ours to republish.
+  const name =
+    typeof author === "string"
+      ? author.replace(/\s*[<(].*$/, "").trim()
+      : typeof (author as { name?: unknown })?.name === "string"
+        ? (author as { name: string }).name
+        : "";
+  const url =
+    typeof repository === "string"
+      ? repository
+      : typeof (repository as { url?: unknown })?.url === "string"
+        ? (repository as { url: string }).url
+        : "";
+  return [name || "저작자 표기 없음", url.replace(/^git\+/, "")]
+    .filter(Boolean)
+    .join(", ");
+}
 
 export function licenseOf(manifest: {
   license?: unknown;
@@ -413,11 +457,16 @@ export function readInstalled(
       `${pkg.key}: node_modules has ${manifest.version}, bun.lock ${pkg.version}; run bun install --frozen-lockfile`,
     );
   }
-  const notices = readdirSync(dir)
+  const files = readdirSync(dir);
+  const notices = files
     .filter((file) => /^notice(\.(md|txt))?$/i.test(file))
     .sort()
     .map((file) => readFileSync(join(dir, file), "utf8").trim());
-  return { license: licenseOf(manifest), notices };
+  return {
+    license: licenseOf(manifest),
+    notices,
+    ...(files.some(isLicenseFile) ? {} : { holder: holderOf(manifest) }),
+  };
 }
 
 async function fetchRegistry(pkg: LockPackage): Promise<PackageInfo> {
@@ -431,10 +480,12 @@ async function fetchRegistry(pkg: LockPackage): Promise<PackageInfo> {
     );
   }
   const license = licenseOf(await response.json());
-  // The manifest does not list files, so a NOTICE cannot be seen from here.
-  if (license.includes("Apache")) {
+  // The manifest does not list files, so neither a NOTICE nor a missing
+  // license file can be seen from here. A package that names its own license
+  // file is taken at its word.
+  if (license.includes("Apache") || !/^SEE LICENSE IN \S+$/.test(license)) {
     throw new Error(
-      `${pkg.name}@${pkg.version} is ${license} and not installed here; generate on a machine that installs it so its NOTICE is read`,
+      `${pkg.name}@${pkg.version} is ${license} and not installed here; generate on a machine that installs it so its files are read`,
     );
   }
   return { license, notices: [] };
@@ -451,6 +502,14 @@ export function problemsOf(rows: readonly Row[], base: BaseImage): string[] {
       .map(
         (row) =>
           `${row.name}@${row.version} is ${row.license}: not in PERMISSIVE and not REVIEWED in scripts/third-party-notices.ts`,
+      ),
+    ...rows
+      .filter(
+        (row) => row.holder !== undefined && !CARRIED_TEXTS.has(row.license),
+      )
+      .map(
+        (row) =>
+          `${row.name}@${row.version} ships no license file and the notices carry no ${row.license} text; add it to CARRIED_TEXTS and render in scripts/third-party-notices.ts`,
       ),
   ];
 }
@@ -487,7 +546,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     `### Bun ${base.bun} (\`/usr/local/bin/bun\`)`,
     "",
     `- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/${tag}/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.`,
-    `- **빌드.** oven-sh/bun commit \`${build?.revision ?? UNREVIEWED}\`(\`bun --revision\`)이다. images.yml이 빌드한 이미지마다 이 값을 확인한다.`,
+    `- **빌드.** oven-sh/bun commit \`${build?.revision ?? UNREVIEWED}\`(\`bun --revision\`)이다. images.yml이 빌드한 이미지(linux/amd64)마다 이 값을 확인한다.`,
     "- **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.",
     `  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/${build?.webkit ?? UNREVIEWED}`,
     `  - TinyCC: https://github.com/oven-sh/tinycc/tree/${build?.tinycc ?? UNREVIEWED}`,
@@ -496,7 +555,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "### Debian 패키지와 대응 소스",
     "",
     "- **라이선스 전문.** 각 패키지의 저작권·라이선스 전문은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL 전문은 `/usr/share/common-licenses/`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.",
-    "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지 확인한다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
+    "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
     "- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.",
   ];
   if (sdk !== undefined) {
@@ -507,7 +566,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
       "",
       `- **권리와 조건.** \`${AGENT_SDK}@${sdk.version}\`과 그 플랫폼 빌드가 싣는 \`claude\` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.`,
       "- **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.",
-      `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지마다 이 버전을 확인한다.`,
+      `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64)마다 실행 파일 안의 \`Bun v<버전>\` 표시로 이 버전을 확인한다.`,
     );
   }
   return `${lines.join("\n")}\n`;
@@ -517,10 +576,11 @@ export function render(rows: readonly Row[], base: BaseImage): string {
   const cell = (text: string) => text.replaceAll("|", "\\|");
   const flagged = rows.filter((row) => !isPermissive(row.license));
   const withNotices = rows.filter((row) => row.notices.length > 0);
+  const bare = rows.filter((row) => row.holder !== undefined);
   const lines = [
     "# 제3자 구성요소 고지",
     "",
-    "배포 이미지(control-host·worker·egress-proxy)에 들어가는 제3자 구성요소와 그 라이선스다. 각 npm 패키지의 라이선스 전문은 이미지 안 `/app/node_modules/<패키지>/`에 패키지와 함께 들어 있다.",
+    '배포 이미지(control-host·worker·egress-proxy)에 들어가는 제3자 구성요소와 그 라이선스다. npm 패키지의 라이선스 전문은 패키지가 싣고 있으면 이미지 안 `/app/node_modules/<패키지>/`에 함께 들어 있다. 싣지 않은 패키지는 아래 "라이선스 파일이 없는 npm 패키지" 절이 전문을 대신 싣는다.',
     "",
     "이 파일은 `bun scripts/third-party-notices.ts`가 `bun.lock`에서 만든다. 손으로 고치지 않는다. CI의 `check (licenses)`가 `--check`로 최신인지 확인한다.",
     "",
@@ -547,6 +607,31 @@ export function render(rows: readonly Row[], base: BaseImage): string {
         `| ${cell(row.name)} | ${cell(row.version)} | ${cell(row.license)} | ${row.images.join(", ")} |`,
     ),
     "",
+    BARE_HEADING,
+    "",
+    ...(bare.length === 0
+      ? ["없음.", ""]
+      : [
+          "아래 패키지는 배포본에 라이선스 파일을 싣지 않는다. package.json이 밝힌 라이선스와 저작권자를 적고, 라이선스 전문은 이 절에 대신 싣는다. images.yml은 이미지의 `/app/node_modules`에서 라이선스 파일이 없는 패키지가 모두 여기에 있는지 확인한다.",
+          "",
+          ...bare.map(
+            (row) =>
+              `- \`${row.name}@${row.version}\` (${row.license}): ${row.holder}`,
+          ),
+          "",
+          "### MIT 전문",
+          "",
+          '위 MIT 패키지마다 적힌 저작권자가 아래 "<저작권자>" 자리에 들어간다.',
+          "",
+          "```text",
+          MIT_TEXT,
+          "```",
+          "",
+          "### Apache-2.0 전문",
+          "",
+          "이미지 안 `/usr/share/common-licenses/Apache-2.0`에 있다(Debian base-files). https://www.apache.org/licenses/LICENSE-2.0 과 같은 글이다.",
+          "",
+        ]),
     "## NOTICE 전문",
     "",
     ...(withNotices.length === 0
@@ -565,10 +650,42 @@ export function render(rows: readonly Row[], base: BaseImage): string {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+const BARE_HEADING = "## 라이선스 파일이 없는 npm 패키지";
+
+const MIT_TEXT = `MIT License
+
+Copyright (c) <저작권자>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
+
 /** The rows of a file `render` wrote, keyed by name@version. */
 export function parseRows(markdown: string): Map<string, Row> {
   const rows = new Map<string, Row>();
+  const holders = new Map<string, string>();
+  let section = "";
   for (const line of markdown.split("\n")) {
+    if (line.startsWith("## ")) section = line;
+    if (section === BARE_HEADING) {
+      const bare = line.match(/^- `(.+)` \(.+?\): (.+)$/);
+      if (bare) holders.set(bare[1] as string, bare[2] as string);
+      continue;
+    }
     const match = line.match(/^\| (.+?) \| (\S+) \| (.+?) \| ([a-z, -]+) \|$/);
     if (!match || match[1] === "패키지") continue;
     const [, name, version, license, images] = match as unknown as string[];
@@ -579,6 +696,10 @@ export function parseRows(markdown: string): Map<string, Row> {
       images: (images as string).split(", ") as Image[],
       notices: [],
     });
+  }
+  for (const [id, holder] of holders) {
+    const row = rows.get(id);
+    if (row !== undefined) row.holder = holder;
   }
   return rows;
 }
@@ -619,10 +740,11 @@ const OUTPUT = "THIRD_PARTY_NOTICES.md";
 
 /**
  * Every name@version installed under a node_modules tree, nested ones
- * included. Workspace links are this repository's own code and skipped.
+ * included, with the directory of one copy. Workspace links are this
+ * repository's own code and skipped.
  */
-export function installedPackages(nodeModules: string): string[] {
-  const found = new Set<string>();
+export function installedPackages(nodeModules: string): Map<string, string> {
+  const found = new Map<string, string>();
   const walk = (dir: string) => {
     if (!existsSync(dir)) return;
     for (const entry of readdirSync(dir)) {
@@ -635,19 +757,20 @@ export function installedPackages(nodeModules: string): string[] {
         const manifestPath = join(candidate, "package.json");
         if (!existsSync(manifestPath)) continue;
         const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-        found.add(`${manifest.name}@${manifest.version}`);
+        found.set(`${manifest.name}@${manifest.version}`, candidate);
         walk(join(candidate, "node_modules"));
       }
     }
   };
   walk(nodeModules);
-  return [...found].sort();
+  return new Map([...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 const DPKG_STATUS = "/var/lib/dpkg/status";
 const DEBIAN_SOURCES = "DEBIAN_SOURCES.md";
 /** The license texts the notices point to, from Debian's base-files. */
 const COMMON_LICENSES = [
+  "/usr/share/common-licenses/Apache-2.0",
   "/usr/share/common-licenses/GPL-2",
   "/usr/share/common-licenses/GPL-3",
   "/usr/share/common-licenses/LGPL-2.1",
@@ -659,12 +782,16 @@ export type DebianPackage = {
   version: string;
   source: string;
   sourceVersion: string;
+  /** Other sources compiled into the package (Debian Policy §7.8). */
+  builtUsing: Array<{ source: string; version: string }>;
 };
 
 /**
  * The installed packages of a dpkg status file, each with the source package
  * and version it was built from. Without a Source field the source is the
  * package itself; without a version in it (no binNMU), the same version.
+ * Built-Using names the sources of code statically incorporated from other
+ * packages, which are part of the corresponding source too.
  */
 export function parseDpkgStatus(status: string): DebianPackage[] {
   const packages: DebianPackage[] = [];
@@ -683,11 +810,18 @@ export function parseDpkgStatus(status: string): DebianPackage[] {
       );
     }
     const source = fields.get("Source")?.match(/^(\S+)(?: \((\S+)\))?$/);
+    const builtUsing = [
+      ...(fields.get("Built-Using") ?? "").matchAll(/(\S+) \(= ([^)\s]+)\)/g),
+    ].map((match) => ({
+      source: match[1] as string,
+      version: match[2] as string,
+    }));
     packages.push({
       name,
       version,
       source: source?.[1] ?? name,
       sourceVersion: source?.[2] ?? version,
+      builtUsing,
     });
   }
   return packages;
@@ -714,17 +848,28 @@ export function renderDebianSources(
     string,
     { source: string; version: string; binaries: string[]; gpl: boolean }
   >();
-  for (const pkg of packages) {
-    const key = `${pkg.source} ${pkg.sourceVersion}`;
+  const add = (
+    source: string,
+    version: string,
+    binary: string,
+    isGpl: boolean,
+  ) => {
+    const key = `${source} ${version}`;
     const entry = bySource.get(key) ?? {
-      source: pkg.source,
-      version: pkg.sourceVersion,
+      source,
+      version,
       binaries: [],
       gpl: false,
     };
-    entry.binaries.push(pkg.name);
-    entry.gpl ||= gpl(pkg);
+    entry.binaries.push(binary);
+    entry.gpl ||= isGpl;
     bySource.set(key, entry);
+  };
+  for (const pkg of packages) {
+    add(pkg.source, pkg.sourceVersion, pkg.name, gpl(pkg));
+    for (const used of pkg.builtUsing) {
+      add(used.source, used.version, `${pkg.name} (Built-Using)`, false);
+    }
   }
   const entries = [...bySource.values()].sort((a, b) =>
     a.source === b.source
@@ -736,7 +881,7 @@ export function renderDebianSources(
   return `${[
     "# Debian 패키지의 대응 소스",
     "",
-    '이 이미지에 설치된 Debian 패키지가 어느 source package의 어느 버전에서 빌드됐는지 적는다. 각 소스는 "소스" 열의 snapshot.debian.org 주소에서 받을 수 있다. 이 파일은 이미지를 빌드할 때 그 이미지의 dpkg 데이터베이스(`/var/lib/dpkg/status`)에서 `bun scripts/third-party-notices.ts --debian-sources`로 만든다. 제3자 구성요소 전체의 고지는 같은 디렉터리의 `THIRD_PARTY_NOTICES.md`에 있다.',
+    '이 이미지에 설치된 Debian 패키지가 어느 source package의 어느 버전에서 빌드됐는지 적는다. 다른 source package의 코드를 정적으로 넣은 패키지는 그 소스도 "(Built-Using)"으로 적는다. 각 소스는 "소스" 열의 snapshot.debian.org 주소에서 받을 수 있다. 이 파일은 이미지를 빌드할 때 그 이미지의 dpkg 데이터베이스(`/var/lib/dpkg/status`)에서 `bun scripts/third-party-notices.ts --debian-sources`로 만든다. 제3자 구성요소 전체의 고지는 같은 디렉터리의 `THIRD_PARTY_NOTICES.md`에 있다.',
     "",
     '"GPL" 열은 바이너리 패키지의 `/usr/share/doc/<패키지>/copyright`가 GPL 계열(GPL·LGPL·AGPL)을 언급하는지다. 라이선스 판정이 아니라 찾아보기용 표시다.',
     "",
@@ -749,6 +894,49 @@ export function renderDebianSources(
         `| ${entry.source} | ${entry.version} | ${entry.binaries.sort().join(", ")} | ${entry.gpl ? "예" : ""} | ${snapshotUrl(entry.source, entry.version)} |`,
     ),
   ].join("\n")}\n`;
+}
+
+/** The source package and version of every row of a DEBIAN_SOURCES.md. */
+export function parseDebianSources(
+  markdown: string,
+): Array<{ source: string; version: string }> {
+  return markdown
+    .split("\n")
+    .map((line) => line.match(/^\| (\S+) \| (\S+) \| .* \| https:\/\/snapshot/))
+    .filter((match) => match !== null)
+    .map((match) => ({
+      source: match[1] as string,
+      version: match[2] as string,
+    }));
+}
+
+type SnapshotAnswer = "held" | "missing" | "unreachable";
+
+/**
+ * Whether snapshot.debian.org holds a source package version, by its
+ * machine-readable srcfiles listing: 404 is a definite no, anything else that
+ * is not a listing is no answer.
+ */
+async function snapshotHolds(
+  source: string,
+  version: string,
+): Promise<SnapshotAnswer> {
+  const url = `https://snapshot.debian.org/mr/package/${encodeURIComponent(source)}/${encodeURIComponent(version)}/srcfiles`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (response.status === 404) return "missing";
+      if (response.ok) {
+        const body = (await response.json()) as { result?: unknown[] };
+        return (body.result?.length ?? 0) > 0 ? "held" : "missing";
+      }
+    } catch {
+      // No answer; try once more.
+    }
+  }
+  return "unreachable";
 }
 
 /** DEBIAN_SOURCES.md for the Debian system this runs on. */
@@ -843,7 +1031,8 @@ async function main(argv: string[]): Promise<number> {
     const listed = parseRows(readFileSync(outputPath, "utf8"));
     // Workspace packages are links to this repository's own code; a copy
     // instead of a link would still be ours.
-    const held = installedPackages(join(appDir, "node_modules")).filter(
+    const installed = installedPackages(join(appDir, "node_modules"));
+    const held = [...installed.keys()].filter(
       (id) => !id.startsWith("@agent-platform/"),
     );
     const missing = held.filter(
@@ -854,6 +1043,20 @@ async function main(argv: string[]): Promise<number> {
         `${image} image holds ${id}, which ${OUTPUT} does not list for it`,
       );
     }
+    // The notices carry the text of a package without its own license file;
+    // one they think has a file must really have it.
+    for (const id of held) {
+      const dir = installed.get(id) as string;
+      if (
+        listed.get(id)?.holder === undefined &&
+        !readdirSync(dir).some(isLicenseFile)
+      ) {
+        missing.push(id);
+        console.error(
+          `${image} image holds ${id} without a license file, which ${OUTPUT} does not carry the text for`,
+        );
+      }
+    }
     console.log(
       `${image}: ${held.length} packages under ${appDir}/node_modules, ${missing.length} not in ${OUTPUT}`,
     );
@@ -861,7 +1064,7 @@ async function main(argv: string[]): Promise<number> {
     for (const problem of problems) console.error(problem);
     if (problems.length === 0) {
       console.log(
-        `${image}: Bun ${Bun.version}+${Bun.revision}, license texts and ${DEBIAN_SOURCES} match ${OUTPUT}`,
+        `${image}: Bun ${Bun.version}+${Bun.revision}${image === "worker" ? `, Claude Code embeds Bun ${embeddedBunVersions(readFileSync(CLAUDE_EXECUTABLE)).join(", ")}` : ""}, license texts and ${DEBIAN_SOURCES} match ${OUTPUT}`,
       );
     }
     return missing.length === 0 && problems.length === 0 ? 0 : 1;
@@ -872,10 +1075,42 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // Exit 1 when snapshot.debian.org lacks a listed source, 3 when it did not
+  // answer for one; image-licenses.sh decides what either means for a build.
+  if (mode === "--snapshot-check") {
+    const [file] = rest;
+    if (file === undefined) {
+      console.error("usage: third-party-notices.ts --snapshot-check <file>");
+      return 2;
+    }
+    const wanted = parseDebianSources(readFileSync(file, "utf8"));
+    const answers: SnapshotAnswer[] = [];
+    // A few at a time: snapshot.debian.org is a volunteer service.
+    for (let at = 0; at < wanted.length; at += 4) {
+      const batch = wanted.slice(at, at + 4);
+      const results = await Promise.all(
+        batch.map(({ source, version }) => snapshotHolds(source, version)),
+      );
+      results.forEach((answer, index) => {
+        const { source, version } = batch[index] as (typeof batch)[number];
+        if (answer !== "held") {
+          console.error(`${answer}: ${snapshotUrl(source, version)}`);
+        }
+        answers.push(answer);
+      });
+    }
+    const held = answers.filter((answer) => answer === "held").length;
+    console.log(
+      `snapshot.debian.org holds ${held} of ${wanted.length} sources in ${file}`,
+    );
+    if (answers.includes("missing")) return 1;
+    return answers.includes("unreachable") ? 3 : 0;
+  }
+
   const checking = mode === "--check";
   if (mode !== undefined && !checking) {
     console.error(
-      "usage: third-party-notices.ts [--check | --verify <image> <app-dir> | --debian-sources]",
+      "usage: third-party-notices.ts [--check | --verify <image> <app-dir> | --debian-sources | --snapshot-check <file>]",
     );
     return 2;
   }
@@ -887,7 +1122,11 @@ async function main(argv: string[]): Promise<number> {
     if (!checking) return fetchRegistry(pkg);
     const row = committedRows.get(`${pkg.name}@${pkg.version}`);
     // A package the file does not name yet is drift, reported below.
-    return { license: row?.license ?? "UNKNOWN", notices: [] };
+    return {
+      license: row?.license ?? "UNKNOWN",
+      notices: [],
+      ...(row?.holder === undefined ? {} : { holder: row.holder }),
+    };
   });
   // tests/images.test.ts holds every app Dockerfile to the same base.
   const base = baseImageOf(

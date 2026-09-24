@@ -6,11 +6,14 @@ import {
   baseImageOf,
   CLAUDE_CODE_BUN,
   embeddedBunVersions,
+  holderOf,
   imageClosure,
+  isLicenseFile,
   isPermissive,
   type Lockfile,
   licenseOf,
   mentionsGpl,
+  parseDebianSources,
   parseDpkgStatus,
   parseLockfile,
   parseRows,
@@ -287,6 +290,63 @@ describe("license policy", () => {
     expect([...parsed.keys()]).toEqual(["a@1.0.0", "b@1.0.0"]);
     expect(parsed.get("a@1.0.0")?.images).toEqual(["control-host", "worker"]);
     expect(parsed.get("b@1.0.0")?.license).toBe("Apache-2.0");
+    expect(text).toContain("## 라이선스 파일이 없는 npm 패키지\n\n없음.");
+  });
+
+  // A package without its own license file gets its text from the notices,
+  // and --check reads the holder back for a build this machine lacks.
+  test("a package without a license file: holder listed, text carried", () => {
+    const rows: Row[] = [
+      { ...row("pgpass", "MIT"), holder: "Hannes Hörl, https://x/pgpass" },
+      { ...row("drizzle-orm", "Apache-2.0"), holder: "Drizzle Team" },
+      row("hono", "MIT"),
+    ];
+    const text = render(rows, base);
+    expect(text).toContain(
+      "- `pgpass@1.0.0` (MIT): Hannes Hörl, https://x/pgpass",
+    );
+    expect(text).toContain(
+      "Copyright (c) <저작권자>\n\nPermission is hereby granted",
+    );
+    expect(text).toContain("/usr/share/common-licenses/Apache-2.0");
+    const parsed = parseRows(text);
+    expect(parsed.get("pgpass@1.0.0")?.holder).toBe(
+      "Hannes Hörl, https://x/pgpass",
+    );
+    expect(parsed.get("hono@1.0.0")?.holder).toBeUndefined();
+    expect(problemsOf(rows, base)).toEqual([]);
+    expect(
+      problemsOf([{ ...row("isc-thing", "ISC"), holder: "someone" }], base),
+    ).toEqual([
+      "isc-thing@1.0.0 ships no license file and the notices carry no ISC text; add it to CARRIED_TEXTS and render in scripts/third-party-notices.ts",
+    ]);
+  });
+
+  test("license files and holders", () => {
+    for (const file of [
+      "LICENSE",
+      "LICENSE.md",
+      "license.txt",
+      "LICENSE-MIT",
+      "LICENCE",
+      "COPYING",
+    ]) {
+      expect(isLicenseFile(file)).toBe(true);
+    }
+    for (const file of ["README.md", "licenses.json", "NOTICE"]) {
+      expect(isLicenseFile(file)).toBe(false);
+    }
+    // No maintainer address is republished.
+    expect(
+      holderOf({
+        author: "Hannes Hörl <hannes@example.com> (https://h.example)",
+        repository: { url: "git+https://github.com/hoegaarden/pgpass.git" },
+      }),
+    ).toBe("Hannes Hörl, https://github.com/hoegaarden/pgpass.git");
+    expect(holderOf({ author: { name: "Drizzle Team" } })).toBe("Drizzle Team");
+    expect(holderOf({ repository: "https://github.com/oven-sh/bun" })).toBe(
+      "저작자 표기 없음, https://github.com/oven-sh/bun",
+    );
   });
 });
 
@@ -329,6 +389,7 @@ describe("Debian corresponding source (94S-375)", () => {
     "Package: tini",
     "Status: install ok installed",
     "Version: 0.19.0-1+b3",
+    "Built-Using: musl (= 1.2.5-3), glibc (= 2.41-12)",
     "",
     "Package: removed",
     "Status: deinstall ok config-files",
@@ -347,6 +408,7 @@ describe("Debian corresponding source (94S-375)", () => {
         version: "2.41-12",
         source: "glibc",
         sourceVersion: "2.41-12",
+        builtUsing: [],
       },
       // A binNMU: the source version is the one in parentheses.
       {
@@ -354,12 +416,14 @@ describe("Debian corresponding source (94S-375)", () => {
         version: "14.2.0-19+b1",
         source: "gcc-14",
         sourceVersion: "14.2.0-19",
+        builtUsing: [],
       },
       {
         name: "libc-bin",
         version: "2.41-12",
         source: "glibc",
         sourceVersion: "2.41-12",
+        builtUsing: [],
       },
       // No Source field: the package is its own source, version included.
       {
@@ -367,6 +431,11 @@ describe("Debian corresponding source (94S-375)", () => {
         version: "0.19.0-1+b3",
         source: "tini",
         sourceVersion: "0.19.0-1+b3",
+        // Statically incorporated sources are corresponding source too.
+        builtUsing: [
+          { source: "musl", version: "1.2.5-3" },
+          { source: "glibc", version: "2.41-12" },
+        ],
       },
     ]);
   });
@@ -376,14 +445,22 @@ describe("Debian corresponding source (94S-375)", () => {
       parseDpkgStatus(status),
       (pkg) => pkg.source === "glibc",
     );
-    expect(text).toContain("source package 3개, 바이너리 패키지 4개.");
+    expect(text).toContain("source package 4개, 바이너리 패키지 4개.");
     const rows = text
       .split("\n")
       .filter((line) => line.startsWith("| ") && !line.startsWith("| source"));
     expect(rows).toEqual([
       "| gcc-14 | 14.2.0-19 | libgcc-s1 |  | https://snapshot.debian.org/package/gcc-14/14.2.0-19/ |",
-      "| glibc | 2.41-12 | libc-bin, libc6 | 예 | https://snapshot.debian.org/package/glibc/2.41-12/ |",
+      "| glibc | 2.41-12 | libc-bin, libc6, tini (Built-Using) | 예 | https://snapshot.debian.org/package/glibc/2.41-12/ |",
+      "| musl | 1.2.5-3 | tini (Built-Using) |  | https://snapshot.debian.org/package/musl/1.2.5-3/ |",
       "| tini | 0.19.0-1+b3 | tini |  | https://snapshot.debian.org/package/tini/0.19.0-1%2Bb3/ |",
+    ]);
+    // What --snapshot-check reads back.
+    expect(parseDebianSources(text)).toEqual([
+      { source: "gcc-14", version: "14.2.0-19" },
+      { source: "glibc", version: "2.41-12" },
+      { source: "musl", version: "1.2.5-3" },
+      { source: "tini", version: "0.19.0-1+b3" },
     ]);
   });
 
@@ -391,8 +468,8 @@ describe("Debian corresponding source (94S-375)", () => {
     expect(snapshotUrl("openssl", "3.5.1-1+deb13u1")).toBe(
       "https://snapshot.debian.org/package/openssl/3.5.1-1%2Bdeb13u1/",
     );
-    expect(snapshotUrl("pam", "1:1.7.0-5")).toBe(
-      "https://snapshot.debian.org/package/pam/1%3A1.7.0-5/",
+    expect(snapshotUrl("shadow", "1:4.17.4-2")).toBe(
+      "https://snapshot.debian.org/package/shadow/1%3A4.17.4-2/",
     );
   });
 
