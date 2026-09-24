@@ -251,9 +251,9 @@ export async function restoreCheckpointTree(input: {
 
 /**
  * Removes everything under `root` but `root` itself and `spare`, a direct
- * child of it. A restore does this before it downloads anything, so the
- * old tree's disk is free for the checkpoint: the workspace volume's quota
- * holds both only if it holds neither twice.
+ * child of it. A restore clears the old tree before it downloads anything,
+ * so the old tree's disk is free for the checkpoint: the workspace volume's
+ * quota holds both only if it holds neither twice.
  */
 export async function clearWorkspace(
   root: string,

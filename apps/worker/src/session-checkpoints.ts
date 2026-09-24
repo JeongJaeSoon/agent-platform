@@ -321,6 +321,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // objects from it.
     signal.throwIfAborted();
     await clearWorkspace(workspaceRoot, signal);
+    signal.throwIfAborted();
     let spool = await mkdtemp(join(workspaceRoot, ".agent-platform-restore-"));
     const spooled = new Map<string, string>();
     const artifacts = [
