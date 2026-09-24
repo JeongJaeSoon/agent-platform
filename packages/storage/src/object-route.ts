@@ -26,8 +26,9 @@ import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
  * headers, valid for the few minutes SigV4 allows.
  *
  * What a worker may do is what `createCheckpointObjectStore` does through a
- * store confined to the session prefix: get, head and put an object, and
- * list under the prefix. Nothing else is signed — no delete, no copy (its
+ * store confined to the session prefix: get and head an object, create one
+ * that does not exist yet (`putImmutable`; never an overwrite), and list
+ * under the prefix. Nothing else is signed — no delete, no copy (its
  * source is a header), no legal hold or retention (the control plane's
  * alone, per 94S-229), no multipart, no ACL.
  */
@@ -110,8 +111,6 @@ const HEADER_RULES: Record<
     "content-length": (value) => DIGITS.test(value),
     "content-md5": (value) => BASE64.test(value),
     "content-type": (value) => PRINTABLE.test(value),
-    // Only the create-only form `putImmutable` sends; dropping it would
-    // turn a conditional write into an overwrite.
     "if-none-match": (value) => value === "*",
     "x-amz-sdk-checksum-algorithm": (value) => CHECKSUM_ALGORITHMS.has(value),
     "x-amz-checksum-crc32": (value) => BASE64.test(value),
@@ -260,6 +259,13 @@ function parse(
   }
   if (operation === "put" && !headers.has("content-length")) {
     return "a PUT must say its length";
+  }
+  // Create-only, always: every worker write is `putImmutable`, and a PUT
+  // signed before a takeover can still finish after it (the proxy regrants
+  // every 30s). Unable to replace, such a late write adds at most an object
+  // no committed checkpoint names.
+  if (operation === "put" && headers.get("if-none-match") !== "*") {
+    return "a PUT must be create-only (If-None-Match: *)";
   }
   return { operation, key, query, headers };
 }

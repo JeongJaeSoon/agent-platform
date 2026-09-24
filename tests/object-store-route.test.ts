@@ -120,7 +120,12 @@ function escapes(bucket: string, own: string, foreign: string) {
     ],
     [
       "put into another session",
-      new PutObjectCommand({ Body: "x", Bucket: bucket, Key: `${foreign}x` }),
+      new PutObjectCommand({
+        IfNoneMatch: "*",
+        Body: "x",
+        Bucket: bucket,
+        Key: `${foreign}x`,
+      }),
     ],
     [
       "list another session",
@@ -133,6 +138,10 @@ function escapes(bucket: string, own: string, foreign: string) {
     [
       "delete another session's object",
       new DeleteObjectCommand({ Bucket: bucket, Key: `${foreign}x` }),
+    ],
+    [
+      "overwrite its own object",
+      new PutObjectCommand({ Body: "x", Bucket: bucket, Key: `${own}x` }),
     ],
     [
       "delete its own object",
@@ -269,7 +278,12 @@ describe("the object store route, against a recording S3", () => {
     // The same client, same shape of request, is allowed at home: the
     // refusals below are about where, not how.
     await client.send(
-      new PutObjectCommand({ Body: "mine", Bucket: BUCKET, Key: `${own}x` }),
+      new PutObjectCommand({
+        IfNoneMatch: "*",
+        Body: "mine",
+        Bucket: BUCKET,
+        Key: `${own}x`,
+      }),
     );
     seen.length = 0;
     for (const [what, command] of escapes(BUCKET, own, foreign)) {
@@ -305,7 +319,12 @@ describe("the object store route, against a recording S3", () => {
     const key = `sessions/${session.sessionId}/after-takeover`;
     const name = await refusal(
       rawClient(proxy, earlier).send(
-        new PutObjectCommand({ Body: "late", Bucket: BUCKET, Key: key }),
+        new PutObjectCommand({
+          IfNoneMatch: "*",
+          Body: "late",
+          Bucket: BUCKET,
+          Key: key,
+        }),
       ),
     );
     expect(["AccessDenied", "InvalidAccessKeyId"]).toContain(name);
@@ -313,7 +332,12 @@ describe("the object store route, against a recording S3", () => {
     expect(objects.has(`/${BUCKET}/${key}`)).toBe(false);
 
     await rawClient(proxy, later).send(
-      new PutObjectCommand({ Body: "live", Bucket: BUCKET, Key: key }),
+      new PutObjectCommand({
+        IfNoneMatch: "*",
+        Body: "live",
+        Bucket: BUCKET,
+        Key: key,
+      }),
     );
     expect(new TextDecoder().decode(objects.get(`/${BUCKET}/${key}`))).toBe(
       "live",
@@ -370,7 +394,10 @@ describe.skipIf(!localstackEnabled())(
           )
         ).outcome,
       ).toBe("conflict");
-      await store.put(`${own}transcript/part-0`, new TextEncoder().encode("t"));
+      await store.putImmutable(
+        `${own}transcript/part-0`,
+        new TextEncoder().encode("t"),
+      );
       expect(await store.get(`${own}m.json`)).toEqual(body);
       if (created.outcome !== "created" || created.version === undefined) {
         throw new Error("a locked bucket reports versions");
@@ -398,6 +425,7 @@ describe.skipIf(!localstackEnabled())(
       );
       await client.send(
         new PutObjectCommand({
+          IfNoneMatch: "*",
           Body: "mine",
           Bucket: bucket.bucket,
           Key: `${own}x`,
@@ -431,6 +459,7 @@ describe.skipIf(!localstackEnabled())(
       const name = await refusal(
         rawClient(proxy, earlier).send(
           new PutObjectCommand({
+            IfNoneMatch: "*",
             Body: "late",
             Bucket: bucket.bucket,
             Key: key,

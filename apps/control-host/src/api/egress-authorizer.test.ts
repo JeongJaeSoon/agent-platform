@@ -333,7 +333,10 @@ describe("the object store route's answers (94S-251)", () => {
       claim.object_store.access.token,
       "PUT",
       `/claude-sessions/sessions/${claim.session_id}/x?x-id=PutObject`,
-      [["content-length", "4"]],
+      [
+        ["content-length", "4"],
+        ["if-none-match", "*"],
+      ],
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {

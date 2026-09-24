@@ -359,6 +359,7 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
         .sort((a, b) => a.purpose.localeCompare(b.purpose)),
     ).toEqual([
       { purpose: "gateway", revoked: true },
+      { purpose: "object_store", revoked: true },
       { purpose: "provider", revoked: true },
       { purpose: "repository", revoked: true },
     ]);

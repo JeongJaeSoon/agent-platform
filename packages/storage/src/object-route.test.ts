@@ -226,24 +226,28 @@ describe("the object store route's signer (94S-251)", () => {
       "a legal hold",
       request("PUT", "/claude-sessions/sessions/s1/x?legal-hold", [
         ["content-length", "0"],
+        ["if-none-match", "*"],
       ]),
     ],
     [
       "a retention",
       request("PUT", "/claude-sessions/sessions/s1/x?retention", [
         ["content-length", "0"],
+        ["if-none-match", "*"],
       ]),
     ],
     [
       "an ACL",
       request("PUT", "/claude-sessions/sessions/s1/x?acl", [
         ["content-length", "0"],
+        ["if-none-match", "*"],
       ]),
     ],
     [
       "a copy from another session",
       request("PUT", "/claude-sessions/sessions/s1/x", [
         ["content-length", "0"],
+        ["if-none-match", "*"],
         ["x-amz-copy-source", "/claude-sessions/sessions/s2/x"],
       ]),
     ],
@@ -251,6 +255,7 @@ describe("the object store route's signer (94S-251)", () => {
       "an Object Lock header",
       request("PUT", "/claude-sessions/sessions/s1/x", [
         ["content-length", "0"],
+        ["if-none-match", "*"],
         ["x-amz-object-lock-legal-hold", "OFF"],
       ]),
     ],
@@ -264,10 +269,17 @@ describe("the object store route's signer (94S-251)", () => {
       "an aws-chunked body",
       request("PUT", "/claude-sessions/sessions/s1/x", [
         ["content-length", "20"],
+        ["if-none-match", "*"],
         ["content-encoding", "aws-chunked"],
       ]),
     ],
     ["a put with no length", request("PUT", "/claude-sessions/sessions/s1/x")],
+    [
+      "an overwrite, a put that is not create-only",
+      request("PUT", "/claude-sessions/sessions/s1/x", [
+        ["content-length", "4"],
+      ]),
+    ],
     [
       "a condition other than create-only",
       request("PUT", "/claude-sessions/sessions/s1/x", [

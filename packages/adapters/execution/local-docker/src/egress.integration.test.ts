@@ -880,6 +880,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
       foreignPut: "AccessDenied",
       foreignList: "AccessDenied",
       everySessionList: "AccessDenied",
+      ownOverwrite: "AccessDenied",
       foreignDelete: "AccessDenied",
       ownDelete: "AccessDenied",
       legalHold: "AccessDenied",
@@ -1548,7 +1549,7 @@ const report = {};
 report.putImmutable = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
 report.duplicate = (await store.putImmutable(key, encode('{"revision":0}'))).outcome;
 report.conflict = (await store.putImmutable(key, encode('{"revision":1}'))).outcome;
-await store.put(prefix + "transcript/part-0", encode("part"));
+await store.putImmutable(prefix + "transcript/part-0", encode("part"));
 report.put = "ok";
 report.get = new TextDecoder().decode(await store.get(key));
 report.head = (await store.head(key))?.bytes;
@@ -1591,20 +1592,23 @@ const outcome = async (send) => {
 const worker = client(process.env.PROBE_OBJECT_TOKEN);
 const report = {};
 report.ownPut = await outcome(
-  worker.send(new s3.PutObjectCommand({ Body: "mine", Bucket: bucket, Key: own + "raw" })),
+  worker.send(new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "mine", Bucket: bucket, Key: own + "raw" })),
 );
 if (foreign !== undefined) {
   report.foreignGet = await outcome(
     worker.send(new s3.GetObjectCommand({ Bucket: bucket, Key: foreign + "x" })),
   );
   report.foreignPut = await outcome(
-    worker.send(new s3.PutObjectCommand({ Body: "x", Bucket: bucket, Key: foreign + "x" })),
+    worker.send(new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "x", Bucket: bucket, Key: foreign + "x" })),
   );
   report.foreignList = await outcome(
     worker.send(new s3.ListObjectsV2Command({ Bucket: bucket, Prefix: foreign })),
   );
   report.everySessionList = await outcome(
     worker.send(new s3.ListObjectsV2Command({ Bucket: bucket, Prefix: "sessions/" })),
+  );
+  report.ownOverwrite = await outcome(
+    worker.send(new s3.PutObjectCommand({ Body: "x", Bucket: bucket, Key: own + "raw" })),
   );
   report.foreignDelete = await outcome(
     worker.send(new s3.DeleteObjectCommand({ Bucket: bucket, Key: foreign + "x" })),
@@ -1628,7 +1632,7 @@ if (foreign !== undefined) {
 if (process.env.PROBE_EARLIER_TOKEN !== undefined) {
   report.earlierPut = await outcome(
     client(process.env.PROBE_EARLIER_TOKEN).send(
-      new s3.PutObjectCommand({ Body: "late", Bucket: bucket, Key: own + "late" }),
+      new s3.PutObjectCommand({ IfNoneMatch: "*", Body: "late", Bucket: bucket, Key: own + "late" }),
     ),
   );
 }
