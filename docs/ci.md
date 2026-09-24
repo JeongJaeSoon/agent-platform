@@ -38,6 +38,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true   # 진행 중 수동 r
 
 bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (typecheck)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 integration 도메인 job은 읽기만 한다), `spikes`가 쓰는 `bun-spikes-*`는 root와 두 spike lockfile을 함께 해시한다. 키가 세 lockfile을 약속하면서 root만 설치한 job이 저장하면, spike 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
 
+서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러-94s-308)).
+
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
 | `check (typecheck)` | 없음 | 없음 | `bun run typecheck` | 집계로 |
@@ -91,3 +93,35 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 2. `only=`를 쓴 수동 실행은 건너뛴 job을 **그 커밋에 성공으로 기록한다.** branch protection을 켠 뒤에는 PR head SHA에 대고 `only=`를 쓰지 않는다. 필요하면 PR을 열기 전 브랜치에서 쓰거나, 검증은 PR 자동 실행에 맡긴다.
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
+
+## 서드파티 이미지 미러 (94S-308)
+
+`integration` 도메인 job과 `workspace-quota`가 받는 서드파티 이미지는 Docker Hub가 아니라 `ghcr.io/jeongjaesoon/agent-platform-ci/<name>`에서 **upstream digest 그대로** 받는다. 대상은 서비스 컨테이너(PostgreSQL·LocalStack), Docker suite가 Engine API로 직접 받는 이미지(busybox·`oven/bun`·curl·LocalStack, workspace-migration helper), `workspace-quota`의 dind와 inode helper의 base다. `e2e`·`quickstart`는 제품 compose 파일을 그대로 띄우므로 아직 Docker Hub에서 받는다(94S-365). 위 표의 이름(`postgres:16` 등)은 upstream tag이고, ci.yml은 그 tag가 가리키던 digest를 고정한다. `.github/workflows/ci-image-mirror.yml`이 `skopeo copy --all --preserve-digests`로 index 전체(모든 플랫폼과 attestation)를 바이트 그대로 옮긴다. 그래서 ghcr의 digest가 Docker Hub의 digest와 같고, `docker buildx imagetools inspect postgres:16`이 보여 주는 digest를 ci.yml의 값과 바로 비교할 수 있다. suite 코드의 기본값(`busybox:1.36` 등)은 로컬 실행용으로 그대로 두고, CI만 `BUN_TEST_IMAGE`·`DOCKER_BACKEND_TEST_IMAGE`·`EGRESS_CURL_TEST_IMAGE`·`EGRESS_PROXY_TEST_IMAGE`·`EXECUTION_WORKSPACE_MIGRATION_IMAGE`·`LOCALSTACK_TEST_IMAGE`로 mirror를 가리킨다.
+
+**미러는 준비 시간을 줄이지 못했다.** 실측(94S-308 PR run)에서 ghcr의 LocalStack pull은 약 24초로 Docker Hub(약 25초)와 같았다. pull 시간은 받는 곳이 아니라 약 1 GB layer를 푸는 데 든다. `Initialize containers`의 나머지는 서비스 health 대기(LocalStack 약 14초)다. 이 미러가 주는 것은 rate limit 제거와 digest 재현성이다.
+
+미러를 고른 이유는 Docker Hub를 CI 경로에서 **아예 빼는** 유일한 방식이어서다. 익명 pull 한도(`toomanyrequests`)로 integration run이 실패한 적이 있고, 서비스 컨테이너만이 아니라 suite 안의 pull도 한도를 먹는다. 버린 두 방식과 그 이유는 이렇다.
+
+- **actions cache**(`docker save` tar를 캐시하고 `docker load`): 서비스 컨테이너는 첫 step보다 먼저 뜨므로 캐시를 쓰려면 `services:`를 step으로 다시 짜야 한다. LocalStack tar만 1 GB를 넘어 저장소 캐시 10 GB를 bun 캐시와 나눠 쓰게 되고, 캐시가 밀려나면 조용히 Docker Hub로 돌아간다. `docker load`도 layer를 푸는 시간은 pull과 같다.
+- **digest 고정 + 사전 pull만**: 재현성은 얻지만 받는 곳이 여전히 Docker Hub라 rate limit 위험이 그대로다. digest 고정은 미러와 함께 가져왔다.
+
+**`tests/ci-images.test.ts`**(`check (unit: apps, tests)`와 `integration (worker)`에서 돈다)가 지키는 것:
+
+- ci.yml의 서비스 이미지와 `*_IMAGE` 변수가 전부 mirror 참조다. mirror 목록에 있는 upstream `name:tag`는 ci.yml 어디에도 나오지 않는다.
+- ci.yml의 mirror 참조는 전부 `<name>@sha256:…`이고, 그 `name`·digest 쌍이 mirror 목록에 있다.
+- suite 파일이 읽는 `process.env.*_IMAGE`는 전부 `integration-domain`의 `env`에서 mirror로 설정돼 있다. 기본값이 문자열이면 mirror 항목의 upstream `name:tag`와 같아야 한다(로컬과 CI가 같은 버전을 돈다).
+- busybox 항목에 `DEFAULT_MIGRATION_HELPER_IMAGE`의 digest가, bun 항목에 모든 앱 Dockerfile `BUN_IMAGE`의 digest가 있다. `workspace-quota`가 빌드하는 inode helper의 `FROM`은 worker Dockerfile과 같은 digest의 미러 참조다.
+
+정적 검사는 코드가 이미지를 부르는 모양을 다 알 수 없다. 그래서 Docker를 쓰는 job은 마지막에 **daemon이 실제로 가진 이미지**를 본다. `integration-domain`의 모든 job과 `workspace-quota`(runner daemon과 중첩 daemon 둘 다)가 그렇다. `.github/scripts/assert-no-docker-hub-images.sh`가 `docker images`에 Docker Hub 이미지가 하나라도 있으면 그 이름을 `::error::`로 찍고 job을 실패시킨다. 판정은 Docker의 이름 규칙 그대로다. 첫 경로 성분에 `.`·`:`가 없거나 `localhost`가 아니면, 또는 `docker.io`면 Docker Hub다. "미러만"이 아니라 "Docker Hub 아님"으로 거는 이유는 runner 이미지에 원래 들어 있는 이미지(`ghcr.io/github/…`, `ghcr.io/dependabot/…`) 때문이다. 아무 step도 받지 않았는데 daemon에 있다. 판정 대상은 각 이미지의 `RepoDigests`, 곧 어디서 pull했는지다. daemon에서 직접 빌드한 이미지는 `RepoDigests`가 없어 건너뛴다. 빌드의 `FROM` 이미지는 image 목록에 남는다는 보장이 없으므로, 빌드 step은 base를 미러 참조로 직접 적어야 한다. 정적 가드는 ci.yml의 `*_IMAGE` 값 중 미러가 아닌 것을 같은 workflow 안의 `-t <값>` 빌드로만 허용한다. 테스트가 실패한 job에서도 돈다. 새 `docker run alpine`이든, 환경 변수 없이 Engine API로 받는 suite든, 받은 경로와 상관없이 잡힌다.
+
+**미러 갱신 절차**(digest를 올리거나 이미지를 더할 때). mirror job은 `main`에서만 돌므로 PR 두 개로 나뉜다.
+
+1. 새 digest를 확인한다: `docker buildx imagetools inspect <upstream>:<tag> --format '{{json .Manifest}}' | jq -r .digest`
+2. **PR 1**: `ci-image-mirror.yml` matrix에 새 항목을 **더한다**. 기존 digest 항목은 지우지 않는다. 같은 `name`에 digest 두 개가 있어도 된다. 머지하면 `main` push의 `CI image mirror` run이 새 digest를 ghcr에 올린다. run의 `mirror (<name>:<tag>)` job이 초록인지 확인한다.
+3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Nothing pulled from Docker Hub` step이 실패한다.
+4. 새 이미지의 ghcr package는 이 public 저장소에 연결되어 public으로 생긴다(첫 mirror run의 여섯 package가 모두 그랬다). 서비스 컨테이너와 Engine API로 받는 suite는 인증 없이 받으므로 public이어야 한다. private으로 생기면 mirror job이 로그아웃 뒤 익명 조회에서 실패한다. 그때는 GitHub의 package 설정(Package settings → Danger Zone → Change visibility)에서 public으로 바꾸고 그 job을 다시 돌린다.
+5. 목록을 바꾸지 않고 다시 복사하려면 `gh workflow run 'CI image mirror'`를 쓴다(`main`에서만 돈다). 이미 있는 blob은 건너뛴다.
+
+목록에서 지운 digest도 ghcr에는 untagged로 남는다. 이전 커밋의 CI를 다시 돌려도 받을 수 있도록 지우지 않는다.
+
+mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서만** package write를 쥔다. 그 token은 이 저장소가 쓸 수 있는 모든 package, 곧 앱 릴리스 이미지까지 쓸 수 있다. 그래서 pull request trigger가 없고, `main`이 아닌 ref에서 dispatch하면 job을 건너뛴다. 처음 설계는 digest를 올리는 PR이 자기 run에서 미러하게 했다. Codex adversarial review가 PR이 고칠 수 있는 workflow에 package write를 주는 것이 `images.yml`의 게시 경계를 우회한다고 지적해 지금의 두 단계로 바꿨다(94S-308).
