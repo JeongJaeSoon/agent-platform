@@ -1,0 +1,17 @@
+# Overlay for the 94S-135 soak and campaigns, applied after
+# scripts/d2-gate/compose.yml (ephemeral loopback ports, the gate catalog,
+# workers routed through gate-chaos). scripts/soak/stack.sh is the only
+# intended caller. What it changes on top of the gate:
+# - the Messages API is the soak's (fault injection, bounded summary log);
+# - the fault injector keeps a bounded log, since a soak runs for a day;
+# - the scheduler loops at the product's interval, so startup timings are
+#   the product's and not the gate's faster loop.
+services:
+  gate-messages:
+    command: ["bun", "run", "/app/scripts/soak/messages.ts"]
+  gate-chaos:
+    environment:
+      CHAOS_LOG_MAX: "20000"
+  scheduler:
+    environment:
+      SCHEDULER_INTERVAL_SEC: ${SOAK_SCHEDULER_INTERVAL_SEC:-5}

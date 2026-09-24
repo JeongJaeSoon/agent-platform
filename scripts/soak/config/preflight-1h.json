@@ -1,0 +1,79 @@
+{
+  "name": "preflight-1h",
+  "purpose": "94S-135 1시간 사전 점검. 판정이 아니라 도구와 스택이 24시간을 버티는지 먼저 본다.",
+  "sessions": 10,
+  "durationMin": 60,
+  "warmupMin": 5,
+  "drainSec": 300,
+  "quiesceSec": 90,
+  "ramp": [1, 5, 10],
+  "turn": {
+    "stepDelayMs": [100, 1500],
+    "thinkMs": [5000, 20000],
+    "timeoutSec": 300,
+    "pollMs": 1000
+  },
+  "probes": {
+    "interruptEveryTurns": 12,
+    "terminateEveryMin": 10,
+    "pauseResumeEveryMin": 15,
+    "slowStepMs": 30000,
+    "pollMs": 100
+  },
+  "messagesFaults": {
+    "latencyMs": [50, 400],
+    "errorRate": 0.02,
+    "errorStatuses": [500, 529, 429]
+  },
+  "readyz": {
+    "intervalMs": 5000,
+    "timeoutMs": 2000
+  },
+  "invariants": {
+    "intervalMin": 5,
+    "slotLeakGraceSec": 180,
+    "slotLimit": 10,
+    "toleranceMs": 1000
+  },
+  "reconciler": {
+    "intervalSec": 30,
+    "staleSec": 90
+  },
+  "sampleIntervalSec": 60,
+  "targets": {
+    "acceptP95Ms": 500,
+    "interruptEffectMs": 5000,
+    "terminateEffectMs": 30000,
+    "readyzAvailability": 1
+  },
+  "measurement": {
+    "acceptance": {
+      "endpoints": ["POST /v1/sessions/{id}/messages", "POST /v1/sessions"],
+      "timer": "호스트에서 요청 송신부터 202/201 응답 본문 수신까지(fetch 왕복). loopback 게시 포트로 직접 호출한다.",
+      "window": "램프가 끝나고 warmupMin이 지난 시점부터 durationMin 종료까지",
+      "sample": "창 안에서 보낸 모든 요청. 202/201이 아닌 응답은 따로 센다.",
+      "judgement": "POST messages의 p95가 acceptP95Ms 이하"
+    },
+    "interrupt": {
+      "endpoint": "POST /v1/sessions/{id}/interrupt",
+      "trigger": "interruptEveryTurns번째 turn마다 두 번째 모델 호출을 slowStepMs 동안 붙잡고, 그 호출이 Messages API에 도착한 뒤 보낸다",
+      "accepted": "POST 왕복 시간",
+      "effect": "POST 송신부터 GET turn이 종료 상태를 처음 보인 시점까지. pollMs 간격으로 폴링한다. receipt 정산은 따로 잰다.",
+      "judgement": "모든 표본의 effect가 interruptEffectMs 이하이고, 수락 뒤에 엔진이 다음 모델 호출을 하지 않는다"
+    },
+    "terminate": {
+      "endpoint": "POST /v1/sessions/{id}/terminate",
+      "trigger": "terminateEveryMin마다 세션 하나를 골라, 느린 모델 호출 중에 보낸다. 그 뒤 새 세션으로 바꾼다.",
+      "accepted": "POST 왕복 시간",
+      "effect": "receipt가 succeeded 또는 unknown이 되고, 그 세션의 worker 컨테이너가 하나도 running이 아닐 때까지. 둘 중 늦은 시점이다.",
+      "judgement": "모든 표본의 effect가 terminateEffectMs 이하이고, succeeded인데 worker가 도는 표본이 0"
+    },
+    "startup": {
+      "points": "accepted = turns.created_at, claim = 그 turn을 맡은 attempt의 started_at, SDK ready = 엔진이 그 turn의 spec으로 보낸 첫 모델 요청 도착 시각. 셋 다 컨테이너 시계다.",
+      "classes": "cold-create(새 세션 첫 turn), cold-resume(pause→resume 뒤 첫 turn), cold-relaunch(그 밖에 accepted 뒤에 claim한 turn), warm(이미 claim한 worker가 받은 turn)",
+      "ramp": "새 세션 첫 turn을 동시 세션 수 1, 5, 10 단계로 나눠 기록한다",
+      "judgement": "숫자 목표는 없다. 모든 분류와 램프 단계에 표본이 있어야 한다."
+    },
+    "environment": "로컬 Docker Desktop 한 대. 스택은 scripts/soak/stack.sh up(compose -p soak135, EXECUTION_INSTALLATION_ID=soak135, 임시 loopback 포트)이다. 실제 값은 meta.json에 기록한다."
+  }
+}
