@@ -13,8 +13,7 @@ ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6f
 # gains a dependency; that is when this grows the deps stage the other apps
 # have.
 FROM ${BUN_IMAGE}
-# Debian's security fixes, the only RUN: see APT_UPGRADE_KEY in
-# apps/worker/Dockerfile.
+# Debian's security fixes: see APT_UPGRADE_KEY in apps/worker/Dockerfile.
 ARG APT_UPGRADE_KEY=
 RUN apt-get update --error-on=any \
   && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
@@ -26,6 +25,10 @@ COPY apps/egress-proxy/package.json ./
 # The licenses of what this image ships: the Bun base (94S-338).
 COPY THIRD_PARTY_NOTICES.md ./
 COPY apps/egress-proxy/src ./src
+# The corresponding source of every Debian package in this image (94S-375);
+# see apps/worker/Dockerfile.
+RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
+  bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md
 USER 1000:1000
 ENV NODE_ENV=production
 EXPOSE 3128

@@ -67,6 +67,14 @@ RUN target="$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/
   && test -x "$target" \
   && ln -s "$target" /usr/local/bin/claude \
   && claude --version
+# DEBIAN_SOURCES.md: the source package and version of every Debian package
+# in this image, with its snapshot.debian.org address, which is how the
+# notices meet the GPL's source obligation (94S-375). Written from this
+# image's own dpkg database after the last apt-get, because the upgrade makes
+# the versions a property of the build, not of the commit. images.yml fails
+# the build when a later step changes the installed packages.
+RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
+  bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md
 USER 1000:1000
 ENV NODE_ENV=production
 VOLUME ["/workspace"]

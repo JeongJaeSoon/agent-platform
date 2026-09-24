@@ -8,6 +8,7 @@ import {
   SHUTDOWN_DRAIN_MS,
 } from "../apps/control-host/src/api/shutdown.ts";
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
+import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -75,6 +76,7 @@ describe("app Dockerfiles", () => {
     const source = basePins["egress-proxy"].source;
     expect(source.match(/^RUN .*$/gm)).toEqual([
       "RUN apt-get update --error-on=any \\",
+      "RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \\",
     ]);
     expect(source.match(/^COPY .*$/gm)).toEqual([
       "COPY apps/egress-proxy/package.json ./",
@@ -102,10 +104,38 @@ describe("app Dockerfiles", () => {
     );
   });
 
+  // 94S-375: the source list is written from the shipped stage's own dpkg
+  // database, after the last step that installs; images.yml's --verify
+  // catches a later one that changes the packages.
+  test.each(apps)(
+    "%s writes DEBIAN_SOURCES.md after its last apt-get, before dropping root",
+    (app) => {
+      const source = basePins[app].source;
+      const shipped = source.slice(source.lastIndexOf("\nFROM "));
+      const write = shipped.indexOf(
+        "bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md",
+      );
+      expect(write).toBeGreaterThan(shipped.lastIndexOf("apt-get"));
+      expect(write).toBeLessThan(shipped.indexOf("\nUSER "));
+      expect(shipped.slice(write)).not.toMatch(/^(RUN|COPY|ADD) /m);
+    },
+  );
+
   // The scheduler runs the worker image as the workspace inode helper
   // (94S-224); image-smoke.sh runs the tools themselves.
   test("the worker carries xfsprogs for the inode helper", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
+  // The notices list what the image holds, so a package the Dockerfile
+  // deletes after install is left out of them (94S-375).
+  test("the worker deletes exactly what the notices leave out", () => {
+    const [pattern] = REMOVED_AFTER_INSTALL.worker;
+    expect(basePins.worker.source).toContain(
+      `rm -rf node_modules/${pattern}\n`,
+    );
+    expect(REMOVED_AFTER_INSTALL["control-host"]).toEqual([]);
+    expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
   });
 
   test("only the worker carries the Agent SDK", () => {

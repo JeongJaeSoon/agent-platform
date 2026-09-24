@@ -37,6 +37,10 @@ RUN apt-get update --error-on=any \
 RUN test "$(id -u bun)" = 1000
 WORKDIR /app
 COPY --from=deps --chown=1000:1000 /app /app
+# The corresponding source of every Debian package in this image (94S-375);
+# see apps/worker/Dockerfile.
+RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
+  bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md
 USER 1000:1000
 ENV NODE_ENV=production
 EXPOSE 3000

@@ -478,6 +478,40 @@ digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다
 - **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
 - **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
 
+### 외부 공개 전 법률 검토 질문 (94S-375)
+
+배포 이미지의 제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)는 업계 관행에 맞춘 초안이다. 최종 판단은 외부 공개 전에 사람이 한다. 판단할 질문은 아래와 같다. 괄호 안은 지금 고지가 택한 답이다.
+
+1. **Debian GPL·LGPL 패키지의 소스를 snapshot.debian.org를 가리키는 것으로 제공해도 되는가.** (지금: 이미지마다 source package와 정확한 버전, snapshot 주소를 적어 가리킨다. written offer는 없다. images.yml은 빌드할 때 snapshot이 그 소스를 모두 갖고 있는지 확인하고, 릴리스에서는 하나라도 없으면 실패한다. 그러나 그 뒤로도 계속 남아 있는지는 보장하지 못한다.)
+   - GPL-2.0 §3은 상업적 배포에서 소스를 함께 주거나(a) 3년 이상 유효한 서면 제공 약속을 붙이라고 한다(b). 이미지를 받은 곳에서 소스도 받게 하는 것도 소스 배포로 친다(§3 마지막 단락). 제3자 서버는 명시돼 있지 않다. https://www.gnu.org/licenses/old-licenses/gpl-2.0.html#section3
+   - GPL-3.0 §6(d)는 다른 서버를 허용하지만, 필요한 기간 동안 그 소스가 계속 있도록 배포자가 보장해야 한다. snapshot.debian.org는 우리가 보장할 수 있는 서버가 아니다. https://www.gnu.org/licenses/gpl-3.0.html#section6
+   - FSF FAQ: https://www.gnu.org/licenses/gpl-faq.html#SourceAndBinaryOnDifferentSites , https://www.gnu.org/licenses/gpl-faq.html#AnonFTPAndSendSources
+   - 부족하다면 아래에서 고른다. 오케스트레이터 결정(2026-09-24)은 외부 공개 전까지 지금 방식을 유지하고, 법률 검토 결과에 따라 D나 B를 고르는 것이다. 개인 이메일은 쓰지 않는다.
+     - A. written offer, 연락 경로는 이 저장소의 GitHub issue("소스 요청"). 비용은 없다. 저장소와 계정을 3년 동안 유지해야 한다.
+     - B. written offer, 연락 경로는 역할 주소(oss@<회사 도메인>). 도메인과 메일함을 만들어 운영해야 한다.
+     - C. written offer, 연락 경로는 법인 우편 주소. 법인이 있어야 한다.
+     - D. written offer 없이 릴리스마다 대응 소스를 받아 이미지와 같은 registry(ghcr)에 함께 올린다. GPL-2.0 §3의 "같은 곳"에 해당하는 가장 강한 방식이다. 저장 비용과 CI 시간이 든다.
+2. **Bun의 LGPL-2.1 정적 링크(JavaScriptCore·WebCore·TinyCC)를 Oven이 공개한 소스와 빌드 절차로 충족하는가.** (지금: Bun commit, WebKit·TinyCC commit, 재링크 절차 링크, 이미지 안의 LGPL-2.1 전문을 적는다.)
+   - 근거는 LGPL-2.1 §6이다. 재링크할 수 있는 형태를 주거나, (c) 3년 이상 유효한 서면 제공 약속을 붙이거나, (d) 같은 곳에서 받을 수 있게 해야 한다. https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html#SEC6
+   - Bun은 전체가 공개 소스(MIT)라서 누구나 다시 빌드할 수 있다. 그래도 소스는 우리 서버가 아니라 GitHub(oven-sh)에 있다. 이 점은 질문 1과 같은 쟁점이다.
+   - Bun의 LICENSE.md가 적은 재링크 절차(`make jsc`, `zig build`)는 낡았다. 고지에는 CONTRIBUTING.md의 "Building WebKit locally"를 적었다. https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md
+3. **번들 Claude Code 실행 파일 안의 Bun 1.4.3 런타임(JavaScriptCore, LGPL-2.1)에 대해 재배포자인 우리에게 의무가 있는가.** (지금: 내장 사실과 버전만 적는다.)
+   - 이 실행 파일은 독점 소프트웨어라 우리는 재링크 수단을 줄 수 없다.
+   - Bun 1.4.3은 2026-09-24 현재 oven-sh/bun에 공개 tag가 없다. 그래서 대응 WebKit commit도 우리가 특정할 수 없다. 확인은 Anthropic에 해야 한다. https://github.com/oven-sh/bun/releases
+4. **worker 이미지를 외부에 배포할 때 Anthropic의 별도 허락이 필요한가.** (지금: 별도 허락 없이, Claude Code를 제품에 싣는 공개 조건을 따른다고 적는다.)
+   - Claude Code 법률 고지의 "Can customers offer Claude Code in their products?"는 제품에 미리 설치하거나 실행하는 것을 허용한다. 조건은 Commercial Terms에 동의하는 것, 실행 파일을 수정하지 않는 것, 내장된 인증 방식을 제거·비활성화·제한하지 않는 것이다. https://code.claude.com/docs/en/legal-and-compliance
+   - Agent SDK의 이용 조건도 같은 Commercial Terms다. https://code.claude.com/docs/en/agent-sdk/overview#license-and-terms , https://www.anthropic.com/legal/commercial-terms
+   - 확인할 것 하나: worker는 credential route(§ provider 키, 94S-252)로만 provider에 닿는다. egress proxy의 기본 allowlist는 `api.anthropic.com:443`뿐이라 Claude 계정 로그인(OAuth) 경로가 열려 있지 않다. 이것이 "인증 방식을 제한하지 않는다"는 조건에 어긋나는가.
+5. **provider 키를 누가 소유하는가.** 이것은 제품 방향이 정할 문제다.
+   - 같은 고지는 최종 사용자의 사용을 대신 결제하거나 재판매·중개하지 말라고 한다. 사용자마다 자기 API key, Claude 구독 자격 증명, 3P provider 자격 증명으로 인증해야 한다.
+   - 고객이 자기 key를 자기 사용자에게 쓰게 하는 설정은 명시적으로 허용된다.
+   - credential route는 카탈로그에 있는 운영자 key를 모든 세션에 붙인다. 그래서 고객이 자기 key로 직접 운영하는 형태는 허용 범위다. 우리가 key를 쥐고 여러 고객에게 서비스하는 형태는 별도 계약 없이는 어긋날 수 있다.
+6. **이름 사용.** "Claude Code를 실행한다"는 평이한 서술은 허용된다. 제품명이나 로고에 Claude Code·Anthropic을 쓰는 것은 허락이 필요하다. 외부 문서와 UI가 이 선을 지키는지 본다. https://code.claude.com/docs/en/legal-and-compliance , https://www.anthropic.com/legal/trademark-guidelines
+7. **라이선스 전문을 대신 싣거나 링크로 가리키는 것으로 충분한가.** (지금: npm 패키지는 자기 라이선스 파일을 `/app/node_modules/<패키지>/`에 싣는다. 싣지 않은 11개는 고지가 package.json의 저작권자와 MIT 전문, 또는 이미지 안 Apache-2.0 사본을 대신 싣는다. Bun 자체의 MIT 고지는 LICENSE.md 링크만 있다.)
+   - MIT는 저작권 표시와 허락 문구를 사본에 포함하라고 한다. package.json의 author가 실제 저작권자와 다를 수 있다. https://opensource.org/license/mit
+   - Apache-2.0 §4(a)는 라이선스 사본을 주라고 한다. https://www.apache.org/licenses/LICENSE-2.0#redistribution
+   - Bun의 LICENSE.md에는 MIT 전문이 없다("Bun itself is MIT-licensed"). 전문을 우리가 만들어 넣어야 하는가.
+
 ### 공급망 취약점 정책 (94S-363)
 
 2026-09-24 사용자 결정이다. **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.
