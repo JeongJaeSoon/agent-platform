@@ -234,11 +234,15 @@ export async function reproMeta(
       "{{.Config.Image}} {{.Image}}",
       container(env, service),
     ]);
+  const head = await text(["git", "rev-parse", "HEAD"]);
   return {
     command: process.argv.join(" "),
-    tested_sha: await text(["git", "rev-parse", "HEAD"]),
+    // rc.sh may build the images from the RC and run a later tools commit.
+    tested_sha: process.env.SOAK_PRODUCT_SHA ?? head,
+    tools_sha: head,
     worktree_dirty: (await text(["git", "status", "--porcelain"])) !== "",
-    bun_lock_sha256: sha256File("bun.lock"),
+    bun_lock_sha256:
+      process.env.SOAK_PRODUCT_BUN_LOCK ?? sha256File("bun.lock"),
     compose_project: env.project,
     installation: env.installation,
     compose_files: env.composeFiles.filter((file) => file !== "-f"),
