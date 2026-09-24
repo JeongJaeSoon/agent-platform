@@ -235,7 +235,7 @@ describe("architecture", () => {
         join(fixture, "src", "leak.ts"),
         [
           'import { pool } from "../../db/src/pool.ts";',
-          "export * from '../../queue/src/index.ts';",
+          "export * from '../../platform/src/index.ts';",
           "export const lazy = () => import(`../../storage/src/index.ts`);",
           'import { ok } from "./sibling.ts";',
           "export const p = pool;",
