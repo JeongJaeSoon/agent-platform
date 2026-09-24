@@ -11,7 +11,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import {
@@ -395,6 +395,16 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
         receipt_id: result.receiptId,
       },
     });
+    // Like a terminate, it puts the admission it moved to on the stream
+    // (94S-293).
+    expect(audits).toContainEqual({
+      type: "status",
+      payload: {
+        phase: "running",
+        admission_state: "stopping",
+        actor: { kind: "operator" },
+      },
+    });
 
     // A second revocation changes nothing and says so.
     const again = await revoke(session.session_id);
@@ -446,7 +456,7 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       .where(
         and(
           eq(events.sessionId, session.session_id),
-          eq(events.type, "status"),
+          isNotNull(events.sourceSequence),
         ),
       );
     expect(workerEvents).toHaveLength(0);

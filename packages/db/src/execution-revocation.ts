@@ -7,6 +7,7 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import {
+  announceStopped,
   REVOKE_EXECUTION,
   stopExecution,
   stoppedAdmission,
@@ -14,7 +15,7 @@ import {
 } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { attempts, receipts, sessions, workerCredentials } from "./schema.ts";
-import { announceInputWaitEnded, recordEvent } from "./session-events.ts";
+import { recordEvent } from "./session-events.ts";
 
 export const EXECUTION_REVOKED = "execution_revoked";
 export const EXECUTION_RESTORED = "execution_restored";
@@ -100,6 +101,7 @@ export async function revokeExecutionAtomic(
         ),
       )
       .returning({ attemptId: workerCredentials.attemptId });
+    const into = stoppedAdmission(session, pendingKill);
     const [after] = await tx
       .update(sessions)
       .set({
@@ -109,15 +111,17 @@ export async function revokeExecutionAtomic(
         executionRevokedAt: now,
         executionRevokedReason: reason,
         updatedAt: now,
-        ...stoppedAdmission(session, pendingKill),
+        ...into,
       })
       .where(eq(sessions.id, sessionId))
       .returning({ authRevision: sessions.authRevision });
     if (!after) throw new Error(`Session ${sessionId} vanished mid-revocation`);
-    await announceInputWaitEnded(tx, {
-      sessionId,
-      ...inputWait,
-      turnRowId: null,
+    await announceStopped(tx, {
+      session,
+      into,
+      inputWait,
+      extra: { actor: { kind: "operator" } },
+      now,
     });
 
     const receiptId = randomUUID();

@@ -24,6 +24,7 @@ import {
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
+import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -37,7 +38,11 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
-import { announceInputWaitEnded, inputWaitBefore } from "./session-events.ts";
+import {
+  announceInputWaitEnded,
+  inputWaitBefore,
+  recordStatus,
+} from "./session-events.ts";
 
 const TERMINATE = "terminate";
 export const REVOKE_EXECUTION = "revoke_execution";
@@ -116,8 +121,8 @@ type SessionRow = typeof sessions.$inferSelect;
  * is recorded and a pause or resume still in flight is superseded. The
  * caller holds the launch and session row locks (lockSessionForControl),
  * moves the session's epoch in the same transaction and then hands
- * `inputWait` to announceInputWaitEnded (94S-278), once the session row says
- * where it now is; `by` names the command in the errors the superseded
+ * `inputWait` to announceStopped, once the session row says where it now
+ * is; `by` names the command in the errors the superseded
  * receipts carry.
  */
 export async function stopExecution(
@@ -263,6 +268,44 @@ export function stoppedAdmission(
     : { admissionState: "stopped" as const, status: "stopped" as const };
 }
 
+/**
+ * After the session row says where stoppedAdmission moved it: a status event
+ * with the new admission, so a client following the stream does not stay at
+ * the state the stop left (94S-293). The stop closed every open question, so
+ * the event also ends any wait for input. A stop that moved no admission
+ * only reports that end, if there was one.
+ */
+export async function announceStopped(
+  tx: Database,
+  input: {
+    session: Pick<SessionRow, "id" | "admissionState" | "status">;
+    into: ReturnType<typeof stoppedAdmission>;
+    inputWait: { waitingBefore: boolean; at: Date };
+    extra: Record<string, unknown>;
+    now: Date;
+  },
+) {
+  const { session, into } = input;
+  if (
+    into.admissionState === undefined ||
+    into.admissionState === session.admissionState
+  ) {
+    await announceInputWaitEnded(tx, {
+      sessionId: session.id,
+      ...input.inputWait,
+      turnRowId: null,
+    });
+    return;
+  }
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: publicStatus(into.status ?? session.status, false),
+    extra: { admission_state: into.admissionState, ...input.extra },
+    turnRowId: null,
+    now: input.now,
+  });
+}
+
 export function createPostgresSessionControl(db: Database): SessionControl {
   return {
     async terminateAtomic(
@@ -327,19 +370,30 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           now,
           by: TERMINATE,
         });
-        await tx
-          .update(sessions)
-          .set({
-            revision: sql`${sessions.revision} + 1`,
-            leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
-            updatedAt: now,
-            ...stoppedAdmission(session, pendingKill),
-          })
-          .where(eq(sessions.id, sessionId));
-        await announceInputWaitEnded(tx, {
-          sessionId,
-          ...inputWait,
-          turnRowId: null,
+        const into = stoppedAdmission(session, pendingKill);
+        // 94S-310: a stopped session with nothing to kill is already where
+        // this leads. Moving its revision would only turn away the next
+        // control of a client that read it, over a change that never was.
+        if (session.admissionState !== "stopped" || pendingKill) {
+          await tx
+            .update(sessions)
+            .set({
+              revision: sql`${sessions.revision} + 1`,
+              leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+              updatedAt: now,
+              ...into,
+            })
+            .where(eq(sessions.id, sessionId));
+        }
+        await announceStopped(tx, {
+          session,
+          into,
+          inputWait,
+          extra: {
+            reason: input.reason,
+            actor: { owner_id: input.principal.ownerId },
+          },
+          now,
         });
 
         const receiptId = randomUUID();

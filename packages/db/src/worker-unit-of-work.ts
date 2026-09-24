@@ -1270,6 +1270,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               .returning({ id: sessions.id }),
             "session",
           );
+          // The turn boundary is on the stream too (94S-294). A turn just
+          // handed over has asked nothing yet, so it reads as running.
+          await recordStatus(tx, {
+            sessionId: fence.sessionId,
+            phase: "running",
+            turnRowId: turn.id,
+            now,
+          });
           expectFenced(
             await tx
               .update(attempts)
@@ -1696,11 +1704,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               ),
             );
         }
+        const settled = SESSION_STATUS_BY_TERMINAL[input.terminal.status];
         expectFenced(
           await tx
             .update(sessions)
             .set({
-              status: SESSION_STATUS_BY_TERMINAL[input.terminal.status],
+              status: settled,
               lastTurnAt: now,
               updatedAt: now,
               ...(unknownOutcome
@@ -1722,6 +1731,24 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .returning({ id: sessions.id }),
           "session",
         );
+        // After every event of the turn, which the check above found
+        // durable: the stream ends the turn where the session now reads
+        // (94S-294). Only an open turn holds a question, so the stored
+        // status is the public one.
+        const recovering =
+          unknownOutcome &&
+          fenced.session.admissionState !== "recovery_required";
+        if (settled !== fenced.session.status || recovering) {
+          await recordStatus(tx, {
+            sessionId: fence.sessionId,
+            phase: settled,
+            ...(recovering
+              ? { extra: { admission_state: "recovery_required" } }
+              : {}),
+            turnRowId: turn.id,
+            now,
+          });
+        }
         if (unknownOutcome && fenced.session.admissionState === "pausing") {
           // recovery_required takes the session out of pausing, so the pause
           // it was draining for can no longer complete.
@@ -2343,15 +2370,33 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             })
             .where(openPauseReceipt(session.id));
         }
-        // The pause family's outcome is a status change the event stream
-        // has to carry, or a client following it stays at `pausing`.
-        if (paused || pauseFailed) {
-          const into = paused ? "paused" : pauseFailedInto;
+        // Every admission this exit settles is a status change the event
+        // stream has to carry, or a client following it stays at stopping,
+        // pausing or wherever the unknown turn left it (94S-293). Written in
+        // the transaction that settles the kill and pause receipts, so the
+        // stream never reports stopped under an open terminate.
+        const settledInto = closed
+          ? null
+          : unresolved.length > 0
+            ? "recovery_required"
+            : stopping
+              ? "stopped"
+              : paused
+                ? "paused"
+                : pauseFailed
+                  ? pauseFailedInto
+                  : null;
+        if (settledInto !== null) {
           await recordStatus(tx, {
             sessionId: session.id,
-            phase: into === "recovery_required" ? "failed" : session.status,
+            phase:
+              settledInto === "recovery_required"
+                ? "failed"
+                : settledInto === "stopped"
+                  ? "stopped"
+                  : session.status,
             extra: {
-              admission_state: into,
+              admission_state: settledInto,
               ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
             },
             turnRowId: null,
