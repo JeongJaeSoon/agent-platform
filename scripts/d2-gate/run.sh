@@ -7,8 +7,14 @@
 # checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
 # then runs tests/d2-gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
-# and tests/d2-gate/control-host-roles.e2e.test.ts against it. The report (JSON and
+# and tests/d2-gate/control-host-roles.e2e.test.ts against it and prints each
+# test's result (.github/scripts/d2-gate-verdict.ts). The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
+#
+# D2_GATE_COMPOSE_OVERRIDE: more compose files after the gate's, separated by
+# colons as in COMPOSE_FILE; the nightly workflow (.github/workflows/d2-gate.yml)
+# passes the CI mirror overlays. D2_GATE_BUILD_ROOT: another checkout to build
+# the images from, while the gate itself runs from this one (scripts/soak/rc.sh).
 #
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
 # variables the test reads to $D2_GATE_OUT/vars.sh: source it and run
@@ -39,6 +45,10 @@ export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
+overrides="${D2_GATE_COMPOSE_OVERRIDE:-}"
+for file in ${overrides//:/ }; do
+  compose_files+=(-f "$file")
+done
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
 cleanup() {
@@ -65,7 +75,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-dc build api worker egress-proxy >"$out/build.log" 2>&1
+# migrate too, or `up` would build it from this checkout, not the build root.
+(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
@@ -114,11 +125,18 @@ fi
 # The gate, then 94S-320's recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
 status=0
+# Fresh, so a reused D2_GATE_OUT cannot pass on an older run's reports.
+rm -f "$out/gate.junit.xml" "$out/roles.junit.xml"
 bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  --reporter=junit --reporter-outfile="$out/gate.junit.xml" \
   --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
 # Last, 94S-117's role checks, which restart the services and stop
 # PostgreSQL, so nothing may run after them on this stack. A run of its own:
 # bun orders the files of one run by path, not as given.
 bun test tests/d2-gate/control-host-roles.e2e.test.ts \
+  --reporter=junit --reporter-outfile="$out/roles.junit.xml" \
   --timeout 1800000 2>&1 | tee -a "$out/test.log" || status=$?
+# Every test by name and result; one that skipped or never ran fails too.
+bun .github/scripts/d2-gate-verdict.ts "$out/gate.junit.xml" "$out/roles.junit.xml" \
+  2>&1 | tee "$out/verdict.txt" || status=$?
 exit "$status"

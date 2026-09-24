@@ -94,11 +94,24 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
 
+## D2 gate (nightly, 94S-404)
+
+D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5)는 이 커밋에서 빌드한 이미지로 compose 스택 전체를 띄워야 돈다. 그래서 ci.yml은 이 테스트들을 `integration (worker)`의 선언된 skip으로 두고, 실제로는 `scripts/d2-gate/run.sh`만 이 테스트들을 돌린다. 사람이 손으로만 돌리던 동안 harness가 조용히 낡았다. harness가 94S-227의 incremental bundle을 chain 없이 unbundle해 main `33a9c99c`에서 gate A가 깨졌는데, 94S-379가 돌려 보기 전까지 아무도 몰랐다.
+
+`.github/workflows/d2-gate.yml`이 이 틈을 메운다.
+
+- **언제 도는가:** 매일 03:17 KST(`schedule`, main), 수동 실행(`gh workflow run 'D2 gate' --ref <branch>`), 그리고 gate 자신(`scripts/d2-gate/`, `tests/d2-gate*`, `.github/scripts/d2-gate-verdict.ts`, 이 workflow)이나 verdict가 읽는 `ci.yml`을 바꾼 pull request.
+- **무엇을 하는가:** runner의 Docker daemon에서 `scripts/d2-gate/run.sh`를 돈다. `D2_GATE_COMPOSE_OVERRIDE`로 `tests/e2e/compose.ci-mirror.yml`과 `scripts/d2-gate/compose.ci-mirror.yml`을 얹어 서드파티 이미지를 모두 미러에서 받는다. 끝나면 `.github/scripts/d2-gate-verdict.ts`가 테스트마다 이름과 결과(PASS·FAIL·SKIP·MISSING)를 로그와 run summary에 찍고, A–E의 기준표(`report.md`)도 summary에 붙인다. 검사 대상은 ci.yml이 d2-gate 테스트로 선언한 skip 목록이다. 그중 하나라도 PASS가 아니면 gate가 실패한다. bun의 종료 코드만으로는 skip됐거나 아예 돌지 않은 테스트가 실패로 잡히지 않기 때문이다. build·compose·worker·suite 로그는 `d2-gate-record` artifact에 있다. run의 API key가 든 `vars.sh`는 올리지 않는다.
+- **실패하면:** schedule이나 수동 실행에서 gate job이 `success`로 끝나지 않으면 별도 job `report-failure`가 label `ci-d2-gate-failure`로 이슈를 연다. 같은 job의 마지막 step이 아니라 별도 job인 이유는 job timeout이 남은 step을 모두 취소하기 때문이다. 멈춘 gate는 다른 job에서만 보인다. 이미 열린 이슈가 있으면 거기에 코멘트를 붙인다(`spikes`와 같은 upsert). pull request에서는 빨간 check가 곧 신호이므로 이슈를 열지 않는다.
+- **required가 아니다.** 대부분의 PR에서 돌지 않으므로 required로 걸면 그 PR들이 `Expected — Waiting for status`로 멈춘다. 이 workflow에만 `paths` 필터를 쓰는 것도 required가 아니어서 가능하다. pending이 머지를 막지 않는다. required로 올리는 것은 branch protection 변경이라 사용자 승인 사항이다.
+
+**RC 전 D2 gate.** release candidate는 D2 gate를 통과해야 판정에 들어간다. `scripts/soak/rc.sh <rc-sha>`의 첫 단계가 RC에서 빌드한 이미지로 D2 gate를 돌린다. gate 자신은 tools checkout에서 돌고, 이미지는 `D2_GATE_BUILD_ROOT`로 RC worktree에서 빌드한다. gate가 실패하면 이미지 빌드·캠페인·soak로 넘어가지 않고, 보고서는 `$SOAK_STATE/rc-<sha7>/d2-gate/`에 남는다. 이 단계에는 override가 없다. harness가 틀렸으면 harness를 고친 tools commit으로 다시 돌린다.
+
 ## 서드파티 이미지 미러 (94S-308)
 
 `integration` 도메인 job, `workspace-quota`, `e2e`·`quickstart`가 받는 서드파티 이미지는 Docker Hub가 아니라 `ghcr.io/jeongjaesoon/agent-platform-ci/<name>`에서 **upstream digest 그대로** 받는다. 대상은 서비스 컨테이너(PostgreSQL·LocalStack), Docker suite가 Engine API로 직접 받는 이미지(busybox·`oven/bun`·curl·LocalStack, workspace-migration helper), `workspace-quota`의 dind와 inode helper의 base, `e2e`·`quickstart`가 띄우는 compose 스택의 이미지(PostgreSQL·LocalStack·Gitea·`oven/bun`)와 앱 이미지 빌드의 base·Dockerfile frontend다. 위 표의 이름(`postgres:16` 등)은 upstream tag이고, ci.yml은 그 tag가 가리키던 digest를 고정한다. `.github/workflows/ci-image-mirror.yml`이 `skopeo copy --all --preserve-digests`로 index 전체(모든 플랫폼과 attestation)를 바이트 그대로 옮긴다. 그래서 ghcr의 digest가 Docker Hub의 digest와 같고, `docker buildx imagetools inspect postgres:16`이 보여 주는 digest를 ci.yml의 값과 바로 비교할 수 있다. suite 코드의 기본값(`busybox:1.36` 등)은 로컬 실행용으로 그대로 두고, CI만 `BUN_TEST_IMAGE`·`DOCKER_BACKEND_TEST_IMAGE`·`EGRESS_CURL_TEST_IMAGE`·`EGRESS_PROXY_TEST_IMAGE`·`EXECUTION_WORKSPACE_MIGRATION_IMAGE`·`LOCALSTACK_TEST_IMAGE`로 mirror를 가리킨다.
 
-compose 스택도 같은 원칙이다(94S-365). `infra/docker-compose.yml`의 `image:`와 앱 Dockerfile의 `ARG BUN_IMAGE` 기본값은 로컬 사용자용으로 Docker Hub 이름 그대로 두고, CI만 `tests/e2e/compose.ci-mirror.yml` overlay를 얹는다. overlay는 서드파티 서비스의 `image:`를 같은 digest의 미러 참조로 바꾸고, 빌드하는 서비스에 `BUN_IMAGE`·`BUILDKIT_SYNTAX` build-arg를 넘긴다(`images.yml`과 같은 방식). `e2e`는 `E2E_COMPOSE_OVERRIDE`로 `tests/e2e/run.sh`에 넘기고, `quickstart`는 `COMPOSE_FILE=compose.yaml:tests/e2e/compose.ci-mirror.yml`로 넘긴다. 그래서 `docs/quickstart.md`의 명령은 CI 전용 줄 없이 쓰인 그대로 돈다.
+compose 스택도 같은 원칙이다(94S-365). `infra/docker-compose.yml`의 `image:`와 앱 Dockerfile의 `ARG BUN_IMAGE` 기본값은 로컬 사용자용으로 Docker Hub 이름 그대로 두고, CI만 `tests/e2e/compose.ci-mirror.yml` overlay를 얹는다. overlay는 서드파티 서비스의 `image:`를 같은 digest의 미러 참조로 바꾸고, 빌드하는 서비스에 `BUN_IMAGE`·`BUILDKIT_SYNTAX` build-arg를 넘긴다(`images.yml`과 같은 방식). `e2e`는 `E2E_COMPOSE_OVERRIDE`로 `tests/e2e/run.sh`에 넘기고, `quickstart`는 `COMPOSE_FILE=compose.yaml:tests/e2e/compose.ci-mirror.yml`로 넘긴다. 그래서 `docs/quickstart.md`의 명령은 CI 전용 줄 없이 쓰인 그대로 돈다. D2 gate workflow는 여기에 gate 전용 서비스(`gate-chaos`·`gate-messages`)의 `oven/bun`을 미러로 바꾸는 `scripts/d2-gate/compose.ci-mirror.yml`을 하나 더 얹는다([§ D2 gate](#d2-gate-nightly-94s-404)).
 
 `images.yml`의 앱 이미지 빌드도 같은 미러에서 받는다(94S-317). `build`·`publish`는 `BUN_IMAGE` build-arg로 Dockerfile 기본값과 **같은 digest**의 미러 참조를 넘긴다. base 바이트가 같으므로 빌드 결과도 같다. 세 `setup-buildx-action`은 `driver-opts: image=`로 미러의 BuildKit(`moby/buildkit:v0.32.2`, 고정 당시 `buildx-stable-1`)을 띄운다. Dockerfile 첫 줄 `# syntax=docker/dockerfile:1.7`의 frontend도 BuildKit이 Docker Hub에서 받으므로 `BUILDKIT_SYNTAX` build-arg로 같은 tag의 미러 digest를 넘긴다. Dockerfile의 `ARG BUN_IMAGE` 기본값은 로컬 빌드용으로 Docker Hub 이름 그대로 둔다. `tests/ci-images.test.ts`가 세 참조를 미러 목록과, `BUN_IMAGE`의 digest와 frontend tag를 모든 앱 Dockerfile과 대조한다.
 
@@ -125,7 +138,7 @@ compose 스택도 같은 원칙이다(94S-365). `infra/docker-compose.yml`의 `i
 
 1. 새 digest를 확인한다: `docker buildx imagetools inspect <upstream>:<tag> --format '{{json .Manifest}}' | jq -r .digest`
 2. **PR 1**: `ci-image-mirror.yml` matrix에 새 항목을 **더한다**. 기존 digest 항목은 지우지 않는다. 같은 `name`에 digest 두 개가 있어도 된다. 머지하면 `main` push의 `CI image mirror` run이 새 digest를 ghcr에 올린다. run의 `mirror (<name>:<tag>)` job이 초록인지 확인한다.
-3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. compose 스택의 이미지(`infra/docker-compose.yml`, 앱 Dockerfile의 `BUN_IMAGE`)를 올렸으면 `tests/e2e/compose.ci-mirror.yml`도 같은 digest로 바꾼다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Nothing pulled from Docker Hub` step이 실패한다.
+3. **PR 2**: ci.yml의 참조를 새 digest로 바꾸고, 더는 쓰지 않는 옛 항목을 목록에서 지운다. suite가 직접 받는 새 이미지는 `integration-domain`의 `env`에도 넣는다. compose 스택의 이미지(`infra/docker-compose.yml`, 앱 Dockerfile의 `BUN_IMAGE`)를 올렸으면 `tests/e2e/compose.ci-mirror.yml`도 같은 digest로 바꾼다. `scripts/d2-gate/compose.yml`의 `oven/bun`을 올렸으면 `scripts/d2-gate/compose.ci-mirror.yml`도 바꾼다. 어긋나면 `tests/ci-images.test.ts`가, 빠뜨린 pull은 `Nothing pulled from Docker Hub` step이 실패한다.
 4. 새 이미지의 ghcr package는 이 public 저장소에 연결되어 public으로 생긴다(첫 mirror run의 여섯 package가 모두 그랬다). 서비스 컨테이너와 Engine API로 받는 suite는 인증 없이 받으므로 public이어야 한다. private으로 생기면 mirror job이 로그아웃 뒤 익명 조회에서 실패한다. 그때는 GitHub의 package 설정(Package settings → Danger Zone → Change visibility)에서 public으로 바꾸고 그 job을 다시 돌린다.
 5. 목록을 바꾸지 않고 다시 복사하려면 `gh workflow run 'CI image mirror'`를 쓴다(`main`에서만 돈다). 이미 있는 blob은 건너뛴다.
 

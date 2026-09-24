@@ -10,18 +10,22 @@
 # worktree, and the runner, overlays and configs come from this checkout, so
 # a tool fix never moves the product under test. Then:
 #
-# 1. builds the images (never reusing tags) and writes rc.json: the RC and
+# 1. runs the D2 gate (scripts/d2-gate/run.sh: A–E, R1–R2, H1–H5) on images
+#    built from <rc-sha>, under a project of its own, and stops if it failed:
+#    no candidate goes on without it (94S-404);
+# 2. builds the images (never reusing tags) and writes rc.json: the RC and
 #    tools SHAs, every image id the stack runs, the RC's bun.lock and the 24h
 #    config's sha256 — before anything is measured, and refusing to go on
 #    with a field empty;
-# 2. runs every fault/contention campaign, each on its own reset stack, and
+# 3. runs every fault/contention campaign, each on its own reset stack, and
 #    stops if any failed, so no day is spent on a candidate with a defect
 #    (`soak` resumes from here once they finished, and past a failure only
 #    with SOAK_RC_OVERRIDE naming why it was accepted);
-# 3. resets the stack and runs the 24-hour soak (config/soak-24h.json).
+# 4. resets the stack and runs the 24-hour soak (config/soak-24h.json).
 #
 # Campaigns go first because they share the soak135 project with the soak.
-# Everything lands in $SOAK_STATE/rc-<sha7>/, progress in its rc.log.
+# Everything lands in $SOAK_STATE/rc-<sha7>/, progress in its rc.log, the
+# gate's report in d2-gate/.
 set -uo pipefail
 umask 077
 
@@ -56,7 +60,6 @@ exec > >(tee -a "$out/rc.log") 2>&1
 stamp() { echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
 
 if [ "$stage" = all ]; then
-  stamp "build ${rc}"
   # From nothing: a stack left up (its database, bucket and Gitea) fails the
   # fixture and would carry state into the run.
   scripts/soak/stack.sh down || die "stack down failed"
@@ -76,6 +79,14 @@ if [ "$stage" = all ]; then
     # unreadable to the containers' non-root users.
     (umask 022 && git worktree add --detach "$src" "$rc" >/dev/null) || die "could not check out ${rc}"
   fi
+  stamp "d2 gate"
+  D2_GATE_OUT="$out/d2-gate" D2_GATE_BUILD_ROOT="$src" scripts/d2-gate/run.sh
+  gated=$?
+  if [ "$gated" -ne 0 ]; then
+    [ "$src" = "$root" ] || git worktree remove --force "$src"
+    die "the D2 gate failed: see $out/d2-gate/report.md and test.log"
+  fi
+  stamp "build ${rc}"
   lock="$(shasum -a 256 "$src/bun.lock" | cut -d' ' -f1)"
   export SOAK_PRODUCT_BUN_LOCK="$lock"
   SOAK_SKIP_BUILD=0 SOAK_BUILD_ROOT="$src" scripts/soak/stack.sh up
