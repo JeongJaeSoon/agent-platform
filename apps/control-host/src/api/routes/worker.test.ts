@@ -24,7 +24,7 @@ import {
   createWorkerGateway,
 } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createApiApp } from "../app.ts";
@@ -348,7 +348,13 @@ describe("/internal/worker", () => {
     const [stored] = await db
       .select({ n: count() })
       .from(events)
-      .where(eq(events.sessionId, seeded.session_id));
+      .where(
+        and(
+          eq(events.sessionId, seeded.session_id),
+          // The worker's own rows; the delivery's status is the server's.
+          isNotNull(events.sourceSequence),
+        ),
+      );
     expect(stored?.n).toBe(2);
 
     const finalized = finalizeResponseSchema.parse(
