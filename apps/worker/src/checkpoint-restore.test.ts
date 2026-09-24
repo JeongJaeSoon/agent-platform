@@ -503,5 +503,11 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
 
     expect(second.bundle.incremental).toBe(false);
     await staged(second);
+    // A chain already past a limit lowered since it was written.
+    const third = await captured(root, undefined, {
+      ...onto(first),
+      maxBytes: -first.bundle.bytes,
+    });
+    expect(third.bundle.incremental).toBe(false);
   });
 });

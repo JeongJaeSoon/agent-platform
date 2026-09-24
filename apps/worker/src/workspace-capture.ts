@@ -563,7 +563,8 @@ export async function captureWorkspace(input: {
     let built:
       | { bytes: number; sha256: string; tips: string[]; incremental: boolean }
       | undefined;
-    if (base !== undefined && base.tips.length > 0) {
+    // A chain written under a larger limit than this one may leave nothing.
+    if (base !== undefined && base.tips.length > 0 && base.maxBytes > 0) {
       const negatives: string[] = [];
       for (const tip of new Set(base.tips)) {
         // Snapshot commits and tags of earlier captures lived only in their
