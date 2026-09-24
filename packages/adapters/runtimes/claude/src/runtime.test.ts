@@ -64,6 +64,61 @@ describe("Claude SDK run", () => {
   });
 });
 
+describe("Claude SDK input flush (94S-351)", () => {
+  const settledNow = async (promise: Promise<void>) => {
+    let settled = false;
+    promise.then(() => {
+      settled = true;
+    });
+    await Bun.sleep(0);
+    return settled;
+  };
+
+  test("flushes only once the SDK asks past every pushed message", async () => {
+    const input = new InputStream();
+    const reader = input[Symbol.asyncIterator]();
+    expect(await settledNow(input.flushed())).toBe(true);
+
+    input.push({ message: "queued", uuid: "a" });
+    const queued = input.flushed();
+    expect(await settledNow(queued)).toBe(false);
+    await reader.next();
+    // Handed to the SDK, whose write comes before it asks again.
+    expect(await settledNow(queued)).toBe(false);
+    const waiting = reader.next();
+    expect(await settledNow(queued)).toBe(true);
+
+    input.push({ message: "straight to a waiting reader", uuid: "b" });
+    expect((await waiting).value?.uuid).toBe("b");
+    const handed = input.flushed();
+    expect(await settledNow(handed)).toBe(false);
+    void reader.next();
+    expect(await settledNow(handed)).toBe(true);
+  });
+
+  test("finishing the input still waits for what it queued", async () => {
+    const input = new InputStream();
+    const reader = input[Symbol.asyncIterator]();
+    input.push({ message: "last", uuid: "a" });
+    input.finish();
+    const pending = input.flushed();
+    expect(await settledNow(pending)).toBe(false);
+    expect((await reader.next()).value?.uuid).toBe("a");
+    expect((await reader.next()).done).toBe(true);
+    expect(await settledNow(pending)).toBe(true);
+  });
+
+  test("an SDK that stops reading releases the wait", async () => {
+    const input = new InputStream();
+    input.push({ message: "never read", uuid: "a" });
+    const pending = input.flushed();
+    expect(await settledNow(pending)).toBe(false);
+    input.abandon();
+    expect(await settledNow(pending)).toBe(true);
+    expect(await settledNow(input.flushed())).toBe(true);
+  });
+});
+
 describe("Claude SDK run readiness (94S-138)", () => {
   test("ready waits for the resumed transcript and the engine's initialization, and rejects when the transcript is unreadable", async () => {
     let initialized: () => void = () => {};

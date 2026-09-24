@@ -253,6 +253,8 @@ jobs:
                 test: "C: a transcript mirror error blocks the checkpoint and new input"
               - file: tests/d2-gate.e2e.test.ts
                 test: "D: a worker that loses its lease mid-turn promotes nothing"
+              - file: tests/d2-gate.e2e.test.ts
+                test: "E: an accepted interrupt stops its turn, however early it lands (94S-351)"
               # 94S-320's sweep on the same stack; run against a stack kept by
               # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
               - file: tests/d2-gate/reconciler-sweep.e2e.test.ts

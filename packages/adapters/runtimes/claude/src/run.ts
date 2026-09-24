@@ -53,7 +53,15 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   private readonly waiting: Array<
     (value: IteratorResult<SDKUserMessage>) => void
   > = [];
+  private readonly flushing: Array<() => void> = [];
+  /**
+   * The SDK holds a message it has not asked past yet. It writes each one to
+   * the engine before asking for the next, so until then the write may still
+   * be to come.
+   */
+  private handedOut = false;
   private finished = false;
+  private abandoned = false;
 
   push(input: AgentInput): void {
     if (this.finished) throw new Error("Input stream is closed");
@@ -65,7 +73,29 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
     };
     const waiter = this.waiting.shift();
     if (waiter === undefined) this.queued.push(message);
-    else waiter({ done: false, value: message });
+    else {
+      this.handedOut = true;
+      waiter({ done: false, value: message });
+    }
+  }
+
+  /**
+   * Resolves once every message pushed so far is written to the engine. A
+   * control request goes out at once, so one sent before that overtakes the
+   * input it was meant to follow (94S-351).
+   */
+  flushed(): Promise<void> {
+    // Not released by finish(): what was queued before it is still written.
+    if (this.abandoned || (this.queued.length === 0 && !this.handedOut)) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.flushing.push(resolve));
+  }
+
+  /** The SDK reads no further, so what is still unwritten never will be. */
+  abandon(): void {
+    this.abandoned = true;
+    for (const resolve of this.flushing.splice(0)) resolve();
   }
 
   finish(): void {
@@ -77,8 +107,13 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
     return {
       next: async () => {
+        this.handedOut = false;
         const value = this.queued.shift();
-        if (value !== undefined) return { done: false, value };
+        if (value !== undefined) {
+          this.handedOut = true;
+          return { done: false, value };
+        }
+        for (const resolve of this.flushing.splice(0)) resolve();
         if (this.finished) return { done: true, value: undefined };
         return new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
           this.waiting.push(resolve);
@@ -124,16 +159,21 @@ export class ClaudeSdkRun implements AgentRun {
   }
 
   async interrupt(): Promise<{ stillQueued: string[] }> {
+    // Sent ahead of its input, the interrupt finds nothing running, is
+    // acknowledged, and the input then runs to completion.
+    await this.input.flushed();
     const receipt = await this.sdkQuery.interrupt();
     return { stillQueued: receipt?.still_queued ?? [] };
   }
 
   abort(): void {
     this.abortController.abort();
+    this.input.abandon();
   }
 
   close(): void {
     this.input.finish();
+    this.input.abandon();
     this.sdkQuery.close();
   }
 
@@ -166,6 +206,7 @@ export class ClaudeSdkRun implements AgentRun {
     } finally {
       this.ledger.streamEnded();
       this.history.abandon();
+      this.input.abandon();
     }
   }
 }
