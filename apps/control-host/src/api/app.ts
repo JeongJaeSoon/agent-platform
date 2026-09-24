@@ -28,6 +28,7 @@ import {
 } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
+  CLOSING_IDLE_TIMEOUT_SECONDS,
   readBodyWithin,
   requestDeadline,
 } from "./deadline.ts";
@@ -260,6 +261,8 @@ async function ingestBody(
     // The rest of the body may still be on its way; close rather than keep
     // the connection for the next request behind it.
     context.header("Connection", "close");
+    // Outside /v1 no deadline middleware follows to shorten the clock.
+    setIdleTimeout(CLOSING_IDLE_TIMEOUT_SECONDS);
     // Nothing has run yet, so sending the same request again is safe.
     return errorResponse(
       context,

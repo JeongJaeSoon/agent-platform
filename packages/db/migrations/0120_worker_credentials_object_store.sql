@@ -1,0 +1,2 @@
+ALTER TABLE "worker_credentials" DROP CONSTRAINT "worker_credentials_purpose_check";--> statement-breakpoint
+ALTER TABLE "worker_credentials" ADD CONSTRAINT "worker_credentials_purpose_check" CHECK ("worker_credentials"."purpose" IN ('gateway', 'provider', 'repository', 'object_store'));

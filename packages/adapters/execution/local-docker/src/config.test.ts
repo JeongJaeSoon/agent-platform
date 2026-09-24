@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { localDockerConfigFromEnv } from "./config.ts";
 
 const base = {
-  AWS_ACCESS_KEY_ID: "test",
-  AWS_ENDPOINT_URL: "http://localstack:4566",
   AWS_REGION: "ap-northeast-1",
-  AWS_SECRET_ACCESS_KEY: "test",
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
@@ -23,11 +20,8 @@ describe("localDockerConfigFromEnv", () => {
       homeDir: "/home/worker",
       installationId: "local",
       objectStore: {
-        accessKeyId: "test",
         bucket: "claude-sessions",
-        endpoint: "http://localstack:4566",
         region: "ap-northeast-1",
-        secretAccessKey: "test",
       },
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 120,
@@ -197,13 +191,8 @@ describe("localDockerConfigFromEnv", () => {
     }
   });
 
-  test("object store access is required and the endpoint an http(s) URL", () => {
-    for (const name of [
-      "AWS_ACCESS_KEY_ID",
-      "AWS_REGION",
-      "AWS_SECRET_ACCESS_KEY",
-      "S3_BUCKET",
-    ] as const) {
+  test("object store access is the bucket and region, never a credential", () => {
+    for (const name of ["AWS_REGION", "S3_BUCKET"] as const) {
       expect(() =>
         localDockerConfigFromEnv({ ...base, [name]: undefined }),
       ).toThrow(name);
@@ -211,61 +200,26 @@ describe("localDockerConfigFromEnv", () => {
         name,
       );
     }
-    // Real AWS (no endpoint) and https endpoints are accepted: the worker
-    // reaches them through the egress proxy with its own TLS (94S-254).
-    for (const value of ["", undefined]) {
-      expect(
-        localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: value })
-          .objectStore.endpoint,
-      ).toBeUndefined();
-    }
-    expect(
-      localDockerConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
-      }).objectStore.endpoint,
-    ).toBe("https://s3.ap-northeast-1.amazonaws.com");
-    expect(() =>
-      localDockerConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "https://10.0.0.5:9000",
-      }),
-    ).toThrow("must name its host");
-    expect(() =>
-      localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
-    ).toThrow("AWS_ENDPOINT_URL");
-    expect(() =>
-      localDockerConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "ftp://localstack:4566",
-      }),
-    ).toThrow("http://");
-    // Whatever else is wrong with the URL, a credential in it never reaches
-    // a message — the protocol refusal quotes the URL, so it must come after.
-    for (const url of [
-      "http://user:hunter2@localstack:4566",
-      "https://user:hunter2@s3.example",
-      // Malformed, so the parse itself fails and must not quote the value.
-      "http://user:hunter2@",
-    ]) {
-      let message = "";
-      try {
-        localDockerConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toContain("AWS_ENDPOINT_URL");
-      expect(message).not.toContain("hunter2");
-    }
+    // The scheduler shares the control host's environment, key included;
+    // none of it reaches the backend config a worker is launched from
+    // (94S-251).
+    const config = localDockerConfigFromEnv({
+      ...base,
+      AWS_ACCESS_KEY_ID: "control-host-key-id",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_SECRET_ACCESS_KEY: "control-host-secret",
+    } as typeof base);
+    expect(config.objectStore).toEqual({
+      bucket: "claude-sessions",
+      region: "ap-northeast-1",
+    });
   });
 
   test("a refused object store value is named, never quoted", () => {
     // These land in scheduler logs; the check is by name so the message
-    // can be logged as is. The key id is the one that could be quoted
-    // harmlessly, and it is still not.
+    // can be logged as is.
     for (const [name, value] of [
-      ["AWS_SECRET_ACCESS_KEY", "sk with space"],
-      ["AWS_ACCESS_KEY_ID", "AKIA=oops"],
+      ["AWS_REGION", "ap-northeast-1=oops"],
       ["S3_BUCKET", "my bucket"],
     ] as const) {
       let message = "";

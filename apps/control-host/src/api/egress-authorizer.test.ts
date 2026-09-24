@@ -9,6 +9,7 @@ import {
   acceptAllCheckpoints,
   createWorkerGateway,
 } from "@agent-platform/platform";
+import { createObjectRouteSigner } from "@agent-platform/storage";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -204,7 +205,7 @@ describe("egress authorizer (94S-252)", () => {
       expect((await ask(body)).status).toBe(400);
     }
     expect(
-      (await ask({ token: "x".repeat(8 * 1024), purpose: "provider" })).status,
+      (await ask({ token: "x".repeat(20 * 1024), purpose: "provider" })).status,
     ).toBe(413);
   });
 
@@ -280,5 +281,159 @@ describe("egressAuthorizerConfigFromEnv", () => {
         EGRESS_AUTHORIZER_TOKEN: AUTHORIZER_TOKEN,
       }),
     ).toThrow(/not a port/);
+  });
+});
+
+describe("the object store route's answers (94S-251)", () => {
+  const signed = (withSigner = true) =>
+    createEgressAuthorizer({
+      gateway,
+      logger: createLogger({ sinks: [] }),
+      token: AUTHORIZER_TOKEN,
+      ...(withSigner
+        ? {
+            objectStore: createObjectRouteSigner({
+              bucket: "claude-sessions",
+              credentials: {
+                accessKeyId: "AKIDCONTROLHOST",
+                secretAccessKey: "control-host-secret",
+              },
+              endpoint: "http://localstack.invalid:4566",
+              region: "ap-northeast-1",
+            }),
+          }
+        : {}),
+    });
+  const objectAsk = (
+    authorizer: typeof authorize,
+    token: string,
+    method: string,
+    target: string,
+    headers: Array<[string, string]> = [],
+  ) =>
+    authorizer(
+      new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          token,
+          purpose: "object_store",
+          request: { method, target, headers },
+        }),
+      }),
+    );
+
+  test("signs a request under the session's prefix with the API's own key", async () => {
+    const claim = await claimed();
+    const response = await objectAsk(
+      signed(),
+      claim.object_store.access.token,
+      "PUT",
+      `/claude-sessions/sessions/${claim.session_id}/x?x-id=PutObject`,
+      [
+        ["content-length", "4"],
+        ["if-none-match", "*"],
+      ],
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      upstream: { headers: Array<[string, string]> };
+    };
+    expect(body).toMatchObject({
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      upstream: {
+        url: "http://localstack.invalid:4566",
+        target: `/claude-sessions/sessions/${claim.session_id}/x`,
+      },
+    });
+    const headers = new Map(body.upstream.headers);
+    expect(headers.get("authorization")).toContain(
+      "Credential=AKIDCONTROLHOST/",
+    );
+    expect(headers.get("content-length")).toBe("4");
+  });
+
+  test("refuses what the session may not do, with the reason", async () => {
+    const claim = await claimed();
+    const token = claim.object_store.access.token;
+    for (const [method, target] of [
+      ["GET", "/claude-sessions/sessions/another-session/x"],
+      ["GET", "/claude-sessions?list-type=2&prefix=sessions%2F"],
+      ["DELETE", `/claude-sessions/sessions/${claim.session_id}/x`],
+      ["PUT", `/claude-sessions/sessions/${claim.session_id}/x?legal-hold`],
+    ] as const) {
+      const response = await objectAsk(signed(), token, method, target, [
+        ["content-length", "0"],
+      ]);
+      expect(`${method} ${target} ${response.status}`).toBe(
+        `${method} ${target} 403`,
+      );
+      expect(await response.text()).not.toContain("AKIDCONTROLHOST");
+    }
+  });
+
+  test("each token opens its own route and no other", async () => {
+    const claim = await claimed();
+    const target = `/claude-sessions/sessions/${claim.session_id}/x`;
+    const repository = claim.workspace.repository.access;
+    if (repository === undefined) throw new Error("no repository token");
+    for (const token of [
+      claim.runtime_config.provider.auth.token,
+      repository.token,
+      "weo_unknown",
+    ]) {
+      expect((await objectAsk(signed(), token, "GET", target)).status).toBe(
+        401,
+      );
+    }
+    expect(
+      (
+        await ask({
+          token: claim.object_store.access.token,
+          purpose: "provider",
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  test("an API with no object store answers 503, and only for a live token", async () => {
+    const claim = await claimed();
+    const target = `/claude-sessions/sessions/${claim.session_id}/x`;
+    expect(
+      (
+        await objectAsk(
+          signed(false),
+          claim.object_store.access.token,
+          "GET",
+          target,
+        )
+      ).status,
+    ).toBe(503);
+    expect(
+      (await objectAsk(signed(false), "weo_unknown", "GET", target)).status,
+    ).toBe(401);
+  });
+
+  test("refuses a request line it cannot read", async () => {
+    const claim = await claimed();
+    const token = claim.object_store.access.token;
+    const target = `/claude-sessions/sessions/${claim.session_id}/x`;
+    expect((await objectAsk(signed(), token, "get", target)).status).toBe(400);
+    expect(
+      (
+        await objectAsk(
+          signed(),
+          token,
+          "GET",
+          target,
+          Array.from({ length: 33 }, (_, i) => [`x-amz-meta-${i}`, "v"]),
+        )
+      ).status,
+    ).toBe(400);
+    expect((await ask({ token, purpose: "object_store" })).status).toBe(400);
   });
 });

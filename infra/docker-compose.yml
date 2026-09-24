@@ -75,9 +75,10 @@ services:
       postgres:
         condition: service_healthy
 
-  # Workers reach this through the egress proxy (EGRESS_PRIVATE_ALLOWLIST
-  # below), so it runs S3 alone: every service on the allowlisted port is a
-  # service a worker can call, and nothing here uses Secrets Manager.
+  # Workers reach this only through the egress proxy's object store route
+  # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST below, 94S-251), which the API signs
+  # for one session's prefix. It runs S3 alone all the same: nothing here
+  # uses Secrets Manager.
   localstack:
     image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     environment:
@@ -190,10 +191,11 @@ services:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
       # stays for an API started on the host with `bun run --cwd apps/control-host start`.
-      # localstack:4566 is the worker's object store (94S-244);
       # fake-messages:4010 is the example profile's Messages API (94S-132).
-      # `secrets` is deliberately absent.
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,localstack:4566,fake-messages:4010}
+      # `secrets` is deliberately absent, and so is `localstack`: LocalStack
+      # takes any signature, so a forward request to it would be a way round
+      # the object store route.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,fake-messages:4010}
       EGRESS_PROXY_PORT: "3128"
       # The credential routes (94S-252): workers send their provider and git
       # calls here with an attempt-scoped token, and the proxy puts the
@@ -202,6 +204,9 @@ services:
       # http://host.docker.internal:3100.
       EGRESS_CREDENTIAL_PORT: "3129"
       EGRESS_AUTHORIZER_URL: ${EGRESS_AUTHORIZER_URL:-http://api:3100}
+      # Upstreams only the credential routes reach: the object store, which
+      # the object store route sends the API-signed request to (94S-251).
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-localstack:4566}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -421,12 +426,10 @@ services:
       EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-86400}
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
-      # Object store the scheduler hands each worker (94S-244): the compose
-      # LocalStack, same values the localstack service is started with.
-      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
+      # The bucket and region the scheduler names to each worker. No key and
+      # no endpoint: workers reach the object store through the proxy's
+      # object store route, signed by the API (94S-251).
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
       SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
