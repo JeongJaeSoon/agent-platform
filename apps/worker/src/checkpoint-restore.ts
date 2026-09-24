@@ -20,10 +20,10 @@ import {
 /**
  * A checkpoint bundle fetched into a repository of the worker's own, outside
  * the workspace's tree, and checked against the manifest before the
- * workspace is touched. The repository outlives the restore: the
- * instructions commit is read from it, and later captures keep it as an
- * object source so that commit stays bundleable after the engine prunes its
- * own copy.
+ * workspace is touched. The instructions commit is read from it, and a
+ * restore that keeps it cuts it down to that commit's objects, which later
+ * captures take as an object source so the commit stays bundleable after
+ * the engine prunes its own copy.
  */
 export type StagedCheckpoint = {
   /** `refs/heads/<name>` HEAD was on, or null for a detached HEAD. */
@@ -208,8 +208,9 @@ export async function stagedClaudeMd(
  * into (the workspace volume being the only disk a worker has), which is
  * moved into the new `.git` as `RESTORED_CHECKPOINT_DIRECTORY`, out of the
  * tree's way. The staged checkpoint comes back with its repository where it
- * now is. The repository is new: the old one's config, hooks and remotes
- * are the last engine's.
+ * now is, when that is inside `keep`, holding only what the instructions
+ * commit reaches. The repository is new: the old one's config, hooks and
+ * remotes are the last engine's.
  * Stops between steps once `signal` aborts; a restore stopped half way is
  * redone whole by the next attempt, which never reads what this one left.
  */
@@ -233,12 +234,14 @@ export async function restoreCheckpointTree(input: {
   const git = localGit(root, signal, {});
   await check(git(["init", "--quiet", "--template="]), "init");
   let kept: string | undefined;
+  let slim = false;
   if (keep !== undefined) {
     kept = join(root, ".git", RESTORED_CHECKPOINT_DIRECTORY);
     await rename(keep, kept);
     const inside = relative(keep, resolve(staged.repository));
     if (!inside.startsWith("..")) {
       staged = { ...staged, repository: join(kept, inside) };
+      slim = true;
     }
   }
   await check(
@@ -252,6 +255,7 @@ export async function restoreCheckpointTree(input: {
     ]),
     "fetch staged checkpoint",
   );
+  if (slim) await keepInstructionsOnly(staged, root, signal);
   if (staged.branch === null) {
     await check(
       git(["update-ref", "--no-deref", "HEAD", staged.head]),
@@ -278,6 +282,42 @@ export async function restoreCheckpointTree(input: {
   }
   await check(git(["remote", "add", "origin", input.origin]), "remote add");
   return kept === undefined ? { staged } : { kept, staged };
+}
+
+/**
+ * Replaces the staged repository with one holding only what the
+ * instructions commit reaches (94S-370). Captures need nothing else from
+ * it; the rest is in the workspace's own `.git`, which just fetched it, and
+ * keeping it twice for the whole session would charge the workspace quota
+ * for the bundle twice. The staged repository goes first, so the restore
+ * never holds it, the workspace's copy, and this one at once; the
+ * instructions commit is read back from the workspace, under the ref the
+ * fetch left it at.
+ */
+async function keepInstructionsOnly(
+  staged: StagedCheckpoint,
+  root: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const { repository } = staged;
+  await rm(repository, { force: true, recursive: true });
+  const git = localGit(dirname(repository), signal, { GIT_DIR: repository });
+  await check(
+    git(["init", "--quiet", "--bare", "--template=", repository]),
+    "init",
+  );
+  if (staged.instructions === null) return;
+  await check(
+    git([
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--no-write-fetch-head",
+      join(root, ".git"),
+      `${RESTORING}${CHECKPOINT_INSTRUCTIONS_REF.slice("refs/".length)}:${CHECKPOINT_INSTRUCTIONS_REF}`,
+    ]),
+    "fetch instructions",
+  );
 }
 
 /**

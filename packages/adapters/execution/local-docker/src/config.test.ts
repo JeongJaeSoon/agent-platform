@@ -48,13 +48,13 @@ describe("localDockerConfigFromEnv", () => {
     expect(
       localDockerConfigFromEnv({
         ...base,
-        EXECUTION_WORKSPACE_QUOTA_MB: "512",
+        EXECUTION_WORKSPACE_QUOTA_MB: "1024",
       }).workspaceQuota,
     ).toEqual({
       helperImage: "agent-platform-worker:dev",
       inodes: 1_000_000,
       mode: "enforced",
-      sizeBytes: 512 * 1024 * 1024,
+      sizeBytes: 1024 * 1024 * 1024,
     });
     expect(
       localDockerConfigFromEnv({
@@ -118,6 +118,12 @@ describe("localDockerConfigFromEnv", () => {
     expect(() =>
       localDockerConfigFromEnv({ ...base, EXECUTION_WORKSPACE_QUOTA_MB: "0" }),
     ).toThrow("EXECUTION_WORKSPACE_QUOTA_MB must be a positive integer");
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA_MB: "1023",
+      }),
+    ).toThrow("under the 1024 a checkpoint restore needs");
     expect(() =>
       localDockerConfigFromEnv({
         ...base,

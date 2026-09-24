@@ -214,6 +214,16 @@ export function localDockerConfigFromEnv(
 
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
 /**
+ * What a worker's checkpoint restore holds at once on an emptied workspace
+ * before any file is checked out (94S-370): the chain's bundles and the
+ * repository they are staged into, then that repository and the workspace's
+ * fetched copy — two copies of the control plane's 256 MiB bundle limit —
+ * beside up to 256 MiB of untracked files, with room for pack indexes and
+ * the delta bases a thin incremental pack is completed with. A smaller quota
+ * cannot resume a checkpoint the limits admit.
+ */
+export const MIN_WORKSPACE_QUOTA_MB = 1024;
+/**
  * Room for a large monorepo checkout with its dependencies installed (a few
  * hundred thousand files) several times over. Empty files cost the byte
  * quota nothing — xfs does not charge inodes to a project's blocks — so
@@ -240,17 +250,20 @@ function workspaceQuotaFromEnv(
       "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
     );
   }
+  const sizeMb = positiveInteger(
+    environment.EXECUTION_WORKSPACE_QUOTA_MB ??
+      String(DEFAULT_WORKSPACE_QUOTA_MB),
+    "EXECUTION_WORKSPACE_QUOTA_MB",
+  );
+  if (sizeMb < MIN_WORKSPACE_QUOTA_MB) {
+    throw new Error(
+      `EXECUTION_WORKSPACE_QUOTA_MB ${sizeMb} is under the ${MIN_WORKSPACE_QUOTA_MB} a checkpoint restore needs`,
+    );
+  }
   return {
     helperImage,
     mode: "enforced",
-    sizeBytes:
-      positiveInteger(
-        environment.EXECUTION_WORKSPACE_QUOTA_MB ??
-          String(DEFAULT_WORKSPACE_QUOTA_MB),
-        "EXECUTION_WORKSPACE_QUOTA_MB",
-      ) *
-      1024 *
-      1024,
+    sizeBytes: sizeMb * 1024 * 1024,
     inodes: positiveInteger(
       environment.EXECUTION_WORKSPACE_QUOTA_INODES ??
         String(DEFAULT_WORKSPACE_QUOTA_INODES),
