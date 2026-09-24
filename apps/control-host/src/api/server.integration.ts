@@ -22,24 +22,84 @@ const SERVER_START_DEADLINE_MS = 30_000;
 const TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 100;
 
-// Polls `url` until the server answers, the server exits, or the deadline
-// passes. Exit and deadline both fail with the server's stderr attached, so
-// a startup error (missing DATABASE_URL, module failure) is readable from
-// the assertion instead of surfacing as an `undefined` status. A port already
-// held by another listener is not distinguished: its answer fails the status
-// assertion below, without stderr (94S-256 left that out on purpose). Each
-// fetch is aborted at the deadline so a server that accepts the connection
-// but never answers still ends here, not at the test timeout.
+// Drains the server's stdout and resolves `port` from its "API listening"
+// line. The server binds PORT=0 so the OS hands it a free port: a port picked
+// here (it was pid-derived) can already be held on a shared runner, and the
+// bind then fails (94S-328). `port` resolves undefined if stdout ends first.
+function serverStdout(stream: ReadableStream<Uint8Array>): {
+  text: Promise<string>;
+  port: Promise<number | undefined>;
+} {
+  let found: (port: number | undefined) => void = () => {};
+  const port = new Promise<number | undefined>((resolve) => {
+    found = resolve;
+  });
+  const text = (async () => {
+    const decoder = new TextDecoder();
+    let all = "";
+    let scanned = 0;
+    for await (const chunk of stream) {
+      all += decoder.decode(chunk, { stream: true });
+      for (
+        let newline = all.indexOf("\n", scanned);
+        newline >= 0;
+        newline = all.indexOf("\n", scanned)
+      ) {
+        const line = all.slice(scanned, newline);
+        scanned = newline + 1;
+        if (!line.includes('"API listening"')) continue;
+        const record = JSON.parse(line) as { fields?: { port?: number } };
+        found(record.fields?.port);
+      }
+    }
+    found(undefined);
+    return all + decoder.decode();
+  })();
+  return { text, port };
+}
+
+// Waits for the server to report its port, then polls `path` on it until the
+// server answers, the server exits, or the deadline passes. Exit and deadline
+// both fail with the server's stderr attached, so a startup error (missing
+// DATABASE_URL, module failure) is readable from the assertion instead of
+// surfacing as an `undefined` status. Each wait is bounded by the deadline so
+// a server that never listens, or accepts the connection but never answers,
+// still ends here, not at the test timeout.
 async function waitForServer(
   server: Bun.Subprocess,
+  stdout: { port: Promise<number | undefined> },
   stderr: Promise<string>,
-  request: { url: string; headers: Record<string, string> },
-): Promise<Response> {
+  request: { path: string; headers: Record<string, string> },
+): Promise<{ port: number; response: Response }> {
   const exited = server.exited.then((exitCode) => ({ exitCode }));
   const deadline = Date.now() + SERVER_START_DEADLINE_MS;
+  const fail = async (reason: string): Promise<never> => {
+    server.kill("SIGTERM");
+    await server.exited;
+    throw new Error(`${reason}\nstderr:\n${await stderr}`);
+  };
+  const exitedEarly = async (exitCode: number): Promise<never> => {
+    throw new Error(
+      `server exited with code ${exitCode} before accepting connections\nstderr:\n${await stderr}`,
+    );
+  };
+
+  const listening = await Promise.race([
+    stdout.port.then((port) => ({ port })),
+    exited,
+    Bun.sleep(SERVER_START_DEADLINE_MS).then(() => ({ timedOut: true })),
+  ]);
+  if ("exitCode" in listening) return exitedEarly(listening.exitCode);
+  if ("timedOut" in listening || listening.port === undefined) {
+    return fail(
+      `server did not report a listening port within ${SERVER_START_DEADLINE_MS}ms`,
+    );
+  }
+  const { port } = listening;
+
   while (true) {
     const outcome = await Promise.race([
-      fetch(request.url, {
+      fetch(`http://127.0.0.1:${port}${request.path}`, {
         headers: request.headers,
         signal: AbortSignal.timeout(Math.max(deadline - Date.now(), 1)),
       }).then(
@@ -48,17 +108,11 @@ async function waitForServer(
       ),
       exited,
     ]);
-    if ("response" in outcome) return outcome.response;
-    if ("exitCode" in outcome) {
-      throw new Error(
-        `server exited with code ${outcome.exitCode} before accepting connections\nstderr:\n${await stderr}`,
-      );
-    }
+    if ("response" in outcome) return { port, response: outcome.response };
+    if ("exitCode" in outcome) return exitedEarly(outcome.exitCode);
     if (Date.now() >= deadline) {
-      server.kill("SIGTERM");
-      await server.exited;
-      throw new Error(
-        `server did not accept connections within ${SERVER_START_DEADLINE_MS}ms (last error: ${String(outcome.error)})\nstderr:\n${await stderr}`,
+      return fail(
+        `server did not accept connections within ${SERVER_START_DEADLINE_MS}ms (last error: ${String(outcome.error)})`,
       );
     }
     await Bun.sleep(POLL_INTERVAL_MS);
@@ -175,7 +229,7 @@ async function refusedStart(
       QUEUED_INPUT_LIMIT_PER_SESSION: "20",
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
-      PORT: String(40_000 + ((process.pid + 7) % 20_000)),
+      PORT: "0",
       INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
       ...env,
     },
@@ -252,7 +306,6 @@ integration("API server on PostgreSQL", () => {
         }
       }
 
-      const port = 40_000 + (process.pid % 20_000);
       const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
         cwd: `${import.meta.dir}/../..`,
         env: {
@@ -269,7 +322,7 @@ integration("API server on PostgreSQL", () => {
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
-          PORT: String(port),
+          PORT: "0",
           PLATFORM_CONFIG_DIR: await configDir(root, "valid"),
           INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
@@ -279,15 +332,20 @@ integration("API server on PostgreSQL", () => {
       // Drain both pipes from the start so a chatty server never blocks on a
       // full pipe, and so the same text serves the failure message and the
       // leak assertion below.
-      const serverStdout = new Response(server.stdout).text();
+      const stdout = serverStdout(server.stdout);
       const serverStderr = new Response(server.stderr).text();
       let exitCode: number | undefined;
 
       try {
-        const accepted = await waitForServer(server, serverStderr, {
-          url: `http://127.0.0.1:${port}/v1`,
-          headers: { Authorization: `Bearer ${plaintext}` },
-        });
+        const { port, response: accepted } = await waitForServer(
+          server,
+          stdout,
+          serverStderr,
+          {
+            path: "/v1",
+            headers: { Authorization: `Bearer ${plaintext}` },
+          },
+        );
         expect(accepted.status).toBe(200);
         expect(await accepted.json()).toEqual({
           status: "ok",
@@ -437,7 +495,7 @@ integration("API server on PostgreSQL", () => {
         exitCode = await server.exited;
       }
 
-      const logs = `${await serverStdout}${await serverStderr}`;
+      const logs = `${await stdout.text}${await serverStderr}`;
       // SIGTERM is a clean stop: readiness first, pools last (shutdown.ts).
       expect(exitCode, logs).toBe(0);
       const order = [
@@ -507,7 +565,7 @@ integration("API server on PostgreSQL", () => {
           // Blank counts as missing, and overrides whatever the runner has.
           SESSION_COST_LIMIT_USD: "",
           STORAGE_LIMIT_BYTES: "-1",
-          PORT: String(40_000 + ((process.pid + 1) % 20_000)),
+          PORT: "0",
         },
         stdout: "pipe",
         stderr: "pipe",
