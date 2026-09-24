@@ -117,6 +117,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "restore_failure_reason",
     // 94S-253
     "profile_fingerprint",
+    // 94S-367; arrives as 'default'
+    "partition",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
@@ -185,8 +187,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 23, total: 32 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 32 });
+      expect(first).toEqual({ adopted: 0, applied: 24, total: 33 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 33 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

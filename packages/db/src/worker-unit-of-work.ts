@@ -680,6 +680,7 @@ async function giveUpOnCatalogMismatch(
   if (
     !session ||
     session.podId !== null ||
+    session.partition !== launch.partition ||
     !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
@@ -1027,6 +1028,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(
             and(
               eq(unassignedSessions.partition, launch.partition),
+              // The signal carries a copy; the session's own partition is
+              // the one that says which pool may run it (94S-367).
+              eq(sessions.partition, launch.partition),
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
               isNull(sessions.executionRevokedAt),
@@ -2156,7 +2160,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .select({
             claimedAttemptId: workerLaunches.claimedAttemptId,
             nonceHash: workerLaunches.nonceHash,
-            partition: workerLaunches.partition,
             replacementReason: workerLaunches.replacementReason,
           })
           .from(workerLaunches)
@@ -2570,8 +2573,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .values({
               sessionId: session.id,
               signaledAt: now,
-              // The session goes back to the partition it was launched in.
-              partition: launch?.partition ?? "default",
+              partition: session.partition,
             })
             .onConflictDoNothing({ target: unassignedSessions.sessionId });
         }
