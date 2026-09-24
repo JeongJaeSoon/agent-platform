@@ -125,7 +125,7 @@ describe("integration-jobs.ts", () => {
         ],
         [
           job("api", ["apps/control-host/", "packages/db/"]),
-          job("db", ["packages/db/", "packages/queue/"]),
+          job("db", ["packages/db/", "packages/gone/"]),
           job("ui", ["packages/ui/"]),
         ],
       ),
@@ -133,7 +133,7 @@ describe("integration-jobs.ts", () => {
       [
         "apps/web/b.test.ts belongs to no integration job",
         "packages/db/c.test.ts belongs to api and db",
-        "db: packages/queue/ matches no test file",
+        "db: packages/gone/ matches no test file",
         "db has no files",
         "ui: packages/ui/ matches no test file",
         "ui has no files",

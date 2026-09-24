@@ -1,3 +1,4 @@
+export * from "./catalog-authority.ts";
 export * from "./checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
 export * from "./enqueue.ts";

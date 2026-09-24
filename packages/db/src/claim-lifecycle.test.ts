@@ -56,6 +56,8 @@ class NonceHoldingBackend implements ExecutionBackend {
   readonly ensured: LaunchIntent[] = [];
   /** Throws after the credential is minted, like a create that failed. */
   failNextCreate = false;
+  /** Containers an isolation contract bump left behind. */
+  readonly stale = new Set<string>();
 
   capabilities() {
     return { suspend: false };
@@ -87,6 +89,7 @@ class NonceHoldingBackend implements ExecutionBackend {
           observedAt: new Date(),
           providerRef: keyOf(ref),
           state: container.state,
+          ...(this.stale.has(keyOf(ref)) ? { stale: true } : {}),
         }
       : {
           found: false,
@@ -165,6 +168,7 @@ async function queuedSession(partition = "default"): Promise<string> {
 function claim(ref: ExecutionRef, nonce: string) {
   return work.claimAtomic({
     attemptId: `att-${crypto.randomUUID()}`,
+    catalogRevision: "catalog-under-test",
     costLimitUsd: 1_000,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,
@@ -399,5 +403,46 @@ describe("claim lifecycle", () => {
         .from(unassignedSessions)
         .where(eq(unassignedSessions.sessionId, sessionId)),
     ).toEqual([{ partition: second }]);
+  });
+
+  test("a claimed container an isolation contract bump made stale stays up while its turn runs, and is replaced once the turn has ended (94S-250)", async () => {
+    const backend = new NonceHoldingBackend();
+    const sessionId = await queuedSession();
+    const [gen1] = (await pass(backend)).launched;
+    if (!gen1) throw new Error("nothing launched");
+    expect((await claim(gen1, backend.nonceOf(gen1))).outcome).toBe("claimed");
+    // Its worker is past its first poll and runs the turn.
+    await db
+      .update(sessions)
+      .set({ restoreAttemptId: null })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(turns)
+      .set({ status: "running" })
+      .where(eq(turns.sessionId, sessionId));
+
+    backend.stale.add(keyOf(gen1));
+    const draining = await pass(backend);
+    expect(draining.draining).toEqual([gen1]);
+    expect(draining.replaced).toEqual([]);
+    expect(backend.containers.has(keyOf(gen1))).toBe(true);
+
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, sessionId));
+    const replaced = await pass(backend);
+    expect(replaced.draining).toEqual([]);
+    expect(replaced.drainsOverdue).toEqual([]);
+    expect(replaced.replaced).toEqual([gen1]);
+    expect(backend.containers.has(keyOf(gen1))).toBe(false);
+    const [session] = await db
+      .select({
+        executionId: sessions.executionId,
+        restoreFailureCount: sessions.restoreFailureCount,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session).toEqual({ executionId: null, restoreFailureCount: 0 });
   });
 });

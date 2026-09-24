@@ -59,15 +59,18 @@ export type RecoveryDecisionResult =
   // session left without a restorable checkpoint, not an ordinary close
   // (interface-drafts dd-dispatch § 8.3).
   | { outcome: "not_in_recovery"; admissionState: AdmissionState }
-  // start_fresh over a turn whose outcome is still unknown: abandon or
-  // confirm_completed settles it first.
+  // start_fresh or retry_restore over a turn whose outcome is still
+  // unknown: abandon or confirm_completed settles it first.
   | { outcome: "unknown_turn_left"; turnId: string }
-  // start_fresh on a stopped session whose workspace GC has claimed and not
-  // yet settled, as for resume.
+  // start_fresh or retry_restore on a session whose workspace GC has
+  // claimed and not yet settled, as for resume.
   | { outcome: "workspace_reclaiming" }
-  // start_fresh on a session whose execution authority an operator revoked
-  // (94S-321); only the operator's restore lifts it.
-  | { outcome: "execution_revoked" };
+  // start_fresh or retry_restore on a session whose execution authority an
+  // operator revoked (94S-321); only the operator's restore lifts it.
+  | { outcome: "execution_revoked" }
+  // retry_restore on a session its failed restores did not stop: restoring
+  // the same checkpoint again answers nothing else (94S-348).
+  | { outcome: "not_restore_failed"; admissionState: AdmissionState };
 
 export type PauseSessionInput = TerminateSessionInput;
 

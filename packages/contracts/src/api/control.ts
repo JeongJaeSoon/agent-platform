@@ -9,6 +9,7 @@ export const RECOVERY_DECISION_VALUES = [
   "confirm_completed",
   "close",
   "start_fresh",
+  "retry_restore",
 ] as const;
 export const recoveryDecisionSchema = z.enum(RECOVERY_DECISION_VALUES);
 
@@ -51,6 +52,12 @@ export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
   // restored, the checkpoints so far are retired, and queued input runs.
   z
     .object({ ...recoveryDecisionBase, decision: z.literal("start_fresh") })
+    .strict(),
+  // Restore the same checkpoint again on a session its failed restores
+  // stopped (94S-345), once what made them fail is fixed (94S-348). The
+  // failure count starts over and queued input runs.
+  z
+    .object({ ...recoveryDecisionBase, decision: z.literal("retry_restore") })
     .strict(),
 ]);
 export const controlAcceptedResponseSchema = receiptAcceptedResponseSchema;

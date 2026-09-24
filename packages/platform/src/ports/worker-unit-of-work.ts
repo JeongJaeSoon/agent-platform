@@ -79,6 +79,10 @@ export type RunnablePair = {
 
 export type ClaimInput = {
   runnable: RunnablePair[];
+  // `catalogRevision` of the catalog `runnable` came from. A pinned launch is
+  // given up on for a pair missing from it only while it is the revision an
+  // operator activated, or none is (94S-295).
+  catalogRevision: string;
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput (94S-131).
   costLimitUsd: number;

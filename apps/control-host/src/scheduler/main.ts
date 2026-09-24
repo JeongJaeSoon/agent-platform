@@ -108,6 +108,7 @@ export async function main(
     }
     const summary = await runScheduler({
       backend,
+      drainDeadlineMs: config.drainDeadlineMs,
       image: config.image,
       logger,
       resources: config.resources,

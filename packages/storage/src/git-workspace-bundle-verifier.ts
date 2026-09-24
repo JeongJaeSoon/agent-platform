@@ -401,6 +401,10 @@ const HOST_FAULTS = [
   "cannot allocate memory",
   "out of memory",
   "read-only file system",
+  // index-pack reading an object size wider than its size_t (94S-369): a
+  // limit of the git that runs, like memory, so the same bytes can be a
+  // valid object to a wider git.
+  "too large for this platform",
 ];
 
 /**

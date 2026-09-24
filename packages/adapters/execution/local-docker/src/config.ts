@@ -315,8 +315,7 @@ export function validateLocalDockerConfig(
     throw new Error(`WORKER_GATEWAY_URL ${config.gatewayUrl} is not a URL`);
   }
   // Proxies are addressed over http even when they tunnel TLS, and every
-  // HTTP client reads the variable that way. The rest mirrors the worker's
-  // `egressRouteFromEnv`, so a proxy it would refuse never gets a launch.
+  // HTTP client reads the variable that way.
   let proxy: URL;
   try {
     proxy = new URL(config.egressProxyUrl);
