@@ -138,6 +138,29 @@ describe("git workspace bundle verifier", () => {
     expect(await readdir(tempRoot)).toEqual([]);
   });
 
+  test("a size header longer than size_t holds is unusable", async () => {
+    // What CI's git printed for a raised object count (94S-369): index-pack
+    // dies in its header loop, and fetch reports the helper by name.
+    const stderr =
+      "fatal: object size too large for this platform\nerror: index-pack died\n";
+    const gitRunner: GitCommandRunner = async (args) =>
+      args[0] === "init"
+        ? { exitCode: 0, stderr: "", stdout: "" }
+        : { exitCode: 1, stderr, stdout: "" };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    expect(
+      await verifyBundleBytes(verifier, {
+        bytes: bundle.bytes,
+        commit: bundle.commit,
+        key: "k",
+      }),
+    ).toEqual({
+      status: "unusable",
+      reason: `git fetch failed with exit code 1: ${stderr.trim()}`,
+    });
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
   test("a runner that cannot start git throws, and still cleans up", async () => {
     const gitRunner: GitCommandRunner = async () => {
       throw new Error("spawn git ENOENT");
@@ -507,11 +530,12 @@ describe("git workspace bundle verifier", () => {
     );
     // index-pack reads the recomputed trailer as the missing object, so what
     // it says depends on those twenty bytes, which differ with every fixture:
-    // usually a premature end of the pack (unusable), but git 2.47 on Linux
-    // sometimes aborts on `BUG: git-zlib.c:58: total_in mismatch` instead
-    // ("index-pack died of signal 6"), and where the bytes declare a huge
-    // object the memory cap refuses the allocation ("Out of memory"). Both
-    // are retryable throws.
+    // usually a premature end of the pack, or a size header longer than
+    // size_t ("object size too large for this platform", 94S-369), both
+    // unusable; but git 2.47 on Linux sometimes aborts on
+    // `BUG: git-zlib.c:58: total_in mismatch` instead ("index-pack died of
+    // signal 6"), and where the bytes declare a huge object the memory cap
+    // refuses the allocation ("Out of memory"). Both are retryable throws.
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const outcome = await verifyBundleBytes(verifier, {
       bytes,
