@@ -232,6 +232,7 @@ jobs:
               - packages/testkit/src/workspace.
               - tests/architecture.
               - tests/d2-gate
+              - tests/soak/
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/retry-flaky.

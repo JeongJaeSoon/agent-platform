@@ -10,6 +10,12 @@
  * - `lose_response`: forward, let the upstream commit, answer the worker a
  *   bare 502 — the response lost on the way back.
  * - `fail`: answer an S3-style 500 without forwarding.
+ * - `delay`: hold the request `delayMs` before forwarding it (94S-135 races).
+ * - `hold`: hold the request until the rule is released
+ *   (`POST /rules/<id>/release`) or removed, or `delayMs` passes if set — so
+ *   a race can let it through only after its other half has happened.
+ * - `corrupt`: forward, then flip a byte in the middle of the answer's body,
+ *   status and headers kept — damage only a digest check can catch.
  * Each rule matches a method, a path pattern and optionally a substring of
  * the body, and fires `times` times (-1: until removed).
  */
@@ -17,8 +23,9 @@
 type Upstream = "gateway" | "s3";
 
 type Rule = {
-  action: "fail" | "lose_response";
+  action: "corrupt" | "delay" | "fail" | "hold" | "lose_response";
   bodyContains?: string;
+  delayMs?: number;
   fired: number;
   id: string;
   method?: string;
@@ -38,6 +45,12 @@ type Entry = {
   /** An append-events call's batch, so a retry can be matched to its original. */
   batch: Batch | null;
   bodyBytes: number;
+  /** A `corrupt` rule changed a byte of this (2xx, non-empty) answer. */
+  corrupted: boolean;
+  /** The start of a gateway's 4xx/5xx answer, so a refusal says why. */
+  errorBody?: string;
+  /** When the request went on upstream; null while held or never. */
+  forwardedAt: string | null;
   index: number;
   method: string;
   path: string;
@@ -60,7 +73,14 @@ const UPSTREAMS: Record<Upstream, { listen: number; target: string }> = {
 };
 
 const rules: Rule[] = [];
+/** Release switches of `hold` rules, by rule id. */
+const gates = new Map<string, () => void>();
+const released = new Map<string, Promise<void>>();
 const log: Entry[] = [];
+// A soak runs for a day, so it keeps only the newest entries; `index` still
+// counts every request, which keeps a `since` cursor valid.
+const LOG_MAX = Number(process.env.CHAOS_LOG_MAX ?? "0");
+let received = 0;
 const SESSION_IN_BODY = /"session_id"\s*:\s*"([0-9a-f-]{36})"/;
 const SESSION_IN_PATH = /sessions\/([0-9a-f-]{36})\//;
 // Keys the proxy must not copy onto the upstream request as-is.
@@ -124,7 +144,9 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     at: new Date().toISOString(),
     batch: upstream === "gateway" ? batchOf(url.pathname, body) : null,
     bodyBytes: bytes.byteLength,
-    index: log.length,
+    corrupted: false,
+    forwardedAt: null,
+    index: received++,
     method: request.method,
     path,
     rule: rule?.id ?? null,
@@ -137,6 +159,14 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
     upstreamStatus: null,
   };
   log.push(entry);
+  if (LOG_MAX > 0 && log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+  if (rule?.action === "delay") await Bun.sleep(rule.delayMs ?? 0);
+  if (rule?.action === "hold") {
+    const gate = released.get(rule.id) ?? Promise.resolve();
+    await (rule.delayMs === undefined
+      ? gate
+      : Promise.race([gate, Bun.sleep(rule.delayMs)]));
+  }
   if (rule?.action === "fail") {
     entry.status = 500;
     return s3Error();
@@ -145,6 +175,7 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   for (const name of HOP_HEADERS) headers.delete(name);
   // S3 signs the host header; LocalStack does not check signatures, and the
   // gateway ignores it, so the upstream's own name is what goes out.
+  entry.forwardedAt = new Date().toISOString();
   const response = await fetch(`${UPSTREAMS[upstream].target}${path}`, {
     method: request.method,
     headers,
@@ -166,6 +197,20 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("transfer-encoding");
+  if (upstream === "gateway" && response.status >= 400) {
+    const text = await response.text();
+    entry.errorBody = text.slice(0, 1000);
+    return new Response(text, { headers: out, status: response.status });
+  }
+  if (rule?.action === "corrupt") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const at = bytes.byteLength >> 1;
+    if (bytes.byteLength > 0 && response.ok) {
+      bytes[at] = (bytes[at] ?? 0) ^ 0xff;
+      entry.corrupted = true;
+    }
+    return new Response(bytes, { headers: out, status: response.status });
+  }
   return new Response(response.body, {
     headers: out,
     status: response.status,
@@ -191,13 +236,32 @@ Bun.serve({
       const rule = (await request.json()) as Omit<Rule, "fired" | "id">;
       const armed: Rule = { ...rule, fired: 0, id: crypto.randomUUID() };
       rules.push(armed);
+      if (armed.action === "hold") {
+        released.set(
+          armed.id,
+          new Promise((release) => gates.set(armed.id, release)),
+        );
+      }
       return Response.json(armed);
     }
     if (url.pathname === "/rules" && request.method === "GET") {
       return Response.json(rules);
     }
+    const release = /^\/rules\/([^/]+)\/release$/.exec(url.pathname);
+    if (release && request.method === "POST") {
+      const id = release[1] ?? "";
+      const open = gates.get(id);
+      open?.();
+      gates.delete(id);
+      released.delete(id);
+      return new Response(null, { status: open ? 204 : 404 });
+    }
     if (url.pathname.startsWith("/rules/") && request.method === "DELETE") {
       const id = url.pathname.slice("/rules/".length);
+      // Nothing stays held by a rule that is gone.
+      gates.get(id)?.();
+      gates.delete(id);
+      released.delete(id);
       const at = rules.findIndex((rule) => rule.id === id);
       const [removed] = at < 0 ? [] : rules.splice(at, 1);
       return Response.json(removed ?? null, { status: removed ? 200 : 404 });
