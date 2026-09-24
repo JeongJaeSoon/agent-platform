@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { CheckpointManifest } from "@agent-platform/runtime-core";
+import type {
+  CheckpointManifest,
+  ObjectRef,
+} from "@agent-platform/runtime-core";
 
 import {
   CHECKPOINT_ROOT_PARENT,
@@ -56,6 +59,13 @@ export function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/** Every bundle a workspace needs, in the order a restore fetches them. */
+export function chainOf(
+  workspace: CheckpointManifest["workspace"],
+): readonly ObjectRef[] {
+  return [...(workspace.baseBundles ?? []), workspace.bundle];
+}
+
 /**
  * Versions to keep, and keys whose every version is kept. Only a row a locked
  * finalize committed (`versionsHeld`) vouches for the versions it names. Any
@@ -85,7 +95,9 @@ export function keepSet() {
         ...Object.values(manifest.transcripts.subagents).flatMap(
           (revision) => revision.parts,
         ),
-        manifest.workspace.bundle,
+        // A bundle's bases live in the directories of the checkpoints that
+        // wrote them; this one keeps them for as long as it is kept.
+        ...chainOf(manifest.workspace),
         ...manifest.workspace.untracked,
       ]) {
         add(ref.key, trusted ? ref.version : undefined);

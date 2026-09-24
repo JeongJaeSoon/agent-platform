@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type {
   BootstrapClaimResponse,
   CheckpointRef,
@@ -19,6 +21,7 @@ import {
   type CheckpointObjectStore,
   type CheckpointPreparation,
   type CheckpointTranscripts,
+  type ImmutableObjectSource,
   isOwnershipLost,
   ObjectIntegrityError,
   type ObjectRef,
@@ -42,6 +45,7 @@ import type {
   WorkerCheckpointPort,
 } from "./checkpoint.ts";
 import {
+  clearWorkspace,
   restoreCheckpointTree,
   stageCheckpointBundle,
   stagedClaudeMd,
@@ -49,10 +53,13 @@ import {
 import type { WorkerLogger } from "./worker-host.ts";
 import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
 import {
+  type BundleBase,
   captureWorkspace,
+  DEFAULT_WORKSPACE_CAPTURE_LIMITS,
   type InstructionsPin,
   type WorkspaceCaptureLimits,
   type WorkspaceCaptureResult,
+  workerScratch,
 } from "./workspace-capture.ts";
 
 /**
@@ -63,8 +70,14 @@ import {
  */
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_MANIFEST_OBJECTS = 20_000;
+/**
+ * The control plane's `MAX_WORKSPACE_BUNDLE_CHAIN`: a bundle builds on at
+ * most one fewer. At the limit the next one stands alone and a chain starts
+ * over.
+ */
+const MAX_BUNDLE_CHAIN = 32;
 const UPLOAD_CONCURRENCY = 8;
-/** Objects a restore downloads at once, each verified and spooled to disk. */
+/** Objects a restore downloads at once, each streamed and verified to disk. */
 const DOWNLOAD_CONCURRENCY = 8;
 const UNSETTLED =
   "a transcript batch failed to mirror and has not been written since";
@@ -86,14 +99,14 @@ export type SessionCheckpointsOptions = {
    * with nothing to restore; a restore takes the checkpoint's instead.
    */
   instructionsCommit?: () => string | null;
-  /** Where a restore spools downloads and keeps the instructions commit. */
-  scratchRoot?: string;
   /** Swapped in by tests that need a workspace refused or captured slowly. */
   captureWorkspace?: (input: {
     root: string;
+    bundlePath: string;
     signal: AbortSignal;
     limits?: WorkspaceCaptureLimits;
     instructions?: InstructionsPin;
+    base?: BundleBase;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   now?: () => Date;
@@ -105,6 +118,18 @@ type Bound = {
   instructions: InstructionsPin | undefined;
   runtime: RuntimeFingerprint;
   store: ClaudeSessionStore;
+  /** The checkpoint restored from, or the last one this run saw committed. */
+  committed?: BundleChain;
+  /** The last one this run published, until the next shows it committed. */
+  published?: BundleChain | undefined;
+};
+
+/** A checkpoint's workspace bundles as its manifest names them (94S-227). */
+type BundleChain = {
+  revision: number;
+  /** Oldest first; the last is the manifest's `bundle`. */
+  links: readonly ObjectRef[];
+  tips: readonly string[];
 };
 
 /**
@@ -232,18 +257,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   /**
-   * Restores the checkpoint the claim names, in two halves.
+   * Restores the checkpoint the claim names, in three steps.
    *
-   * Everything that can refuse runs first, while the workspace is untouched:
-   * the gateway's plan (whose fingerprint verdict is made against this
-   * worker's recomputed one, 94S-261), the manifest the claim pinned by
-   * digest — the authority for everything else — checked against the claim,
-   * this runtime and this workspace root, and every object it names
-   * downloaded and held to its digest: the bundle fetched and its refs
-   * checked in a repository of the worker's own, the untracked files spooled,
-   * the inherited transcript parts read and parsed.
+   * What needs no disk runs first, while the workspace is untouched: the
+   * gateway's plan (whose fingerprint verdict is made against this worker's
+   * recomputed one, 94S-261), the manifest the claim pinned by digest — the
+   * authority for everything else — checked against the claim, this runtime
+   * and this workspace root, and the inherited transcript parts read and
+   * parsed.
    *
-   * Only then is the workspace replaced, and the untracked files written
+   * Then the old tree is cleared, to make room on the one disk the worker
+   * has, and every object the manifest names is downloaded there and held to
+   * its digest: the bundle fetched and its refs checked in a repository of
+   * the worker's own, the untracked files spooled.
+   *
+   * Only then is the checkout written, and the untracked files written
    * back without following a link the checkout brought. The signal is
    * checked between every step, and nothing that finishes late starts
    * touching files once it has fired; a restore stopped half way leaves a
@@ -305,60 +333,61 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     await store.ready();
     await store.verifyInherited(signal);
 
-    const scratchRoot = this.#options.scratchRoot ?? tmpdir();
-    const spool = await mkdtemp(join(scratchRoot, "worker-restore-"));
-    // Outlives the restore on success: later captures take the instructions
-    // commit's objects from it.
-    const kept = await mkdtemp(join(scratchRoot, "worker-instructions-"));
+    // On the workspace volume, the only disk a worker has, and so only once
+    // the tree it replaces is gone: the volume's quota must not have to hold
+    // both. Nothing reads that tree after a restore has a plan — this one
+    // replaces it, and so does any restore after one that fails from here.
+    // The restore moves the spool into the new `.git`, where its staged
+    // repository outlives it: later captures take the instructions commit's
+    // objects from it.
+    signal.throwIfAborted();
+    await clearWorkspace(workspaceRoot, signal);
+    signal.throwIfAborted();
+    let spool = await mkdtemp(join(workspaceRoot, ".agent-platform-restore-"));
+    const spooled = new Map<string, string>();
+    const bases = manifest.workspace.baseBundles ?? [];
+    const artifacts = [
+      { name: "workspace.bundle", ref: pinned(manifest.workspace.bundle) },
+      ...bases.map((ref, index) => ({
+        name: `workspace-base-${index}.bundle`,
+        ref: pinned(ref),
+      })),
+      ...distinctRefs(manifest.workspace.untracked).map((ref, index) => {
+        const name = `untracked-${index}`;
+        spooled.set(ref.key, name);
+        return { name, ref: pinned(ref) };
+      }),
+    ];
     let restored = false;
     try {
-      const bundlePath = join(spool, "workspace.bundle");
-      const spooled = new Map<string, string>();
-      const artifacts = [
-        { path: bundlePath, ref: pinned(manifest.workspace.bundle) },
-        ...distinctRefs(manifest.workspace.untracked).map((ref, index) => {
-          const path = join(spool, `untracked-${index}`);
-          spooled.set(ref.key, path);
-          return { path, ref: pinned(ref) };
-        }),
-      ];
-      await inBatches(
-        artifacts,
-        DOWNLOAD_CONCURRENCY,
-        async ({ path, ref }) => {
-          const bytes = await objects.get(ref.key, ref.version);
-          signal.throwIfAborted();
-          if (
-            bytes === undefined ||
-            bytes.byteLength !== ref.bytes ||
-            sha256(bytes) !== ref.sha256
-          ) {
-            throw new RestoreRefused(
-              "CHECKPOINT_UNAVAILABLE",
-              `${ref.key} is missing or not the bytes the manifest pinned`,
-            );
-          }
-          await writeFile(path, bytes, { mode: 0o600 });
-        },
+      await inBatches(artifacts, DOWNLOAD_CONCURRENCY, ({ name, ref }) =>
+        download(objects, ref, join(spool, name), signal),
       );
       signal.throwIfAborted();
       const staged = await stageCheckpointBundle({
-        bundle: bundlePath,
+        bases: bases.map((_, index) =>
+          join(spool, `workspace-base-${index}.bundle`),
+        ),
+        bundle: join(spool, "workspace.bundle"),
         gitCommit: manifest.workspace.gitCommit,
-        repository: join(kept, "checkpoint.git"),
+        repository: join(spool, "checkpoint.git"),
         signal,
       });
       const claudeMd = await stagedClaudeMd(staged, signal);
 
       signal.throwIfAborted();
-      await restoreCheckpointTree({
+      const tree = await restoreCheckpointTree({
+        keep: spool,
         origin: storableRepositoryUrl(claim.workspace.repository.url),
         root: workspaceRoot,
         signal,
         staged,
       });
+      spool = tree.kept ?? spool;
       for (const file of manifest.workspace.untracked) {
-        const bytes = await readFile(spooled.get(file.key) as string);
+        const bytes = await readFile(
+          join(spool, spooled.get(file.key) as string),
+        );
         signal.throwIfAborted();
         const refusal = await writeWorkspaceFile({
           bytes,
@@ -378,10 +407,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
             ? undefined
             : {
                 commit: staged.instructions,
-                objects: join(staged.repository, "objects"),
+                objects: join(tree.staged.repository, "objects"),
               },
         runtime,
         store,
+        committed: {
+          revision: restoring.revision,
+          links: [...bases, manifest.workspace.bundle],
+          tips: staged.tips,
+        },
       };
       restored = true;
       this.#options.logger.info("worker.checkpoint.restored", {
@@ -401,8 +435,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         restoredRevision: restoring.revision,
       };
     } finally {
-      await rm(spool, { force: true, recursive: true });
-      if (!restored) await rm(kept, { force: true, recursive: true });
+      if (restored) {
+        await Promise.all(
+          artifacts.map(({ name }) => rm(join(spool, name), { force: true })),
+        );
+      } else {
+        await rm(spool, { force: true, recursive: true });
+      }
     }
   }
 
@@ -452,6 +491,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     );
     if (oversized !== undefined) throw refuse(oversized);
     for (const ref of [
+      ...(manifest.workspace.baseBundles ?? []),
       manifest.workspace.bundle,
       ...manifest.workspace.untracked,
     ]) {
@@ -534,6 +574,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
+    if (this.#bound !== undefined) this.#bound.published = undefined;
     await this.#report(
       {
         status: "rejected",
@@ -606,6 +647,42 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
   }
 
+  /**
+   * The chain a capture for `revision` may build on: that of the checkpoint
+   * right before it, which finalize holds the new one to, and only while
+   * every bundle of it is still in the store. The server hands out the
+   * revision after the pointer, so one that follows what this run published
+   * last shows that one committed; one that does not, that it was not.
+   */
+  async #chainBefore(
+    bound: Bound,
+    revision: number,
+  ): Promise<BundleChain | undefined> {
+    if (bound.published?.revision === revision - 1) {
+      bound.committed = bound.published;
+    }
+    bound.published = undefined;
+    const chain = bound.committed;
+    if (
+      chain === undefined ||
+      chain.revision !== revision - 1 ||
+      chain.links.length >= MAX_BUNDLE_CHAIN
+    ) {
+      return undefined;
+    }
+    const present = await Promise.all(
+      chain.links.map(async (link) => {
+        try {
+          const head = await this.#options.objects.head(link.key, link.version);
+          return head?.bytes === link.bytes;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    return present.every(Boolean) ? chain : undefined;
+  }
+
   async #publish(
     bound: Bound,
     preparation: ReadyCheckpoint,
@@ -626,8 +703,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
     // The version each upload answered, which the manifest names (94S-229).
     const versions = new Map<string, string>();
-    const upload = async (key: string, bytes: Uint8Array) => {
-      const result = await objects.putImmutable(key, bytes);
+    const upload = async (
+      key: string,
+      body: Uint8Array | ImmutableObjectSource,
+    ) => {
+      const result = await objects.putImmutable(key, body);
       // Content-addressed keys under this publish's own directory: another
       // body there is corruption, not a race anyone could have won.
       if (result.outcome === "conflict") {
@@ -640,27 +720,60 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       return version === undefined ? ref : { ...ref, version };
     };
 
-    const workspace = await (
-      this.#options.captureWorkspace ?? captureWorkspace
-    )({
-      root: this.#options.workspaceRoot,
-      signal: new AbortController().signal,
-      ...(this.#options.limits === undefined
-        ? {}
-        : { limits: this.#options.limits }),
-      ...(bound.instructions === undefined
-        ? {}
-        : { instructions: bound.instructions }),
-    });
-    if (workspace.status === "refused") {
-      throw new PublishFailure("workspace", workspace.reason);
+    const spool = await workerScratch(this.#options.workspaceRoot, "publish");
+    if (spool === undefined) {
+      throw new PublishFailure(
+        "workspace",
+        "the workspace .git is not a directory",
+      );
     }
-    const { capture } = workspace;
-    const bundle = refOf(
-      `${directory}workspace-${sha256(capture.bundle)}.bundle`,
-      capture.bundle,
-    );
-    await upload(bundle.key, capture.bundle);
+    const chain = await this.#chainBefore(bound, request.revision);
+    const maxBundleBytes = (
+      this.#options.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS
+    ).maxBundleBytes;
+    let captured: WorkspaceCaptureResult;
+    let bundle: ObjectRef;
+    try {
+      captured = await (this.#options.captureWorkspace ?? captureWorkspace)({
+        root: this.#options.workspaceRoot,
+        bundlePath: join(spool, "workspace.bundle"),
+        signal: new AbortController().signal,
+        ...(this.#options.limits === undefined
+          ? {}
+          : { limits: this.#options.limits }),
+        ...(bound.instructions === undefined
+          ? {}
+          : { instructions: bound.instructions }),
+        ...(chain === undefined
+          ? {}
+          : {
+              base: {
+                maxBytes:
+                  maxBundleBytes -
+                  chain.links.reduce((total, link) => total + link.bytes, 0),
+                tips: chain.tips,
+              },
+            }),
+      });
+      if (captured.status === "refused") {
+        throw new PublishFailure("workspace", captured.reason);
+      }
+      const { bytes, path, sha256: digest } = captured.capture.bundle;
+      bundle = {
+        bytes,
+        key: `${directory}workspace-${digest}.bundle`,
+        sha256: digest,
+      };
+      await upload(bundle.key, {
+        bytes,
+        sha256: digest,
+        open: () => createReadStream(path),
+      });
+    } finally {
+      await rm(spool, { force: true, recursive: true });
+    }
+    const { capture } = captured;
+    const bases = capture.bundle.incremental ? (chain?.links ?? []) : [];
 
     const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => ({
       ...refOf(`${directory}untracked/${sha256(file.bytes)}`, file.bytes),
@@ -706,6 +819,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     const referenced =
       1 +
+      bases.length +
       untracked.length +
       transcripts.root.parts.length +
       Object.values(transcripts.subagents).reduce(
@@ -729,6 +843,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       transcripts,
       version: 2,
       workspace: {
+        ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),
         gitCommit: capture.gitCommit,
         untracked: untracked.map(versioned),
@@ -748,11 +863,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         `${manifestRef} already holds another manifest`,
       );
     }
+    bound.published = {
+      revision: request.revision,
+      links: [...bases, manifest.workspace.bundle],
+      tips: [
+        ...(bases.length === 0 ? [] : (chain?.tips ?? [])),
+        ...capture.bundle.tips,
+      ],
+    };
     this.#options.logger.info("worker.checkpoint.published", {
       revision: request.revision,
       manifest_ref: manifestRef,
       git_commit: capture.gitCommit,
       untracked: untracked.length,
+      bundle_bytes: bundle.bytes,
+      base_bundles: bases.length,
     });
     return {
       revision: request.revision,
@@ -873,6 +998,46 @@ function transcriptsWith(
       ]),
     ),
   };
+}
+
+/**
+ * Streams `ref` into a new file at `path`, held to the manifest's size and
+ * digest as it arrives: a body longer than pinned stops at the first byte
+ * past it.
+ */
+async function download(
+  objects: CheckpointObjectStore,
+  ref: ObjectRef,
+  path: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const damaged = () =>
+    new RestoreRefused(
+      "CHECKPOINT_UNAVAILABLE",
+      `${ref.key} is missing or not the bytes the manifest pinned`,
+    );
+  const body = await objects.stream(ref.key, ref.version);
+  if (body === undefined) throw damaged();
+  const hash = createHash("sha256");
+  let bytes = 0;
+  await pipeline(
+    Readable.from(
+      (async function* () {
+        for await (const chunk of body) {
+          bytes += chunk.byteLength;
+          if (bytes > ref.bytes) throw damaged();
+          hash.update(chunk);
+          // Copied: the store may refill the chunk before the file takes it.
+          yield Buffer.from(chunk);
+        }
+      })(),
+    ),
+    createWriteStream(path, { flags: "wx", mode: 0o600 }),
+    { signal },
+  );
+  if (bytes !== ref.bytes || hash.digest("hex") !== ref.sha256) {
+    throw damaged();
+  }
 }
 
 /** One download per stored object, however many paths share its bytes. */

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -128,6 +128,7 @@ async function capture(
 ) {
   return captureWorkspace({
     root,
+    bundlePath: bundlePath(),
     signal: new AbortController().signal,
     limits: { ...DEFAULT_WORKSPACE_CAPTURE_LIMITS, ...options.limits },
   });
@@ -150,18 +151,25 @@ async function fingerprint(): Promise<string> {
   return hash.digest("hex");
 }
 
+/** Outside the workspace, as the caller's spool is. */
+function bundlePath(): string {
+  return join(scratch, `capture-${crypto.randomUUID()}.bundle`);
+}
+
+function headerOf(capture: WorkspaceCapture) {
+  return readGitBundleHeader(readFileSync(capture.bundle.path));
+}
+
 /** Fetches the bundle into an empty repository, the way a restore does. */
-async function unbundle(bundle: Uint8Array): Promise<string> {
+async function unbundle(capture: WorkspaceCapture): Promise<string> {
   const target = join(scratch, `restored-${crypto.randomUUID()}`);
   await mkdir(target);
   await git(target, "init", "--quiet");
-  const file = join(scratch, "fetched.bundle");
-  await writeFile(file, bundle);
   await git(
     target,
     "fetch",
     "--quiet",
-    file,
+    capture.bundle.path,
     `${CHECKPOINT_WORKTREE_REF}:${CHECKPOINT_WORKTREE_REF}`,
   );
   await git(target, "checkout", "--quiet", "--detach", CHECKPOINT_WORKTREE_REF);
@@ -177,7 +185,7 @@ describe("captureWorkspace", () => {
 
     expect(result.gitCommit).toBe(head);
     expect(result.untracked).toEqual([]);
-    const header = readGitBundleHeader(result.bundle);
+    const header = headerOf(result);
     expect(header?.prerequisites).toEqual([]);
     expect(header?.refs).toEqual([
       { name: CHECKPOINT_HEAD_REF, oid: head },
@@ -203,7 +211,7 @@ describe("captureWorkspace", () => {
 
     expect(result.gitCommit).not.toBe(head);
     expect(await fingerprint()).toBe(before);
-    const header = readGitBundleHeader(result.bundle);
+    const header = headerOf(result);
     expect(header?.refs).toContainEqual({
       name: CHECKPOINT_HEAD_REF,
       oid: head,
@@ -213,7 +221,7 @@ describe("captureWorkspace", () => {
       oid: result.gitCommit,
     });
 
-    const restored = await unbundle(result.bundle);
+    const restored = await unbundle(result);
     expect(await readFile(join(restored, "a.txt"), "utf8")).toBe("a edited\n");
     expect(await readFile(join(restored, "staged.txt"), "utf8")).toBe(
       "staged\n",
@@ -231,7 +239,7 @@ describe("captureWorkspace", () => {
 
     const result = await captured();
 
-    const restored = await unbundle(result.bundle);
+    const restored = await unbundle(result);
     expect(await git(restored, "ls-tree", "HEAD", "run.sh")).toStartWith(
       "100755 ",
     );
@@ -247,7 +255,7 @@ describe("captureWorkspace", () => {
     await git(root, "checkout", "--", "link");
     expect((await lstat(join(root, "link"))).isFile()).toBe(true);
 
-    const restored = await unbundle((await captured()).bundle);
+    const restored = await unbundle(await captured());
 
     expect((await lstat(join(restored, "link"))).isFile()).toBe(true);
     expect(await readFile(join(restored, "link"), "utf8")).toBe("a.txt");
@@ -283,7 +291,7 @@ describe("captureWorkspace", () => {
     await git(root, "add", "b.md");
     expect(await readFile(join(root, "a.txt"), "utf8")).toBe("a\r\n");
 
-    const restored = await unbundle((await captured()).bundle);
+    const restored = await unbundle(await captured());
 
     // A restore has neither file, so the bytes travel as they are.
     expect(await readFile(join(restored, "a.txt"), "utf8")).toBe("a\r\n");
@@ -299,7 +307,7 @@ describe("captureWorkspace", () => {
     expect(await readFile(join(root, "a.txt"), "utf8")).toBe("replacement\n");
 
     const result = await captured();
-    const restored = await unbundle(result.bundle);
+    const restored = await unbundle(result);
 
     expect(result.gitCommit).not.toBe(head);
     expect(await readFile(join(restored, "a.txt"), "utf8")).toBe(
@@ -311,7 +319,7 @@ describe("captureWorkspace", () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "checkout", "--quiet", "--detach");
 
-    const header = readGitBundleHeader((await captured()).bundle);
+    const header = headerOf(await captured());
 
     expect(header?.refs.map((ref) => ref.name)).toEqual([
       CHECKPOINT_HEAD_REF,
@@ -335,12 +343,13 @@ describe("captureWorkspace", () => {
 
     const result = await captureWorkspace({
       root,
+      bundlePath: bundlePath(),
       signal,
       instructions: { commit: pinned, objects: join(kept, ".git", "objects") },
     });
 
     if (result.status !== "captured") throw new Error(result.reason);
-    expect(readGitBundleHeader(result.capture.bundle)?.refs).toEqual([
+    expect(headerOf(result.capture)?.refs).toEqual([
       { name: CHECKPOINT_HEAD_REF, oid: head },
       { name: CHECKPOINT_WORKTREE_REF, oid: head },
       { name: "refs/heads/main", oid: head },
@@ -349,6 +358,7 @@ describe("captureWorkspace", () => {
     expect(
       await captureWorkspace({
         root,
+        bundlePath: bundlePath(),
         signal,
         instructions: { commit: pinned },
       }),
@@ -709,11 +719,22 @@ describe("captureWorkspace", () => {
 
     test("a git that runs out of its resource limits, as a refusal", async () => {
       await commitFiles({ "a.txt": "a\n" });
-      const restorePath = await fakeGit(killedOn("bundle"));
+      let restorePath = await fakeGit(killedOn("write-tree"));
       try {
         expect(await capture()).toEqual({
           status: "refused",
           reason: "git ran out of its resource limits: SIGXFSZ",
+        });
+      } finally {
+        restorePath();
+      }
+      // The bundle is the only file `bundle create` writes, and its file
+      // size limit is the bundle's.
+      restorePath = await fakeGit(killedOn("bundle"));
+      try {
+        expect(await capture()).toEqual({
+          status: "refused",
+          reason: `the workspace bundle is over the ${DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes} bytes the control plane verifies`,
         });
       } finally {
         restorePath();
@@ -726,6 +747,7 @@ describe("captureWorkspace", () => {
       await writeFile(join(root, "notes.md"), "n\n");
       const result = await captureWorkspace({
         root,
+        bundlePath: bundlePath(),
         signal: new AbortController().signal,
         fdDirectory: join(scratch, "no-procfs"),
       });

@@ -1,5 +1,5 @@
-import { lstat, opendir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, opendir, rename, rm } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   type CommittedClaudeMd,
   check,
@@ -8,6 +8,7 @@ import {
   runGit,
 } from "./workspace.ts";
 import {
+  CHECKPOINT_BRANCH_PREFIX,
   CHECKPOINT_GIT_CONFIG,
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
@@ -18,10 +19,11 @@ import {
 
 /**
  * A checkpoint bundle fetched into a repository of the worker's own, outside
- * the workspace, and checked against the manifest before the workspace is
- * touched. The repository outlives the restore: the instructions commit is
- * read from it, and later captures keep it as an object source so that
- * commit stays bundleable after the engine prunes its own copy.
+ * the workspace's tree, and checked against the manifest before the
+ * workspace is touched. The repository outlives the restore: the
+ * instructions commit is read from it, and later captures keep it as an
+ * object source so that commit stays bundleable after the engine prunes its
+ * own copy.
  */
 export type StagedCheckpoint = {
   /** `refs/heads/<name>` HEAD was on, or null for a detached HEAD. */
@@ -29,8 +31,16 @@ export type StagedCheckpoint = {
   head: string;
   instructions: string | null;
   repository: string;
+  /** Every ref tip of the chain's bundles, which the next capture builds on. */
+  tips: string[];
   worktree: string;
 };
+
+/**
+ * Where, inside the restored workspace's new `.git`, the directory a restore
+ * staged into (`restoreCheckpointTree`'s `keep`) ends up.
+ */
+export const RESTORED_CHECKPOINT_DIRECTORY = "agent-platform-checkpoint";
 
 const STAGED = "refs/bundle/";
 const RESTORING = "refs/restore/";
@@ -39,12 +49,14 @@ const CLEAR_BATCH = 1024;
 
 /**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
- * refs back. Throws for a bundle that is not the one `captureWorkspace`
- * writes: a ref it does not write, a required ref missing, a branch that
- * is not at HEAD's commit, or a worktree commit other than the manifest's.
- * The fetch checks every object (`fsckObjects`), so what is staged is whole.
+ * refs back, after the `bases` it builds on, oldest first (94S-227). Throws
+ * for a bundle that is not the one `captureWorkspace` writes: a ref it does
+ * not write, a required ref missing, a branch that is not at HEAD's commit,
+ * or a worktree commit other than the manifest's. The fetch checks every
+ * object (`fsckObjects`), so what is staged is whole.
  */
 export async function stageCheckpointBundle(input: {
+  bases?: readonly string[];
   bundle: string;
   gitCommit: string;
   repository: string;
@@ -56,25 +68,57 @@ export async function stageCheckpointBundle(input: {
     git(["init", "--quiet", "--bare", "--template=", repository]),
     "init",
   );
-  const heads = await required(
-    git(["bundle", "list-heads", input.bundle]),
-    "bundle list-heads",
-  );
-  const refs = new Map<string, string>();
-  for (const line of heads.split("\n")) {
-    if (line === "") continue;
-    const [oid, name] = line.split(" ");
-    if (oid === undefined || name === undefined || refs.has(name)) {
-      throw new Error(`Checkpoint bundle lists a malformed ref: ${line}`);
+  const fetch = (bundle: string, refspec: string) =>
+    check(
+      git([
+        "-c",
+        "fetch.fsckObjects=true",
+        "-c",
+        "transfer.fsckObjects=true",
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        bundle,
+        refspec,
+      ]),
+      "fetch bundle",
+    );
+  const listed = async (bundle: string) => {
+    const heads = await required(
+      git(["bundle", "list-heads", bundle]),
+      "bundle list-heads",
+    );
+    const refs = new Map<string, string>();
+    for (const line of heads.split("\n")) {
+      if (line === "") continue;
+      const [oid, name] = line.split(" ");
+      if (oid === undefined || name === undefined || refs.has(name)) {
+        throw new Error(`Checkpoint bundle lists a malformed ref: ${line}`);
+      }
+      refs.set(name, oid);
     }
-    refs.set(name, oid);
+    return refs;
+  };
+  const tips: string[] = [];
+  // Each base's refs kept apart, so the next one's prerequisites are here
+  // and nothing of the tip's is shadowed.
+  for (const [index, base] of (input.bases ?? []).entries()) {
+    tips.push(...(await listed(base)).values());
+    await fetch(base, `refs/*:refs/base/${index}/*`);
   }
-  const branches = [...refs.keys()].filter((name) =>
-    name.startsWith("refs/heads/"),
+  const refs = await listed(input.bundle);
+  tips.push(...refs.values());
+  // As the bundle names them; one under `CHECKPOINT_BRANCH_PREFIX` stands
+  // for the branch under `refs/heads/`.
+  const branches = [...refs.keys()].filter(
+    (name) =>
+      name.startsWith("refs/heads/") ||
+      name.startsWith(CHECKPOINT_BRANCH_PREFIX),
   );
   const unknown = [...refs.keys()].filter(
     (name) =>
-      !name.startsWith("refs/heads/") &&
+      !branches.includes(name) &&
       name !== CHECKPOINT_HEAD_REF &&
       name !== CHECKPOINT_WORKTREE_REF &&
       name !== CHECKPOINT_INSTRUCTIONS_REF,
@@ -84,21 +128,7 @@ export async function stageCheckpointBundle(input: {
       `Checkpoint bundle carries refs a capture does not write: ${[...unknown, ...branches.slice(1)].join(", ")}`,
     );
   }
-  await check(
-    git([
-      "-c",
-      "fetch.fsckObjects=true",
-      "-c",
-      "transfer.fsckObjects=true",
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      "--no-write-fetch-head",
-      input.bundle,
-      `refs/*:${STAGED}*`,
-    ]),
-    "fetch bundle",
-  );
+  await fetch(input.bundle, `refs/*:${STAGED}*`);
   const commit = async (name: string): Promise<string | null> => {
     if (!refs.has(name)) return null;
     const staged = `${STAGED}${name.slice("refs/".length)}`;
@@ -121,15 +151,23 @@ export async function stageCheckpointBundle(input: {
       `Checkpoint bundle pins worktree ${worktree}, not the manifest's ${input.gitCommit}`,
     );
   }
-  const branch = branches[0] ?? null;
-  if (branch !== null && (await commit(branch)) !== head) {
-    throw new Error(`Checkpoint bundle's ${branch} is not at HEAD's commit`);
+  const carried = branches[0];
+  const branch =
+    carried?.startsWith(CHECKPOINT_BRANCH_PREFIX) === true
+      ? `refs/${carried.slice(CHECKPOINT_BRANCH_PREFIX.length)}`
+      : (carried ?? null);
+  if (carried !== undefined && (await commit(carried)) !== head) {
+    throw new Error(`Checkpoint bundle's ${carried} is not at HEAD's commit`);
+  }
+  if (branch !== null && !branch.startsWith("refs/heads/")) {
+    throw new Error(`Checkpoint bundle carries ${carried}, which is no branch`);
   }
   return {
     branch,
     head,
     instructions: await commit(CHECKPOINT_INSTRUCTIONS_REF),
     repository,
+    tips,
     worktree,
   };
 }
@@ -165,8 +203,13 @@ export async function stagedClaudeMd(
  * the next capture stages them again even when they are ignored.
  *
  * The root is the mount point and stays; its contents go, so nothing a
- * previous execution wrote after the checkpoint survives. The repository is
- * new: the old one's config, hooks and remotes are the last engine's.
+ * previous execution wrote after the checkpoint survives — except `keep`,
+ * the directory directly under the root this restore downloaded and staged
+ * into (the workspace volume being the only disk a worker has), which is
+ * moved into the new `.git` as `RESTORED_CHECKPOINT_DIRECTORY`, out of the
+ * tree's way. The staged checkpoint comes back with its repository where it
+ * now is. The repository is new: the old one's config, hooks and remotes
+ * are the last engine's.
  * Stops between steps once `signal` aborts; a restore stopped half way is
  * redone whole by the next attempt, which never reads what this one left.
  */
@@ -175,30 +218,29 @@ export async function restoreCheckpointTree(input: {
   root: string;
   signal: AbortSignal;
   staged: StagedCheckpoint;
-}): Promise<void> {
-  const { root, signal, staged } = input;
-  // Everything below deletes through `root`: a link there would aim it
-  // somewhere else.
-  if (!(await lstat(root)).isDirectory()) {
-    throw new Error(`the workspace root ${root} is not a directory`);
+  keep?: string;
+}): Promise<{ kept?: string; staged: StagedCheckpoint }> {
+  const { root, signal } = input;
+  let { staged } = input;
+  const keep = input.keep === undefined ? undefined : resolve(input.keep);
+  if (
+    keep !== undefined &&
+    (dirname(keep) !== resolve(root) || !(await lstat(keep)).isDirectory())
+  ) {
+    throw new Error(`${keep} is not a directory directly under ${root}`);
   }
-  // In batches, so an execution that left millions of names behind is not
-  // read into memory at once. Each pass starts over, since what a directory
-  // stream returns after its own entries are removed is unspecified.
-  for (;;) {
-    const batch: string[] = [];
-    for await (const entry of await opendir(root)) {
-      batch.push(entry.name);
-      if (batch.length === CLEAR_BATCH) break;
-    }
-    if (batch.length === 0) break;
-    for (const name of batch) {
-      signal.throwIfAborted();
-      await rm(join(root, name), { force: true, recursive: true });
-    }
-  }
+  await clearWorkspace(root, signal, keep);
   const git = localGit(root, signal, {});
   await check(git(["init", "--quiet", "--template="]), "init");
+  let kept: string | undefined;
+  if (keep !== undefined) {
+    kept = join(root, ".git", RESTORED_CHECKPOINT_DIRECTORY);
+    await rename(keep, kept);
+    const inside = relative(keep, resolve(staged.repository));
+    if (!inside.startsWith("..")) {
+      staged = { ...staged, repository: join(kept, inside) };
+    }
+  }
   await check(
     git([
       "fetch",
@@ -235,6 +277,42 @@ export async function restoreCheckpointTree(input: {
     if (name !== "") await check(git(["update-ref", "-d", name]), "update-ref");
   }
   await check(git(["remote", "add", "origin", input.origin]), "remote add");
+  return kept === undefined ? { staged } : { kept, staged };
+}
+
+/**
+ * Removes everything under `root` but `root` itself and `spare`, a direct
+ * child of it. A restore clears the old tree before it downloads anything,
+ * so the old tree's disk is free for the checkpoint: the workspace volume's
+ * quota holds both only if it holds neither twice.
+ */
+export async function clearWorkspace(
+  root: string,
+  signal: AbortSignal,
+  spare?: string,
+): Promise<void> {
+  // Everything below deletes through `root`: a link there would aim it
+  // somewhere else.
+  if (!(await lstat(root)).isDirectory()) {
+    throw new Error(`the workspace root ${root} is not a directory`);
+  }
+  const spared = spare === undefined ? undefined : basename(spare);
+  // In batches, so an execution that left millions of names behind is not
+  // read into memory at once. Each pass starts over, since what a directory
+  // stream returns after its own entries are removed is unspecified.
+  for (;;) {
+    const batch: string[] = [];
+    for await (const entry of await opendir(root)) {
+      if (entry.name === spared) continue;
+      batch.push(entry.name);
+      if (batch.length === CLEAR_BATCH) break;
+    }
+    if (batch.length === 0) break;
+    for (const name of batch) {
+      signal.throwIfAborted();
+      await rm(join(root, name), { force: true, recursive: true });
+    }
+  }
 }
 
 /**

@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -24,6 +31,7 @@ import {
   ObjectIntegrityError,
   type ObjectRef,
   type RuntimeFingerprint,
+  readGitBundleHeader,
   type TranscriptMirror,
   WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
@@ -131,7 +139,6 @@ function harness(
     now: () => new Date("2026-09-23T00:00:00.000Z"),
     objectPrefix: `sessions/${SESSION}/`,
     objects,
-    scratchRoot: scratch,
     workspaceRoot: workspace,
     ...(options.captureWorkspace === undefined
       ? {}
@@ -226,6 +233,41 @@ describe("SessionCheckpoints", () => {
     expect(partBytes === undefined ? null : sha256(partBytes)).toBe(
       part.sha256,
     );
+  });
+
+  test("uploads the bundle from a file in chunks, and leaves no spool behind (94S-318)", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    // Incompressible, so the bundle spans many reads of the file.
+    await writeFile(join(workspace, "noise.bin"), randomBytes(512 * 1024));
+    await git("add", "noise.bin");
+    await git("commit", "--quiet", "-m", "noise");
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+
+    if (ref === null) throw new Error(`nothing published: ${h.warnings}`);
+    const bytes = await h.objects.get(ref.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    const { bundle } = claudeCheckpointCodec.decode(bytes).workspace;
+    expect(bundle.bytes).toBeGreaterThan(512 * 1024);
+    const [write, ...others] = h.objects
+      .streamedWrites()
+      .filter(({ key }) => key === bundle.key);
+    expect(others).toEqual([]);
+    expect(write?.chunks.length).toBeGreaterThan(1);
+    expect(Math.max(...(write?.chunks ?? []))).toBeLessThanOrEqual(64 * 1024);
+    expect(write?.chunks.reduce((total, size) => total + size, 0)).toBe(
+      bundle.bytes,
+    );
+    expect(
+      (await readdir(join(workspace, ".git"))).filter((name) =>
+        name.startsWith("agent-platform-"),
+      ),
+    ).toEqual([]);
   });
 
   test("a second publish of the same revision number never overwrites the first", async () => {
@@ -624,10 +666,23 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
   const bundle = new TextEncoder().encode("bundle bytes");
   const captured =
     (untracked: WorkspaceCapture["untracked"] = []) =>
-    async (): Promise<WorkspaceCaptureResult> => ({
-      status: "captured",
-      capture: { bundle, gitCommit: "c".repeat(40), untracked },
-    });
+    async (input: { bundlePath: string }): Promise<WorkspaceCaptureResult> => {
+      await writeFile(input.bundlePath, bundle);
+      return {
+        status: "captured",
+        capture: {
+          bundle: {
+            bytes: bundle.byteLength,
+            incremental: false,
+            path: input.bundlePath,
+            sha256: sha256(bundle),
+            tips: [],
+          },
+          gitCommit: "c".repeat(40),
+          untracked,
+        },
+      };
+    };
   const untrackedFiles = (count: number, pathBytes = 8) =>
     Array.from({ length: count }, (_, index) => ({
       bytes: new TextEncoder().encode("same bytes"),
@@ -917,7 +972,10 @@ function planOf(
         {
           kind: "workspace_bundle",
           label: "workspace",
-          objects: [wire(manifest.workspace.bundle)],
+          objects: [
+            ...(manifest.workspace.baseBundles ?? []),
+            manifest.workspace.bundle,
+          ].map(wire),
         },
         {
           kind: "transcript_root",
@@ -1156,6 +1214,41 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     ]);
   });
 
+  test("streams the bundle to the workspace volume, never through get, and keeps only the staged repository (94S-318)", async () => {
+    const from = await published({ instructions: true });
+    await replaceWorkspaceWithLeftovers();
+    const get = from.objects.get.bind(from.objects);
+    from.objects.get = async (key, version) => {
+      if (key === from.manifest.workspace.bundle.key) {
+        throw new Error("the bundle is read whole");
+      }
+      return get(key, version);
+    };
+    const h = restoring(from);
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    expect(plan.mode).toBe("resume");
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "edited\n",
+    );
+    expect(
+      (await readdir(workspace)).filter((name) =>
+        name.startsWith(".agent-platform-"),
+      ),
+    ).toEqual([]);
+    expect(
+      await readdir(join(workspace, ".git", "agent-platform-checkpoint")),
+    ).toEqual(["checkpoint.git"]);
+    // Out of the tree's way: nothing new to commit or capture.
+    expect(await git("status", "--porcelain")).toBe(
+      " M CLAUDE.md\n M README.md\n",
+    );
+  });
+
   test("refuses bytes that fail the store's checksum as damage, like a digest mismatch (94S-345)", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
@@ -1245,7 +1338,9 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     await expect(
       h.port.restorePlan(await claimOf(h.gateway), neverStopped()),
     ).rejects.toThrow("not the bytes the manifest pinned");
-    expect(existsSync(join(workspace, "left-behind.txt"))).toBe(true);
+    // Cleared before the download, which then needs no room beside it; the
+    // spool goes with the failure.
+    expect(await readdir(workspace)).toEqual([]);
   });
 
   test("refuses a transcript part that is gone, before touching the workspace", async () => {
@@ -1273,7 +1368,6 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       logger: h.logger,
       objectPrefix: `sessions/${SESSION}/`,
       objects: from.objects,
-      scratchRoot: scratch,
       workspaceRoot: elsewhere,
     });
 
@@ -1462,5 +1556,106 @@ describe("restoring a transcript over the size limit (94S-296)", () => {
     await expect(refused).rejects.toThrow(/over the \d+-byte part limit/);
     expect(from.objects.reads()).toEqual([from.ref.manifest_ref]);
     expect(existsSync(join(workspace, "left-behind.txt"))).toBe(true);
+  });
+});
+
+describe("a bundle built on the checkpoint before (94S-227)", () => {
+  /** Two turns of one run, the gateway committing the first in between. */
+  async function twoTurns(
+    between: (
+      h: ReturnType<typeof harness>,
+      first: CheckpointManifest,
+      scope: ReturnType<typeof scopeOf>,
+    ) => Promise<void> = async () => {},
+  ) {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    await writeFile(
+      join(workspace, "random.txt"),
+      crypto.getRandomValues(new Uint8Array(64 * 1024)).join(),
+    );
+    await git("add", "random.txt");
+    await git("commit", "--quiet", "-m", "big");
+    const turn = { scope: scopeOf(claim), recheck: async () => ready };
+    const manifestOf = async (ref: CheckpointRef | null) => {
+      if (ref === null)
+        throw new Error(`nothing published: ${JSON.stringify(h.warnings)}`);
+      const bytes = await h.objects.get(ref.manifest_ref);
+      if (bytes === undefined) throw new Error("manifest missing");
+      return {
+        manifest: claudeCheckpointCodec.decode(bytes),
+        objects: h.objects,
+        ref,
+      };
+    };
+    const first = await manifestOf(await h.port.capture(ready, turn));
+    h.gateway.checkpointRevision = first.ref.revision;
+    await between(h, first.manifest, turn.scope);
+    await writeFile(join(workspace, "README.md"), "second turn\n");
+    const second = await manifestOf(await h.port.capture(ready, turn));
+    return { first, h, second };
+  }
+
+  test("uploads only what is new, and a restore fetches the chain in order", async () => {
+    const { first, second } = await twoTurns();
+
+    expect(second.ref.revision).toBe(first.ref.revision + 1);
+    expect(second.manifest.workspace.baseBundles).toEqual([
+      first.manifest.workspace.bundle,
+    ]);
+    expect(second.manifest.workspace.bundle.bytes).toBeLessThan(
+      first.manifest.workspace.bundle.bytes / 10,
+    );
+
+    await replaceWorkspaceWithLeftovers();
+    const h = restoring(second);
+    const claim = await claimOf(h.gateway);
+    const plan = await h.port.restorePlan(claim, neverStopped());
+    expect(h.errors).toEqual([]);
+    if (plan.mode !== "resume") throw new Error("expected a resume plan");
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "second turn\n",
+    );
+    expect(await git("status", "--porcelain")).toBe(" M README.md\n");
+
+    // The restored chain is what the next capture builds on.
+    h.gateway.checkpointRevision = second.ref.revision;
+    await writeFile(join(workspace, "README.md"), "third turn\n");
+    const third = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (third === null)
+      throw new Error(`nothing published: ${JSON.stringify(h.warnings)}`);
+    const bytes = await second.objects.get(third.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    expect(claudeCheckpointCodec.decode(bytes).workspace.baseBundles).toEqual([
+      first.manifest.workspace.bundle,
+      second.manifest.workspace.bundle,
+    ]);
+  });
+
+  test("stands alone once a bundle it would build on is gone from the store", async () => {
+    const { second } = await twoTurns(async (h, first) => {
+      h.objects.remove(first.workspace.bundle.key);
+    });
+
+    expect(second.manifest.workspace.baseBundles).toBeUndefined();
+    const bundle = await second.objects.get(
+      second.manifest.workspace.bundle.key,
+    );
+    if (bundle === undefined) throw new Error("bundle missing");
+    expect(readGitBundleHeader(bundle)?.prerequisites).toEqual([]);
+  });
+
+  test("stands alone after finalize refused the one before", async () => {
+    const { second } = await twoTurns(async (h, first, scope) => {
+      h.gateway.checkpointRevision =
+        first.revision > 0 ? first.revision - 1 : null;
+      await h.port.finalizeRefused("refused", scope);
+    });
+
+    expect(second.manifest.workspace.baseBundles).toBeUndefined();
   });
 });

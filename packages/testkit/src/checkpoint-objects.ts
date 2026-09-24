@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import type {
-  CheckpointObjectStore,
-  ObjectHead,
-  PutImmutableResult,
+import {
+  type CheckpointObjectStore,
+  type ImmutableObjectSource,
+  isImmutableObjectSource,
+  type ObjectHead,
+  type PutImmutableResult,
 } from "@agent-platform/runtime-core";
 
 export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
@@ -37,6 +39,11 @@ export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
   purge(entry: { key: string; version: string }): Promise<void>;
   /** Keys whose bodies were fetched since the last reset, in call order. */
   reads(): string[];
+  /**
+   * Every `putImmutable` given a streamed body, with the size of each chunk
+   * it arrived in: how a test tells a streamed upload from a held one.
+   */
+  streamedWrites(): { chunks: number[]; key: string }[];
   resetReads(): void;
 };
 
@@ -72,6 +79,7 @@ export function createMemoryCheckpointObjectStore(
   const chunkBytes = options.streamChunkBytes ?? 64 * 1024;
   const objects = new Map<string, Slot>();
   const reads: string[] = [];
+  const streamed: { chunks: number[]; key: string }[] = [];
   let failuresLeft = 0;
   let nextVersion = 0;
 
@@ -172,8 +180,11 @@ export function createMemoryCheckpointObjectStore(
       write(key, bytes);
     },
 
-    async putImmutable(key, bytes): Promise<PutImmutableResult> {
+    async putImmutable(key, body): Promise<PutImmutableResult> {
       guardWrite(key);
+      const bytes = isImmutableObjectSource(body)
+        ? await drain(key, body, streamed)
+        : body;
       const existing = objects.get(key)?.current;
       if (existing === undefined) {
         return { outcome: "created", ...answer(write(key, bytes)) };
@@ -237,10 +248,49 @@ export function createMemoryCheckpointObjectStore(
       return [...reads];
     },
 
+    streamedWrites() {
+      return streamed.map((write) => ({ ...write, chunks: [...write.chunks] }));
+    },
+
     resetReads() {
       reads.length = 0;
     },
   };
+}
+
+/**
+ * A streamed body in one piece, copied chunk by chunk as a store must (the
+ * source may refill its buffer), and held to the size and digest it
+ * declared, as S3 holds it to `Content-Length` and the checksum header.
+ */
+async function drain(
+  key: string,
+  source: ImmutableObjectSource,
+  streamed: { chunks: number[]; key: string }[],
+): Promise<Uint8Array> {
+  const chunks: number[] = [];
+  const bytes = new Uint8Array(source.bytes);
+  let filled = 0;
+  for await (const chunk of source.open()) {
+    chunks.push(chunk.byteLength);
+    if (filled + chunk.byteLength > source.bytes) {
+      throw new Error(
+        `${key}: the body is longer than its ${source.bytes} bytes`,
+      );
+    }
+    bytes.set(chunk, filled);
+    filled += chunk.byteLength;
+  }
+  if (filled !== source.bytes) {
+    throw new Error(
+      `${key}: the body ended at ${filled} of its ${source.bytes} bytes`,
+    );
+  }
+  if (sha256(bytes) !== source.sha256) {
+    throw new Error(`${key}: the body does not match its declared sha256`);
+  }
+  streamed.push({ chunks, key });
+  return bytes;
 }
 
 function sha256(bytes: Uint8Array): string {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import type { CheckpointRef } from "@agent-platform/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -10,7 +11,10 @@ import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@agent-platform/testkit/checkpoint-objects";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import {
+  createGitBundle,
+  createGitBundleChain,
+} from "@agent-platform/testkit/git-bundle";
 
 import type { CheckpointCollectionStore } from "../ports/checkpoint-collection.ts";
 import type {
@@ -435,6 +439,76 @@ describe("superseded revisions", () => {
     });
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(true);
+  });
+});
+
+describe("a bundle chain (94S-227)", () => {
+  test("a base bundle stays while a kept checkpoint builds on it, though its own revision goes", async () => {
+    const chain = await createGitBundleChain();
+    const part = await transcriptPart(0);
+    // The directory the next `publish` writes to.
+    const nextDirectory = (revision: number) => {
+      const ref = manifestRefFor(
+        sessionId,
+        revision,
+        "attempt-a",
+        (publishes + 1).toString(16).padStart(32, "0"),
+      );
+      return ref.slice(0, ref.lastIndexOf("/") + 1);
+    };
+    const finalize = async (checkpoint: CheckpointRef) =>
+      service().finalize({
+        checkpoint,
+        fence: fenceOf("attempt-a"),
+        now: new Date("2026-09-24T00:00:00.000Z"),
+        sessionId,
+        turnId: null,
+      });
+    const base = await upload(
+      `${nextDirectory(0)}chain.bundle`,
+      chain.base.bytes,
+    );
+    const first = await publish(0, "attempt-a", [part], (manifest) => ({
+      ...manifest,
+      workspace: {
+        ...manifest.workspace,
+        bundle: base,
+        gitCommit: chain.base.commit,
+      },
+    }));
+    expect(await finalize(first.checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 0,
+    });
+    const tip = await upload(
+      `${nextDirectory(1)}chain.bundle`,
+      chain.tip.bytes,
+    );
+    const second = await publish(1, "attempt-a", [part], (manifest) => ({
+      ...manifest,
+      workspace: {
+        ...manifest.workspace,
+        baseBundles: [base],
+        bundle: tip,
+        gitCommit: chain.tip.commit,
+      },
+    }));
+    expect(await finalize(second.checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 1,
+    });
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(
+      await present(first.versions[0] as { key: string; version: string }),
+    ).toBe(false);
+    expect(await present(versionOf(base))).toBe(true);
+    expect(await present(versionOf(tip))).toBe(true);
+    const plan = await service().getRestorePlan({ runtime, sessionId });
+    expect(plan.status).toBe("ready");
   });
 });
 

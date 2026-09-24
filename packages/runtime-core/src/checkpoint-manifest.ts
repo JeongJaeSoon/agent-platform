@@ -82,6 +82,15 @@ export type CheckpointWorkspace = {
    * the two.
    */
   readonly bundle: ObjectRef;
+  /**
+   * The bundles `bundle` builds on, oldest first (94S-227): the first stands
+   * alone, and each later one — `bundle` included — needs only commits an
+   * earlier one offers as a ref tip. Absent for a bundle that stands alone.
+   * They are the previous checkpoint's bundles, in the directories that
+   * checkpoint wrote them to; a restore fetches them in this order before
+   * `bundle`, which alone carries the refs it checks out.
+   */
+  readonly baseBundles?: readonly ObjectRef[];
   readonly gitCommit: string;
   /** Files git does not track, uploaded individually so restore is exact. */
   readonly untracked: readonly WorkspaceArtifact[];
@@ -207,6 +216,29 @@ export type ObjectHead = {
 };
 
 /**
+ * A `putImmutable` body read from somewhere else — a workspace bundle on
+ * disk — rather than held. Size and digest come first: a store sends the
+ * length ahead of the body, and tells a duplicate from a conflict without
+ * reading the body twice.
+ */
+export type ImmutableObjectSource = {
+  readonly bytes: number;
+  /** Hex sha256 of exactly the bytes `open` yields. */
+  readonly sha256: string;
+  /**
+   * A fresh pass over the same bytes on every call, so a store can retry.
+   * Chunks may be refilled like `stream`'s; a store copies what it keeps.
+   */
+  open(): AsyncIterable<Uint8Array>;
+};
+
+export function isImmutableObjectSource(
+  body: Uint8Array | ImmutableObjectSource,
+): body is ImmutableObjectSource {
+  return !(body instanceof Uint8Array);
+}
+
+/**
  * The store answered, but the bytes failed the transfer's own integrity check
  * (S3's response checksum): what arrived is not what is stored. Damage, as a
  * digest mismatch is, whatever shape the transport reported it in.
@@ -245,8 +277,14 @@ export interface CheckpointObjectStore {
   list(prefix: string): Promise<string[]>;
   /** Append-only mirror write; callers own key uniqueness. */
   put(key: string, bytes: Uint8Array): Promise<void>;
-  /** Create-only write. Never replaces an object that already exists. */
-  putImmutable(key: string, bytes: Uint8Array): Promise<PutImmutableResult>;
+  /**
+   * Create-only write. Never replaces an object that already exists. A body
+   * too large to hold is passed as an `ImmutableObjectSource` and streamed.
+   */
+  putImmutable(
+    key: string,
+    body: Uint8Array | ImmutableObjectSource,
+  ): Promise<PutImmutableResult>;
   /**
    * Places a legal hold on one version: nobody can delete it until the hold
    * is released, whatever their other permissions say. Idempotent. Only a

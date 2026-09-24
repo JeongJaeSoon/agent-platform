@@ -4,6 +4,7 @@ export type * from "./capabilities.ts";
 export type * from "./checkpoint.ts";
 export type * from "./checkpoint-manifest.ts";
 export {
+  isImmutableObjectSource,
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,

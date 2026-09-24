@@ -31,10 +31,14 @@ export {
   BodyStallError,
   DEFAULT_BODY_READ_BOUNDS,
   FreshAddressHttpHandler,
+  MAX_BUDGETED_READ_BYTES,
+  MIN_TRANSFER_BYTES_PER_SECOND,
+  readBudgetMs,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,
+  transferBudgetMs,
 } from "./s3.ts";
 export * from "./scoped-objects.ts";
 

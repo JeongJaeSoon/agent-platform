@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGitBundle,
+  createGitBundleChain,
   type GitBundleFixture,
   verifyBundleBytes,
 } from "@agent-platform/testkit/git-bundle";
@@ -24,6 +25,7 @@ import {
   GIT_TIMEOUT_EXIT_CODE,
   type GitCommandOptions,
   type GitCommandRunner,
+  gitVerifyTimeoutMs,
 } from "./index.ts";
 
 let tempRoot: string;
@@ -77,6 +79,59 @@ describe("git workspace bundle verifier", () => {
       key: "k",
     });
     expect(verdict).toEqual({ status: "restorable" });
+  });
+
+  test("a chain is restorable fetched in order, and its incremental bundle alone is not (94S-227)", async () => {
+    const chain = await createGitBundleChain();
+    const directory = await mkdtemp(join(tempRoot, "chain-"));
+    const base = {
+      bytes: chain.base.bytes.byteLength,
+      key: "base",
+      path: join(directory, "base.bundle"),
+    };
+    const tip = {
+      bytes: chain.tip.bytes.byteLength,
+      key: "tip",
+      path: join(directory, "tip.bundle"),
+    };
+    await writeFile(base.path, chain.base.bytes);
+    await writeFile(tip.path, chain.tip.bytes);
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+
+    expect(
+      await verifier.verify({
+        ...tip,
+        bases: [base],
+        commit: chain.tip.commit,
+      }),
+    ).toEqual({ status: "restorable" });
+    expect(
+      await verifier.verify({ ...tip, commit: chain.tip.commit }),
+    ).toMatchObject({ status: "unusable" });
+    // The base's commit, which the chain has but the last link does not
+    // check out: a restore of the last link would land somewhere else.
+    expect(
+      await verifier.verify({
+        ...tip,
+        bases: [base],
+        commit: chain.base.commit,
+      }),
+    ).toMatchObject({
+      status: "unusable",
+      reason: `tip: git bundle does not land ${chain.base.commit} as a ref or a tag over one`,
+    });
+    // The base must come first: the tip does not stand in for it.
+    expect(
+      await verifier.verify({
+        ...base,
+        bases: [tip],
+        commit: chain.base.commit,
+      }),
+    ).toMatchObject({
+      status: "unusable",
+      reason: expect.stringContaining("tip: "),
+    });
+    await rm(directory, { force: true, recursive: true });
   });
 
   test("a rewritten header over a whole pack is unusable", async () => {
@@ -386,7 +441,11 @@ describe("git workspace bundle verifier", () => {
         commit: bundle.commit,
         key: "k",
       });
-      expect(calls.map((args) => args[0])).toEqual(["init", "-c", "rev-list"]);
+      expect(calls.map((args) => args[0])).toEqual([
+        "init",
+        "-c",
+        "for-each-ref",
+      ]);
     }
   });
 
@@ -643,6 +702,7 @@ describe("git workspace bundle verifier", () => {
     expect(calls.map((call) => call.args[0])).toEqual([
       "init",
       "-c",
+      "for-each-ref",
       "rev-list",
     ]);
     for (const { options } of calls) {
@@ -656,6 +716,45 @@ describe("git workspace bundle verifier", () => {
       expect(TMPDIR?.startsWith(join(tempRoot, "bundle-verify-"))).toBe(true);
     }
     expect(calls[1]?.args.join(" ")).toContain("-c pack.threads=1");
+  });
+
+  test("the timeout and CPU limit grow with the bundle above the reference size", async () => {
+    const MiB = 1024 * 1024;
+    expect(gitVerifyTimeoutMs(0)).toBe(DEFAULT_GIT_VERIFY_TIMEOUT_MS);
+    expect(gitVerifyTimeoutMs(256 * MiB)).toBe(60_000);
+    expect(gitVerifyTimeoutMs(512 * MiB)).toBe(120_000);
+    expect(gitVerifyTimeoutMs(1024 * MiB)).toBe(240_000);
+    // The floor is the configured timeout, however small the bundle.
+    expect(gitVerifyTimeoutMs(1, 90_000)).toBe(90_000);
+
+    // What the verifier hands git for a bundle the service says is 512 MiB.
+    const seen: GitCommandOptions[] = [];
+    const verifier = createGitWorkspaceBundleVerifier({
+      gitRunner: async (args, options) => {
+        seen.push(options);
+        return defaultGitRunner(args, options);
+      },
+      tempRoot,
+    });
+    // Outside `tempRoot`, which other tests expect the verifier to leave empty.
+    const directory = await mkdtemp(join(tmpdir(), "verifier-budget-"));
+    try {
+      const path = join(directory, "workspace.bundle");
+      await writeFile(path, bundle.bytes);
+      await verifier.verify({
+        bytes: 512 * MiB,
+        commit: bundle.commit,
+        key: "k",
+        path,
+      });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    for (const options of seen) {
+      expect(options.timeoutMs).toBe(120_000);
+      expect(options.limits?.cpuSeconds).toBe(120);
+    }
   });
 
   test("a git or helper stopped by a resource limit throws, never unusable", async () => {
