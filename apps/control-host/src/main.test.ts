@@ -164,4 +164,42 @@ describe("control host executable", () => {
     },
     TIMEOUT_MS,
   );
+
+  test(
+    "a scheduler loop forgets the quota preflight an earlier loop noted (94S-393)",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "control-host-quota-"));
+      try {
+        const statusFile = join(dir, "status.json");
+        const marker = `${statusFile}.quota-verified`;
+        await writeFile(marker, "noted by an earlier loop");
+        // Nothing answers on either address, so the one pass fails before
+        // its own preflight and the loop gives up after it.
+        const loop = await run(["scheduler"], {
+          AWS_REGION: "ap-northeast-1",
+          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+          DOCKER_HOST: `unix://${join(dir, "no-daemon.sock")}`,
+          EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+          EXECUTION_INSTALLATION_ID: "quota-marker",
+          EXECUTION_SLOT_LIMIT: "1",
+          MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "2",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          S3_BUCKET: "claude-sessions",
+          SCHEDULER_MAX_CONSECUTIVE_FAILURES: "1",
+          SCHEDULER_STATUS_FILE: statusFile,
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
+          WORKER_GATEWAY_URL: "http://api:3000",
+          WORKER_IMAGE: "agent-platform-worker:dev",
+        });
+        expect(loop.stderr + loop.stdout).toContain("Scheduler loop started");
+        expect(loop.exitCode).toBe(1);
+        expect(await Bun.file(marker).exists()).toBe(false);
+      } finally {
+        await rm(dir, { force: true, recursive: true });
+      }
+    },
+    TIMEOUT_MS,
+  );
 });
