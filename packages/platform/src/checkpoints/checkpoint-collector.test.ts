@@ -80,6 +80,7 @@ function memorySession() {
     generation: 1,
     /** Runs once, right after the next pointer or fence read. */
     betweenReads: undefined as (() => Promise<void>) | undefined,
+    pointerReads: 0,
   };
   const afterRead = async () => {
     const between = state.betweenReads;
@@ -90,6 +91,7 @@ function memorySession() {
   };
   const store: CheckpointStore & CheckpointCollectionStore = {
     async readPointer() {
+      state.pointerReads += 1;
       const found = pointer;
       await afterRead();
       return found;
@@ -299,6 +301,15 @@ async function transcriptPart(
     `${prefix}transcripts/generation-${String(generation).padStart(10, "0")}/part-${index}.jsonl`,
     encode(`{"type":"user","uuid":"g${generation}-u${index}"}\n`),
   );
+}
+
+/** A second version under a part's key, as a rewrite by hand leaves. */
+async function rewrite(
+  ref: ObjectRef,
+): Promise<{ key: string; version: string }> {
+  await objects.put(ref.key, encode('{"type":"user","uuid":"rewritten"}\n'));
+  const head = await objects.head(ref.key);
+  return { key: ref.key, version: head?.version as string };
 }
 
 function versionOf(ref: ObjectRef): { key: string; version: string } {
@@ -679,6 +690,34 @@ describe("transcript parts (94S-326)", () => {
     expect(await present(versionOf(part))).toBe(true);
   });
 
+  test("a kept revision keeps the version it names; another version of that part goes", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    const other = await rewrite(part);
+    session.state.generation = 2;
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(part))).toBe(true);
+    expect(await present(other)).toBe(false);
+  });
+
+  test("a revision committed without held versions keeps every version of a part it names", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part], service({ unversioned: true }));
+    const other = await rewrite(part);
+    session.state.generation = 2;
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(part))).toBe(true);
+    expect(await present(other)).toBe(true);
+  });
+
   test("a key outside the generation directories is left alone", async () => {
     const stray = await upload(
       `${prefix}transcripts/loose.jsonl`,
@@ -747,6 +786,31 @@ describe("finalize against transcript collection (94S-326)", () => {
         fence: fenceOf("attempt-b", 2),
       }),
     ).toMatchObject({ status: "verified", versionsHeld: true });
+  });
+
+  test("a resumed attempt's finalize reads the pointer and its manifest once", async () => {
+    const inherited = await transcriptPart(0);
+    const revision0 = await commit(0, "attempt-a", [inherited]);
+    session.state.generation = 2;
+    const candidate = await publish(1, "attempt-b", [
+      inherited,
+      await transcriptPart(0, 2),
+    ]);
+    session.state.pointerReads = 0;
+    objects.resetReads();
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(session.state.pointerReads).toBe(1);
+    expect(
+      objects
+        .reads()
+        .filter((read) => read === revision0.checkpoint.manifest_ref),
+    ).toHaveLength(1);
   });
 
   test("a candidate the CAS will refuse anyway is not held to it", async () => {

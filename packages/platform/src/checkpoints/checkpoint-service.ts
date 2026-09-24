@@ -323,6 +323,13 @@ function newPublishId(): string {
   return randomUUID().replaceAll("-", "");
 }
 
+type CommittedReads = {
+  pointer(): Promise<CheckpointPointer | null>;
+  manifest(
+    checkpoint: CheckpointPointer,
+  ): Promise<CheckpointManifest | undefined>;
+};
+
 /**
  * Turns an uploaded manifest into the session's durable restore point, and
  * reads it back as a restore plan.
@@ -792,26 +799,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function verifiedRefs(
     sessionId: string,
     parent?: number,
+    reads = committedReads(sessionId),
   ): Promise<Set<string>> {
     const tokens = new Set<string>();
     try {
-      const pointer = await store.readPointer(sessionId);
+      const pointer = await reads.pointer();
       if (pointer === null) return tokens;
       if (parent !== undefined && pointer.revision !== parent) return tokens;
       if (protection === "locked" && pointer.versionsHeld !== true) {
         return tokens;
       }
-      const bytes = await objects.get(
-        pointer.manifestRef,
-        pinnedVersion(pointer.manifestVersion),
-      );
-      if (bytes === undefined || sha256(bytes) !== pointer.manifestSha256) {
-        return tokens;
-      }
-      const engine = engineOf(bytes);
-      const codec = engine === undefined ? undefined : own(codecs, engine);
-      if (codec === undefined) return tokens;
-      const manifest = codec.decode(bytes);
+      const manifest = await reads.manifest(pointer);
+      if (manifest === undefined) return tokens;
       for (const ref of [
         ...manifest.transcripts.root.parts,
         ...Object.values(manifest.transcripts.subagents).flatMap(
@@ -865,19 +864,25 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       };
     }
     const pinned = pinnedVersions();
+    const reads = committedReads(sessionId);
     const verdict = await validateManifest({
       checkpoint: input.checkpoint,
       confined: true,
       held: protection === "locked",
       pinned,
       sessionId,
-      verified: await verifiedRefs(sessionId, input.checkpoint.revision - 1),
+      verified: await verifiedRefs(
+        sessionId,
+        input.checkpoint.revision - 1,
+        reads,
+      ),
     });
     if (verdict.status === "verified" && protection === "locked") {
       const stray = await strayTranscriptPart(
         verdict.manifest,
         input.fence,
         input.checkpoint.revision,
+        reads,
       );
       if (stray !== undefined) return { status: "rejected", reason: stray };
       await holdAll(pinned.unheld());
@@ -915,14 +920,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     manifest: CheckpointManifest,
     fence: CheckpointFence,
     revision: number,
+    reads: CommittedReads,
   ): Promise<string | undefined> {
     const prefix = sessionObjectPrefix(fence.sessionId);
-    const foreign = [
-      ...manifest.transcripts.root.parts,
-      ...Object.values(manifest.transcripts.subagents).flatMap(
-        (transcript) => transcript.parts,
-      ),
-    ].filter((ref) => {
+    const foreign = transcriptParts(manifest.transcripts).filter((ref) => {
       // A key outside the mirror's generation directories is nothing
       // collection reaches, so there is no race to fence.
       const generation = transcriptGenerationOf(ref.key, prefix);
@@ -931,12 +932,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       );
     });
     if (foreign.length === 0) return undefined;
-    const pointer = await store.readPointer(fence.sessionId);
+    const pointer = await reads.pointer();
     if (pointer !== null && pointer.revision > revision - 1) return undefined;
     const base = keepSet();
     const outside = () => foreign.find((ref) => !base.has(ref));
     if (pointer?.revision === revision - 1) {
-      const manifestOfPointer = await committedManifest(pointer);
+      const manifestOfPointer = await reads.manifest(pointer);
       if (manifestOfPointer !== undefined) {
         base.addManifest(pointer, manifestOfPointer);
       }
@@ -951,7 +952,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           limit: 1,
         });
         const manifestOfParent =
-          row?.revision === parent ? await committedManifest(row) : undefined;
+          row?.revision === parent ? await reads.manifest(row) : undefined;
         if (row !== undefined && manifestOfParent !== undefined) {
           base.addManifest(row, manifestOfParent);
         }
@@ -961,6 +962,34 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     return stray === undefined
       ? undefined
       : `manifest names transcript part ${stray.key}${versionSuffix(stray.version)}, which generation ${fence.executionGeneration} did not write and the checkpoint it builds on does not name`;
+  }
+
+  /**
+   * One finalize's reads of the pointer and of committed manifests, so the
+   * checks that each need them (`verifiedRefs`, `strayTranscriptPart`) share
+   * one request instead of repeating it on every turn.
+   */
+  function committedReads(sessionId: string): CommittedReads {
+    let pointer: Promise<CheckpointPointer | null> | undefined;
+    const manifests = new Map<
+      string,
+      Promise<CheckpointManifest | undefined>
+    >();
+    return {
+      pointer: () => {
+        pointer ??= store.readPointer(sessionId);
+        return pointer;
+      },
+      manifest: (checkpoint) => {
+        const id = `${checkpoint.manifestRef}\n${checkpoint.manifestVersion ?? ""}\n${checkpoint.manifestSha256}`;
+        let read = manifests.get(id);
+        if (read === undefined) {
+          read = committedManifest(checkpoint);
+          manifests.set(id, read);
+        }
+        return read;
+      },
+    };
   }
 
   /**
