@@ -88,6 +88,32 @@ export function planOf(
   return null;
 }
 
+/**
+ * The id of every spec the conversation's user prompts carry, oldest first:
+ * what the engine replayed to the model as history. A resumed session sends
+ * its earlier prompts with the new one; a fresh one sends only the new one.
+ */
+export function specIdsIn(messages: readonly unknown[]): string[] {
+  const ids: string[] = [];
+  for (const message of messages as readonly Message[]) {
+    if (message?.role !== "user") continue;
+    for (const block of blocksOf(message)) {
+      if (block.type !== "text" || block.text === undefined) continue;
+      const marker = block.text.indexOf(SPEC_MARKER);
+      if (marker < 0) continue;
+      // A log reader, not a planner: a prompt that only mentions the marker
+      // is skipped rather than failing the whole listing.
+      try {
+        const spec = JSON.parse(
+          firstJsonObject(block.text.slice(marker + SPEC_MARKER.length)),
+        ) as GateSpec;
+        ids.push(spec.id);
+      } catch {}
+    }
+  }
+  return ids;
+}
+
 /** The spec is followed by whatever the engine appends to a prompt. */
 function firstJsonObject(text: string): string {
   let depth = 0;

@@ -1,5 +1,5 @@
 import { startFakeAnthropicServer } from "./fake-anthropic.ts";
-import { type GateRequest, replyFor } from "./scripted-messages.ts";
+import { type GateRequest, replyFor, specIdsIn } from "./scripted-messages.ts";
 
 // The local stack's Messages API (94S-132): the example profile in
 // config/profiles.yaml points here, so a session runs end to end without an
@@ -23,7 +23,9 @@ const server = startFakeAnthropicServer(
 );
 
 // Which scripted step a model call has reached, so tests/e2e can act while a
-// slow call is in flight rather than guess. A port of its own: workers reach
+// slow call is in flight rather than guess, and which earlier prompts the
+// call carried as history, so a resume can be told from a fresh start
+// (tests/e2e/restore-resume.sh). A port of its own: workers reach
 // `port` through the egress proxy, and this one is on no allowlist, so no
 // session reads what another one was asked. Only the e2e overlay publishes it.
 Bun.serve({
@@ -39,7 +41,12 @@ Bun.serve({
     return Response.json(
       recorded
         .filter((entry) => spec === null || entry.specId === spec)
-        .map(({ at, specId, step }) => ({ at, spec_id: specId, step })),
+        .map(({ at, messages, specId, step }) => ({
+          at,
+          spec_id: specId,
+          step,
+          history: specIdsIn(messages),
+        })),
     );
   },
 });
