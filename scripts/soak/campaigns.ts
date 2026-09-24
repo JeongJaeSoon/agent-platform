@@ -1917,8 +1917,8 @@ async function main(): Promise<number> {
       id: `${campaign.id}/hook`,
       area: campaign.kind === "race" ? "경합" : "장애",
       input: campaign.title,
-      expected: "착지 뒤 이 캠페인이 실제로 돈다",
-      actual: `skip: ${campaign.waitsFor?.ticket} 미착지 — ${campaign.waitsFor?.reason}`,
+      expected: "사유에 적은 검증이 이 캠페인을 대신한다",
+      actual: `skip (${campaign.waitsFor?.ticket}) — ${campaign.waitsFor?.reason}`,
       pass: null,
     });
     out.json("criteria", [row]);
