@@ -10,6 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  bodyReservation,
   type CredentialProxyServer,
   type EgressGrant,
   parseGrant,
@@ -66,6 +67,40 @@ describe("routeOf", () => {
     ] as const) {
       expect(routeOf(method, path, search)).toBeNull();
     }
+  });
+});
+
+describe("bodyReservation", () => {
+  const headers = (entries: Record<string, string>) => new Headers(entries);
+  test("reserves the declared length, or the cap for a chunked body", () => {
+    expect(bodyReservation(headers({}), "repository")).toEqual({ bytes: 0 });
+    expect(
+      bodyReservation(headers({ "content-length": "13" }), "provider"),
+    ).toEqual({ bytes: 13 });
+    expect(
+      bodyReservation(headers({ "transfer-encoding": "chunked" }), "provider"),
+    ).toEqual({ bytes: 32 * 1024 * 1024 });
+  });
+
+  test("refuses what could never fit, and an object body with no length", () => {
+    expect(
+      bodyReservation(
+        headers({ "content-length": String(32 * 1024 * 1024 + 1) }),
+        "provider",
+      ),
+    ).toEqual({ refused: 413 });
+    expect(
+      bodyReservation(
+        headers({ "content-length": String(32 * 1024 * 1024 + 1) }),
+        "object_store",
+      ),
+    ).toEqual({ bytes: 32 * 1024 * 1024 + 1 });
+    expect(
+      bodyReservation(
+        headers({ "transfer-encoding": "chunked" }),
+        "object_store",
+      ),
+    ).toEqual({ refused: 411 });
   });
 });
 
@@ -813,6 +848,129 @@ describe("startCredentialProxy", () => {
     const next = await messages(server.port);
     expect(next.status).toBe(200);
     await next.text();
+  });
+
+  /** A raw request whose body is sent only as far as `sent`. */
+  async function rawRequest(port: number, head: string, sent = "") {
+    let answer = "";
+    const socket = await Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        data(_, bytes) {
+          answer += new TextDecoder().decode(bytes);
+        },
+      },
+    });
+    socket.write(`${head}\r\n\r\n${sent}`);
+    return {
+      socket,
+      answered: async () => {
+        const started = performance.now();
+        while (answer === "" && performance.now() - started < 5_000) {
+          await Bun.sleep(10);
+        }
+        return answer;
+      },
+    };
+  }
+
+  test("a body over the route's cap is refused before the authorizer hears of it (94S-388)", async () => {
+    const up = upstream(() => Response.json({ ok: true }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const declared = await rawRequest(
+      server.port,
+      `POST /provider/v1/messages HTTP/1.1\r\nhost: proxy\r\nx-api-key: ${WORKER_TOKEN}\r\ncontent-length: ${32 * 1024 * 1024 + 1}`,
+    );
+    expect(await declared.answered()).toStartWith("HTTP/1.1 413");
+    declared.socket.end();
+    // Sent chunked, it is read only as far as the cap.
+    const big = new Uint8Array(1024 * 1024);
+    let chunks = 0;
+    const chunked = await fetch(
+      `http://127.0.0.1:${server.port}/provider/v1/messages`,
+      {
+        method: "POST",
+        headers: { "x-api-key": WORKER_TOKEN },
+        body: new ReadableStream({
+          pull(controller) {
+            chunks += 1;
+            if (chunks > 40) controller.close();
+            else controller.enqueue(big);
+          },
+        }),
+      },
+    );
+    expect(chunked.status).toBe(413);
+    expect(chunks).toBeLessThan(40);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("a chunked body goes upstream whole, with its length", async () => {
+    const up = upstream(() => Response.json({ ok: true }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const parts = ['{"model":', '"m"}'];
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/provider/v1/messages`,
+      {
+        method: "POST",
+        headers: { "x-api-key": WORKER_TOKEN },
+        body: new ReadableStream({
+          pull(controller) {
+            const part = parts.shift();
+            if (part === undefined) controller.close();
+            else controller.enqueue(new TextEncoder().encode(part));
+          },
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(up.seen[0]?.body).toBe('{"model":"m"}');
+    expect(up.seen[0]?.headers["content-length"]).toBe("13");
+  });
+
+  test("holds request bodies to one budget across exchanges, and frees it as each goes upstream (94S-388)", async () => {
+    const up = upstream(() => Response.json({ ok: true }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, { maxBodyBytesInFlight: 100 });
+    const body = `{"model":"${"m".repeat(68)}"}`;
+    expect(body).toHaveLength(80);
+    // Admitted with 80 bytes declared and 2 sent, so they stay reserved.
+    const held = await rawRequest(
+      server.port,
+      `POST /provider/v1/messages HTTP/1.1\r\nhost: proxy\r\nx-api-key: ${WORKER_TOKEN}\r\ncontent-length: 80`,
+      body.slice(0, 2),
+    );
+    await Bun.sleep(50);
+    const over = await messages(server.port, {
+      body: `{"model":"${"m".repeat(18)}"}`,
+    });
+    expect(over.status).toBe(503);
+    expect(await over.text()).toBe("too many request bytes in flight\n");
+    // Nothing of it reached the authorizer: only the held one was asked.
+    expect(auth.asked).toHaveLength(1);
+    held.socket.write(body.slice(2));
+    expect(await held.answered()).toStartWith("HTTP/1.1 200");
+    held.socket.end();
+    const next = await messages(server.port, {
+      body: `{"model":"${"m".repeat(18)}"}`,
+    });
+    expect(next.status).toBe(200);
+    expect(up.seen.map((seen) => seen.body.length)).toEqual([80, 30]);
   });
 
   describe("an exchange that never finishes still frees its slot (94S-366)", () => {

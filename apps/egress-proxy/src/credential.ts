@@ -64,14 +64,28 @@ const DEFAULT_REGRANT_GRACE_MS = 90_000;
 const DEFAULT_MAX_EXCHANGES_PER_CLIENT = 32;
 /** An error body bigger than this is not relayed at all. */
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
-/** Above the Messages API's own request limit. */
-const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
+/**
+ * The Messages API's own request limit (32 MB), with the upstream left to
+ * judge the last few bytes. Held whole, so it is also this route's share of
+ * the body budget below.
+ */
+const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
 /**
  * Twice the control plane's workspace bundle ceiling (256 MiB,
  * `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`), the largest object a worker writes.
- * Streamed, never held: it is the listener's cap, not a buffer.
+ * Streamed, but Bun holds whatever arrives before the upstream takes it.
  */
 const MAX_OBJECT_BODY_BYTES = 512 * 1024 * 1024;
+/**
+ * Request body bytes all exchanges together may hold (94S-388). Bun takes a
+ * body off the socket as fast as the client sends it, read or not, so a
+ * body is held from the moment its request is admitted until it has gone
+ * upstream. Each admission reserves its declared length, or the route's cap
+ * when it declares none, and one that does not fit is refused at once,
+ * before Bun has taken any of it. Two of the largest bundles fit; the
+ * container's mem_limit in infra/docker-compose.yml is sized from this.
+ */
+export const DEFAULT_MAX_BODY_BYTES_IN_FLIGHT = 512 * 1024 * 1024;
 /**
  * Bun's idle clock before a request is authorized: a client that opens a
  * connection and sends nothing is dropped. An authorized exchange runs on
@@ -488,6 +502,7 @@ export type CredentialProxyOptions = {
   logger?: ProxyLogger;
   maxExchanges?: number;
   maxExchangesPerClient?: number;
+  maxBodyBytesInFlight?: number;
   policy: EgressPolicy;
   port?: number;
   regrantGraceMs?: number;
@@ -520,7 +535,10 @@ export function startCredentialProxy(
   const maxPerClient =
     options.maxExchangesPerClient ?? DEFAULT_MAX_EXCHANGES_PER_CLIENT;
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
+  const maxBodyBytes =
+    options.maxBodyBytesInFlight ?? DEFAULT_MAX_BODY_BYTES_IN_FLIGHT;
   let open = 0;
+  let bodyBytes = 0;
   const perClient = new Map<string, number>();
 
   function reply(
@@ -589,6 +607,11 @@ export function startCredentialProxy(
     grant: EgressGrant,
     client: string,
     signal: AbortSignal,
+    // The route's body as read since admission; null for the object store,
+    // whose body streams upstream.
+    whole: Promise<UpstreamBody> | null,
+    // Its reservation ends once it has gone upstream, or failed to.
+    bodySent: () => void,
   ): Promise<Response> {
     const upstream = grant.upstream;
     const host = normalizeHost(upstream.hostname);
@@ -659,10 +682,7 @@ export function startCredentialProxy(
     }
     let response: Response;
     try {
-      const body = objectStore
-        ? objectBody(request, grant)
-        : // Whole, before the upstream is dialled.
-          await readWhole(request.body, signal, MAX_REQUEST_BODY_BYTES);
+      const body = whole === null ? objectBody(request, grant) : await whole;
       response = await upstreamExchange(
         {
           address,
@@ -702,6 +722,8 @@ export function startCredentialProxy(
         error: error instanceof Error ? error.message : String(error),
       });
       return reply(502, "upstream connection failed", route.purpose);
+    } finally {
+      bodySent();
     }
     logger.info("Credential route", { ...fields, status: response.status });
     if (response.status >= 300 && response.status < 400) {
@@ -808,6 +830,17 @@ export function startCredentialProxy(
     };
   }
 
+  function reserveBody(bytes: number): (() => void) | null {
+    if (bodyBytes + bytes > maxBodyBytes) return null;
+    bodyBytes += bytes;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      bodyBytes -= bytes;
+    };
+  }
+
   const server: Server<undefined> = Bun.serve({
     hostname: options.hostname ?? "0.0.0.0",
     port: options.port ?? DEFAULT_CREDENTIAL_PORT,
@@ -833,11 +866,32 @@ export function startCredentialProxy(
               request.headers,
             )
           : undefined;
+      // Decided before anything is awaited: Bun takes the body off the
+      // socket meanwhile, and only a request answered now is never held.
+      const reservation = bodyReservation(request.headers, route.purpose);
+      if ("refused" in reservation) {
+        return reply(
+          reservation.refused,
+          reservation.refused === 413
+            ? "request body too large"
+            : "a request body needs a content-length",
+          route.purpose,
+        );
+      }
       const client = server.requestIP(request)?.address ?? "unknown";
       const admitted = admit(client);
       if (admitted === null) {
         logger.warn("Refusing a credential exchange over the cap", { client });
         return reply(503, "too many exchanges from this client", route.purpose);
+      }
+      const bodyHeld = reserveBody(reservation.bytes);
+      if (bodyHeld === null) {
+        admitted();
+        logger.warn("Refusing a credential exchange over the body budget", {
+          client,
+          bytes: reservation.bytes,
+        });
+        return reply(503, "too many request bytes in flight", route.purpose);
       }
       const revocation = new AbortController();
       // Everything that ends an exchange, the wait for a trickled request
@@ -857,13 +911,28 @@ export function startCredentialProxy(
       const hungUp = () => {
         if (answered) release();
       };
+      const reading = new AbortController();
       const release = () => {
         ended = true;
         clearTimeout(regrant);
         ends.removeEventListener("abort", hungUp);
+        reading.abort(new Error("exchange ended"));
+        bodyHeld();
         admitted();
       };
       ends.addEventListener("abort", hungUp);
+      // Read from admission on, so what Bun takes off the socket moves into
+      // the reservation rather than piling up beside it while the
+      // authorizer is asked.
+      const whole =
+        route.purpose === "object_store"
+          ? null
+          : readWhole(
+              request.body,
+              AbortSignal.any([ends, reading.signal]),
+              reservation.bytes,
+            );
+      whole?.catch(() => {});
       // A definite refusal cuts the exchange at once. An authorizer that
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
@@ -910,6 +979,8 @@ export function startCredentialProxy(
           authorized.grant,
           client,
           ends,
+          whole,
+          bodyHeld,
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,
@@ -955,14 +1026,15 @@ function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * The request body in one piece, given up the moment `signal` fires or it
- * passes `max`.
+ * The request body, all of it in hand before the upstream is dialled, given
+ * up the moment `signal` fires or it passes `max`. Replayed chunk by chunk
+ * rather than joined, so it is never held twice.
  */
 async function readWhole(
   body: ReadableStream<Uint8Array> | null,
   signal: AbortSignal,
   max: number,
-): Promise<Uint8Array | null> {
+): Promise<UpstreamBody> {
   if (body === null) return null;
   const reader = body.getReader();
   const stop = () => {
@@ -979,18 +1051,43 @@ async function readWhole(
       if (next.done) break;
       chunks.push(next.value);
       total += next.value.byteLength;
-      if (total > max) throw new BodyTooLargeError();
+      if (total > max) {
+        // Bun would otherwise go on taking the rest off the socket.
+        reader.cancel().catch(() => {});
+        throw new BodyTooLargeError();
+      }
     }
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk === undefined) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    return { stream, length: total };
   } finally {
     signal.removeEventListener("abort", stop);
   }
+}
+
+/**
+ * What an admitted request may make Bun hold: its declared length, or the
+ * route's cap for a body sent chunked. An object store body has to declare
+ * its length, since that length is what the authorizer signs.
+ */
+export function bodyReservation(
+  headers: Headers,
+  purpose: EgressPurpose,
+): { bytes: number } | { refused: 411 | 413 } {
+  const cap =
+    purpose === "object_store" ? MAX_OBJECT_BODY_BYTES : MAX_REQUEST_BODY_BYTES;
+  if (headers.has("transfer-encoding")) {
+    return purpose === "object_store" ? { refused: 411 } : { bytes: cap };
+  }
+  const declared = Number(headers.get("content-length") ?? "0");
+  return Number.isSafeInteger(declared) && declared >= 0 && declared <= cap
+    ? { bytes: declared }
+    : { refused: 413 };
 }
 
 /**

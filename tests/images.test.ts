@@ -8,6 +8,7 @@ import {
   SHUTDOWN_DRAIN_MS,
 } from "../apps/control-host/src/api/shutdown.ts";
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
+import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
@@ -435,6 +436,10 @@ type ComposeService = {
   restart?: string;
   stop_grace_period?: string;
   volumes?: string[];
+  read_only?: boolean;
+  cap_drop?: string[];
+  security_opt?: string[];
+  mem_limit?: string;
 };
 
 const composeServices = (path: string) =>
@@ -522,5 +527,16 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
       "$" + "{EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}",
     );
     expect(proxy?.volumes).toBeUndefined();
+  });
+
+  test("the egress proxy is held to what a worker is, and its memory is bounded (94S-388)", () => {
+    const proxy = services["egress-proxy"];
+    expect(proxy?.read_only).toBe(true);
+    expect(proxy?.cap_drop).toEqual(["ALL"]);
+    expect(proxy?.security_opt).toEqual(["no-new-privileges:true"]);
+    expect(proxy?.restart).toBe("unless-stopped");
+    expect(proxy?.mem_limit).toBe("3072m");
+    // The budget comment in compose is arithmetic over this default.
+    expect(DEFAULT_MAX_BODY_BYTES_IN_FLIGHT).toBe(512 * 1024 * 1024);
   });
 });
