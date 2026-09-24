@@ -209,6 +209,29 @@ describe("egress authorizer (94S-252)", () => {
     ).toBe(413);
   });
 
+  test("a chunked body is refused at 16 KiB, before the rest is read (94S-388)", async () => {
+    let pulled = 0;
+    const response = await authorize(
+      new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        // 17 KiB, then a body that never ends.
+        body: new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulled += 1;
+            if (pulled <= 17) controller.enqueue(new Uint8Array(1024));
+            else return new Promise(() => {});
+          },
+        }),
+      }),
+    );
+    expect(response.status).toBe(413);
+    expect(pulled).toBeLessThanOrEqual(18);
+  });
+
   test("an unknown token is 401, and a token for the other route too", async () => {
     const claim = await claimed();
     expect(

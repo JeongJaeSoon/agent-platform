@@ -96,6 +96,28 @@ const authorizeRequestSchema = z.union([
     .strict(),
 ]);
 
+/** The body, or null the moment it passes `max`: the rest is never read. */
+async function readAtMost(
+  request: Request,
+  max: number,
+): Promise<Uint8Array | null> {
+  if (request.body === null) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) break;
+    total += next.value.byteLength;
+    if (total > max) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(next.value);
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function digest(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
 }
@@ -164,10 +186,11 @@ export function createEgressAuthorizer(deps: {
     if (!Number.isFinite(declared) || declared > MAX_BODY_BYTES) {
       return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
     }
-    const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+    const bytes = await readAtMost(request, MAX_BODY_BYTES);
+    if (bytes === null) {
       return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
     }
+    const text = new TextDecoder().decode(bytes);
     let body: z.infer<typeof authorizeRequestSchema>;
     try {
       body = authorizeRequestSchema.parse(JSON.parse(text));
