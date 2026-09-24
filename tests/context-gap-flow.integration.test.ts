@@ -1,10 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createApiApp } from "@agent-platform/api/src/app.ts";
-import { PostgresSessionNotifier } from "@agent-platform/api/src/events/notifications.ts";
-import { registerEventRoutes } from "@agent-platform/api/src/routes/events.ts";
-import { registerReceiptRoutes } from "@agent-platform/api/src/routes/receipts.ts";
-import { registerSessionRoutes } from "@agent-platform/api/src/routes/sessions.ts";
-import { registerWorkerRoutes } from "@agent-platform/api/src/routes/worker.ts";
 import {
   type CheckpointRef,
   controlAcceptedResponseSchema,
@@ -13,6 +7,12 @@ import {
   getSessionResponseSchema,
   type SessionDetail,
 } from "@agent-platform/contracts";
+import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
+import { PostgresSessionNotifier } from "@agent-platform/control-host/src/api/events/notifications.ts";
+import { registerEventRoutes } from "@agent-platform/control-host/src/api/routes/events.ts";
+import { registerReceiptRoutes } from "@agent-platform/control-host/src/api/routes/receipts.ts";
+import { registerSessionRoutes } from "@agent-platform/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
 import * as schema from "@agent-platform/db";
 import {
   attempts,

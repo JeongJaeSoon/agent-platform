@@ -59,8 +59,7 @@ mkdir -p "$out/workers"
 record="$out/record.txt"
 
 export EXECUTION_INSTALLATION_ID="${RR_INSTALLATION_ID:-$project}"
-export API_IMAGE="agent-platform-api:${project}"
-export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
+export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 export RESTORE_POSTGRES_PORT="$port_base"
@@ -99,7 +98,7 @@ cleanup() {
     src down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     dst down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     remove_installation
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
     rm -rf "$out/backup"
   fi
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
@@ -184,7 +183,7 @@ image_id() { docker image inspect --format '{{.Id}}' "$1"; }
   echo "tested_sha: $(git rev-parse HEAD) (uncommitted paths: $(git status --porcelain | wc -l | tr -d ' '))"
   echo "docker_engine: $(docker version --format '{{.Server.Version}}')"
   echo "compose: $(docker compose version --short)"
-  for image in "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  for image in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
     echo "image: ${image} $(image_id "$image")"
   done
   echo "claude_agent_sdk: $(jq -r '.dependencies["@anthropic-ai/claude-agent-sdk"]' \

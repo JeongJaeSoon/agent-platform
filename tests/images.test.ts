@@ -6,7 +6,8 @@ import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
 import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
-} from "../apps/api/src/shutdown.ts";
+} from "../apps/control-host/src/api/shutdown.ts";
+import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -14,9 +15,9 @@ import {
 // images is images.yml's job.
 
 const root = join(import.meta.dir, "..");
-const apps = ["api", "scheduler", "worker", "egress-proxy"] as const;
+const apps = ["control-host", "worker", "egress-proxy"] as const;
 /** The apps with a workspace install; the egress proxy imports nothing. */
-const installingApps = ["api", "scheduler", "worker"] as const;
+const installingApps = ["control-host", "worker"] as const;
 const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -70,7 +71,7 @@ describe("app Dockerfiles", () => {
 
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
-    for (const app of ["api", "scheduler"] as const) {
+    for (const app of ["control-host"] as const) {
       expect(basePins[app].source).toContain(
         "test ! -e node_modules/@anthropic-ai",
       );
@@ -95,15 +96,57 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
-  test("the scheduler loop surfaces persistent failure", () => {
-    const schedulerBlock = compose.slice(compose.indexOf("\n  scheduler:"));
-    expect(schedulerBlock).toContain("SCHEDULER_MAX_CONSECUTIVE_FAILURES");
-    expect(schedulerBlock).toMatch(/exit 1/);
-    // A hung pass must count as a failure; unhealthy alone never restarts.
-    expect(schedulerBlock).toContain("timeout -k 10");
-    expect(schedulerBlock).toContain("touch /tmp/scheduler-last-ok");
-    expect(schedulerBlock).toContain("find /tmp/scheduler-last-ok -newermt");
+  test("no two services build the same image tag", () => {
+    // Two builds exporting one tag race: "image ... already exists".
+    const { services } = Bun.YAML.parse(compose) as {
+      services: Record<string, { build?: unknown; image?: string }>;
+    };
+    const built = Object.values(services)
+      .filter((service) => service.build && service.image)
+      .map((service) => service.image);
+    expect(new Set(built).size).toBe(built.length);
+    expect(services.scheduler?.build).toBeUndefined();
+    expect(services.scheduler?.image).toBe(services.api?.image);
   });
+
+  test.each(["scheduler", "reconciler"] as const)(
+    "the %s runs as its role's supervised pass loop",
+    (role) => {
+      const service = composeServices("infra/docker-compose.yml")[role];
+      const loop = PASS_LOOP_ROLES[role];
+      expect(service?.command).toEqual([
+        "bun",
+        "run",
+        "apps/control-host/src/main.ts",
+        role,
+      ]);
+      expect(service?.healthcheck?.test).toEqual([
+        "CMD",
+        "bun",
+        "run",
+        "apps/control-host/src/main.ts",
+        role,
+        "--health",
+      ]);
+      // Unhealthy alone never restarts a container; the loop exits instead.
+      expect(service?.restart).toBe("unless-stopped");
+      // Compose's defaults are the loop's own, so neither drifts alone.
+      for (const [suffix, value] of [
+        ["INTERVAL_SEC", loop.intervalSec],
+        ["PASS_TIMEOUT_SEC", loop.passTimeoutSec],
+        ["MAX_CONSECUTIVE_FAILURES", loop.maxConsecutiveFailures],
+        ["HEALTH_STALE_SEC", loop.healthStaleSec],
+      ] as const) {
+        const name = `${loop.prefix}_${suffix}`;
+        expect(service?.environment?.[name]).toBe(`$` + `{${name}:-${value}}`);
+      }
+      // Docker waits for the pass in flight to stop before killing the loop.
+      const graceSeconds = Number(
+        String(service?.stop_grace_period).match(/^(\d+)s$/)?.[1],
+      );
+      expect(graceSeconds).toBeGreaterThanOrEqual(loop.stopGraceSec + 5);
+    },
+  );
 
   test("env example names the variables the scheduler actually reads", () => {
     const example = read(EXAMPLE_ENV_PATH);
@@ -126,10 +169,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the API image itself runs under an init that reaps the git helpers it orphans", () => {
     // In the image, not compose, so `docker run` and other orchestrators get
     // it too; image-smoke.sh checks the running container.
-    expect(basePins.api.source).toMatch(
+    expect(basePins["control-host"].source).toMatch(
       /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
     );
-    expect(basePins.api.source).toMatch(/apt-get install .*\btini\b/);
+    expect(basePins["control-host"].source).toMatch(
+      /apt-get install .*\btini\b/,
+    );
   });
 
   test("the API's memory limit and git cap are set side by side", () => {
@@ -171,24 +216,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // It runs the image the api service builds rather than building the
     // same tag a second time, which races the api build on export.
     const { api, reconciler } = composeServices("infra/docker-compose.yml");
-    expect(api?.build?.dockerfile).toBe("apps/api/Dockerfile");
+    expect(api?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
     expect(reconciler?.build).toBeUndefined();
     expect(reconciler?.image).toBe(api?.image);
-    expect(reconcilerBlock).toContain(
-      'command: ["bun", "run", "apps/reconciler/src/loop.ts"]',
-    );
-    expect(reconcilerBlock).toContain("restart: unless-stopped");
-    expect(reconcilerBlock).toContain(
-      'test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]',
-    );
-    for (const name of [
-      "RECONCILER_INTERVAL_SEC",
-      "RECONCILER_PASS_TIMEOUT_SEC",
-      "RECONCILER_MAX_CONSECUTIVE_FAILURES",
-      "RECONCILER_HEALTH_STALE_SEC",
-    ]) {
-      expect(reconcilerBlock).toContain(`${name}: $` + `{${name}:-`);
-    }
     // It refuses to start with HEARTBEAT_TTL_SEC set, which an env file
     // shared with the API would hand it; nor does it listen on anything.
     expect(reconcilerBlock).not.toContain("env_file");
@@ -198,8 +228,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test("images.yml builds every app and pushes only on tags", () => {
     const workflow = read(".github/workflows/images.yml");
-    expect(workflow).toContain("app: [api, worker, scheduler, egress-proxy]");
-    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 4');
+    expect(workflow).toContain("app: [control-host, worker, egress-proxy]");
+    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 3');
     expect(workflow).toContain('tags: ["v*"]');
     // The PR-facing job never pushes and never holds package write; only
     // the tag-gated job does.
@@ -255,7 +285,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 type ComposeService = {
   image?: string;
   build?: { dockerfile?: string };
+  command?: string[];
+  environment?: Record<string, string>;
+  healthcheck?: { test?: string[] };
   ports?: (string | { host_ip?: string })[];
+  restart?: string;
+  stop_grace_period?: string;
   volumes?: string[];
 };
 
@@ -333,7 +368,8 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
       .map((service) => service.image)
       .filter((image) => image?.startsWith("oven/bun:"));
     expect(bunImages.length).toBeGreaterThan(0);
-    for (const image of bunImages) expect(image).toBe(basePins.api.pin);
+    for (const image of bunImages)
+      expect(image).toBe(basePins["control-host"].pin);
   });
 
   test("the egress proxy runs its released image, not a mounted source tree", () => {

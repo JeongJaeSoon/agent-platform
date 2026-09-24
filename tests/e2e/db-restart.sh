@@ -64,7 +64,7 @@ echo "== build + up api (${project})" >&2
 dc up -d --build --wait api >"$out/up.log" 2>&1 || { tail -50 "$out/up.log" >&2; exit 1; }
 
 api_url="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
-api_key="$(dc exec -T api bun run apps/api/src/keys.ts create dbr-owner --scopes sessions:read)"
+api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create dbr-owner --scopes sessions:read)"
 status_of() {
   curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$@" || true
 }

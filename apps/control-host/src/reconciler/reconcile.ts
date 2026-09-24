@@ -34,6 +34,34 @@ export type ReconcilerEnvironment = {
   RECONCILER_DRY_RUN?: string;
 };
 
+/** Refuses a bad setting before any row is touched; the service loop calls it once at startup. */
+export function reconcilerSettings(
+  environment: Readonly<Record<string, string | undefined>>,
+): {
+  limit: number;
+  dryRun: boolean;
+} {
+  // Every lease this judges carries the deadline its writer stamped from the
+  // API's HEARTBEAT_TTL_SEC. A value here could only disagree with that one,
+  // and silently ignoring it would let an operator believe it applies
+  // (94S-132).
+  if (environment.HEARTBEAT_TTL_SEC !== undefined) {
+    throw new Error(
+      "HEARTBEAT_TTL_SEC is read by the API only; the reconciler judges the lease deadlines stored with each heartbeat. Unset it here.",
+    );
+  }
+  return {
+    limit: positiveInteger(
+      environment.RECONCILER_BATCH_SIZE ?? "100",
+      "RECONCILER_BATCH_SIZE",
+    ),
+    dryRun: booleanFlag(
+      environment.RECONCILER_DRY_RUN ?? "false",
+      "RECONCILER_DRY_RUN",
+    ),
+  };
+}
+
 export async function runReconciler(input: {
   environment?: ReconcilerEnvironment;
   logger: ReconcilerLogger;
@@ -62,23 +90,8 @@ export async function runReconciler(input: {
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
 }): Promise<ReconcilerRun> {
-  const environment = input.environment ?? process.env;
-  // Every lease this judges carries the deadline its writer stamped from the
-  // API's HEARTBEAT_TTL_SEC. A value here could only disagree with that one,
-  // and silently ignoring it would let an operator believe it applies
-  // (94S-132).
-  if (environment.HEARTBEAT_TTL_SEC !== undefined) {
-    throw new Error(
-      "HEARTBEAT_TTL_SEC is read by the API only; the reconciler judges the lease deadlines stored with each heartbeat. Unset it here.",
-    );
-  }
-  const limit = positiveInteger(
-    environment.RECONCILER_BATCH_SIZE ?? "100",
-    "RECONCILER_BATCH_SIZE",
-  );
-  const dryRun = booleanFlag(
-    environment.RECONCILER_DRY_RUN ?? "false",
-    "RECONCILER_DRY_RUN",
+  const { limit, dryRun } = reconcilerSettings(
+    input.environment ?? process.env,
   );
   const reconciled = await input.reconcile({
     dryRun,

@@ -247,7 +247,9 @@ async function reconcileOnce(): Promise<string> {
     env?.apiImage ?? "",
     "bun",
     "run",
-    "apps/reconciler/src/main.ts",
+    "apps/control-host/src/main.ts",
+    "reconciler",
+    "--once",
   ]);
   return `${stdout}${stderr}`;
 }
@@ -282,7 +284,6 @@ async function collectMeta(): Promise<void> {
     tested_sha: await text(["git", "rev-parse", "HEAD"]),
     worktree_dirty: (await text(["git", "status", "--porcelain"])) !== "",
     api_image: `${env.apiImage} ${await imageId(env.apiImage)}`,
-    scheduler_image: `${env.schedulerImage} ${await imageId(env.schedulerImage)}`,
     worker_image: `${env.workerImage} ${await imageId(env.workerImage)}`,
     postgres_image: await containerImage("postgres"),
     localstack_image: await containerImage("localstack"),

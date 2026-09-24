@@ -6,10 +6,10 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { createApiApp } from "@agent-platform/api/src/app.ts";
-import { registerSessionRoutes } from "@agent-platform/api/src/routes/sessions.ts";
-import { registerWorkerRoutes } from "@agent-platform/api/src/routes/worker.ts";
 import { createSessionResponseSchema } from "@agent-platform/contracts";
+import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
+import { registerSessionRoutes } from "@agent-platform/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
 import * as schema from "@agent-platform/db";
 import {
   attempts,
