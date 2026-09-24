@@ -88,6 +88,34 @@ describe("Claude checkpoint codec", () => {
     expect(decodeCheckpointManifest(bytes)).toEqual(original);
   });
 
+  test("round-trips a bundle built on two earlier ones, oldest first (94S-227)", () => {
+    const base = manifest().workspace;
+    const link = (name: string, sha: string) => ({
+      bytes: 512,
+      key: `sessions/s1/checkpoints/${name}/workspace.bundle`,
+      sha256: sha.repeat(64),
+    });
+    const original = manifest({
+      workspace: {
+        ...base,
+        baseBundles: [link("0", "d"), { ...link("1", "e"), version: "v1" }],
+      },
+    });
+
+    const decoded = decodeCheckpointManifest(
+      encodeCheckpointManifest(original).bytes,
+    );
+
+    expect(decoded).toEqual(original);
+    expect(() =>
+      decodeCheckpointManifest(
+        encodeCheckpointManifest(
+          manifest({ workspace: { ...base, baseBundles: [] } }),
+        ).bytes,
+      ),
+    ).toThrow();
+  });
+
   test("round-trips the object versions a writer pinned (94S-229)", () => {
     const parts = [
       {

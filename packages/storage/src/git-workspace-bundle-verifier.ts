@@ -152,28 +152,39 @@ export function createGitWorkspaceBundleVerifier(
     options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
   return {
     policy: JSON.stringify({ maxGitMemoryBytes, maxPackObjects, timeoutMs }),
-    async verify({ bytes, commit, path }) {
+    async verify({ bases = [], bytes, commit, key, path }) {
       // The structural read is the cheap gate: no git process for bytes that
-      // are not a whole bundle offering the commit, and it hands back the ref
-      // to fetch and the object count the pack declares.
-      const offer = await gitBundleOffersFrom(createReadStream(path), commit);
-      if (offer.status !== "offers") {
-        return { status: "unusable", reason: offer.reason };
+      // are not a whole chain of bundles offering the commit, and it hands
+      // back the refs to fetch and the object count each pack declares.
+      const earlier = new Set<string>();
+      const links: Array<{ bytes: number; path: string; refs: string[] }> = [];
+      let objects = 0;
+      for (const [index, link] of [...bases, { bytes, key, path }].entries()) {
+        const tip = index === bases.length;
+        const offer = await gitBundleOffersFrom(
+          createReadStream(link.path),
+          tip ? commit : undefined,
+          earlier,
+        );
+        const unusable = (reason: string) => ({
+          status: "unusable" as const,
+          reason: bases.length === 0 ? reason : `${link.key}: ${reason}`,
+        });
+        if (offer.status !== "offers") return unusable(offer.reason);
+        const refs = [...offer.refs];
+        // The ref name goes into a refspec and, if git objects to it, into
+        // stderr. Only a name git itself would accept gets that far, so a
+        // bundle cannot choose what the failure below looks like.
+        const odd = refs.find((ref) => !gitRefNameAcceptable(ref));
+        if (odd !== undefined) {
+          return unusable(
+            `git bundle ref name is not one git would accept: ${JSON.stringify(odd)}`,
+          );
+        }
+        for (const oid of offer.tips) earlier.add(oid);
+        objects += offer.objects;
+        links.push({ bytes: link.bytes, path: link.path, refs });
       }
-      const ref = offer.refs[0];
-      if (ref === undefined) {
-        return { status: "unusable", reason: "git bundle offers no ref" };
-      }
-      // The ref name goes into a refspec and, if git objects to it, into
-      // stderr. Only a name git itself would accept gets that far, so a
-      // bundle cannot choose what the failure below looks like.
-      if (!gitRefNameAcceptable(ref)) {
-        return {
-          status: "unusable",
-          reason: `git bundle ref name is not one git would accept: ${JSON.stringify(ref)}`,
-        };
-      }
-      const { objects } = offer;
       if (objects > maxPackObjects) {
         return {
           status: "unusable",
@@ -183,9 +194,10 @@ export function createGitWorkspaceBundleVerifier(
       const directory = await mkdtemp(
         join(options.tempRoot ?? tmpdir(), "bundle-verify-"),
       );
-      const budgetMs = gitVerifyTimeoutMs(bytes, timeoutMs);
-      const limits = gitLimits(bytes, objects, budgetMs);
-      const git = (args: readonly string[], cwd: string) =>
+      const total = links.reduce((sum, link) => sum + link.bytes, 0);
+      // Each fetch gets the time its own bundle earns, and the walk over the
+      // whole history the time all of them do.
+      const git = (args: readonly string[], cwd: string, budgetBytes = total) =>
         gitRunner(args, {
           clearGitEnvironment: true,
           cwd,
@@ -200,8 +212,13 @@ export function createGitWorkspaceBundleVerifier(
             // Whatever git puts aside goes where the finally below removes it.
             TMPDIR: directory,
           },
-          limits,
-          timeoutMs: budgetMs,
+          limits: gitLimits(
+            total,
+            objects,
+            gitVerifyTimeoutMs(budgetBytes, timeoutMs),
+            bases.length > 0,
+          ),
+          timeoutMs: gitVerifyTimeoutMs(budgetBytes, timeoutMs),
         });
       try {
         const repository = join(directory, "repo.git");
@@ -221,30 +238,60 @@ export function createGitWorkspaceBundleVerifier(
         // recreate the repository after it has been removed. One index-pack
         // thread keeps a verification to one core; left alone it takes one
         // per CPU.
-        const fetch = await git(
+        // In chain order, every ref of each, as a restore fetches them: a
+        // link's tips are where the next one's prerequisites are looked for,
+        // and any ref of the last may be all that lands the commit.
+        for (const [index, link] of links.entries()) {
+          const fetch = await git(
+            [
+              "-c",
+              "fetch.fsckObjects=true",
+              "-c",
+              "transfer.fsckObjects=true",
+              "-c",
+              "maintenance.auto=false",
+              "-c",
+              "gc.auto=0",
+              "-c",
+              "pack.threads=1",
+              "fetch",
+              "--quiet",
+              "--no-tags",
+              "--no-write-fetch-head",
+              // Absolute: fetch runs inside the repository, not where the
+              // service put the file.
+              resolve(link.path),
+              ...link.refs.map(
+                (ref, at) => `${ref}:refs/verify/chain/${index}/${at}`,
+              ),
+            ],
+            repository,
+            link.bytes,
+          );
+          if (fetch.exitCode !== 0) return refused("git fetch", fetch);
+        }
+        // The header lets the commit be an earlier link's tip, because a tag
+        // over it is just another ref there. The last link has to land it
+        // itself, as a ref or a tag over one: that is the one a restore
+        // checks out.
+        const landed = await git(
           [
-            "-c",
-            "fetch.fsckObjects=true",
-            "-c",
-            "transfer.fsckObjects=true",
-            "-c",
-            "maintenance.auto=false",
-            "-c",
-            "gc.auto=0",
-            "-c",
-            "pack.threads=1",
-            "fetch",
-            "--quiet",
-            "--no-tags",
-            "--no-write-fetch-head",
-            // Absolute: fetch runs inside the repository, not where the
-            // service put the file.
-            resolve(path),
-            `${ref}:refs/verify/tip`,
+            "for-each-ref",
+            "--format=%(objectname) %(*objectname)",
+            `refs/verify/chain/${links.length - 1}/`,
           ],
           repository,
         );
-        if (fetch.exitCode !== 0) return refused("git fetch", fetch);
+        if (landed.exitCode !== 0) return refused("git for-each-ref", landed);
+        if (!landed.stdout.split(/\s+/).includes(commit.toLowerCase())) {
+          return {
+            status: "unusable",
+            reason:
+              bases.length === 0
+                ? `git bundle does not land ${commit} as a ref or a tag over one`
+                : `${key}: git bundle does not land ${commit} as a ref or a tag over one`,
+          };
+        }
         const walk = await git(
           ["rev-list", "--objects", "--quiet", `${commit}^{commit}`, "--"],
           repository,
@@ -263,17 +310,24 @@ export function createGitWorkspaceBundleVerifier(
    * than the bundle), its index (one entry per declared object, up to 40
    * bytes each for SHA-256) and a reverse index smaller than that. Capping
    * each file at the larger of the two keeps that true of whatever git is
-   * handed. CPU gets the wall-clock budget: one thread cannot use more.
+   * handed. A later link of a chain is a thin pack, which index-pack
+   * completes with the delta bases it names from the links before it, each
+   * one whole: on top of everything the chain carries, the cap leaves room
+   * for one base as large as git may hold in memory to resolve. CPU gets
+   * the wall-clock budget: one thread cannot use more.
    */
   function gitLimits(
     bundleBytes: number,
     objects: number,
     budgetMs: number,
+    thin: boolean,
   ): GitResourceLimits {
     return {
       cpuSeconds: Math.ceil(budgetMs / 1000),
       fileSizeBytes:
-        Math.max(bundleBytes, 1024 + objects * 40) + FILE_SIZE_SLACK_BYTES,
+        Math.max(bundleBytes, 1024 + objects * 40) +
+        (thin ? maxGitMemoryBytes : 0) +
+        FILE_SIZE_SLACK_BYTES,
       memoryBytes: maxGitMemoryBytes,
     };
   }
@@ -321,6 +375,8 @@ const GIT_REFUSALS = [
   "not a valid object",
   "sha1 collision",
   "pack too large",
+  // A later link of a chain whose prerequisites the earlier ones lack.
+  "lacks these prerequisite commits",
   // rev-list: the pinned commit never arrived.
   "bad revision",
   "does not appear to be a git repository",

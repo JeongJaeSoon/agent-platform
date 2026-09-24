@@ -8,6 +8,7 @@ import {
   runGit,
 } from "./workspace.ts";
 import {
+  CHECKPOINT_BRANCH_PREFIX,
   CHECKPOINT_GIT_CONFIG,
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
@@ -30,6 +31,8 @@ export type StagedCheckpoint = {
   head: string;
   instructions: string | null;
   repository: string;
+  /** Every ref tip of the chain's bundles, which the next capture builds on. */
+  tips: string[];
   worktree: string;
 };
 
@@ -46,12 +49,14 @@ const CLEAR_BATCH = 1024;
 
 /**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
- * refs back. Throws for a bundle that is not the one `captureWorkspace`
- * writes: a ref it does not write, a required ref missing, a branch that
- * is not at HEAD's commit, or a worktree commit other than the manifest's.
- * The fetch checks every object (`fsckObjects`), so what is staged is whole.
+ * refs back, after the `bases` it builds on, oldest first (94S-227). Throws
+ * for a bundle that is not the one `captureWorkspace` writes: a ref it does
+ * not write, a required ref missing, a branch that is not at HEAD's commit,
+ * or a worktree commit other than the manifest's. The fetch checks every
+ * object (`fsckObjects`), so what is staged is whole.
  */
 export async function stageCheckpointBundle(input: {
+  bases?: readonly string[];
   bundle: string;
   gitCommit: string;
   repository: string;
@@ -63,25 +68,57 @@ export async function stageCheckpointBundle(input: {
     git(["init", "--quiet", "--bare", "--template=", repository]),
     "init",
   );
-  const heads = await required(
-    git(["bundle", "list-heads", input.bundle]),
-    "bundle list-heads",
-  );
-  const refs = new Map<string, string>();
-  for (const line of heads.split("\n")) {
-    if (line === "") continue;
-    const [oid, name] = line.split(" ");
-    if (oid === undefined || name === undefined || refs.has(name)) {
-      throw new Error(`Checkpoint bundle lists a malformed ref: ${line}`);
+  const fetch = (bundle: string, refspec: string) =>
+    check(
+      git([
+        "-c",
+        "fetch.fsckObjects=true",
+        "-c",
+        "transfer.fsckObjects=true",
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        bundle,
+        refspec,
+      ]),
+      "fetch bundle",
+    );
+  const listed = async (bundle: string) => {
+    const heads = await required(
+      git(["bundle", "list-heads", bundle]),
+      "bundle list-heads",
+    );
+    const refs = new Map<string, string>();
+    for (const line of heads.split("\n")) {
+      if (line === "") continue;
+      const [oid, name] = line.split(" ");
+      if (oid === undefined || name === undefined || refs.has(name)) {
+        throw new Error(`Checkpoint bundle lists a malformed ref: ${line}`);
+      }
+      refs.set(name, oid);
     }
-    refs.set(name, oid);
+    return refs;
+  };
+  const tips: string[] = [];
+  // Each base's refs kept apart, so the next one's prerequisites are here
+  // and nothing of the tip's is shadowed.
+  for (const [index, base] of (input.bases ?? []).entries()) {
+    tips.push(...(await listed(base)).values());
+    await fetch(base, `refs/*:refs/base/${index}/*`);
   }
-  const branches = [...refs.keys()].filter((name) =>
-    name.startsWith("refs/heads/"),
+  const refs = await listed(input.bundle);
+  tips.push(...refs.values());
+  // As the bundle names them; one under `CHECKPOINT_BRANCH_PREFIX` stands
+  // for the branch under `refs/heads/`.
+  const branches = [...refs.keys()].filter(
+    (name) =>
+      name.startsWith("refs/heads/") ||
+      name.startsWith(CHECKPOINT_BRANCH_PREFIX),
   );
   const unknown = [...refs.keys()].filter(
     (name) =>
-      !name.startsWith("refs/heads/") &&
+      !branches.includes(name) &&
       name !== CHECKPOINT_HEAD_REF &&
       name !== CHECKPOINT_WORKTREE_REF &&
       name !== CHECKPOINT_INSTRUCTIONS_REF,
@@ -91,21 +128,7 @@ export async function stageCheckpointBundle(input: {
       `Checkpoint bundle carries refs a capture does not write: ${[...unknown, ...branches.slice(1)].join(", ")}`,
     );
   }
-  await check(
-    git([
-      "-c",
-      "fetch.fsckObjects=true",
-      "-c",
-      "transfer.fsckObjects=true",
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      "--no-write-fetch-head",
-      input.bundle,
-      `refs/*:${STAGED}*`,
-    ]),
-    "fetch bundle",
-  );
+  await fetch(input.bundle, `refs/*:${STAGED}*`);
   const commit = async (name: string): Promise<string | null> => {
     if (!refs.has(name)) return null;
     const staged = `${STAGED}${name.slice("refs/".length)}`;
@@ -128,15 +151,23 @@ export async function stageCheckpointBundle(input: {
       `Checkpoint bundle pins worktree ${worktree}, not the manifest's ${input.gitCommit}`,
     );
   }
-  const branch = branches[0] ?? null;
-  if (branch !== null && (await commit(branch)) !== head) {
-    throw new Error(`Checkpoint bundle's ${branch} is not at HEAD's commit`);
+  const carried = branches[0];
+  const branch =
+    carried?.startsWith(CHECKPOINT_BRANCH_PREFIX) === true
+      ? `refs/${carried.slice(CHECKPOINT_BRANCH_PREFIX.length)}`
+      : (carried ?? null);
+  if (carried !== undefined && (await commit(carried)) !== head) {
+    throw new Error(`Checkpoint bundle's ${carried} is not at HEAD's commit`);
+  }
+  if (branch !== null && !branch.startsWith("refs/heads/")) {
+    throw new Error(`Checkpoint bundle carries ${carried}, which is no branch`);
   }
   return {
     branch,
     head,
     instructions: await commit(CHECKPOINT_INSTRUCTIONS_REF),
     repository,
+    tips,
     worktree,
   };
 }

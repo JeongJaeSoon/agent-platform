@@ -53,7 +53,9 @@ import {
 import type { WorkerLogger } from "./worker-host.ts";
 import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
 import {
+  type BundleBase,
   captureWorkspace,
+  DEFAULT_WORKSPACE_CAPTURE_LIMITS,
   type InstructionsPin,
   type WorkspaceCaptureLimits,
   type WorkspaceCaptureResult,
@@ -68,6 +70,12 @@ import {
  */
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_MANIFEST_OBJECTS = 20_000;
+/**
+ * The control plane's `MAX_WORKSPACE_BUNDLE_CHAIN`: a bundle builds on at
+ * most one fewer. At the limit the next one stands alone and a chain starts
+ * over.
+ */
+const MAX_BUNDLE_CHAIN = 32;
 const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
 const DOWNLOAD_CONCURRENCY = 8;
@@ -98,6 +106,7 @@ export type SessionCheckpointsOptions = {
     signal: AbortSignal;
     limits?: WorkspaceCaptureLimits;
     instructions?: InstructionsPin;
+    base?: BundleBase;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   now?: () => Date;
@@ -109,6 +118,18 @@ type Bound = {
   instructions: InstructionsPin | undefined;
   runtime: RuntimeFingerprint;
   store: ClaudeSessionStore;
+  /** The checkpoint restored from, or the last one this run saw committed. */
+  committed?: BundleChain;
+  /** The last one this run published, until the next shows it committed. */
+  published?: BundleChain | undefined;
+};
+
+/** A checkpoint's workspace bundles as its manifest names them (94S-227). */
+type BundleChain = {
+  revision: number;
+  /** Oldest first; the last is the manifest's `bundle`. */
+  links: readonly ObjectRef[];
+  tips: readonly string[];
 };
 
 /**
@@ -324,8 +345,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal.throwIfAborted();
     let spool = await mkdtemp(join(workspaceRoot, ".agent-platform-restore-"));
     const spooled = new Map<string, string>();
+    const bases = manifest.workspace.baseBundles ?? [];
     const artifacts = [
       { name: "workspace.bundle", ref: pinned(manifest.workspace.bundle) },
+      ...bases.map((ref, index) => ({
+        name: `workspace-base-${index}.bundle`,
+        ref: pinned(ref),
+      })),
       ...distinctRefs(manifest.workspace.untracked).map((ref, index) => {
         const name = `untracked-${index}`;
         spooled.set(ref.key, name);
@@ -339,6 +365,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
       signal.throwIfAborted();
       const staged = await stageCheckpointBundle({
+        bases: bases.map((_, index) =>
+          join(spool, `workspace-base-${index}.bundle`),
+        ),
         bundle: join(spool, "workspace.bundle"),
         gitCommit: manifest.workspace.gitCommit,
         repository: join(spool, "checkpoint.git"),
@@ -382,6 +411,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
               },
         runtime,
         store,
+        committed: {
+          revision: restoring.revision,
+          links: [...bases, manifest.workspace.bundle],
+          tips: staged.tips,
+        },
       };
       restored = true;
       this.#options.logger.info("worker.checkpoint.restored", {
@@ -457,6 +491,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     );
     if (oversized !== undefined) throw refuse(oversized);
     for (const ref of [
+      ...(manifest.workspace.baseBundles ?? []),
       manifest.workspace.bundle,
       ...manifest.workspace.untracked,
     ]) {
@@ -539,6 +574,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
+    if (this.#bound !== undefined) this.#bound.published = undefined;
     await this.#report(
       {
         status: "rejected",
@@ -611,6 +647,42 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
   }
 
+  /**
+   * The chain a capture for `revision` may build on: that of the checkpoint
+   * right before it, which finalize holds the new one to, and only while
+   * every bundle of it is still in the store. The server hands out the
+   * revision after the pointer, so one that follows what this run published
+   * last shows that one committed; one that does not, that it was not.
+   */
+  async #chainBefore(
+    bound: Bound,
+    revision: number,
+  ): Promise<BundleChain | undefined> {
+    if (bound.published?.revision === revision - 1) {
+      bound.committed = bound.published;
+    }
+    bound.published = undefined;
+    const chain = bound.committed;
+    if (
+      chain === undefined ||
+      chain.revision !== revision - 1 ||
+      chain.links.length >= MAX_BUNDLE_CHAIN
+    ) {
+      return undefined;
+    }
+    const present = await Promise.all(
+      chain.links.map(async (link) => {
+        try {
+          const head = await this.#options.objects.head(link.key, link.version);
+          return head?.bytes === link.bytes;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    return present.every(Boolean) ? chain : undefined;
+  }
+
   async #publish(
     bound: Bound,
     preparation: ReadyCheckpoint,
@@ -655,6 +727,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         "the workspace .git is not a directory",
       );
     }
+    const chain = await this.#chainBefore(bound, request.revision);
+    const maxBundleBytes = (
+      this.#options.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS
+    ).maxBundleBytes;
     let captured: WorkspaceCaptureResult;
     let bundle: ObjectRef;
     try {
@@ -668,6 +744,16 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...(bound.instructions === undefined
           ? {}
           : { instructions: bound.instructions }),
+        ...(chain === undefined
+          ? {}
+          : {
+              base: {
+                maxBytes:
+                  maxBundleBytes -
+                  chain.links.reduce((total, link) => total + link.bytes, 0),
+                tips: chain.tips,
+              },
+            }),
       });
       if (captured.status === "refused") {
         throw new PublishFailure("workspace", captured.reason);
@@ -687,6 +773,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       await rm(spool, { force: true, recursive: true });
     }
     const { capture } = captured;
+    const bases = capture.bundle.incremental ? (chain?.links ?? []) : [];
 
     const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => ({
       ...refOf(`${directory}untracked/${sha256(file.bytes)}`, file.bytes),
@@ -732,6 +819,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     const referenced =
       1 +
+      bases.length +
       untracked.length +
       transcripts.root.parts.length +
       Object.values(transcripts.subagents).reduce(
@@ -755,6 +843,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       transcripts,
       version: 2,
       workspace: {
+        ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),
         gitCommit: capture.gitCommit,
         untracked: untracked.map(versioned),
@@ -774,11 +863,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         `${manifestRef} already holds another manifest`,
       );
     }
+    bound.published = {
+      revision: request.revision,
+      links: [...bases, manifest.workspace.bundle],
+      tips: [
+        ...(bases.length === 0 ? [] : (chain?.tips ?? [])),
+        ...capture.bundle.tips,
+      ],
+    };
     this.#options.logger.info("worker.checkpoint.published", {
       revision: request.revision,
       manifest_ref: manifestRef,
       git_commit: capture.gitCommit,
       untracked: untracked.length,
+      bundle_bytes: bundle.bytes,
+      base_bundles: bases.length,
     });
     return {
       revision: request.revision,

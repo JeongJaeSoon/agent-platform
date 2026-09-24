@@ -18,7 +18,10 @@ import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
 } from "@agent-platform/testkit/checkpoint-objects";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import {
+  createGitBundle,
+  createGitBundleChain,
+} from "@agent-platform/testkit/git-bundle";
 
 import {
   CHECKPOINT_ROOT_PARENT,
@@ -35,6 +38,7 @@ import {
 import {
   createCheckpointService,
   MAX_COOLING_BUNDLES,
+  MAX_WORKSPACE_BUNDLE_CHAIN,
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
@@ -1384,6 +1388,223 @@ describe("a bundle whose verification threw cools down (94S-271)", () => {
     ).rejects.toThrow("git fetch ran out of memory");
     expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 2);
   }, 30_000);
+});
+
+const chain = await createGitBundleChain();
+
+describe("a bundle that builds on the previous checkpoint's (94S-227)", () => {
+  const baseRef: ObjectRef = {
+    bytes: chain.base.bytes.byteLength,
+    key: bundleKeyFor(0, attemptId),
+    sha256: chain.base.sha256,
+  };
+  const tipRef: ObjectRef = {
+    bytes: chain.tip.bytes.byteLength,
+    key: bundleKeyFor(1, attemptId),
+    sha256: chain.tip.sha256,
+  };
+
+  async function finalize(body: CheckpointManifest, turnId: string) {
+    const { checkpoint } = await upload(body);
+    return service.finalize({
+      checkpoint,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId,
+    });
+  }
+
+  /** Revision 0, standing alone, committed as the pointer. */
+  async function committedBase() {
+    await objects.put(baseRef.key, chain.base.bytes);
+    await objects.put(tipRef.key, chain.tip.bytes);
+    expect(
+      await finalize(
+        manifest({
+          workspace: workspace({
+            bundle: baseRef,
+            gitCommit: chain.base.commit,
+          }),
+        }),
+        "1",
+      ),
+    ).toEqual({ outcome: "committed", revision: 0 });
+  }
+
+  const incremental = (overrides: Partial<CheckpointWorkspace> = {}) =>
+    manifest({
+      revision: 1,
+      workspace: workspace({
+        baseBundles: [baseRef],
+        bundle: tipRef,
+        gitCommit: chain.tip.commit,
+        ...overrides,
+      }),
+    });
+
+  test("commits one whose bases are exactly the pointer's bundles, and plans the chain in order", async () => {
+    await committedBase();
+
+    expect(await finalize(incremental(), "2")).toEqual({
+      outcome: "committed",
+      revision: 1,
+    });
+    const plan = await service.getRestorePlan({ runtime, sessionId });
+    if (plan.status !== "ready") throw new Error(plan.status);
+    expect(
+      plan.plan.artifacts.find(({ kind }) => kind === "workspace_bundle")
+        ?.objects,
+    ).toEqual([baseRef, tipRef]);
+  });
+
+  test("reads the chain by key, whatever versions it names, where objects are unversioned", async () => {
+    await committedBase();
+
+    expect(
+      await finalize(
+        incremental({
+          baseBundles: [{ ...baseRef, version: "restored-under-another-id" }],
+        }),
+        "2",
+      ),
+    ).toEqual({ outcome: "committed", revision: 1 });
+    const plan = await service.getRestorePlan({ runtime, sessionId });
+    if (plan.status !== "ready") throw new Error(plan.status);
+    expect(
+      plan.plan.artifacts.find(({ kind }) => kind === "workspace_bundle")
+        ?.objects,
+    ).toEqual([baseRef, tipRef]);
+  });
+
+  test("refuses a chain with a link left out, and the pointer stays", async () => {
+    await committedBase();
+    expect(await finalize(incremental(), "2")).toMatchObject({
+      outcome: "committed",
+    });
+    const skipping: ObjectRef = { ...tipRef, key: bundleKeyFor(2, attemptId) };
+    await objects.put(skipping.key, chain.tip.bytes);
+
+    expect(
+      await finalize(
+        manifest({
+          revision: 2,
+          workspace: workspace({
+            baseBundles: [baseRef],
+            bundle: skipping,
+            gitCommit: chain.tip.commit,
+          }),
+        }),
+        "3",
+      ),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: "workspace bundle builds on bundles other than revision 1's",
+    });
+    expect(checkpoints.pointer()).toMatchObject({ revision: 1 });
+  });
+
+  test("refuses bases other than the pointer's", async () => {
+    await committedBase();
+    const stranger = bundleKeyFor(0, "attempt-2");
+    await objects.put(stranger, chain.base.bytes);
+
+    expect(
+      await finalize(
+        incremental({ baseBundles: [{ ...baseRef, key: stranger }] }),
+        "2",
+      ),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: "workspace bundle builds on bundles other than revision 0's",
+    });
+  });
+
+  test("refuses bases when nothing is committed to vouch for them", async () => {
+    await objects.put(baseRef.key, chain.base.bytes);
+    await objects.put(tipRef.key, chain.tip.bytes);
+
+    expect(
+      await finalize(
+        manifest({
+          revision: 1,
+          workspace: workspace({
+            baseBundles: [baseRef],
+            bundle: tipRef,
+            gitCommit: chain.tip.commit,
+          }),
+        }),
+        "2",
+      ),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason:
+        "workspace bundle builds on earlier bundles, and revision 0 is not a committed checkpoint that can vouch for them",
+    });
+  });
+
+  test("refuses the incremental bundle alone: a fresh workspace lacks its prerequisite", async () => {
+    await committedBase();
+
+    expect(
+      await finalize(
+        manifest({
+          revision: 1,
+          workspace: workspace({ bundle: tipRef, gitCommit: chain.tip.commit }),
+        }),
+        "2",
+      ),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: expect.stringContaining(
+        "prerequisite commit(s) a fresh workspace does not have",
+      ),
+    });
+  });
+
+  test("holds the chain as a whole to one bundle's size and to a length", async () => {
+    await committedBase();
+    const small = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      maxWorkspaceBundleBytes: baseRef.bytes + tipRef.bytes - 1,
+      objectProtection: "unversioned",
+      newPublishId: () => PUBLISH_ID,
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint } = await upload(incremental());
+
+    expect(
+      await small.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringContaining("and the bundles it builds on are"),
+    });
+    // Another revision: the key above already holds the first manifest.
+    const long = manifest({
+      revision: 2,
+      workspace: workspace({
+        baseBundles: Array.from(
+          { length: MAX_WORKSPACE_BUNDLE_CHAIN },
+          () => baseRef,
+        ),
+        bundle: { ...tipRef, key: bundleKeyFor(2, attemptId) },
+        gitCommit: chain.tip.commit,
+      }),
+    });
+    expect(
+      await service.validateManifest({
+        checkpoint: (await upload(long)).checkpoint,
+        sessionId,
+      }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringContaining(
+        `over the ${MAX_WORKSPACE_BUNDLE_CHAIN - 1} the control plane will verify`,
+      ),
+    });
+  });
 });
 
 describe("finalize", () => {

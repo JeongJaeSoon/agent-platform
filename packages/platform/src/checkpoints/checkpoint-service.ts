@@ -29,9 +29,11 @@ import type {
 } from "../ports/checkpoint-store.ts";
 import {
   rejectUnverifiedWorkspaceBundles,
+  type WorkspaceBundleFile,
   type WorkspaceBundleVerifier,
 } from "../ports/workspace-bundle-verifier.ts";
 import {
+  chainOf,
   engineOf,
   inBatches,
   keepSet,
@@ -301,6 +303,12 @@ export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 256 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
+/**
+ * Bundles in one chain, the last included (94S-227). Each is a fetch of its
+ * own when it is verified and restored; past this a worker starts over with
+ * a bundle that stands alone.
+ */
+export const MAX_WORKSPACE_BUNDLE_CHAIN = 32;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
 // The git verifier's own timeout: a bundle that keeps throwing then holds a
 // verification slot at most half the time.
@@ -421,6 +429,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      */
     confined?: boolean;
     /**
+     * Finalize only: the bundles the checkpoint the candidate builds on
+     * carries (`chainOf`), which a candidate's `baseBundles` must be exactly;
+     * undefined when that checkpoint could not be read.
+     */
+    builtOn?: readonly ObjectRef[];
+    /**
      * Collects every version this validation read, with whether a legal
      * hold already covers it. Finalize holds the rest; restore passes none.
      */
@@ -493,6 +507,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `manifest is revision ${manifest.revision}, not ${checkpoint.revision}`,
       };
     }
+    if (input.confined === true) {
+      const unbuilt = unbuiltChain(manifest, input.builtOn);
+      if (unbuilt !== undefined) return rejected(unbuilt);
+    }
     const bad = await badArtifact(
       manifest,
       sessionId,
@@ -560,10 +578,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
       ...manifest.workspace.untracked,
     ];
-    // Counted before any request goes out: the bundle is the one more.
-    if (refs.length + 1 > maxManifestObjects) {
+    const chain = chainOf(manifest.workspace);
+    // Counted before any request goes out: the bundles are the rest.
+    if (refs.length + chain.length > maxManifestObjects) {
       return refused(
-        `manifest names ${refs.length + 1} objects, over the ${maxManifestObjects}-object limit`,
+        `manifest names ${refs.length + chain.length} objects, over the ${maxManifestObjects}-object limit`,
       );
     }
     // From the sizes the refs claim, which the reads below hold the stored
@@ -573,7 +592,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     );
     if (oversized !== undefined) return refused(oversized);
     const prefix = sessionObjectPrefix(sessionId);
-    for (const ref of [...refs, manifest.workspace.bundle]) {
+    for (const ref of [...refs, ...chain]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
         return refused(
           `manifest references an object outside ${prefix}: ${ref.key}`,
@@ -585,7 +604,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // Garbage collection relies on it — a directory it may reclaim is never
     // one a manifest that can still commit points into
     // (checkpoint-collector.ts). The bundle is held to the same directory
-    // below, on every read.
+    // below, on every read. Its base bundles are the one exception, and only
+    // as the previous checkpoint's own (`unbuiltChain`): that checkpoint is
+    // the pointer while the candidate can commit, and collection keeps what
+    // the pointer names.
     const publish = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
     const directories = `${prefix}checkpoints/`;
     const stray = confined
@@ -608,7 +630,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // key's current object", which is exactly what this mode exists to stop
     // trusting.
     if (protection === "locked") {
-      const loose = [...refs, manifest.workspace.bundle].find(
+      const loose = [...refs, ...chain].find(
         (ref) => ref.version === undefined,
       );
       if (loose !== undefined) {
@@ -684,7 +706,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * It is read whole every time rather than skipped via the verified set,
    * because what is being checked is not the object's integrity but its
    * relationship to *this* manifest's commit, and that changes with every
-   * revision even when the bytes do not.
+   * revision even when the bytes do not. So are the bundles it builds on
+   * (94S-227): the chain as a whole is held to one bundle's size, so
+   * verifying it costs no more than verifying a bundle that stands alone.
    */
   async function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
@@ -706,31 +730,36 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // cheap refusals above it must not queue behind a gigabyte being hashed.
     return bundleGate(() => {
       coolingDown();
-      return readAndVerifyBundle(workspace, present.head, pinned);
+      return readAndVerifyBundle(workspace, present.heads, pinned);
     });
   }
 
-  // Where it is stored, and the commit too: the same bytes asked for
-  // another commit is other work.
+  // Where each bundle of the chain is stored, in order, and the commit too:
+  // the same bytes asked for another commit is other work.
   function bundleCooldownKey(
     workspace: CheckpointManifest["workspace"],
   ): string {
-    const { bundle } = workspace;
     return JSON.stringify([
       bundles.policy ?? null,
-      bundle.key,
-      bundle.version ?? null,
-      bundle.sha256,
+      chainOf(workspace).map((link) => [
+        link.key,
+        link.version ?? null,
+        link.sha256,
+      ]),
       workspace.gitCommit,
     ]);
   }
 
-  /** Everything about the bundle a HEAD settles, before its body is read. */
+  /**
+   * Everything about the bundles a HEAD settles, before a body is read; the
+   * heads in chain order.
+   */
   async function bundlePresent(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
-  ): Promise<Problem | { head: ObjectHead }> {
+  ): Promise<Problem | { heads: ObjectHead[] }> {
     const { bundle } = workspace;
+    const chain = chainOf(workspace);
     // One attempt's directory holds one attempt's objects. A bundle at a key
     // the session reuses across revisions is either overwritten — so the
     // committed checkpoint stops describing what is stored — or refused by
@@ -743,80 +772,101 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `workspace bundle ${bundle.key} is not under this attempt's ${attempt}`,
       );
     }
+    if (chain.length > MAX_WORKSPACE_BUNDLE_CHAIN) {
+      return refused(
+        `workspace bundle ${bundle.key} builds on ${chain.length - 1} bundles, over the ${MAX_WORKSPACE_BUNDLE_CHAIN - 1} the control plane will verify`,
+      );
+    }
     // Both figures, and before the body: the manifest's is the worker's
     // claim and the store's is the truth, and either one over the ceiling
     // means this object is never pulled into the process at all.
     const tooBig = (found: number) =>
       refused(
-        `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`,
+        chain.length === 1
+          ? `workspace bundle ${bundle.key} is ${found} bytes, over the ${maxBundleBytes} the control plane will verify`
+          : `workspace bundle ${bundle.key} and the bundles it builds on are ${found} bytes, over the ${maxBundleBytes} the control plane will verify`,
       );
-    if (bundle.bytes > maxBundleBytes) return tooBig(bundle.bytes);
-    const head = await objects.head(bundle.key, bundle.version);
-    if (head === undefined) {
-      return broken(
-        `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
-      );
+    const claimed = chain.reduce((total, link) => total + link.bytes, 0);
+    if (claimed > maxBundleBytes) return tooBig(claimed);
+    const heads: ObjectHead[] = [];
+    for (const link of chain) {
+      const head = await objects.head(link.key, link.version);
+      if (head === undefined) {
+        return broken(
+          `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
+        );
+      }
+      if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
+      if (head.bytes !== link.bytes) {
+        return broken(
+          `workspace bundle ${link.key} is ${head.bytes} bytes, not ${link.bytes}`,
+        );
+      }
+      heads.push(head);
     }
-    if (head.bytes > maxBundleBytes) return tooBig(head.bytes);
-    if (head.bytes !== bundle.bytes) {
-      return broken(
-        `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
-      );
-    }
-    return { head };
+    return { heads };
   }
 
   async function readAndVerifyBundle(
     workspace: CheckpointManifest["workspace"],
-    head: ObjectHead,
+    heads: readonly ObjectHead[],
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
     const { bundle, gitCommit } = workspace;
-    // The bundle is read exactly once, by this loop, which both hashes it
-    // and spools it to a file of its own; the verifier gets the file, and
-    // only after the digest proved it is the object the manifest names. A
-    // tee would let a slow second reader make the stream buffer for it, and
+    const chain = chainOf(workspace);
+    // Each bundle is read exactly once, by this loop, which both hashes it
+    // and spools it to a file of its own; the verifier gets the files, and
+    // only after the digests proved they are the objects the manifest names.
+    // A tee would let a slow second reader make the stream buffer for it, and
     // would show the verifier bytes nobody had checked yet.
     const spool = await mkdtemp(join(spoolRoot, "bundle-spool-"));
     try {
-      const path = join(spool, "workspace.bundle");
-      const file = await open(path, "wx", 0o600);
-      let body: Awaited<ReturnType<typeof digestObject>>;
-      try {
-        body = await digestObject(
-          objects,
-          bundle.key,
-          bundle.version,
-          maxBundleBytes,
-          (chunk) => writeFully(file, chunk),
-        );
-      } finally {
-        await file.close();
+      const files: WorkspaceBundleFile[] = [];
+      let left = maxBundleBytes;
+      for (const [index, link] of chain.entries()) {
+        const path = join(spool, `workspace-${index}.bundle`);
+        const file = await open(path, "wx", 0o600);
+        let body: Awaited<ReturnType<typeof digestObject>>;
+        try {
+          body = await digestObject(
+            objects,
+            link.key,
+            link.version,
+            left,
+            (chunk) => writeFully(file, chunk),
+          );
+        } finally {
+          await file.close();
+        }
+        if (body === undefined) {
+          return broken(
+            `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
+          );
+        }
+        // A store that answered a smaller HEAD than it then served is the one
+        // case the checks above cannot bound; the read stopped at the ceiling.
+        if (body.status === "over") {
+          return refused(
+            `workspace bundle ${link.key} delivered more than the ${maxBundleBytes} bytes the control plane will verify`,
+          );
+        }
+        if (body.sha256 !== link.sha256) {
+          return broken(
+            `workspace bundle ${link.key} hashes to ${body.sha256}, not ${link.sha256}`,
+          );
+        }
+        left -= body.bytes;
+        files.push({ bytes: body.bytes, key: link.key, path });
       }
-      if (body === undefined) {
-        return broken(
-          `manifest references a missing workspace bundle: ${bundle.key}${versionSuffix(bundle.version)}`,
-        );
-      }
-      // A store that answered a smaller HEAD than it then served is the one
-      // case the checks above cannot bound; the read stopped at the ceiling.
-      if (body.status === "over") {
-        return refused(
-          `workspace bundle ${bundle.key} delivered more than the ${maxBundleBytes} bytes the control plane will verify`,
-        );
-      }
-      if (body.sha256 !== bundle.sha256) {
-        return broken(
-          `workspace bundle ${bundle.key} hashes to ${body.sha256}, not ${bundle.sha256}`,
-        );
-      }
+      const tip = files[files.length - 1] as WorkspaceBundleFile;
       let verdict: Awaited<ReturnType<typeof bundles.verify>>;
       try {
         verdict = await bundles.verify({
-          bytes: body.bytes,
+          ...(files.length > 1 ? { bases: files.slice(0, -1) } : {}),
+          bytes: tip.bytes,
           commit: gitCommit,
-          key: bundle.key,
-          path,
+          key: tip.key,
+          path: tip.path,
         });
       } catch (error) {
         // Only the verifier's own throws: a store that failed the read above
@@ -834,8 +884,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     } finally {
       await rm(spool, { force: true, recursive: true });
     }
-    if (bundle.version !== undefined) {
-      pinned?.note(bundle.key, bundle.version, head);
+    for (const [index, link] of chain.entries()) {
+      const head = heads[index];
+      if (link.version !== undefined && head !== undefined) {
+        pinned?.note(link.key, link.version, head);
+      }
     }
     return undefined;
   }
@@ -934,7 +987,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     }
     const pinned = pinnedVersions();
     const reads = committedReads(sessionId);
+    const builtOn = await committedChain(input.checkpoint.revision - 1, reads);
     const verdict = await validateManifest({
+      ...(builtOn === undefined ? {} : { builtOn }),
       checkpoint: input.checkpoint,
       confined: true,
       held: protection === "locked",
@@ -958,6 +1013,54 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       return { ...verdict, versionsHeld: true };
     }
     return verdict;
+  }
+
+  /**
+   * The bundles of the committed checkpoint at `revision` when it is the
+   * pointer, which is the only checkpoint a candidate's bundle may build on;
+   * undefined when it is not or cannot be read. Its manifest is the one the
+   * pointer pinned by digest, so its word on which bundles those are stands;
+   * their bytes are read and verified with the candidate's anyway.
+   */
+  async function committedChain(
+    revision: number,
+    reads: CommittedReads,
+  ): Promise<readonly ObjectRef[] | undefined> {
+    try {
+      const pointer = await reads.pointer();
+      if (pointer === null || pointer.revision !== revision) return undefined;
+      const manifest = await reads.manifest(pointer);
+      return manifest === undefined ? undefined : chainOf(manifest.workspace);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Why `manifest`'s bundle may not build on the bundles it names: at
+   * finalize, only on exactly the ones the checkpoint before it carries, so
+   * the chain grows one link at a time from a checkpoint that committed.
+   */
+  function unbuiltChain(
+    manifest: CheckpointManifest,
+    builtOn: readonly ObjectRef[] | undefined,
+  ): string | undefined {
+    const bases = manifest.workspace.baseBundles;
+    if (bases === undefined) return undefined;
+    const previous = manifest.revision - 1;
+    if (builtOn === undefined) {
+      return `workspace bundle builds on earlier bundles, and revision ${previous} is not a committed checkpoint that can vouch for them`;
+    }
+    const same = (left: ObjectRef, right: ObjectRef | undefined) =>
+      right !== undefined &&
+      left.key === right.key &&
+      left.bytes === right.bytes &&
+      left.sha256 === right.sha256 &&
+      (protection === "unversioned" || left.version === right.version);
+    return bases.length === builtOn.length &&
+      bases.every((base, index) => same(base, builtOn[index]))
+      ? undefined
+      : `workspace bundle builds on bundles other than revision ${previous}'s`;
   }
 
   /**
@@ -1503,7 +1606,7 @@ function planOf(
   artifacts.push({
     kind: "workspace_bundle",
     label: "",
-    objects: [manifest.workspace.bundle],
+    objects: chainOf(manifest.workspace),
   });
   if (manifest.workspace.untracked.length > 0) {
     artifacts.push({
@@ -1622,6 +1725,9 @@ function withoutVersions(manifest: CheckpointManifest): CheckpointManifest {
     },
     workspace: {
       ...manifest.workspace,
+      ...(manifest.workspace.baseBundles === undefined
+        ? {}
+        : { baseBundles: manifest.workspace.baseBundles.map(strip) }),
       bundle: strip(manifest.workspace.bundle),
       untracked: manifest.workspace.untracked.map(strip),
     },

@@ -31,6 +31,13 @@ export interface WorkspaceBundleVerifier {
    */
   readonly policy?: string;
   verify(input: {
+    /**
+     * The bundles this one builds on, oldest first (94S-227), each spooled
+     * and checked like it. `commit` must then be restorable from all of
+     * them fetched in order: the first on its own, each later one needing
+     * only commits an earlier one offers as a ref tip.
+     */
+    readonly bases?: readonly WorkspaceBundleFile[];
     /** The file's size, already checked against the manifest and the store. */
     readonly bytes: number;
     readonly commit: string;
@@ -38,6 +45,12 @@ export interface WorkspaceBundleVerifier {
     readonly path: string;
   }): Promise<WorkspaceBundleVerdict>;
 }
+
+export type WorkspaceBundleFile = {
+  readonly bytes: number;
+  readonly key: string;
+  readonly path: string;
+};
 
 /**
  * The default, and the only safe one: a checkpoint is refused until a
@@ -75,10 +88,25 @@ export const rejectUnverifiedWorkspaceBundles: WorkspaceBundleVerifier = {
  * about their own commits, and should say so out loud by naming it.
  */
 export const structuralBundleVerifier: WorkspaceBundleVerifier = {
-  async verify({ commit, path }) {
-    const verdict = await gitBundleOffersFrom(createReadStream(path), commit);
-    return verdict.status === "offers"
-      ? { status: "restorable" }
-      : { status: "unusable", reason: verdict.reason };
+  async verify({ bases = [], commit, key, path }) {
+    const earlier = new Set<string>();
+    for (const [index, link] of [...bases, { key, path }].entries()) {
+      const verdict = await gitBundleOffersFrom(
+        createReadStream(link.path),
+        index === bases.length ? commit : undefined,
+        earlier,
+      );
+      if (verdict.status !== "offers") {
+        return {
+          status: "unusable",
+          reason:
+            bases.length === 0
+              ? verdict.reason
+              : `${link.key}: ${verdict.reason}`,
+        };
+      }
+      for (const tip of verdict.tips) earlier.add(tip);
+    }
+    return { status: "restorable" };
   },
 };

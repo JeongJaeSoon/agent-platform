@@ -53,6 +53,49 @@ export async function createGitBundle(
   }
 }
 
+/**
+ * Two bundles git wrote as a chain (94S-227): `base` stands alone with the
+ * first commit, and `tip` carries only the second, needing the first as its
+ * prerequisite.
+ */
+export async function createGitBundleChain(): Promise<{
+  readonly base: GitBundleFixture;
+  readonly tip: GitBundleFixture;
+}> {
+  const directory = await mkdtemp(join(tmpdir(), "testkit-chain-"));
+  const bundled = async (
+    name: string,
+    commit: string,
+    ...revisions: string[]
+  ): Promise<GitBundleFixture> => {
+    const path = join(directory, `${name}.bundle`);
+    await git(directory, "bundle", "create", path, ...revisions);
+    const bytes = new Uint8Array(await readFile(path));
+    return {
+      bytes,
+      commit,
+      ref: "refs/heads/main",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+  };
+  try {
+    await git(directory, "init", "--initial-branch=main", ".");
+    const commitOf = async (contents: string) => {
+      await writeFile(join(directory, "file.txt"), contents);
+      await git(directory, "add", "file.txt");
+      await git(directory, "commit", "-m", contents);
+      return (await git(directory, "rev-parse", "HEAD")).trim();
+    };
+    const first = await commitOf("first\n");
+    const base = await bundled("base", first, "main");
+    const second = await commitOf("second\n");
+    const tip = await bundled("tip", second, "main", `^${first}`);
+    return { base, tip };
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+}
+
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const handle = Bun.spawn(["git", ...args], {
     cwd,

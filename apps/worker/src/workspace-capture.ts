@@ -4,6 +4,7 @@ import { lstat, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type GitResourceLimits,
+  gitBundleOffersFrom,
   readWorkspaceFile,
 } from "@agent-platform/runtime-core";
 
@@ -25,7 +26,15 @@ import {
  */
 export type WorkspaceCapture = {
   /** Written where the caller asked (`bundlePath`), and never read into memory. */
-  bundle: { bytes: number; path: string; sha256: string };
+  bundle: {
+    bytes: number;
+    path: string;
+    sha256: string;
+    /** Every ref's object id, which a later bundle may build on. */
+    tips: string[];
+    /** Whether it builds on the `base` it was given, or stands alone. */
+    incremental: boolean;
+  };
   /** The snapshot commit, `refs/checkpoint/worktree` in the bundle. */
   gitCommit: string;
   untracked: Array<{ bytes: Uint8Array; executable: boolean; path: string }>;
@@ -75,9 +84,27 @@ export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
   maxUntrackedFiles: 10_000,
 };
 
+/**
+ * The bundles a capture may build on (94S-227): the chain of the checkpoint
+ * before it, as the control plane will check the new one against it.
+ */
+export type BundleBase = {
+  /** Every ref tip the chain's bundles offer; a prerequisite must be one. */
+  tips: readonly string[];
+  /** What the new bundle may take of the chain's byte limit. */
+  maxBytes: number;
+};
+
 /** The refs a checkpoint bundle carries; the restorer reads them back. */
 export const CHECKPOINT_HEAD_REF = "refs/checkpoint/head";
 export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
+/**
+ * Where a bundle built on an earlier one carries HEAD's branch when the
+ * earlier one already has its commit: under `refs/heads/` git keeps
+ * commits only, and the branch then needs a tag (`refs/checkpoint/branch/
+ * heads/main` for `refs/heads/main`).
+ */
+export const CHECKPOINT_BRANCH_PREFIX = "refs/checkpoint/branch/";
 /**
  * The commit the session's repository CLAUDE.md is read from (94S-258): the
  * branch commit the first worker fetched, carried unchanged from checkpoint
@@ -214,6 +241,14 @@ const SNAPSHOT_IDENTITY = {
  * uncommitted edits uncommitted, rather than handing the engine a history
  * with a commit it never made.
  *
+ * Given a `base`, the bundle leaves out what the base's tips reach, and
+ * needs only commits the base offers as ref tips. A ref whose commit the
+ * base already has is carried by an annotated tag over it, since a bundle
+ * cannot name a commit it leaves out. When the result would not be one the
+ * control plane accepts on that base — a prerequisite that is no tip (a
+ * history rewritten under it), or over what the chain has left of the byte
+ * limit — the bundle stands alone instead.
+ *
  * A workspace whose state this cannot represent exactly is refused, never
  * approximated: an unborn HEAD, a shallow or partial clone, sparse checkout,
  * a split index, unmerged paths, entries marked assume-unchanged or
@@ -238,6 +273,7 @@ export async function captureWorkspace(input: {
   signal: AbortSignal;
   limits?: WorkspaceCaptureLimits;
   instructions?: InstructionsPin;
+  base?: BundleBase;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
 }): Promise<WorkspaceCaptureResult> {
@@ -467,54 +503,145 @@ export async function captureWorkspace(input: {
       }
       refs.push([CHECKPOINT_INSTRUCTIONS_REF, pin.commit]);
     }
-    for (const [name, oid] of refs) {
-      await check(bundling(["update-ref", name, oid]), "update-ref");
-    }
     // Written to disk under a file size limit one byte past the bundle's,
     // so an oversized history costs that much disk and is stopped there
-    // (Linux; elsewhere it is measured once written).
-    const oversized = refused(
-      `the workspace bundle is over the ${limits.maxBundleBytes} bytes the control plane verifies`,
-    );
-    try {
-      const created = await runGitBytes(
-        [
-          "bundle",
-          "create",
-          "--quiet",
-          input.bundlePath,
-          ...refs.map(([name]) => name),
-        ],
-        {
-          cwd: root,
-          extra: {
-            config: CHECKPOINT_GIT_CONFIG,
-            env: { GIT_DIR: repository },
+    // (Linux; elsewhere it is measured once written). Undefined when it
+    // came out over `maxBytes`.
+    const bundleOnto = async (
+      names: readonly string[],
+      negatives: readonly string[],
+      maxBytes: number,
+    ) => {
+      await rm(input.bundlePath, { force: true });
+      try {
+        const created = await runGitBytes(
+          [
+            "bundle",
+            "create",
+            "--quiet",
+            input.bundlePath,
+            ...names,
+            ...(negatives.length === 0 ? [] : ["--not", ...negatives]),
+          ],
+          {
+            cwd: root,
+            extra: {
+              config: CHECKPOINT_GIT_CONFIG,
+              env: { GIT_DIR: repository },
+            },
+            limits: { ...gitLimits, fileSizeBytes: maxBytes + 1 },
+            maxStdoutBytes: OUTPUT_LIMIT_BYTES,
+            network: null,
+            overrides: neutralized,
+            redact: (text) => text,
+            signal,
           },
-          limits: { ...gitLimits, fileSizeBytes: limits.maxBundleBytes + 1 },
-          maxStdoutBytes: OUTPUT_LIMIT_BYTES,
-          network: null,
-          overrides: neutralized,
-          redact: (text) => text,
-          signal,
-        },
+        );
+        if (created.code !== 0) {
+          throw new Error(
+            `git bundle create failed (exit ${created.code}): ${created.stderr.trim()}`,
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof GitResourceLimitError &&
+          /SIGXFSZ|signal 25\b|file too large/i.test(error.message)
+        ) {
+          return undefined;
+        }
+        throw error;
+      }
+      const digest = await digestFile(input.bundlePath);
+      return digest.bytes > maxBytes ? undefined : digest;
+    };
+    const direct = async () => {
+      for (const [name, oid] of refs) {
+        await check(bundling(["update-ref", name, oid]), "update-ref");
+      }
+    };
+    const base = input.base;
+    let built:
+      | { bytes: number; sha256: string; tips: string[]; incremental: boolean }
+      | undefined;
+    // A chain written under a larger limit than this one may leave nothing.
+    if (base !== undefined && base.tips.length > 0 && base.maxBytes > 0) {
+      const negatives: string[] = [];
+      for (const tip of new Set(base.tips)) {
+        // Snapshot commits and tags of earlier captures lived only in their
+        // scratch repositories; only what is still here can be left out.
+        const present = await bundling(["cat-file", "-e", tip]);
+        if (present.code === 0) negatives.push(tip);
+      }
+      if (negatives.length > 0) {
+        await direct();
+        const names: string[] = [];
+        for (const [ref, oid] of refs) {
+          const reached = await required(
+            bundling(["rev-list", "-n", "1", oid, "--not", ...negatives]),
+            "rev-list",
+          );
+          if (reached.trim() !== "") {
+            names.push(ref);
+            continue;
+          }
+          const name = ref.startsWith("refs/heads/")
+            ? `${CHECKPOINT_BRANCH_PREFIX}${ref.slice("refs/".length)}`
+            : ref;
+          names.push(name);
+          await check(
+            run(
+              [
+                "-c",
+                "tag.gpgSign=false",
+                "-c",
+                "tag.forceSignAnnotated=false",
+                "tag",
+                "-a",
+                "-m",
+                `agent-platform checkpoint: ${name}`,
+                `agent-platform/${name}`,
+                oid,
+              ],
+              { GIT_DIR: repository, ...SNAPSHOT_IDENTITY },
+            ),
+            "tag",
+          );
+          await check(
+            bundling(["update-ref", name, `refs/tags/agent-platform/${name}`]),
+            "update-ref",
+          );
+        }
+        const digest = await bundleOnto(names, negatives, base.maxBytes);
+        if (digest !== undefined) {
+          const offer = await gitBundleOffersFrom(
+            createReadStream(input.bundlePath),
+            gitCommit,
+            new Set(base.tips.map((tip) => tip.toLowerCase())),
+          );
+          if (offer.status === "offers") {
+            built = { ...digest, incremental: true, tips: [...offer.tips] };
+          }
+        }
+      }
+    }
+    if (built === undefined) {
+      await direct();
+      const digest = await bundleOnto(
+        refs.map(([name]) => name),
+        [],
+        limits.maxBundleBytes,
       );
-      if (created.code !== 0) {
-        throw new Error(
-          `git bundle create failed (exit ${created.code}): ${created.stderr.trim()}`,
+      if (digest === undefined) {
+        return refused(
+          `the workspace bundle is over the ${limits.maxBundleBytes} bytes the control plane verifies`,
         );
       }
-    } catch (error) {
-      if (
-        error instanceof GitResourceLimitError &&
-        /SIGXFSZ|signal 25\b|file too large/i.test(error.message)
-      ) {
-        return oversized;
-      }
-      throw error;
+      built = {
+        ...digest,
+        incremental: false,
+        tips: refs.map(([, oid]) => oid),
+      };
     }
-    const bundle = await digestFile(input.bundlePath);
-    if (bundle.bytes > limits.maxBundleBytes) return oversized;
 
     const untracked: WorkspaceCapture["untracked"] = [];
     let left = limits.maxUntrackedBytes;
@@ -534,7 +661,7 @@ export async function captureWorkspace(input: {
     return {
       status: "captured",
       capture: {
-        bundle: { ...bundle, path: input.bundlePath },
+        bundle: { ...built, path: input.bundlePath },
         gitCommit,
         untracked,
       },
