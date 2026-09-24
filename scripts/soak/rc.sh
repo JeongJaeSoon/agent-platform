@@ -39,7 +39,6 @@ if [ "$stage" = all ]; then
   [ ! -e "$out" ] || die "${out} exists; move it aside first"
 else
   [ -f "$out/rc.json" ] || die "no ${out}/rc.json; run without a stage first"
-  [ ! -e "$out/soak" ] || die "${out}/soak exists; move it aside first"
 fi
 mkdir -p "$out"
 exec > >(tee -a "$out/rc.log") 2>&1
@@ -91,7 +90,17 @@ else
       ;;
     *) die "campaigns have not finished (no ${out}/campaigns.status)" ;;
   esac
+  # The image tags are fixed, so another candidate may have rebuilt them since.
+  source "$state/vars.sh"
+  for image in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+    id="$(docker image inspect --format '{{.Id}}' "$image")" || die "no image ${image}"
+    jq -e --arg image "$image" --arg id "$id" 'any(.images[]; .image == $image and .id == $id)' \
+      "$out/rc.json" >/dev/null || die "${image} is ${id}, not the image rc.json recorded; rebuild with a full run"
+  done
 fi
+
+# mkdir is the lock: one soak per run directory, whichever call gets here first.
+mkdir "$out/soak" 2>/dev/null || die "${out}/soak exists: a soak already started there"
 
 stamp "soak 24h"
 scripts/soak/stack.sh reset || die "stack reset failed"
