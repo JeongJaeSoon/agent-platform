@@ -25,7 +25,8 @@ export async function schemaStatements(
 // One line per object in `public`, each carrying its full definition as
 // PostgreSQL prints it. Triggers and functions are read too: schema.ts cannot
 // declare them, so they surface as the migration-only difference the caller
-// names, and a migration that loses one no longer matches that list.
+// names, and a migration that loses, disables or rewrites one — a function
+// by the hash of its body — no longer matches that list.
 const CATALOG = `
   SELECT 'enum ' || t.typname || ' ' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) AS line
   FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
@@ -49,11 +50,12 @@ UNION ALL
 UNION ALL
   SELECT 'index ' || indexdef FROM pg_indexes WHERE schemaname = 'public'
 UNION ALL
-  SELECT 'trigger ' || pg_get_triggerdef(t.oid)
+  SELECT 'trigger ' || pg_get_triggerdef(t.oid) || ' enabled=' || t.tgenabled::text
   FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
   WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
 UNION ALL
-  SELECT 'function ' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+  SELECT 'function ' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') '
+    || pg_get_function_result(p.oid) || ' body md5 ' || md5(p.prosrc)
   FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
 `;
 
