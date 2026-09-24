@@ -1330,6 +1330,39 @@ describe("WorkerGateway", () => {
   });
 });
 
+describe("heartbeat control_pending (94S-392)", () => {
+  test("a hint that cannot be read does not fail a beat whose lease already renewed", async () => {
+    const instance = createWorkerGateway({
+      work: work({
+        heartbeatAtomic: async () => ({
+          outcome: "ok",
+          leaseExpiresAt: new Date("2026-09-22T00:01:00Z"),
+          leaseRemainingMs: 60_000,
+          authRevision: 0,
+        }),
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      pending: {
+        hasUndelivered: async () => {
+          throw Object.assign(new Error("deadlock detected"), {
+            code: "40P01",
+          });
+        },
+      } as unknown as NonNullable<
+        Parameters<typeof createWorkerGateway>[0]["pending"]
+      >,
+      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+    });
+    const beat = await instance.heartbeat(principal, {
+      ...scope,
+      attempt_state: "running",
+    });
+    expect(beat.lease_remaining_ms).toBe(60_000);
+    expect(beat.control_pending).toBe(false);
+  });
+});
+
 describe("authorizeEgress (94S-252)", () => {
   const profile: CatalogProfile = {
     runtime_kind: "claude_agent_sdk",
