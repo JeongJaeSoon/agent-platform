@@ -106,7 +106,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | aria-hidden | 1.2.6 | MIT | worker |
 | body-parser | 2.3.0 | MIT | worker |
 | bowser | 2.14.1 | MIT | control-host, worker |
-| bun-types | 1.4.2 | MIT | control-host, worker |
+| bun-types | 1.3.10 | MIT | control-host, worker |
 | bytes | 3.1.2 | MIT | worker |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
 | call-bound | 1.0.4 | MIT | worker |
