@@ -175,10 +175,15 @@ session_image() {
 
 # --- 1. source: two turns, then pause ----------------------------------------
 note "== source project ${project} (installation ${EXECUTION_INSTALLATION_ID})"
-build=(--build)
+build=--build
 if [ -n "${RR_IMAGES_FROM:-}" ]; then
   from="$RR_IMAGES_FROM"
-  build=()
+  # Cleanup removes this run's tags; on the source's own names it would take
+  # the source's images with it.
+  [ "$from" != "$project" ] && [ "$from" != "$restored" ] \
+    || fail "RR_IMAGES_FROM must name another project than ${project} and ${restored}"
+  # A tag gone missing must fail the run, not be rebuilt from this checkout.
+  build=--no-build
   for repo in control-host worker egress-proxy; do
     docker tag "agent-platform-${repo}:${from}" "agent-platform-${repo}:${project}" \
       || fail "project ${from} has no agent-platform-${repo} image"
@@ -189,7 +194,7 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
       || fail "project ${from} has no migrate image"
   done
 fi
-src up -d ${build[@]+"${build[@]}"} >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
+src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
 api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/docker-compose.yml:tests/e2e/compose.yml" \
   bun run --silent keys create rr-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control)"
@@ -257,7 +262,7 @@ manifest "$restored" "$session" "$revision" >"$out/manifest-restored.json"
 
 echo restored >"$out/phase"
 store_before="$(dst ps -q localstack)"
-dst up -d >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2; exit 1; }
+dst up -d --no-build >"$out/up-restored.log" 2>&1 || { tail -50 "$out/up-restored.log" >&2; exit 1; }
 # LocalStack keeps no S3 state across a recreate here; the restored objects
 # live only in the container restore.sh started.
 [ "$(dst ps -q localstack)" = "$store_before" ] || fail "starting the apps recreated the restored localstack"
