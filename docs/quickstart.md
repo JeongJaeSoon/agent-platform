@@ -79,7 +79,7 @@ scripts/local.sh status
 
 코드를 새로 pull했으면 `scripts/local.sh up`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, checkpoint가 하나라도 생긴 뒤라면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset`을 쓴다(7장).
+**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset`을 쓴다(7장).
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
 
@@ -345,7 +345,7 @@ scripts/local.sh down
 
 `down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=local` label로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset`(= `down` 뒤 `up`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
-데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. checkpoint가 하나라도 있었다면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
+데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
 
 ## 8. 막혔을 때
 
