@@ -212,11 +212,16 @@ async function pointerMismatches(db: Pool): Promise<unknown[]> {
   return rows;
 }
 
-/** Every attempt's events are numbered 1, 2, 3… with no gap or repeat. */
+/**
+ * Every attempt's events are numbered 1, 2, 3… with no gap or repeat. Events
+ * the control plane records about an attempt (94S-345's restore failure)
+ * carry its id but no worker sequence, so they are not part of the count.
+ */
 async function numberingProblems(db: Pool): Promise<string[]> {
   const { rows } = await db.query(
     `SELECT attempt_id, source_sequence FROM events
-      WHERE attempt_id IS NOT NULL ORDER BY attempt_id, source_sequence`,
+      WHERE attempt_id IS NOT NULL AND source_sequence IS NOT NULL
+      ORDER BY attempt_id, source_sequence`,
   );
   const problems: string[] = [];
   let last: string | null = null;
