@@ -10,6 +10,7 @@ import type {
   CheckpointObjectStore,
   CheckpointPreparation,
   CompatibilityMismatch,
+  ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
@@ -665,14 +666,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * relationship to *this* manifest's commit, and that changes with every
    * revision even when the bytes do not.
    */
-  function badWorkspaceBundle(
+  async function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
   ): Promise<Problem | undefined> {
-    // Before the gate and the download: a bundle cooling down costs neither.
-    // Again once a slot is free, since the same bundle may have failed while
-    // this one waited for it.
+    const present = await bundlePresent(workspace, manifestRef);
+    if ("reason" in present) return present;
+    // After the HEAD, so a bundle gone since is still damage a restore can
+    // fall back from; before the gate and the download, which a bundle
+    // cooling down costs nothing of. Again once a slot is free, since the
+    // same bundle may have failed while this one waited for it.
     const coolingDown = () => {
       const cooled = cooling.pending(bundleCooldownKey(workspace));
       if (cooled !== undefined) throw cooled;
@@ -682,27 +686,31 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // cheap refusals above it must not queue behind a gigabyte being hashed.
     return bundleGate(() => {
       coolingDown();
-      return readAndVerifyBundle(workspace, manifestRef, pinned);
+      return readAndVerifyBundle(workspace, present.head, pinned);
     });
   }
 
-  // The commit too: the same bytes asked for another commit is other work.
+  // Where it is stored, and the commit too: the same bytes asked for
+  // another commit is other work.
   function bundleCooldownKey(
     workspace: CheckpointManifest["workspace"],
   ): string {
+    const { bundle } = workspace;
     return JSON.stringify([
       bundles.policy ?? null,
-      workspace.bundle.sha256,
+      bundle.key,
+      bundle.version ?? null,
+      bundle.sha256,
       workspace.gitCommit,
     ]);
   }
 
-  async function readAndVerifyBundle(
+  /** Everything about the bundle a HEAD settles, before its body is read. */
+  async function bundlePresent(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
-    pinned?: PinnedVersions,
-  ): Promise<Problem | undefined> {
-    const { bundle, gitCommit } = workspace;
+  ): Promise<Problem | { head: ObjectHead }> {
+    const { bundle } = workspace;
     // One attempt's directory holds one attempt's objects. A bundle at a key
     // the session reuses across revisions is either overwritten — so the
     // committed checkpoint stops describing what is stored — or refused by
@@ -735,6 +743,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         `workspace bundle ${bundle.key} is ${head.bytes} bytes, not ${bundle.bytes}`,
       );
     }
+    return { head };
+  }
+
+  async function readAndVerifyBundle(
+    workspace: CheckpointManifest["workspace"],
+    head: ObjectHead,
+    pinned?: PinnedVersions,
+  ): Promise<Problem | undefined> {
+    const { bundle, gitCommit } = workspace;
     // The bundle is read exactly once, by this loop, which both hashes it
     // and spools it to a file of its own; the verifier gets the file, and
     // only after the digest proved it is the object the manifest names. A

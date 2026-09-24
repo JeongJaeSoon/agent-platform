@@ -1175,6 +1175,27 @@ describe("a bundle whose verification threw cools down (94S-271)", () => {
     expect(verifier.calls).toBe(1);
   });
 
+  test("a bundle gone during its cooldown is still damage, not the cached error", async () => {
+    // Only damage lets a restore fall back to an earlier revision, so the
+    // cached error must not hide it.
+    const verifier = flakyVerifier();
+    const cooled = cooledService(verifier, { ms: 0 });
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow();
+    objects.remove(BUNDLE);
+
+    expect(
+      await cooled.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/missing workspace bundle/),
+    });
+    expect(verifier.calls).toBe(1);
+  });
+
   test("verifies again once the cooldown has passed", async () => {
     const verifier = flakyVerifier();
     const now = { ms: 0 };
