@@ -552,7 +552,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
     );
     const digest = sha256(bytes);
     const key = `${directory}merged-${digest}.jsonl`;
-    const written = await this.#objects.putImmutable(key, bytes);
+    const written = await this.#objects.putImmutable(key, bytes, {
+      contentAddressed: true,
+    });
     if (written.outcome === "conflict") {
       throw new Error(`Merged transcript part ${key} holds other bytes`);
     }

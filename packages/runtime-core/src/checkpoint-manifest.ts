@@ -207,6 +207,18 @@ export type PutImmutableResult =
   | { readonly outcome: "duplicate"; readonly version?: string }
   | { readonly outcome: "conflict"; readonly sha256: string };
 
+export type PutImmutableOptions = {
+  /**
+   * The key names the digest of the body, so anything already under it is
+   * these bytes or damage, and a write that replaced it would lose nothing.
+   * The store then skips the read it otherwise makes before writing, which
+   * only guards against an endpoint that ignores the create-only
+   * precondition; the precondition itself still decides `created`,
+   * `duplicate` and `conflict` (94S-380).
+   */
+  readonly contentAddressed?: boolean;
+};
+
 export type ObjectHead = {
   readonly bytes: number;
   /** True when a legal hold keeps this version from being deleted. */
@@ -284,6 +296,7 @@ export interface CheckpointObjectStore {
   putImmutable(
     key: string,
     body: Uint8Array | ImmutableObjectSource,
+    options?: PutImmutableOptions,
   ): Promise<PutImmutableResult>;
   /**
    * Places a legal hold on one version: nobody can delete it until the hold

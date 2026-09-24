@@ -1167,9 +1167,9 @@ describe("Claude session store counting entries across captures (94S-380)", () =
     await mirror.captureTranscripts(sessionId);
     await mirror.append(root, [entry("next", "one more")]);
 
-    expect(
-      await parsesDuring(() => mirror.captureTranscripts(sessionId)),
-    ).toBe(1);
+    expect(await parsesDuring(() => mirror.captureTranscripts(sessionId))).toBe(
+      1,
+    );
   });
 
   test("carries the count over a merge, so the capture after it parses only what is new", async () => {
@@ -1179,9 +1179,9 @@ describe("Claude session store counting entries across captures (94S-380)", () =
     expect(merged?.root.parts[0]?.key).toContain("/merged-");
     await mirror.append(root, [entry("next", "one more")]);
 
-    expect(
-      await parsesDuring(() => mirror.captureTranscripts(sessionId)),
-    ).toBe(1);
+    expect(await parsesDuring(() => mirror.captureTranscripts(sessionId))).toBe(
+      1,
+    );
   });
 
   test("counts what a count over the whole transcript would, capture after capture", async () => {
@@ -1210,7 +1210,9 @@ describe("Claude session store counting entries across captures (94S-380)", () =
       ((await second.load(root)) as TranscriptEntry[]).length,
     );
     expect(
-      await launch(objects, 3).loadRevision(resumed?.root as TranscriptRevision),
+      await launch(objects, 3).loadRevision(
+        resumed?.root as TranscriptRevision,
+      ),
     ).toHaveLength(resumed?.root.entryCount as number);
   });
 

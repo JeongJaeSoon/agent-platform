@@ -94,8 +94,8 @@ export function scopedCheckpointObjectStore(
     async put(key, bytes) {
       return store.put(within(key), bytes);
     },
-    async putImmutable(key, body) {
-      return store.putImmutable(within(key), body);
+    async putImmutable(key, body, options) {
+      return store.putImmutable(within(key), body, options);
     },
     // No `hold`: only the control plane places holds, on what it committed.
   };
