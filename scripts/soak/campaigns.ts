@@ -79,6 +79,9 @@ type Campaign = {
 const TURN_MS = 300_000;
 const HEARTBEAT_TTL_MS = 30_000;
 const GATEWAY = "/internal/worker";
+// A bootstrap-claim carries the launch nonce, not the session: the injector
+// logs it with sessionId null. Campaigns that watch claims run one live
+// session at a time and scope them by log index and rule instead.
 
 // ---------------------------------------------------------------- helpers
 
@@ -1047,10 +1050,7 @@ const claimTerminate: Campaign = {
       const replayHeld = firstClaim
         ? await waitChaos(
             ctx,
-            (entry) =>
-              entry.index > firstClaim.index &&
-              entry.rule === held &&
-              entry.sessionId === started.sessionId,
+            (entry) => entry.index > firstClaim.index && entry.rule === held,
             60_000,
           )
         : null;
@@ -1085,8 +1085,7 @@ const claimTerminate: Campaign = {
       const replays = (await ctx.chaos.log()).filter(
         (entry) =>
           entry.index > (firstClaim?.index ?? Number.MAX_SAFE_INTEGER) &&
-          entry.path.endsWith("/bootstrap-claim") &&
-          entry.sessionId === started.sessionId,
+          entry.path.endsWith("/bootstrap-claim"),
       );
       const models = await ctx.model.requests({ spec: started.specId });
       const turn = await turnRow(ctx.db, started.sessionId, started.turnId);
@@ -1361,10 +1360,7 @@ const replacementLateClaim: Campaign = {
     const started = await startTurn(ctx, null, "normal");
     const late = await waitChaos(
       ctx,
-      (entry) =>
-        entry.index >= since &&
-        entry.rule === held &&
-        entry.sessionId === started.sessionId,
+      (entry) => entry.index >= since && entry.rule === held,
       180_000,
     );
     const first = late ? (await ctx.workers.of(started.sessionId))[0] : null;
@@ -1376,7 +1372,6 @@ const replacementLateClaim: Campaign = {
           ctx,
           (entry) =>
             entry.index > late.index &&
-            entry.sessionId === started.sessionId &&
             entry.path.endsWith("/bootstrap-claim") &&
             entry.upstreamStatus !== null &&
             entry.upstreamStatus < 300,
@@ -1394,9 +1389,7 @@ const replacementLateClaim: Campaign = {
       : null;
     const claims = (await ctx.chaos.log()).filter(
       (entry) =>
-        entry.index >= since &&
-        entry.sessionId === started.sessionId &&
-        entry.path.endsWith("/bootstrap-claim"),
+        entry.index >= since && entry.path.endsWith("/bootstrap-claim"),
     );
     const generations = (await ctx.workers.of(started.sessionId)).map(
       (c) => c.generation,
@@ -1746,7 +1739,9 @@ const grantRevoke: Campaign = {
     const lateWrites = (await ctx.chaos.log()).filter(
       (entry) =>
         entry.index >= since &&
-        entry.sessionId === a.sessionId &&
+        (entry.sessionId === a.sessionId ||
+          (entry.sessionId === null &&
+            entry.path.endsWith("/bootstrap-claim"))) &&
         WRITE_PATHS.test(entry.path) &&
         entry.upstreamStatus !== null &&
         entry.upstreamStatus < 300 &&
