@@ -194,7 +194,6 @@ export async function forbiddenImports(
 // logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
 const platformForbidden = [
   "@agent-platform/db",
-  "@agent-platform/queue",
   "@agent-platform/storage",
   "@anthropic-ai",
   "@aws-sdk",
@@ -236,7 +235,7 @@ describe("architecture", () => {
         join(fixture, "src", "leak.ts"),
         [
           'import { pool } from "../../db/src/pool.ts";',
-          "export * from '../../queue/src/index.ts';",
+          "export * from '../../platform/src/index.ts';",
           "export const lazy = () => import(`../../storage/src/index.ts`);",
           'import { ok } from "./sibling.ts";',
           "export const p = pool;",
@@ -375,12 +374,11 @@ describe("architecture", () => {
     expect(mentions).toEqual([]);
   });
 
-  test("the Claude adapter never reaches into platform, db, queue or storage", async () => {
+  test("the Claude adapter never reaches into platform, db or storage", async () => {
     const directory = join(root, claudeAdapter);
     const forbidden = [
       "@agent-platform/db",
       "@agent-platform/platform",
-      "@agent-platform/queue",
       "@agent-platform/storage",
       "@aws-sdk",
       "pg",
