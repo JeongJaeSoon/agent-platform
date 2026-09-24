@@ -1641,11 +1641,11 @@ type FollowLine = { cares: string; handler: string };
  */
 const FOLLOW_PROBE = `
 import { lookup } from "node:dns/promises";
-const { BoundedNodeHttpHandler, S3_REQUEST_BOUNDS } = await import(
+const { FreshAddressHttpHandler, S3_REQUEST_BOUNDS } = await import(
   "/app/packages/storage/src/s3.ts"
 );
 const hostname = process.env.TARGET;
-const handler = new BoundedNodeHttpHandler({
+const handler = new FreshAddressHttpHandler({
   ...S3_REQUEST_BOUNDS,
   connectionTimeout: 1_000,
   requestTimeout: 2_000,

@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
 import { createStorageS3Client } from "./index.ts";
-import { FreshAddressHttpHandler } from "./s3.ts";
+import { FreshAddressHttpHandler, S3_REQUEST_BOUNDS } from "./s3.ts";
 
 /**
  * A long-lived API or scheduler must follow LocalStack to the address it
@@ -95,9 +95,20 @@ describe("the S3 client over plain http", () => {
     expect(hosts).toEqual([`objects.test:${port}`]);
   });
 
-  test("https is left to Bun, which checks the certificate against the name", async () => {
+  // https: the certificate is checked against the name. A proxy: it dials
+  // the name, and its allowlist and NO_PROXY match by name (the worker).
+  test.each([
+    ["https", "https:", undefined],
+    ["a request under http_proxy", "http:", "http://proxy.test:3128"],
+  ] as const)("%s is left to Bun, by name", async (_, protocol, proxy) => {
+    const saved = process.env.http_proxy;
+    if (proxy) process.env.http_proxy = proxy;
+    closers.push(() => {
+      if (saved === undefined) delete process.env.http_proxy;
+      else process.env.http_proxy = saved;
+    });
     const lookup = fakeDns(() => at("127.0.0.1"));
-    const handler = new FreshAddressHttpHandler();
+    const handler = new FreshAddressHttpHandler(S3_REQUEST_BOUNDS);
     closers.push(() => handler.destroy());
 
     const outcome = await handler
@@ -106,8 +117,8 @@ describe("the S3 client over plain http", () => {
           hostname: "objects.test",
           method: "GET",
           path: "/",
-          port: 443,
-          protocol: "https:",
+          port: 4566,
+          protocol,
         }),
         { abortSignal: AbortSignal.abort() },
       )

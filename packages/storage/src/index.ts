@@ -11,8 +11,8 @@ import {
   type GitCommandRunner,
 } from "./git-runner.ts";
 import {
-  BoundedNodeHttpHandler,
   concatBytes,
+  FreshAddressHttpHandler,
   getObjectBytes,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
@@ -210,7 +210,7 @@ export function createStorageS3Client(
     region: config.s3.region,
     requestHandler: egress
       ? new TlsTunnelHttpHandler(bounds, egress)
-      : new BoundedNodeHttpHandler(bounds),
+      : new FreshAddressHttpHandler(bounds),
     ...(config.s3.endpoint === undefined
       ? {}
       : { endpoint: config.s3.endpoint, forcePathStyle: true }),
