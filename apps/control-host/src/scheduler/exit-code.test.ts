@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SchedulerRunSummary } from "@agent-platform/platform";
-import { PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
+import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { exitCodeFor } from "./main.ts";
 
 const clean: SchedulerRunSummary = {
@@ -51,12 +51,40 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor({ ...clean, orphansUnresolved: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reclaimFailed: [ref] })).toBe(1);
     expect(exitCodeFor({ ...clean, reconcileFailed: [ref] })).toBe(1);
-    expect(exitCodeFor({ ...clean, replacementsExhausted: [ref] })).toBe(1);
   });
 
-  test("a launch backing off or given up on exits 1", () => {
-    expect(exitCodeFor({ ...clean, launchesBackingOff: [ref] })).toBe(1);
-    expect(exitCodeFor({ ...clean, launchesQuarantined: [ref] })).toBe(1);
+  test("a session backing off, given up on, or out of replacements degrades the pass without failing it", () => {
+    expect(PASS_DEGRADED_EXIT).not.toBe(PASS_SKIPPED_EXIT);
+    expect(exitCodeFor({ ...clean, launchesBackingOff: [ref] })).toBe(
+      PASS_DEGRADED_EXIT,
+    );
+    expect(exitCodeFor({ ...clean, launchesQuarantined: [ref] })).toBe(
+      PASS_DEGRADED_EXIT,
+    );
+    expect(exitCodeFor({ ...clean, replacementsExhausted: [ref] })).toBe(
+      PASS_DEGRADED_EXIT,
+    );
+  });
+
+  test("a real failure beside a degraded session still exits 1", () => {
+    const degraded = {
+      ...clean,
+      launchesBackingOff: [ref],
+      launchesQuarantined: [ref],
+      replacementsExhausted: [ref],
+    };
+    expect(exitCodeFor({ ...degraded, failedLaunches: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, imageUnresolved: true })).toBe(1);
+    expect(exitCodeFor({ ...degraded, killFailed: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, networkScanFailed: true })).toBe(1);
+    expect(exitCodeFor({ ...degraded, networksFailed: ["ap-net-1"] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, orphansUnresolved: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, reclaimFailed: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, reconcileFailed: [ref] })).toBe(1);
+    expect(exitCodeFor({ ...degraded, workspaceScanFailed: true })).toBe(1);
+    expect(exitCodeFor({ ...degraded, workspacesFailed: ["ap-ws-1"] })).toBe(1);
+    // A skipped pass looked at nothing, degraded or not.
+    expect(exitCodeFor({ ...degraded, skipped: true })).toBe(PASS_SKIPPED_EXIT);
   });
 
   test("a worker network left leaking or cut off exits 1; one reclaimed or repaired does not", () => {
