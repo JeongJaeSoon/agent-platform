@@ -149,6 +149,35 @@ describe("the S3 client over plain http", () => {
 
     expect(outcome).toBe("AbortError");
   });
+
+  test("so does an abort through a signal that only has onabort", async () => {
+    fakeDns(() => () => new Promise(() => {}));
+    const handler = new FreshAddressHttpHandler(S3_REQUEST_BOUNDS);
+    closers.push(() => handler.destroy());
+    let theirs = 0;
+    const previous = () => {
+      theirs++;
+    };
+    const signal: { aborted: boolean; onabort: (() => void) | null } = {
+      aborted: false,
+      onabort: previous,
+    };
+    setTimeout(() => {
+      signal.aborted = true;
+      signal.onabort?.();
+    }, 50);
+
+    const startedAt = Date.now();
+    const outcome = await handler
+      .handle(plainRequest("http:"), { abortSignal: signal })
+      .catch((error: Error) => error.name);
+
+    expect(outcome).toBe("AbortError");
+    // Well inside the 3s connection bound: the abort, not the timer, ended it.
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(theirs).toBe(1);
+    expect(signal.onabort).toBe(previous);
+  });
 });
 
 function plainRequest(protocol: "http:" | "https:"): HttpRequest {

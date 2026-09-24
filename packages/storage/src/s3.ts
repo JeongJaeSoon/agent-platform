@@ -123,7 +123,7 @@ export class FreshAddressHttpHandler extends BoundedNodeHttpHandler {
   override async handle(
     ...[request, options]: Parameters<NodeHttpHandler["handle"]>
   ): ReturnType<NodeHttpHandler["handle"]> {
-    const signal = options?.abortSignal as AbortSignal | undefined;
+    const signal = options?.abortSignal;
     // Aborted before or while the name is looked up: the request goes on
     // unchanged and the parent rejects it the way it rejects any aborted one.
     const dialed = signal?.aborted
@@ -143,10 +143,10 @@ export class FreshAddressHttpHandler extends BoundedNodeHttpHandler {
 async function withinLookupBounds(
   lookup: Promise<HttpRequest>,
   ms: number,
-  signal: AbortSignal | undefined,
+  signal: HandlerSignal | undefined,
 ): Promise<HttpRequest | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
+  let unsubscribe = () => {};
   const bounds = new Promise<undefined>((resolve, reject) => {
     if (ms > 0) {
       timer = setTimeout(
@@ -160,15 +160,42 @@ async function withinLookupBounds(
         ms,
       );
     }
-    onAbort = () => resolve(undefined);
-    signal?.addEventListener?.("abort", onAbort, { once: true });
+    unsubscribe = onAbort(signal, () => resolve(undefined));
   });
   try {
     return await Promise.race([lookup, bounds]);
   } finally {
     clearTimeout(timer);
-    if (onAbort) signal?.removeEventListener?.("abort", onAbort);
+    unsubscribe();
   }
+}
+
+type HandlerSignal = NonNullable<
+  NonNullable<Parameters<NodeHttpHandler["handle"]>[1]>["abortSignal"]
+>;
+
+// Smithy still accepts a signal with only `onabort`; its handler chains onto
+// it, and so does this, restoring what was there once the lookup is over.
+function onAbort(
+  signal: HandlerSignal | undefined,
+  listener: () => void,
+): () => void {
+  if (!signal) return () => {};
+  if ("addEventListener" in signal) {
+    signal.addEventListener("abort", listener, { once: true });
+    return () => signal.removeEventListener("abort", listener);
+  }
+  const previous = signal.onabort;
+  signal.onabort = function (this: unknown, ...args: unknown[]) {
+    listener();
+    return (previous as ((...a: unknown[]) => unknown) | null)?.apply(
+      this,
+      args,
+    );
+  } as typeof signal.onabort;
+  return () => {
+    signal.onabort = previous;
+  };
 }
 
 async function atFreshAddress(request: HttpRequest): Promise<HttpRequest> {
