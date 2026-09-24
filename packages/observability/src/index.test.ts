@@ -118,6 +118,7 @@ describe("structured logging", () => {
     expect(logLevelFromEnv(undefined)).toBe("info");
     expect(logLevelFromEnv("")).toBe("info");
     expect(logLevelFromEnv("WARN")).toBe("warn");
+    expect(resolveLogLevel(" warn ")).toBe(logLevelFromEnv(" warn "));
     expect(() => logLevelFromEnv("inf0")).toThrow(
       'LOG_LEVEL must be one of debug|info|warn|error, got "inf0"',
     );

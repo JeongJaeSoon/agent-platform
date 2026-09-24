@@ -53,7 +53,9 @@ function isLogLevel(value: string | undefined): value is LogLevel {
 }
 
 export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevel {
-  const normalized = value?.toLowerCase();
+  // Trimmed like logLevelFromEnv, so a level that passed startup is the one
+  // the logger runs at.
+  const normalized = value?.trim().toLowerCase();
   return isLogLevel(normalized) ? normalized : "info";
 }
 

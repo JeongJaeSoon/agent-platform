@@ -508,6 +508,13 @@ describe("WorkerHost approvals", () => {
 
   test("denies a request nobody answered rather than holding the turn open", async () => {
     const gateway = new FakeWorkerGateway();
+    // The gateway's expiry, not the worker's own timeout, bounds a request
+    // it registered (94S-389).
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      expires_in_ms: 20,
+    });
     const { host, runtime } = harness(
       [
         { type: "await-input" },
@@ -524,7 +531,7 @@ describe("WorkerHost approvals", () => {
         },
         { type: "emit", message: resultMessage(uuidForTurn(1)) },
       ],
-      { gateway, timeouts: { questionTimeoutMs: 20 } },
+      { gateway },
     );
     gateway.enqueue("do some work");
 
