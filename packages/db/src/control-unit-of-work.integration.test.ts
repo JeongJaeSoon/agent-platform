@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerScope } from "@agent-platform/contracts";
+import {
+  sessionEventVariants,
+  type WorkerScope,
+} from "@agent-platform/contracts";
 import {
   createWorkerGateway,
   type WorkerGateway,
@@ -15,7 +18,10 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -245,6 +251,60 @@ integration("session terminate on PostgreSQL", () => {
       reason: "operator",
       now: clock,
     });
+  }
+
+  function finishTurn(
+    claimed: Awaited<ReturnType<typeof claim>>,
+    checkpointRevision: number | null = null,
+  ) {
+    return gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      turn_id: "1",
+      finalize_key: "fin",
+      // No events were appended in these tests.
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint:
+        checkpointRevision === null
+          ? null
+          : {
+              revision: checkpointRevision,
+              manifest_ref: `manifests/${claimed.session_id}/${checkpointRevision}`,
+              manifest_sha256: "a".repeat(64),
+            },
+    });
+  }
+
+  // The status events a client reads from GET /v1/sessions/{id}/events.
+  async function statusFrames(session: {
+    session_id: string;
+    ownerId: string;
+  }) {
+    const page = await createPostgresSessionReader(db).readEvents(
+      session.ownerId,
+      session.session_id,
+      { limit: 100, maxBytes: 1 << 20 },
+    );
+    if (!page) throw new Error("session not readable");
+    return page.items.flatMap((frame) =>
+      frame.event === "status"
+        ? [sessionEventVariants.status.shape.data.parse(frame.data.data)]
+        : [],
+    );
+  }
+
+  // What GET /v1/sessions/{id} says, in the shape of a status event.
+  async function readsAs(session: { session_id: string; ownerId: string }) {
+    const detail = await createPostgresSessionReader(db).getSession(
+      session.ownerId,
+      session.session_id,
+    );
+    return { phase: detail?.status, admission_state: detail?.admission_state };
   }
 
   test("one transaction blocks dispatch, discards the epoch, cancels queued input, invalidates pending requests and records the kill", async () => {
@@ -757,6 +817,129 @@ integration("session terminate on PostgreSQL", () => {
     expect((await sessionRow(session.session_id)).admissionState).toBe(
       "recovery_required",
     );
+  });
+
+  test("terminate and the exit it waits on each put the admission they reach on the stream, in step with the receipt (94S-293)", async () => {
+    const { session, launch: l, claimed } = await bound("stream");
+    await deliver(claimed);
+    await finishTurn(claimed);
+    const result = await terminate(
+      session,
+      (await sessionRow(session.session_id)).revision,
+    );
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect(result.response.receipt_status).toBe("accepted");
+    const stopping = await statusFrames(session);
+    expect(stopping.at(-1)).toEqual({
+      phase: "idle",
+      admission_state: "stopping",
+      reason: "operator",
+      actor: { owner_id: session.ownerId },
+    });
+    expect(stopping.at(-1)).toMatchObject(await readsAs(session));
+    // Nothing says stopped while the kill is still unconfirmed.
+    expect(stopping.map((frame) => frame.admission_state)).not.toContain(
+      "stopped",
+    );
+
+    await gateway.confirmExecutionGone(l.executionId);
+    expect((await receiptRow(result.response.receipt_id)).status).toBe(
+      "succeeded",
+    );
+    const stopped = await statusFrames(session);
+    expect(stopped.slice(stopping.length)).toEqual([
+      { phase: "stopped", admission_state: "stopped" },
+    ]);
+    expect(stopped.at(-1)).toMatchObject(await readsAs(session));
+    // Seeing the same exit again settles nothing and says nothing.
+    await gateway.confirmExecutionGone(l.executionId);
+    expect(await statusFrames(session)).toHaveLength(stopped.length);
+  });
+
+  test("an exit that leaves the turn unknown puts recovery_required on the stream (94S-293)", async () => {
+    const { session, launch: l, claimed } = await bound("stream-unknown");
+    await deliver(claimed);
+    await gateway.confirmExecutionGone(l.executionId);
+    const frames = await statusFrames(session);
+    expect(frames).toEqual([
+      { phase: "running" },
+      { phase: "failed", admission_state: "recovery_required" },
+    ]);
+    expect(frames.at(-1)).toMatchObject(await readsAs(session));
+  });
+
+  test("a terminate with nothing to kill reports stopped at once, with its succeeded receipt (94S-293)", async () => {
+    const session = await queuedSession(`stream-idle-${crypto.randomUUID()}`);
+    const result = await terminate(
+      session,
+      (await sessionRow(session.session_id)).revision,
+    );
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    expect(result.response.receipt_status).toBe("succeeded");
+    expect(await statusFrames(session)).toEqual([
+      {
+        phase: "stopped",
+        admission_state: "stopped",
+        reason: "operator",
+        actor: { owner_id: session.ownerId },
+      },
+    ]);
+  });
+
+  test("terminate on a stopped session changes nothing on it, so the revision a client holds stays good (94S-310)", async () => {
+    const { session, launch: l, claimed } = await bound("restop");
+    await deliver(claimed);
+    await finishTurn(claimed, 0);
+    const first = await terminate(
+      session,
+      (await sessionRow(session.session_id)).revision,
+    );
+    if (first.outcome !== "accepted") throw new Error(first.outcome);
+    await gateway.confirmExecutionGone(l.executionId);
+    const stopped = await sessionRow(session.session_id);
+    expect(stopped.admissionState).toBe("stopped");
+    const framesBefore = await statusFrames(session);
+
+    const key = crypto.randomUUID();
+    const again = await terminate(session, stopped.revision, {
+      idempotencyKey: key,
+    });
+    if (again.outcome !== "accepted") throw new Error(again.outcome);
+    expect(again.response.receipt_status).toBe("succeeded");
+    const after = await sessionRow(session.session_id);
+    expect({
+      revision: after.revision,
+      leaseEpoch: after.leaseEpoch,
+      updatedAt: after.updatedAt,
+      admissionState: after.admissionState,
+    }).toEqual({
+      revision: stopped.revision,
+      leaseEpoch: stopped.leaseEpoch,
+      updatedAt: stopped.updatedAt,
+      admissionState: "stopped",
+    });
+    expect((await receiptRow(again.response.receipt_id)).result).toEqual({
+      execution_gone: true,
+      checkpoint_revision: 0,
+      unconfirmed_turn_id: null,
+      external_effects_reverted: false,
+    });
+    // No transition, so nothing new on the stream either.
+    expect(await statusFrames(session)).toEqual(framesBefore);
+    expect(
+      await terminate(session, stopped.revision, { idempotencyKey: key }),
+    ).toEqual({ outcome: "replayed", response: again.response });
+
+    // The revision read before the second terminate still resumes.
+    const resumed = await controls().resumeAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: "hash-resume",
+      expectedRevision: stopped.revision,
+      now: clock,
+    });
+    expect(resumed.outcome).toBe("accepted");
   });
 
   test("a claim that reaches the session after its terminate committed binds nothing", async () => {

@@ -13,7 +13,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
@@ -39,6 +39,12 @@ import {
 } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// The worker's own numbered stream, without the status events the control
+// plane writes beside it at each turn boundary (94S-294).
+function workerStream(sessionId: string) {
+  return and(eq(events.sessionId, sessionId), isNotNull(events.sourceSequence));
+}
 
 const LEASE_TTL_MS = 2_000;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
@@ -761,12 +767,12 @@ integration("worker gateway on PostgreSQL", () => {
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(storedRow?.stored).toBe(2);
     const [row] = await db
       .select()
       .from(events)
-      .where(eq(events.sessionId, session.session_id))
+      .where(workerStream(session.session_id))
       .limit(1);
     expect(row?.attemptId).toBe(claimed.attempt_id);
     expect(row?.turnId).not.toBeNull();
@@ -943,7 +949,7 @@ integration("worker gateway on PostgreSQL", () => {
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(storedRow?.stored).toBe(4);
   });
 
@@ -1237,7 +1243,7 @@ integration("worker gateway on PostgreSQL", () => {
       const [stored] = await db
         .select({ n: count() })
         .from(events)
-        .where(eq(events.sessionId, session.session_id));
+        .where(workerStream(session.session_id));
       expect(stored?.n).toBe(2);
       const [closed] = await db
         .select({ status: turns.status })
@@ -1294,7 +1300,7 @@ integration("worker gateway on PostgreSQL", () => {
     const [afterRejects] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(afterRejects?.stored).toBe(1);
 
     await gateway.finalize(principalOf(claimed), {
@@ -1330,7 +1336,7 @@ integration("worker gateway on PostgreSQL", () => {
     const [afterFinalize] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(afterFinalize?.stored).toBe(1);
   });
 
@@ -1348,7 +1354,7 @@ integration("worker gateway on PostgreSQL", () => {
     const [empty] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(empty?.stored).toBe(0);
     // Inside one batch the order of arrival does not matter: the rows are
     // written by source_sequence, which is the order they are read back in.
@@ -1360,7 +1366,7 @@ integration("worker gateway on PostgreSQL", () => {
     const stored = await db
       .select({ sourceSequence: events.sourceSequence })
       .from(events)
-      .where(eq(events.sessionId, session.session_id))
+      .where(workerStream(session.session_id))
       .orderBy(events.id);
     expect(stored.map((row) => row.sourceSequence)).toEqual([1, 2, 3]);
   });
@@ -2393,7 +2399,7 @@ integration("worker gateway on PostgreSQL", () => {
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
-      .where(eq(events.sessionId, session.session_id));
+      .where(workerStream(session.session_id));
     expect(storedRow?.stored).toBe(0);
   });
 
