@@ -2930,6 +2930,9 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
         (beat) => beat.transcript?.mirror_error?.includes("bucket") === true,
       ),
     ).toBe(true);
+    // A drain it decided itself, which before any input would be a failed
+    // startup: not reported as one asked of it (94S-302).
+    expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
   });
 
   test("a mirror error latched while the next input is polled for stops that input being handed out", async () => {

@@ -132,6 +132,12 @@ export type WorkerHostOptions = {
 type Stop = {
   kind: "drain" | "failed" | "idle" | "lost" | "paused";
   reason: string;
+  /**
+   * A drain asked of this process from outside (`drain`), unlike the ones
+   * it decides itself: a mirror error can end a startup as surely as a
+   * failure does (94S-302).
+   */
+  requested?: true;
 };
 
 type Settlement = {
@@ -260,7 +266,7 @@ export class WorkerHost {
 
   /** Asks the loop to wind down at the next safe point; safe from a signal handler. */
   drain(reason: string): void {
-    this.stop({ kind: "drain", reason });
+    this.stop({ kind: "drain", reason, requested: true });
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
@@ -1706,7 +1712,7 @@ export class WorkerHost {
           this.scrubber?.scrub(this.stopping?.reason ?? "loop ended") ??
           "loop ended",
         // A startup a signal cut short is not a failed one (94S-302).
-        ...(this.stopping?.kind === "drain"
+        ...(this.stopping?.kind === "drain" && this.stopping.requested
           ? { stop_kind: "drain" as const }
           : {}),
       })
