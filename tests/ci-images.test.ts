@@ -326,8 +326,14 @@ describe("the e2e compose overlay", () => {
   };
 
   test("pulls every third-party image of the stack from the mirror, by the stack's digest", () => {
+    // Any other image, a variable or not, is pulled and needs the overlay.
+    const built = new Set(
+      Object.values(stack).flatMap(({ build, image }) =>
+        build && image ? [image] : [],
+      ),
+    );
     const pulled = Object.entries(stack).filter(
-      ([, { image }]) => image !== undefined && !image.includes("${"),
+      ([, { image }]) => image !== undefined && !built.has(image),
     );
     expect(pulled.length).toBeGreaterThan(0);
     for (const [service, { image }] of pulled) {
