@@ -74,7 +74,7 @@ import {
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { restoreFailedAttention } from "./restore-failures.ts";
+import { startupFailedAttention } from "./restore-failures.ts";
 import {
   attempts,
   checkpoints,
@@ -673,7 +673,7 @@ export function createPostgresSessionReader(
         attention:
           (await pauseAttention(db, row)) ??
           (await contextGapAttention(db, row)) ??
-          restoreFailedAttention(row),
+          startupFailedAttention(row),
         cost_usd: row.costUsd,
         repo_url: row.repoUrl,
         branch: row.branch,

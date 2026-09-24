@@ -11,7 +11,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
@@ -70,7 +70,7 @@ const catalog: SessionCatalog = {
   },
 };
 
-integration("restore failures before ready on PostgreSQL (94S-345)", () => {
+integration("startup failures before ready on PostgreSQL (94S-347)", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -426,7 +426,10 @@ integration("restore failures before ready on PostgreSQL (94S-345)", () => {
     expect(await launchable(session)).toBe(true);
     const { claimed } = await claimReserved(session);
     expect(claimed.restore).toBeNull();
-    expect((await sessionRow(session.sessionId)).restoreAttemptId).toBeNull();
+    // Nothing to restore, but still a startup on trial (94S-347).
+    expect((await sessionRow(session.sessionId)).restoreAttemptId).toBe(
+      claimed.attempt_id,
+    );
   });
 
   test("a restore reported ready clears the count, and its later exit is not a restore failure", async () => {
@@ -490,17 +493,210 @@ integration("restore failures before ready on PostgreSQL (94S-345)", () => {
     }
   });
 
-  test("a claim with nothing to restore is never counted", async () => {
-    const session = await newSession("fresh");
+  const CLONE_FAILED =
+    "Workspace preparation failed: git fetch exited 128: repository not found";
+
+  /** A worker claims with nothing to restore and fails to prepare the workspace. */
+  async function failStartup(session: Session, release = true) {
     const { worker, claimed } = await claimReserved(session);
     expect(claimed.restore).toBeNull();
+    expect((await sessionRow(session.sessionId)).restoreAttemptId).toBe(
+      claimed.attempt_id,
+    );
+    if (release) {
+      await gateway.release(worker.principal, {
+        ...worker.scope,
+        reason: CLONE_FAILED,
+      });
+    }
+    await gateway.confirmExecutionGone(worker.executionId);
+    return claimed;
+  }
+
+  test("a claim with nothing to restore that never asks for input is counted the same, and held as STARTUP_FAILED at the limit (94S-347)", async () => {
+    const session = await newSession("fresh-limit");
+    const start = (await sessionRow(session.sessionId)).executionGeneration;
+
+    await failStartup(session);
+    const backingOff = await sessionRow(session.sessionId);
+    expect(backingOff.admissionState).toBe("active");
+    expect(backingOff.restoreFailureCount).toBe(1);
+    expect(backingOff.restoreRetryAt).not.toBeNull();
+    expect(await launchable(session)).toBe(false);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "STARTUP_FAILED",
+      reason: CLONE_FAILED,
+      failures: 1,
+      retry_at: backingOff.restoreRetryAt?.toISOString() ?? null,
+    });
+
+    for (let failures = 2; failures <= RESTORE_FAILURE_LIMIT; failures++) {
+      await spendBackoff(session);
+      await failStartup(session);
+    }
+    const held = await sessionRow(session.sessionId);
+    expect(held.admissionState).toBe("recovery_required");
+    expect(held.status).toBe("failed");
+    expect(held.executionGeneration).toBe(start + RESTORE_FAILURE_LIMIT);
+    expect(await launchable(session)).toBe(false);
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "STARTUP_FAILED",
+      reason: CLONE_FAILED,
+      failures: RESTORE_FAILURE_LIMIT,
+      retry_at: null,
+    });
+    const failed = await systemEvents(session.sessionId, "startup_failed");
+    expect(failed.map(({ failures }) => failures)).toEqual([1, 2, 3]);
+    expect(failed[0]).not.toHaveProperty("checkpoint_revision");
+    expect(
+      await systemEvents(session.sessionId, "checkpoint_restore_failed"),
+    ).toEqual([]);
+    const [status] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(eq(events.sessionId, session.sessionId), eq(events.type, "status")),
+      )
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(status?.payload).toMatchObject({
+      phase: "failed",
+      admission_state: "recovery_required",
+      reason: "startup_failed",
+    });
+
+    // Once the cause is fixed, start_fresh launches again.
+    const decided = await controls().decideRecoveryAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      decision: {
+        decision: "start_fresh",
+        expected_revision: held.revision,
+        reason: "the repository is back",
+      },
+      now: new Date(),
+    });
+    expect(decided.outcome).toBe("accepted");
+    expect((await sessionRow(session.sessionId)).restoreFailureCount).toBe(0);
+    expect(await launchable(session)).toBe(true);
+  });
+
+  test("a worker that asked for input once is not a failed startup, whatever it did before — an older worker sends no ready (94S-347)", async () => {
+    const session = await newSession("fresh-ready");
+    await failStartup(session);
+    await spendBackoff(session);
+
+    const { worker } = await claimReserved(session);
+    // Queued input is handed over; an empty poll would clear it the same.
+    const next = await gateway.nextInput(worker.principal, worker.scope);
+    expect(next.input).not.toBeNull();
+    const ready = await sessionRow(session.sessionId);
+    expect(ready.restoreFailureCount).toBe(0);
+    expect(ready.restoreRetryAt).toBeNull();
+    expect(ready.restoreAttemptId).toBeNull();
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toBeNull();
+    if (!next.input) throw new Error("no input delivered");
+    await gateway.finalize(worker.principal, {
+      ...worker.scope,
+      turn_id: next.input.turn_id,
+      finalize_key: `${worker.scope.attempt_id}:${next.input.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${session.sessionId}/0`,
+        manifest_sha256: MANIFEST_SHA,
+      },
+    });
+    // Its idle exit.
     await gateway.release(worker.principal, {
       ...worker.scope,
-      reason: "workspace clone failed",
+      reason: "idle",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    const after = await sessionRow(session.sessionId);
+    expect(after.restoreFailureCount).toBe(0);
+    expect(after.admissionState).toBe("active");
+    expect(
+      await systemEvents(session.sessionId, "startup_failed"),
+    ).toHaveLength(1);
+  });
+
+  test("a startup a signal drained is not counted, and the failures before it still are (94S-302)", async () => {
+    const session = await newSession("drained");
+    await failStartup(session);
+    await spendBackoff(session);
+    const { worker } = await claimReserved(session);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "received SIGTERM",
+      stop_kind: "drain",
     });
     await gateway.confirmExecutionGone(worker.executionId);
     const row = await sessionRow(session.sessionId);
-    expect(row.restoreFailureCount).toBe(0);
+    expect(row.admissionState).toBe("active");
+    expect(row.restoreFailureCount).toBe(1);
+    expect(row.restoreFailureReason).toBe(CLONE_FAILED);
+    expect(row.restoreAttemptId).toBeNull();
     expect(await launchable(session)).toBe(true);
+    expect(
+      await systemEvents(session.sessionId, "startup_failed"),
+    ).toHaveLength(1);
+  });
+
+  test("an exit after the first turn started stays with the unknown-turn recovery, not the startup count (94S-302)", async () => {
+    const session = await newSession("after-turn");
+    const { worker } = await claimReserved(session);
+    const next = await gateway.nextInput(worker.principal, worker.scope);
+    expect(next.input).not.toBeNull();
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "The engine stream ended",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    const row = await sessionRow(session.sessionId);
+    expect(row.admissionState).toBe("recovery_required");
+    expect(row.restoreFailureCount).toBe(0);
+    expect(row.restoreRetryAt).toBeNull();
+    expect(await systemEvents(session.sessionId, "startup_failed")).toEqual([]);
+  });
+
+  test("a startup the session asked to stop is not a failed one (94S-302)", async () => {
+    const session = await newSession("terminated");
+    const { worker } = await claimReserved(session);
+    const row = await sessionRow(session.sessionId);
+    const terminated = await controls().terminateAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      expectedRevision: row.revision,
+      reason: "operator",
+      now: new Date(),
+    });
+    expect(terminated.outcome).toBe("accepted");
+    // The kill lands mid-startup; the fenced worker cannot release.
+    await gateway.confirmExecutionGone(worker.executionId);
+    const after = await sessionRow(session.sessionId);
+    expect(after.admissionState).toBe("stopped");
+    expect(after.restoreFailureCount).toBe(0);
+    expect(await systemEvents(session.sessionId, "startup_failed")).toEqual([]);
   });
 });

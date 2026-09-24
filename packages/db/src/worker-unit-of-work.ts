@@ -91,7 +91,7 @@ import type { Database } from "./queries.ts";
 import {
   boundedReason,
   RESTORE_FAILURES_CLEARED,
-  recordRestoreFailure,
+  recordStartupFailure,
   restoreRetryDue,
 } from "./restore-failures.ts";
 import {
@@ -1011,6 +1011,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // Read once: the binding hands the worker exactly the restore the
         // session holds this attempt to reporting ready from (94S-345).
         const restore = await restoreRef(tx, locked);
+        // Every claim is on trial until its worker is ready for input
+        // (94S-347): one with nothing to restore can still fail preparing
+        // the workspace, over and over.
         const [session] = await tx
           .update(sessions)
           .set({
@@ -1018,7 +1021,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
-            restoreAttemptId: restore === null ? null : input.attemptId,
+            restoreAttemptId: input.attemptId,
             updatedAt: input.now,
           })
           .where(
@@ -1197,6 +1200,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
+        // A worker asks for input only once it has started up, restore or
+        // not, and every worker version does (94S-347): its later exit is not
+        // a failed startup, and the ones before it no longer count. Only an
+        // answered poll says so; one refused here may be the last it sends.
+        if (fenced.session.restoreAttemptId === fence.attemptId) {
+          await tx
+            .update(sessions)
+            .set(RESTORE_FAILURES_CLEARED)
+            .where(eq(sessions.id, fence.sessionId));
+        }
         // Read under the session lock the fence holds, and finalize adds to
         // it under the same lock, so a turn cannot start on a stale total.
         const overBudget = budgetExceeded(
@@ -1937,6 +1950,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .update(sessions)
             .set({
               leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+              // A drain was asked of it, so a startup it cut short is not
+              // counted (94S-302); the failures before it still are.
+              ...(input.drained
+                ? {
+                    restoreAttemptId: sql`NULLIF(${sessions.restoreAttemptId}, ${fence.attemptId})`,
+                  }
+                : {}),
               updatedAt: now,
             })
             .where(fencedSession(fence))
@@ -2255,11 +2275,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ? await contextCoverage(tx, session)
             : null;
         const contextLost = coverage !== null && contextGap(session, coverage);
-        // The worker claimed with the checkpoint and ended before it reported
-        // the restore ready (94S-345). Without counting it the session goes
-        // straight back in line and the next worker fails the same way, one
-        // generation after another. A resume counts its own launches.
-        const failedRestore =
+        // The worker claimed and ended before it was ready for input: its
+        // restore never reported ready (94S-345), or it never asked for input
+        // (94S-347). Without counting it the session goes straight back in
+        // line and the next worker fails the same way, one generation after
+        // another. A resume counts its own launches; a pause, terminate,
+        // close or revocation has taken the session out of `active`.
+        const failedStartup =
           session.admissionState === "active" &&
           unresolved.length === 0 &&
           !contextLost &&
@@ -2299,12 +2321,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                       : {}),
           })
           .where(eq(sessions.id, session.id));
-        const restoreOutcome =
-          failedRestore === null
+        const startupOutcome =
+          failedStartup === null
             ? null
-            : await recordRestoreFailure(tx, {
+            : await recordStartupFailure(tx, {
                 session,
-                attemptId: failedRestore,
+                attemptId: failedStartup,
                 now,
               });
         if (resumeFailed && unresolved.length === 0) {
@@ -2443,7 +2465,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           ((queued > 0 &&
             activeNow &&
             !contextLost &&
-            restoreOutcome !== "recovery_required") ||
+            startupOutcome !== "recovery_required") ||
             (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx
