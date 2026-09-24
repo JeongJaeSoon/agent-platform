@@ -17,6 +17,11 @@ export const REQUEST_IDLE_TIMEOUT_SECONDS = 40;
 // connection that sends nothing more is closed rather than held forever.
 // Event streams stay off it: they write on their own keepalive clock.
 export const RESPONSE_IDLE_TIMEOUT_SECONDS = 10;
+// After a response that says `Connection: close`. Bun does not close on that
+// header while request bytes are still unread, and rounds its idle clock to
+// ~4 s ticks, so the 10 s default held a stalled sender's socket 8-12 s past
+// the 408 (94S-311).
+export const CLOSING_IDLE_TIMEOUT_SECONDS = 1;
 
 export interface RequestDeadlineOptions {
   deadlineMs?: number;
@@ -64,7 +69,14 @@ export function requestDeadline(options: RequestDeadlineOptions) {
     const streaming = context.res.headers
       .get("Content-Type")
       ?.startsWith("text/event-stream");
-    setIdleTimeout(streaming ? 0 : RESPONSE_IDLE_TIMEOUT_SECONDS);
+    const closing = context.res.headers.get("Connection") === "close";
+    setIdleTimeout(
+      streaming
+        ? 0
+        : closing
+          ? CLOSING_IDLE_TIMEOUT_SECONDS
+          : RESPONSE_IDLE_TIMEOUT_SECONDS,
+    );
   };
 }
 

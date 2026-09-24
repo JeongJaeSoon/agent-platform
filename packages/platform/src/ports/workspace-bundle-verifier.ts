@@ -24,6 +24,12 @@ export type WorkspaceBundleVerdict =
  * never move, modify or keep it.
  */
 export interface WorkspaceBundleVerifier {
+  /**
+   * Names the limits verification runs under. A bundle whose verification
+   * threw is not verified again for a while (`bundleRetryCooldownMs`) unless
+   * this changes: a throw says as much about the limits as about the bundle.
+   */
+  readonly policy?: string;
   verify(input: {
     /** The file's size, already checked against the manifest and the store. */
     readonly bytes: number;

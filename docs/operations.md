@@ -104,6 +104,8 @@ checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 �
 - 흔한 원인은 저장소 URL·branch가 사라졌거나 저장소 자격 증명이 거부된 경우, 그리고 worker의 object store·proxy 설정 오류다. worker 로그의 `worker.stopping kind=failed`, `worker.failed`에서 확인한다.
 - 원인을 고친 뒤 `start_fresh`로 다시 띄운다. 이 세션에는 버릴 checkpoint가 없으므로 잃는 것이 없다. 세션을 끝내려면 `close`를 쓴다.
 - pause, terminate, close, 실행 권한 회수로 끝난 worker는 세지 않는다.
+- SIGTERM으로 drain된 worker도 세지 않는다. worker는 release에 `stop_kind: "drain"`을 싣는다. 이 필드를 모르는 옛 API(94S-302 이전)는 strict schema라 400 `BAD_REQUEST`로 거절한다. 그러면 worker는 `worker.release.stop_kind_refused`를 로그에 남기고 필드 없이 한 번 더 release한다(94S-361). 세션은 lease 만료를 기다리지 않고 바로 돌아온다. 다만 옛 API는 그 종료를 예전 규칙대로 센다. 복원이 걸린 claim이면 실패 1회다.
+- **배포 순서:** 제어 호스트 이미지(`API_IMAGE`, api·scheduler 공용)를 먼저 올리고 `WORKER_IMAGE`는 그다음에 바꾼다. worker protocol의 요청 schema는 strict라서 새 worker가 보낸 새 필드를 옛 API가 400으로 거절한다. release 말고는 이런 대체 경로가 없다.
 
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다 (94S-252)
 
@@ -351,6 +353,44 @@ curl -s -c jar -X POST http://127.0.0.1:3000/v1/auth/login -H 'Content-Type: app
 curl -s -b jar http://127.0.0.1:3000/v1/auth/me
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: agent-platform-web' -i
 ```
+
+### 세션 실행 권한 회수와 복구 (94S-321)
+
+API key 폐기(`keys revoke`)는 그 key로 오는 요청과 열려 있던 SSE만 끊고, 이미 돌고 있는 세션의 worker는 건드리지 않는다. 한 세션의 실행을 거두려면 grants CLI를 쓴다. Grant 관리 API나 UI는 알파에 없다. keys CLI와 같은 곳(API 이미지 안, 같은 DB)에서 실행하고, `--reason`은 필수다. 이유는 세션 이벤트(`execution_revoked`·`execution_restored`)에 운영자 행위로 남는다.
+
+```bash
+# compose(apps profile): api 컨테이너 안에서 실행한다
+bun run grants revoke <session_id> --reason "leaked credential"
+bun run grants restore <session_id> --reason "rotated; safe to resume"
+# host에서 도는 API라면
+DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
+  bun run --cwd apps/control-host grants revoke <session_id> --reason "…"
+```
+
+**revoke**는 한 transaction에서 다음을 한다. 다른 세션과 owner 계정은 건드리지 않는다.
+- 세션의 auth_revision과 epoch를 올린다. 현재 binding의 fenced write는 무엇으로 인증했든 여기서부터 실패한다.
+- 세션의 worker token을 폐기한다. worker의 다음 요청은 401이다.
+- 현재 generation의 kill intent를 terminate와 같은 방식으로 남긴다.
+- dispatch를 막는다. owner의 resume과 start_fresh도 403이다.
+
+receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남고, terminate 기한을 넘기면 `unknown`이 된다.
+
+**restore**는 차단만 푼다. 올라간 auth_revision, 폐기된 token, 세션이 도달한 admission 상태(stopped 또는 recovery_required)는 그대로다. 이어서 하려면 terminate 뒤처럼 owner가 resume하거나 운영자가 recovery를 결정한다. 회수한 execution이 아직 살아 있을 수 있으면 restore는 거부된다. scheduler가 kill을 끝내고 execution이 사라진 것이 관측된 뒤 다시 실행한다.
+
+결과는 아래 표의 한 줄이다. 성공이면 stdout에 쓰고 exit 0, 거부면 stderr에 쓰고 exit 1이다. 같은 명령을 다시 실행해도 안전하다. 인자 오류나 DB 오류는 표에 없는 여러 줄 오류(stack 포함)로 stderr에 나오고 exit 1이다.
+
+| 줄 | exit | 뜻 |
+|---|---|---|
+| `revoked <id> owner=… auth_revision=… execution=<id\|none> credentials_revoked=<n> receipt=… receipt_status=<accepted\|succeeded>` | 0 | 회수했다. `receipt_status`는 kill을 기다릴 execution이 있으면 `accepted`, 없으면 곧바로 `succeeded`다 |
+| `already_revoked <id> revoked_at=… reason="…"` | 0 | 이미 회수된 세션이다. 아무것도 바꾸지 않는다 |
+| `restored <id> owner=…` | 0 | 차단을 풀었다 |
+| `not_revoked <id>` | 0 | 지금 회수된 상태가 아니다(이미 복구된 세션 포함). 아무것도 바꾸지 않는다 |
+| `session <id>: execution <id> has not been observed gone; restore once it has` | 1 | restore 거부. 잠시 뒤 다시 실행한다 |
+| `session <id> not found` | 1 | 그런 세션이 없다 |
+| `session <id> is closed` | 1 | 닫힌 세션은 회수할 것이 없다 |
+| `session <id> runs on a legacy pod binding with no kill path` | 1 | legacy binding이라 kill 경로가 없다 |
+
+`session_id`는 UUID여야 한다. 인자가 틀리거나 `--reason`이 비어 있으면 DB에 연결하기 전에 사용법이 담긴 오류로 끝난다. `DATABASE_URL`이 없어도 인자 검사가 먼저다.
 
 ## 설치 상한 (94S-131)
 
