@@ -158,7 +158,7 @@ async function proxy(
   if (upstream === "s3" && !(await fromWorkers(client))) {
     const response = await forward(upstream, request, path, bytes);
     return new Response(response.body, {
-      headers: sentOn(response),
+      headers: sentOn(response, request.method),
       status: response.status,
     });
   }
@@ -209,7 +209,7 @@ async function proxy(
     });
   }
   entry.status = response.status;
-  const out = sentOn(response);
+  const out = sentOn(response, request.method);
   if (upstream === "gateway" && response.status >= 400) {
     const text = await response.text();
     entry.errorBody = text.slice(0, 1000);
@@ -249,9 +249,10 @@ function forward(
 }
 
 // fetch has already decoded the body, so its length and coding no longer
-// describe what is sent on.
-function sentOn(response: Response): Headers {
+// describe what is sent on — except a HEAD's, whose length is the object's.
+function sentOn(response: Response, method: string): Headers {
   const out = new Headers(response.headers);
+  if (method === "HEAD") return out;
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("transfer-encoding");
