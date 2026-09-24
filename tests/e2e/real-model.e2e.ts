@@ -161,18 +161,21 @@ test("two turns, a checkpoint and a resume on a new worker, against the real mod
   const usage = await api.expect<{
     budget_exceeded: boolean;
     cost: {
-      amount_usd: number;
+      amount_usd: string;
       complete: boolean;
       reported_turn_count: number;
     };
-    cost_limit_usd: number;
+    cost_limit_usd: string;
   }>(200, "GET", `/v1/sessions/${sessionId}/usage`);
   expect(usage.cost.complete).toBe(true);
   expect(usage.cost.reported_turn_count).toBe(3);
-  expect(usage.cost.amount_usd).toBeGreaterThan(0);
+  // Decimal strings (costUsdSchema), compared as numbers.
+  const spent = Number(usage.cost.amount_usd);
+  expect(spent).toBeGreaterThan(0);
+  expect(spent).toBeLessThanOrEqual(Number(usage.cost_limit_usd));
   expect(usage.budget_exceeded).toBe(false);
   const limits = await api.expect<{
-    limits: { session_cost_limit_usd: number };
+    limits: { session_cost_limit_usd: string };
   }>(200, "GET", "/v1/limits");
   expect(usage.cost_limit_usd).toBe(limits.limits.session_cost_limit_usd);
 
