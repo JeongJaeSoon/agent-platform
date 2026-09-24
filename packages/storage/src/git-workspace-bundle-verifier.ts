@@ -3,7 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { WorkspaceBundleVerifier } from "@agent-platform/platform";
-import { gitBundleOffersFrom } from "@agent-platform/runtime-core";
+import {
+  checkpointBundleRefs,
+  gitBundleOffersFrom,
+  PEELED_REF_FORMAT,
+  peeledCommits,
+} from "@agent-platform/runtime-core";
 
 import {
   defaultGitRunner,
@@ -271,25 +276,33 @@ export function createGitWorkspaceBundleVerifier(
           if (fetch.exitCode !== 0) return refused("git fetch", fetch);
         }
         // The header lets the commit be an earlier link's tip, because a tag
-        // over it is just another ref there. The last link has to land it
-        // itself, as a ref or a tag over one: that is the one a restore
-        // checks out.
+        // over it is just another ref there. The last link's refs are what a
+        // restore checks out, so they meet the rule it applies
+        // (`checkpointBundleRefs`): its worktree ref lands the commit, as a
+        // ref or a tag over one.
+        const last = links.length - 1;
         const landed = await git(
           [
             "for-each-ref",
-            "--format=%(objectname) %(*objectname)",
-            `refs/verify/chain/${links.length - 1}/`,
+            `--format=${PEELED_REF_FORMAT}`,
+            `refs/verify/chain/${last}/`,
           ],
           repository,
         );
         if (landed.exitCode !== 0) return refused("git for-each-ref", landed);
-        if (!landed.stdout.split(/\s+/).includes(commit.toLowerCase())) {
+        const peeled = peeledCommits(landed.stdout);
+        const checked = checkpointBundleRefs(
+          (links[last]?.refs ?? []).map((ref, at) => [
+            ref,
+            peeled.get(`refs/verify/chain/${last}/${at}`) ?? null,
+          ]),
+          commit.toLowerCase(),
+        );
+        if (checked.status === "invalid") {
           return {
             status: "unusable",
             reason:
-              bases.length === 0
-                ? `git bundle does not land ${commit} as a ref or a tag over one`
-                : `${key}: git bundle does not land ${commit} as a ref or a tag over one`,
+              bases.length === 0 ? checked.reason : `${key}: ${checked.reason}`,
           };
         }
         const walk = await git(

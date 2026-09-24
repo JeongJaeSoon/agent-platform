@@ -3,6 +3,10 @@ import { constants, createReadStream } from "node:fs";
 import { lstat, open, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  CHECKPOINT_BRANCH_PREFIX,
+  CHECKPOINT_HEAD_REF,
+  CHECKPOINT_INSTRUCTIONS_REF,
+  CHECKPOINT_WORKTREE_REF,
   type GitResourceLimits,
   gitBundleOffersFrom,
   readWorkspaceFile,
@@ -96,22 +100,12 @@ export type BundleBase = {
   maxBytes: number;
 };
 
-/** The refs a checkpoint bundle carries; the restorer reads them back. */
-export const CHECKPOINT_HEAD_REF = "refs/checkpoint/head";
-export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
-/**
- * Where a bundle built on an earlier one carries HEAD's branch when the
- * earlier one already has its commit: under `refs/heads/` git keeps
- * commits only, and the branch then needs a tag (`refs/checkpoint/branch/
- * heads/main` for `refs/heads/main`).
- */
-export const CHECKPOINT_BRANCH_PREFIX = "refs/checkpoint/branch/";
-/**
- * The commit the session's repository CLAUDE.md is read from (94S-258): the
- * branch commit the first worker fetched, carried unchanged from checkpoint
- * to checkpoint so a resumed engine gets the instructions it started with.
- */
-export const CHECKPOINT_INSTRUCTIONS_REF = "refs/checkpoint/instructions";
+export {
+  CHECKPOINT_BRANCH_PREFIX,
+  CHECKPOINT_HEAD_REF,
+  CHECKPOINT_INSTRUCTIONS_REF,
+  CHECKPOINT_WORKTREE_REF,
+};
 
 /**
  * The instructions commit a capture pins, and where its objects are kept

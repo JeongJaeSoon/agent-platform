@@ -11,6 +11,11 @@ import type {
 } from "@agent-platform/contracts";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
+  checkpointBundleRefs,
+  PEELED_REF_FORMAT,
+  peeledCommits,
+} from "@agent-platform/runtime-core";
+import {
   GetObjectCommand,
   ListObjectVersionsCommand,
   S3Client,
@@ -516,24 +521,28 @@ async function unbundle(
         `refs/*:refs/chain/${index}/*`,
       ]);
     }
-    // Peeled: a capture that changed nothing tags a commit an earlier
-    // bundle carries (94S-374).
-    const worktree = (
-      await git(
-        [
-          "rev-parse",
-          "--verify",
-          "--quiet",
-          `refs/chain/${bundles.length - 1}/checkpoint/worktree^{commit}`,
-        ],
-        true,
-      )
-    ).stdout.trim();
-    if (worktree !== commit) {
-      problems.push(
-        `bundle refs/checkpoint/worktree ${worktree} != manifest gitCommit ${commit}`,
-      );
-    }
+    // The rule finalize and a restore apply to the last bundle's refs
+    // (94S-391), peeled: a capture that changed nothing tags a commit an
+    // earlier bundle carries (94S-374).
+    const last = `refs/chain/${bundles.length - 1}/`;
+    const peeled = peeledCommits(
+      (await git(["for-each-ref", `--format=${PEELED_REF_FORMAT}`, last]))
+        .stdout,
+    );
+    const checked = checkpointBundleRefs(
+      heads
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split(" ")[1] ?? "")
+        .map((name): [string, string | null] => [
+          name,
+          name.startsWith("refs/")
+            ? (peeled.get(`${last}${name.slice("refs/".length)}`) ?? null)
+            : null,
+        ]),
+      commit,
+    );
+    if (checked.status === "invalid") problems.push(checked.reason);
     const tree: Record<string, string> = {};
     const listing = (await git(["ls-tree", "-r", "--name-only", commit], true))
       .stdout;
