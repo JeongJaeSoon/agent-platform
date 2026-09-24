@@ -13,11 +13,20 @@
 # schedule by a wide margin, and the issue titles carry the SHA, so a commit
 # seen twice is reported once.
 #
+# A commit merged within a second of the next one can reach main inside that
+# one's push (1583f5d, 6e7badf): the ref moves from an older commit straight
+# past it, so it is never the tip, and GitHub has no push event and no run to
+# give it. The push that carried it ran on a tree containing it, and that
+# push's own commit is judged here in turn. Such a commit is `coalesced`, told
+# apart from a lost event by main's ref activity: the lost 70139eb was the
+# tip, since the next update left from it.
+#
 # Prints one line per commit, `<verdict> <short-sha>`, where the verdict is
-# `present`, `missing` or `too-recent`; a `present` line ends with the push
-# run's id. Exits 1 when any commit is missing and 2 when GitHub could not be
-# asked, so a caller can tell "found a gap" from "could not look" — the lines
-# already printed are then a partial answer.
+# `present`, `missing`, `coalesced` or `too-recent`; a `present` line ends with
+# the push run's id, a `coalesced` line with the tip its push moved main to.
+# Exits 1 when any commit is missing and 2 when GitHub could not be asked, so a
+# caller can tell "found a gap" from "could not look" — the lines already
+# printed are then a partial answer.
 #
 # usage: check-main-push-run.sh [sha]
 #   sha  a single commit to judge instead of the window (fixture runs)
@@ -56,8 +65,57 @@ api_failed() {
   exit 2
 }
 
+commit_line='"\(.sha) \(.commit.committer.date) \(.parents[0].sha // "")"'
+
+# `<type> <before> <after>` per update of main, read once and only when some
+# commit has no run. A month covers the window with room; a single older sha
+# finds no trace here and stays `missing`.
+ref_updates=
+ref_updates_read=0
+read_ref_updates() {
+  [ "$ref_updates_read" = 0 ] || return 0
+  ref_updates=$(gh api "repos/${GH_REPO}/activity?ref=refs/heads/main&time_period=month&per_page=100" --paginate \
+    --jq '.[] | "\(.activity_type) \(.before) \(.after)"') || api_failed "activity of main"
+  ref_updates_read=1
+}
+
+parent_of() {
+  local parent
+  if ! parent=$(awk -v sha="$1" '$1 == sha { print $3; found = 1; exit } END { exit !found }' <<<"$commits"); then
+    parent=$(gh api "repos/${GH_REPO}/commits/$1" --jq '.parents[0].sha // ""') || return 2
+  fi
+  echo "$parent"
+}
+
+# Prints the tip of the push that carried the commit past the tip. Walks
+# parents while they were never the tip either (three merges in one push), up
+# to the one the push left from. Returns 1 when the commit was itself the tip
+# or no such push is recorded, 2 when GitHub could not be asked.
+carrying_push() {
+  local commit=$1 sha=$1 hops after relation
+  for hops in 0 1 2 3 4 5 6 7 8 9; do
+    if awk -v sha="$sha" '$2 == sha || $3 == sha { found = 1 } END { exit !found }' <<<"$ref_updates"; then
+      [ "$hops" -gt 0 ] || return 1
+      # A tip can be left more than once (moved back by a force push), and
+      # not every update from it carries the commit: only one whose after
+      # contains it does.
+      for after in $(awk -v sha="$sha" '$2 == sha && $3 !~ /^0+$/ { print $3 }' <<<"$ref_updates"); do
+        relation=$(gh api "repos/${GH_REPO}/compare/${commit}...${after}" --jq .status) || return 2
+        if [ "$relation" = ahead ]; then
+          echo "$after"
+          return 0
+        fi
+      done
+      return 1
+    fi
+    sha=$(parent_of "$sha") || return 2
+    [ -n "$sha" ] || return 1
+  done
+  return 1
+}
+
 if [ "$#" -ge 1 ] && [ -n "$1" ]; then
-  commits=$(gh api "repos/${GH_REPO}/commits/$1" --jq '"\(.sha) \(.commit.committer.date)"') \
+  commits=$(gh api "repos/${GH_REPO}/commits/$1" --jq "$commit_line") \
     || api_failed "commits/$1"
 else
   since=$(python3 -c "
@@ -65,12 +123,12 @@ from datetime import datetime, timedelta, timezone
 print((datetime.now(timezone.utc) - timedelta(hours=${lookback})).strftime('%Y-%m-%dT%H:%M:%SZ'))")
   # --paginate: a busy window can hold more than one page of commits.
   commits=$(gh api "repos/${GH_REPO}/commits?sha=main&since=${since}&per_page=100" --paginate \
-    --jq '.[] | "\(.sha) \(.commit.committer.date)"') \
+    --jq ".[] | $commit_line") \
     || api_failed "commits since ${since}"
 fi
 
 status=0
-while read -r sha committed_at; do
+while read -r sha committed_at _; do
   [ -n "$sha" ] || continue
   short=${sha:0:7}
 
@@ -85,10 +143,20 @@ while read -r sha committed_at; do
   read -r runs run_id <<<"$found"
   if [ "$runs" -gt 0 ]; then
     echo "present ${short} ${run_id}"
-  else
+    continue
+  fi
+
+  read_ref_updates
+  rc=0
+  tip=$(carrying_push "$sha") || rc=$?
+  case "$rc" in
+  0) echo "coalesced ${short} ${tip:0:7}" ;;
+  1)
     echo "missing ${short}"
     status=1
-  fi
+    ;;
+  *) api_failed "the push that carried ${short}" ;;
+  esac
 done <<<"$commits"
 
 exit "$status"
