@@ -1458,6 +1458,25 @@ describe("a bundle that builds on the previous checkpoint's (94S-227)", () => {
     ).toEqual([baseRef, tipRef]);
   });
 
+  test("reads the chain by key, whatever versions it names, where objects are unversioned", async () => {
+    await committedBase();
+
+    expect(
+      await finalize(
+        incremental({
+          baseBundles: [{ ...baseRef, version: "restored-under-another-id" }],
+        }),
+        "2",
+      ),
+    ).toEqual({ outcome: "committed", revision: 1 });
+    const plan = await service.getRestorePlan({ runtime, sessionId });
+    if (plan.status !== "ready") throw new Error(plan.status);
+    expect(
+      plan.plan.artifacts.find(({ kind }) => kind === "workspace_bundle")
+        ?.objects,
+    ).toEqual([baseRef, tipRef]);
+  });
+
   test("refuses a chain with a link left out, and the pointer stays", async () => {
     await committedBase();
     expect(await finalize(incremental(), "2")).toMatchObject({

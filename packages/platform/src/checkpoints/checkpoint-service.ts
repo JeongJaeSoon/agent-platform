@@ -1725,6 +1725,9 @@ function withoutVersions(manifest: CheckpointManifest): CheckpointManifest {
     },
     workspace: {
       ...manifest.workspace,
+      ...(manifest.workspace.baseBundles === undefined
+        ? {}
+        : { baseBundles: manifest.workspace.baseBundles.map(strip) }),
       bundle: strip(manifest.workspace.bundle),
       untracked: manifest.workspace.untracked.map(strip),
     },

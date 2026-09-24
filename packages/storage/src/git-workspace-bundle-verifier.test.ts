@@ -108,6 +108,18 @@ describe("git workspace bundle verifier", () => {
     expect(
       await verifier.verify({ ...tip, commit: chain.tip.commit }),
     ).toMatchObject({ status: "unusable" });
+    // The base's commit, which the chain has but the last link does not
+    // check out: a restore of the last link would land somewhere else.
+    expect(
+      await verifier.verify({
+        ...tip,
+        bases: [base],
+        commit: chain.base.commit,
+      }),
+    ).toMatchObject({
+      status: "unusable",
+      reason: `tip: git bundle does not land ${chain.base.commit} as a ref or a tag over one`,
+    });
     // The base must come first: the tip does not stand in for it.
     expect(
       await verifier.verify({
@@ -404,7 +416,11 @@ describe("git workspace bundle verifier", () => {
         commit: bundle.commit,
         key: "k",
       });
-      expect(calls.map((args) => args[0])).toEqual(["init", "-c", "rev-list"]);
+      expect(calls.map((args) => args[0])).toEqual([
+        "init",
+        "-c",
+        "for-each-ref",
+      ]);
     }
   });
 
@@ -658,6 +674,7 @@ describe("git workspace bundle verifier", () => {
     expect(calls.map((call) => call.args[0])).toEqual([
       "init",
       "-c",
+      "for-each-ref",
       "rev-list",
     ]);
     for (const { options } of calls) {

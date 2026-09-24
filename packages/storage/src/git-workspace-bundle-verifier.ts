@@ -270,6 +270,28 @@ export function createGitWorkspaceBundleVerifier(
           );
           if (fetch.exitCode !== 0) return refused("git fetch", fetch);
         }
+        // The header lets the commit be an earlier link's tip, because a tag
+        // over it is just another ref there. The last link has to land it
+        // itself, as a ref or a tag over one: that is the one a restore
+        // checks out.
+        const landed = await git(
+          [
+            "for-each-ref",
+            "--format=%(objectname) %(*objectname)",
+            `refs/verify/chain/${links.length - 1}/`,
+          ],
+          repository,
+        );
+        if (landed.exitCode !== 0) return refused("git for-each-ref", landed);
+        if (!landed.stdout.split(/\s+/).includes(commit.toLowerCase())) {
+          return {
+            status: "unusable",
+            reason:
+              bases.length === 0
+                ? `git bundle does not land ${commit} as a ref or a tag over one`
+                : `${key}: git bundle does not land ${commit} as a ref or a tag over one`,
+          };
+        }
         const walk = await git(
           ["rev-list", "--objects", "--quiet", `${commit}^{commit}`, "--"],
           repository,
