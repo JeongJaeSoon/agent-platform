@@ -1126,6 +1126,8 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       outcomes.push({
         mode,
         session: sessionId,
+        accepted_as: (accepted.body as { receipt_status: string })
+          .receipt_status,
         receipt: receipt.status,
         result: receipt.result,
         turn: turn?.status,
@@ -1147,6 +1149,13 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         outcome.turn === "interrupted"
       );
     };
+    // A round whose answer still came first (202 already succeeded) tests
+    // nothing about stopping; it only has to say it did nothing, as E-02.
+    const honest = (outcome: Record<string, unknown>) =>
+      outcome.accepted_as === "accepted"
+        ? stopped(outcome)
+        : outcome.turn === "completed" &&
+          (outcome.result as { no_op?: boolean } | null)?.no_op === true;
     report.check({
       id: "E-01",
       criterion: "interrupt",
@@ -1154,12 +1163,12 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "every accepted interrupt ends its turn; none is acknowledged and then outrun by the answer",
       input: `${rounds} fresh sessions whose answer takes 15s, interrupted alternately at the first 202 and after the model call`,
       expected:
-        "each receipt succeeded with no_op false and each turn interrupted",
+        "each interrupt accepted while its turn ran: receipt succeeded with no_op false and the turn interrupted",
       actual: {
         stopped: outcomes.filter(stopped).length,
         rounds: outcomes,
       },
-      pass: outcomes.length === rounds && outcomes.every(stopped),
+      pass: outcomes.length === rounds && outcomes.every(honest),
     });
 
     // What QA took for a silent no-op: an interrupt that reaches a turn
