@@ -196,6 +196,46 @@ describe("checkpoint object store", () => {
     expect(await store.get("m.json")).toEqual(encode("first"));
   });
 
+  test("writes a content-addressed key with one request, no read before it (94S-380)", async () => {
+    const s3 = fakeS3();
+    const store = createCheckpointObjectStore({
+      bucket: "b",
+      client: s3.client,
+    });
+
+    expect(
+      await store.putImmutable("untracked/x", encode("first"), {
+        contentAddressed: true,
+      }),
+    ).toEqual({ outcome: "created" });
+    expect(s3.calls).toEqual(["PutObjectCommand"]);
+  });
+
+  test("a content-addressed key still answers duplicate and conflict through the precondition", async () => {
+    const s3 = fakeS3({ same: "first", other: "first" });
+    const store = createCheckpointObjectStore({
+      bucket: "b",
+      client: s3.client,
+    });
+
+    expect(
+      await store.putImmutable("same", encode("first"), {
+        contentAddressed: true,
+      }),
+    ).toEqual({ outcome: "duplicate" });
+    expect(
+      await store.putImmutable("other", encode("second"), {
+        contentAddressed: true,
+      }),
+    ).toEqual({ outcome: "conflict", sha256: sha256("first") });
+    expect(s3.calls).toEqual([
+      "PutObjectCommand",
+      "GetObjectCommand",
+      "PutObjectCommand",
+      "GetObjectCommand",
+    ]);
+  });
+
   test("sends the create-only precondition on the write it attempts", async () => {
     const s3 = fakeS3();
     const store = createCheckpointObjectStore({

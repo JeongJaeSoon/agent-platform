@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type {
@@ -537,11 +538,14 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     let manifestRef: string | null = null;
     let lost: string | undefined;
     let failed: string | undefined;
+    const timer = new StageTimer();
     try {
-      const answer = await this.#options.gateway.requestCheckpoint({
-        ...context.scope,
-        preparation: { status: "ready" },
-      });
+      const answer = await timer.time("request", () =>
+        this.#options.gateway.requestCheckpoint({
+          ...context.scope,
+          preparation: { status: "ready" },
+        }),
+      );
       if (answer.status === "blocked") {
         this.#options.logger.warn("worker.checkpoint.blocked", {
           reason: answer.reason,
@@ -551,10 +555,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         revision = answer.revision;
         manifestRef = answer.manifest_ref;
         stage = "publish";
-        return await this.#publish(bound, preparation, context, {
-          manifestRef: answer.manifest_ref,
-          revision: answer.revision,
-        });
+        return await this.#publish(
+          bound,
+          preparation,
+          context,
+          { manifestRef: answer.manifest_ref, revision: answer.revision },
+          timer,
+        );
       }
     } catch (error) {
       if (isOwnershipLost(error)) throw error;
@@ -565,6 +572,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         reason: describe(error),
         revision,
         manifest_ref: manifestRef,
+        ...timer.fields(),
       });
       if (error instanceof MirrorLost) lost = error.message;
       else failed = `${failedAt}: ${describe(error)}`;
@@ -697,6 +705,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     preparation: ReadyCheckpoint,
     context: CheckpointCaptureContext,
     request: { manifestRef: string; revision: number },
+    timer: StageTimer,
   ): Promise<CheckpointRef> {
     const { objects } = this.#options;
     const { manifestRef } = request;
@@ -716,7 +725,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       key: string,
       body: Uint8Array | ImmutableObjectSource,
     ) => {
-      const result = await objects.putImmutable(key, body);
+      const result = await objects.putImmutable(key, body, {
+        contentAddressed: true,
+      });
       // Content-addressed keys under this publish's own directory: another
       // body there is corruption, not a race anyone could have won.
       if (result.outcome === "conflict") {
@@ -736,34 +747,40 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         "the workspace .git is not a directory",
       );
     }
-    const chain = await this.#chainBefore(bound, request.revision);
+    const chain = await timer.time("chain", () =>
+      this.#chainBefore(bound, request.revision),
+    );
     const maxBundleBytes = (
       this.#options.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS
     ).maxBundleBytes;
     let captured: WorkspaceCaptureResult;
     let bundle: ObjectRef;
     try {
-      captured = await (this.#options.captureWorkspace ?? captureWorkspace)({
-        root: this.#options.workspaceRoot,
-        bundlePath: join(spool, "workspace.bundle"),
-        signal: new AbortController().signal,
-        ...(this.#options.limits === undefined
-          ? {}
-          : { limits: this.#options.limits }),
-        ...(bound.instructions === undefined
-          ? {}
-          : { instructions: bound.instructions }),
-        ...(chain === undefined
-          ? {}
-          : {
-              base: {
-                maxBytes:
-                  maxBundleBytes -
-                  chain.links.reduce((total, link) => total + link.bytes, 0),
-                tips: chain.tips,
-              },
-            }),
-      });
+      const workspaceCapture =
+        this.#options.captureWorkspace ?? captureWorkspace;
+      captured = await timer.time("git", () =>
+        workspaceCapture({
+          root: this.#options.workspaceRoot,
+          bundlePath: join(spool, "workspace.bundle"),
+          signal: new AbortController().signal,
+          ...(this.#options.limits === undefined
+            ? {}
+            : { limits: this.#options.limits }),
+          ...(bound.instructions === undefined
+            ? {}
+            : { instructions: bound.instructions }),
+          ...(chain === undefined
+            ? {}
+            : {
+                base: {
+                  maxBytes:
+                    maxBundleBytes -
+                    chain.links.reduce((total, link) => total + link.bytes, 0),
+                  tips: chain.tips,
+                },
+              }),
+        }),
+      );
       if (captured.status === "refused") {
         throw new PublishFailure("workspace", captured.reason);
       }
@@ -773,11 +790,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         key: `${directory}workspace-${digest}.bundle`,
         sha256: digest,
       };
-      await upload(bundle.key, {
-        bytes,
-        sha256: digest,
-        open: () => createReadStream(path),
-      });
+      await timer.time("bundle_upload", () =>
+        upload(bundle.key, {
+          bytes,
+          sha256: digest,
+          open: () => createReadStream(path),
+        }),
+      );
     } finally {
       await rm(spool, { force: true, recursive: true });
     }
@@ -793,17 +812,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     capture.untracked.forEach((file, index) => {
       distinct.set((untracked[index] as WorkspaceArtifact).key, file.bytes);
     });
-    await inBatches([...distinct], UPLOAD_CONCURRENCY, ([key, bytes]) =>
-      upload(key, bytes),
+    await timer.time("untracked_upload", () =>
+      inBatches([...distinct], UPLOAD_CONCURRENCY, ([key, bytes]) =>
+        upload(key, bytes),
+      ),
     );
 
-    const transcripts = await bound.store
-      .captureTranscripts(preparation.checkpoint.resume)
-      .catch((error: unknown) => {
-        throw error instanceof TranscriptTooLarge
-          ? new PublishFailure("transcript", error.message)
-          : error;
-      });
+    const transcripts = await timer.time("transcript", () =>
+      bound.store
+        .captureTranscripts(preparation.checkpoint.resume)
+        .catch((error: unknown) => {
+          throw error instanceof TranscriptTooLarge
+            ? new PublishFailure("transcript", error.message)
+            : error;
+        }),
+    );
     if (transcripts === null) {
       throw new PublishFailure(
         "transcript",
@@ -817,7 +840,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (bound.store.unsettled) {
       throw new MirrorLost(UNSETTLED);
     }
-    const now = await context.recheck();
+    const now = await timer.time("recheck", () => context.recheck());
     if (now.status === "rejected" && now.reason === "mirror_error") {
       throw new MirrorLost(now.detail);
     }
@@ -865,7 +888,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         `the manifest is ${encoded.bytes.byteLength} bytes, over the ${MAX_MANIFEST_BYTES} the control plane reads`,
       );
     }
-    const stored = await objects.putImmutable(manifestRef, encoded.bytes);
+    const stored = await timer.time("manifest", () =>
+      objects.putImmutable(manifestRef, encoded.bytes),
+    );
     if (stored.outcome === "conflict") {
       throw new PublishFailure(
         "manifest",
@@ -887,6 +912,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       untracked: untracked.length,
       bundle_bytes: bundle.bytes,
       base_bundles: bases.length,
+      ...timer.fields(),
     });
     return {
       revision: request.revision,
@@ -895,6 +921,32 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ...(stored.version === undefined
         ? {}
         : { manifest_version: stored.version }),
+    };
+  }
+}
+
+/**
+ * How long each stage of one capture took, for its log line (94S-380): a
+ * capture that runs long says which stage it spent the time in. A stage
+ * that failed is timed up to its failure; one never reached is absent.
+ */
+class StageTimer {
+  readonly #started = performance.now();
+  readonly #stages: Record<string, number> = {};
+
+  async time<T>(stage: string, work: () => Promise<T>): Promise<T> {
+    const started = performance.now();
+    try {
+      return await work();
+    } finally {
+      this.#stages[stage] = Math.round(performance.now() - started);
+    }
+  }
+
+  fields(): { durations_ms: Record<string, number>; total_ms: number } {
+    return {
+      durations_ms: { ...this.#stages },
+      total_ms: Math.round(performance.now() - this.#started),
     };
   }
 }

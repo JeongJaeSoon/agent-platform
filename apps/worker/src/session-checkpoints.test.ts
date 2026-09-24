@@ -125,10 +125,11 @@ function harness(
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
   const objects = options.objects ?? createMemoryCheckpointObjectStore();
+  const infos: Logged[] = [];
   const warnings: Logged[] = [];
   const errors: Logged[] = [];
   const logger: WorkerLogger = {
-    info: () => {},
+    info: (event, fields) => infos.push({ event, fields }),
     warn: (event, fields) => warnings.push({ event, fields }),
     error: (event, fields) => errors.push({ event, fields }),
   };
@@ -147,7 +148,7 @@ function harness(
       ? {}
       : { instructionsCommit: options.instructionsCommit }),
   });
-  return { errors, gateway, logger, objects, port, warnings };
+  return { errors, gateway, infos, logger, objects, port, warnings };
 }
 
 async function claimOf(
@@ -658,6 +659,67 @@ describe("SessionCheckpoints", () => {
         ),
     ).toBe(true);
   });
+
+  test("logs how long each stage of a publish took (94S-380)", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+
+    if (ref === null) throw new Error("nothing published");
+    const published = h.infos.find(
+      ({ event }) => event === "worker.checkpoint.published",
+    );
+    const stages = published?.fields?.durations_ms as Record<string, number>;
+    expect(Object.keys(stages).sort()).toEqual([
+      "bundle_upload",
+      "chain",
+      "git",
+      "manifest",
+      "recheck",
+      "request",
+      "transcript",
+      "untracked_upload",
+    ]);
+    for (const ms of Object.values(stages)) {
+      expect(ms).toBeGreaterThanOrEqual(0);
+    }
+    expect(published?.fields?.total_ms).toBeGreaterThanOrEqual(
+      Math.max(...Object.values(stages)),
+    );
+  });
+
+  test("a failed publish logs the stages it reached, up to the one that failed (94S-380)", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    expect(
+      await h.port.capture(
+        { ...ready, checkpoint: { ...ready.checkpoint, resume: "elsewhere" } },
+        { scope: scopeOf(claim), recheck: async () => ready },
+      ),
+    ).toBeNull();
+
+    expect(h.warnings[0]).toMatchObject({
+      event: "worker.checkpoint.failed",
+      fields: { stage: "transcript" },
+    });
+    expect(
+      Object.keys(h.warnings[0]?.fields?.durations_ms as object).sort(),
+    ).toEqual([
+      "bundle_upload",
+      "chain",
+      "git",
+      "request",
+      "transcript",
+      "untracked_upload",
+    ]);
+  });
 });
 
 describe("a publish that fails for a reason other than the mirror (94S-312)", () => {
@@ -915,6 +977,55 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
     expect(h.warnings.map(({ event }) => event)).toEqual([
       "worker.checkpoint.failed",
       "worker.checkpoint.report_failed",
+    ]);
+  });
+
+  test("writes the bundle and untracked files as content-addressed, the manifest as not (94S-380)", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const putImmutable = objects.putImmutable.bind(objects);
+    const writes: Array<{ key: string; contentAddressed: boolean }> = [];
+    objects.putImmutable = async (key, body, options) => {
+      writes.push({
+        key,
+        contentAddressed: options?.contentAddressed === true,
+      });
+      return putImmutable(key, body, options);
+    };
+    const h = harness({
+      captureWorkspace: captured(
+        ["one", "two"].map((body) => ({
+          bytes: new TextEncoder().encode(body),
+          executable: false,
+          path: `${body}.txt`,
+        })),
+      ),
+      objects,
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+
+    if (ref === null) throw new Error("nothing published");
+    const directory = ref.manifest_ref.slice(
+      0,
+      ref.manifest_ref.lastIndexOf("/") + 1,
+    );
+    const published = writes.filter(({ key }) => key.startsWith(directory));
+    expect(published.map(({ key }) => key.slice(directory.length))).toEqual([
+      expect.stringMatching(/^workspace-[0-9a-f]{64}\.bundle$/),
+      expect.stringMatching(/^untracked\/[0-9a-f]{64}$/),
+      expect.stringMatching(/^untracked\/[0-9a-f]{64}$/),
+      "manifest.json",
+    ]);
+    expect(published.map(({ contentAddressed }) => contentAddressed)).toEqual([
+      true,
+      true,
+      true,
+      false,
     ]);
   });
 });

@@ -224,15 +224,19 @@ export function createCheckpointObjectStore(
       );
     },
 
-    async putImmutable(key, body) {
+    async putImmutable(key, body, options) {
       const expected = isImmutableObjectSource(body)
         ? body.sha256
         : sha256(body);
       // The read is not the guarantee — the precondition below is — but it
       // keeps an endpoint that silently ignores If-None-Match from turning a
       // late upload into an overwrite outside the narrow concurrent window.
-      const existing = await stored(key);
-      if (existing !== undefined) return compare(existing, expected);
+      // Under a content-addressed key such an overwrite writes the same
+      // bytes, so the read would cost a request and buy nothing.
+      if (options?.contentAddressed !== true) {
+        const existing = await stored(key);
+        if (existing !== undefined) return compare(existing, expected);
+      }
       for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt += 1) {
         try {
           const response = (await send(key, body)) as { VersionId?: string };
