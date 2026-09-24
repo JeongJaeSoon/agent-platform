@@ -13,6 +13,12 @@ ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6f
 # gains a dependency; that is when this grows the deps stage the other apps
 # have.
 FROM ${BUN_IMAGE}
+# Debian's security fixes, the only RUN: see APT_UPGRADE_KEY in
+# apps/worker/Dockerfile.
+ARG APT_UPGRADE_KEY=
+RUN apt-get update --error-on=any \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Owned by root and only readable by the proxy's user, so a compromised
 # proxy cannot rewrite the code the next start runs.

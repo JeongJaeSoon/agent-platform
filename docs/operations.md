@@ -445,6 +445,8 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다(94S-117). 셋 다 저장소 루트를 context로 `oven/bun:1.3.10`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다(94S-323).
 
+digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-24 기준 `oven/bun:1.3.10`의 마지막 빌드는 2026-02-26이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
+
 | 이미지 | 내용 | 실행 주체 |
 |---|---|---|
 | `agent-platform-control-host` | `apps/control-host` 실행물 하나로 api·scheduler·reconciler role을 모두 돌린다. `--filter`로 그 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). 기본 uid 1000, scheduler role만 compose `user: "0:0"`로 root가 되어 Docker socket을 쥔다 | `bun run apps/control-host/src/main.ts <role>` (CMD 기본은 `api`) |

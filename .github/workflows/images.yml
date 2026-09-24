@@ -8,7 +8,7 @@ name: Images
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
 # and scans it for known vulnerabilities (94S-338). The scan never fails the
-# build: the base image is pinned by digest, so a CVE fixed upstream shows up
+# build: a CVE in the pinned base, a Debian package or the lockfile shows up
 # in every open PR at once and belongs to none of them. The daily run turns a
 # fixable high or critical finding into an issue (`vulnerability-report`).
 on:
@@ -71,6 +71,10 @@ jobs:
           name="${REGISTRY}/$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')-${APP}"
           echo "name=${name}" >>"$GITHUB_OUTPUT"
           echo "tags=${name}:sha-${GITHUB_SHA::12}" >>"$GITHUB_OUTPUT"
+          # The Dockerfiles' APT_UPGRADE_KEY (94S-363): a new day misses the
+          # cached `apt-get upgrade` layer, so the daily run scans that day's
+          # Debian fixes rather than the first build's.
+          echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
 
       # `load` puts the image in the runner's daemon for the smoke below.
       # Nothing is pushed from this job; see `publish`.
@@ -88,6 +92,7 @@ jobs:
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
+            APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
 
       - name: Smoke
         env:
@@ -202,6 +207,7 @@ jobs:
           name="${REGISTRY}/$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')-${APP}"
           echo "name=${name}" >>"$GITHUB_OUTPUT"
           echo "staging=${name}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >>"$GITHUB_OUTPUT"
+          echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -219,6 +225,7 @@ jobs:
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
+            APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
@@ -228,9 +235,10 @@ jobs:
           docker pull "${NAME}@${DIGEST}"
           .github/scripts/image-smoke.sh "$APP" "${NAME}@${DIGEST}"
       # The digest that gets promoted, not the build job's image: this job
-      # builds again, and the apt layer is not pinned. The licenses must
-      # hold and the scan must run; its findings are reported, not gating —
-      # whether a release waits for them is 94S-363's decision.
+      # builds again, and the apt layer is not pinned (a build job that ran
+      # before UTC midnight upgraded on another key). The licenses must hold
+      # and the scan must run; its findings are reported, not gating —
+      # whether a release waits for them is not decided yet (94S-363).
       - name: Licenses and vulnerabilities of the pushed digest
         timeout-minutes: 10
         env:
