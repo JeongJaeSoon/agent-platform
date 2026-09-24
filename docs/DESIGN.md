@@ -368,16 +368,17 @@ v0.1은 JSONL만 60초마다 올리고 git push는 턴 종료에만 했다. 그�
 
 **워커 restorer 규칙 (94S-246, 2026-09-23).** claim의 `restore`가 가리키는 checkpoint를 엔진 시작 전에 되살린다(`SessionCheckpoints.restorePlan(claim, signal)`, git 작업은 `apps/worker/src/checkpoint-restore.ts`).
 
-- **거절할 수 있는 것은 전부 workspace를 건드리기 전에 한다.** 순서는 다음과 같다.
+- **거절할 수 있는 것은 전부 checkout을 쓰기 전에 한다.** 1~4단계는 workspace를 건드리기도 전이다. 순서는 다음과 같다.
   1. 워커가 claim으로 **다시 계산한** fingerprint로 gateway `/restore-plan`을 부른다. `ready`여야 하고, plan의 revision·manifest_ref가 claim과 같아야 한다.
   2. claim이 digest로 고정한 manifest를 plan이 준 version으로 읽어 sha256을 대조한다. 이 manifest가 이후 모든 판단의 근거다. plan에서는 어느 version을 읽을지만 받는다.
   3. manifest의 sessionId·revision, 이 워커 runtime과의 호환성(gateway가 `ready`라고 해도 다시 본다), `cwd`가 provision된 workspace root인지(`restoreCwdRefusal`), untracked 경로 규칙(`workspacePathsProblem`), 모든 key가 세션 prefix 안에 있는지를 확인한다.
   4. 상속 transcript store를 만들고 모든 part를 읽어 parse한다(`verifyInherited`).
-  5. bundle과 untracked를 크기·sha256으로 검증하며 scratch에 한 번에 여덟 개씩 내려받는다.
+  5. root의 내용을 비운 뒤(root 자체는 mount point라 남긴다), bundle과 untracked를 크기·sha256으로 검증하며 workspace volume의 spool에 한 번에 여덟 개씩 내려받는다. 먼저 비우는 이유는 volume quota가 이전 tree와 checkpoint를 함께 들지 않게 하기 위해서다. 여기서 실패한 복원은 다음 복원이 tree를 통째로 다시 쓴다.
   6. bundle을 워커 소유 bare 저장소에 `fsckObjects`로 fetch한다. ref는 capture가 쓰는 것만 허용한다: head·worktree·instructions와 branch 하나이고, branch는 head와 같아야 하며 worktree는 manifest `gitCommit`이어야 한다. finalize의 bundle 검증(`createGitWorkspaceBundleVerifier`)도 같은 규칙을 적용한다. 규칙은 runtime-core의 `checkpointBundleRefs` 함수 하나에 있다. 그래서 확정된 checkpoint는 이 단계에서 거절되지 않는다(94S-391).
-- **그다음에만 바꾼다.** root의 내용을 비우고(root 자체는 mount point라 남긴다) 새 저장소를 만든다. 이전 엔진의 config·hook·remote는 남기지 않는다. 그 저장소에 branch(또는 detached HEAD)를 세우고, worktree commit으로 작업 트리를 쓴 뒤 index를 HEAD로 돌린다(`reset --mixed -N`). 커밋되지 않았던 수정은 다시 커밋되지 않은 상태가 되고, 새 파일은 intent-to-add로 남아 다음 capture가 다시 담는다. origin은 자격 증명을 뺀 URL로 둔다. untracked 파일은 `writeWorkspaceFile`로 쓴다 — 링크를 따라가지 않고, 실행 비트가 있던 파일만 0700이다.
+- **그다음에만 바꾼다.** 새 저장소를 만든다. 이전 엔진의 config·hook·remote는 남기지 않는다. 그 저장소에 branch(또는 detached HEAD)를 세우고, worktree commit으로 작업 트리를 쓴 뒤 index를 HEAD로 돌린다(`reset --mixed -N`). 커밋되지 않았던 수정은 다시 커밋되지 않은 상태가 되고, 새 파일은 intent-to-add로 남아 다음 capture가 다시 담는다. origin은 자격 증명을 뺀 URL로 둔다. untracked 파일은 `writeWorkspaceFile`로 쓴다 — 링크를 따라가지 않고, 실행 비트가 있던 파일만 0700이다.
 - **CLAUDE.md는 고정된 commit에서.** publisher는 workspace preparer가 CLAUDE.md를 읽은 commit을 bundle의 `refs/checkpoint/instructions`로 싣는다. 그 SHA는 워커 메모리에서 오고, 엔진이 고칠 수 있는 ref에서 오지 않는다. 복원은 그 commit에서 CLAUDE.md를 읽어 `RuntimeResumePlan.committedClaudeMd`로 넘긴다. ref가 없으면 없는 것으로 보지 않고 refused로 넘겨, 파일을 요구하는 profile이 CLAUDE.md 없이 재개되지 않게 한다. 워커 소유 저장소는 복원 뒤에도 남아 이후 capture의 object 출처(alternate)가 된다. 엔진이 자기 사본을 prune해도 instructions commit을 계속 bundle할 수 있다.
-- **거절은 claim 실패다.** `RestoreRefused`(`CHECKPOINT_UNAVAILABLE`·`INCOMPATIBLE_CHECKPOINT`)를 던지고 `worker.checkpoint.restore_refused`를 남긴다. `requestCheckpoint`로 보고하지 않는다. 다른 파티션(94S-261)은 엔진이 시작되기 전에 이렇게 끝나고 workspace는 그대로다.
+- **거절은 claim 실패다.** `RestoreRefused`(`CHECKPOINT_UNAVAILABLE`·`INCOMPATIBLE_CHECKPOINT`)를 던지고 `worker.checkpoint.restore_refused`를 남긴다. `requestCheckpoint`로 보고하지 않는다. 다른 파티션(94S-261)은 엔진이 시작되기 전에 이렇게 끝나고 workspace는 그대로다. digest는 맞지만 capture가 쓰지 않는 모양의 bundle(6단계)도 이 거절이다.
+- **저장소 장애는 다시 한다 (94S-390).** object store가 답하지 못한 경우는 claim 실패로 끝내지 않는다. 연결 실패나 끊김, 요청·이름 조회 시간 초과, body 반복 정체, 5xx·408·429가 여기에 든다. gateway `/restore-plan`의 retryable 오류도 같다. gateway도 checkpoint 객체를 읽기 때문이다. 워커는 `worker.checkpoint.restore_unavailable`(warn)을 남기고, 1초에서 시작해 두 배씩 30초까지 기다린 뒤 같은 attempt 안에서 복원을 처음부터 다시 한다. 상한은 시작 단계 예산(`WORKER_STARTUP_TIMEOUT_SEC`, 기본 3600초)이고, 그동안 heartbeat가 lease를 늘린다. 예산을 넘기면 그 attempt가 복원 실패 1회다. 401·403과 그 밖의 4xx, checksum·digest 불일치, 없는 객체, 형식 위반은 다시 물어도 같으므로 전처럼 곧바로 claim 실패다.
 - **취소.** signal은 매 await 앞뒤로 본다. abort 뒤에 끝난 다운로드가 파일 작업을 시작하지는 않는다. 중간에 멈춘 복원은 다음 attempt가 처음부터 다시 한다. host는 abort를 실패가 아니라 drain으로 다룬다. release 전에 복원이 멈추기를 요청 timeout 안에서 기다리고, 그래도 안 끝났으면 `worker.restore.unsettled`를 남기고 release한다. 남은 것은 네트워크를 기다리는 단계뿐이고, 프로세스가 release 직후 끝나기 때문이다.
 - **turn 뒤 capture의 기한.** heartbeat는 capture가 도는 동안에도 lease를 늘리므로, interrupt가 아닌 turn의 capture는 시작 단계와 같은 예산(`WORKER_STARTUP_TIMEOUT_SEC`)을 받는다. 넘기면 워커를 failed로 멈추고 drain 예산이 기다림을 끝낸다. workspace를 들여오는 단계와 내보내는 단계라 같은 상한을 쓰고, 둘이 다른 상한을 필요로 할 때 따로 둔다(94S-269에서 넘겨받은 지적).
 

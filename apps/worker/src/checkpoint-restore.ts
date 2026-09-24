@@ -46,9 +46,21 @@ const RESTORING = "refs/restore/";
 const CLEAR_BATCH = 1024;
 
 /**
+ * A bundle that passed its digest but is not one `captureWorkspace` writes:
+ * damage the checkpoint carries, which no retry of the restore mends.
+ */
+export class CheckpointBundleRefused extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "CheckpointBundleRefused";
+  }
+}
+
+/**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
  * refs back, after the `bases` it builds on, oldest first (94S-227). Throws
- * for a bundle that is not the one `captureWorkspace` writes, by the rule
+ * `CheckpointBundleRefused` for a bundle that is not the one
+ * `captureWorkspace` writes, by the rule
  * finalize applies too (`checkpointBundleRefs`). The fetch checks every
  * object (`fsckObjects`), so what is staged is whole.
  */
@@ -91,7 +103,9 @@ export async function stageCheckpointBundle(input: {
       if (line === "") continue;
       const [oid, name] = line.split(" ");
       if (oid === undefined || name === undefined || refs.has(name)) {
-        throw new Error(`Checkpoint bundle lists a malformed ref: ${line}`);
+        throw new CheckpointBundleRefused(
+          `Checkpoint bundle lists a malformed ref: ${line}`,
+        );
       }
       refs.set(name, oid);
     }
@@ -122,7 +136,9 @@ export async function stageCheckpointBundle(input: {
     ]),
     input.gitCommit,
   );
-  if (checked.status === "invalid") throw new Error(checked.reason);
+  if (checked.status === "invalid") {
+    throw new CheckpointBundleRefused(checked.reason);
+  }
   return { ...checked.refs, repository, tips };
 }
 

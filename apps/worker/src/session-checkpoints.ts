@@ -35,6 +35,7 @@ import {
   transcriptParts,
   transcriptSizeProblem,
   type WorkerGatewayClient,
+  WorkerGatewayRequestError,
   type WorkspaceArtifact,
   workspacePathsProblem,
   writeWorkspaceFile,
@@ -46,11 +47,13 @@ import type {
   WorkerCheckpointPort,
 } from "./checkpoint.ts";
 import {
+  CheckpointBundleRefused,
   clearWorkspace,
   restoreCheckpointTree,
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
+import { isObjectStoreOutage } from "./object-store.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import {
   committedClaudeMdOf,
@@ -83,6 +86,12 @@ const MAX_BUNDLE_CHAIN = 32;
 const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
 const DOWNLOAD_CONCURRENCY = 8;
+/**
+ * A restore the object store failed is redone after 1s, doubling to 30s,
+ * until the startup budget (`WORKER_STARTUP_TIMEOUT_SEC`) stops it (94S-390).
+ */
+const RESTORE_RETRY_FIRST_MS = 1_000;
+const RESTORE_RETRY_MAX_MS = 30_000;
 const UNSETTLED =
   "a transcript batch failed to mirror and has not been written since";
 
@@ -114,6 +123,8 @@ export type SessionCheckpointsOptions = {
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   now?: () => Date;
+  /** Waits out a restore's backoff; resolves early once `signal` aborts. */
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 };
 
 type Bound = {
@@ -220,25 +231,53 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
-    if (claim.restore !== null) {
-      try {
-        return await this.#restore(claim, claim.restore, runtime, signal);
-      } catch (caught) {
-        // Bytes that fail the store's checksum are as damaged as bytes that
-        // fail the manifest's digest; only the layer that caught them differs.
-        const error =
-          caught instanceof ObjectIntegrityError
-            ? new RestoreRefused("CHECKPOINT_UNAVAILABLE", caught.message)
-            : caught;
-        if (error instanceof RestoreRefused) {
-          this.#options.logger.error("worker.checkpoint.restore_refused", {
-            code: error.code,
-            reason: error.message,
-            revision: claim.restore.revision,
-            manifest_ref: claim.restore.manifest_ref,
-          });
+    const pointer = claim.restore;
+    if (pointer !== null) {
+      // The store not answering is no fault of the checkpoint: the restore
+      // is redone whole inside this attempt rather than failing a claim the
+      // session counts towards RESTORE_FAILED (94S-390). What the store did
+      // answer is held to the manifest as ever.
+      for (let retries = 0; ; retries += 1) {
+        try {
+          return await this.#restore(claim, pointer, runtime, signal);
+        } catch (caught) {
+          if (!signal.aborted && isRestoreOutage(caught)) {
+            const retryInMs = Math.min(
+              RESTORE_RETRY_FIRST_MS * 2 ** retries,
+              RESTORE_RETRY_MAX_MS,
+            );
+            this.#options.logger.warn("worker.checkpoint.restore_unavailable", {
+              reason: describe(caught),
+              retries,
+              retry_in_ms: retryInMs,
+              revision: pointer.revision,
+              manifest_ref: pointer.manifest_ref,
+            });
+            await (this.#options.sleep ?? sleepUnlessAborted)(
+              retryInMs,
+              signal,
+            );
+            signal.throwIfAborted();
+            continue;
+          }
+          // Bytes that fail the store's checksum are as damaged as bytes that
+          // fail the manifest's digest; only the layer that caught them
+          // differs. So is a bundle that holds its digest but not its shape.
+          const error =
+            caught instanceof ObjectIntegrityError ||
+            caught instanceof CheckpointBundleRefused
+              ? new RestoreRefused("CHECKPOINT_UNAVAILABLE", caught.message)
+              : caught;
+          if (error instanceof RestoreRefused) {
+            this.#options.logger.error("worker.checkpoint.restore_refused", {
+              code: error.code,
+              reason: error.message,
+              revision: pointer.revision,
+              manifest_ref: pointer.manifest_ref,
+            });
+          }
+          throw error;
         }
-        throw error;
       }
     }
     const store = new ClaudeSessionStore({
@@ -1099,6 +1138,30 @@ async function download(
   if (bytes !== ref.bytes || hash.digest("hex") !== ref.sha256) {
     throw damaged();
   }
+}
+
+/**
+ * The object store failing to answer, or the gateway failing to plan for the
+ * same reason (it reads the checkpoint's objects too, and answers a
+ * retryable error then). Everything else fails the claim as before.
+ */
+function isRestoreOutage(error: unknown): boolean {
+  return (
+    (error instanceof WorkerGatewayRequestError && error.retryable) ||
+    isObjectStoreOutage(error)
+  );
+}
+
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 /** One download per stored object, however many paths share its bytes. */

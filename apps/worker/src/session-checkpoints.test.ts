@@ -121,6 +121,7 @@ function harness(
     >[0]["captureWorkspace"];
     fingerprint?: RuntimeFingerprint;
     instructionsCommit?: () => string | null;
+    sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
@@ -147,6 +148,7 @@ function harness(
     ...(options.instructionsCommit === undefined
       ? {}
       : { instructionsCommit: options.instructionsCommit }),
+    ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
   });
   return { errors, gateway, infos, logger, objects, port, warnings };
 }
@@ -1157,6 +1159,7 @@ function restoring(
     answer?: (request: RestorePlanRequest) => RestorePlanResponse;
     claimed?: Partial<CheckpointRef>;
     fingerprint?: RuntimeFingerprint;
+    sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
   const gateway = new PlanningGateway(
@@ -1169,7 +1172,56 @@ function restoring(
     ...(options.fingerprint === undefined
       ? {}
       : { fingerprint: options.fingerprint }),
+    ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
   });
+}
+
+/** An S3 client error as the SDK throws it, with the status it answered. */
+function answered(status: number): Error {
+  return Object.assign(new Error(`status ${status}`), {
+    $metadata: { httpStatusCode: status },
+  });
+}
+
+/**
+ * `objects` failing its streamed reads, and with `gets` every read, with
+ * `failure()` until the clock `sleep` advances reaches `outageMs`. The first
+ * streamed read fails mid-body instead.
+ */
+function outage(
+  objects: MemoryCheckpointObjectStore,
+  outageMs: number,
+  failure: () => Error,
+  gets = true,
+) {
+  let now = 0;
+  const get = objects.get.bind(objects);
+  const stream = objects.stream.bind(objects);
+  let cutMidBody = true;
+  objects.get = async (key, version) => {
+    if (gets && now < outageMs) throw failure();
+    return get(key, version);
+  };
+  objects.stream = async (key, version) => {
+    const body = await stream(key, version);
+    if (now >= outageMs || body === undefined) return body;
+    if (!cutMidBody) throw failure();
+    cutMidBody = false;
+    return (async function* () {
+      for await (const chunk of body) {
+        yield chunk;
+        throw Object.assign(new Error("read ECONNRESET"), {
+          code: "ECONNRESET",
+        });
+      }
+    })();
+  };
+  return {
+    sleep: async (ms: number) => {
+      now += ms;
+    },
+    elapsed: () => now,
+  };
 }
 
 describe("SessionCheckpoints restoring a checkpoint", () => {
@@ -1452,6 +1504,9 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     // Cleared before the download, which then needs no room beside it; the
     // spool goes with the failure.
     expect(await readdir(workspace)).toEqual([]);
+    // Damage fails the claim, which the session counts (94S-390).
+    expect(h.warnings).toEqual([]);
+    expect(h.gateway.restorePlans).toHaveLength(1);
   });
 
   test("refuses a transcript part that is gone, before touching the workspace", async () => {
@@ -1485,6 +1540,107 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     await expect(
       moved.restorePlan(await claimOf(h.gateway), neverStopped()),
     ).rejects.toBeInstanceOf(RestoreRefused);
+  });
+
+  test("waits out an object store that stops answering for 100s, then restores without counting a failure (94S-390)", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    // Down under the bundle's download, cutting the first one short.
+    const down = outage(from.objects, 100_000, () => answered(503), false);
+    const h = restoring(from, { sleep: down.sleep });
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    expect(plan.mode).toBe("resume");
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "edited\n",
+    );
+    expect(existsSync(join(workspace, "left-behind.txt"))).toBe(false);
+    expect(down.elapsed()).toBeGreaterThanOrEqual(100_000);
+    expect(h.errors).toEqual([]);
+    const waits = h.warnings.map(({ event, fields }) => ({
+      event,
+      retry_in_ms: fields?.retry_in_ms,
+    }));
+    expect(waits).toEqual(
+      [1, 2, 4, 8, 16, 30, 30, 30].map((seconds) => ({
+        event: "worker.checkpoint.restore_unavailable",
+        retry_in_ms: seconds * 1000,
+      })),
+    );
+    expect(h.warnings[0]?.fields?.reason).toBe("read ECONNRESET");
+    // Each round asks for the plan again, as a new attempt would.
+    expect(h.gateway.restorePlans).toHaveLength(waits.length + 1);
+  });
+
+  test("waits out a gateway that cannot plan while the store is down (94S-390)", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const waited: number[] = [];
+    const h = restoring(from, {
+      answer: () => {
+        if (waited.length < 3) {
+          throw new WorkerGatewayRequestError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "The checkpoint's objects cannot be read right now",
+            true,
+          );
+        }
+        return planOf(from.ref, from.manifest);
+      },
+      sleep: async (ms) => {
+        waited.push(ms);
+      },
+    });
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    expect(plan.mode).toBe("resume");
+    expect(waited).toEqual([1_000, 2_000, 4_000]);
+    expect(h.errors).toEqual([]);
+  });
+
+  test("fails at once when the store refuses the request rather than failing to answer (94S-390)", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const down = outage(from.objects, 100_000, () => answered(403));
+    const h = restoring(from, { sleep: down.sleep });
+
+    await expect(
+      h.port.restorePlan(await claimOf(h.gateway), neverStopped()),
+    ).rejects.toThrow("status 403");
+    expect(h.warnings).toEqual([]);
+    expect(h.gateway.restorePlans).toHaveLength(1);
+  });
+
+  test("gives up waiting on the store once stopped (94S-390)", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const down = outage(from.objects, Number.POSITIVE_INFINITY, () =>
+      Object.assign(new Error("connect ECONNREFUSED"), {
+        code: "ECONNREFUSED",
+      }),
+    );
+    const stop = new AbortController();
+    const h = restoring(from, {
+      sleep: async (ms) => {
+        await down.sleep(ms);
+        if (down.elapsed() > 60_000) stop.abort(new Error("stopped"));
+      },
+    });
+
+    await expect(
+      h.port.restorePlan(await claimOf(h.gateway), stop.signal),
+    ).rejects.toThrow("stopped");
+    expect(h.warnings.length).toBeGreaterThan(1);
+    expect(h.errors).toEqual([]);
   });
 
   test("never replaces the workspace once stopped", async () => {
