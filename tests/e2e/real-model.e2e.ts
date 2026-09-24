@@ -16,8 +16,10 @@ const TURN_TIMEOUT = 300_000;
 const nonce = crypto.randomUUID().slice(0, 8);
 const file = `real-model-${nonce}.txt`;
 const subject = `e2e real model ${nonce}`;
+// Neither in the file name nor in the subject, so only `cat` can print it.
+const content = `content-${crypto.randomUUID().slice(0, 8)}`;
 const write =
-  `printf '%s\\n' ${nonce} > ${file} && git add ${file} && ` +
+  `printf '%s\\n' ${content} > ${file} && git add ${file} && ` +
   `git -c user.name=e2e -c user.email=e2e@example.invalid commit -q -m '${subject}'`;
 const inspect = `git log -1 --format='%H %s' -- ${file} && cat ${file}`;
 const exactly = (command: string) =>
@@ -97,7 +99,7 @@ function commitSeen(events: SseEvent[]): string {
   if (commit === undefined) {
     throw new Error(`no commit "${subject}" in the tool output: ${output}`);
   }
-  expect(output).toContain(nonce);
+  expect(output).toContain(content);
   return commit;
 }
 
@@ -116,7 +118,8 @@ test("two turns, a checkpoint and a resume on a new worker, against the real mod
 
   // 2. A second turn on the same worker reads the commit back.
   const second = await api.send(sessionId, exactly(inspect));
-  await completed(sessionId, second.turn_id);
+  const sameWorker = await completed(sessionId, second.turn_id);
+  expect(attemptsOf(sameWorker)).toEqual(attemptsOf(first));
   const commit = commitSeen(await eventsOf(sessionId, second.turn_id));
 
   // 3. Pause: the worker checkpoints both turns and goes away.
