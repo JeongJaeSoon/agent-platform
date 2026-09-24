@@ -19,17 +19,21 @@ state="${SOAK_STATE:-${TMPDIR:-/tmp}/soak135-state}"
 out="${SOAK_CAMPAIGNS_OUT:-$state/campaigns-$(date -u +%Y%m%dT%H%M%S)}"
 mkdir -p "$out"
 
+# Read up front: a listing that failed inside the loop's input would look
+# like no campaigns at all and exit 0.
+listing="$(bun scripts/soak/campaigns.ts list)" && [ -n "$listing" ] ||
+  { echo "could not list the campaigns" >&2; exit 1; }
 if [ "$#" -gt 0 ]; then
   campaigns=("$@")
 else
   campaigns=()
-  while IFS= read -r id; do campaigns+=("$id"); done < <(bun scripts/soak/campaigns.ts list | cut -f1)
+  while IFS= read -r id; do campaigns+=("$id"); done < <(printf '%s\n' "$listing" | cut -f1)
 fi
 
 status=0
 for id in "${campaigns[@]}"; do
   echo "== campaign ${id}" >&2
-  if bun scripts/soak/campaigns.ts list | grep -q "^${id}	[a-z]*	own-stack	"; then
+  if printf '%s\n' "$listing" | grep -q "^${id}	[a-z]*	own-stack	"; then
     # It brings projects of its own; the host holds two stacks at most.
     scripts/soak/stack.sh down >"$out/$id.down.log" 2>&1
     bun scripts/soak/campaigns.ts "$id" "$out/$id" 2>&1 | tee "$out/$id.log"

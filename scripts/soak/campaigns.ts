@@ -1874,27 +1874,42 @@ async function logged(
   return await child.exited;
 }
 
-/** One row per `(pass)`/`(fail)`/`(skip)` line of a bun test log; a skip did not run, so it fails. */
-function bunTestRows(
+/**
+ * One row per test case of a bun test JUnit report (a non-TTY bun test
+ * prints no line for a passing test). A skip, or a case that asserted
+ * nothing (the gate tests return early without their env), did not run.
+ */
+export function bunTestRows(
   id: string,
   input: string,
-  log: string,
+  junit: string,
   code: number,
+  minimum: number,
 ): Criterion[] {
+  const xml = existsSync(junit) ? readFileSync(junit, "utf8") : "";
   const rows = [
-    ...readFileSync(log, "utf8").matchAll(/^\((pass|fail|skip)\) (.+)$/gm),
-  ].map(([, status = "", name = ""]) =>
-    criterion({
+    ...xml.matchAll(
+      /<testcase name="([^"]*)"[^>]*? assertions="(\d+)"\s*(?:\/>|>([\s\S]*?)<\/testcase>)/g,
+    ),
+  ].map(([, name = "", assertions = "0", body = ""]) => {
+    const status = body.includes("<failure")
+      ? "fail"
+      : body.includes("<skipped")
+        ? "skip"
+        : assertions === "0"
+          ? "검증 없이 끝남"
+          : "pass";
+    return criterion({
       id: `${id}/${name.match(/\bH\d+\b/)?.[0] ?? name.slice(0, 40)}`,
       area: "장애",
-      input: name,
+      input: name.replaceAll("&quot;", '"').replaceAll("&amp;", "&"),
       expected: "테스트 통과",
-      actual: status,
+      actual: `${status} (assertions ${assertions})`,
       pass: status === "pass",
-    }),
-  );
+    });
+  });
   if (
-    rows.length === 0 ||
+    rows.length < minimum ||
     (code !== 0 && rows.every((row) => row.status === "pass"))
   ) {
     rows.push(
@@ -1902,8 +1917,8 @@ function bunTestRows(
         id: `${id}/exit`,
         area: "장애",
         input,
-        expected: "bun test가 테스트를 돌리고 0으로 끝난다",
-        actual: `exit ${code}, 테스트 ${rows.length}개; ${log}`,
+        expected: `bun test가 테스트 ${minimum}개 이상을 돌리고 0으로 끝난다`,
+        actual: `exit ${code}, 테스트 ${rows.length}개; ${junit}`,
         pass: false,
       }),
     );
@@ -1923,6 +1938,7 @@ const controlHostRoles: Campaign = {
     "control-host roles (api/scheduler/reconciler, one image): restart, PostgreSQL stop, scheduler without Docker",
   async run(ctx) {
     const log = join(ctx.out.dir, "control-host-roles.log");
+    const junit = join(ctx.out.dir, "control-host-roles.junit.xml");
     const code = await logged(
       [
         "bun",
@@ -1930,6 +1946,8 @@ const controlHostRoles: Campaign = {
         "tests/d2-gate/control-host-roles.e2e.test.ts",
         "--timeout",
         "1800000",
+        "--reporter=junit",
+        `--reporter-outfile=${junit}`,
       ],
       log,
       {
@@ -1946,7 +1964,7 @@ const controlHostRoles: Campaign = {
         D2_GATE_NETWORK: ctx.env.network,
       },
     );
-    ctx.rows.push(...bunTestRows(ctx.id, this.title, log, code));
+    ctx.rows.push(...bunTestRows(ctx.id, this.title, junit, code, 5));
     // The test restarted both, and Docker gave them new host ports.
     await follow(ctx, "api");
     await follow(ctx, "postgres");
