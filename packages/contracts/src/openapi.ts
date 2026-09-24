@@ -99,6 +99,7 @@ type Route = {
   path: string;
   operationId: string;
   summary: string;
+  description?: string;
   scope?: "read" | "write" | "approve" | "control" | "recover";
   // Who may call: `scope` routes take an API key or a cookie session,
   // `auth: "session"` routes only a cookie session, `auth: "public"` routes
@@ -292,6 +293,8 @@ const routes: Route[] = [
     path: "/v1/sessions/{id}/interrupt",
     operationId: "interruptSession",
     summary: "Interrupt the targeted turn only",
+    description:
+      "Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first. A replayed Idempotency-Key answers the receipt's current status instead.",
     scope: "control",
     body: "InterruptSessionRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
@@ -536,6 +539,7 @@ export function buildOpenApiDocument() {
     operations[route.method] = {
       operationId: route.operationId,
       summary: route.summary,
+      ...(route.description ? { description: route.description } : {}),
       ...(route.scope ? { "x-scope": route.scope } : {}),
       security: securityFor(route),
       parameters,

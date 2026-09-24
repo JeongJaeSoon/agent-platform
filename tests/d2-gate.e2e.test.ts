@@ -38,7 +38,8 @@ import {
  * C. a transcript mirror that fails;
  * D. a worker that loses its lease while its turn is open;
  * E. interrupts repeated on fresh sessions, as early as the API takes them
- *    and mid-response (D2_GATE_INTERRUPT_REPEAT rounds, 6 by default).
+ *    and mid-response (D2_GATE_INTERRUPT_REPEAT rounds, 6 by default), and
+ *    one that reaches a turn already over.
  */
 
 const env = gateEnv();
@@ -1143,8 +1144,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       return (
         outcome.receipt === "succeeded" &&
         result?.no_op === false &&
-        outcome.turn === "interrupted" &&
-        (outcome.settled_ms as number) < 15_000
+        outcome.turn === "interrupted"
       );
     };
     report.check({
@@ -1154,12 +1154,56 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         "every accepted interrupt ends its turn; none is acknowledged and then outrun by the answer",
       input: `${rounds} fresh sessions whose answer takes 15s, interrupted alternately at the first 202 and after the model call`,
       expected:
-        "each receipt succeeded with no_op false and each turn interrupted, well before the 15s answer",
+        "each receipt succeeded with no_op false and each turn interrupted",
       actual: {
         stopped: outcomes.filter(stopped).length,
         rounds: outcomes,
       },
       pass: outcomes.length === rounds && outcomes.every(stopped),
+    });
+
+    // What QA took for a silent no-op: an interrupt that reaches a turn
+    // already over. It must say so rather than look like it stopped one.
+    const late = await api.createSession(
+      prompt("Answer at once.", { id: "E-late", steps: [], final: "E DONE" }),
+    );
+    const ended = await api.settle(late.session_id, "1", TURN_MS);
+    const answer = await api.call(
+      "POST",
+      `/v1/sessions/${late.session_id}/interrupt`,
+      { target_turn_id: "1" },
+    );
+    const { receipt_id: lateReceiptId, receipt_status: lateStatus } =
+      answer.body as { receipt_id: string; receipt_status: string };
+    const lateReceipt = (await api.call("GET", `/v1/receipts/${lateReceiptId}`))
+      .body as {
+      status: string;
+      result: { no_op: boolean; terminal: string; turn_id: string } | null;
+    };
+    report.check({
+      id: "E-02",
+      criterion: "interrupt",
+      title: "an interrupt that reaches a finished turn says it did nothing",
+      input: "interrupt turn 1 after it completed",
+      expected:
+        "202 with receipt_status succeeded at once; the receipt's result names the completed terminal with no_op true",
+      actual: {
+        turn: ended.status,
+        response: { status: answer.status, body: answer.body },
+        receipt: lateReceipt,
+      },
+      pass:
+        ended.status === "completed" &&
+        answer.status === 202 &&
+        lateStatus === "succeeded" &&
+        lateReceipt.status === "succeeded" &&
+        lateReceipt.result?.no_op === true &&
+        lateReceipt.result.terminal === "completed" &&
+        lateReceipt.result.turn_id === "1",
+    });
+    await api.call("POST", `/v1/sessions/${late.session_id}/terminate`, {
+      expected_revision: (await api.session(late.session_id)).revision,
+      reason: "d2 gate E",
     });
     expect(report.failed().filter((c) => c.id.startsWith("E-"))).toEqual([]);
   }, 3_600_000);

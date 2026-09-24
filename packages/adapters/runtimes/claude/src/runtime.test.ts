@@ -96,6 +96,18 @@ describe("Claude SDK input flush (94S-351)", () => {
     expect(await settledNow(handed)).toBe(true);
   });
 
+  test("finishing the input still waits for what it queued", async () => {
+    const input = new InputStream();
+    const reader = input[Symbol.asyncIterator]();
+    input.push({ message: "last", uuid: "a" });
+    input.finish();
+    const pending = input.flushed();
+    expect(await settledNow(pending)).toBe(false);
+    expect((await reader.next()).value?.uuid).toBe("a");
+    expect((await reader.next()).done).toBe(true);
+    expect(await settledNow(pending)).toBe(true);
+  });
+
   test("an SDK that stops reading releases the wait", async () => {
     const input = new InputStream();
     input.push({ message: "never read", uuid: "a" });

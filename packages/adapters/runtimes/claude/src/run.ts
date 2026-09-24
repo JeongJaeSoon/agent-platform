@@ -85,11 +85,8 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
    * input it was meant to follow (94S-351).
    */
   flushed(): Promise<void> {
-    if (
-      this.finished ||
-      this.abandoned ||
-      (this.queued.length === 0 && !this.handedOut)
-    ) {
+    // Not released by finish(): what was queued before it is still written.
+    if (this.abandoned || (this.queued.length === 0 && !this.handedOut)) {
       return Promise.resolve();
     }
     return new Promise((resolve) => this.flushing.push(resolve));
@@ -105,7 +102,6 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
     this.finished = true;
     for (const waiter of this.waiting.splice(0))
       waiter({ done: true, value: undefined });
-    for (const resolve of this.flushing.splice(0)) resolve();
   }
 
   [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
@@ -177,6 +173,7 @@ export class ClaudeSdkRun implements AgentRun {
 
   close(): void {
     this.input.finish();
+    this.input.abandon();
     this.sdkQuery.close();
   }
 

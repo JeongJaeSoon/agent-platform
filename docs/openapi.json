@@ -2653,7 +2653,7 @@
                 "type": "null"
               }
             ],
-            "description": "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref."
+            "description": "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref. For interrupt: `{turn_id, terminal, no_op}` once settled, where `no_op: true` means the turn reached `terminal` on its own and the interrupt did nothing."
           },
           "error": {
             "anyOf": [
@@ -5025,6 +5025,7 @@
       "post": {
         "operationId": "interruptSession",
         "summary": "Interrupt the targeted turn only",
+        "description": "Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first. A replayed Idempotency-Key answers the receipt's current status instead.",
         "x-scope": "control",
         "security": [
           {

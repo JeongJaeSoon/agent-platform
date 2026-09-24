@@ -82,7 +82,7 @@ export const receiptSchema = z.object({
   // terminate, recovery decisions — changes `status` and `error` only.
   result: z.unknown().nullable().meta({
     description:
-      "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref.",
+      "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref. For interrupt: `{turn_id, terminal, no_op}` once settled, where `no_op: true` means the turn reached `terminal` on its own and the interrupt did nothing.",
   }),
   error: receiptErrorSchema.nullable(),
   created_at: timestampSchema,
