@@ -96,6 +96,26 @@ describe("schedulerConfigFromEnv", () => {
     });
   });
 
+  test("a blank DATABASE_URL does not hide QUEUE_DATABASE_URL", () => {
+    expect(
+      schedulerConfigFromEnv({
+        ...base,
+        DATABASE_URL: "",
+        QUEUE_DATABASE_URL: "postgresql://q",
+      }).databaseUrl,
+    ).toBe("postgresql://q");
+  });
+
+  test("a LOG_LEVEL that names no level stops the scheduler", () => {
+    expect(schedulerConfigFromEnv(base).logLevel).toBe("info");
+    expect(
+      schedulerConfigFromEnv({ ...base, LOG_LEVEL: "warn" }).logLevel,
+    ).toBe("warn");
+    expect(() =>
+      schedulerConfigFromEnv({ ...base, LOG_LEVEL: "verbose" }),
+    ).toThrow("LOG_LEVEL must be one of debug|info|warn|error");
+  });
+
   test("rejects missing or malformed settings by name", () => {
     expect(() =>
       schedulerConfigFromEnv({ ...base, EXECUTION_INSTALLATION_ID: undefined }),

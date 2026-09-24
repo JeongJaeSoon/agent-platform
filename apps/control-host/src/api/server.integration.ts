@@ -544,7 +544,39 @@ integration("API server on PostgreSQL", () => {
         HEARTBEAT_TTL_SEC: "30s",
       });
       expect(ttl.exitCode).not.toBe(0);
-      expect(ttl.stderr).toContain("HEARTBEAT_TTL_SEC must be a positive");
+      expect(ttl.stderr).toContain(
+        "HEARTBEAT_TTL_SEC must be a number of seconds above 20",
+      );
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses to start on API settings that used to become defaults, naming each (94S-389)",
+    async () => {
+      const refused = await refusedStart({
+        PLATFORM_CONFIG_DIR: await configDir(root, "settings"),
+        AUTH_MODE: "none",
+        EGRESS_AUTHORIZER_PORT: "0",
+        EGRESS_AUTHORIZER_TOKEN: "t".repeat(32),
+        HEARTBEAT_TTL_SEC: "10",
+        LOG_LEVEL: "inf0",
+        PENDING_REQUEST_TTL_SEC: "0",
+        SSE_MAX_STREAMS: "25O",
+      });
+      expect(refused.exitCode, refused.stderr).not.toBe(0);
+      expect(refused.stderr).toContain(
+        "Refusing to start: API settings are invalid",
+      );
+      for (const name of [
+        "AUTH_MODE=none",
+        "HEARTBEAT_TTL_SEC",
+        "LOG_LEVEL",
+        "PENDING_REQUEST_TTL_SEC",
+        "SSE_MAX_STREAMS",
+      ]) {
+        expect(refused.stderr).toContain(name);
+      }
     },
     TEST_TIMEOUT_MS,
   );

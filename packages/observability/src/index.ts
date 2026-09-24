@@ -57,6 +57,22 @@ export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevel {
   return isLogLevel(normalized) ? normalized : "info";
 }
 
+/**
+ * LOG_LEVEL as a process takes it at startup: unset or empty is `info`, and a
+ * value that names no level stops the process instead of quietly logging at
+ * `info` (94S-389).
+ */
+export function logLevelFromEnv(value: string | undefined): LogLevel {
+  if (value === undefined || value.trim() === "") return "info";
+  const normalized = value.trim().toLowerCase();
+  if (!isLogLevel(normalized)) {
+    throw new Error(
+      `LOG_LEVEL must be one of ${LOG_LEVELS.join("|")}, got ${JSON.stringify(value)}`,
+    );
+  }
+  return normalized;
+}
+
 function sanitizeException(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return sanitizeText(value);

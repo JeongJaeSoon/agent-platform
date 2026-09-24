@@ -91,8 +91,10 @@ export type LocalDockerBackendConfig = {
   workspaceQuota: WorkspaceQuota;
   /**
    * Installation limits the worker enforces itself (94S-131), handed to it as
-   * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. Left out, the
-   * worker's own defaults apply; the scheduler always sets them.
+   * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. The scheduler
+   * always sets them; a worker launched without the retries refuses to
+   * start, since that limit has no code default (94S-292). Only backends
+   * running a stand-in image leave this out.
    */
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
 };

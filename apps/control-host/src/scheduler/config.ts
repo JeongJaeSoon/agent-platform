@@ -3,6 +3,7 @@ import {
   type LocalDockerBackendEnvironment,
   localDockerConfigFromEnv,
 } from "@agent-platform/execution-local-docker";
+import { type LogLevel, logLevelFromEnv } from "@agent-platform/observability";
 import {
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ExecutionResources,
@@ -29,7 +30,7 @@ export type SchedulerConfig = {
   drainDeadlineMs: number;
   image: string;
   limits: InstallationLimits;
-  logLevel: string | undefined;
+  logLevel: LogLevel;
   resources: ExecutionResources;
   slotLimit: number;
   stoppedWorkspaceTtlMs: number;
@@ -39,7 +40,7 @@ export function schedulerConfigFromEnv(
   environment: SchedulerEnvironment,
 ): SchedulerConfig {
   const databaseUrl =
-    environment.DATABASE_URL ?? environment.QUEUE_DATABASE_URL;
+    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
   }
@@ -68,7 +69,7 @@ export function schedulerConfigFromEnv(
     },
     image,
     limits,
-    logLevel: environment.LOG_LEVEL,
+    logLevel: logLevelFromEnv(environment.LOG_LEVEL),
     resources: {
       cpus: cpuShare(environment.WORKER_CPUS ?? "1"),
       memoryBytes:

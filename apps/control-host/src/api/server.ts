@@ -24,6 +24,11 @@ import {
   ownerScopedPolicy,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import {
+  ApiSettingsError,
+  apiSettingsFromEnv,
+  apiSettingsProblems,
+} from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
 import {
@@ -45,7 +50,6 @@ import {
 } from "./egress-authorizer.ts";
 import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -83,6 +87,18 @@ const limits = (() => {
     throw error;
   }
 })();
+const settings = (() => {
+  try {
+    return apiSettingsFromEnv(process.env);
+  } catch (error) {
+    if (error instanceof ApiSettingsError) {
+      logger.error("Refusing to start: API settings are invalid", {
+        problems: error.problems,
+      });
+    }
+    throw error;
+  }
+})();
 const catalog = await loadSessionCatalog({
   dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
   env: process.env,
@@ -93,7 +109,6 @@ logger.info("Session catalog loaded", {
   profiles: Object.keys(catalog.profiles).length,
   repositories: Object.keys(catalog.repositories).length,
 });
-const leaseTtlMs = heartbeatTtlMsFromEnv(process.env.HEARTBEAT_TTL_SEC);
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
@@ -148,8 +163,6 @@ const interrupts = createInterruptService({
   authorization: ownerScopedPolicy,
   store: createPostgresTurnInterrupts(db),
 });
-// How long a permission or question takes answers; unset keeps 30 minutes.
-const pendingTtlSec = Number(process.env.PENDING_REQUEST_TTL_SEC);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db),
   catalog,
@@ -163,10 +176,10 @@ const workers = createWorkerGateway({
   pending: createPostgresWorkerPendingStore(db),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
-    leaseTtlMs,
-    ...(Number.isFinite(pendingTtlSec) && pendingTtlSec > 0
-      ? { pendingTtlMs: pendingTtlSec * 1000 }
-      : {}),
+    leaseTtlMs: settings.leaseTtlMs,
+    // How long a permission or question takes answers. The worker waits
+    // exactly this long once the request is registered (94S-389).
+    pendingTtlMs: settings.pendingTtlMs,
   },
 });
 // The egress proxy's authorizer (94S-252), on a port of its own that no
@@ -198,18 +211,6 @@ if (authorizerListener === undefined) {
   logger.info("Egress authorizer listening", {
     port: authorizerListener.port,
   });
-}
-
-// An unset or malformed value keeps the route's default rather than
-// disabling the cap.
-function positiveEnv<K extends string>(
-  name: string,
-  key: K,
-): Partial<Record<K, number>> {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0
-    ? ({ [key]: value } as Record<K, number>)
-    : {};
 }
 
 // Wakes SSE streams on NOTIFY; streams still re-read on their keepalive
@@ -245,9 +246,7 @@ const app = createApiApp({
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
-      ...positiveEnv("SSE_MAX_STREAMS", "maxStreams"),
-      ...positiveEnv("SSE_MAX_STREAMS_PER_OWNER", "maxStreamsPerOwner"),
-      ...positiveEnv("SSE_REPLAY_MAX_BYTES", "batchMaxBytes"),
+      ...settings.sse,
     });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
@@ -264,7 +263,10 @@ const app = createApiApp({
       ],
       // The same parser the process started with: an env that changed under
       // a running instance shows up here rather than at the next restart.
-      configProblems: installationLimitProblems,
+      configProblems: (environment) => [
+        ...installationLimitProblems(environment),
+        ...apiSettingsProblems(environment),
+      ],
     }),
   ),
 });

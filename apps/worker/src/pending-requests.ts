@@ -35,8 +35,9 @@ export type PendingRequestsOptions = {
   eventsStored: (toolUseId: string) => Promise<void>;
   scope: () => WorkerScope;
   /**
-   * The longest this worker holds a callback, registered or not. Once the
-   * gateway says how long answers are taken, the wait never outlasts that.
+   * How long this worker holds a callback the gateway has not registered.
+   * Once it has, the gateway's own expiry replaces this, longer or shorter:
+   * the installation's PENDING_REQUEST_TTL_SEC is the API's alone (94S-389).
    */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;
@@ -54,6 +55,7 @@ type Pending = {
   input: Record<string, unknown>;
   inputHash: string;
   settle: (decision: PermissionDecision) => void;
+  openedAt: number;
   deadline: number;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -121,6 +123,7 @@ export class PendingRequestRegistry {
         input: request.input,
         inputHash,
         settle: resolve,
+        openedAt: Date.now(),
         deadline: Date.now() + this.options.timeoutMs,
         timer: undefined,
       });
@@ -219,7 +222,7 @@ export class PendingRequestRegistry {
           requestId,
           {
             behavior: "deny",
-            message: `No answer arrived within ${Math.round(this.options.timeoutMs / 1000)}s`,
+            message: `No answer arrived within ${Math.round((entry.deadline - entry.openedAt) / 1000)}s`,
           },
           "expired",
         );
@@ -342,13 +345,11 @@ export class PendingRequestRegistry {
           this.poll();
           return;
         }
-        // Waiting past the server's expiry would only hold the engine for
-        // answers that can no longer be given; the margin lets an answer
-        // taken just before it still be picked up.
-        entry.deadline = Math.min(
-          entry.deadline,
-          Date.now() + response.expires_in_ms + 2 * interval,
-        );
+        // The server's expiry, not the local timeout: waiting past it only
+        // holds the engine for answers that can no longer be given, and
+        // giving up before it denies one the owner may still send. The
+        // margin lets an answer taken just before it still be picked up.
+        entry.deadline = Date.now() + response.expires_in_ms + 2 * interval;
         this.arm(requestId);
         this.poll();
         return;
