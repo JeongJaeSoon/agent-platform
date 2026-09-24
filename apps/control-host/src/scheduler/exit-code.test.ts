@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SchedulerRunSummary } from "@agent-platform/platform";
+import { PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { exitCodeFor } from "./main.ts";
 
 const clean: SchedulerRunSummary = {
@@ -35,9 +36,12 @@ const clean: SchedulerRunSummary = {
 const ref = { executionId: "exec-1", generation: 1 };
 
 describe("scheduler exit code", () => {
-  test("a clean or skipped pass exits 0", () => {
+  test("a clean pass exits 0", () => {
     expect(exitCodeFor(clean)).toBe(0);
-    expect(exitCodeFor({ ...clean, skipped: true })).toBe(0);
+  });
+
+  test("a skipped pass says so, so the loop counts it as neither", () => {
+    expect(exitCodeFor({ ...clean, skipped: true })).toBe(PASS_SKIPPED_EXIT);
   });
 
   test("unfinished work exits 1 so supervisors notice", () => {

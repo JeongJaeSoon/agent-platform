@@ -10,16 +10,19 @@ import {
   type SchedulerRunSummary,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerConfigFromEnv } from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
 
 /**
- * One scheduling pass, then exit: the same shape as `apps/reconciler`. This
- * is the only process that holds the Docker socket; worker containers never
- * see it. Moves into the control host with 94S-117.
+ * One scheduling pass (`main.ts scheduler --once`); the scheduler role runs
+ * it under the pass loop. This is the only process that holds the Docker
+ * socket; worker containers never see it. `stop` ends the pass at its next
+ * safe point.
  */
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,
+  options: { stop?: AbortSignal } = {},
 ): Promise<SchedulerRunSummary> {
   const config = schedulerConfigFromEnv(environment);
   const logger = createLogger(
@@ -111,6 +114,7 @@ export async function main(
       slotLimit: config.slotLimit,
       stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
+      ...(options.stop === undefined ? {} : { stop: options.stop }),
     });
     // The pass records a lost connection against each execution it was
     // reconciling and can still come back with a summary; the database being
@@ -127,8 +131,12 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Non-zero when the pass left work undone, so cron/supervisors notice. */
+/**
+ * Non-zero when the pass left work undone, so the pass loop notices. A pass
+ * that found the lock held did nothing and says so (PASS_SKIPPED_EXIT).
+ */
 export function exitCodeFor(summary: SchedulerRunSummary): number {
+  if (summary.skipped) return PASS_SKIPPED_EXIT;
   return summary.failedLaunches.length > 0 ||
     summary.imageUnresolved ||
     summary.killFailed.length > 0 ||

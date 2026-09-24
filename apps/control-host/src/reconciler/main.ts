@@ -21,14 +21,19 @@ import {
   runReconciler,
 } from "./reconcile.ts";
 
-export async function main(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<void> {
+export function reconcilerDatabaseUrl(environment: NodeJS.ProcessEnv): string {
   const databaseUrl =
     environment.DATABASE_URL ?? environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
   }
+  return databaseUrl;
+}
+
+export async function main(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const databaseUrl = reconcilerDatabaseUrl(environment);
   const logger = createLogger(
     environment.LOG_LEVEL === undefined ? {} : { level: environment.LOG_LEVEL },
   );

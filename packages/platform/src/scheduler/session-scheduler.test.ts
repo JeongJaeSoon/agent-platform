@@ -813,7 +813,11 @@ function recordingLogger() {
 
 function harness(
   slotLimit = 10,
-  options: { stoppedWorkspaceTtlMs?: number; workspaceGc?: boolean } = {},
+  options: {
+    stop?: AbortSignal;
+    stoppedWorkspaceTtlMs?: number;
+    workspaceGc?: boolean;
+  } = {},
 ) {
   const store = new MemoryStore();
   const backend = new FakeBackend(options);
@@ -828,6 +832,7 @@ function harness(
       ...(options.stoppedWorkspaceTtlMs === undefined
         ? {}
         : { stoppedWorkspaceTtlMs: options.stoppedWorkspaceTtlMs }),
+      ...(options.stop === undefined ? {} : { stop: options.stop }),
       store,
     });
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
@@ -2373,6 +2378,22 @@ describe("runScheduler", () => {
     };
 
     await expect(run()).rejects.toThrow("pass lock connection ended");
+    expect(store.locked).toBe(false);
+  });
+
+  test("a stop request ends the pass before its next reservation and releases the lock", async () => {
+    const stop = new AbortController();
+    const { backend, run, store } = harness(10, { stop: stop.signal });
+    store.addUnassigned(3);
+    backend.duringEnsure = () => {
+      stop.abort(new Error("SIGTERM received; the pass stopped early"));
+      delete backend.duringEnsure;
+    };
+
+    await expect(run()).rejects.toThrow("the pass stopped early");
+    // The launch in flight finished its call; nothing was reserved after it.
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(store.executions.size).toBe(1);
     expect(store.locked).toBe(false);
   });
 

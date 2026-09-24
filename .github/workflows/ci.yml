@@ -161,6 +161,7 @@ jobs:
             paths:
               - apps/control-host/src/api/
               - apps/control-host/src/main
+              - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
               - packages/contracts/
               - packages/ui/
