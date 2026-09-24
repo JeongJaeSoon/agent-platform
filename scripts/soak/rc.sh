@@ -50,8 +50,13 @@ if [ "$stage" = all ]; then
   # fixture and would carry state into the run.
   scripts/soak/stack.sh down || die "stack down failed"
   # down swallows removal errors: check nothing of the project or installation survived.
-  left="$(docker ps -aq --filter label=com.docker.compose.project=soak135)$(docker volume ls -q --filter label=com.docker.compose.project=soak135)$(docker ps -aq --filter label=agent-platform.installation=soak135)$(docker volume ls -q --filter label=agent-platform.installation=soak135)"
-  [ -z "$left" ] || die "soak135 containers or volumes survived stack down"
+  for label in com.docker.compose.project=soak135 agent-platform.installation=soak135; do
+    for list in "container ls -a" "volume ls"; do
+      # shellcheck disable=SC2086
+      left="$(docker $list -q --filter "label=${label}")" || die "docker ${list} failed"
+      [ -z "$left" ] || die "${list%% *}s labelled ${label} survived stack down"
+    done
+  done
   SOAK_SKIP_BUILD=0 scripts/soak/stack.sh up || die "stack up failed"
   # shellcheck disable=SC1091
   source "$state/vars.sh"
