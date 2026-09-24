@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
-// The D2 gate's result per test, by name (94S-404). Under CI=true bun's
-// reporter names only failures, so a green log would not say which of A–E,
-// R1–R2 and H1–H5 ran. The tests are the ones ci.yml declares skipped
-// because only scripts/d2-gate/run.sh can run them; each must have passed in
-// the given junit reports, and one that skipped or never ran fails the gate.
+// The D2 gate's result per test, by name (94S-404). bun's exit status alone
+// passes a test that skipped or never ran. The tests are the ones ci.yml
+// declares skipped because only scripts/d2-gate/run.sh can run them; each
+// must have passed in the given junit reports, or the gate fails.
 //
 // usage: d2-gate-verdict.ts <junit.xml>...
 

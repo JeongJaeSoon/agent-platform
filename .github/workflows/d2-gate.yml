@@ -17,7 +17,11 @@ on:
     - cron: '17 18 * * *'
   workflow_dispatch:
   pull_request:
+    # The gate, its verdict, and ci.yml, whose declared skips are the list
+    # of tests the verdict requires.
     paths:
+      - .github/scripts/d2-gate-verdict.ts
+      - .github/workflows/ci.yml
       - .github/workflows/d2-gate.yml
       - scripts/d2-gate/**
       - tests/d2-gate.e2e.test.ts
@@ -35,13 +39,8 @@ concurrency:
 jobs:
   d2-gate:
     runs-on: ubuntu-24.04
-    # The job writes issues; nothing else in this workflow may.
-    permissions:
-      contents: read
-      issues: write
     # Image builds as in ci.yml's e2e, then the three suites one after
-    # another on one stack. The gate step has a ceiling of its own below it:
-    # a job timeout cancels the job, and the issue step would never run.
+    # another on one stack: about 10 minutes (94S-404's first runs).
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +53,6 @@ jobs:
         env:
           D2_GATE_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml:scripts/d2-gate/compose.ci-mirror.yml
           D2_GATE_OUT: ${{ runner.temp }}/d2-gate
-        timeout-minutes: 50
         run: scripts/d2-gate/run.sh
       # Each test's result (run.sh printed it above too) and A–E's criteria
       # table, onto the run's summary page.
@@ -86,22 +84,35 @@ jobs:
             !${{ runner.temp }}/d2-gate/vars.sh
           if-no-files-found: ignore
           retention-days: 14
-      # One open issue per signal: repeats append to it. Not on a pull
-      # request, where the red check already says it. `!success()` rather
-      # than `failure()` so a cancelled step counts too; a manual run is a
-      # person asking, and the body names the ref.
-      - if: "!success() && github.event_name != 'pull_request'"
-        name: Open or update the D2 gate failure issue
+
+  # A job of its own, not a last step: a job timeout cancels every step left
+  # in that job, so only another job still sees a gate that hung. One open
+  # issue per signal: repeats append to it. Not on a pull request, where the
+  # red check already says it; a manual run is a person asking, and the body
+  # names the ref.
+  report-failure:
+    needs: d2-gate
+    if: always() && needs.d2-gate.result != 'success' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open or update the D2 gate failure issue
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.d2-gate.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
             echo "<!-- ci-d2-gate-failure -->"
-            echo "The D2 gate failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo "The D2 gate ended \`${RESULT}\` on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
             echo
-            echo "The run's summary page has the criteria table; the \`d2-gate-record\` artifact has the build, compose and suite logs. Reproduce with \`scripts/d2-gate/run.sh\`. Close this issue once the failure is understood; the next failure opens a new one."
+            echo "The run's summary page has each test's result and the criteria table; the \`d2-gate-record\` artifact has the build, compose and suite logs. Reproduce with \`scripts/d2-gate/run.sh\`. Close this issue once the failure is understood; the next failure opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-d2-gate-failure \
             "CI: D2 gate failed (nightly)" body.md
