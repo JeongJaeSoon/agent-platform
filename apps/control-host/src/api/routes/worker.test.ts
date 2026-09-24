@@ -213,6 +213,52 @@ describe("/internal/worker", () => {
     ).toBe(true);
   });
 
+  test.each([
+    ["40P01", "deadlock detected"],
+    ["40001", "could not serialize access due to concurrent update"],
+  ])(
+    "a transaction rolled back with %s is a retryable 503 with Retry-After, not a lost lease (94S-392)",
+    async (code, text) => {
+      await seedSession();
+      const { binding } = await claimed();
+      const work = createPostgresWorkerUnitOfWork(db);
+      const conflicted = createApiApp({
+        authMode: "api-key",
+        registerInternalRoutes: (router) =>
+          registerWorkerRoutes(
+            router,
+            createWorkerGateway({
+              work: {
+                ...work,
+                heartbeatAtomic: async () => {
+                  throw new Error("Failed query", {
+                    cause: Object.assign(new Error(text), { code }),
+                  });
+                },
+              },
+              catalog: { profiles: {}, repositories: {} },
+              checkpoints: acceptAllCheckpoints,
+              options: { sessionCostLimitUsd: 1_000, leaseTtlMs: LEASE_TTL_MS },
+            }),
+          ),
+      });
+      const response = await conflicted.request("/internal/worker/heartbeat", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${binding.session_credential}`,
+        },
+        body: JSON.stringify({ ...scope(binding), attempt_state: "running" }),
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("1");
+      expect(
+        apiErrorResponseSchema.parse(await response.json()).error,
+      ).toMatchObject({ code: "BACKEND_UNAVAILABLE", retryable: true });
+    },
+  );
+
   test("the bootstrap token can only call bootstrap-claim", async () => {
     await seedSession();
     const { nonce, binding } = await claimed();

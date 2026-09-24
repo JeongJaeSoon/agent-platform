@@ -6,6 +6,7 @@ import {
 } from "@agent-platform/runtime-core";
 
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
+import { Heartbeat } from "./heartbeat.ts";
 
 type Recorded = { body: unknown; headers: Record<string, string>; url: string };
 
@@ -207,6 +208,53 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.status).toBe(0);
     expect(error.retryable).toBe(true);
     expect(error.message).toContain("ECONNREFUSED");
+  });
+
+  test("a 2xx whose body breaks off is retryable, and the heartbeat keeps the lease (94S-392)", async () => {
+    const broken = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"lease_rem'));
+            controller.error(new Error("socket closed mid-body"));
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    let beats = 0;
+    const { gateway } = client(() => {
+      beats += 1;
+      return beats === 1
+        ? broken()
+        : ok({
+            lease_expires_at: new Date(Date.now() + 30_000).toISOString(),
+            lease_remaining_ms: 30_000,
+            auth_revision: 0,
+            control_pending: false,
+          });
+    });
+    const error = (await gateway
+      .heartbeat({ ...scope, attempt_state: "running" })
+      .catch((caught: unknown) => caught)) as WorkerGatewayRequestError;
+    expect(error).toBeInstanceOf(WorkerGatewayRequestError);
+    expect(error.retryable).toBe(true);
+    expect(isOwnershipLost(error)).toBe(false);
+
+    beats = 0;
+    const lost: string[] = [];
+    const heartbeat = new Heartbeat({
+      gateway,
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 1,
+      lease: { remainingMs: 30_000, sentAt: performance.now() },
+      safetyMarginMs: 1_000,
+      onLost: (reason) => lost.push(reason),
+    });
+    heartbeat.start();
+    while (beats < 3) await Bun.sleep(5);
+    await heartbeat.stop();
+    expect(lost).toEqual([]);
   });
 
   test("refuses a success body that does not match the contract", async () => {
