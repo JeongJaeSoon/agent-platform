@@ -151,6 +151,16 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     failures: z.number().int().positive(),
     retry_at: timestampSchema.nullable(),
   }),
+  // The same for a session with no checkpoint to restore (94S-302, 94S-347):
+  // workers kept ending before they were ready for input, while preparing
+  // the workspace or starting the engine. At the limit start_fresh launches
+  // again once the cause is fixed; close ends the session.
+  z.object({
+    code: z.literal("STARTUP_FAILED"),
+    reason: z.string().min(1),
+    failures: z.number().int().positive(),
+    retry_at: timestampSchema.nullable(),
+  }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),

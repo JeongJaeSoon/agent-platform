@@ -451,6 +451,11 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
         reason: "drained",
       });
       await gateway.confirmExecutionGone(launched.executionId);
+      // It never asked for input, so it counts as a failed startup (94S-347).
+      await db
+        .update(sessions)
+        .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
+        .where(eq(sessions.id, session.session_id));
 
       const again = await claim(
         await launch(session.partition, session.session_id),

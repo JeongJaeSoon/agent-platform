@@ -227,12 +227,20 @@ describe("claim lifecycle", () => {
     backend.containers.delete(keyOf(gen1));
     const second = await pass(backend);
 
-    // The spent launch is closed, never re-created under its own identity,
-    // and the session it gave back is launched again one generation on.
+    // The spent launch is closed and never re-created under its own
+    // identity. It died before asking for input, so the session it gave back
+    // waits out a startup backoff (94S-347) and is then launched again one
+    // generation on.
     expect(second.terminatedObserved).toEqual([gen1]);
     expect(second.reensured).toEqual([]);
-    expect(second.launched).toHaveLength(1);
-    const [gen2] = second.launched;
+    expect(second.launched).toEqual([]);
+    await db
+      .update(sessions)
+      .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(sessions.id, sessionId));
+    const third = await pass(backend);
+    expect(third.launched).toHaveLength(1);
+    const [gen2] = third.launched;
     if (!gen2) throw new Error("nothing relaunched");
     expect(gen2.generation).toBe(gen1.generation + 1);
     expect(gen2.executionId).not.toBe(gen1.executionId);

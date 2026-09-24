@@ -459,11 +459,13 @@ export const sessions = pgTable(
       withTimezone: true,
     }),
     executionRevokedReason: text("execution_revoked_reason"),
-    // Restores that failed before their worker reported ready (94S-345).
-    // The attempt is the one claimed with a restore and not yet ready; the
-    // count is consecutive, cleared by a ready restore, and at its limit the
-    // session waits in recovery_required. Until then no launch is made
-    // before retry_at. The reason is the last failed attempt's.
+    // Startups that failed before their worker was ready for input: a
+    // restore not reported ready (94S-345), or any claim that never asked
+    // for input (94S-347). The attempt is the one claimed and not yet ready;
+    // the count is consecutive, cleared by a ready worker, and at its limit
+    // the session waits in recovery_required. Until then no launch is made
+    // before retry_at. The reason is the last failed attempt's. Named for
+    // the restores they first counted.
     restoreAttemptId: text("restore_attempt_id"),
     restoreFailureCount: integer("restore_failure_count").notNull().default(0),
     restoreRetryAt: timestamp("restore_retry_at", { withTimezone: true }),
