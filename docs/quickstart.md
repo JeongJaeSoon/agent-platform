@@ -216,7 +216,7 @@ wait_for "/v1/sessions/$SID" .current_turn_id 5
 wait_for "/v1/sessions/$SID" .status running
 post "/v1/sessions/$SID/terminate" "$(jq -nc --argjson r "$(revision)" '{expected_revision:$r, reason:"quickstart"}')" | jq .
 wait_for "/v1/sessions/$SID" .admission_state recovery_required
-get "/v1/sessions/$SID/turns/5" | jq '{id, status}'
+get "/v1/sessions/$SID/turns/5" | jq '{turn_id, status}'
 
 decision=$(post "/v1/sessions/$SID/recovery-decisions" "$(jq -nc --argjson r "$(revision)" \
   '{decision:"abandon", expected_revision:$r, reason:"slow call had no effect", target_turn_id:"5"}')")
