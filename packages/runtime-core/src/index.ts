@@ -7,6 +7,9 @@ export {
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
+  TRANSCRIPT_MIRROR_DIRECTORY,
+  transcriptGenerationDirectory,
+  transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
 } from "./checkpoint-manifest.ts";

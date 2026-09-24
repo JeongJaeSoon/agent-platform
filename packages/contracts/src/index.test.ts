@@ -103,11 +103,7 @@ describe("session contracts", () => {
       revision: 0,
       admission_state: "active",
       status: "queued",
-      runtime: {
-        kind: "claude_agent_sdk",
-        version: "unknown",
-        profile_id: "unknown",
-      },
+      runtime: null,
       repository_id: null,
       current_turn_id: null,
       queued_turn_count: 0,
@@ -120,6 +116,42 @@ describe("session contracts", () => {
       sessionSummarySchema.safeParse({ ...summary, repository_id: "" }).success,
     ).toBe(false);
     const { repository_id: _omitted, ...missing } = summary;
+    expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
+  });
+
+  test("summary runtime is a whole catalog entry or null, never a partial one (94S-197)", () => {
+    const summary = {
+      id: SESSION_ID,
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(sessionSummarySchema.parse(summary).runtime).toBeNull();
+    const runtime = {
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+      profile_id: "claude-coding-v1",
+    } as const;
+    expect(sessionSummarySchema.parse({ ...summary, runtime }).runtime).toEqual(
+      runtime,
+    );
+    for (const partial of [
+      { ...runtime, profile_id: null },
+      { ...runtime, version: null },
+    ]) {
+      expect(
+        sessionSummarySchema.safeParse({ ...summary, runtime: partial })
+          .success,
+      ).toBe(false);
+    }
+    const { runtime: _omitted, ...missing } = summary;
     expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
@@ -675,6 +707,12 @@ describe("worker protocol", () => {
       remaining_budget_usd: 12.5,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
+    // Only the public summary may lack a runtime; a claim always has one
+    // (94S-197).
+    expect(
+      bootstrapClaimResponseSchema.safeParse({ ...claim, runtime: null })
+        .success,
+    ).toBe(false);
     // The engine's budget is what is left of the session's, never below
     // nothing and never left out (94S-279).
     const { remaining_budget_usd: _b, ...withoutBudget } = claim;

@@ -1,5 +1,4 @@
 import {
-  type ApiErrorCode,
   type AppendEventsRequest,
   type AppendEventsResponse,
   apiErrorResponseSchema,
@@ -35,49 +34,9 @@ import {
   type WorkerReadyResponse,
   workerReadyResponseSchema,
 } from "@agent-platform/contracts";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
 import type { WorkerGatewaySession } from "./worker-host.ts";
-
-/**
- * A call the gateway answered with something other than success. `code` is
- * null when the answer was not an API error body at all — a proxy page, an
- * unrouted path, or a socket that never produced one.
- */
-export class WorkerGatewayRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ApiErrorCode | null,
-    message: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = "WorkerGatewayRequestError";
-  }
-}
-
-/** Codes that mean this attempt no longer owns the session and must stop. */
-const OWNERSHIP_LOST = new Set<ApiErrorCode>([
-  "LEASE_EXPIRED",
-  "STALE_EPOCH",
-  "FORBIDDEN",
-  "UNAUTHORIZED",
-]);
-
-export function isOwnershipLost(error: unknown): boolean {
-  return (
-    error instanceof WorkerGatewayRequestError &&
-    error.code !== null &&
-    OWNERSHIP_LOST.has(error.code)
-  );
-}
-
-export function isRetryable(error: unknown): boolean {
-  return (
-    error instanceof WorkerGatewayRequestError &&
-    error.retryable &&
-    !isOwnershipLost(error)
-  );
-}
 
 // Only what a response body has to answer, so the worker never imports zod.
 type Decoder<T> = { parse(value: unknown): T };

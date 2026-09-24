@@ -72,8 +72,13 @@ const codec: CheckpointCodec = {
 };
 const workspaceBundle = await createGitBundle();
 
-/** Pointer and rows as the database keeps them; no attempt is fenced. */
-function memoryStore(): CheckpointStore & CheckpointCollectionStore {
+/**
+ * Pointer and rows as the database keeps them; no attempt is fenced, and the
+ * session runs as `generation.current`.
+ */
+function memoryStore(
+  generation = { current: 1 },
+): CheckpointStore & CheckpointCollectionStore {
   let pointer: CheckpointPointer | null = null;
   const rows: CheckpointPointer[] = [];
   return {
@@ -108,7 +113,11 @@ function memoryStore(): CheckpointStore & CheckpointCollectionStore {
       return { outcome: "committed", revision: next };
     },
     async readCollectionFences() {
-      return { fallbackRevision: null, fencedAttemptIds: new Set() };
+      return {
+        executionGeneration: generation.current,
+        fallbackRevision: null,
+        fencedAttemptIds: new Set(),
+      };
     },
     async markCollected() {
       return 0;
@@ -121,7 +130,8 @@ function memoryStore(): CheckpointStore & CheckpointCollectionStore {
 
 function setup({ bucket, s3 }: LocalstackBucket) {
   const objects = createCheckpointObjectStore({ bucket, client: s3 });
-  const store = memoryStore();
+  const generation = { current: 1 };
+  const store = memoryStore(generation);
   const service = createCheckpointService({
     codecs: { [runtime.engine]: codec },
     objects,
@@ -137,7 +147,7 @@ function setup({ bucket, s3 }: LocalstackBucket) {
     objects,
     store,
   });
-  return { collector, objects, service, store };
+  return { collector, generation, objects, service, store };
 }
 
 async function upload(
@@ -278,7 +288,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
 
         expect(
           await collector.collectSession(sessionId, { dryRun: false }),
-        ).toEqual({ status: "collected", kept: 6, purged: 3 });
+        ).toEqual({ status: "collected", kept: 7, purged: 3 });
 
         for (const entry of revisions[0]?.versions ?? []) {
           expect(await getVersion(bucket, entry)).toBe("NoSuchVersion");
@@ -333,6 +343,61 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
           expect(await objects.head(entry.key, entry.version)).toMatchObject({
             held: true,
           });
+        }
+      },
+      { objectLock: true, prefix: "checkpoint-gc-it" },
+    );
+  }, 60_000);
+
+  test("transcript parts of a generation that can no longer commit go by version unless a kept revision names them (94S-326)", async () => {
+    await withLocalstackBucket(
+      async (bucket) => {
+        const { collector, generation, objects, service } = setup(bucket);
+        const mirror = `${sessionObjectPrefix(sessionId)}transcripts`;
+        const part = (name: string, generationDirectory: string) =>
+          upload(
+            objects,
+            `${mirror}/${generationDirectory}/${name}.jsonl`,
+            encode(`{"type":"user","uuid":"${generationDirectory}-${name}"}\n`),
+          );
+        const inherited = await part("part-0", "generation-0000000001");
+        const abandoned = await part("part-1", "generation-0000000001");
+        expect(
+          await finalize(
+            service,
+            (await publish(objects, 0, [inherited, abandoned])).checkpoint,
+          ),
+        ).toMatchObject({ outcome: "committed" });
+        const tail = await part("part-2", "generation-0000000001");
+        generation.current = 2;
+        const own = await part("part-0", "generation-0000000002");
+        for (const revision of [1, 2]) {
+          const published = await publish(objects, revision, [inherited, own]);
+          expect(
+            await service.finalize({
+              checkpoint: published.checkpoint,
+              fence: { ...fence, executionGeneration: 2 },
+              now: new Date(),
+              sessionId,
+              turnId: null,
+            }),
+          ).toEqual({ outcome: "committed", revision });
+        }
+
+        await collector.collectSession(sessionId, { dryRun: false });
+
+        for (const gone of [abandoned, tail]) {
+          expect(
+            await getVersion(bucket, {
+              key: gone.key,
+              version: gone.version as string,
+            }),
+          ).toBe("NoSuchVersion");
+        }
+        for (const kept of [inherited, own]) {
+          expect(
+            await objects.head(kept.key, kept.version as string),
+          ).toMatchObject({ held: true });
         }
       },
       { objectLock: true, prefix: "checkpoint-gc-it" },

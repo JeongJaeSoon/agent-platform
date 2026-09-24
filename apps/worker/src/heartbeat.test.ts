@@ -5,8 +5,8 @@ import type {
   TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import { Heartbeat, type HeartbeatOptions } from "./heartbeat.ts";
 
 const scope: WorkerScope = {

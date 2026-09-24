@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { CheckpointManifest } from "@agent-platform/runtime-core";
 
 import {
   CHECKPOINT_ROOT_PARENT,
@@ -53,4 +54,49 @@ export function own<T>(record: Readonly<Record<string, T>>, key: string) {
 
 export function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Versions to keep, and keys whose every version is kept. Only a row a locked
+ * finalize committed (`versionsHeld`) vouches for the versions it names. Any
+ * other named whatever the worker reported, which a restore re-reads by key
+ * and re-holds, so every version of those keys stays.
+ */
+export function keepSet() {
+  const keys = new Set<string>();
+  const versions = new Set<string>();
+  const add = (key: string, version: string | undefined) => {
+    if (version === undefined) keys.add(key);
+    else versions.add(JSON.stringify([key, version]));
+  };
+  return {
+    /** The committed checkpoint's manifest and every object it names. */
+    addManifest(
+      checkpoint: CheckpointPointer,
+      manifest: CheckpointManifest,
+    ): void {
+      const trusted = checkpoint.versionsHeld === true;
+      add(
+        checkpoint.manifestRef,
+        trusted ? (checkpoint.manifestVersion ?? undefined) : undefined,
+      );
+      for (const ref of [
+        ...manifest.transcripts.root.parts,
+        ...Object.values(manifest.transcripts.subagents).flatMap(
+          (revision) => revision.parts,
+        ),
+        manifest.workspace.bundle,
+        ...manifest.workspace.untracked,
+      ]) {
+        add(ref.key, trusted ? ref.version : undefined);
+      }
+    },
+    has(entry: { key: string; version?: string | undefined }): boolean {
+      return (
+        keys.has(entry.key) ||
+        (entry.version !== undefined &&
+          versions.has(JSON.stringify([entry.key, entry.version])))
+      );
+    },
+  };
 }

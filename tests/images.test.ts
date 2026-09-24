@@ -43,6 +43,24 @@ describe("app Dockerfiles", () => {
     expect(new Set(apps.map((app) => basePins[app].pin)).size).toBe(1);
   });
 
+  // Types newer than the runtime let a call typecheck that the images then
+  // cannot run (94S-339).
+  test("packageManager and @types/bun name the Bun the images run", () => {
+    const runtime =
+      basePins["control-host"].pin?.match(/^oven\/bun:([^@]+)@/)?.[1];
+    const manifest = JSON.parse(read("package.json")) as {
+      packageManager: string;
+      devDependencies: Record<string, string>;
+    };
+    expect(runtime).toBeDefined();
+    expect(manifest.packageManager).toBe(`bun@${runtime}`);
+    expect(manifest.devDependencies["@types/bun"]).toBe(runtime);
+    const lock = read("bun.lock");
+    expect(lock).toContain(`"@types/bun": "${runtime}"`);
+    expect(lock).toContain(`"@types/bun": ["@types/bun@${runtime}"`);
+    expect(lock).toContain(`"bun-types": ["bun-types@${runtime}"`);
+  });
+
   test.each(installingApps)("%s installs from the frozen lockfile", (app) => {
     expect(basePins[app].source).toMatch(
       /bun install --frozen-lockfile --production/,

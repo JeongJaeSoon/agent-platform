@@ -3,10 +3,16 @@ import {
   localstackEnabled,
   withLocalstackBucket,
 } from "@agent-platform/testkit/localstack";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  PutBucketEncryptionCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 import {
   createCheckpointObjectStore,
+  describeBucketEncryption,
   describeBucketProtection,
 } from "./checkpoint-objects.ts";
 import {
@@ -39,6 +45,47 @@ localstackTest(
         );
         expect(stale.outcome).toBe("conflict");
         expect(await store.get(key)).toEqual(published);
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+// 94S-337: checkpoint writes name no encryption, so the bucket default the
+// API checks at startup is what every object is stored with.
+localstackTest(
+  "checkpoint objects are stored with the bucket's SSE-S3 default",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        await s3.send(
+          new PutBucketEncryptionCommand({
+            Bucket: bucket,
+            ServerSideEncryptionConfiguration: {
+              Rules: [
+                {
+                  ApplyServerSideEncryptionByDefault: {
+                    SSEAlgorithm: "AES256",
+                  },
+                },
+              ],
+            },
+          }),
+        );
+        expect(await describeBucketEncryption(s3, bucket)).toBe("AES256");
+
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const manifest = "sessions/s1/checkpoints/0000000000/manifest.json";
+        const part = "sessions/s1/mirror/part-0000000000.jsonl";
+        await store.putImmutable(manifest, encode("{}"));
+        await store.put(part, encode("one\n"));
+        for (const key of [manifest, part]) {
+          const head = await s3.send(
+            new HeadObjectCommand({ Bucket: bucket, Key: key }),
+          );
+          expect(head.ServerSideEncryption).toBe("AES256");
+        }
       },
       { prefix: "checkpoint-objects-it" },
     );
@@ -110,6 +157,103 @@ localstackTest(
           );
 
         expect(refused?.$metadata?.httpStatusCode).toBe(412);
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+// 94S-336: the sequential case above cannot show that the endpoint serializes
+// two workers racing for one manifest key, which is the case the precondition
+// exists for. Run with and without Object Lock, the `locked` deployment shape.
+const RACERS = 16;
+const racingBodies = () =>
+  Array.from({ length: RACERS }, (_, racer) =>
+    encode(`{"revision":0,"racer":${racer}}\n`),
+  );
+
+for (const objectLock of [false, true]) {
+  localstackTest(
+    `racing create-only writes to one key: exactly one lands and its bytes stay${objectLock ? " (Object Lock)" : ""}`,
+    async () => {
+      await withLocalstackBucket(
+        async ({ bucket, s3 }) => {
+          const store = createCheckpointObjectStore({ bucket, client: s3 });
+          const key = "sessions/s1/checkpoints/0000000000/manifest.json";
+          const bodies = racingBodies();
+
+          const statuses = await Promise.all(
+            bodies.map((body) =>
+              s3
+                .send(
+                  new PutObjectCommand({
+                    Body: body,
+                    Bucket: bucket,
+                    IfNoneMatch: "*",
+                    Key: key,
+                  }),
+                )
+                .then(
+                  (response) => response.$metadata.httpStatusCode,
+                  (error: { $metadata?: { httpStatusCode?: number } }) =>
+                    error.$metadata?.httpStatusCode,
+                ),
+            ),
+          );
+          expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+          // 409 is S3's answer to a write that overlapped another conditional
+          // write; it refuses just the same.
+          expect(
+            statuses.filter(
+              (status) => status !== 200 && status !== 409 && status !== 412,
+            ),
+          ).toEqual([]);
+          const winner = bodies[statuses.indexOf(200)];
+          const loser = bodies.find((body) => body !== winner);
+          if (!winner || !loser) throw new Error("the race had no outcome");
+          expect(await store.get(key)).toEqual(winner);
+
+          // After the race, the store's own retry semantics hold on top of it.
+          expect((await store.putImmutable(key, winner)).outcome).toBe(
+            "duplicate",
+          );
+          expect((await store.putImmutable(key, loser)).outcome).toBe(
+            "conflict",
+          );
+          expect(await store.get(key)).toEqual(winner);
+        },
+        { objectLock, prefix: "checkpoint-objects-it" },
+      );
+    },
+    30_000,
+  );
+}
+
+// The same race through the path a worker takes: of every racer, one creates
+// and the rest learn they lost, including those that got 409 and retried.
+localstackTest(
+  "racing putImmutable calls: one is created, every other one conflicts",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const key = "sessions/s1/checkpoints/0000000000/manifest.json";
+        const bodies = racingBodies();
+
+        const outcomes = (
+          await Promise.all(bodies.map((body) => store.putImmutable(key, body)))
+        ).map(({ outcome }) => outcome);
+
+        expect(
+          outcomes.filter((outcome) => outcome === "created"),
+        ).toHaveLength(1);
+        expect(
+          outcomes.filter((outcome) => outcome === "conflict"),
+        ).toHaveLength(RACERS - 1);
+        expect(await store.get(key)).toEqual(
+          bodies[outcomes.indexOf("created")],
+        );
       },
       { prefix: "checkpoint-objects-it" },
     );

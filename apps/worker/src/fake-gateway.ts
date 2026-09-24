@@ -32,8 +32,8 @@ import type {
   WorkerReadyResponse,
   WorkspaceDescriptor,
 } from "@agent-platform/contracts";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
 /** What the fake claim hands out for the object store route. */
@@ -121,6 +121,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   control: ControlIntent | null = null;
   /** Thrown by a release that answers a pause while set, as a refusal would be. */
   pauseRefusal: WorkerGatewayRequestError | undefined;
+  /** Set to refuse `stop_kind` the way a strict gateway older than it does. */
+  predatesStopKind = false;
   /** Every checkpoint request the worker made, rejected ones included. */
   readonly checkpointRequests: CheckpointRequest[] = [];
   readonly restorePlans: RestorePlanRequest[] = [];
@@ -526,6 +528,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     this.releases.push(request);
     if (request.pause_control_id !== undefined && this.pauseRefusal) {
       throw this.pauseRefusal;
+    }
+    if (request.stop_kind !== undefined && this.predatesStopKind) {
+      throw new WorkerGatewayRequestError(
+        400,
+        "BAD_REQUEST",
+        "POST /release failed with BAD_REQUEST: Request body is invalid",
+        false,
+      );
     }
     return { released: true };
   }

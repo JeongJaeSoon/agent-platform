@@ -1142,7 +1142,7 @@ async function pass(
     if (execution.replacementCount >= replacementLimit) {
       // Whatever gets built keeps being rejected, so building it once more
       // is not the answer. Nothing is touched: the resource stays, the slot
-      // stays, and the pass fails loudly until someone looks. Closing the
+      // stays, and every pass reports it until someone looks. Closing the
       // launch instead would hand the session a fresh launch with a fresh
       // count, and move the loop one generation along.
       summary.replacementsExhausted.push(ref);

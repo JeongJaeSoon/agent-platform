@@ -34,6 +34,7 @@ import {
 } from "../ports/workspace-bundle-verifier.ts";
 import {
   createCheckpointService,
+  MAX_COOLING_BUNDLES,
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
@@ -1132,6 +1133,257 @@ describe("validateManifest", () => {
       await service.validateManifest({ checkpoint, sessionId }),
     ).toMatchObject({ status: "rejected" });
   });
+});
+
+describe("a bundle whose verification threw cools down (94S-271)", () => {
+  /** A verifier that throws until told otherwise, counting every call. */
+  function flakyVerifier(policy = "limits-1") {
+    const verifier = {
+      calls: 0,
+      outcome: "throw" as "throw" | "restorable" | "unusable",
+      policy,
+      async verify(): ReturnType<WorkspaceBundleVerifier["verify"]> {
+        verifier.calls += 1;
+        if (verifier.outcome === "throw") {
+          throw new Error("git fetch ran out of memory");
+        }
+        return verifier.outcome === "restorable"
+          ? { status: "restorable" }
+          : { status: "unusable", reason: "git says no" };
+      },
+    };
+    return verifier;
+  }
+
+  function cooledService(
+    workspaceBundles: WorkspaceBundleVerifier,
+    now: { ms: number },
+    store = objects,
+  ) {
+    return createCheckpointService({
+      bundleRetryCooldownMs: 60_000,
+      clock: () => now.ms,
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects: store,
+      store: checkpoints.store,
+      workspaceBundles,
+    });
+  }
+
+  test("answers a retry inside the cooldown with the same error, without git or a download", async () => {
+    const verifier = flakyVerifier();
+    let streamed = 0;
+    const counting = {
+      ...objects,
+      async stream(key: string, version?: string) {
+        if (key === BUNDLE) streamed += 1;
+        return objects.stream(key, version);
+      },
+    };
+    const now = { ms: 0 };
+    const cooled = cooledService(verifier, now, counting);
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow("git fetch ran out of memory");
+    now.ms = 59_999;
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow(
+      /is not verified again before .*: git fetch ran out of memory/,
+    );
+
+    expect(verifier.calls).toBe(1);
+    expect(streamed).toBe(1);
+  });
+
+  test("retries queued behind the failing verification do not start it again", async () => {
+    const verifier = flakyVerifier();
+    const slow: WorkspaceBundleVerifier = {
+      async verify() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return verifier.verify();
+      },
+    };
+    const cooled = createCheckpointService({
+      bundleRetryCooldownMs: 60_000,
+      clock: () => 0,
+      codecs: { [runtime.engine]: codec },
+      maxConcurrentBundleVerifications: 1,
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: slow,
+    });
+    const { checkpoint } = await upload(manifest());
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, () =>
+        cooled.validateManifest({ checkpoint, sessionId }),
+      ),
+    );
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(verifier.calls).toBe(1);
+  });
+
+  test("a bundle gone during its cooldown is still damage, not the cached error", async () => {
+    // Only damage lets a restore fall back to an earlier revision, so the
+    // cached error must not hide it.
+    const verifier = flakyVerifier();
+    const cooled = cooledService(verifier, { ms: 0 });
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow();
+    objects.remove(BUNDLE);
+
+    expect(
+      await cooled.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({
+      status: "rejected",
+      reason: expect.stringMatching(/missing workspace bundle/),
+    });
+    expect(verifier.calls).toBe(1);
+  });
+
+  test("verifies again once the cooldown has passed", async () => {
+    const verifier = flakyVerifier();
+    const now = { ms: 0 };
+    const cooled = cooledService(verifier, now);
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow();
+    now.ms = 60_000;
+    verifier.outcome = "restorable";
+
+    expect(
+      await cooled.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "verified" });
+    expect(verifier.calls).toBe(2);
+  });
+
+  test("verifies again at once when the verifier's limits change", async () => {
+    // A throw says as much about the limits as about the bundle.
+    const verifier = flakyVerifier("limits-1");
+    const now = { ms: 0 };
+    const cooled = cooledService(verifier, now);
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow();
+    verifier.policy = "limits-2";
+    verifier.outcome = "restorable";
+
+    expect(
+      await cooled.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "verified" });
+    expect(verifier.calls).toBe(2);
+  });
+
+  test("neither a verdict nor a success cools a bundle down", async () => {
+    const verifier = flakyVerifier();
+    const now = { ms: 0 };
+    const cooled = cooledService(verifier, now);
+    const { checkpoint } = await upload(manifest());
+
+    verifier.outcome = "unusable";
+    for (let round = 0; round < 2; round += 1) {
+      expect(
+        await cooled.validateManifest({ checkpoint, sessionId }),
+      ).toMatchObject({ status: "rejected" });
+    }
+    verifier.outcome = "restorable";
+    for (let round = 0; round < 2; round += 1) {
+      expect(
+        await cooled.validateManifest({ checkpoint, sessionId }),
+      ).toMatchObject({ status: "verified" });
+    }
+    expect(verifier.calls).toBe(4);
+  });
+
+  test("a store that fails the read does not cool the bundle down", async () => {
+    // An outage says nothing about the bundle.
+    const verifier = flakyVerifier();
+    verifier.outcome = "restorable";
+    let down = true;
+    const flaky = {
+      ...objects,
+      async stream(key: string, version?: string) {
+        if (key === BUNDLE && down) throw new Error("S3 is down");
+        return objects.stream(key, version);
+      },
+    };
+    const cooled = cooledService(verifier, { ms: 0 }, flaky);
+    const { checkpoint } = await upload(manifest());
+
+    await expect(
+      cooled.validateManifest({ checkpoint, sessionId }),
+    ).rejects.toThrow("S3 is down");
+    down = false;
+
+    expect(
+      await cooled.validateManifest({ checkpoint, sessionId }),
+    ).toMatchObject({ status: "verified" });
+  });
+
+  test("forgets the oldest bundle once the table is full", async () => {
+    const verifier = flakyVerifier();
+    const cooled = cooledService(verifier, { ms: 0 });
+    const checkpointFor = async (index: number) => {
+      const bytes = encode(`bundle ${index}\n`);
+      const key = `${BUNDLE}.${index}`;
+      await objects.put(key, bytes);
+      const body = manifest({
+        workspace: workspace({
+          bundle: {
+            bytes: bytes.byteLength,
+            key,
+            sha256: sha256(`bundle ${index}\n`),
+          },
+        }),
+      });
+      const { bytes: manifestBytes, sha256: digest } = codec.encode(body);
+      const manifestRef = manifestRefFor(sessionId, 0, attemptId, PUBLISH_ID);
+      await objects.put(manifestRef, manifestBytes);
+      return {
+        manifest_ref: manifestRef,
+        manifest_sha256: digest,
+        revision: 0,
+      };
+    };
+    for (let index = 0; index <= MAX_COOLING_BUNDLES; index += 1) {
+      await expect(
+        cooled.validateManifest({
+          checkpoint: await checkpointFor(index),
+          sessionId,
+        }),
+      ).rejects.toThrow();
+    }
+    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 1);
+
+    // The newest is still cooling down; the first one in has been dropped.
+    await expect(
+      cooled.validateManifest({
+        checkpoint: await checkpointFor(MAX_COOLING_BUNDLES),
+        sessionId,
+      }),
+    ).rejects.toThrow(/is not verified again before/);
+    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 1);
+    await expect(
+      cooled.validateManifest({
+        checkpoint: await checkpointFor(0),
+        sessionId,
+      }),
+    ).rejects.toThrow("git fetch ran out of memory");
+    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 2);
+  }, 30_000);
 });
 
 describe("finalize", () => {

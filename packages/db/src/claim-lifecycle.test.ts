@@ -13,6 +13,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { enqueueWithin } from "./enqueue.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -140,7 +141,7 @@ function pass(backend: ExecutionBackend) {
 }
 
 /** A session with one queued turn, waiting for a launch. */
-async function queuedSession(): Promise<string> {
+async function queuedSession(partition = "default"): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(sessions).values({
     admissionState: "active",
@@ -157,7 +158,7 @@ async function queuedSession(): Promise<string> {
     sessionId: id,
     status: "queued",
   });
-  await db.insert(unassignedSessions).values({ sessionId: id });
+  await db.insert(unassignedSessions).values({ sessionId: id, partition });
   return id;
 }
 
@@ -299,5 +300,104 @@ describe("claim lifecycle", () => {
     expect(await launchesOf(sessionId)).toHaveLength(1);
 
     expect((await claim(ref, backend.nonceOf(ref))).outcome).toBe("claimed");
+  });
+
+  test("a session whose execution in another partition exits idle is signalled back to that partition by its next message", async () => {
+    const backend = new NonceHoldingBackend();
+    const partition = `p-${crypto.randomUUID()}`;
+    const sessionId = await queuedSession(partition);
+
+    const first = await pass(backend);
+    const [gen1] = first.launched;
+    if (!gen1) throw new Error("nothing launched");
+    expect((await launchesOf(sessionId))[0]?.partition).toBe(partition);
+    expect((await claim(gen1, backend.nonceOf(gen1))).outcome).toBe("claimed");
+
+    // The turn finishes and the worker exits with nothing left to do: the
+    // binding goes away and no signal is left behind.
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, sessionId));
+    backend.containers.delete(keyOf(gen1));
+    expect((await pass(backend)).terminatedObserved).toEqual([gen1]);
+    const [idle] = await db
+      .select({ executionId: sessions.executionId, podId: sessions.podId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(idle).toEqual({ executionId: null, podId: null });
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toEqual([]);
+
+    await db.transaction((tx) =>
+      enqueueWithin(tx, { sessionId, payload: { message: "again" } }),
+    );
+    expect(
+      await db
+        .select({ partition: unassignedSessions.partition })
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toEqual([{ partition }]);
+  });
+
+  test("the partition a session goes back to is the one it was last claimed in, whatever generation a pool launch carries", async () => {
+    const backend = new NonceHoldingBackend();
+    const first = `p-${crypto.randomUUID()}`;
+    const sessionId = await queuedSession(first);
+    const [gen1] = (await pass(backend)).launched;
+    if (!gen1) throw new Error("nothing launched");
+    expect((await claim(gen1, backend.nonceOf(gen1))).outcome).toBe("claimed");
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, sessionId));
+    await work.confirmExecutionGoneAtomic({
+      executionId: gen1.executionId,
+      now: new Date(),
+    });
+
+    // The exit came before any input was asked for; its startup backoff is
+    // spent here rather than waited out (94S-347).
+    await db
+      .update(sessions)
+      .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(sessions.id, sessionId));
+
+    // Signalled into another partition, the session is claimed there by a
+    // pool worker whose launch is numbered below the scheduler's.
+    const second = `p-${crypto.randomUUID()}`;
+    await db
+      .insert(unassignedSessions)
+      .values({ sessionId, partition: second });
+    const pool = { executionId: `exec-${crypto.randomUUID()}`, generation: 0 };
+    const nonce = `nonce-${crypto.randomUUID()}`;
+    await work.registerLaunchAtomic({
+      backend: "local_docker",
+      executionId: pool.executionId,
+      generation: pool.generation,
+      nonceHash: hashWorkerToken(nonce),
+      nonceTtlMs: 60_000,
+      partition: second,
+      sessionId: null,
+    });
+    expect((await claim(pool, nonce)).outcome).toBe("claimed");
+    await work.confirmExecutionGoneAtomic({
+      executionId: pool.executionId,
+      now: new Date(),
+    });
+
+    await db.transaction((tx) =>
+      enqueueWithin(tx, { sessionId, payload: { message: "again" } }),
+    );
+    expect(
+      await db
+        .select({ partition: unassignedSessions.partition })
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, sessionId)),
+    ).toEqual([{ partition: second }]);
   });
 });
