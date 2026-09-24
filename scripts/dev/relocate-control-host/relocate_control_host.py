@@ -52,6 +52,14 @@ for manifest in manifests.values():
             merged[name] = version
 assert manifests["api"]["scripts"]["keys"] == "bun run src/keys.ts"
 assert manifests["scheduler"]["scripts"]["migrate-workspace"] == "bun run src/migrate-workspace.ts"
+# Operator commands the API package runs (94S-321 added grants) move with it;
+# anything else it grows must be placed here by hand, not dropped.
+api_commands = {name: command.replace("bun run src/", "bun run src/api/")
+                for name, command in manifests["api"]["scripts"].items()
+                if name not in ("typecheck", "dev", "start")}
+for name, command in api_commands.items():
+    if not re.fullmatch(r"bun run src/api/[a-z-]+\.ts", command):
+        raise SystemExit(f"apps/api script {name!r} ({command!r}) has no place in the control host")
 write(HOST / "package.json", json.dumps({
     "name": "@agent-platform/control-host",
     "version": "0.0.0",
@@ -63,7 +71,7 @@ write(HOST / "package.json", json.dumps({
         "start": "bun run src/main.ts api",
         "scheduler": "bun run src/main.ts scheduler",
         "reconciler": "bun run src/main.ts reconciler",
-        "keys": "bun run src/api/keys.ts",
+        **api_commands,
         "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts",
     },
     "dependencies": dict(sorted(dependencies.items())),
@@ -187,9 +195,16 @@ if "export default" in read(server) or "Bun.serve(" not in read(server):
     raise SystemExit(f"{server}: the api role must listen through Bun.serve, not a default export")
 
 server_it = SRC / "api/server.integration.ts"
-sub(server_it, r"cwd: `\$\{import\.meta\.dir\}/\.\.`", "cwd: `${import.meta.dir}/../..`", count=4)
+# Every child it spawns ran from the API package root, which is now two up.
+app_root = r"cwd: `\$\{import\.meta\.dir\}/\.\.`"
+spawned_from_root = len(re.findall(app_root, read(server_it)))
+assert spawned_from_root >= 4, spawned_from_root
+sub(server_it, app_root, "cwd: `${import.meta.dir}/../..`", count=spawned_from_root)
 sub(server_it, r'\["bun", "run", "src/server\.ts"\]', '["bun", "run", "src/main.ts", "api"]', count=3)
-replace(server_it, '"src/keys.ts"', '"src/api/keys.ts"')
+# The operator commands (keys, and grants since 94S-321) it runs by path.
+commands_run = len(re.findall(r'"src/(?!server\.ts")[a-z-]+\.ts"', read(server_it)))
+assert commands_run >= 1, commands_run
+sub(server_it, r'"src/((?!server\.ts")[a-z-]+\.ts)"', r'"src/api/\1"', count=commands_run)
 
 # --- repo-wide paths ------------------------------------------------------------
 # ci.yml domain jobs route files by path prefix and refuse a file two jobs
@@ -433,17 +448,24 @@ if "sep" not in [n.strip() for n in path_import.group(1).split(",")]:
 
 # --- prose ----------------------------------------------------------------------------
 readme = "README.md"
+# The checkpoint paragraph names the API app as the one that assembles the service.
+if "`apps/api`가 이를" in read(readme):
+    replace(readme, "`apps/api`가 이를", "`apps/control-host`의 api role이 이를")
 sub(readme, r"^\| `apps/api` \|.*\n",
     "| `apps/control-host` | 제어 영역 배포 단위(94S-117). 실행물 하나(`src/main.ts <api\\|scheduler\\|reconciler>`)가 role을 인자로 받고 기본값은 없다. `src/api`는 Hono `/v1`·`/internal`(Worker Gateway)·API 키·키 발급 CLI, `src/scheduler`는 launch intent를 커밋하고 LocalDockerBackend로 worker 컨테이너를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker backend는 scheduler role만 로드한다 |\n",
     flags=re.M)
 sub(readme, r"^\| `apps/reconciler` \|.*\n", "", flags=re.M)
 sub(readme, r"^\| `apps/scheduler` \|.*\n", "", flags=re.M)
-sub(readme, r"^\| `agent-platform-api` \|.*\n",
+# 94S-134 moved the image table and the image paragraph from the README to
+# docs/operations.md; whichever file holds them now is the one rewritten.
+image_doc = next(doc for doc in (readme, "docs/operations.md")
+                 if pathlib.Path(doc).is_file() and re.search(r"^\| `agent-platform-api` \|", read(doc), re.M))
+sub(image_doc, r"^\| `agent-platform-api` \|.*\n",
     "| `agent-platform-control-host` | `apps/control-host` 실행물 하나로 api·scheduler·reconciler role을 모두 돌린다. `--filter`로 그 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). 기본 uid 1000, scheduler role만 compose `user: \"0:0\"`로 root가 되어 Docker socket을 쥔다 | `bun run apps/control-host/src/main.ts <role>` (CMD 기본은 `api`) |\n",
     flags=re.M)
-sub(readme, r"^\| `agent-platform-scheduler` \| `apps/[^`]*` one-shot\. ", "| (scheduler role) | ", flags=re.M)
-# 94S-323's image paragraph, when it is there.
-if "`SCHEDULER_IMAGE`" in read(readme):
-    replace(readme, "(`egress-proxy`·`api`·`scheduler`·`worker`)",
-            "(`egress-proxy`·`api`·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다)")
-    replace(readme, "`API_IMAGE`·`SCHEDULER_IMAGE`·`WORKER_IMAGE`도", "`API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도")
+sub(image_doc, r"^\| `agent-platform-scheduler` \| `apps/[^`]*` one-shot\. ", "| (scheduler role) | ", flags=re.M)
+# 94S-323's image paragraph, when it is there; 94S-134 added migrate to its list.
+if "`SCHEDULER_IMAGE`" in read(image_doc):
+    sub(image_doc, r"·`scheduler`·`worker`\)",
+        "·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다)")
+    replace(image_doc, "`API_IMAGE`·`SCHEDULER_IMAGE`·`WORKER_IMAGE`도", "`API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도")
