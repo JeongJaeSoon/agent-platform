@@ -605,10 +605,13 @@ export const finalizeResponseSchema = z.object({
 // CHECKPOINT_UNAVAILABLE while no safe checkpoint covers the session, 409
 // REQUEST_STALE once the pause is not the open one), and a refused attempt
 // keeps its lease. Without it the release is unconditional.
+// `stop_kind: "drain"` says the worker was asked to stop (SIGTERM), not that
+// it failed: a startup it ends is not counted against the session (94S-302).
 export const releaseRequestSchema = workerScopeSchema
   .extend({
     reason: z.string().min(1),
     pause_control_id: z.string().min(1).optional(),
+    stop_kind: z.literal("drain").optional(),
   })
   .strict();
 export const releaseResponseSchema = z.object({ released: z.boolean() });

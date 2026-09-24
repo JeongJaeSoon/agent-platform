@@ -336,6 +336,15 @@ jobs:
               echo "DOCKER_BACKEND_TEST=1"
             fi
           } >>"$GITHUB_ENV"
+      # A Docker call that stalls on the runner leaves nothing behind once the
+      # VM is gone, and the client only sees its own timeout (94S-304). The
+      # daemon's events say whether the container got as far as starting; the
+      # step after the tests keeps them, with the daemon's log, when it fails.
+      - if: matrix.docker
+        name: Record the daemon's events
+        run: |
+          echo "DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')" >>"$GITHUB_ENV"
+          nohup docker events --format '{{json .}}' >"$RUNNER_TEMP/docker-events.jsonl" 2>&1 &
       - name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
@@ -350,6 +359,26 @@ jobs:
       # Not a *.test.ts file, so `bun test` never picks it up on its own.
       - if: matrix.domain == 'api'
         run: bun test ./apps/control-host/src/api/server.integration.ts
+      # SIGUSR1 makes dockerd write every goroutine's stack, so a call still
+      # stuck when the tests gave up shows where it is waiting.
+      - if: failure() && matrix.docker
+        name: Keep the daemon's record of a failed run
+        run: |
+          sudo kill -USR1 "$(pidof dockerd)" || true
+          sleep 2
+          sudo journalctl -u docker -u containerd --since "$DOCKER_EVENTS_SINCE" --no-pager -o short-iso-precise >"$RUNNER_TEMP/docker-daemon.log" || true
+          sudo sh -c "cp /var/run/docker/goroutine-stacks-*.log '$RUNNER_TEMP/' 2>/dev/null" || true
+          sudo chmod a+r "$RUNNER_TEMP"/docker-* "$RUNNER_TEMP"/goroutine-stacks-*.log 2>/dev/null || true
+      - if: failure() && matrix.docker
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docker-daemon-${{ matrix.domain }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/docker-events.jsonl
+            ${{ runner.temp }}/docker-daemon.log
+            ${{ runner.temp }}/goroutine-stacks-*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The required check. Branch protection names `integration`, and a matrix
   # reports one context per job, so this job stands in for all of them:

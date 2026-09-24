@@ -287,6 +287,8 @@ const server = Bun.serve({
     });
   },
 });
+// With PORT=0 the OS picks the port; this line is the only place it shows.
+logger.info("API listening", { port: server.port });
 
 // Pools close last: requests still draining hold their clients until then.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

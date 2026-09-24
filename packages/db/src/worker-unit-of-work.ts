@@ -91,7 +91,7 @@ import type { Database } from "./queries.ts";
 import {
   boundedReason,
   RESTORE_FAILURES_CLEARED,
-  recordRestoreFailure,
+  recordStartupFailure,
   restoreRetryDue,
 } from "./restore-failures.ts";
 import {
@@ -1018,6 +1018,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // Read once: the binding hands the worker exactly the restore the
         // session holds this attempt to reporting ready from (94S-345).
         const restore = await restoreRef(tx, locked);
+        // Every claim is on trial until its worker is ready for input
+        // (94S-347): one with nothing to restore can still fail preparing
+        // the workspace, over and over.
         const [session] = await tx
           .update(sessions)
           .set({
@@ -1025,7 +1028,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
-            restoreAttemptId: restore === null ? null : input.attemptId,
+            restoreAttemptId: input.attemptId,
             updatedAt: input.now,
           })
           .where(
@@ -1204,6 +1207,16 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // owns, which is the one thing the fence exists to prevent.
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
+        // A worker asks for input only once it has started up, restore or
+        // not, and every worker version does (94S-347): its later exit is not
+        // a failed startup, and the ones before it no longer count. Only an
+        // answered poll says so; one refused here may be the last it sends.
+        if (fenced.session.restoreAttemptId === fence.attemptId) {
+          await tx
+            .update(sessions)
+            .set(RESTORE_FAILURES_CLEARED)
+            .where(eq(sessions.id, fence.sessionId));
+        }
         // Read under the session lock the fence holds, and finalize adds to
         // it under the same lock, so a turn cannot start on a stale total.
         const overBudget = budgetExceeded(
@@ -1264,6 +1277,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               .returning({ id: sessions.id }),
             "session",
           );
+          // The turn boundary is on the stream too (94S-294). A turn just
+          // handed over has asked nothing yet, so it reads as running.
+          await recordStatus(tx, {
+            sessionId: fence.sessionId,
+            phase: "running",
+            turnRowId: turn.id,
+            now,
+          });
           expectFenced(
             await tx
               .update(attempts)
@@ -1690,11 +1711,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               ),
             );
         }
+        const settled = SESSION_STATUS_BY_TERMINAL[input.terminal.status];
         expectFenced(
           await tx
             .update(sessions)
             .set({
-              status: SESSION_STATUS_BY_TERMINAL[input.terminal.status],
+              status: settled,
               lastTurnAt: now,
               updatedAt: now,
               ...(unknownOutcome
@@ -1716,6 +1738,24 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .returning({ id: sessions.id }),
           "session",
         );
+        // After every event of the turn, which the check above found
+        // durable: the stream ends the turn where the session now reads
+        // (94S-294). Only an open turn holds a question, so the stored
+        // status is the public one.
+        const recovering =
+          unknownOutcome &&
+          fenced.session.admissionState !== "recovery_required";
+        if (settled !== fenced.session.status || recovering) {
+          await recordStatus(tx, {
+            sessionId: fence.sessionId,
+            phase: settled,
+            ...(recovering
+              ? { extra: { admission_state: "recovery_required" } }
+              : {}),
+            turnRowId: turn.id,
+            now,
+          });
+        }
         if (unknownOutcome && fenced.session.admissionState === "pausing") {
           // recovery_required takes the session out of pausing, so the pause
           // it was draining for can no longer complete.
@@ -1917,6 +1957,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .update(sessions)
             .set({
               leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+              // A drain was asked of it, so a startup it cut short is not
+              // counted (94S-302); the failures before it still are.
+              ...(input.drained
+                ? {
+                    restoreAttemptId: sql`NULLIF(${sessions.restoreAttemptId}, ${fence.attemptId})`,
+                  }
+                : {}),
               updatedAt: now,
             })
             .where(fencedSession(fence))
@@ -2235,11 +2282,13 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ? await contextCoverage(tx, session)
             : null;
         const contextLost = coverage !== null && contextGap(session, coverage);
-        // The worker claimed with the checkpoint and ended before it reported
-        // the restore ready (94S-345). Without counting it the session goes
-        // straight back in line and the next worker fails the same way, one
-        // generation after another. A resume counts its own launches.
-        const failedRestore =
+        // The worker claimed and ended before it was ready for input: its
+        // restore never reported ready (94S-345), or it never asked for input
+        // (94S-347). Without counting it the session goes straight back in
+        // line and the next worker fails the same way, one generation after
+        // another. A resume counts its own launches; a pause, terminate,
+        // close or revocation has taken the session out of `active`.
+        const failedStartup =
           session.admissionState === "active" &&
           unresolved.length === 0 &&
           !contextLost &&
@@ -2279,12 +2328,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                       : {}),
           })
           .where(eq(sessions.id, session.id));
-        const restoreOutcome =
-          failedRestore === null
+        const startupOutcome =
+          failedStartup === null
             ? null
-            : await recordRestoreFailure(tx, {
+            : await recordStartupFailure(tx, {
                 session,
-                attemptId: failedRestore,
+                attemptId: failedStartup,
                 now,
               });
         if (resumeFailed && unresolved.length === 0) {
@@ -2328,15 +2377,33 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             })
             .where(openPauseReceipt(session.id));
         }
-        // The pause family's outcome is a status change the event stream
-        // has to carry, or a client following it stays at `pausing`.
-        if (paused || pauseFailed) {
-          const into = paused ? "paused" : pauseFailedInto;
+        // Every admission this exit settles is a status change the event
+        // stream has to carry, or a client following it stays at stopping,
+        // pausing or wherever the unknown turn left it (94S-293). Written in
+        // the transaction that settles the kill and pause receipts, so the
+        // stream never reports stopped under an open terminate.
+        const settledInto = closed
+          ? null
+          : unresolved.length > 0
+            ? "recovery_required"
+            : stopping
+              ? "stopped"
+              : paused
+                ? "paused"
+                : pauseFailed
+                  ? pauseFailedInto
+                  : null;
+        if (settledInto !== null) {
           await recordStatus(tx, {
             sessionId: session.id,
-            phase: into === "recovery_required" ? "failed" : session.status,
+            phase:
+              settledInto === "recovery_required"
+                ? "failed"
+                : settledInto === "stopped"
+                  ? "stopped"
+                  : session.status,
             extra: {
-              admission_state: into,
+              admission_state: settledInto,
               ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
             },
             turnRowId: null,
@@ -2405,7 +2472,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           ((queued > 0 &&
             activeNow &&
             !contextLost &&
-            restoreOutcome !== "recovery_required") ||
+            startupOutcome !== "recovery_required") ||
             (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx

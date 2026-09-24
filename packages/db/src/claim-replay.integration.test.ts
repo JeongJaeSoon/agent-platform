@@ -12,7 +12,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
@@ -607,8 +607,13 @@ integration("claim replay against the session's current binding", () => {
         code: "UNAUTHORIZED",
       });
 
-      // The replacement worker claims the session once the old one is gone.
+      // The replacement worker claims the session once the old one is gone
+      // and the startup backoff its unready exit started is over (94S-347).
       await gateway.confirmExecutionGone(old.executionId);
+      await db
+        .update(sessions)
+        .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
+        .where(eq(sessions.id, session.session_id));
       await db
         .update(unassignedSessions)
         .set({ partition })

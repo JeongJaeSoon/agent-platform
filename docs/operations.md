@@ -98,6 +98,13 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 
 원인(프록시, 저장소 경로)을 고친 뒤 같은 checkpoint로 다시 복원하게 하는 결정은 아직 없다.
 
+### 시작 단계에서 계속 죽는 세션 (94S-302, 94S-347)
+
+checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 입력을 한 번도 청하지 않고 끝나면 실패 1회다. workspace 준비(git clone·fetch)나 엔진 기동에서 죽은 경우다. 두 번째까지는 30초, 60초를 기다리고, 세 번째에는 `recovery_required`로 멈춘다. attention은 `STARTUP_FAILED`이고 `reason`·`failures`·`retry_at`은 위와 같다. 이벤트 스트림에는 실패마다 system `startup_failed`가 남는다.
+- 흔한 원인은 저장소 URL·branch가 사라졌거나 저장소 자격 증명이 거부된 경우, 그리고 worker의 object store·proxy 설정 오류다. worker 로그의 `worker.stopping kind=failed`, `worker.failed`에서 확인한다.
+- 원인을 고친 뒤 `start_fresh`로 다시 띄운다. 이 세션에는 버릴 checkpoint가 없으므로 잃는 것이 없다. 세션을 끝내려면 `close`를 쓴다.
+- pause, terminate, close, 실행 권한 회수로 끝난 worker는 세지 않는다.
+
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다 (94S-252)
 
 worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로그인이 없다. claim은 attempt마다 새로 만든 **egress token** 세 개만 준다(`runtime_config.provider.auth = {kind: "egress_token", token}`, `workspace.repository.access`, `object_store.access`). 세 token은 session credential과 수명이 같다. claim 재생이면 폐기하고 다시 발급하며, heartbeat가 연장하고, attempt가 끝나면 폐기한다. 각 token은 claim 시점의 profile fingerprint, 저장소 binding, 세션 object prefix에 묶여 있다.

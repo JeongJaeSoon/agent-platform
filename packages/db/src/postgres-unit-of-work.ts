@@ -74,7 +74,7 @@ import {
   publicStatus,
 } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { restoreFailedAttention } from "./restore-failures.ts";
+import { startupFailedAttention } from "./restore-failures.ts";
 import {
   attempts,
   checkpoints,
@@ -85,6 +85,7 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
+import { recordStatus } from "./session-events.ts";
 
 const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -236,6 +237,7 @@ export function createPostgresSessionUnitOfWork(
           .select({
             admissionState: sessions.admissionState,
             checkpointPendingReason: sessions.checkpointPendingReason,
+            status: sessions.status,
           })
           .from(sessions)
           .where(
@@ -296,6 +298,16 @@ export function createPostgresSessionUnitOfWork(
             updatedAt: new Date(),
           })
           .where(eq(sessions.id, sessionId));
+        // The stream said failed; without this it would until the turn
+        // starts, while reads already say queued (94S-294).
+        if (session.status === "failed") {
+          await recordStatus(tx, {
+            sessionId,
+            phase: "queued",
+            turnRowId: null,
+            now: new Date(),
+          });
+        }
 
         const receiptId = randomUUID();
         const turnId = String(sequence);
@@ -661,7 +673,7 @@ export function createPostgresSessionReader(
         attention:
           (await pauseAttention(db, row)) ??
           (await contextGapAttention(db, row)) ??
-          restoreFailedAttention(row),
+          startupFailedAttention(row),
         cost_usd: row.costUsd,
         repo_url: row.repoUrl,
         branch: row.branch,

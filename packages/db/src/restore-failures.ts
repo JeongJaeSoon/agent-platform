@@ -1,7 +1,7 @@
 import type { SessionAttention } from "@agent-platform/contracts";
 import { launchRetryDelayMs } from "@agent-platform/platform";
 import { eq, isNull, lte, or } from "drizzle-orm";
-import { restoreBaseRevision } from "./control-shared.ts";
+import { hasRestorePoint, restoreBaseRevision } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { attempts, sessions, unassignedSessions } from "./schema.ts";
@@ -10,11 +10,12 @@ import { recordEvent, recordStatus } from "./session-events.ts";
 type SessionRow = typeof sessions.$inferSelect;
 
 /**
- * Claimed launches an active session may spend on a restore that ends before
- * its worker reports ready (94S-345), as a resume may (RESUME_LAUNCH_LIMIT).
- * One such exit says little — a deploy's SIGTERM, a read damaged in transit —
- * so the next launch waits out 94S-207's backoff (30s, then 60s) and tries
- * the same checkpoint again; a restore that keeps failing is for an operator.
+ * Claimed launches an active session may spend on a worker that ends before
+ * it is ready for input (94S-345, 94S-347), as a resume may
+ * (RESUME_LAUNCH_LIMIT). One such exit says little — a deploy's SIGTERM, a
+ * read damaged in transit — so the next launch waits out 94S-207's backoff
+ * (30s, then 60s) and tries again; a startup that keeps failing, whether it
+ * restores a checkpoint or clones the repository, is for an operator.
  */
 export const RESTORE_FAILURE_LIMIT = 3;
 
@@ -29,7 +30,7 @@ export function restoreRetryDue() {
   );
 }
 
-/** A restore proven, or a checkpoint given up: the count starts over. */
+/** A worker ready for input, or a checkpoint given up: the count starts over. */
 export const RESTORE_FAILURES_CLEARED = {
   restoreAttemptId: null,
   restoreFailureCount: 0,
@@ -38,14 +39,31 @@ export const RESTORE_FAILURES_CLEARED = {
 } as const;
 
 /**
- * Counts the restore `attemptId` never reported ready from, in the caller's
- * gone transaction and after the session row there has cleared its binding.
- * Below the limit the session stays active and is signalled again as usual,
- * but not launched before its backoff ends. At the limit it waits in
- * recovery_required with its input kept, like a context gap: start_fresh
- * goes on without the checkpoint, close ends the session.
+ * A session with a restore point hands every claim a checkpoint, so its
+ * failed startups are failed restores; one without has only the workspace
+ * and the engine to start. Judged on the row alone: a checkpoint commits
+ * only from a worker that took input, which clears the count.
  */
-export async function recordRestoreFailure(
+function startupFailure(
+  session: Pick<
+    SessionRow,
+    | "checkpointPendingReason"
+    | "checkpointRevision"
+    | "contextResetCheckpointRevision"
+  >,
+): "restore" | "startup" {
+  return hasRestorePoint(session) ? "restore" : "startup";
+}
+
+/**
+ * Counts the `attemptId` that ended before it was ready for input, in the
+ * caller's gone transaction and after the session row there has cleared its
+ * binding. Below the limit the session stays active and is signalled again
+ * as usual, but not launched before its backoff ends. At the limit it waits
+ * in recovery_required with its input kept, like a context gap: start_fresh
+ * goes on (without the checkpoint, if there is one), close ends the session.
+ */
+export async function recordStartupFailure(
   tx: Database,
   input: { session: SessionRow; attemptId: string; now: Date },
 ): Promise<"backing_off" | "recovery_required"> {
@@ -74,15 +92,20 @@ export async function recordRestoreFailure(
     })
     .where(eq(sessions.id, session.id))
     .returning({ retryAt: sessions.restoreRetryAt });
+  const restoring = startupFailure(session) === "restore";
   const failure = {
     type: "system",
-    subtype: "checkpoint_restore_failed",
-    // What the attempt was restoring: a fallback's base (94S-204) when its
-    // plan fell back, the pointer otherwise.
-    checkpoint_revision:
-      session.checkpointRestoreAttemptId === input.attemptId
-        ? restoreBaseRevision(session)
-        : session.checkpointRevision,
+    subtype: restoring ? "checkpoint_restore_failed" : "startup_failed",
+    ...(restoring
+      ? {
+          // What the attempt was restoring: a fallback's base (94S-204) when
+          // its plan fell back, the pointer otherwise.
+          checkpoint_revision:
+            session.checkpointRestoreAttemptId === input.attemptId
+              ? restoreBaseRevision(session)
+              : session.checkpointRevision,
+        }
+      : {}),
     failures,
     limit: RESTORE_FAILURE_LIMIT,
     reason,
@@ -103,18 +126,27 @@ export async function recordRestoreFailure(
   await recordStatus(tx, {
     sessionId: session.id,
     phase: "failed",
-    extra: { admission_state: "recovery_required", reason: "restore_failed" },
+    extra: {
+      admission_state: "recovery_required",
+      reason: restoring ? "restore_failed" : "startup_failed",
+    },
     turnRowId: null,
     now,
   });
   return "recovery_required";
 }
 
-/** RESTORE_FAILED while a restore is failing, backing off or given up on. */
-export function restoreFailedAttention(
+/**
+ * RESTORE_FAILED, or STARTUP_FAILED for a session with nothing to restore,
+ * while its startups are failing, backing off or given up on.
+ */
+export function startupFailedAttention(
   session: Pick<
     SessionRow,
     | "admissionState"
+    | "checkpointPendingReason"
+    | "checkpointRevision"
+    | "contextResetCheckpointRevision"
     | "restoreFailureCount"
     | "restoreFailureReason"
     | "restoreRetryAt"
@@ -128,7 +160,10 @@ export function restoreFailedAttention(
     return null;
   }
   return {
-    code: "RESTORE_FAILED",
+    code:
+      startupFailure(session) === "restore"
+        ? "RESTORE_FAILED"
+        : "STARTUP_FAILED",
     reason: session.restoreFailureReason ?? "execution_gone",
     failures: session.restoreFailureCount,
     retry_at: session.restoreRetryAt?.toISOString() ?? null,
