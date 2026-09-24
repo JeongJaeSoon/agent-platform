@@ -357,15 +357,32 @@ describe("GitWorkspace", () => {
     ).toEqual([RESTORED_CHECKPOINT_DIRECTORY]);
   });
 
+  test("keeps worker-named scratch in a checkout that borrows objects, which may be from it (94S-377)", async () => {
+    await prepare(descriptor());
+    const gitDirectory = join(root, ".git");
+    const lender = join(gitDirectory, "agent-platform-capture-q1W2e3");
+    await mkdir(join(lender, "objects"), { recursive: true });
+    await writeFile(
+      join(gitDirectory, "objects", "info", "alternates"),
+      `${join(lender, "objects")}\n`,
+    );
+
+    expect(await prepare(descriptor())).toBe("reuse");
+    expect(await readdir(lender)).toEqual(["objects"]);
+  });
+
   test("refuses a reuse whose .git is not a directory of its own rather than put the mirror elsewhere (94S-377)", async () => {
     await prepare(descriptor());
     const elsewhere = join(scratch, "elsewhere.git");
     await rename(join(root, ".git"), elsewhere);
     await symlink(elsewhere, join(root, ".git"));
+    // Still the same origin to the planner, but not what a reuse writes.
+    git(["config", "remote.origin.url", `${origin}/`], root);
 
     await expect(prepare(descriptor())).rejects.toThrow(
       ".git is not a directory",
     );
+    expect(git(["config", "remote.origin.url"], root)).toBe(`${origin}/`);
     expect(
       (await readdir(elsewhere)).filter((name) =>
         name.startsWith("agent-platform-"),
