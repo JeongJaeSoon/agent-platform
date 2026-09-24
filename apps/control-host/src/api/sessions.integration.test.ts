@@ -668,7 +668,7 @@ integration("sessions API on PostgreSQL", () => {
       expect(detail).toMatchObject({
         id: legacyId,
         repository_id: null,
-        runtime: { profile_id: "unknown" },
+        runtime: null,
         current_turn_id: null,
         queued_turn_count: 0,
         // No catalog key, so no worker of this host will take it (94S-280).
@@ -683,13 +683,50 @@ integration("sessions API on PostgreSQL", () => {
       expect(listResponse.status).toBe(200);
       const listText = await listResponse.text();
       const page = listSessionsResponseSchema.parse(JSON.parse(listText));
-      expect(page.items.map((item) => [item.id, item.repository_id])).toEqual([
-        [legacyId, null],
-      ]);
+      expect(
+        page.items.map((item) => [item.id, item.repository_id, item.runtime]),
+      ).toEqual([[legacyId, null, null]]);
       expect(listText).not.toContain(secret);
       expect(listText).not.toContain("legacy.invalid");
     } finally {
       await db.delete(sessions).where(eq(sessions.id, legacyId));
+    }
+  }, 60_000);
+
+  test("a profile key the catalog no longer has surfaces runtime null, not a guess (94S-197)", async () => {
+    const retiredOwner = `owner-${crypto.randomUUID()}`;
+    const retiredId = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: retiredId,
+      ownerId: retiredOwner,
+      repoUrl: "https://example.invalid/app.git",
+      branch: "main",
+      profileId: "retired-profile",
+      repositoryId: "sample-app",
+    });
+    try {
+      const detail = getSessionResponseSchema.parse(
+        await (
+          await app.request(`/v1/sessions/${retiredId}`, {
+            headers: { "X-Owner-Id": retiredOwner },
+          })
+        ).json(),
+      );
+      expect(detail).toMatchObject({
+        repository_id: "sample-app",
+        runtime: null,
+        attention: { code: "CATALOG_MISMATCH" },
+      });
+      const page = listSessionsResponseSchema.parse(
+        await (
+          await app.request("/v1/sessions", {
+            headers: { "X-Owner-Id": retiredOwner },
+          })
+        ).json(),
+      );
+      expect(page.items.map((item) => item.runtime)).toEqual([null]);
+    } finally {
+      await db.delete(sessions).where(eq(sessions.id, retiredId));
     }
   }, 60_000);
 

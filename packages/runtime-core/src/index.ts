@@ -5,7 +5,14 @@ export type * from "./checkpoint.ts";
 export type * from "./checkpoint-manifest.ts";
 export {
   isImmutableObjectSource,
+  MAX_TRANSCRIPT_BYTES,
+  MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
+  TRANSCRIPT_MIRROR_DIRECTORY,
+  transcriptGenerationDirectory,
+  transcriptGenerationOf,
+  transcriptParts,
+  transcriptSizeProblem,
 } from "./checkpoint-manifest.ts";
 export * from "./git-bundle.ts";
 export * from "./git-process.ts";

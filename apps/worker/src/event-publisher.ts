@@ -4,9 +4,10 @@ import {
   type WorkerScope,
   workerEventSchema,
 } from "@agent-platform/contracts";
-import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
-
-import { isRetryable } from "./gateway-client.ts";
+import {
+  isRetryable,
+  type WorkerGatewayClient,
+} from "@agent-platform/runtime-core";
 
 type Queued = { event: WorkerEvent; turnId: string | null };
 

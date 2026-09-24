@@ -79,3 +79,45 @@ export interface WorkerGatewayClient {
 // one or a failing dependency is answered by the shared request pipeline, so
 // a client that decodes exhaustively has to accept every shared code.
 export type WorkerGatewayErrorCode = ApiErrorCode;
+
+/**
+ * A call the gateway answered with something other than success. `code` is
+ * null when the answer was not an API error body at all — a proxy page, an
+ * unrouted path, or a socket that never produced one.
+ */
+export class WorkerGatewayRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: WorkerGatewayErrorCode | null,
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "WorkerGatewayRequestError";
+  }
+}
+
+/** Codes that mean this attempt no longer owns the session and must stop. */
+export const OWNERSHIP_LOST_CODES: ReadonlySet<WorkerGatewayErrorCode> =
+  new Set<WorkerGatewayErrorCode>([
+    "LEASE_EXPIRED",
+    "STALE_EPOCH",
+    "FORBIDDEN",
+    "UNAUTHORIZED",
+  ]);
+
+export function isOwnershipLost(error: unknown): boolean {
+  return (
+    error instanceof WorkerGatewayRequestError &&
+    error.code !== null &&
+    OWNERSHIP_LOST_CODES.has(error.code)
+  );
+}
+
+export function isRetryable(error: unknown): boolean {
+  return (
+    error instanceof WorkerGatewayRequestError &&
+    error.retryable &&
+    !isOwnershipLost(error)
+  );
+}

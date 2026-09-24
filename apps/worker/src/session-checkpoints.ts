@@ -13,6 +13,7 @@ import type {
 import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
+  TranscriptTooLarge,
 } from "@agent-platform/runtime-claude";
 import {
   type CheckpointCodec,
@@ -21,13 +22,17 @@ import {
   type CheckpointPreparation,
   type CheckpointTranscripts,
   type ImmutableObjectSource,
+  isOwnershipLost,
   ObjectIntegrityError,
   type ObjectRef,
   type ReadyCheckpoint,
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptRevision,
+  transcriptParts,
+  transcriptSizeProblem,
   type WorkerGatewayClient,
   type WorkspaceArtifact,
   workspacePathsProblem,
@@ -44,7 +49,6 @@ import {
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
-import { isOwnershipLost } from "./gateway-client.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
 import {
@@ -436,6 +440,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       manifest.workspace.untracked.map(({ path }) => path),
     );
     if (paths !== undefined) throw refuse(`untracked files: ${paths}`);
+    // Before a single part is fetched: holding and parsing a transcript this
+    // size is what would take the worker down (94S-296).
+    const oversized = transcriptSizeProblem(
+      transcriptParts(manifest.transcripts),
+    );
+    if (oversized !== undefined) throw refuse(oversized);
     for (const ref of [
       manifest.workspace.bundle,
       ...manifest.workspace.untracked,
@@ -447,7 +457,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   #transcriptPrefix(): string {
-    return `${this.#options.objectPrefix}transcripts`;
+    return `${this.#options.objectPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}`;
   }
 
   mirror(): { persistedAt: Date | null } | undefined {
@@ -681,9 +691,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       upload(key, bytes),
     );
 
-    const transcripts = await bound.store.captureTranscripts(
-      preparation.checkpoint.resume,
-    );
+    const transcripts = await bound.store
+      .captureTranscripts(preparation.checkpoint.resume)
+      .catch((error: unknown) => {
+        throw error instanceof TranscriptTooLarge
+          ? new PublishFailure("transcript", error.message)
+          : error;
+      });
     if (transcripts === null) {
       throw new PublishFailure(
         "transcript",
@@ -702,6 +716,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       throw new MirrorLost(now.detail);
     }
 
+    const oversized = transcriptSizeProblem(transcriptParts(transcripts));
+    if (oversized !== undefined) {
+      throw new PublishFailure("transcript", oversized);
+    }
     const referenced =
       1 +
       untracked.length +

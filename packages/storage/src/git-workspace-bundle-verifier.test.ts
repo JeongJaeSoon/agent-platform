@@ -59,6 +59,17 @@ function withSwappedTip(fixture: GitBundleFixture): {
 }
 
 describe("git workspace bundle verifier", () => {
+  test("its policy names every limit, so the service's retry cooldown ends when one changes", () => {
+    const policy = (
+      options: Parameters<typeof createGitWorkspaceBundleVerifier>[0],
+    ) => createGitWorkspaceBundleVerifier({ tempRoot, ...options }).policy;
+    const base = policy({});
+    expect(base).toBe(policy({ timeoutMs: DEFAULT_GIT_VERIFY_TIMEOUT_MS }));
+    expect(policy({ timeoutMs: 1 })).not.toBe(base);
+    expect(policy({ maxGitMemoryBytes: 1 })).not.toBe(base);
+    expect(policy({ maxPackObjects: 1 })).not.toBe(base);
+  });
+
   test("a bundle git wrote is restorable", async () => {
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const verdict = await verifyBundleBytes(verifier, {

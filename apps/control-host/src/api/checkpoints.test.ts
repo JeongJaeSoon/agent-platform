@@ -17,6 +17,8 @@ import {
 } from "@agent-platform/testkit/git-bundle";
 import {
   type ApiCheckpointServiceDependencies,
+  assertCheckpointBucketEncryption,
+  type CheckpointStorageConfig,
   checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
   createApiCheckpointService,
@@ -260,6 +262,30 @@ describe("API checkpoint composition", () => {
     );
   });
 
+  test("enforces the bucket encryption check unless warning is said out loud", () => {
+    const full = {
+      AWS_ACCESS_KEY_ID: "id",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "s",
+      S3_BUCKET: "claude-sessions",
+    };
+    const check = (value?: string) => {
+      const config = checkpointStorageConfigFromEnv(
+        value === undefined
+          ? full
+          : { ...full, CHECKPOINT_OBJECT_ENCRYPTION_CHECK: value },
+      );
+      return config === "disabled" ? config : config.encryptionCheck;
+    };
+    expect(check()).toBeUndefined();
+    expect(check(" ")).toBeUndefined();
+    expect(check("enforce")).toBeUndefined();
+    expect(check("warn")).toBe("warn");
+    expect(() => check("off")).toThrow(
+      /^CHECKPOINT_OBJECT_ENCRYPTION_CHECK must be "enforce" \(default\) or "warn", not off$/,
+    );
+  });
+
   test("reads the object store from the environment and refuses a silent absence", () => {
     const full = {
       AWS_ACCESS_KEY_ID: "id",
@@ -338,5 +364,71 @@ describe("API checkpoint composition", () => {
         at: new Date(),
       }),
     ).toMatchObject({ status: "rejected" });
+  });
+});
+
+describe("checkpoint bucket encryption at startup (94S-337)", () => {
+  const config: CheckpointStorageConfig = {
+    accessKeyId: "id",
+    bucket: "claude-sessions",
+    protection: "locked",
+    region: "ap-northeast-1",
+    secretAccessKey: "s",
+  };
+  const bucketEncryptedWith = (algorithm: "none" | "aws:kms" | "AES256") => ({
+    async send() {
+      if (algorithm === "none") {
+        throw Object.assign(new Error("not found"), {
+          name: "ServerSideEncryptionConfigurationNotFoundError",
+        });
+      }
+      return {
+        ServerSideEncryptionConfiguration: {
+          Rules: [
+            { ApplyServerSideEncryptionByDefault: { SSEAlgorithm: algorithm } },
+          ],
+        },
+      };
+    },
+  });
+  const run = async (
+    algorithm: "none" | "aws:kms" | "AES256",
+    target: CheckpointStorageConfig = config,
+  ) => {
+    const warnings: string[] = [];
+    await assertCheckpointBucketEncryption(target, {
+      client: bucketEncryptedWith(algorithm),
+      warn: (message) => warnings.push(message),
+    });
+    return warnings;
+  };
+
+  test("starts on a bucket that defaults to SSE-S3", async () => {
+    expect(await run("AES256")).toEqual([]);
+  });
+
+  test("refuses a bucket with no default encryption", async () => {
+    await expect(run("none")).rejects.toThrow(
+      /^Checkpoint bucket claude-sessions encrypts new objects with none; checkpoints need the bucket default SSE-S3 \(AES256\) \(set CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn to start anyway\)$/,
+    );
+  });
+
+  test("refuses a bucket that defaults to another algorithm, SSE-KMS included", async () => {
+    await expect(run("aws:kms")).rejects.toThrow(
+      /encrypts new objects with aws:kms; checkpoints need the bucket default SSE-S3/,
+    );
+    // Whatever the protection mode: unversioned objects are still stored.
+    await expect(
+      run("aws:kms", { ...config, protection: "unversioned" }),
+    ).rejects.toThrow(/aws:kms/);
+  });
+
+  test("the explicit opt-out starts anyway and says why", async () => {
+    const warned = { ...config, encryptionCheck: "warn" as const };
+    expect(await run("none", warned)).toEqual([
+      "Checkpoint bucket claude-sessions encrypts new objects with none; checkpoints need the bucket default SSE-S3 (AES256)",
+    ]);
+    expect(await run("aws:kms", warned)).toHaveLength(1);
+    expect(await run("AES256", warned)).toEqual([]);
   });
 });

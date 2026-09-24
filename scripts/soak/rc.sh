@@ -46,6 +46,17 @@ stamp() { echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
 
 if [ "$stage" = all ]; then
   stamp "build ${rc}"
+  # From nothing: a stack left up (its database, bucket and Gitea) fails the
+  # fixture and would carry state into the run.
+  scripts/soak/stack.sh down || die "stack down failed"
+  # down swallows removal errors: check nothing of the project or installation survived.
+  for label in com.docker.compose.project=soak135 agent-platform.installation=soak135; do
+    for list in "container ls -a" "volume ls"; do
+      # shellcheck disable=SC2086
+      left="$(docker $list -q --filter "label=${label}")" || die "docker ${list} failed"
+      [ -z "$left" ] || die "${list%% *}s labelled ${label} survived stack down"
+    done
+  done
   SOAK_SKIP_BUILD=0 scripts/soak/stack.sh up || die "stack up failed"
   # shellcheck disable=SC1091
   source "$state/vars.sh"

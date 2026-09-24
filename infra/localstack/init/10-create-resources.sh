@@ -28,3 +28,12 @@ if [ "$lock" != "Enabled" ]; then
     --bucket claude-sessions \
     --object-lock-configuration ObjectLockEnabled=Enabled
 fi
+
+# SSE-S3 as the bucket default, which the API checks at startup
+# (CHECKPOINT_OBJECT_ENCRYPTION_CHECK). Checkpoint writes name no encryption,
+# so this is what every object gets. Idempotent, so an old volume's bucket
+# gets it on the next start.
+awslocal s3api put-bucket-encryption \
+  --bucket claude-sessions \
+  --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'

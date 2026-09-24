@@ -34,6 +34,12 @@ export type CheckpointCollectionFences = {
   fencedAttemptIds: ReadonlySet<string>;
   /** `sessions.checkpoint_fallback_revision`: a fallback restore's base. */
   fallbackRevision: number | null;
+  /**
+   * `sessions.execution_generation`. Only ever moves forward, and an attempt
+   * of an earlier generation is fenced, so no generation below it can commit
+   * again.
+   */
+  executionGeneration: number;
 };
 
 export interface CheckpointCollectionStore

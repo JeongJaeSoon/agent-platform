@@ -55,11 +55,11 @@ const codec: CheckpointCodec = {
 };
 const workspaceBundle = await createGitBundle();
 
-function fenceOf(attemptId: string): CheckpointFence {
+function fenceOf(attemptId: string, generation = 1): CheckpointFence {
   return {
     attemptId,
     authRevision: 1,
-    executionGeneration: 1,
+    executionGeneration: generation,
     leaseEpoch: 1,
     sessionId,
   };
@@ -76,8 +76,13 @@ function memorySession() {
   const collected = new Set<number>();
   const state = {
     fallback: null as { attemptId: string; revision: number } | null,
+    /** `sessions.execution_generation`. */
+    generation: 1,
     /** Runs once, right after the next pointer or fence read. */
     betweenReads: undefined as (() => Promise<void>) | undefined,
+    pointerReads: 0,
+    /** Pointer reads left to fail, as a dropped database connection does. */
+    failPointerReads: 0,
   };
   const afterRead = async () => {
     const between = state.betweenReads;
@@ -88,12 +93,18 @@ function memorySession() {
   };
   const store: CheckpointStore & CheckpointCollectionStore = {
     async readPointer() {
+      state.pointerReads += 1;
+      if (state.failPointerReads > 0) {
+        state.failPointerReads -= 1;
+        throw new Error("connection terminated");
+      }
       const found = pointer;
       await afterRead();
       return found;
     },
     async readCollectionFences() {
       const found = {
+        executionGeneration: state.generation,
         fallbackRevision: state.fallback?.revision ?? null,
         fencedAttemptIds: new Set(fenced),
       };
@@ -270,11 +281,12 @@ async function commit(
   attemptId: string,
   parts: readonly ObjectRef[],
   checkpoints = service(),
+  generation = 1,
 ) {
   const published = await publish(revision, attemptId, parts);
   const result = await checkpoints.finalize({
     checkpoint: published.checkpoint,
-    fence: fenceOf(attemptId),
+    fence: fenceOf(attemptId, generation),
     now: new Date("2026-09-24T00:00:00.000Z"),
     sessionId,
     turnId: null,
@@ -287,11 +299,27 @@ async function present(entry: { key: string; version: string }) {
   return (await objects.head(entry.key, entry.version)) !== undefined;
 }
 
-async function transcriptPart(index: number): Promise<ObjectRef> {
+async function transcriptPart(
+  index: number,
+  generation = 1,
+): Promise<ObjectRef> {
   return upload(
-    `${prefix}transcripts/generation-0000000001/part-${index}.jsonl`,
-    encode(`{"type":"user","uuid":"u${index}"}\n`),
+    `${prefix}transcripts/generation-${String(generation).padStart(10, "0")}/part-${index}.jsonl`,
+    encode(`{"type":"user","uuid":"g${generation}-u${index}"}\n`),
   );
+}
+
+/** A second version under a part's key, as a rewrite by hand leaves. */
+async function rewrite(
+  ref: ObjectRef,
+): Promise<{ key: string; version: string }> {
+  await objects.put(ref.key, encode('{"type":"user","uuid":"rewritten"}\n'));
+  const head = await objects.head(ref.key);
+  return { key: ref.key, version: head?.version as string };
+}
+
+function versionOf(ref: ObjectRef): { key: string; version: string } {
+  return { key: ref.key, version: ref.version as string };
 }
 
 describe("superseded revisions", () => {
@@ -306,7 +334,7 @@ describe("superseded revisions", () => {
       await collector({ maxRestoreFallbacks: 1 }).collectSession(sessionId, {
         dryRun: false,
       }),
-    ).toEqual({ status: "collected", kept: 6, purged: 3 });
+    ).toEqual({ status: "collected", kept: 8, purged: 3 });
 
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(false);
@@ -608,6 +636,273 @@ describe("what the pointer vouches for", () => {
     ).toEqual({ failed: 0, purged: 0, sessions: 1 });
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(true);
+  });
+});
+
+describe("transcript parts (94S-326)", () => {
+  test("a dead generation's tail and a part only an abandoned revision named go; the live generation's and inherited parts stay", async () => {
+    const inherited = await transcriptPart(0);
+    const abandoned = await transcriptPart(1);
+    await commit(0, "attempt-a", [inherited, abandoned]);
+    // Written after generation 1's last checkpoint, never committed.
+    const tail = await transcriptPart(2);
+    // Generation 2 restored revision 0 and carried only the first part on.
+    session.state.generation = 2;
+    const own = await transcriptPart(0, 2);
+    const uncommitted = await transcriptPart(1, 2);
+    await commit(1, "attempt-b", [inherited, own], service(), 2);
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(tail))).toBe(false);
+    expect(await present(versionOf(abandoned))).toBe(false);
+    expect(await present(versionOf(inherited))).toBe(true);
+    expect(await present(versionOf(own))).toBe(true);
+    // Not committed yet, but generation 2 may still commit it.
+    expect(await present(versionOf(uncommitted))).toBe(true);
+    const plan = await service().getRestorePlan({ runtime, sessionId });
+    expect(plan.status).toBe("ready");
+  });
+
+  test("a part the pointer's window still names stays with its hold", async () => {
+    const first = await transcriptPart(0);
+    await commit(0, "attempt-a", [first]);
+    await commit(1, "attempt-a", []);
+    session.state.generation = 3;
+
+    await collector({ maxRestoreFallbacks: 1 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    expect(await objects.head(first.key, first.version)).toMatchObject({
+      held: true,
+    });
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    expect(await present(versionOf(first))).toBe(false);
+  });
+
+  test("a part of the session's own generation stays even when nothing names it", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", []);
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(part))).toBe(true);
+  });
+
+  test("a kept revision keeps the version it names; another version of that part goes", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part]);
+    const other = await rewrite(part);
+    session.state.generation = 2;
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(part))).toBe(true);
+    expect(await present(other)).toBe(false);
+  });
+
+  test("a revision committed without held versions keeps every version of a part it names", async () => {
+    const part = await transcriptPart(0);
+    await commit(0, "attempt-a", [part], service({ unversioned: true }));
+    const other = await rewrite(part);
+    session.state.generation = 2;
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(part))).toBe(true);
+    expect(await present(other)).toBe(true);
+  });
+
+  test("a key outside the generation directories is left alone", async () => {
+    const stray = await upload(
+      `${prefix}transcripts/loose.jsonl`,
+      encode('{"type":"user"}\n'),
+    );
+    session.state.generation = 2;
+
+    await collector().collectSession(sessionId, { dryRun: false });
+
+    expect(await present(versionOf(stray))).toBe(true);
+  });
+});
+
+describe("finalize against transcript collection (94S-326)", () => {
+  test("refuses a part of another generation the checkpoint it builds on does not name", async () => {
+    const named = await transcriptPart(0);
+    const unnamed = await transcriptPart(1);
+    await commit(0, "attempt-a", [named]);
+    session.state.generation = 2;
+    const candidate = await publish(1, "attempt-b", [named, unnamed]);
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toEqual({
+      status: "rejected",
+      reason: expect.stringMatching(
+        /generation-0000000001\/part-1\.jsonl .*which generation 2 did not write and the checkpoint it builds on does not name/,
+      ),
+    });
+    // Refused before anything was held.
+    expect((await objects.head(unnamed.key, unnamed.version))?.held).not.toBe(
+      true,
+    );
+  });
+
+  test("refuses a later generation's part too", async () => {
+    await commit(0, "attempt-a", [await transcriptPart(0)]);
+    const later = await transcriptPart(0, 2);
+    const candidate = await publish(1, "attempt-a", [later]);
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-a"),
+      }),
+    ).toMatchObject({ status: "rejected" });
+  });
+
+  test("accepts a part only the pointer's parent names, for an attempt a fallback restored", async () => {
+    const shared = await transcriptPart(0);
+    const older = await transcriptPart(1);
+    await commit(0, "attempt-a", [shared, older]);
+    await commit(1, "attempt-a", [shared]);
+    // Revision 1 was damaged; attempt-b of generation 2 restored revision 0.
+    session.state.generation = 2;
+    session.state.fallback = { attemptId: "attempt-b", revision: 0 };
+    const own = await transcriptPart(0, 2);
+    const candidate = await publish(2, "attempt-b", [shared, older, own]);
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+  });
+
+  test("a resumed attempt's finalize reads the pointer and its manifest once", async () => {
+    const inherited = await transcriptPart(0);
+    const revision0 = await commit(0, "attempt-a", [inherited]);
+    session.state.generation = 2;
+    const candidate = await publish(1, "attempt-b", [
+      inherited,
+      await transcriptPart(0, 2),
+    ]);
+    session.state.pointerReads = 0;
+    objects.resetReads();
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(session.state.pointerReads).toBe(1);
+    expect(
+      objects
+        .reads()
+        .filter((read) => read === revision0.checkpoint.manifest_ref),
+    ).toHaveLength(1);
+  });
+
+  test("a pointer read that failed once is read again for the part check, not failed again", async () => {
+    const inherited = await transcriptPart(0);
+    await commit(0, "attempt-a", [inherited]);
+    session.state.generation = 2;
+    const candidate = await publish(1, "attempt-b", [inherited]);
+    session.state.pointerReads = 0;
+    session.state.failPointerReads = 1;
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(session.state.pointerReads).toBe(2);
+  });
+
+  test("a candidate the CAS will refuse anyway is not held to it", async () => {
+    await commit(0, "attempt-a", [await transcriptPart(0)]);
+    await commit(1, "attempt-a", []);
+    session.state.generation = 2;
+    // Built on revision 0, which is no longer the pointer.
+    const stale = await publish(1, "attempt-b", [await transcriptPart(5)]);
+
+    const verdict = await service().verifyAttemptManifest({
+      checkpoint: stale.checkpoint,
+      fence: fenceOf("attempt-b", 2),
+    });
+
+    expect(verdict.status).toBe("verified");
+    expect(
+      await session.store.commitAtomic({
+        checkpoint: stale.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+        now: new Date(),
+        sessionId,
+        turnId: null,
+        versionsHeld: true,
+      }),
+    ).toEqual({ outcome: "conflict", currentRevision: 1 });
+  });
+
+  test("a collection between a finalize's holds and its CAS leaves the parts it commits, inherited ones included", async () => {
+    const inherited = await transcriptPart(0);
+    const dropped = await transcriptPart(1);
+    await commit(0, "attempt-a", [inherited, dropped]);
+    session.state.generation = 2;
+    const own = await transcriptPart(0, 2);
+    const next = await publish(1, "attempt-b", [inherited, own]);
+    const checkpoints = service();
+
+    expect(
+      await checkpoints.verifyAttemptManifest({
+        checkpoint: next.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    expect(
+      await session.store.commitAtomic({
+        checkpoint: next.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+        now: new Date(),
+        sessionId,
+        turnId: null,
+        versionsHeld: true,
+      }),
+    ).toEqual({ outcome: "committed", revision: 1 });
+
+    const plan = await checkpoints.getRestorePlan({ runtime, sessionId });
+    if (plan.status !== "ready") throw new Error(JSON.stringify(plan));
+    for (const { key, version } of plan.plan.artifacts.flatMap(
+      (artifact) => artifact.objects,
+    )) {
+      expect(await objects.head(key, version)).toMatchObject({ held: true });
+    }
+    // Still named by the pointer the collection read, so still there.
+    expect(await present(versionOf(dropped))).toBe(true);
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+    expect(await present(versionOf(dropped))).toBe(false);
   });
 });
 
