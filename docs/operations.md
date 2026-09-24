@@ -104,6 +104,8 @@ checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 �
 - 흔한 원인은 저장소 URL·branch가 사라졌거나 저장소 자격 증명이 거부된 경우, 그리고 worker의 object store·proxy 설정 오류다. worker 로그의 `worker.stopping kind=failed`, `worker.failed`에서 확인한다.
 - 원인을 고친 뒤 `start_fresh`로 다시 띄운다. 이 세션에는 버릴 checkpoint가 없으므로 잃는 것이 없다. 세션을 끝내려면 `close`를 쓴다.
 - pause, terminate, close, 실행 권한 회수로 끝난 worker는 세지 않는다.
+- SIGTERM으로 drain된 worker도 세지 않는다. worker는 release에 `stop_kind: "drain"`을 싣는다. 이 필드를 모르는 옛 API(94S-302 이전)는 strict schema라 400 `BAD_REQUEST`로 거절한다. 그러면 worker는 `worker.release.stop_kind_refused`를 로그에 남기고 필드 없이 한 번 더 release한다(94S-361). 세션은 lease 만료를 기다리지 않고 바로 돌아온다. 다만 옛 API는 그 종료를 예전 규칙대로 센다. 복원이 걸린 claim이면 실패 1회다.
+- **배포 순서:** 제어 호스트 이미지(`API_IMAGE`, api·scheduler 공용)를 먼저 올리고 `WORKER_IMAGE`는 그다음에 바꾼다. worker protocol의 요청 schema는 strict라서 새 worker가 보낸 새 필드를 옛 API가 400으로 거절한다. release 말고는 이런 대체 경로가 없다.
 
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다 (94S-252)
 

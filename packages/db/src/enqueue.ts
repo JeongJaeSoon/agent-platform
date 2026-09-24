@@ -2,9 +2,10 @@ import {
   postSessionAnswerRequestSchema,
   sessionMessageSchema,
 } from "@agent-platform/contracts";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  attempts,
   executions,
   queueMessages,
   sessions,
@@ -31,9 +32,14 @@ function validatePayload(payload: unknown) {
 
 /**
  * The partition of the session's latest launch, or undefined for a session
- * that never ran. Reached through executions, whose (session_id,
- * generation) index serves it: launch history itself is only indexed for
- * open slots, and this runs on every enqueue.
+ * that never ran. Launch history is where a session's partition lives: it
+ * outlives the binding, and nothing prunes it (94S-212).
+ *
+ * "Latest" is the last one claimed, by the lease epoch every claim bumps.
+ * Generation cannot order them: a pool launch registered through the gateway
+ * carries whatever generation its backend chose. A reservation that was
+ * never claimed took its partition from the signal, which came from this
+ * same history, so it ranks after every claimed one.
  */
 export async function lastLaunchPartition(
   tx: Database,
@@ -43,8 +49,12 @@ export async function lastLaunchPartition(
     .select({ partition: workerLaunches.partition })
     .from(executions)
     .innerJoin(workerLaunches, eq(workerLaunches.executionId, executions.id))
+    .leftJoin(attempts, eq(attempts.id, workerLaunches.claimedAttemptId))
     .where(eq(executions.sessionId, sessionId))
-    .orderBy(desc(executions.generation))
+    .orderBy(
+      sql`${attempts.leaseEpoch} DESC NULLS LAST`,
+      desc(executions.generation),
+    )
     .limit(1);
   return launch;
 }
