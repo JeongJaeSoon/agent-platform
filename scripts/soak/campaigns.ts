@@ -319,7 +319,9 @@ async function reconcileOnce(ctx: Ctx): Promise<string> {
     ctx.env.apiImage,
     "bun",
     "run",
-    "apps/reconciler/src/main.ts",
+    "apps/control-host/src/main.ts",
+    "reconciler",
+    "--once",
   ]);
   const output = `${result.stdout}${result.stderr}`;
   ctx.out
@@ -1678,7 +1680,7 @@ async function grants(
       container(ctx.env, "api"),
       "bun",
       "run",
-      "apps/api/src/grants.ts",
+      "apps/control-host/src/api/grants.ts",
       command,
       sessionId,
       "--reason",

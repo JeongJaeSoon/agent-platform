@@ -36,8 +36,8 @@ state="${SOAK_STATE:-${TMPDIR:-/tmp}/soak135-state}"
 mkdir -p "$state"
 
 export EXECUTION_INSTALLATION_ID=soak135
-export API_IMAGE="agent-platform-api:${project}"
-export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
+# One control-host image runs the api, scheduler and reconciler roles.
+export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml -f scripts/soak/compose.yml)
@@ -56,14 +56,14 @@ down() {
   if [ "${SOAK_RMI:-0}" = 1 ]; then
     # migrate's image, built under the project's default name.
     dc down --rmi local >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
 }
 
 up() {
   if [ "${SOAK_SKIP_BUILD:-0}" != 1 ]; then
     echo "== build (${project})" >&2
-    dc build api scheduler worker egress-proxy >"$state/build.log" 2>&1
+    dc build api worker egress-proxy >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
   dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$state/up.log" 2>&1
@@ -85,7 +85,7 @@ up() {
     -d '{"name":"gate-app","auto_init":true,"default_branch":"main","private":false}' \
     >>"$state/fixture.log"
   local key
-  key="$(dc exec -T api bun run apps/api/src/keys.ts create soak-owner \
+  key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create soak-owner \
     --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
   # The reconciler runs as the product runs it, on its own loop (94S-320).
@@ -109,7 +109,6 @@ up() {
     echo "export SOAK_NETWORK='${project}_default'"
     echo "export SOAK_COMPOSE_FILES='${compose_files[*]}'"
     echo "export API_IMAGE='${API_IMAGE}'"
-    echo "export SCHEDULER_IMAGE='${SCHEDULER_IMAGE}'"
     echo "export WORKER_IMAGE='${WORKER_IMAGE}'"
     echo "export EGRESS_PROXY_IMAGE='${EGRESS_PROXY_IMAGE}'"
     [ -z "${DOCKER_HOST:-}" ] || echo "export DOCKER_HOST='${DOCKER_HOST}'"

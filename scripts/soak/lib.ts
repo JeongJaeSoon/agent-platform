@@ -29,7 +29,6 @@ export type SoakEnv = {
   network: string;
   project: string;
   s3Url: string;
-  schedulerImage: string;
   workerImage: string;
 };
 
@@ -55,7 +54,6 @@ export function soakEnv(vars = process.env): SoakEnv {
     network: need("SOAK_NETWORK"),
     project: need("SOAK_PROJECT"),
     s3Url: need("SOAK_S3_URL"),
-    schedulerImage: need("SCHEDULER_IMAGE"),
     workerImage: need("WORKER_IMAGE"),
   };
 }
@@ -244,8 +242,7 @@ export async function reproMeta(
     compose_project: env.project,
     installation: env.installation,
     compose_files: env.composeFiles.filter((file) => file !== "-f"),
-    api_image: `${env.apiImage} ${await imageId(env.apiImage)}`,
-    scheduler_image: `${env.schedulerImage} ${await imageId(env.schedulerImage)}`,
+    control_host_image: `${env.apiImage} ${await imageId(env.apiImage)}`,
     worker_image: `${env.workerImage} ${await imageId(env.workerImage)}`,
     egress_proxy_image: await serviceImage("egress-proxy"),
     postgres_image: await serviceImage("postgres"),
