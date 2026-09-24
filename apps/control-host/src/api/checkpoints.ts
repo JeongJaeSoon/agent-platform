@@ -14,6 +14,7 @@ import {
   claudeCheckpointCodec,
 } from "@agent-platform/runtime-claude-codec";
 import {
+  bucketHoldsObjectVersion,
   createCheckpointObjectStore,
   createGitWorkspaceBundleVerifier,
   createObjectRouteSigner,
@@ -336,6 +337,39 @@ export async function assertCheckpointBucketEncryption(
       );
     }
     options.warn(message, { bucket: config.bucket });
+  };
+  if (options.client !== undefined) return check(options.client);
+  const client = checkpointS3Client(config);
+  try {
+    await check(client);
+  } finally {
+    client.destroy();
+  }
+}
+
+/**
+ * Refuses to start when the database still has checkpoints a restore or a
+ * backup reads but the bucket holds no object version at all. That is the
+ * local LocalStack losing its S3 state (it keeps it in memory, so a raw
+ * `docker compose down` or a Docker restart empties it) while postgres kept
+ * its volume; every such session would fail its restore instead. This only
+ * catches the empty bucket fast. It does not replace the backup's
+ * per-version check.
+ */
+export async function assertCheckpointObjectsPresent(
+  config: CheckpointStorageConfig,
+  options: {
+    readonly hasUncollectedCheckpoint: () => Promise<boolean>;
+    /** Tests substitute a fake; the product path never passes this. */
+    readonly client?: S3ClientLike;
+  },
+): Promise<void> {
+  if (!(await options.hasUncollectedCheckpoint())) return;
+  const check = async (client: S3ClientLike) => {
+    if (await bucketHoldsObjectVersion(client, config.bucket)) return;
+    throw new Error(
+      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Start the local installation over with \`scripts/local.sh reset\` (it deletes every session)`,
+    );
   };
   if (options.client !== undefined) return check(options.client);
   const client = checkpointS3Client(config);

@@ -9,6 +9,7 @@ import {
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
+  hasUncollectedCheckpoint,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
@@ -39,6 +40,7 @@ import {
 import {
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
+  assertCheckpointObjectsPresent,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
@@ -135,6 +137,11 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
+if (checkpointStorage !== "disabled") {
+  await assertCheckpointObjectsPresent(checkpointStorage, {
+    hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+  });
+}
 const checkpoints = createApiCheckpoints(
   db,
   checkpointStorage,

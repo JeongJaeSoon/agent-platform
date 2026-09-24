@@ -240,7 +240,7 @@ wait_for "/v1/sessions/$SID/turns/6" .status completed
 docker compose --profile apps down
 ```
 
-세션·checkpoint·Gitea 데이터는 volume에 남는다. 전부 지우려면 `down -v`를 쓴다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 label로 지운다.
+세션·Gitea 데이터는 volume에 남지만 **LocalStack S3는 휘발성이라 `down`이나 Docker 재시작 뒤 checkpoint 객체가 사라진다.** 그 상태로 다시 띄우면 API가 기동을 거부하므로 `scripts/local.sh reset`(데이터를 모두 지우고 다시 띄운다)으로 새로 시작한다. 전부 지우려면 `scripts/local.sh down`이나 아래 명령을 쓴다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 label로 지운다.
 
 ```sh
 docker compose --profile apps down -v

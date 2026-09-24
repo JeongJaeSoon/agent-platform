@@ -28,6 +28,19 @@ import {
 } from "./worker-unit-of-work.ts";
 
 /**
+ * Whether any checkpoint garbage collection has not yet collected exists:
+ * one whose objects a restore or a backup still expects in the bucket.
+ */
+export async function hasUncollectedCheckpoint(db: Database): Promise<boolean> {
+  const [row] = await db
+    .select({ sessionId: checkpoints.sessionId })
+    .from(checkpoints)
+    .where(isNull(checkpoints.collectedAt))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
  * The checkpoint pointer on PostgreSQL. Reads and turn-less commits share the
  * helpers a turn's finalize uses (worker-unit-of-work.ts), so both entry
  * points judge the fence, the clock and the next revision the same way.

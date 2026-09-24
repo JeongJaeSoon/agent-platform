@@ -36,6 +36,7 @@ backup-20260923T101500Z/
 
 주의:
 
+- 로컬 compose 설치의 LocalStack S3는 휘발성이다. `docker compose down`이나 Docker 재시작 뒤에는 checkpoint 객체가 사라지고 DB 행만 남아 백업이 실패한다(API도 기동을 거부한다). 백업은 스택을 내리기 전에 받는다. 이미 잃었으면 `scripts/local.sh reset`으로 새로 시작한다. `scripts/local.sh down`은 데이터까지 지운다.
 - `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있으니 api·scheduler·worker를 멈추고 받는다. 스크립트는 실행 중이면 경고만 한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`, 94S-281)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - bucket sync는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.

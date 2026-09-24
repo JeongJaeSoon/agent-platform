@@ -1,5 +1,11 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import * as schema from "@agent-platform/db";
+import {
+  checkpoints,
+  hasUncollectedCheckpoint,
+  sessions,
+} from "@agent-platform/db";
 import {
   type CheckpointStore,
   manifestRefFor,
@@ -15,9 +21,14 @@ import {
   createGitBundle,
   type GitBundleFixture,
 } from "@agent-platform/testkit/git-bundle";
+import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   type ApiCheckpointServiceDependencies,
   assertCheckpointBucketEncryption,
+  assertCheckpointObjectsPresent,
   type CheckpointStorageConfig,
   checkpointGitMemoryBytesFromEnv,
   checkpointStorageConfigFromEnv,
@@ -430,5 +441,80 @@ describe("checkpoint bucket encryption at startup (94S-337)", () => {
     ]);
     expect(await run("aws:kms", warned)).toHaveLength(1);
     expect(await run("AES256", warned)).toEqual([]);
+  });
+});
+
+describe("checkpoint objects present at startup (94S-422)", () => {
+  const config: CheckpointStorageConfig = {
+    accessKeyId: "id",
+    bucket: "claude-sessions",
+    protection: "locked",
+    region: "ap-northeast-1",
+    secretAccessKey: "s",
+  };
+  const client = new PGlite();
+  const db = drizzle(client, { schema });
+  const sessionId = crypto.randomUUID();
+  let listed = 0;
+  const bucketListing = (page: Record<string, unknown>) => ({
+    async send() {
+      listed += 1;
+      return page;
+    },
+  });
+  const run = (page: Record<string, unknown>) =>
+    assertCheckpointObjectsPresent(config, {
+      client: bucketListing(page),
+      hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+    });
+
+  beforeAll(async () => {
+    await migrate(db, {
+      migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
+    });
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: "owner",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${sessionId}`,
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  test("starts without reading the bucket when no checkpoint is left", async () => {
+    await run({});
+    expect(listed).toBe(0);
+  });
+
+  test("refuses an empty bucket, or one of delete markers only, while a checkpoint is left", async () => {
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 1,
+      manifestRef: "s3://claude-sessions/manifest.json",
+      manifestSha256: "sha256",
+    });
+    const refusal =
+      /^Checkpoint bucket claude-sessions holds no object version, but the database still has checkpoints that restores read: .*`scripts\/local\.sh reset`/;
+    await expect(run({})).rejects.toThrow(refusal);
+    await expect(
+      run({ DeleteMarkers: [{ Key: "manifest.json", VersionId: "dm" }] }),
+    ).rejects.toThrow(refusal);
+  });
+
+  test("starts when the bucket still holds a version", async () => {
+    await run({ Versions: [{ Key: "manifest.json", VersionId: "v1" }] });
+  });
+
+  test("a collected checkpoint expects nothing in the bucket", async () => {
+    await db
+      .update(checkpoints)
+      .set({ collectedAt: new Date() })
+      .where(eq(checkpoints.sessionId, sessionId));
+    listed = 0;
+    await run({});
+    expect(listed).toBe(0);
   });
 });
