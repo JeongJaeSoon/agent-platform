@@ -236,6 +236,26 @@ services:
       timeout: 3s
       retries: 12
       start_period: 5s
+    # On every worker network, so held to what a worker is held to (94S-388).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+    # Every worker's only way out: one that dies comes back as the same
+    # container, still on the worker networks it was on.
+    restart: unless-stopped
+    # Memory budget, as an upper bound rather than a measurement:
+    #   512 MiB of credential route request bodies
+    #     (DEFAULT_MAX_BODY_BYTES_IN_FLIGHT, apps/egress-proxy/src/credential.ts)
+    #   + 64 MiB of their response queues (256 exchanges x 256 KiB)
+    #   + 2048 MiB of forward proxy queues (256 connections x 2 x 4 MiB,
+    #     apps/egress-proxy/src/proxy.ts; a queue passes its cap by at most
+    #     the one read that crossed it)
+    #   + 256 MiB for Bun itself = 2880 MiB, under 3072 MiB
+    # Change it with those caps: a limit under their sum hands the choice of
+    # which exchange fails to the OOM killer.
+    mem_limit: 3072m
 
   # `apps` profile: the sessions API and the scheduler, built from
   # apps/*/Dockerfile. `docker compose --profile apps up -d --build`.

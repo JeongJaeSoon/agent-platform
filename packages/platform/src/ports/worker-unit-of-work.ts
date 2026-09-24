@@ -127,6 +127,8 @@ export type EgressAuthorization =
       binding: string;
       profileId: string | null;
       repository: { id: string | null; url: string; branch: string };
+      // What the session has spent as of this answer.
+      costUsd: number;
     }
   // Unknown, revoked, expired, or presented for another purpose.
   | { outcome: "invalid_token" }
