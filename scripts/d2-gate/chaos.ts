@@ -47,6 +47,8 @@ type Entry = {
   bodyBytes: number;
   /** A `corrupt` rule changed a byte of this (2xx, non-empty) answer. */
   corrupted: boolean;
+  /** The start of a gateway's 4xx/5xx answer, so a refusal says why. */
+  errorBody?: string;
   /** When the request went on upstream; null while held or never. */
   forwardedAt: string | null;
   index: number;
@@ -195,6 +197,11 @@ async function proxy(upstream: Upstream, request: Request): Promise<Response> {
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("transfer-encoding");
+  if (upstream === "gateway" && response.status >= 400) {
+    const text = await response.text();
+    entry.errorBody = text.slice(0, 1000);
+    return new Response(text, { headers: out, status: response.status });
+  }
   if (rule?.action === "corrupt") {
     const bytes = new Uint8Array(await response.arrayBuffer());
     const at = bytes.byteLength >> 1;

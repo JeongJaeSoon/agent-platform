@@ -740,6 +740,8 @@ export type ChaosEntry = {
   batch: { events: Record<string, string>; key: string } | null;
   /** A `corrupt` rule changed a byte of this answer. */
   corrupted?: boolean;
+  /** The start of a gateway's 4xx/5xx answer. */
+  errorBody?: string;
   /** When the injector sent it on upstream; null while held or never. */
   forwardedAt?: string | null;
   /** Arrival order at the fault injector. */
