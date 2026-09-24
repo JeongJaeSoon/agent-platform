@@ -29,6 +29,7 @@ export {
   BodyLimitError,
   type BodyReadBounds,
   BodyStallError,
+  BodyTruncatedError,
   DEFAULT_BODY_READ_BOUNDS,
   FreshAddressHttpHandler,
   MAX_BUDGETED_READ_BYTES,

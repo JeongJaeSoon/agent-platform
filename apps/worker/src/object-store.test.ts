@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { ObjectIntegrityError } from "@agent-platform/runtime-core";
-import { BodyLimitError, BodyStallError } from "@agent-platform/storage";
+import {
+  BodyLimitError,
+  BodyStallError,
+  BodyTruncatedError,
+} from "@agent-platform/storage";
 
 import {
   createWorkerObjectStore,
@@ -179,6 +183,7 @@ describe("isObjectStoreOutage (94S-390)", () => {
       new Error("S3 object body stalled 3 times: k", {
         cause: new BodyStallError("stalled"),
       }),
+      new BodyTruncatedError("S3 object k ended after 3 of its 9 bytes"),
     ]) {
       expect({
         error: error.message,

@@ -1,6 +1,7 @@
 import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
 import {
   BodyStallError,
+  BodyTruncatedError,
   createCheckpointObjectStore,
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
@@ -129,7 +130,7 @@ const TRANSPORT_FAILURES = new Set([
 /**
  * The store failing to answer rather than answering no: a connection that
  * failed or was cut, a request or name lookup past its bound, a body that
- * kept stalling, or a 5xx, 408 or 429. Worth asking again later; a 401, 403
+ * kept stalling or ended short, or a 5xx, 408 or 429. Worth asking again later; a 401, 403
  * or other 4xx, an integrity failure, or a malformed answer is not (94S-390).
  */
 export function isObjectStoreOutage(error: unknown): boolean {
@@ -149,6 +150,7 @@ export function isObjectStoreOutage(error: unknown): boolean {
     }
     if (
       current instanceof BodyStallError ||
+      current instanceof BodyTruncatedError ||
       name === "TimeoutError" ||
       (typeof code === "string" && TRANSPORT_FAILURES.has(code))
     ) {

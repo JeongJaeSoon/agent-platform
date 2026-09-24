@@ -1903,6 +1903,55 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
     ]);
   });
 
+  test("a restore the store failed is redone only once the round's other downloads are over (94S-390)", async () => {
+    const { first, second } = await twoTurns();
+    await replaceWorkspaceWithLeftovers();
+    const stream = second.objects.stream.bind(second.objects);
+    const tip = second.manifest.workspace.bundle.key;
+    const base = first.manifest.workspace.bundle.key;
+    let round = 0;
+    let pulledAfterRedo = 0;
+    second.objects.stream = async (key, version) => {
+      if (round > 0 || (key !== tip && key !== base)) {
+        return stream(key, version);
+      }
+      if (key === tip) throw answered(503);
+      // A slow body that would keep writing into the spool if nothing
+      // stopped reading it.
+      return {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            new Promise<IteratorResult<Uint8Array>>((resolve) =>
+              setTimeout(() => {
+                if (round > 0) pulledAfterRedo += 1;
+                resolve({ done: false, value: new Uint8Array(1) });
+              }, 20),
+            ),
+          return: async () => ({ done: true, value: undefined }),
+        }),
+      };
+    };
+    const h = restoring(second, {
+      sleep: async () => {
+        round += 1;
+      },
+    });
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+    await Bun.sleep(200);
+
+    expect(plan.mode).toBe("resume");
+    expect(round).toBe(1);
+    // At most the read already in flight when the round stopped.
+    expect(pulledAfterRedo).toBeLessThanOrEqual(1);
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "second turn\n",
+    );
+  });
+
   test("stands alone once a bundle it would build on is gone from the store", async () => {
     const { second } = await twoTurns(async (h, first) => {
       h.objects.remove(first.workspace.bundle.key);

@@ -403,9 +403,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     ];
     let restored = false;
     try {
-      await inBatches(artifacts, DOWNLOAD_CONCURRENCY, ({ name, ref }) =>
-        download(objects, ref, join(spool, name), signal),
-      );
+      await downloadAll(objects, artifacts, spool, signal);
       signal.throwIfAborted();
       const staged = await stageCheckpointBundle({
         bases: bases.map((_, index) =>
@@ -1162,6 +1160,46 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
     const timer = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });
   });
+}
+
+/**
+ * Every artifact into `spool`, `DOWNLOAD_CONCURRENCY` at a time. The first
+ * failure stops the rest and they are waited out before it is thrown, so a
+ * restore redone after it never shares the volume with this one's streams.
+ */
+async function downloadAll(
+  objects: CheckpointObjectStore,
+  artifacts: readonly { name: string; ref: ObjectRef }[],
+  spool: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const round = new AbortController();
+  const stop = () => round.abort(signal.reason);
+  signal.addEventListener("abort", stop, { once: true });
+  let failure: { error: unknown } | undefined;
+  try {
+    for (
+      let start = 0;
+      start < artifacts.length;
+      start += DOWNLOAD_CONCURRENCY
+    ) {
+      await Promise.allSettled(
+        artifacts
+          .slice(start, start + DOWNLOAD_CONCURRENCY)
+          .map(({ name, ref }) =>
+            download(objects, ref, join(spool, name), round.signal).catch(
+              (error: unknown) => {
+                failure ??= { error };
+                round.abort(error);
+              },
+            ),
+          ),
+      );
+      if (failure !== undefined) throw failure.error;
+    }
+  } finally {
+    signal.removeEventListener("abort", stop);
+  }
 }
 
 /** One download per stored object, however many paths share its bytes. */
