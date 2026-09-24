@@ -9,7 +9,9 @@
 #              points at the local `secrets` LocalStack under compose)
 # Each profile's fingerprint (sha256 over these settings and the reference,
 # never the value) rides every worker claim; rotating the value behind the
-# same reference keeps it.
+# same reference keeps it. A session is held to the fingerprint it was
+# created with (94S-253): change a setting under a new id, since editing one
+# in place stops every session made with it (CATALOG_MISMATCH).
 #
 # The example below is the local mode: the compose `fake-messages` service
 # answers the Messages API, and the key is a placeholder seeded into the
