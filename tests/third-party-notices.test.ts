@@ -2,18 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  BUN_BUILDS,
+  baseImageOf,
+  CLAUDE_CODE_BUN,
+  embeddedBunVersions,
   imageClosure,
   isPermissive,
   type Lockfile,
   licenseOf,
+  mentionsGpl,
+  parseDpkgStatus,
   parseLockfile,
   parseRows,
   problemsOf,
   type Row,
   render,
+  renderDebianSources,
+  snapshotUrl,
 } from "../scripts/third-party-notices.ts";
 
 const root = join(import.meta.dir, "..");
+const base = { bun: "1.3.10", digest: `sha256:${"0".repeat(64)}` };
 
 // Shaped like bun.lock: workspaces by path, packages by hoisting key.
 const lock: Lockfile = {
@@ -177,33 +186,89 @@ describe("license policy", () => {
     expect(licenseOf({})).toBe("UNKNOWN");
   });
 
-  const row = (name: string, license: string): Row => ({
+  const row = (name: string, license: string, version = "1.0.0"): Row => ({
     name,
-    version: "1.0.0",
+    version,
     license,
     images: ["worker"],
     notices: [],
   });
 
   test("a copyleft or unknown license fails until it is reviewed", () => {
-    expect(problemsOf([row("hono", "MIT")])).toEqual([]);
-    expect(problemsOf([row("gpl-thing", "GPL-3.0")])).toEqual([
+    expect(problemsOf([row("hono", "MIT")], base)).toEqual([]);
+    expect(problemsOf([row("gpl-thing", "GPL-3.0")], base)).toEqual([
       "gpl-thing@1.0.0 is GPL-3.0: not in PERMISSIVE and not REVIEWED in scripts/third-party-notices.ts",
     ]);
     // Reviewed by name, and a platform family by prefix.
     expect(
-      problemsOf([
-        row("@anthropic-ai/claude-agent-sdk", "SEE LICENSE IN README.md"),
-        row(
-          "@anthropic-ai/claude-agent-sdk-linux-x64",
-          "SEE LICENSE IN LICENSE.md",
-        ),
-      ]),
+      problemsOf(
+        [
+          row(
+            "@anthropic-ai/claude-agent-sdk",
+            "SEE LICENSE IN README.md",
+            "0.3.270",
+          ),
+          row(
+            "@anthropic-ai/claude-agent-sdk-linux-x64",
+            "SEE LICENSE IN LICENSE.md",
+          ),
+        ],
+        base,
+      ),
     ).toEqual([]);
     // A review covers the license it read; new terms need a new one.
     expect(
-      problemsOf([row("@anthropic-ai/claude-agent-sdk", "GPL-3.0")]),
+      problemsOf(
+        [row("@anthropic-ai/claude-agent-sdk", "GPL-3.0", "0.3.270")],
+        base,
+      ),
     ).toHaveLength(1);
+  });
+
+  // 94S-375: what the notices say about Bun and the bundled Claude Code is
+  // tied to a version, so a bump waits for someone to read the new one.
+  test("a Bun or Agent SDK version without its pinned build fails", () => {
+    expect(problemsOf([], { ...base, bun: "9.9.9" })).toEqual([
+      "Bun 9.9.9 (the Dockerfiles' BUN_IMAGE) has no BUN_BUILDS entry in scripts/third-party-notices.ts",
+    ]);
+    expect(
+      problemsOf(
+        [
+          row(
+            "@anthropic-ai/claude-agent-sdk",
+            "SEE LICENSE IN README.md",
+            "9.9.9",
+          ),
+        ],
+        base,
+      ),
+    ).toEqual([
+      "@anthropic-ai/claude-agent-sdk@9.9.9 has no CLAUDE_CODE_BUN entry in scripts/third-party-notices.ts",
+    ]);
+  });
+
+  test("the notices name the Bun build and the source of its LGPL parts", () => {
+    const text = render(
+      [
+        row(
+          "@anthropic-ai/claude-agent-sdk",
+          "SEE LICENSE IN README.md",
+          "0.3.270",
+        ),
+      ],
+      base,
+    );
+    const build = BUN_BUILDS["1.3.10"];
+    expect(text).toContain(`oven/bun:1.3.10@${base.digest}`);
+    expect(text).toContain(`commit \`${build?.revision}\``);
+    expect(text).toContain(`oven-sh/WebKit/tree/${build?.webkit}`);
+    expect(text).toContain(`oven-sh/tinycc/tree/${build?.tinycc}`);
+    expect(text).toContain("oven-sh/bun/tree/bun-v1.3.10");
+    expect(text).toContain(
+      `Bun ${CLAUDE_CODE_BUN["0.3.270"]} 런타임을 내장한다`,
+    );
+    // Only an image list with the SDK gets the Claude Code section.
+    expect(render([row("hono", "MIT")], base)).not.toContain("Claude Code");
   });
 
   test("the file round-trips: every row render writes, parseRows reads back", () => {
@@ -214,7 +279,7 @@ describe("license policy", () => {
         notices: ["Copyright b\nNOTICE body"],
       },
     ];
-    const text = render(rows);
+    const text = render(rows, base);
     expect(text).toContain(
       "### b@1.0.0\n\n```text\nCopyright b\nNOTICE body\n```",
     );
@@ -222,5 +287,130 @@ describe("license policy", () => {
     expect([...parsed.keys()]).toEqual(["a@1.0.0", "b@1.0.0"]);
     expect(parsed.get("a@1.0.0")?.images).toEqual(["control-host", "worker"]);
     expect(parsed.get("b@1.0.0")?.license).toBe("Apache-2.0");
+  });
+});
+
+describe("base image pins", () => {
+  test("the Dockerfiles' BUN_IMAGE", () => {
+    const pinned = baseImageOf(
+      readFileSync(join(root, "apps/worker/Dockerfile"), "utf8"),
+    );
+    expect(pinned.bun).toBe("1.3.10");
+    expect(pinned.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(() => baseImageOf("FROM oven/bun:1.3.10")).toThrow();
+  });
+
+  test("the Bun running this test is a pinned build", () => {
+    // CI and the images run the same Bun; its revision is the one named.
+    expect(BUN_BUILDS[Bun.version]?.revision).toBe(Bun.revision);
+  });
+});
+
+describe("Debian corresponding source (94S-375)", () => {
+  const status = [
+    "Package: libc6",
+    "Status: install ok installed",
+    "Architecture: amd64",
+    "Source: glibc",
+    "Version: 2.41-12",
+    "Description: GNU C Library",
+    " Continuation: not a field",
+    "",
+    "Package: libgcc-s1",
+    "Status: install ok installed",
+    "Source: gcc-14 (14.2.0-19)",
+    "Version: 14.2.0-19+b1",
+    "",
+    "Package: libc-bin",
+    "Status: install ok installed",
+    "Source: glibc",
+    "Version: 2.41-12",
+    "",
+    "Package: tini",
+    "Status: install ok installed",
+    "Version: 0.19.0-1+b3",
+    "",
+    "Package: removed",
+    "Status: deinstall ok config-files",
+    "Version: 1.0",
+    "",
+    "Package: broken",
+    "Status: install reinstreq half-installed",
+    "Version: 1.0",
+    "",
+  ].join("\n");
+
+  test("installed packages with the source they were built from", () => {
+    expect(parseDpkgStatus(status)).toEqual([
+      {
+        name: "libc6",
+        version: "2.41-12",
+        source: "glibc",
+        sourceVersion: "2.41-12",
+      },
+      // A binNMU: the source version is the one in parentheses.
+      {
+        name: "libgcc-s1",
+        version: "14.2.0-19+b1",
+        source: "gcc-14",
+        sourceVersion: "14.2.0-19",
+      },
+      {
+        name: "libc-bin",
+        version: "2.41-12",
+        source: "glibc",
+        sourceVersion: "2.41-12",
+      },
+      // No Source field: the package is its own source, version included.
+      {
+        name: "tini",
+        version: "0.19.0-1+b3",
+        source: "tini",
+        sourceVersion: "0.19.0-1+b3",
+      },
+    ]);
+  });
+
+  test("one row per source package, with its snapshot.debian.org address", () => {
+    const text = renderDebianSources(
+      parseDpkgStatus(status),
+      (pkg) => pkg.source === "glibc",
+    );
+    expect(text).toContain("source package 3개, 바이너리 패키지 4개.");
+    const rows = text
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.startsWith("| source"));
+    expect(rows).toEqual([
+      "| gcc-14 | 14.2.0-19 | libgcc-s1 |  | https://snapshot.debian.org/package/gcc-14/14.2.0-19/ |",
+      "| glibc | 2.41-12 | libc-bin, libc6 | 예 | https://snapshot.debian.org/package/glibc/2.41-12/ |",
+      "| tini | 0.19.0-1+b3 | tini |  | https://snapshot.debian.org/package/tini/0.19.0-1%2Bb3/ |",
+    ]);
+  });
+
+  test("epochs and plus signs are escaped the way snapshot.debian.org takes them", () => {
+    expect(snapshotUrl("openssl", "3.5.1-1+deb13u1")).toBe(
+      "https://snapshot.debian.org/package/openssl/3.5.1-1%2Bdeb13u1/",
+    );
+    expect(snapshotUrl("pam", "1:1.7.0-5")).toBe(
+      "https://snapshot.debian.org/package/pam/1%3A1.7.0-5/",
+    );
+  });
+
+  test("GPL-family mentions in a copyright file", () => {
+    expect(mentionsGpl("License: GPL-2+")).toBe(true);
+    expect(mentionsGpl("License: LGPL-2.1+")).toBe(true);
+    expect(mentionsGpl("GNU Lesser General Public License")).toBe(true);
+    expect(mentionsGpl("License: MIT")).toBe(false);
+  });
+});
+
+describe("the Bun inside the Claude Code executable", () => {
+  test("reads every Bun v<x.y.z> the binary names", () => {
+    const binary = Buffer.from(
+      "\0\0Bun v1.4.3 (linux x64)\0Bun v1.4.30\0Bun v1.4.3\0Bun vnext\0",
+      "latin1",
+    );
+    expect(embeddedBunVersions(binary)).toEqual(["1.4.3", "1.4.30"]);
+    expect(embeddedBunVersions(Buffer.from("no runtime here"))).toEqual([]);
   });
 });

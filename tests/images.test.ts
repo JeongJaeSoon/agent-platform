@@ -75,6 +75,7 @@ describe("app Dockerfiles", () => {
     const source = basePins["egress-proxy"].source;
     expect(source.match(/^RUN .*$/gm)).toEqual([
       "RUN apt-get update --error-on=any \\",
+      "RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \\",
     ]);
     expect(source.match(/^COPY .*$/gm)).toEqual([
       "COPY apps/egress-proxy/package.json ./",
@@ -101,6 +102,23 @@ describe("app Dockerfiles", () => {
       /^ARG APT_UPGRADE_KEY=\nRUN apt-get update --error-on=any \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \\$/m,
     );
   });
+
+  // 94S-375: the source list is written from the shipped stage's own dpkg
+  // database, after the last step that installs; images.yml's --verify
+  // catches a later one that changes the packages.
+  test.each(apps)(
+    "%s writes DEBIAN_SOURCES.md after its last apt-get, before dropping root",
+    (app) => {
+      const source = basePins[app].source;
+      const shipped = source.slice(source.lastIndexOf("\nFROM "));
+      const write = shipped.indexOf(
+        "bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md",
+      );
+      expect(write).toBeGreaterThan(shipped.lastIndexOf("apt-get"));
+      expect(write).toBeLessThan(shipped.indexOf("\nUSER "));
+      expect(shipped.slice(write)).not.toMatch(/^(RUN|COPY|ADD) /m);
+    },
+  );
 
   // The scheduler runs the worker image as the workspace inode helper
   // (94S-224); image-smoke.sh runs the tools themselves.

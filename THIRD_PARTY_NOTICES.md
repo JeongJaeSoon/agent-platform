@@ -6,21 +6,38 @@
 
 ## 베이스 이미지와 OS 패키지
 
-세 이미지 모두 `oven/bun:1.3.10`(digest 고정, Dockerfile의 `BUN_IMAGE`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 `apt-get upgrade`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
+세 이미지 모두 `oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e`(Dockerfile의 `BUN_IMAGE`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 `apt-get upgrade`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
 
-- **Bun 1.3.10** (`/usr/local/bin/bun`): MIT. Bun은 JavaScriptCore·WebKit(LGPL-2.1)을 정적으로 링크한다. 그 밖에 함께 링크된 라이브러리와 각 라이선스, LGPL에 따른 재링크 방법은 https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md 에 있다. Bun이 쓰는 WebKit 수정본의 소스는 https://github.com/oven-sh/webkit 이다.
-- **Debian 패키지**: 각 패키지의 저작권·라이선스 전문은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 이 파일이 있는지 확인한다. 소스는 https://sources.debian.org/ 와 https://snapshot.debian.org/ 에서 받을 수 있다.
-- **Dockerfile이 추가로 설치하는 Debian 패키지**: control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
+### Bun 1.3.10 (`/usr/local/bin/bun`)
+
+- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.
+- **빌드.** oven-sh/bun commit `30e609e08073cf7114bfb278506962a5b19d0677`(`bun --revision`)이다. images.yml이 빌드한 이미지마다 이 값을 확인한다.
+- **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.
+  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/4a6a32c32c11ffb9f5a94c310b10f50130bfe6de
+  - TinyCC: https://github.com/oven-sh/tinycc/tree/12882eee073cfe5c7621bcfadf679e1372d4537b
+- **대응 소스와 재링크.** 이 실행 파일 전체의 소스는 https://github.com/oven-sh/bun/tree/bun-v1.3.10 이다. 위 라이브러리를 고쳐 Bun을 다시 링크하는 절차는 https://github.com/oven-sh/bun/blob/bun-v1.3.10/CONTRIBUTING.md 의 "Building WebKit locally"다. WebKit을 위 commit으로 받아 `bun run build:local`로 빌드한다. LICENSE.md에 적힌 `make jsc`·`zig build`는 옛 절차다.
+
+### Debian 패키지와 대응 소스
+
+- **라이선스 전문.** 각 패키지의 저작권·라이선스 전문은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL 전문은 `/usr/share/common-licenses/`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.
+- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지 확인한다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.
+- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
+
+### Claude Code 실행 파일 (worker)
+
+- **권리와 조건.** `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 플랫폼 빌드가 싣는 `claude` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.
+- **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.
+- **내장 런타임.** 이 실행 파일은 Bun 1.4.3 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지마다 이 버전을 확인한다.
 
 ## 배포 조건이 붙은 구성요소
 
 허용 목록(MIT·Apache-2.0·BSD 계열·ISC 등) 밖의 라이선스다. 각각 스크립트의 `REVIEWED`에 검토 사유가 있다.
 
-- `@anthropic-ai/claude-agent-sdk@0.3.270` (SEE LICENSE IN README.md): Anthropic 상용 약관(패키지의 README.md·LICENSE.md). worker 이미지에만 들어간다. 약관 검토는 94S-338 범위 밖이다.
-- `@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.
-- `@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.
-- `@anthropic-ai/claude-agent-sdk-linux-x64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.
-- `@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.
+- `@anthropic-ai/claude-agent-sdk@0.3.270` (SEE LICENSE IN README.md): Anthropic 독점 소프트웨어다(패키지 LICENSE.md: © Anthropic PBC. All rights reserved). Anthropic Commercial Terms와 Claude Code를 제품에 싣는 조건을 따른다(위 "Claude Code 실행 파일" 절). worker 이미지에만 들어간다.
+- `@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
+- `@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
+- `@anthropic-ai/claude-agent-sdk-linux-x64@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
+- `@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.270` (SEE LICENSE IN LICENSE.md): 위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.
 
 Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "NOTICE 전문"에 옮긴다.
 

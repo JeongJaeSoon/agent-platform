@@ -5,9 +5,14 @@
  *   bun scripts/third-party-notices.ts                  rewrite the file
  *   bun scripts/third-party-notices.ts --check          fail when it is stale
  *   bun scripts/third-party-notices.ts --verify <image> <app-dir>
- *                                                        fail when a package
- *     under <app-dir>/node_modules is not listed for that image; images.yml
- *     runs it inside each built image against /app
+ *                                                        fail when the image
+ *     does not match its notices: a package under <app-dir>/node_modules not
+ *     listed for it, a Bun or bundled Claude Code build other than the one
+ *     named, a stale <app-dir>/DEBIAN_SOURCES.md; images.yml runs it inside
+ *     each built image against /app
+ *   bun scripts/third-party-notices.ts --debian-sources  print DEBIAN_SOURCES.md
+ *     for the Debian system it runs on; each Dockerfile writes it into /app
+ *     after its last apt-get (94S-375)
  *
  * The package list is each image's production closure, read from bun.lock the
  * way its Dockerfile installs it: control-host with `--filter
@@ -72,14 +77,56 @@ export const REVIEWED: Record<string, { license: string; reason: string }> = {
   "@anthropic-ai/claude-agent-sdk": {
     license: "SEE LICENSE IN README.md",
     reason:
-      "Anthropic 상용 약관(패키지의 README.md·LICENSE.md). worker 이미지에만 들어간다. 약관 검토는 94S-338 범위 밖이다.",
+      'Anthropic 독점 소프트웨어다(패키지 LICENSE.md: © Anthropic PBC. All rights reserved). Anthropic Commercial Terms와 Claude Code를 제품에 싣는 조건을 따른다(위 "Claude Code 실행 파일" 절). worker 이미지에만 들어간다.',
   },
   "@anthropic-ai/claude-agent-sdk-linux-*": {
     license: "SEE LICENSE IN LICENSE.md",
     reason:
-      "위 SDK의 플랫폼별 Claude Code 실행 파일. 같은 약관이다. musl 빌드는 worker Dockerfile이 지운다.",
+      "위 SDK가 싣는 플랫폼별 Claude Code 실행 파일이고, 조건도 같다. 수정하지 않고 그대로 싣는다. musl 빌드는 worker Dockerfile이 지운다.",
   },
 };
+
+/**
+ * The Bun build the notices describe, per Bun version the Dockerfiles pin,
+ * read from the oven-sh/bun tag: the commit `Bun.revision` reports, and the
+ * LGPL-2.1 libraries it links statically, WebKit (WEBKIT_VERSION in
+ * cmake/tools/SetupWebKit.cmake) and TinyCC (COMMIT in
+ * cmake/targets/BuildTinyCC.cmake). A Bun bump fails until its entry is
+ * added, so the source the notices point to is always the source shipped.
+ */
+export const BUN_BUILDS: Record<
+  string,
+  { revision: string; webkit: string; tinycc: string }
+> = {
+  "1.3.10": {
+    revision: "30e609e08073cf7114bfb278506962a5b19d0677",
+    webkit: "4a6a32c32c11ffb9f5a94c310b10f50130bfe6de",
+    tinycc: "12882eee073cfe5c7621bcfadf679e1372d4537b",
+  },
+};
+
+/**
+ * The Bun runtime compiled into the Claude Code executable each Agent SDK
+ * version bundles: the `Bun v<version>` string in the binary. It carries its
+ * own statically linked JavaScriptCore, so an SDK bump fails until the new
+ * pair is read and added.
+ */
+export const CLAUDE_CODE_BUN: Record<string, string> = {
+  "0.3.270": "1.4.3",
+};
+
+const AGENT_SDK = "@anthropic-ai/claude-agent-sdk";
+
+export type BaseImage = { bun: string; digest: string };
+
+/** The `oven/bun:<version>@<digest>` every app Dockerfile builds on. */
+export function baseImageOf(dockerfile: string): BaseImage {
+  const match = dockerfile.match(
+    /^ARG BUN_IMAGE=oven\/bun:([^@\s]+)@(sha256:[0-9a-f]{64})$/m,
+  );
+  if (!match) throw new Error("no ARG BUN_IMAGE=oven/bun:<version>@<digest>");
+  return { bun: match[1] as string, digest: match[2] as string };
+}
 
 export type LockPackage = {
   key: string;
@@ -393,27 +440,80 @@ async function fetchRegistry(pkg: LockPackage): Promise<PackageInfo> {
   return { license, notices: [] };
 }
 
-export function problemsOf(rows: readonly Row[]): string[] {
-  return rows
-    .filter(
-      (row) => !isPermissive(row.license) && !reviewFor(row.name, row.license),
-    )
-    .map(
-      (row) =>
-        `${row.name}@${row.version} is ${row.license}: not in PERMISSIVE and not REVIEWED in scripts/third-party-notices.ts`,
-    );
+export function problemsOf(rows: readonly Row[], base: BaseImage): string[] {
+  return [
+    ...pinProblems(rows, base),
+    ...rows
+      .filter(
+        (row) =>
+          !isPermissive(row.license) && !reviewFor(row.name, row.license),
+      )
+      .map(
+        (row) =>
+          `${row.name}@${row.version} is ${row.license}: not in PERMISSIVE and not REVIEWED in scripts/third-party-notices.ts`,
+      ),
+  ];
 }
 
-const BASE_IMAGE_SECTION = `## 베이스 이미지와 OS 패키지
+const UNREVIEWED = "(검토 전)";
 
-세 이미지 모두 \`oven/bun:1.3.10\`(digest 고정, Dockerfile의 \`BUN_IMAGE\`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 \`apt-get upgrade\`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
+/** The pins problemsOf asks for; render writes UNREVIEWED where one is missing. */
+function pinProblems(rows: readonly Row[], base: BaseImage): string[] {
+  const problems: string[] = [];
+  if (BUN_BUILDS[base.bun] === undefined) {
+    problems.push(
+      `Bun ${base.bun} (the Dockerfiles' BUN_IMAGE) has no BUN_BUILDS entry in scripts/third-party-notices.ts`,
+    );
+  }
+  for (const row of rows.filter((row) => row.name === AGENT_SDK)) {
+    if (CLAUDE_CODE_BUN[row.version] === undefined) {
+      problems.push(
+        `${AGENT_SDK}@${row.version} has no CLAUDE_CODE_BUN entry in scripts/third-party-notices.ts`,
+      );
+    }
+  }
+  return problems;
+}
 
-- **Bun 1.3.10** (\`/usr/local/bin/bun\`): MIT. Bun은 JavaScriptCore·WebKit(LGPL-2.1)을 정적으로 링크한다. 그 밖에 함께 링크된 라이브러리와 각 라이선스, LGPL에 따른 재링크 방법은 https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md 에 있다. Bun이 쓰는 WebKit 수정본의 소스는 https://github.com/oven-sh/webkit 이다.
-- **Debian 패키지**: 각 패키지의 저작권·라이선스 전문은 이미지 안 \`/usr/share/doc/<패키지>/copyright\`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 이 파일이 있는지 확인한다. 소스는 https://sources.debian.org/ 와 https://snapshot.debian.org/ 에서 받을 수 있다.
-- **Dockerfile이 추가로 설치하는 Debian 패키지**: control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
-`;
+function baseSection(rows: readonly Row[], base: BaseImage): string {
+  const build = BUN_BUILDS[base.bun];
+  const tag = `bun-v${base.bun}`;
+  const sdk = rows.find((row) => row.name === AGENT_SDK);
+  const lines = [
+    "## 베이스 이미지와 OS 패키지",
+    "",
+    `세 이미지 모두 \`oven/bun:${base.bun}@${base.digest}\`(Dockerfile의 \`BUN_IMAGE\`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 \`apt-get upgrade\`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.`,
+    "",
+    `### Bun ${base.bun} (\`/usr/local/bin/bun\`)`,
+    "",
+    `- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/${tag}/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.`,
+    `- **빌드.** oven-sh/bun commit \`${build?.revision ?? UNREVIEWED}\`(\`bun --revision\`)이다. images.yml이 빌드한 이미지마다 이 값을 확인한다.`,
+    "- **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.",
+    `  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/${build?.webkit ?? UNREVIEWED}`,
+    `  - TinyCC: https://github.com/oven-sh/tinycc/tree/${build?.tinycc ?? UNREVIEWED}`,
+    `- **대응 소스와 재링크.** 이 실행 파일 전체의 소스는 https://github.com/oven-sh/bun/tree/${tag} 이다. 위 라이브러리를 고쳐 Bun을 다시 링크하는 절차는 https://github.com/oven-sh/bun/blob/${tag}/CONTRIBUTING.md 의 "Building WebKit locally"다. WebKit을 위 commit으로 받아 \`bun run build:local\`로 빌드한다. LICENSE.md에 적힌 \`make jsc\`·\`zig build\`는 옛 절차다.`,
+    "",
+    "### Debian 패키지와 대응 소스",
+    "",
+    "- **라이선스 전문.** 각 패키지의 저작권·라이선스 전문은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL 전문은 `/usr/share/common-licenses/`에 있다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.",
+    "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지 확인한다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
+    "- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 git(GPL-2.0)·tini(MIT), worker는 ca-certificates(MPL-2.0·GPL-2.0+)·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.",
+  ];
+  if (sdk !== undefined) {
+    const embedded = CLAUDE_CODE_BUN[sdk.version] ?? UNREVIEWED;
+    lines.push(
+      "",
+      "### Claude Code 실행 파일 (worker)",
+      "",
+      `- **권리와 조건.** \`${AGENT_SDK}@${sdk.version}\`과 그 플랫폼 빌드가 싣는 \`claude\` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.`,
+      "- **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.",
+      `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지마다 이 버전을 확인한다.`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
 
-export function render(rows: readonly Row[]): string {
+export function render(rows: readonly Row[], base: BaseImage): string {
   const cell = (text: string) => text.replaceAll("|", "\\|");
   const flagged = rows.filter((row) => !isPermissive(row.license));
   const withNotices = rows.filter((row) => row.notices.length > 0);
@@ -424,7 +524,7 @@ export function render(rows: readonly Row[]): string {
     "",
     "이 파일은 `bun scripts/third-party-notices.ts`가 `bun.lock`에서 만든다. 손으로 고치지 않는다. CI의 `check (licenses)`가 `--check`로 최신인지 확인한다.",
     "",
-    BASE_IMAGE_SECTION,
+    baseSection(rows, base),
     "## 배포 조건이 붙은 구성요소",
     "",
     "허용 목록(MIT·Apache-2.0·BSD 계열·ISC 등) 밖의 라이선스다. 각각 스크립트의 `REVIEWED`에 검토 사유가 있다.",
@@ -544,6 +644,191 @@ export function installedPackages(nodeModules: string): string[] {
   return [...found].sort();
 }
 
+const DPKG_STATUS = "/var/lib/dpkg/status";
+const DEBIAN_SOURCES = "DEBIAN_SOURCES.md";
+/** The license texts the notices point to, from Debian's base-files. */
+const COMMON_LICENSES = [
+  "/usr/share/common-licenses/GPL-2",
+  "/usr/share/common-licenses/GPL-3",
+  "/usr/share/common-licenses/LGPL-2.1",
+];
+const CLAUDE_EXECUTABLE = "/usr/local/bin/claude";
+
+export type DebianPackage = {
+  name: string;
+  version: string;
+  source: string;
+  sourceVersion: string;
+};
+
+/**
+ * The installed packages of a dpkg status file, each with the source package
+ * and version it was built from. Without a Source field the source is the
+ * package itself; without a version in it (no binNMU), the same version.
+ */
+export function parseDpkgStatus(status: string): DebianPackage[] {
+  const packages: DebianPackage[] = [];
+  for (const stanza of status.split(/\n{2,}/)) {
+    const fields = new Map<string, string>();
+    for (const line of stanza.split("\n")) {
+      const match = line.match(/^([A-Za-z0-9-]+):\s*(.*)$/);
+      if (match) fields.set(match[1] as string, match[2] as string);
+    }
+    if (!fields.get("Status")?.endsWith(" installed")) continue;
+    const name = fields.get("Package");
+    const version = fields.get("Version");
+    if (!name || !version) {
+      throw new Error(
+        `dpkg status stanza without Package or Version: ${stanza}`,
+      );
+    }
+    const source = fields.get("Source")?.match(/^(\S+)(?: \((\S+)\))?$/);
+    packages.push({
+      name,
+      version,
+      source: source?.[1] ?? name,
+      sourceVersion: source?.[2] ?? version,
+    });
+  }
+  return packages;
+}
+
+export function snapshotUrl(source: string, version: string): string {
+  return `https://snapshot.debian.org/package/${encodeURIComponent(source)}/${encodeURIComponent(version)}/`;
+}
+
+/** Whether a copyright file names a GPL-family license (GPL, LGPL, AGPL). */
+export function mentionsGpl(copyright: string): boolean {
+  return /GPL|General Public License/.test(copyright);
+}
+
+/**
+ * DEBIAN_SOURCES.md: the corresponding source of every Debian package in an
+ * image, one row per source package and version (94S-375).
+ */
+export function renderDebianSources(
+  packages: readonly DebianPackage[],
+  gpl: (pkg: DebianPackage) => boolean,
+): string {
+  const bySource = new Map<
+    string,
+    { source: string; version: string; binaries: string[]; gpl: boolean }
+  >();
+  for (const pkg of packages) {
+    const key = `${pkg.source} ${pkg.sourceVersion}`;
+    const entry = bySource.get(key) ?? {
+      source: pkg.source,
+      version: pkg.sourceVersion,
+      binaries: [],
+      gpl: false,
+    };
+    entry.binaries.push(pkg.name);
+    entry.gpl ||= gpl(pkg);
+    bySource.set(key, entry);
+  }
+  const entries = [...bySource.values()].sort((a, b) =>
+    a.source === b.source
+      ? a.version.localeCompare(b.version)
+      : a.source < b.source
+        ? -1
+        : 1,
+  );
+  return `${[
+    "# Debian 패키지의 대응 소스",
+    "",
+    '이 이미지에 설치된 Debian 패키지가 어느 source package의 어느 버전에서 빌드됐는지 적는다. 각 소스는 "소스" 열의 snapshot.debian.org 주소에서 받을 수 있다. 이 파일은 이미지를 빌드할 때 그 이미지의 dpkg 데이터베이스(`/var/lib/dpkg/status`)에서 `bun scripts/third-party-notices.ts --debian-sources`로 만든다. 제3자 구성요소 전체의 고지는 같은 디렉터리의 `THIRD_PARTY_NOTICES.md`에 있다.',
+    "",
+    '"GPL" 열은 바이너리 패키지의 `/usr/share/doc/<패키지>/copyright`가 GPL 계열(GPL·LGPL·AGPL)을 언급하는지다. 라이선스 판정이 아니라 찾아보기용 표시다.',
+    "",
+    `source package ${entries.length}개, 바이너리 패키지 ${packages.length}개.`,
+    "",
+    "| source package | 버전 | 바이너리 패키지 | GPL | 소스 |",
+    "|---|---|---|---|---|",
+    ...entries.map(
+      (entry) =>
+        `| ${entry.source} | ${entry.version} | ${entry.binaries.sort().join(", ")} | ${entry.gpl ? "예" : ""} | ${snapshotUrl(entry.source, entry.version)} |`,
+    ),
+  ].join("\n")}\n`;
+}
+
+/** DEBIAN_SOURCES.md for the Debian system this runs on. */
+function debianSourcesHere(): string {
+  return renderDebianSources(
+    parseDpkgStatus(readFileSync(DPKG_STATUS, "utf8")),
+    (pkg) => {
+      const path = `/usr/share/doc/${pkg.name}/copyright`;
+      return existsSync(path) && mentionsGpl(readFileSync(path, "utf8"));
+    },
+  );
+}
+
+/** Every `Bun v<x.y.z>` a compiled Bun executable names. */
+export function embeddedBunVersions(executable: Buffer): string[] {
+  const found = new Set<string>();
+  const marker = Buffer.from("Bun v");
+  for (
+    let at = executable.indexOf(marker);
+    at !== -1;
+    at = executable.indexOf(marker, at + marker.length)
+  ) {
+    const tail = executable
+      .subarray(at + marker.length, at + marker.length + 16)
+      .toString("latin1");
+    const version = tail.match(/^\d+\.\d+\.\d+(?![\d.])/)?.[0];
+    if (version !== undefined) found.add(version);
+  }
+  return [...found].sort();
+}
+
+/**
+ * What --verify checks beyond node_modules, inside a built image: the Bun it
+ * runs, the bundled Claude Code's runtime, the license texts the notices
+ * point to, and DEBIAN_SOURCES.md against the installed packages.
+ */
+function verifyImageFacts(
+  root: string,
+  image: Image,
+  appDir: string,
+): string[] {
+  const problems: string[] = [];
+  const base = baseImageOf(
+    readFileSync(join(root, "apps", image, "Dockerfile"), "utf8"),
+  );
+  const build = BUN_BUILDS[base.bun];
+  if (Bun.version !== base.bun || Bun.revision !== build?.revision) {
+    problems.push(
+      `${image} runs Bun ${Bun.version}+${Bun.revision}; ${OUTPUT} names ${base.bun}+${build?.revision}`,
+    );
+  }
+  for (const path of COMMON_LICENSES) {
+    if (!existsSync(path)) problems.push(`${image} lacks ${path}`);
+  }
+  const sourcesPath = join(appDir, DEBIAN_SOURCES);
+  if (!existsSync(sourcesPath)) {
+    problems.push(`${image} lacks ${sourcesPath}`);
+  } else if (readFileSync(sourcesPath, "utf8") !== debianSourcesHere()) {
+    problems.push(
+      `${sourcesPath} does not match ${DPKG_STATUS}: a Dockerfile step after the one that writes it changed the installed packages`,
+    );
+  }
+  if (image === "worker") {
+    const sdk = JSON.parse(
+      readFileSync(
+        join(appDir, "node_modules", AGENT_SDK, "package.json"),
+        "utf8",
+      ),
+    ) as { version: string };
+    const expected = CLAUDE_CODE_BUN[sdk.version];
+    const embedded = embeddedBunVersions(readFileSync(CLAUDE_EXECUTABLE));
+    if (embedded.length !== 1 || embedded[0] !== expected) {
+      problems.push(
+        `${CLAUDE_EXECUTABLE} (${AGENT_SDK}@${sdk.version}) embeds Bun ${embedded.join(", ") || "(none found)"}; ${OUTPUT} names ${expected}`,
+      );
+    }
+  }
+  return problems;
+}
+
 async function main(argv: string[]): Promise<number> {
   const root = join(import.meta.dir, "..");
   const outputPath = join(root, OUTPUT);
@@ -572,13 +857,25 @@ async function main(argv: string[]): Promise<number> {
     console.log(
       `${image}: ${held.length} packages under ${appDir}/node_modules, ${missing.length} not in ${OUTPUT}`,
     );
-    return missing.length === 0 ? 0 : 1;
+    const problems = verifyImageFacts(root, image as Image, appDir);
+    for (const problem of problems) console.error(problem);
+    if (problems.length === 0) {
+      console.log(
+        `${image}: Bun ${Bun.version}+${Bun.revision}, license texts and ${DEBIAN_SOURCES} match ${OUTPUT}`,
+      );
+    }
+    return missing.length === 0 && problems.length === 0 ? 0 : 1;
+  }
+
+  if (mode === "--debian-sources") {
+    process.stdout.write(debianSourcesHere());
+    return 0;
   }
 
   const checking = mode === "--check";
   if (mode !== undefined && !checking) {
     console.error(
-      "usage: third-party-notices.ts [--check | --verify <image> <app-dir>]",
+      "usage: third-party-notices.ts [--check | --verify <image> <app-dir> | --debian-sources]",
     );
     return 2;
   }
@@ -592,9 +889,13 @@ async function main(argv: string[]): Promise<number> {
     // A package the file does not name yet is drift, reported below.
     return { license: row?.license ?? "UNKNOWN", notices: [] };
   });
-  const problems = problemsOf(rows);
+  // tests/images.test.ts holds every app Dockerfile to the same base.
+  const base = baseImageOf(
+    readFileSync(join(root, "apps/worker/Dockerfile"), "utf8"),
+  );
+  const problems = problemsOf(rows, base);
   for (const problem of problems) console.error(problem);
-  const next = render(rows);
+  const next = render(rows, base);
   if (checking) {
     if (next !== committed) {
       const nextRows = parseRows(next);
