@@ -17,25 +17,23 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
 } from "@agent-platform/contracts";
 import { endedByAbort } from "@agent-platform/runtime-claude";
-import type {
-  AgentRun,
-  CheckpointLease,
-  NativeSdkMessage,
-  PermissionDecision,
-  PermissionRequest,
-  RuntimeHooks,
-  WorkerGatewayClient,
+import {
+  type AgentRun,
+  type CheckpointLease,
+  isOwnershipLost,
+  isRetryable,
+  type NativeSdkMessage,
+  type PermissionDecision,
+  type PermissionRequest,
+  type RuntimeHooks,
+  type WorkerGatewayClient,
+  WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
-import {
-  isOwnershipLost,
-  isRetryable,
-  WorkerGatewayRequestError,
-} from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { PendingRequestRegistry } from "./pending-requests.ts";
 import {

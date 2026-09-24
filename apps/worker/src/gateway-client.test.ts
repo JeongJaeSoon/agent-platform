@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-
 import {
-  HttpWorkerGatewayClient,
   isOwnershipLost,
   isRetryable,
   WorkerGatewayRequestError,
-} from "./gateway-client.ts";
+} from "@agent-platform/runtime-core";
+
+import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 
 type Recorded = { body: unknown; headers: Record<string, string>; url: string };
 

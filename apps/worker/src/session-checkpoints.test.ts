@@ -23,6 +23,7 @@ import {
   type ObjectRef,
   type RuntimeFingerprint,
   type TranscriptMirror,
+  WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -34,7 +35,6 @@ import {
   FakeWorkerGateway,
   type FakeWorkerGatewayOptions,
 } from "./fake-gateway.ts";
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import type {

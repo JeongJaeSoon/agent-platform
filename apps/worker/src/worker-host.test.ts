@@ -12,10 +12,11 @@ import {
   FakeAgentRuntime,
   type FakeStep,
 } from "@agent-platform/runtime-claude";
-import type {
-  AgentRun,
-  CheckpointPreparation,
-  NativeSdkMessage,
+import {
+  type AgentRun,
+  type CheckpointPreparation,
+  type NativeSdkMessage,
+  WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
@@ -23,7 +24,6 @@ import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
