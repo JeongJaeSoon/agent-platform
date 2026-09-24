@@ -81,6 +81,8 @@ function memorySession() {
     /** Runs once, right after the next pointer or fence read. */
     betweenReads: undefined as (() => Promise<void>) | undefined,
     pointerReads: 0,
+    /** Pointer reads left to fail, as a dropped database connection does. */
+    failPointerReads: 0,
   };
   const afterRead = async () => {
     const between = state.betweenReads;
@@ -92,6 +94,10 @@ function memorySession() {
   const store: CheckpointStore & CheckpointCollectionStore = {
     async readPointer() {
       state.pointerReads += 1;
+      if (state.failPointerReads > 0) {
+        state.failPointerReads -= 1;
+        throw new Error("connection terminated");
+      }
       const found = pointer;
       await afterRead();
       return found;
@@ -811,6 +817,23 @@ describe("finalize against transcript collection (94S-326)", () => {
         .reads()
         .filter((read) => read === revision0.checkpoint.manifest_ref),
     ).toHaveLength(1);
+  });
+
+  test("a pointer read that failed once is read again for the part check, not failed again", async () => {
+    const inherited = await transcriptPart(0);
+    await commit(0, "attempt-a", [inherited]);
+    session.state.generation = 2;
+    const candidate = await publish(1, "attempt-b", [inherited]);
+    session.state.pointerReads = 0;
+    session.state.failPointerReads = 1;
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: candidate.checkpoint,
+        fence: fenceOf("attempt-b", 2),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(session.state.pointerReads).toBe(2);
   });
 
   test("a candidate the CAS will refuse anyway is not held to it", async () => {

@@ -967,7 +967,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   /**
    * One finalize's reads of the pointer and of committed manifests, so the
    * checks that each need them (`verifiedRefs`, `strayTranscriptPart`) share
-   * one request instead of repeating it on every turn.
+   * one request instead of repeating it on every turn. A read that failed is
+   * forgotten: `verifiedRefs` shrugs a failure off, and the next check must
+   * get its own try rather than the same error.
    */
   function committedReads(sessionId: string): CommittedReads {
     let pointer: Promise<CheckpointPointer | null> | undefined;
@@ -977,14 +979,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     >();
     return {
       pointer: () => {
-        pointer ??= store.readPointer(sessionId);
+        pointer ??= store.readPointer(sessionId).catch((error: unknown) => {
+          pointer = undefined;
+          throw error;
+        });
         return pointer;
       },
       manifest: (checkpoint) => {
         const id = `${checkpoint.manifestRef}\n${checkpoint.manifestVersion ?? ""}\n${checkpoint.manifestSha256}`;
         let read = manifests.get(id);
         if (read === undefined) {
-          read = committedManifest(checkpoint);
+          read = committedManifest(checkpoint).catch((error: unknown) => {
+            manifests.delete(id);
+            throw error;
+          });
           manifests.set(id, read);
         }
         return read;
