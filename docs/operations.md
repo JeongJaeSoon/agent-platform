@@ -319,12 +319,14 @@ checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 
 
 **checkpoint GC**(94S-281)는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
-회수 범위는 세션마다 `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일)뿐이다. transcript part는 revision끼리 공유되므로 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
+회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다(94S-326). 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
 
 - 어떤 restore도 그 version을 읽지 않는다. pointer, pointer 아래 parent 체인의 `maxRestoreFallbacks`(3)개 revision, 세션이 마지막으로 폴백 복원한 base 가운데 어느 manifest도 그 version을 가리키지 않는다.
-- 그 디렉터리에서는 더 이상 finalize가 커밋될 수 없다. revision이 pointer 이하이거나, attempt가 fence를 잃었다(`exited`/`lost` 상태이거나 epoch·generation·auth revision이 세션과 다르다).
+- 더 이상 finalize가 그 version을 커밋할 수 없다. checkpoint 디렉터리는 revision이 pointer 이하이거나, attempt가 fence를 잃었을 때다(`exited`/`lost` 상태이거나 epoch·generation·auth revision이 세션과 다르다). transcript part는 key의 generation이 세션의 `execution_generation`보다 작을 때다. 그 generation의 attempt는 모두 fence를 잃었다.
 
-finalize는 manifest가 자기 publish 디렉터리 밖의 checkpoint 디렉터리 객체를 가리키면 거부한다. 그래서 hold → GC → pointer CAS 순서로 경쟁해도, 커밋될 checkpoint의 version은 GC가 회수할 수 없는 디렉터리 안에 있다. 지울 때는 legal hold를 먼저 풀고 그 version을 지운다. 지운 revision의 `checkpoints` 행에는 먼저 `collected_at`을 적는다. backup은 이 행을 건너뛰므로, GC를 backup과 동시에 돌리지 않는다.
+그래서 죽은 generation이 마지막 checkpoint 뒤에 쓴 tail, 폴백으로 버려진 history에만 있던 part, window 밖으로 밀려난 revision에만 있던 part가 회수된다. 살아 있는 generation의 part와, 보존 revision이 상속한 이전 generation의 part는 남는다. 94S-314의 병합으로 대체된 합본도 그 generation이 끝난 뒤 같은 규칙으로 회수된다.
+
+finalize는 두 가지를 거부한다. 첫째, manifest가 자기 publish 디렉터리 밖의 checkpoint 디렉터리 객체를 가리키는 경우다. 둘째(`locked`만), 자기 attempt의 generation이 아닌 transcript part 중 후보가 딛고 선 checkpoint가 가리키지 않는 것을 가리키는 경우다. 딛고 선 checkpoint는 pointer(후보는 그다음 revision으로만 커밋된다)이거나, 폴백 복원한 attempt라면 pointer의 parent다. 둘 다 GC가 보존한다. 그래서 hold → GC → pointer CAS 순서로 경쟁해도, 커밋될 checkpoint의 version은 GC가 회수할 수 없는 곳에 있다. 지울 때는 legal hold를 먼저 풀고 그 version을 지운다. 지운 revision의 `checkpoints` 행에는 먼저 `collected_at`을 적는다. backup은 이 행을 건너뛰므로, GC를 backup과 동시에 돌리지 않는다.
 
 **`versions_held=false`인 pointer**(`unversioned`로 커밋된 checkpoint)는 그 manifest가 가리키는 **key의 모든 version**을 보존한다. 이런 checkpoint는 restore가 key로 다시 해시하고 hold를 걸기 때문이다. 보존 대상 manifest를 읽지 못하거나 digest가 맞지 않는 세션은 통째로 건너뛴다.
 

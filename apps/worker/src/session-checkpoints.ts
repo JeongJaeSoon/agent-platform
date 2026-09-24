@@ -26,6 +26,7 @@ import {
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptRevision,
   transcriptParts,
   transcriptSizeProblem,
@@ -461,7 +462,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   #transcriptPrefix(): string {
-    return `${this.#options.objectPrefix}transcripts`;
+    return `${this.#options.objectPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}`;
   }
 
   mirror(): { persistedAt: Date | null } | undefined {

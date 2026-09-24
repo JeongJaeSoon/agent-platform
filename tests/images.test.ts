@@ -76,9 +76,18 @@ describe("app Dockerfiles", () => {
     expect(source).not.toMatch(/^RUN /m);
     expect(source.match(/^COPY .*$/gm)).toEqual([
       "COPY apps/egress-proxy/package.json ./",
+      "COPY THIRD_PARTY_NOTICES.md ./",
       "COPY apps/egress-proxy/src ./src",
     ]);
     expect(source).toMatch(/^USER 1000:1000$/m);
+  });
+
+  // 94S-338: every image carries the notices of what it ships, at /app.
+  test.each(apps)("%s copies THIRD_PARTY_NOTICES.md into /app", (app) => {
+    expect(basePins[app].source).toMatch(
+      /^COPY (?:[^\n]* )?THIRD_PARTY_NOTICES\.md \.\/$/m,
+    );
+    expect(basePins[app].source).toMatch(/^WORKDIR \/app$/m);
   });
 
   // The scheduler runs the worker image as the workspace inode helper

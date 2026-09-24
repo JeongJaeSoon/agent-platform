@@ -84,6 +84,7 @@ integration("checkpoint collection store on PostgreSQL", () => {
     const fences = await store.readCollectionFences(sessionId);
 
     expect(fences?.fallbackRevision).toBe(4);
+    expect(fences?.executionGeneration).toBe(2);
     expect([...(fences?.fencedAttemptIds ?? [])].sort()).toEqual(
       [exited, lost, oldEpoch, oldGeneration, oldAuth].sort(),
     );

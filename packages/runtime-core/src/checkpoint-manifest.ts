@@ -300,3 +300,31 @@ export interface TranscriptMirror {
   }): Promise<string[]>;
   load(key: TranscriptKey): Promise<TranscriptEntry[] | null>;
 }
+
+/**
+ * The layout every transcript mirror shares under a session's object prefix
+ * (94S-203): `<session prefix>transcripts/generation-<n>/…`, one directory per
+ * execution generation, which writes nowhere else. The control plane reads a
+ * part's generation back from its key to reclaim what a generation left once
+ * it can no longer commit (94S-326), so the layout is a contract between the
+ * mirror and the control plane rather than an adapter's detail.
+ */
+export const TRANSCRIPT_MIRROR_DIRECTORY = "transcripts";
+
+export function transcriptGenerationDirectory(generation: number): string {
+  return `generation-${String(generation).padStart(10, "0")}`;
+}
+
+/**
+ * The execution generation that wrote a key under the session's transcript
+ * mirror; undefined for any key outside it or not in a generation directory.
+ */
+export function transcriptGenerationOf(
+  key: string,
+  sessionPrefix: string,
+): number | undefined {
+  const mirror = `${sessionPrefix}${TRANSCRIPT_MIRROR_DIRECTORY}/`;
+  if (!key.startsWith(mirror)) return undefined;
+  const match = /^generation-(\d{10})\//.exec(key.slice(mirror.length));
+  return match?.[1] === undefined ? undefined : Number(match[1]);
+}

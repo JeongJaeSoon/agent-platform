@@ -9,6 +9,7 @@ import {
   type TranscriptKey,
   type TranscriptMirror,
   type TranscriptRevision,
+  transcriptGenerationDirectory,
   transcriptSizeProblem,
 } from "@agent-platform/runtime-core";
 
@@ -145,7 +146,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const trimmed = options.prefix.replace(/^\/+|\/+$/g, "");
     this.#objects = options.objects;
     this.#namespace = trimmed === "" ? "" : `${trimmed}/`;
-    this.#prefix = `${this.#namespace}generation-${pad(generation)}`;
+    this.#prefix = `${this.#namespace}${transcriptGenerationDirectory(generation)}`;
     this.#inherit =
       options.inherit === undefined
         ? undefined
