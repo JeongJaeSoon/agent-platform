@@ -218,6 +218,13 @@
       "when": 1790234663314,
       "tag": "0121_catalog_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790239243354,
+      "tag": "0122_launch_drain_requested",
+      "breakpoints": true
     }
   ]
 }

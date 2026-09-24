@@ -5,6 +5,7 @@ import {
 } from "@agent-platform/contracts";
 import type {
   ActiveExecution,
+  DrainState,
   ExecutionObservation,
   ExecutionRef,
   LaunchCredentialState,
@@ -41,7 +42,10 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
+import {
+  LAUNCHABLE_ADMISSION_STATES,
+  OPEN_TURN_STATUSES,
+} from "./control-shared.ts";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
@@ -50,6 +54,7 @@ import { restoreRetryDue } from "./restore-failures.ts";
 import {
   executions,
   sessions,
+  turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
@@ -592,6 +597,85 @@ export function createPostgresSchedulerStore(
         )
         .returning({ attempts: workerLaunches.launchAttempts });
       return row?.attempts ?? null;
+    },
+
+    async requestDrain(
+      ref: ExecutionRef,
+      deadlineMs: number,
+    ): Promise<DrainState | null> {
+      return db.transaction(async (tx) => {
+        // The launch row first, as a claim takes it, then the session a
+        // worker's next-input locks before it reads the request: either the
+        // turn it hands out is seen below, or it sees the request and hands
+        // out nothing.
+        const [launch] = await tx
+          .select({ claimedAttemptId: workerLaunches.claimedAttemptId })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.slotReleasedAt),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch || launch.claimedAttemptId === null) return null;
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return null;
+        // The session still bound to this launch; one it let go of has no
+        // turn here to wait for.
+        const [session] = await tx
+          .select({
+            id: sessions.id,
+            restoreAttemptId: sessions.restoreAttemptId,
+          })
+          .from(sessions)
+          .where(eq(sessions.executionId, ref.executionId))
+          .limit(1)
+          .for("update");
+        const [requested] = await tx
+          .update(workerLaunches)
+          .set({
+            drainRequestedAt: sql`COALESCE(${workerLaunches.drainRequestedAt}, ${DB_NOW})`,
+          })
+          .where(eq(workerLaunches.executionId, ref.executionId))
+          .returning({
+            overdue: sql<boolean>`${workerLaunches.drainRequestedAt} + ${deadlineMs} * interval '1 millisecond' <= ${DB_NOW}`,
+          });
+        const open =
+          session === undefined
+            ? []
+            : await tx
+                .select({ id: turns.id })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, session.id),
+                    inArray(turns.status, OPEN_TURN_STATUSES),
+                  ),
+                )
+                .limit(1);
+        // A worker that has not asked for input yet is still restoring or
+        // starting up; cut short, it would count as a failed startup
+        // (94S-302). Its first poll ends that, and gets no turn.
+        const startingUp =
+          session !== undefined &&
+          session.restoreAttemptId === launch.claimedAttemptId;
+        return {
+          busy: open.length > 0 || startingUp,
+          overdue: requested?.overdue === true,
+        };
+      });
     },
 
     async settleReplacement(

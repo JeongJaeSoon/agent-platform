@@ -81,9 +81,21 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 * **일반 launch 경로:** worker 없이 남은 옛 네트워크(teardown의 네트워크 제거가 실패한 경우)는 proxy만 붙어 있으면 지우고 다시 만든다. 다른 구성원이 있으면 거부한다. 옛 worker가 아직 붙어 있는 옛 네트워크에 새 컨테이너를 올리는 일은 없다.
 * **`reconcileNetworks`:** 계약 5 worker가 붙은 옛 네트워크에서는 proxy를 떼지 않는다. claim된 worker는 확인 없이 drain·teardown되므로 그 전에 egress를 끊지 않기 위해서다. 계약 6 worker가 host 주소 있는 네트워크에 있으면 결함으로 보고 proxy를 뗀다.
 
-이 교체도 claim된 worker는 drain 후 닫는 기존 규칙(94S-250에서 다룰 drain·교체 동작 포함)을 따른다. **배포 순서:** daemon을 먼저 Docker 28 이상으로 올린다. 옛 daemon에서는 preflight가 pass 전체를 막는다. 그러면 계약 5 worker도 교체되지 않고 그대로 돈다(새 admission만 fail-closed).
+이 교체도 claim된 worker는 아래의 turn 경계 drain 뒤에 닫는 규칙(94S-250)을 따른다. **배포 순서:** daemon을 먼저 Docker 28 이상으로 올린다. 옛 daemon에서는 preflight가 pass 전체를 막는다. 그러면 계약 5 worker도 교체되지 않고 그대로 돈다(새 admission만 fail-closed).
 
-업그레이드 뒤 옛 공유 네트워크(`agent-platform-worker`, `EXECUTION_DOCKER_NETWORK`로 이름을 바꿨다면 그 이름)는 compose가 더 이상 선언하지 않는다. 그래도 저절로 지워지지는 않고, 주소 풀의 subnet 하나를 계속 차지한다. 계약 4 컨테이너가 모두 교체된 뒤 `docker network rm agent-platform-worker`로 지운다. 실행 중인 컨테이너가 붙어 있으면 Docker가 삭제를 거부한다(403). 그래서 쓰는 중인 네트워크를 실수로 지울 일은 없다. **이미 claim된 worker는 교체되지 않고 teardown된다.** 진행 중이던 turn은 `outcome_unknown`으로 닫힌다. 업그레이드는 진행 중인 turn이 없을 때 한다. 계약이 바뀔 때 claim된 worker를 drain하는 경로는 94S-250이다.
+업그레이드 뒤 옛 공유 네트워크(`agent-platform-worker`, `EXECUTION_DOCKER_NETWORK`로 이름을 바꿨다면 그 이름)는 compose가 더 이상 선언하지 않는다. 그래도 저절로 지워지지는 않고, 주소 풀의 subnet 하나를 계속 차지한다. 계약 4 컨테이너가 모두 교체된 뒤 `docker network rm agent-platform-worker`로 지운다. 실행 중인 컨테이너가 붙어 있으면 Docker가 삭제를 거부한다(403). 그래서 쓰는 중인 네트워크를 실수로 지울 일은 없다. **이미 claim된 worker는 다시 만들 수 없으므로 turn 경계까지 drain한 뒤 teardown된다(94S-250).** 아래 절을 따른다.
+
+#### 계약이 오를 때 claim된 worker의 drain (94S-250)
+
+claim된 컨테이너가 stale이면 scheduler는 바로 부수지 않는다.
+1. 첫 pass가 `worker_launches.drain_requested_at`을 DB 시계로 기록한다. 그때부터 그 worker는 새 turn을 받지 않는다. 이미 받은 turn은 끝까지 돌고, 뒤에 온 입력은 queued로 남는다.
+2. 도는 turn(`running`·`needs_input`)이 있거나 worker가 아직 첫 입력을 청하지 않았으면(workspace 준비·checkpoint 복원 중. 이때 끊으면 실패한 기동으로 센다) 컨테이너를 그대로 두고 pass summary의 `draining`(로그 `draining_count`, `Claimed execution draining before its replacement`)에 올린다.
+3. turn이 끝난 뒤 첫 pass가 컨테이너를 teardown한다. turn의 checkpoint는 그 finalize에 실려 이미 확정됐다. SIGTERM을 받은 worker는 idle drain으로 release하고, queued 입력은 새 launch(현재 계약)가 받아 checkpoint에서 이어간다.
+4. drain 기한이 지나도 turn이 열려 있거나 기동이 끝나지 않았으면 그대로 teardown한다. 이때 그 turn은 전처럼 `outcome_unknown`이 된다. 끝나지 않은 기동은 worker가 SIGTERM에 drain으로 release하면 세지 않고, release 없이 죽으면 실패 1회로 센다. pass summary의 `drainsOverdue`(로그 `drain_overdue_count`)와 경고 `Drain deadline passed with the worker still busy; replacing anyway` 한 줄이 남는다. 기한은 `MAX_TURN_SECONDS` + 5분이다. 어떤 turn도 `MAX_TURN_SECONDS`를 넘지 못하고, 5분은 그 turn을 끝내는 finalize·checkpoint 몫이다.
+
+claim되지 않은 stale 컨테이너는 전처럼 곧바로 교체된다.
+
+**롤아웃 절차:** 계약을 올리는 배포는 claim된 worker의 교체가 최대 drain 기한만큼 늦어진다. 그동안 옛 계약 컨테이너가 살아 있고, 그 세션에는 새 turn이 시작되지 않는다. 즉시 끊어야 하는 격리 결함이면 해당 세션을 terminate해 기다리지 않는다. 롤백으로 컨테이너가 다시 current가 되면 drain 요청은 남는다. 그 worker는 새 turn 없이 유휴 시간 뒤 스스로 끝나고, 세션은 다음 launch로 이어진다.
 
 ### checkpoint 복원이 계속 실패하는 세션 (94S-345)
 
