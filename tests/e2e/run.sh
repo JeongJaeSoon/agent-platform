@@ -37,8 +37,7 @@ out="${E2E_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/e2e.XXXXXX")}"
 mkdir -p "$out/workers"
 
 export EXECUTION_INSTALLATION_ID="e2e${run_id}"
-export API_IMAGE="agent-platform-api:${project}"
-export SCHEDULER_IMAGE="agent-platform-scheduler:${project}"
+export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
@@ -62,7 +61,7 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$SCHEDULER_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
   # Stopping the event stream ends the loop; each `docker logs -f` ends with
   # its container, which is gone by now unless the stack is kept.
@@ -107,7 +106,6 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
-  echo "scheduler_image: ${SCHEDULER_IMAGE} $(image_id "$SCHEDULER_IMAGE")"
   echo "worker_image: ${WORKER_IMAGE} $(image_id "$WORKER_IMAGE")"
   echo "egress_proxy_image: ${EGRESS_PROXY_IMAGE} $(image_id "$EGRESS_PROXY_IMAGE")"
   echo "claude_agent_sdk: ${sdk_version}"
