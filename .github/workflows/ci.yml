@@ -179,7 +179,7 @@ jobs:
               - packages/testkit/src/localstack.
               - tests/checkpoint-flow.
               - tests/checkpoint-pins.
-              - tests/object-store-egress.
+              - tests/object-store-route.
               - tests/worker-checkpoint-publish.
             skips:
               # skipIf(linux): the runner can enforce the limits.

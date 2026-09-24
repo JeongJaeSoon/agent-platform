@@ -8,6 +8,13 @@ export type EgressProxyEnvironment = {
   EGRESS_AUTHORIZER_TOKEN?: string | undefined;
   EGRESS_AUTHORIZER_URL?: string | undefined;
   EGRESS_CREDENTIAL_PORT?: string | undefined;
+  /**
+   * Upstreams only the credential routes may reach, never a worker directly:
+   * the object store above all, which the object store route signs for and
+   * which (LocalStack) may take any signature at all (94S-251).
+   */
+  EGRESS_CREDENTIAL_ALLOWLIST?: string | undefined;
+  EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST?: string | undefined;
   /** Public destinations, `host:port`, comma separated. */
   EGRESS_ALLOWLIST?: string | undefined;
   /** Destinations deliberately inside the private plane. */
@@ -29,6 +36,9 @@ export type EgressProxyConfig = {
 };
 
 export type EgressCredentialConfig = {
+  /** Added to the forward allowlists for the credential routes' upstreams. */
+  allow: EgressDestination[];
+  allowPrivate: EgressDestination[];
   authorizerToken: string;
   authorizerUrl: string;
   port: number;
@@ -102,6 +112,14 @@ function credentialConfig(
     throw new Error("EGRESS_AUTHORIZER_TOKEN must be at least 32 characters");
   }
   return {
+    allow: parseDestinations(
+      environment.EGRESS_CREDENTIAL_ALLOWLIST ?? "",
+      "EGRESS_CREDENTIAL_ALLOWLIST",
+    ),
+    allowPrivate: parseDestinations(
+      environment.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST ?? "",
+      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
+    ),
     authorizerToken: token,
     authorizerUrl: parsed.href,
     port: port(

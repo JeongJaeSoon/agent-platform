@@ -56,6 +56,8 @@ describe("egressProxyConfigFromEnv", () => {
         EGRESS_AUTHORIZER_TOKEN: token,
       }).credential,
     ).toEqual({
+      allow: [],
+      allowPrivate: [],
       authorizerToken: token,
       authorizerUrl: "http://api:3100/",
       port: 3129,
@@ -68,6 +70,17 @@ describe("egressProxyConfigFromEnv", () => {
         EGRESS_CREDENTIAL_PORT: "4000",
       }).credential?.port,
     ).toBe(4000);
+    // The object store is reached by the credential routes only (94S-251).
+    const routed = egressProxyConfigFromEnv({
+      ...base,
+      EGRESS_AUTHORIZER_URL: "http://api:3100",
+      EGRESS_AUTHORIZER_TOKEN: token,
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
+    });
+    expect(routed.credential?.allowPrivate).toEqual([
+      { host: "localstack", port: 4566 },
+    ]);
+    expect(routed.allowPrivate).toEqual([]);
     expect(() =>
       egressProxyConfigFromEnv({
         ...base,

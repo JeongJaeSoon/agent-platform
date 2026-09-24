@@ -23,8 +23,8 @@ describe("SecretScrubber", () => {
   });
 
   test("a short value goes wherever it stands alone, as in an environment dump (Codex R1)", () => {
-    // The local object store's key is `test`: dropped for being short, the
-    // bucket-wide value would reach the event stream through /proc/1/environ.
+    // The local stack's keys are `test`: dropped for being short, such a
+    // value would reach the event stream through /proc/1/environ.
     const scrubber = new SecretScrubber(["test", "a.b"]);
     expect(
       scrubber.scrub([

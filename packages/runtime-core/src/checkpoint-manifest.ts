@@ -210,8 +210,9 @@ export interface CheckpointObjectStore {
    * is released, whatever their other permissions say. Idempotent. Only a
    * store with versions and Object Lock offers it; the control plane calls it
    * on everything a checkpoint it commits names. Whoever holds the permission
-   * to place a hold can also release one, so workers must not have it — they
-   * still share the bucket-wide credentials until 94S-251 scopes them.
+   * to place a hold can also release one, so workers must not have it: they
+   * reach the store only through the object store route, which never signs
+   * a hold (94S-251).
    */
   hold?(key: string, version: string): Promise<void>;
 }

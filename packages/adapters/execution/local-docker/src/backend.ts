@@ -122,17 +122,14 @@ export const ENV = {
   noProxy: "NO_PROXY",
   noProxyLower: "no_proxy",
   /**
-   * Object store access (94S-244): the same names the control host reads
-   * (`storageConfigFromEnv`), so one env file serves both, plus the prefix
-   * this session owns. The worker confines itself to that prefix; the
-   * credential itself is bucket-wide (see `WorkerObjectStoreAccess`).
+   * Which objects are the session's (94S-244): the bucket and region under
+   * the names the control host reads, plus the prefix this session owns.
+   * No credential and no endpoint: the worker reaches them through the
+   * proxy's object store route, signed for that prefix only (94S-251).
    */
-  objectAccessKeyId: "AWS_ACCESS_KEY_ID",
   objectBucket: "S3_BUCKET",
-  objectEndpoint: "AWS_ENDPOINT_URL",
   objectPrefix: "WORKER_OBJECT_PREFIX",
   objectRegion: "AWS_REGION",
-  objectSecretAccessKey: "AWS_SECRET_ACCESS_KEY",
   /**
    * The seconds `terminate` gives between SIGTERM and SIGKILL, so the worker
    * sizes its drain to what it will actually get.
@@ -231,13 +228,12 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     config.user,
     config.workspaceDir,
     // Where the worker's objects go is part of its boundary: a container
-    // still pointed at the old bucket or endpoint would keep writing there.
-    // The access key id is in so a rotation retires containers holding the
-    // old one; the secret is not, because a digest of it has no business on
-    // a label and the key id already changes with it.
-    config.objectStore.accessKeyId,
+    // still pointed at the old bucket would keep writing there. The
+    // endpoint and key are the API's now, behind the object store route
+    // (94S-251), so moving them retires no worker; a container from before
+    // the route, which still holds the key, reads as stale because this
+    // shape changed.
     config.objectStore.bucket,
-    config.objectStore.endpoint ?? null,
     config.objectStore.region,
     // A container adopted across a quota change would keep mounting the
     // volume it was created with, whose ceiling cannot be raised or lowered
@@ -2127,15 +2123,13 @@ function soleRunningProxy(
 /**
  * A daemon error carries the daemon's whole reply in its message, and a
  * reply to a refused create can quote the request. The scheduler logs that
- * message, so the two values in the body that must never reach a log — the
- * bootstrap nonce and the secret access key — are blanked out of it first.
+ * message, so the one value in the body that must never reach a log — the
+ * bootstrap nonce — is blanked out of it first.
  */
 function withoutSecrets(error: unknown, body: ContainerCreateBody): unknown {
   if (!(error instanceof Error)) return error;
-  const secrets = body.Env.filter(
-    (entry) =>
-      entry.startsWith(`${ENV.bootstrapNonce}=`) ||
-      entry.startsWith(`${ENV.objectSecretAccessKey}=`),
+  const secrets = body.Env.filter((entry) =>
+    entry.startsWith(`${ENV.bootstrapNonce}=`),
   ).map((entry) => entry.slice(entry.indexOf("=") + 1));
   for (const secret of secrets) {
     if (secret.length === 0) continue;
@@ -2176,14 +2170,11 @@ export function workerEnvironmentFor(
     `${ENV.httpsProxyLower}=${config.egressProxyUrl}`,
     `${ENV.noProxy}=${noProxyValueFor(config)}`,
     `${ENV.noProxyLower}=${noProxyValueFor(config)}`,
-    `${ENV.objectAccessKeyId}=${objectStore.accessKeyId}`,
+    // No object store credential or endpoint: the worker reaches its
+    // objects through the proxy's object store route (94S-251).
     `${ENV.objectBucket}=${objectStore.bucket}`,
-    ...(objectStore.endpoint === undefined
-      ? []
-      : [`${ENV.objectEndpoint}=${objectStore.endpoint}`]),
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,
-    `${ENV.objectSecretAccessKey}=${objectStore.secretAccessKey}`,
     `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
     ...(config.workerLimits === undefined
       ? []

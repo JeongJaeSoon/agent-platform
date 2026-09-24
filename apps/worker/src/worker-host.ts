@@ -46,6 +46,9 @@ import {
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
+/** Where the claim's object store token goes (94S-251). */
+export type ObjectStoreAccess = { useToken(token: string): void };
+
 /** The gateway client plus the one thing a claim changes about it. */
 export interface WorkerGatewaySession extends WorkerGatewayClient {
   /** Swaps the launch nonce for the credential bootstrapClaim issued. */
@@ -117,6 +120,8 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Absent for engines that spawn no process, like the fake. */
   engines?: EngineExitWatch;
+  /** Absent when the checkpoint port is a fake that needs no token. */
+  objectStoreAccess?: ObjectStoreAccess;
   /**
    * Secrets this process holds besides the ones the claim brings, kept out
    * of events by value (`SecretScrubber`): the object store key, say.
@@ -281,6 +286,7 @@ export class WorkerHost {
     }
     const { claim } = claimed;
     this.options.gateway.useCredential(claim.session_credential);
+    this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
     this.scopeValue = {
       session_id: claim.session_id,
       turn_id: null,
