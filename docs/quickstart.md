@@ -327,7 +327,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-compose 2.24 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다. 세션을 하나 이상 만들어 idle이 된 뒤에 뜬다.
+compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다. 세션을 하나 이상 만들어 idle이 된 뒤에 뜬다.
 
 ```sh
 dir=$(scripts/backup.sh --project agent-platform)

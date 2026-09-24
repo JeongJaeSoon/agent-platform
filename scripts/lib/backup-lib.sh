@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Shared by scripts/backup.sh, scripts/restore.sh and scripts/verify-restore.sh.
 # PostgreSQL and git run inside the compose containers, so the host needs
-# docker (compose v2.24+, for `!override`), git, jq, a sha256 tool, and this
-# checkout's bun: every S3 call goes through the production adapter on the
-# host (`object_store`, `checkpoint_pins`), so the store can be the
-# project's LocalStack or any S3-compatible one.
+# docker (compose v2.24.6+, for `!override` over an include), git, jq, a
+# sha256 tool, and this checkout's bun: every S3 call goes through the
+# production adapter on the host (`object_store`, `checkpoint_pins`), so the
+# store can be the project's LocalStack or any S3-compatible one.
 
 set -euo pipefail
 

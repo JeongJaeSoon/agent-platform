@@ -2,17 +2,23 @@
 #
 #   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml ...
 #
-# A skeleton so far: it runs no local dependency and builds nothing, and
-# every app image must be named — the released digest, never the local
-# `:dev` tag. The object store is real S3; its credentials and the rest of
-# the installation's settings come with scripts/test-ops.sh (94S-432).
-# tests/images.test.ts renders this and keeps the security settings out of
-# it.
+# A skeleton so far: it runs no local dependency and builds nothing. Every
+# app image must be named — the released digest, never the local `:dev`
+# tag — and so must the two secrets whose core defaults serve the local
+# stack only: this layer only requires values, it sets none. The object
+# store is real S3; its credentials and the rest of the installation's
+# settings come with scripts/test-ops.sh (94S-432). tests/images.test.ts
+# renders this and keeps the security settings out of it.
 services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for test-ops}
   migrate:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
   api:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+    environment:
+      EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
   scheduler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
@@ -21,5 +27,7 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
   egress-proxy:
     image: ${EGRESS_PROXY_IMAGE:?EGRESS_PROXY_IMAGE must name the released egress-proxy image}
+    environment:
+      EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
   worker:
     image: ${WORKER_IMAGE:?WORKER_IMAGE must name the released worker image}
