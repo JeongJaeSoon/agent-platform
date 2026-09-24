@@ -1863,7 +1863,7 @@ const hooks: Campaign[] = [
     waitsFor: {
       ticket: "94S-117",
       reason:
-        "control-host 단일 이미지·role 구조가 아직 main에 없다. 지금 구조의 api·scheduler 종료는 fault-control-kill이 잰다. 착지하면 role별 종료·재기동과 reconciler role 종료를 여기서 본다.",
+        "94S-117이 착지하며 role별 재시작·DB/Docker 장애 복구를 tests/d2-gate/control-host-roles.e2e.test.ts(scripts/d2-gate/run.sh 마지막 단계, H1~H5)로 검증한다. api·scheduler SIGKILL 뒤 turn 연속성은 fault-control-kill이 잰다. 이 행은 그 두 결과를 근거로 삼는다.",
     },
   },
 ];
