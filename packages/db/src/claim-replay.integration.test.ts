@@ -381,7 +381,7 @@ integration("claim replay against the session's current binding", () => {
       // The first claim's tokens, one per purpose, are the only ones, and
       // the auth revision is the one that claim handed out.
       expect(footprint.tokens).toEqual(
-        ["gateway", "provider", "repository"].map((purpose) => ({
+        ["gateway", "object_store", "provider", "repository"].map((purpose) => ({
           purpose,
           tokenHash: expect.any(String),
           revoked: false,

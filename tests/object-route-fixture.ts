@@ -12,6 +12,7 @@ import {
 } from "@agent-platform/platform";
 import { createObjectRouteSigner } from "@agent-platform/storage";
 import { PGlite } from "@electric-sql/pglite";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 
@@ -132,7 +133,18 @@ export async function startObjectRouteFixture(options: {
     return {
       sessionId,
       async claim() {
-        if (execution !== null) await gateway.confirmExecutionGone(execution);
+        if (execution !== null) {
+          await gateway.confirmExecutionGone(execution);
+          // A worker gone before asking for input is a failed startup whose
+          // backoff holds the next launch back (94S-347); here it has
+          // elapsed, as the gateway's own tests let it.
+          await db
+            .update(schema.sessions)
+            .set({
+              restoreRetryAt: sql`clock_timestamp() - interval '1 second'`,
+            })
+            .where(eq(schema.sessions.id, sessionId));
+        }
         generation += 1;
         execution = `exec-${sessionId}-${generation}`;
         const launch = await gateway.registerLaunch({
