@@ -12,7 +12,8 @@ ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6f
 
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app
-COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
+# THIRD_PARTY_NOTICES.md: the licenses of what this image ships (94S-338).
+COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
 COPY apps ./apps
 COPY packages ./packages
 # --filter limits the install to the one app this image runs, which is what

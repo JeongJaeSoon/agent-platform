@@ -18,6 +18,7 @@
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/observability": "workspace:*",
     "@agent-platform/platform": "workspace:*",
+    "@agent-platform/runtime-core": "workspace:*",
     "drizzle-orm": "0.45.2",
     "pg": "8.16.3",
     "pg-connection-string": "2.14.0"

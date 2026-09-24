@@ -1,8 +1,12 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import type { TCPSocketListener } from "bun";
 import { createProxyLogger } from "./logger.ts";
 import type { EgressResolver } from "./policy.ts";
-import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
+import {
+  type EgressProxyServer,
+  startEgressProxy,
+  systemResolver,
+} from "./proxy.ts";
 import {
   clientHello,
   EXTENSION_ENCRYPTED_CLIENT_HELLO,
@@ -1311,3 +1315,24 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
     },
   };
 }
+
+describe("the system resolver", () => {
+  test("asks libc on every call, so a restarted upstream is followed (94S-344)", async () => {
+    const answers = ["10.0.0.7", "10.0.0.9"];
+    const lookup = spyOn(Bun.dns, "lookup").mockImplementation(
+      async () =>
+        [{ address: answers.shift() ?? "", family: 4, ttl: 600 }] as never,
+    );
+    try {
+      expect(await systemResolver("localstack")).toEqual(["10.0.0.7"]);
+      // The first answer came with a TTL of 600s and still was not kept.
+      expect(await systemResolver("localstack")).toEqual(["10.0.0.9"]);
+      expect(lookup.mock.calls).toEqual([
+        ["localstack", { backend: "libc" }],
+        ["localstack", { backend: "libc" }],
+      ]);
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+});

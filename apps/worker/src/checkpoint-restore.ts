@@ -191,11 +191,6 @@ export async function restoreCheckpointTree(input: {
 }): Promise<{ kept?: string; staged: StagedCheckpoint }> {
   const { root, signal } = input;
   let { staged } = input;
-  // Everything below deletes through `root`: a link there would aim it
-  // somewhere else.
-  if (!(await lstat(root)).isDirectory()) {
-    throw new Error(`the workspace root ${root} is not a directory`);
-  }
   const keep = input.keep === undefined ? undefined : resolve(input.keep);
   if (
     keep !== undefined &&
@@ -203,23 +198,7 @@ export async function restoreCheckpointTree(input: {
   ) {
     throw new Error(`${keep} is not a directory directly under ${root}`);
   }
-  const spared = keep === undefined ? undefined : basename(keep);
-  // In batches, so an execution that left millions of names behind is not
-  // read into memory at once. Each pass starts over, since what a directory
-  // stream returns after its own entries are removed is unspecified.
-  for (;;) {
-    const batch: string[] = [];
-    for await (const entry of await opendir(root)) {
-      if (entry.name === spared) continue;
-      batch.push(entry.name);
-      if (batch.length === CLEAR_BATCH) break;
-    }
-    if (batch.length === 0) break;
-    for (const name of batch) {
-      signal.throwIfAborted();
-      await rm(join(root, name), { force: true, recursive: true });
-    }
-  }
+  await clearWorkspace(root, signal, keep);
   const git = localGit(root, signal, {});
   await check(git(["init", "--quiet", "--template="]), "init");
   let kept: string | undefined;
@@ -268,6 +247,41 @@ export async function restoreCheckpointTree(input: {
   }
   await check(git(["remote", "add", "origin", input.origin]), "remote add");
   return kept === undefined ? { staged } : { kept, staged };
+}
+
+/**
+ * Removes everything under `root` but `root` itself and `spare`, a direct
+ * child of it. A restore does this before it downloads anything, so the
+ * old tree's disk is free for the checkpoint: the workspace volume's quota
+ * holds both only if it holds neither twice.
+ */
+export async function clearWorkspace(
+  root: string,
+  signal: AbortSignal,
+  spare?: string,
+): Promise<void> {
+  // Everything below deletes through `root`: a link there would aim it
+  // somewhere else.
+  if (!(await lstat(root)).isDirectory()) {
+    throw new Error(`the workspace root ${root} is not a directory`);
+  }
+  const spared = spare === undefined ? undefined : basename(spare);
+  // In batches, so an execution that left millions of names behind is not
+  // read into memory at once. Each pass starts over, since what a directory
+  // stream returns after its own entries are removed is unspecified.
+  for (;;) {
+    const batch: string[] = [];
+    for await (const entry of await opendir(root)) {
+      if (entry.name === spared) continue;
+      batch.push(entry.name);
+      if (batch.length === CLEAR_BATCH) break;
+    }
+    if (batch.length === 0) break;
+    for (const name of batch) {
+      signal.throwIfAborted();
+      await rm(join(root, name), { force: true, recursive: true });
+    }
+  }
 }
 
 /**
