@@ -29,7 +29,10 @@ import {
 import { lastLaunchPartition } from "./enqueue.ts";
 import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
-import { RESTORE_FAILURES_CLEARED } from "./restore-failures.ts";
+import {
+  RESTORE_FAILURE_LIMIT,
+  RESTORE_FAILURES_CLEARED,
+} from "./restore-failures.ts";
 import { RESUME, resumePauseFamily } from "./resume-control.ts";
 import {
   checkpoints,
@@ -266,9 +269,10 @@ function settledResultJson(
 
 /**
  * api.md § 최소 운영 복구. abandon and confirm_completed settle one
- * outcome_unknown turn and leave the session `stopped`; close ends it.
- * None of them dispatches: queued input waits for an explicit resume, and
- * the decision receipt says whether one is possible.
+ * outcome_unknown turn and leave the session `stopped`, where queued input
+ * waits for an explicit resume and the decision receipt says whether one is
+ * possible; close ends it. start_fresh and retry_restore put the session
+ * back to work and dispatch its queued input.
  */
 export function decideRecoveryAtomic(
   db: Database,
@@ -327,6 +331,9 @@ export function decideRecoveryAtomic(
       const started = await startFresh(tx, session, now);
       if (started.outcome !== "reset") return started;
       reset = started.reset;
+    } else if (decision.decision === "retry_restore") {
+      const refused = await retryRestore(tx, session, now);
+      if (refused !== null) return refused;
     } else if (decision.decision === "close") {
       if (!(await closableByRecovery(tx, session))) {
         return {
@@ -547,6 +554,70 @@ async function startFresh(
     now,
   });
   return { outcome: "reset", reset };
+}
+
+/**
+ * retry_restore (94S-348): the restores that stopped the session failed on
+ * something outside it — a proxy damaging the read in transit, a wrong store
+ * path — which the operator has since fixed. The count starts over and the
+ * next claim restores what the failing ones did: the pointer is not touched.
+ * Queued input is dispatched as on a resume.
+ *
+ * Only for a session its failed restores stopped (94S-345). Any other hold
+ * — an unknown turn, a context gap, a startup with nothing to restore — is
+ * not answered by restoring the same checkpoint again.
+ */
+async function retryRestore(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+): Promise<Exclude<
+  RecoveryDecisionResult,
+  { outcome: "accepted" | "replayed" }
+> | null> {
+  if (
+    session.admissionState !== "recovery_required" ||
+    session.restoreFailureCount < RESTORE_FAILURE_LIMIT ||
+    !hasRestorePoint(session)
+  ) {
+    return {
+      outcome: "not_restore_failed",
+      admissionState: session.admissionState,
+    };
+  }
+  if (session.executionId !== null) return { outcome: "execution_unconfirmed" };
+  if (session.executionRevokedAt !== null) {
+    return { outcome: "execution_revoked" };
+  }
+  const unknown = await earliestUnknownTurn(tx, session.id);
+  if (unknown !== null) {
+    return { outcome: "unknown_turn_left", turnId: unknown };
+  }
+  if (session.workspaceReclaimId !== null) {
+    return { outcome: "workspace_reclaiming" };
+  }
+  const queued = await queuedTurnCount(tx, session.id);
+  await tx
+    .update(sessions)
+    .set({
+      revision: sql`${sessions.revision} + 1`,
+      leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+      admissionState: "active",
+      status: queued > 0 ? "queued" : "idle",
+      ...RESTORE_FAILURES_CLEARED,
+      updatedAt: now,
+      workspaceReclaimedAt: null,
+    })
+    .where(eq(sessions.id, session.id));
+  await signalQueuedInput(tx, session.id, queued, now);
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: queued > 0 ? "queued" : "idle",
+    extra: { admission_state: "active" },
+    turnRowId: null,
+    now,
+  });
+  return null;
 }
 
 async function queuedTurnCount(tx: Database, sessionId: string) {
