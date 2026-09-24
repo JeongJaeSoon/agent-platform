@@ -50,7 +50,7 @@ const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
  */
 const CURL_IMAGE =
   process.env.EGRESS_CURL_TEST_IMAGE ?? "curlimages/curl:8.11.1";
-/** The same tag CI runs as a service, so the pull is a cache hit there. */
+/** CI points it, like the others, at its mirror (ci-image-mirror.yml). */
 const LOCALSTACK_IMAGE =
   process.env.LOCALSTACK_TEST_IMAGE ?? "localstack/localstack:3";
 const REPOSITORY = resolve(import.meta.dir, "../../../../..");
