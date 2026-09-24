@@ -7,8 +7,9 @@
  *   bun run scripts/lib/checkpoint-pins-cli.ts repin <backup>/objects
  *   bun run scripts/lib/checkpoint-pins-cli.ts plans
  *
- * Environment: DATABASE_URL, S3_BUCKET, AWS_ENDPOINT_URL, AWS_REGION,
- * AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Problems go to stderr; exit 1
+ * Environment: DATABASE_URL, S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID,
+ * AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless the store is AWS S3
+ * itself. Problems go to stderr; exit 1
  * when capture or repin refuses, 5 when a plan check fails.
  */
 
@@ -37,6 +38,7 @@ import {
   planRepin,
   sha256Hex,
 } from "./checkpoint-pins.ts";
+import { s3SettingsFromEnv } from "./object-store-cli.ts";
 
 const EXIT_VERIFY_FAILED = 5;
 
@@ -60,12 +62,7 @@ if (
   process.exit(2);
 }
 
-const s3 = {
-  accessKeyId: env("AWS_ACCESS_KEY_ID"),
-  endpoint: env("AWS_ENDPOINT_URL"),
-  region: env("AWS_REGION"),
-  secretAccessKey: env("AWS_SECRET_ACCESS_KEY"),
-};
+const s3 = s3SettingsFromEnv();
 const bucket = env("S3_BUCKET");
 const client = createStorageS3Client({ s3 });
 const objects = createCheckpointObjectStore({ bucket, client });

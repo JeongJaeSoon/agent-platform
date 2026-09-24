@@ -2,7 +2,7 @@
 # Bundles one compose installation into backup-<ts>/:
 #
 #   db.sql          pg_dump of the sessions database (schema + data + journal)
-#   objects/        every object in the S3 bucket, key = path; a key a
+#   objects/        every object in the bucket, key = path; a key a
 #                   checkpoint pins holds the bytes of the pinned version
 #   repos/<o>/<r>.bundle
 #                   `git bundle create --all` of each Gitea bare repository
@@ -12,11 +12,21 @@
 #                   object and repository inventory
 #   SHA256SUMS      over all of the above
 #
-# The source installation is only read. Run it while no session is writing a
-# checkpoint if the DB pointer and the objects must agree to the second; the
-# verify script reports any pointer whose object is missing.
+# The source installation is only read. The writers — api, scheduler, the
+# worker service and every worker container the scheduler launched — must be
+# stopped: a checkpoint committed between pg_dump and the object copy has a
+# pointer without its objects. The backup refuses to start while one runs;
+# --allow-running-writers only warns instead.
+#
+# It is written to backup-<ts>.partial and renamed to backup-<ts> only once
+# complete; a run that fails leaves backup-<ts>.failed.
+#
+# --object-store localstack (default) reads the project's LocalStack; env
+# reads the store the environment names (AWS_REGION, AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless it is AWS S3).
 #
 # Usage: scripts/backup.sh [--project agent-platform] [--out backups] [--bucket claude-sessions]
+#                          [--object-store localstack|env] [--allow-running-writers]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -24,9 +34,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 PROJECT=agent-platform
 OUT="${REPO_ROOT}/backups"
 BUCKET=claude-sessions
+ALLOW_RUNNING_WRITERS=0
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -35,6 +46,8 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --bucket) BUCKET="$2"; shift 2 ;;
+    --object-store) set_object_store "$2"; shift 2 ;;
+    --allow-running-writers) ALLOW_RUNNING_WRITERS=1; shift ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
@@ -42,28 +55,49 @@ done
 
 require_tools docker jq bun
 
-for service in postgres localstack gitea; do
+STORES=(postgres gitea)
+[ "$OBJECT_STORE" = env ] || STORES+=(localstack)
+for service in "${STORES[@]}"; do
   [ -n "$(compose "$PROJECT" ps -q --status running "$service")" ] \
     || die "service '$service' of project '$PROJECT' is not running"
 done
 # pg_dump is consistent on its own; the objects and repositories are copied
 # afterwards, so a checkpoint committed in between has a pointer without its
-# object. Writers should be stopped first (docs/backup-restore.md).
+# object. The scheduler's workers carry its installation label; with no
+# scheduler container left, compose's own default names the installation.
+WRITERS=""
 for service in api scheduler worker; do
-  [ -z "$(compose "$PROJECT" ps -q --status running "$service" 2>/dev/null)" ] \
-    || log "backup: warning — '$service' is running; a checkpoint committed during the backup may be missing its objects"
+  [ -z "$(compose "$PROJECT" ps -q --status running "$service" 2>/dev/null)" ] || WRITERS="$WRITERS $service"
 done
+INSTALLATION="$(inspect_env "$PROJECT" scheduler EXECUTION_INSTALLATION_ID 2>/dev/null || true)"
+INSTALLATION="${INSTALLATION:-${EXECUTION_INSTALLATION_ID:-local}}"
+WORKERS="$(docker ps -q --filter "label=agent-platform.installation=${INSTALLATION}")" \
+  || die "docker ps failed; cannot tell whether workers of installation ${INSTALLATION} run"
+[ -z "$WORKERS" ] || WRITERS="$WRITERS $(printf '%s\n' "$WORKERS" | grep -c .) worker container(s) of installation ${INSTALLATION}"
+if [ -n "$WRITERS" ]; then
+  [ "$ALLOW_RUNNING_WRITERS" = 1 ] \
+    || die "writers are running:${WRITERS}; stop them first (docs/backup-restore.md) or pass --allow-running-writers"
+  log "backup: warning — writers are running:${WRITERS}; a checkpoint committed during the backup may be missing its objects"
+fi
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-DEST="${OUT}/backup-${TS}"
+FINAL="${OUT}/backup-${TS}"
+DEST="${FINAL}.partial"
 umask 077
 mkdir -p "$OUT"
+[ ! -e "$FINAL" ] || die "refusing to overwrite existing $FINAL"
 # A plain mkdir is the reservation: two backups started in the same second
 # get the same name, and the one that loses the mkdir stops here instead of
 # interleaving its files with the winner's.
 mkdir "$DEST" 2>/dev/null || die "refusing to overwrite existing $DEST"
+# Only a complete backup gets the plain name; whatever else ends this run
+# leaves a name nobody can take for one.
+trap 'status=$?
+if [ "$status" -ne 0 ] && [ -d "$DEST" ] && [ ! -e "${FINAL}.failed" ]; then
+  mv "$DEST" "${FINAL}.failed" && log "backup: failed; what it wrote is in ${FINAL}.failed"
+fi' EXIT
 mkdir "$DEST/objects" "$DEST/repos" "$DEST/gitea"
-log "backup: project=$PROJECT -> $DEST"
+log "backup: project=$PROJECT store=$OBJECT_STORE -> $FINAL"
 
 # --- database -------------------------------------------------------------
 PG_USER="$(container_env "$PROJECT" postgres POSTGRES_USER)"
@@ -87,13 +121,10 @@ elif [ "$HEAD_TAG" != "$CHECKOUT_HEAD" ]; then
 fi
 
 # --- objects ---------------------------------------------------------------
-# Per-process, so concurrent backups of one project do not share a stage.
-STAGE="/tmp/ap-backup-${TS}-$$"
-compose "$PROJECT" exec -T localstack sh -c \
-  "rm -rf '$STAGE' && mkdir -p '$STAGE' && awslocal s3 sync 's3://${BUCKET}' '$STAGE' --quiet"
-compose "$PROJECT" cp "localstack:${STAGE}/." "$DEST/objects/"
-compose "$PROJECT" exec -T localstack rm -rf "$STAGE"
-# The sync copied what each key holds now. A checkpoint names a version, and
+object_store "$PROJECT" "$BUCKET" download "$DEST/objects" >/dev/null \
+  || die "objects of bucket ${BUCKET} could not be downloaded"
+ENDPOINT="$(object_store_endpoint "$PROJECT" "$BUCKET")"
+# The download copied what each key holds now. A checkpoint names a version, and
 # the key may have moved on (overwritten, delete-marked) since it committed;
 # the backup must carry the bytes the checkpoint pinned, or refuse.
 checkpoint_pins "$PROJECT" "$BUCKET" capture "$DEST/objects" >/dev/null \
@@ -109,9 +140,11 @@ COLLECTED="$(psql_in "$PROJECT" -Atc \
 [ "$COLLECTED" = 0 ] \
   || die "checkpoint GC collected $COLLECTED checkpoint(s) while this backup ran, so db.sql names objects the backup lacks; back up again with checkpoint GC stopped"
 OBJECT_COUNT="$(find "$DEST/objects" -type f | wc -l | tr -d ' ')"
-log "backup: objects/ $OBJECT_COUNT objects from s3://${BUCKET}"
+log "backup: objects/ $OBJECT_COUNT objects from ${BUCKET} at ${ENDPOINT:-AWS S3}"
 
 # --- gitea -----------------------------------------------------------------
+# Per-process, so concurrent backups of one project do not share a stage.
+STAGE="/tmp/ap-backup-${TS}-$$"
 # One shell inside the container: sqlite's online backup for a consistent DB
 # file, then one bundle per repository. Repositories without a single ref
 # cannot be bundled (git refuses an empty bundle) and are listed instead so
@@ -194,7 +227,9 @@ jq -n \
   --argjson applied "$APPLIED_JSON" \
   --arg pg_db "$PG_DB" \
   --arg pg_user "$PG_USER" \
+  --arg store "$OBJECT_STORE" \
   --arg bucket "$BUCKET" \
+  --arg endpoint "$ENDPOINT" \
   --argjson object_count "$OBJECT_COUNT" \
   --argjson repos "$REPOS_JSON" \
   --argjson empty_repos "$EMPTY_REPOS_JSON" \
@@ -206,12 +241,14 @@ jq -n \
     schema: { head_tag: $head_tag, applied: $applied },
     db: { name: $pg_db, user: $pg_user, file: "db.sql", server: $pg_version },
     gitea: { version: $gitea_version, dir: "gitea" },
-    objects: { bucket: $bucket, count: $object_count, dir: "objects" },
+    objects: { store: $store, bucket: $bucket, endpoint: $endpoint, count: $object_count, dir: "objects" },
     repos: { bundled: $repos, empty: $empty_repos, dir: "repos" },
     images: $images
   }' > "$DEST/manifest.json"
 rm -f "$DEST/gitea/empty-repos" "$DEST/gitea/bundled-repos"
 
 write_checksums "$DEST"
-log "backup: done -> $DEST (schema head $HEAD_TAG, $OBJECT_COUNT objects)"
-printf '%s\n' "$DEST"
+mv "$DEST" "$FINAL"
+DEST="$FINAL"
+log "backup: done -> $FINAL (schema head $HEAD_TAG, $OBJECT_COUNT objects)"
+printf '%s\n' "$FINAL"

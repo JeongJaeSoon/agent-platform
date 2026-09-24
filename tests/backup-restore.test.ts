@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -44,9 +51,14 @@ async function checkoutMigrations() {
   );
 }
 
-async function bash(script: string, cwd: string) {
+async function bash(
+  script: string,
+  cwd: string,
+  env: Record<string, string> = {},
+) {
   const handle = Bun.spawn(["bash", "-c", script], {
     cwd,
+    env: { ...process.env, ...env },
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -62,6 +74,7 @@ async function withManifest(
   applied: { hash: string; when: string }[],
   run: (dir: string, manifest: string) => Promise<void>,
   version = 1,
+  objects: Record<string, unknown> = { bucket: "claude-sessions", count: 0 },
 ) {
   const dir = await mkdtemp(join(tmpdir(), "backup-restore-"));
   try {
@@ -71,7 +84,7 @@ async function withManifest(
       JSON.stringify({
         version,
         schema: { head_tag: "fixture", applied },
-        objects: { bucket: "claude-sessions", count: 0 },
+        objects,
         repos: { bundled: [], empty: [] },
         source: { project: "fixture" },
       }),
@@ -273,6 +286,320 @@ describe("restore.sh preflight", () => {
       expect(result.stderr).toContain("project name must match");
     });
   });
+});
+
+type FakeBucket = {
+  readonly deleteMarkers?: number;
+  readonly encryption?: string;
+  readonly objectLock?: boolean;
+  readonly versioning?: "Enabled" | "Suspended";
+  readonly versions?: number;
+};
+
+/**
+ * Just enough of S3 for `check-target`, over HTTP so the production adapter
+ * talks to it unchanged: the bucket's versioning, Object Lock and default
+ * encryption, and its version listing. Anything else is answered 501 and
+ * recorded, so a test can tell that nothing was written.
+ */
+function fakeS3(buckets: Record<string, FakeBucket>) {
+  const requests: string[] = [];
+  const xml = (body: string, status = 200) =>
+    new Response(`<?xml version="1.0" encoding="UTF-8"?>\n${body}`, {
+      headers: { "content-type": "application/xml" },
+      status,
+    });
+  const notFound = (code: string) =>
+    xml(`<Error><Code>${code}</Code><Message>${code}</Message></Error>`, 404);
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      requests.push(`${request.method} ${url.pathname}${url.search}`);
+      const bucket = buckets[url.pathname.split("/")[1] ?? ""];
+      if (request.method !== "GET" || bucket === undefined) {
+        return new Response("not implemented", { status: 501 });
+      }
+      const ns = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"';
+      if (url.searchParams.has("versioning")) {
+        return xml(
+          `<VersioningConfiguration ${ns}>${bucket.versioning ? `<Status>${bucket.versioning}</Status>` : ""}</VersioningConfiguration>`,
+        );
+      }
+      if (url.searchParams.has("object-lock")) {
+        return bucket.objectLock
+          ? xml(
+              `<ObjectLockConfiguration ${ns}><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`,
+            )
+          : notFound("ObjectLockConfigurationNotFoundError");
+      }
+      if (url.searchParams.has("encryption")) {
+        return bucket.encryption
+          ? xml(
+              `<ServerSideEncryptionConfiguration ${ns}><Rule><ApplyServerSideEncryptionByDefault><SSEAlgorithm>${bucket.encryption}</SSEAlgorithm></ApplyServerSideEncryptionByDefault></Rule></ServerSideEncryptionConfiguration>`,
+            )
+          : notFound("ServerSideEncryptionConfigurationNotFoundError");
+      }
+      if (url.searchParams.has("versions")) {
+        const entry = (tag: string, index: number) =>
+          `<${tag}><Key>sessions/s/${tag}-${index}</Key><VersionId>v${index}</VersionId><IsLatest>true</IsLatest></${tag}>`;
+        return xml(
+          `<ListVersionsResult ${ns}><Name>b</Name><IsTruncated>false</IsTruncated>${Array.from(
+            { length: bucket.versions ?? 0 },
+            (_, i) => entry("Version", i),
+          ).join("")}${Array.from(
+            { length: bucket.deleteMarkers ?? 0 },
+            (_, i) => entry("DeleteMarker", i),
+          ).join("")}</ListVersionsResult>`,
+        );
+      }
+      return new Response("not implemented", { status: 501 });
+    },
+  });
+  return {
+    endpoint: `http://127.0.0.1:${server.port}`,
+    requests,
+    stop: () => server.stop(true),
+  };
+}
+
+const LOCKED: FakeBucket = {
+  encryption: "AES256",
+  objectLock: true,
+  versioning: "Enabled",
+};
+
+describe("restore target bucket (--object-store env)", () => {
+  let s3: ReturnType<typeof fakeS3>;
+
+  beforeEach(() => {
+    s3 = fakeS3({
+      "claude-sessions": { ...LOCKED, versions: 3 },
+      fresh: LOCKED,
+      "has-marker": { ...LOCKED, deleteMarkers: 1 },
+      "has-version": { ...LOCKED, versions: 1 },
+      "no-lock": { encryption: "AES256", versioning: "Enabled" },
+    });
+  });
+
+  afterEach(() => s3.stop());
+
+  const storeEnv = () => ({
+    AWS_ACCESS_KEY_ID: "fixture-key-id",
+    AWS_ENDPOINT_URL: s3.endpoint,
+    AWS_REGION: "ap-northeast-1",
+    AWS_SECRET_ACCESS_KEY: "fixture-key",
+  });
+
+  /** restore.sh --check-only into `bucket`, from a backup of `objects`. */
+  async function restoreInto(
+    bucket: string | undefined,
+    objects: Record<string, unknown>,
+  ) {
+    let result: Awaited<ReturnType<typeof bash>> | undefined;
+    await withManifest(
+      await checkoutMigrations(),
+      async (dir) => {
+        await bash(`source "${lib}"; write_checksums "${dir}"`, repoRoot);
+        result = await bash(
+          `scripts/restore.sh "${dir}" --into backup-restore-test --check-only --object-store env${bucket === undefined ? "" : ` --bucket ${bucket}`}`,
+          repoRoot,
+          storeEnv(),
+        );
+      },
+      1,
+      objects,
+    );
+    if (result === undefined) throw new Error("restore.sh did not run");
+    return result;
+  }
+
+  const writes = () =>
+    s3.requests.filter((request) => !request.startsWith("GET "));
+
+  test("refuses the bucket the backup was taken from, before asking the store anything", async () => {
+    const result = await restoreInto("claude-sessions", {
+      bucket: "claude-sessions",
+      count: 0,
+      endpoint: s3.endpoint.replace("127.0.0.1", "localhost"),
+    });
+    expect(result.stderr).toContain(
+      "is the source installation's bucket; restore only into a new, empty bucket",
+    );
+    expect(result.exitCode).toBe(4);
+    expect(s3.requests).toEqual([]);
+  }, 30_000);
+
+  test("an older backup without an endpoint is refused by the bucket name alone", async () => {
+    const result = await restoreInto("claude-sessions", {
+      bucket: "claude-sessions",
+      count: 0,
+    });
+    expect(result.exitCode).toBe(4);
+    expect(s3.requests).toEqual([]);
+  }, 30_000);
+
+  test("refuses a bucket with one delete marker, writing nothing", async () => {
+    const result = await restoreInto("has-marker", {
+      bucket: "claude-sessions",
+      count: 0,
+      endpoint: "http://127.0.0.1:4566",
+    });
+    expect(result.stderr).toContain(
+      "bucket has-marker is not empty (it has object versions or delete markers)",
+    );
+    expect(result.exitCode).toBe(4);
+    expect(
+      s3.requests.some((r) => /^GET \/has-marker\/\?.*\bversions=/.test(r)),
+    ).toBe(true);
+    expect(writes()).toEqual([]);
+  }, 30_000);
+
+  test("refuses a bucket with one object version, writing nothing", async () => {
+    const result = await restoreInto("has-version", {
+      bucket: "claude-sessions",
+      count: 0,
+      endpoint: "http://127.0.0.1:4566",
+    });
+    expect(result.stderr).toContain("bucket has-version is not empty");
+    expect(result.exitCode).toBe(4);
+    expect(writes()).toEqual([]);
+  }, 30_000);
+
+  test("refuses a bucket without Object Lock", async () => {
+    const result = await restoreInto("no-lock", {
+      bucket: "claude-sessions",
+      count: 0,
+      endpoint: "http://127.0.0.1:4566",
+    });
+    expect(result.stderr).toContain(
+      "bucket no-lock has versioning Enabled and Object Lock not configured; a restore needs both",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(writes()).toEqual([]);
+  }, 30_000);
+
+  test("needs --bucket", async () => {
+    const result = await restoreInto(undefined, {
+      bucket: "claude-sessions",
+      count: 0,
+    });
+    expect(result.stderr).toContain("--object-store env needs --bucket");
+    expect(result.exitCode).toBe(1);
+    expect(s3.requests).toEqual([]);
+  }, 30_000);
+
+  test("accepts a new, empty, locked SSE-S3 bucket", async () => {
+    const result = await bash(
+      `bun run scripts/lib/object-store-cli.ts check-target --source-bucket claude-sessions --source-endpoint http://127.0.0.1:4566`,
+      repoRoot,
+      { ...storeEnv(), S3_BUCKET: "fresh" },
+    );
+    expect(result.stderr).toContain(
+      "bucket fresh is versioned, Object Lock, SSE-S3 and empty",
+    );
+    expect(result.exitCode).toBe(0);
+    expect(writes()).toEqual([]);
+  }, 30_000);
+});
+
+/**
+ * backup.sh's preflight against a `docker` that answers only what it asks
+ * before the first byte is copied: which services and installation-labelled
+ * containers run. Everything else fails, as a dead daemon would.
+ */
+describe("backup.sh writers", () => {
+  let dir: string;
+  let out: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "backup-writers-"));
+    out = join(dir, "backups");
+    await mkdir(join(dir, "bin"));
+    await writeFile(
+      join(dir, "bin", "docker"),
+      [
+        "#!/bin/bash",
+        "for last; do :; done",
+        'case "$*" in',
+        '  *" ps -q --status running "*) case " $FAKE_RUNNING " in *" $last "*) echo "cid-$last" ;; esac ;;',
+        '  *" ps -aq scheduler") [ -z "$FAKE_INSTALLATION" ] || echo cid-scheduler ;;',
+        '  "inspect "*) printf "EXECUTION_INSTALLATION_ID=%s\\n" "$FAKE_INSTALLATION" ;;',
+        '  "ps -q --filter label=agent-platform.installation=$FAKE_WORKERS_OF") echo cid-worker ;;',
+        '  "ps -q --filter "*) ;;',
+        '  *) echo "fake docker: no answer for: $*" >&2; exit 1 ;;',
+        "esac",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  const backup = (env: Record<string, string>, ...args: string[]) =>
+    bash(
+      `PATH="${join(dir, "bin")}:$PATH" scripts/backup.sh --project fixture --out "${out}" ${args.join(" ")}`,
+      repoRoot,
+      { FAKE_RUNNING: "postgres localstack gitea", ...env },
+    );
+
+  const written = async () => {
+    try {
+      return await readdir(out);
+    } catch {
+      return [];
+    }
+  };
+
+  test("refuses while the api runs, before writing anything", async () => {
+    const result = await backup({
+      FAKE_RUNNING: "postgres localstack gitea api scheduler",
+    });
+    expect(result.stderr).toContain(
+      "writers are running: api scheduler; stop them first",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(await written()).toEqual([]);
+  }, 30_000);
+
+  test("refuses while a worker of the scheduler's installation runs", async () => {
+    const result = await backup({
+      FAKE_INSTALLATION: "inst-1",
+      FAKE_WORKERS_OF: "inst-1",
+    });
+    expect(result.stderr).toContain(
+      "writers are running: 1 worker container(s) of installation inst-1",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(await written()).toEqual([]);
+  }, 30_000);
+
+  test("with no scheduler container, looks for compose's default installation", async () => {
+    const result = await backup({ FAKE_WORKERS_OF: "local" });
+    expect(result.stderr).toContain(
+      "worker container(s) of installation local",
+    );
+    expect(result.exitCode).toBe(1);
+  }, 30_000);
+
+  test("--allow-running-writers warns and goes on; the failed run is left as .failed, never as a backup", async () => {
+    const result = await backup(
+      { FAKE_RUNNING: "postgres localstack gitea api" },
+      "--allow-running-writers",
+    );
+    expect(result.stderr).toContain("warning — writers are running: api");
+    // The fake daemon cannot run pg_dump, so the run fails after the
+    // directory was reserved.
+    expect(result.exitCode).not.toBe(0);
+    const names = await written();
+    expect(names).toHaveLength(1);
+    expect(names[0]).toMatch(/^backup-\d{8}T\d{6}Z\.failed$/);
+    expect(result.stderr).toContain(`what it wrote is in ${out}/${names[0]}`);
+  }, 30_000);
 });
 
 describe("verify-restore bundle chain", () => {

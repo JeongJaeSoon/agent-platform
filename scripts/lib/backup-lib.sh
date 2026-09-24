@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Shared by scripts/backup.sh, scripts/restore.sh and scripts/verify-restore.sh.
-# Everything that talks to PostgreSQL, S3 or git runs inside the compose
-# containers, so the host needs only docker (compose v2.24+),
-# git, jq and a sha256 tool. Compose merges with `!override`, so v2.24+.
-# The exception is `checkpoint_pins`, which runs this checkout's bun against
-# the published ports.
+# PostgreSQL and git run inside the compose containers, so the host needs
+# docker (compose v2.24+, for `!override`), git, jq, a sha256 tool, and this
+# checkout's bun: every S3 call goes through the production adapter on the
+# host (`object_store`, `checkpoint_pins`), so the store can be the
+# project's LocalStack or any S3-compatible one.
 
 set -euo pipefail
 
@@ -86,34 +86,70 @@ published_port() {
   printf '%s' "${found##*:}"
 }
 
-# `checkpoint_pins <project> <bucket> <command> [args]`: runs
-# scripts/lib/checkpoint-pins-cli.ts on the host against the project's
-# published postgres and localstack ports, with the credentials those
-# containers were started with. It is the one step that needs the production
-# codec and object store adapter, which only this checkout's bun has.
-checkpoint_pins() {
-  local project="$1" bucket="$2"
+# Where the checkpoint objects live, for `with_object_store`: `localstack`,
+# the compose project's own LocalStack, or `env`, the store the caller's
+# environment names. Each script sets it from --object-store.
+OBJECT_STORE=localstack
+
+# `set_object_store <mode>`: validates and sets OBJECT_STORE.
+set_object_store() {
+  case "$1" in
+    localstack|env) OBJECT_STORE="$1" ;;
+    *) die "--object-store must be localstack or env, not '$1'" ;;
+  esac
+}
+
+# The value of one environment variable a service container was created
+# with, read from the daemon rather than from inside the container. Fails
+# when the service has no container.
+inspect_env() {
+  local project="$1" service="$2" name="$3" cid
+  cid="$(compose "$project" ps -aq "$service" </dev/null | head -n1)"
+  [ -n "$cid" ] || return 1
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid" | sed -n "s/^${name}=//p" | head -n1
+}
+
+# `with_object_store <project> <bucket> <command> [args]`: runs the command
+# with S3_BUCKET and the AWS_* settings of $OBJECT_STORE. `localstack` is the
+# project's LocalStack on its published port, with the credentials the
+# container was started with. `env` is the caller's own AWS_REGION,
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_ENDPOINT_URL, the
+# variables the API reads; no AWS_ENDPOINT_URL means AWS S3 itself.
+with_object_store() {
+  local project="$1" bucket="$2" name port region key_id key
   shift 2
-  local pg_port s3_port pg_user pg_db pg_password
-  pg_port="$(published_port "$project" postgres 5432)" || die "postgres of '$project' publishes no port"
-  s3_port="$(published_port "$project" localstack 4566)" || die "localstack of '$project' publishes no port"
-  pg_user="$(container_env "$project" postgres POSTGRES_USER)"
-  pg_db="$(container_env "$project" postgres POSTGRES_DB)"
-  pg_password="$(container_env "$project" postgres POSTGRES_PASSWORD)"
-  # bun leaves the pipes it wrote to non-blocking. Handed the caller's own
-  # stdout or stderr, and the caller merging them into one pipe (`2>&1 |`),
-  # the script's next write larger than the pipe has room for fails with
-  # EAGAIN and the whole run exits 1. So bun only ever gets descriptors of
-  # its own: a file for stdout, a pipe that cat drains for stderr.
+  if [ "$OBJECT_STORE" = env ]; then
+    for name in AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+      [ -n "${!name:-}" ] || die "--object-store env needs $name in the environment"
+    done
+    S3_BUCKET="$bucket" "$@"
+    return
+  fi
+  port="$(published_port "$project" localstack 4566)" || die "localstack of '$project' publishes no port"
+  region="$(inspect_env "$project" localstack AWS_DEFAULT_REGION)" || die "project '$project' has no localstack container"
+  key_id="$(inspect_env "$project" localstack AWS_ACCESS_KEY_ID)" || die "project '$project' has no localstack container"
+  key="$(inspect_env "$project" localstack AWS_SECRET_ACCESS_KEY)" || die "project '$project' has no localstack container"
+  AWS_ENDPOINT_URL="http://127.0.0.1:${port}" AWS_REGION="$region" \
+    AWS_ACCESS_KEY_ID="$key_id" AWS_SECRET_ACCESS_KEY="$key" \
+    S3_BUCKET="$bucket" "$@"
+}
+
+# The endpoint `with_object_store` hands the CLIs, empty for AWS S3; recorded
+# in the backup so a restore can refuse the source's own bucket.
+object_store_endpoint() {
+  with_object_store "$1" "$2" sh -c 'printf "%s" "${AWS_ENDPOINT_URL:-}"'
+}
+
+# `bun_script <script> [args]`: this checkout's bun on the host. bun leaves
+# the pipes it wrote to non-blocking. Handed the caller's own stdout or
+# stderr, and the caller merging them into one pipe (`2>&1 |`), the script's
+# next write larger than the pipe has room for fails with EAGAIN and the
+# whole run exits 1. So bun only ever gets descriptors of its own: a file for
+# stdout, a pipe that cat drains for stderr.
+bun_script() {
   local out status=0
   out="$(mktemp)"
-  if DATABASE_URL="postgresql://$(uri_escape "$pg_user"):$(uri_escape "$pg_password")@127.0.0.1:${pg_port}/$(uri_escape "$pg_db")" \
-    AWS_ENDPOINT_URL="http://127.0.0.1:${s3_port}" \
-    AWS_REGION="$(container_env "$project" localstack AWS_DEFAULT_REGION)" \
-    AWS_ACCESS_KEY_ID="$(container_env "$project" localstack AWS_ACCESS_KEY_ID)" \
-    AWS_SECRET_ACCESS_KEY="$(container_env "$project" localstack AWS_SECRET_ACCESS_KEY)" \
-    S3_BUCKET="$bucket" \
-    bun run "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@" </dev/null >"$out" 2> >(cat >&2); then
+  if bun run "$@" </dev/null >"$out" 2> >(cat >&2); then
     status=0
   else
     status=$?
@@ -121,6 +157,31 @@ checkpoint_pins() {
   cat "$out"
   rm -f "$out"
   return "$status"
+}
+
+# `object_store <project> <bucket> <command> [args]`: one step of
+# scripts/lib/object-store-cli.ts against the chosen store.
+object_store() {
+  local project="$1" bucket="$2"
+  shift 2
+  with_object_store "$project" "$bucket" bun_script "${REPO_ROOT}/scripts/lib/object-store-cli.ts" "$@"
+}
+
+# `checkpoint_pins <project> <bucket> <command> [args]`: runs
+# scripts/lib/checkpoint-pins-cli.ts against the project's published
+# postgres port, with the credentials that container was started with, and
+# the chosen store. It is the one step that needs the production codec,
+# which only this checkout's bun has.
+checkpoint_pins() {
+  local project="$1" bucket="$2"
+  shift 2
+  local pg_port pg_user pg_db pg_password
+  pg_port="$(published_port "$project" postgres 5432)" || die "postgres of '$project' publishes no port"
+  pg_user="$(container_env "$project" postgres POSTGRES_USER)"
+  pg_db="$(container_env "$project" postgres POSTGRES_DB)"
+  pg_password="$(container_env "$project" postgres POSTGRES_PASSWORD)"
+  DATABASE_URL="postgresql://$(uri_escape "$pg_user"):$(uri_escape "$pg_password")@127.0.0.1:${pg_port}/$(uri_escape "$pg_db")" \
+    with_object_store "$project" "$bucket" bun_script "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@"
 }
 
 uri_escape() {
