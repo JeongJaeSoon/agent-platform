@@ -827,8 +827,8 @@ export function createWorkerGateway(deps: {
       if (request.purpose === "provider") {
         // The engine's own calls are also held to the limit by the SDK's
         // budget, but a tool that calls the route directly with the engine's
-        // token is counted nowhere; a session past its limit gets no more
-        // provider calls at all (94S-394).
+        // token is counted nowhere; a session past its limit gets no new
+        // provider exchange, and the proxy's regrant cuts an open one (94S-394).
         if (budgetExceeded(result.costUsd, deps.options.sessionCostLimitUsd)) {
           throw new WorkerGatewayError(
             403,

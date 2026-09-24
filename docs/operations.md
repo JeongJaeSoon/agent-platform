@@ -472,7 +472,7 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 - 비용 상한은 turn이 끝난 뒤에 판정한다. 그래서 진행 중인 turn은 상한을 넘을 수 있다.
 - 비용이 보고되지 않은 turn(`outcome_unknown` 등)은 0으로 더해진다.
-- 누적 비용이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 도구가 engine의 token으로 Messages route를 직접 부르는 호출은 SDK `total_cost_usd`에 잡히지 않는다. 그래서 상한 전의 직접 호출은 세지 못하지만, 상한을 넘긴 뒤에는 어떤 provider 호출도 나가지 않는다. repository·object store route는 거절하지 않는다.
+- 누적 비용이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 도구가 engine의 token으로 Messages route를 직접 부르는 호출은 SDK `total_cost_usd`에 잡히지 않는다. 그래서 상한 전의 직접 호출은 세지 못한다. 상한을 넘긴 뒤에는 새 provider 교환이 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
 
 ## 이미지와 Compose `apps` profile
 
