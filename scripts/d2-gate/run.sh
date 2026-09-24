@@ -6,8 +6,8 @@
 # Builds the control-host, worker and egress-proxy images from this
 # checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
-# then runs tests/d2-gate.e2e.test.ts and tests/d2-gate/reconciler-sweep.e2e.test.ts
-# against it. The report (JSON and
+# then runs tests/d2-gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
+# and tests/d2-gate/control-host-roles.e2e.test.ts against it. The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
@@ -113,5 +113,8 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
 fi
 # The gate, then 94S-320's recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
+# Last, 94S-117's role checks, which restart the services and stop
+# PostgreSQL: nothing may run after them on this stack.
 bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  tests/d2-gate/control-host-roles.e2e.test.ts \
   --timeout 1800000 2>&1 | tee "$out/test.log"

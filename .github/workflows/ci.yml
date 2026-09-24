@@ -260,6 +260,19 @@ jobs:
                 test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
               - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
                 test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
+              # 94S-117's control host roles, on the same kept stack.
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "(unnamed)"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H1: one image runs the three roles and only the scheduler holds the Docker socket"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H2: a scheduler restarted mid-turn ends no worker and launches none twice"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H3: the api and reconciler come back from a restart and the session takes its next turn"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
     # An empty image skips the service, so each job starts only its own.
     services:
       postgres:
