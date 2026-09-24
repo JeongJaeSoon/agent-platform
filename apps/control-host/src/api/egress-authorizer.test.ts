@@ -31,7 +31,7 @@ beforeEach(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await migrate(db, {
-    migrationsFolder: `${import.meta.dir}/../../../packages/db/migrations`,
+    migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
   });
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),

@@ -55,7 +55,7 @@ RUN target="$(bun -e 'import { resolvePinnedClaudeExecutable } from "./packages/
 USER 1000:1000
 ENV NODE_ENV=production
 VOLUME ["/workspace"]
-# An init as PID 1, as in apps/api/Dockerfile: a git the workspace code
+# An init as PID 1, as in apps/control-host/Dockerfile: a git the workspace code
 # kills at its deadline and the tool processes Claude Code leaves behind are
 # reparented to PID 1, and bun never reaps children it did not spawn, so
 # under bun each stays a zombie for the session's life. tini reaps them and

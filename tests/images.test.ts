@@ -6,7 +6,7 @@ import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
 import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
-} from "../apps/api/src/shutdown.ts";
+} from "../apps/control-host/src/api/shutdown.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -14,9 +14,9 @@ import {
 // images is images.yml's job.
 
 const root = join(import.meta.dir, "..");
-const apps = ["api", "scheduler", "worker", "egress-proxy"] as const;
+const apps = ["control-host", "worker", "egress-proxy"] as const;
 /** The apps with a workspace install; the egress proxy imports nothing. */
-const installingApps = ["api", "scheduler", "worker"] as const;
+const installingApps = ["control-host", "worker"] as const;
 const EXAMPLE_ENV_PATH = ".env.example";
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -70,7 +70,7 @@ describe("app Dockerfiles", () => {
 
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
-    for (const app of ["api", "scheduler"] as const) {
+    for (const app of ["control-host"] as const) {
       expect(basePins[app].source).toContain(
         "test ! -e node_modules/@anthropic-ai",
       );
@@ -93,6 +93,19 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(graceSeconds * 1000).toBeGreaterThan(
       SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS,
     );
+  });
+
+  test("no two services build the same image tag", () => {
+    // Two builds exporting one tag race: "image ... already exists".
+    const { services } = Bun.YAML.parse(compose) as {
+      services: Record<string, { build?: unknown; image?: string }>;
+    };
+    const built = Object.values(services)
+      .filter((service) => service.build && service.image)
+      .map((service) => service.image);
+    expect(new Set(built).size).toBe(built.length);
+    expect(services.scheduler?.build).toBeUndefined();
+    expect(services.scheduler?.image).toBe(services.api?.image);
   });
 
   test("the scheduler loop surfaces persistent failure", () => {
@@ -126,10 +139,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the API image itself runs under an init that reaps the git helpers it orphans", () => {
     // In the image, not compose, so `docker run` and other orchestrators get
     // it too; image-smoke.sh checks the running container.
-    expect(basePins.api.source).toMatch(
+    expect(basePins["control-host"].source).toMatch(
       /^ENTRYPOINT \["\/usr\/bin\/tini", "-s", "--", "\/usr\/local\/bin\/docker-entrypoint\.sh"\]$/m,
     );
-    expect(basePins.api.source).toMatch(/apt-get install .*\btini\b/);
+    expect(basePins["control-host"].source).toMatch(
+      /apt-get install .*\btini\b/,
+    );
   });
 
   test("the API's memory limit and git cap are set side by side", () => {
@@ -171,15 +186,15 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // It runs the image the api service builds rather than building the
     // same tag a second time, which races the api build on export.
     const { api, reconciler } = composeServices("infra/docker-compose.yml");
-    expect(api?.build?.dockerfile).toBe("apps/api/Dockerfile");
+    expect(api?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
     expect(reconciler?.build).toBeUndefined();
     expect(reconciler?.image).toBe(api?.image);
     expect(reconcilerBlock).toContain(
-      'command: ["bun", "run", "apps/reconciler/src/loop.ts"]',
+      'command: ["bun", "run", "apps/control-host/src/reconciler/loop.ts"]',
     );
     expect(reconcilerBlock).toContain("restart: unless-stopped");
     expect(reconcilerBlock).toContain(
-      'test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]',
+      'test: ["CMD", "bun", "run", "apps/control-host/src/reconciler/health.ts"]',
     );
     for (const name of [
       "RECONCILER_INTERVAL_SEC",
@@ -198,8 +213,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test("images.yml builds every app and pushes only on tags", () => {
     const workflow = read(".github/workflows/images.yml");
-    expect(workflow).toContain("app: [api, worker, scheduler, egress-proxy]");
-    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 4');
+    expect(workflow).toContain("app: [control-host, worker, egress-proxy]");
+    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 3');
     expect(workflow).toContain('tags: ["v*"]');
     // The PR-facing job never pushes and never holds package write; only
     // the tag-gated job does.
@@ -333,7 +348,8 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
       .map((service) => service.image)
       .filter((image) => image?.startsWith("oven/bun:"));
     expect(bunImages.length).toBeGreaterThan(0);
-    for (const image of bunImages) expect(image).toBe(basePins.api.pin);
+    for (const image of bunImages)
+      expect(image).toBe(basePins["control-host"].pin);
   });
 
   test("the egress proxy runs its released image, not a mounted source tree", () => {

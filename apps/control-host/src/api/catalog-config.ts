@@ -21,7 +21,10 @@ import { parse as parseYaml } from "yaml";
 // the file and path, never a value.
 
 /** The repository's own `config/`, wherever the process was started from. */
-export const DEFAULT_CONFIG_DIR = resolve(import.meta.dir, "../../../config");
+export const DEFAULT_CONFIG_DIR = resolve(
+  import.meta.dir,
+  "../../../../config",
+);
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
 // One bounded read per secret at startup; the API does not start without

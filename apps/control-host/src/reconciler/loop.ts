@@ -261,7 +261,12 @@ if (import.meta.main) {
   });
   process.exitCode = await runPassLoop({
     name: "Reconciler",
-    command: [process.execPath, "run", join(import.meta.dir, "main.ts")],
+    command: [
+      process.execPath,
+      "run",
+      join(import.meta.dir, "..", "main.ts"),
+      "reconciler",
+    ],
     config,
     logger,
     signal: shutdown.signal,

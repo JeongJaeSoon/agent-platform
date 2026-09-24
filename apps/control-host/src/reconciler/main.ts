@@ -86,7 +86,3 @@ export function reconcileOnce(
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
   });
 }
-
-if (import.meta.main) {
-  await main();
-}

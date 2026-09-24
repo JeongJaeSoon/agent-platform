@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createReadinessProbe, type QueryRunner } from "./readiness.ts";
 
-const migrationsFolder = `${import.meta.dir}/../../../packages/db/migrations`;
+const migrationsFolder = `${import.meta.dir}/../../../../packages/db/migrations`;
 const databases: PGlite[] = [];
 
 async function database(migrated: boolean): Promise<PGlite> {

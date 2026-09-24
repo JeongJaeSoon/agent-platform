@@ -63,7 +63,7 @@ services:
   migrate:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/control-host/Dockerfile
     command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
@@ -189,7 +189,7 @@ services:
     environment:
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
       # api:3000 is the compose-run API (`apps` profile); host.docker.internal
-      # stays for an API started on the host with `bun run --cwd apps/api start`.
+      # stays for an API started on the host with `bun run --cwd apps/control-host start`.
       # localstack:4566 is the worker's object store (94S-244);
       # fake-messages:4010 is the example profile's Messages API (94S-132).
       # `secrets` is deliberately absent.
@@ -226,15 +226,15 @@ services:
   api:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
-    image: ${API_IMAGE:-agent-platform-api:dev}
+      dockerfile: apps/control-host/Dockerfile
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
     # Docker's default 10s would SIGKILL a shutdown that may run to
     # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
-    # apps/api/src/shutdown.ts); one open SSE stream is enough to use the
+    # apps/control-host/src/api/shutdown.ts); one open SSE stream is enough to use the
     # whole drain. Keep this above the sum.
     stop_grace_period: 45s
-    # No `init: true`: the image's own ENTRYPOINT is tini (apps/api/Dockerfile),
+    # No `init: true`: the image's own ENTRYPOINT is tini (apps/control-host/Dockerfile),
     # so the git helpers the checkpoint verifier orphans are reaped wherever
     # the image runs, not only here.
     #
@@ -274,7 +274,7 @@ services:
       # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
       # any X-Owner-Id as the caller's identity, so a compromised worker could
       # act as any owner. Issue a key with
-      # `docker compose exec api bun run apps/api/src/keys.ts create <owner>
+      # `docker compose exec api bun run apps/control-host/src/api/keys.ts create <owner>
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
@@ -371,18 +371,23 @@ services:
   # bound — and a killed pass counts as a failure too, since Docker never
   # restarts a container for being unhealthy.
   scheduler:
-    build:
-      context: ..
-      dockerfile: apps/scheduler/Dockerfile
-    image: ${SCHEDULER_IMAGE:-agent-platform-scheduler:dev}
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
+    # The control-host image's scheduler role. `api` builds that image, and
+    # depends_on a healthy api orders the build before this container.
+    # Root on purpose: the process owns the Docker socket, and whoever
+    # holds that socket is root on the daemon host anyway. The socket's
+    # group id differs per daemon (Desktop, colima, Linux), so a fixed
+    # non-root uid would only work on some of them while buying no
+    # isolation on any.
+    user: "0:0"
     command:
       - sh
       - -c
       - |
         fails=0
         while :; do
-          if timeout -k 10 "$${SCHEDULER_PASS_TIMEOUT_SEC:-120}" bun run apps/scheduler/src/main.ts; then
+          if timeout -k 10 "$${SCHEDULER_PASS_TIMEOUT_SEC:-120}" bun run apps/control-host/src/main.ts scheduler; then
             fails=0
             touch /tmp/scheduler-last-ok
           else
@@ -460,7 +465,7 @@ services:
 
   # Lease expiry, overdue interrupts and terminations, and orphan sessions are
   # recovered by nothing else, so this runs by default with the other apps
-  # (94S-320). apps/reconciler/src/loop.ts runs one pass per child process
+  # (94S-320). apps/control-host/src/reconciler/loop.ts runs one pass per child process
   # every RECONCILER_INTERVAL_SEC, kills a pass that outlives
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after
   # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
@@ -481,12 +486,12 @@ services:
   # service building the same tag races it on export. Starting it on its own
   # needs that image first (`docker compose build api`).
   reconciler:
-    image: ${API_IMAGE:-agent-platform-api:dev}
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
     profiles: ["apps"]
-    command: ["bun", "run", "apps/reconciler/src/loop.ts"]
+    command: ["bun", "run", "apps/control-host/src/reconciler/loop.ts"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "bun", "run", "apps/reconciler/src/health.ts"]
+      test: ["CMD", "bun", "run", "apps/control-host/src/reconciler/health.ts"]
       interval: 10s
       timeout: 5s
       retries: 3

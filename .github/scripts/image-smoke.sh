@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke for one app image: `image-smoke.sh <api|worker|scheduler|egress-proxy> <image ref>`.
+# Smoke for one app image: `image-smoke.sh <control-host|worker|egress-proxy> <image ref>`.
 # Shared by images.yml's build (loaded image) and publish (the digest that
 # was actually pushed) jobs so both check the same things.
 set -euo pipefail
@@ -182,13 +182,14 @@ case "$app" in
     docker run --rm --entrypoint /bin/sh "$image" -c \
       'xfs_io -V && xfs_quota -V && command -v awk sed stat mknod mkdir >/dev/null'
     ;;
-  api)
+  control-host)
     # git: the checkpoint bundle verifier spawns it (94S-201).
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
     api_init_smoke "$image"
-    ;;
-  scheduler)
-    docker run --rm "$image" sh -c 'test ! -e node_modules/@anthropic-ai && bun --version'
+    # One executable for every role; it refuses to guess one.
+    if docker run --rm "$image" bun run apps/control-host/src/main.ts >/dev/null 2>&1; then
+      echo "expected the executable to refuse a missing role" >&2; exit 1
+    fi
     ;;
   egress-proxy)
     egress_proxy_smoke "$image"

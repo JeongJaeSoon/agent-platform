@@ -93,7 +93,7 @@ echo "== build + up (${project})" >&2
 dc up -d --build >"$out/up.log" 2>&1 || { tail -50 "$out/up.log" >&2; exit 1; }
 
 echo "== key" >&2
-api_key="$(dc exec -T api bun run apps/api/src/keys.ts create e2e-owner \
+api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create e2e-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
 
 image_id() { docker image inspect --format '{{.Id}}' "$1"; }
