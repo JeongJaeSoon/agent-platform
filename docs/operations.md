@@ -464,7 +464,11 @@ digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다
    - GPL-2.0 §3은 상업적 배포에서 소스를 함께 주거나(a) 3년 이상 유효한 서면 제공 약속을 붙이라고 한다(b). 이미지를 받은 곳에서 소스도 받게 하는 것도 소스 배포로 친다(§3 마지막 단락). 제3자 서버는 명시돼 있지 않다. https://www.gnu.org/licenses/old-licenses/gpl-2.0.html#section3
    - GPL-3.0 §6(d)는 다른 서버를 허용하지만, 필요한 기간 동안 그 소스가 계속 있도록 배포자가 보장해야 한다. snapshot.debian.org는 우리가 보장할 수 있는 서버가 아니다. https://www.gnu.org/licenses/gpl-3.0.html#section6
    - FSF FAQ: https://www.gnu.org/licenses/gpl-faq.html#SourceAndBinaryOnDifferentSites , https://www.gnu.org/licenses/gpl-faq.html#AnonFTPAndSendSources
-   - 부족하다면 대안은 둘이다. 하나는 written offer를 붙이는 것으로, 연락 경로를 사람이 정해야 한다. 다른 하나는 릴리스마다 대응 소스를 받아 이미지와 같은 registry에 함께 올리는 것으로, 저장 비용과 CI 시간이 든다.
+   - 부족하다면 아래에서 고른다. 오케스트레이터 결정(2026-09-24)은 외부 공개 전까지 지금 방식을 유지하고, 법률 검토 결과에 따라 D나 B를 고르는 것이다. 개인 이메일은 쓰지 않는다.
+     - A. written offer, 연락 경로는 이 저장소의 GitHub issue("소스 요청"). 비용은 없다. 저장소와 계정을 3년 동안 유지해야 한다.
+     - B. written offer, 연락 경로는 역할 주소(oss@<회사 도메인>). 도메인과 메일함을 만들어 운영해야 한다.
+     - C. written offer, 연락 경로는 법인 우편 주소. 법인이 있어야 한다.
+     - D. written offer 없이 릴리스마다 대응 소스를 받아 이미지와 같은 registry(ghcr)에 함께 올린다. GPL-2.0 §3의 "같은 곳"에 해당하는 가장 강한 방식이다. 저장 비용과 CI 시간이 든다.
 2. **Bun의 LGPL-2.1 정적 링크(JavaScriptCore·WebCore·TinyCC)를 Oven이 공개한 소스와 빌드 절차로 충족하는가.** (지금: Bun commit, WebKit·TinyCC commit, 재링크 절차 링크, 이미지 안의 LGPL-2.1 전문을 적는다.)
    - 근거는 LGPL-2.1 §6이다. 재링크할 수 있는 형태를 주거나, (c) 3년 이상 유효한 서면 제공 약속을 붙이거나, (d) 같은 곳에서 받을 수 있게 해야 한다. https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html#SEC6
    - Bun은 전체가 공개 소스(MIT)라서 누구나 다시 빌드할 수 있다. 그래도 소스는 우리 서버가 아니라 GitHub(oven-sh)에 있다. 이 점은 질문 1과 같은 쟁점이다.
