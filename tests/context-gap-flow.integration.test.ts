@@ -406,6 +406,10 @@ integration(
       ).session_id;
       const partition = `context-gap-e2e-${crypto.randomUUID()}`;
       await db
+        .update(schema.sessions)
+        .set({ partition })
+        .where(eq(schema.sessions.id, sessionId));
+      await db
         .update(unassignedSessions)
         .set({ partition })
         .where(eq(unassignedSessions.sessionId, sessionId));

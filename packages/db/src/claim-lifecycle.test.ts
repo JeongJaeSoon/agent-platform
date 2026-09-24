@@ -151,6 +151,7 @@ async function queuedSession(partition = "default"): Promise<string> {
     branch: RUNNABLE.branch,
     id,
     ownerId: "owner-a",
+    partition,
     profileId: PROFILE,
     repoUrl: RUNNABLE.url,
     repositoryId: RUNNABLE.repositoryId,
@@ -348,35 +349,14 @@ describe("claim lifecycle", () => {
     ).toEqual([{ partition }]);
   });
 
-  test("the partition a session goes back to is the one it was last claimed in, whatever generation a pool launch carries", async () => {
-    const backend = new NonceHoldingBackend();
+  test("a claim never moves a session: a pool worker in another partition cannot take it, even with its signal rewritten there", async () => {
     const first = `p-${crypto.randomUUID()}`;
     const sessionId = await queuedSession(first);
-    const [gen1] = (await pass(backend)).launched;
-    if (!gen1) throw new Error("nothing launched");
-    expect((await claim(gen1, backend.nonceOf(gen1))).outcome).toBe("claimed");
-    await db
-      .update(turns)
-      .set({ status: "completed" })
-      .where(eq(turns.sessionId, sessionId));
-    await work.confirmExecutionGoneAtomic({
-      executionId: gen1.executionId,
-      now: new Date(),
-    });
-
-    // The exit came before any input was asked for; its startup backoff is
-    // spent here rather than waited out (94S-347).
-    await db
-      .update(sessions)
-      .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
-      .where(eq(sessions.id, sessionId));
-
-    // Signalled into another partition, the session is claimed there by a
-    // pool worker whose launch is numbered below the scheduler's.
     const second = `p-${crypto.randomUUID()}`;
     await db
-      .insert(unassignedSessions)
-      .values({ sessionId, partition: second });
+      .update(unassignedSessions)
+      .set({ partition: second })
+      .where(eq(unassignedSessions.sessionId, sessionId));
     const pool = { executionId: `exec-${crypto.randomUUID()}`, generation: 0 };
     const nonce = `nonce-${crypto.randomUUID()}`;
     await work.registerLaunchAtomic({
@@ -388,21 +368,14 @@ describe("claim lifecycle", () => {
       partition: second,
       sessionId: null,
     });
-    expect((await claim(pool, nonce)).outcome).toBe("claimed");
-    await work.confirmExecutionGoneAtomic({
-      executionId: pool.executionId,
-      now: new Date(),
-    });
 
-    await db.transaction((tx) =>
-      enqueueWithin(tx, { sessionId, payload: { message: "again" } }),
-    );
+    expect((await claim(pool, nonce)).outcome).toBe("no_session");
     expect(
       await db
-        .select({ partition: unassignedSessions.partition })
-        .from(unassignedSessions)
-        .where(eq(unassignedSessions.sessionId, sessionId)),
-    ).toEqual([{ partition: second }]);
+        .select({ partition: sessions.partition, podId: sessions.podId })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId)),
+    ).toEqual([{ partition: first, podId: null }]);
   });
 
   test("a claimed container an isolation contract bump made stale stays up while its turn runs, and is replaced once the turn has ended (94S-250)", async () => {

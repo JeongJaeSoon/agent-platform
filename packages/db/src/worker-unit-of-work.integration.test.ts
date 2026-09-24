@@ -187,6 +187,10 @@ integration("worker gateway on PostgreSQL", () => {
     });
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, result.response.session_id));
+    await db
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, result.response.session_id));
@@ -2509,6 +2513,10 @@ integration("worker gateway on PostgreSQL", () => {
     if (created.outcome !== "accepted") throw new Error(created.outcome);
     const sessionId = created.response.session_id;
     await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, sessionId));
+    await db
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, sessionId));
@@ -2680,6 +2688,10 @@ integration("worker gateway on PostgreSQL", () => {
       payloadHash: crypto.randomUUID(),
       message: "second input",
     });
+    await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, session.session_id));
     await db
       .update(unassignedSessions)
       .set({ partition })

@@ -148,13 +148,14 @@ describe("session queries", () => {
     ).toHaveLength(1);
   });
 
-  test("requeues an orphan into the partition it last ran in", async () => {
+  test("requeues an orphan into the session's partition, whatever launch history says", async () => {
     const now = new Date("2026-09-14T00:00:00Z");
+    const partition = `p-${crypto.randomUUID()}`;
     const sessionId = await insertSession({
+      partition,
       podId: "stale-owner",
       status: "running",
     });
-    const partition = `p-${crypto.randomUUID()}`;
     await db.insert(executions).values({
       backend: "local_docker",
       desiredState: "running",
@@ -167,7 +168,7 @@ describe("session queries", () => {
       backend: "local_docker",
       executionId: "exec-earlier",
       generation: 1,
-      partition,
+      partition: `other-${crypto.randomUUID()}`,
       sessionId,
     });
     await db.insert(turns).values({

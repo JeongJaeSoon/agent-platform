@@ -225,6 +225,13 @@
       "when": 1790239243354,
       "tag": "0122_launch_drain_requested",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1790242322212,
+      "tag": "0123_session_partition",
+      "breakpoints": true
     }
   ]
 }
