@@ -156,17 +156,27 @@ async function* refilled(bytes: Uint8Array, size: number) {
 describe.each([
   [
     "whole",
-    async (bytes: Uint8Array, commit: string) => gitBundleOffers(bytes, commit),
+    async (
+      bytes: Uint8Array,
+      commit: string | undefined,
+      earlier?: ReadonlySet<string>,
+    ) => gitBundleOffers(bytes, commit, earlier),
   ],
   [
     "streamed in 7-byte chunks",
-    (bytes: Uint8Array, commit: string) =>
-      gitBundleOffersFrom(refilled(bytes, 7), commit),
+    (
+      bytes: Uint8Array,
+      commit: string | undefined,
+      earlier?: ReadonlySet<string>,
+    ) => gitBundleOffersFrom(refilled(bytes, 7), commit, earlier),
   ],
   [
     "streamed a byte at a time",
-    (bytes: Uint8Array, commit: string) =>
-      gitBundleOffersFrom(refilled(bytes, 1), commit),
+    (
+      bytes: Uint8Array,
+      commit: string | undefined,
+      earlier?: ReadonlySet<string>,
+    ) => gitBundleOffersFrom(refilled(bytes, 1), commit, earlier),
   ],
 ])("gitBundleOffers, %s", (_label, offers) => {
   test("offers the ref whose tip is the commit", async () => {
@@ -179,6 +189,36 @@ describe.each([
       objects: 6,
       refs: ["refs/heads/main"],
       status: "offers",
+      tips: [shas[1] as string],
+    });
+  });
+
+  test("offers an incremental bundle whose prerequisites an earlier bundle offers as tips (94S-227)", async () => {
+    const { directory, shas } = await repository(2);
+    await git(directory, "branch", "base", shas[0] as string);
+    const base = await bundle(directory, ["base"]);
+    const incremental = await bundle(directory, [
+      "main",
+      `^${shas[0] as string}`,
+    ]);
+
+    const first = await offers(base, undefined);
+    expect(first).toMatchObject({
+      refs: ["refs/heads/base"],
+      status: "offers",
+      tips: [shas[0] as string],
+    });
+    if (first.status !== "offers") return;
+    expect(
+      await offers(incremental, shas[1] as string, new Set(first.tips)),
+    ).toMatchObject({ refs: ["refs/heads/main"], status: "offers" });
+    // A commit the chain has, but not as a tip: nothing vouches for it.
+    expect(
+      await offers(incremental, shas[1] as string, new Set(["a".repeat(40)])),
+    ).toEqual({
+      status: "unusable",
+      reason:
+        "git bundle needs 1 prerequisite commit(s) no earlier bundle offers as a ref tip",
     });
   });
 

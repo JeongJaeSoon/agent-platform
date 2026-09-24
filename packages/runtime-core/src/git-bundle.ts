@@ -36,9 +36,14 @@ export type GitBundleVerdict =
   | {
       /** How many objects the pack header declares. */
       readonly objects: number;
-      /** Ref names a fetch may ask for to land the commit. */
+      /**
+       * Ref names a fetch may ask for to land the commit, or every ref when
+       * no commit was asked about.
+       */
       readonly refs: readonly string[];
       readonly status: "offers";
+      /** Every ref's object id, which a later bundle of a chain may need. */
+      readonly tips: readonly string[];
     }
   | { readonly reason: string; readonly status: "unusable" };
 
@@ -100,7 +105,8 @@ export function readGitBundleHeader(
 }
 
 /**
- * Whether `bytes` is a bundle a restore can fetch `commit` out of on its own.
+ * Whether `bytes` is a bundle a restore can fetch `commit` out of on its own,
+ * or, with `earlier`, after the bundles before it in a chain (94S-227).
  *
  * Three things disqualify it. A *prerequisite* means git will refuse the fetch
  * unless the receiver already has that commit, and a restore starts from an
@@ -119,17 +125,18 @@ export function readGitBundleHeader(
  */
 export function gitBundleOffers(
   bytes: Uint8Array,
-  commit: string,
+  commit: string | undefined,
+  earlier: ReadonlySet<string> = new Set(),
 ): GitBundleVerdict {
   const header = readGitBundleHeader(bytes);
   if (header === undefined) {
     return { status: "unusable", reason: "not a git bundle" };
   }
-  const tips = headerTips(header, commit);
+  const tips = headerTips(header, commit, earlier);
   if (tips.status === "unusable") return tips;
   const pack = createPackCheck();
   pack.update(bytes.subarray(header.packOffset));
-  return pack.finish(tips.refs);
+  return pack.finish(tips);
 }
 
 /**
@@ -140,11 +147,12 @@ export function gitBundleOffers(
  */
 export async function gitBundleOffersFrom(
   chunks: AsyncIterable<Uint8Array>,
-  commit: string,
+  commit: string | undefined,
+  earlier: ReadonlySet<string> = new Set(),
 ): Promise<GitBundleVerdict> {
   let prefix: Uint8Array = new Uint8Array(0);
   let pack: ReturnType<typeof createPackCheck> | undefined;
-  let refs: readonly string[] = [];
+  let offered: HeaderTips | undefined;
   for await (const chunk of chunks) {
     if (pack !== undefined) {
       pack.update(chunk);
@@ -160,26 +168,36 @@ export async function gitBundleOffersFrom(
     if (prefix.byteLength < end + 2 + PACK_HEADER_BYTES) continue;
     const header = readGitBundleHeader(prefix);
     if (header === undefined) break;
-    const tips = headerTips(header, commit);
+    const tips = headerTips(header, commit, earlier);
     if (tips.status === "unusable") return tips;
-    refs = tips.refs;
+    offered = tips;
     pack = createPackCheck();
     pack.update(prefix.subarray(header.packOffset));
     prefix = new Uint8Array(0);
   }
-  if (pack !== undefined) return pack.finish(refs);
+  if (pack !== undefined && offered !== undefined) return pack.finish(offered);
   // Ended, or ran past the header limit, before a pack could be told apart:
   // the whole-body reader judges whatever arrived.
-  return gitBundleOffers(prefix, commit);
+  return gitBundleOffers(prefix, commit, earlier);
 }
 
-/** Everything the header alone settles; the refs whose tip is the commit. */
+type HeaderTips = {
+  readonly refs: readonly string[];
+  readonly status: "tips";
+  readonly tips: readonly string[];
+};
+
+/**
+ * Everything the header alone settles; the refs whose tip is the commit.
+ * A prerequisite is allowed only when an earlier bundle of the chain offers
+ * it as a ref tip: a fetch of the chain in order then has it, and nothing
+ * short of a ref tip can be vouched for from headers alone.
+ */
 function headerTips(
   header: GitBundleHeader,
-  commit: string,
-):
-  | { readonly refs: readonly string[]; readonly status: "tips" }
-  | Extract<GitBundleVerdict, { status: "unusable" }> {
+  commit: string | undefined,
+  earlier: ReadonlySet<string>,
+): HeaderTips | Extract<GitBundleVerdict, { status: "unusable" }> {
   const objectFormat = header.capabilities
     .find((capability) => capability.startsWith("object-format="))
     ?.slice("object-format=".length);
@@ -201,23 +219,33 @@ function headerTips(
       reason: `git bundle is filtered (${filter}) and omits objects a restore needs`,
     };
   }
-  if (header.prerequisites.length > 0) {
+  const lacking = header.prerequisites.filter(
+    (oid) => !earlier.has(oid.toLowerCase()),
+  );
+  if (lacking.length > 0) {
     return {
       status: "unusable",
-      reason: `git bundle needs ${header.prerequisites.length} prerequisite commit(s) a fresh workspace does not have`,
+      reason:
+        earlier.size === 0
+          ? `git bundle needs ${lacking.length} prerequisite commit(s) a fresh workspace does not have`
+          : `git bundle needs ${lacking.length} prerequisite commit(s) no earlier bundle offers as a ref tip`,
     };
   }
-  const wanted = commit.toLowerCase();
+  const tips = header.refs.map((ref) => ref.oid.toLowerCase());
+  const wanted = commit?.toLowerCase();
   const refs = header.refs
-    .filter((ref) => ref.oid.toLowerCase() === wanted)
+    .filter((ref) => wanted === undefined || ref.oid.toLowerCase() === wanted)
     .map((ref) => ref.name);
   if (refs.length === 0) {
     return {
       status: "unusable",
-      reason: `git bundle does not offer ${commit} as a ref tip`,
+      reason:
+        commit === undefined
+          ? "git bundle offers no ref"
+          : `git bundle does not offer ${commit} as a ref tip`,
     };
   }
-  return { refs, status: "tips" };
+  return { refs, status: "tips", tips };
 }
 
 /**
@@ -256,7 +284,7 @@ function createPackCheck() {
       if (release > 0) hash.update(pending.subarray(0, release));
       tail = pending.slice(Math.max(0, release));
     },
-    finish(refs: readonly string[]): GitBundleVerdict {
+    finish({ refs, tips }: HeaderTips): GitBundleVerdict {
       const unusable = (reason: string): GitBundleVerdict => ({
         status: "unusable",
         reason,
@@ -277,7 +305,7 @@ function createPackCheck() {
         return unusable("git bundle packfile carries no objects");
       }
       return hash.digest().equals(Buffer.from(tail))
-        ? { objects, refs, status: "offers" }
+        ? { objects, refs, status: "offers", tips }
         : unusable("git bundle packfile does not match its own checksum");
     },
   };

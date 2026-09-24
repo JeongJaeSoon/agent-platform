@@ -113,6 +113,7 @@ const manifestSchema = z
     version: z.literal(2),
     workspace: z
       .object({
+        baseBundles: z.array(objectRefSchema).min(1).optional(),
         bundle: objectRefSchema,
         gitCommit: z.string().regex(/^[0-9a-f]{40}$/),
         untracked: z.array(workspaceArtifactSchema),

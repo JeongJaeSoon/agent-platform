@@ -82,6 +82,15 @@ export type CheckpointWorkspace = {
    * the two.
    */
   readonly bundle: ObjectRef;
+  /**
+   * The bundles `bundle` builds on, oldest first (94S-227): the first stands
+   * alone, and each later one — `bundle` included — needs only commits an
+   * earlier one offers as a ref tip. Absent for a bundle that stands alone.
+   * They are the previous checkpoint's bundles, in the directories that
+   * checkpoint wrote them to; a restore fetches them in this order before
+   * `bundle`, which alone carries the refs it checks out.
+   */
+  readonly baseBundles?: readonly ObjectRef[];
   readonly gitCommit: string;
   /** Files git does not track, uploaded individually so restore is exact. */
   readonly untracked: readonly WorkspaceArtifact[];
