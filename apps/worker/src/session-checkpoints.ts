@@ -51,7 +51,11 @@ import {
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
 import type { WorkerLogger } from "./worker-host.ts";
-import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
+import {
+  committedClaudeMdOf,
+  storableRepositoryUrl,
+  workerScratch,
+} from "./workspace.ts";
 import {
   type BundleBase,
   captureWorkspace,
@@ -59,7 +63,6 @@ import {
   type InstructionsPin,
   type WorkspaceCaptureLimits,
   type WorkspaceCaptureResult,
-  workerScratch,
 } from "./workspace-capture.ts";
 
 /**
