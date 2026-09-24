@@ -8,6 +8,8 @@
 # Needs a stack from `scripts/soak/stack.sh up` (for the images). Results go
 # to $SOAK_STATE/campaigns-<stamp>/<campaign-id>/ and a combined
 # summary.md; the exit code is non-zero when any campaign failed a row.
+# An own-stack campaign (bun scripts/soak/campaigns.ts list) takes the soak
+# stack down instead and brings projects of its own.
 set -uo pipefail
 umask 077
 
@@ -27,8 +29,11 @@ fi
 status=0
 for id in "${campaigns[@]}"; do
   echo "== campaign ${id}" >&2
-  if bun scripts/soak/campaigns.ts list | grep -q "^${id}	.*	hook"; then
-    bun scripts/soak/campaigns.ts "$id" "$out/$id" || status=1
+  if bun scripts/soak/campaigns.ts list | grep -q "^${id}	[a-z]*	own-stack	"; then
+    # It brings projects of its own; the host holds two stacks at most.
+    scripts/soak/stack.sh down >"$out/$id.down.log" 2>&1
+    bun scripts/soak/campaigns.ts "$id" "$out/$id" 2>&1 | tee "$out/$id.log"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
     continue
   fi
   if ! scripts/soak/stack.sh reset >"$out/$id.reset.log" 2>&1; then
