@@ -20,7 +20,7 @@ const subject = `e2e real model ${nonce}`;
 const content = `content-${crypto.randomUUID().slice(0, 8)}`;
 const write =
   `printf '%s\\n' ${content} > ${file} && git add ${file} && ` +
-  `git -c user.name=e2e -c user.email=e2e@example.invalid commit -q -m '${subject}'`;
+  `git commit -q -m '${subject}'`;
 const inspect = `git log -1 --format='%H %s' -- ${file} && cat ${file}`;
 const exactly = (command: string) =>
   `Run this exact shell command with the Bash tool, once, and nothing else:\n\n${command}\n\nThen reply with the single word: done`;

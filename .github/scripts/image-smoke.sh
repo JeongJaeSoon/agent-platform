@@ -173,6 +173,12 @@ case "$app" in
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
+    # 94S-423: a commit in a fresh repository needs no identity of its own,
+    # and carries the one docs/operations.md names.
+    ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
+    echo "default commit identity: $ident"
+    expected="agent-platform <noreply@agent-platform.invalid>"
+    [ "$ident" = "$expected|$expected" ] || { echo "expected $expected as author and committer" >&2; exit 1; }
     # Its own ENTRYPOINT, a command standing in for the worker's: the
     # scheduler overrides Cmd only when it launches a worker.
     assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \

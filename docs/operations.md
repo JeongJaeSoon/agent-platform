@@ -498,6 +498,12 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 
 digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-24 기준 `oven/bun:1.3.10`의 마지막 빌드는 2026-02-26이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
+### worker 안에서 만든 commit의 작성자 (94S-423)
+
+worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=agent-platform`, `user.email=noreply@agent-platform.invalid`를 둔다. 그래서 Claude가 workspace에서 만든 commit은 저장소나 세션이 따로 정하지 않는 한 author와 committer가 모두 `agent-platform <noreply@agent-platform.invalid>`다. 이 값이 없으면 git이 commit을 거부하고, Claude는 사용자에게 이름과 주소를 묻는다. `.invalid`는 어디에도 배달되지 않는 예약 도메인이라 실제 사람의 주소와 겹치지 않는다. checkpoint의 내부 commit은 이 값을 쓰지 않는다(`checkpoint@agent-platform.invalid`).
+
+system 설정은 git 설정 중 우선순위가 가장 낮다. 저장소의 `.git/config`나 세션 안에서 실행한 `git config`(`--global`은 tmpfs HOME에 쓰인다), `git commit --author`가 있으면 그쪽이 이긴다. 카탈로그나 설치 설정으로 이 값을 바꾸는 기능은 두지 않았다. 세션마다 다른 작성자가 필요하면 위 방법으로 바꾸면 되고, 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
+
 ### worker·control-host 롤백과 incremental checkpoint (94S-227)
 
 [#217](https://github.com/JeongJaeSoon/agent-platform/pull/217)(`95b0e7b5`)부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 객체만 담은 incremental bundle을 올린다. 그 사슬은 manifest의 `workspace.baseBundles`에 적힌다. manifest `version`은 그대로 2이고, incremental인지는 이 필드가 있는지로만 갈린다. **#217 이전 빌드로 롤백하면 이 필드가 있는 checkpoint를 복원하지 못한다.** 이전 빌드의 manifest 스키마는 모르는 키를 거절하기 때문이다.

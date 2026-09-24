@@ -139,6 +139,14 @@ describe("app Dockerfiles", () => {
     expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
   });
 
+  // docs/operations.md names this identity; image-smoke.sh commits with it.
+  test("the worker gives Claude's commits a default author (94S-423)", () => {
+    expect(basePins.worker.source).toContain(
+      "git config --system user.name agent-platform \\\n" +
+        "  && git config --system user.email noreply@agent-platform.invalid\n",
+    );
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain("resolvePinnedClaudeExecutable");
     for (const app of ["control-host"] as const) {

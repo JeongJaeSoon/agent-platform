@@ -238,6 +238,41 @@ describe("alpha path over public HTTP (94S-134)", () => {
   );
 });
 
+describe("default commit identity (94S-423)", () => {
+  test(
+    "Claude commits in a new session as the identity docs/operations.md names",
+    async () => {
+      const created = await api.createSession(
+        scripted(
+          "g1",
+          [
+            bash(
+              "git commit -q --allow-empty -m e2e-identity && git log -1 --format='%an <%ae>|%cn <%ce>'",
+            ),
+          ],
+          "committed",
+        ),
+      );
+      const sessionId = created.body.session_id;
+      const [request] = await api.pendingUntil(sessionId, 1);
+      await api.allow(sessionId, must(request).request_id);
+      expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const identity = "agent-platform <noreply@agent-platform.invalid>";
+      expect(JSON.stringify(result?.data.data)).toContain(
+        `${identity}|${identity}`,
+      );
+    },
+    TIMEOUT,
+  );
+});
+
 describe("concurrency regressions (94S-134)", () => {
   test(
     "a retried create is one session; the same key with another body is refused",
