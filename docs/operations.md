@@ -381,6 +381,8 @@ checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 
 
 **checkpoint 객체의 저장 시 암호화**(94S-337)는 bucket 기본 암호화 SSE-S3(`AES256`)에 맡긴다. 워커의 checkpoint 쓰기는 암호화 헤더를 싣지 않으므로 bucket 기본값이 곧 모든 객체의 암호화다. API는 object store가 켜져 있으면 보호 모드와 무관하게 기동 시 `GetBucketEncryption`을 읽고, 기본 규칙이 `AES256`이 아니면(설정 없음, `aws:kms` 포함) 기동하지 않는다. SSE-KMS를 받지 않는 이유는 워커 credential마다 KMS 키 권한이 붙어야 하기 때문이다(그 credential을 좁히는 일이 94S-251). 다른 설정으로 띄워야 하면 `CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn`을 명시한다. 그러면 기동 로그에 경고만 남는다. API credential에는 `s3:GetEncryptionConfiguration`이 필요하다. compose의 localstack init과 `scripts/restore.sh`는 `claude-sessions`에 `AES256` 기본 암호화를 건다. 결정 근거는 Obsidian `deployment.md`의 "checkpoint 객체의 저장 시 암호화" 절이다.
 
+**비워진 bucket**(94S-422). object store가 켜져 있으면 API는 기동 때 DB에 `collected_at IS NULL`인 checkpoint 행이 있는지 본다. 있으면 `ListObjectVersions`로 bucket에 object version이 하나라도 남았는지 확인하고, 하나도 없으면(delete marker만 남은 경우 포함) 원인과 복구 명령(`scripts/local.sh reset`)을 적은 오류로 기동하지 않는다. 로컬 LocalStack은 S3를 메모리에만 두므로, raw `docker compose down`이나 Docker 재시작 뒤 postgres의 행만 남는 경우를 잡는 빠른 검사다. version별 무결성은 여전히 백업과 `scripts/verify-restore.sh`가 본다. API credential에는 `s3:ListBucketVersions`가 필요하다.
+
 **checkpoint GC**(94S-281)는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
 회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다(94S-326). 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
