@@ -93,7 +93,7 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 - `retry_at`: 다음 시도 시각이다. 멈춘 뒤에는 null이다.
 
 이벤트 스트림에는 실패마다 system `checkpoint_restore_failed`가 남는다. worker 로그의 `worker.checkpoint.restore_refused`, `worker.failed`에서 원인을 확인한다. 저장소 응답 checksum 불일치(전송 중 손상)도 `CHECKPOINT_UNAVAILABLE`로 분류된다.
-- 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다(94S-348). 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 결정 receipt의 `checkpoint_revision`이 다음 worker가 복원할 revision이다.
+- 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다(94S-348). 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 다음 worker는 실패하던 worker와 같은 pointer에서 복원 계획을 다시 받는다.
   ```sh
   # KEY: sessions:recover scope가 있는 API 키
   curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
