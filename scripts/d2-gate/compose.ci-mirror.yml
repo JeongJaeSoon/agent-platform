@@ -1,0 +1,10 @@
+# CI-only overlay (94S-404), after tests/e2e/compose.ci-mirror.yml: the gate's
+# own services pull bun from the CI mirror (docs/ci.md § 서드파티 이미지 미러)
+# by the digest compose.yml pins, as that file does for the product stack.
+# .github/workflows/d2-gate.yml passes both through D2_GATE_COMPOSE_OVERRIDE;
+# tests/ci-images.test.ts holds them to compose.yml and the mirror list.
+services:
+  gate-chaos:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  gate-messages:
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e

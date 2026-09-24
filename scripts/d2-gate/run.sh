@@ -10,6 +10,11 @@
 # and tests/d2-gate/control-host-roles.e2e.test.ts against it. The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
+# D2_GATE_COMPOSE_OVERRIDE: more compose files after the gate's, separated by
+# colons as in COMPOSE_FILE; the nightly workflow (.github/workflows/d2-gate.yml)
+# passes the CI mirror overlays. D2_GATE_BUILD_ROOT: another checkout to build
+# the images from, while the gate itself runs from this one (scripts/soak/rc.sh).
+#
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
 # variables the test reads to $D2_GATE_OUT/vars.sh: source it and run
 # `bun test tests/d2-gate.e2e.test.ts` to iterate against the same stack.
@@ -39,6 +44,10 @@ export API_IMAGE="agent-platform-control-host:${project}"
 export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 compose_files=(-f infra/docker-compose.yml -f scripts/d2-gate/compose.yml)
+overrides="${D2_GATE_COMPOSE_OVERRIDE:-}"
+for file in ${overrides//:/ }; do
+  compose_files+=(-f "$file")
+done
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
 cleanup() {
@@ -65,7 +74,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-dc build api worker egress-proxy >"$out/build.log" 2>&1
+# migrate too, or `up` would build it from this checkout, not the build root.
+(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1

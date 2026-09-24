@@ -384,3 +384,49 @@ describe("the e2e compose overlay", () => {
     expect(read("docs/quickstart.md")).not.toContain("ci-mirror");
   });
 });
+
+describe("the D2 gate workflow", () => {
+  // 94S-404: d2-gate.yml runs scripts/d2-gate/run.sh on the product stack
+  // with the e2e overlay, and the gate's own services with one of its own.
+  const OVERLAY = "scripts/d2-gate/compose.ci-mirror.yml";
+  type Step = { env?: Record<string, string>; run?: string };
+  const text = read(".github/workflows/d2-gate.yml");
+  const steps = (
+    Bun.YAML.parse(text) as { jobs: Record<string, { steps: Step[] }> }
+  ).jobs["d2-gate"]?.steps;
+  const images = (path: string) =>
+    Object.fromEntries(
+      Object.entries(
+        (
+          Bun.YAML.parse(read(path)) as {
+            services: Record<string, { image?: string }>;
+          }
+        ).services,
+      ).flatMap(([service, { image }]) => (image ? [[service, image]] : [])),
+    );
+
+  test("pulls the gate's services from the mirror, by the gate's digest", () => {
+    const gate: Record<string, string | undefined> = images(
+      "scripts/d2-gate/compose.yml",
+    );
+    const overlay = images(OVERLAY);
+    expect(Object.keys(overlay).sort()).toEqual(Object.keys(gate).sort());
+    for (const [service, image] of Object.entries(overlay)) {
+      const [, name = "", digest] = image.match(MIRROR_REF) ?? [];
+      const entry = entryOf(name, digest);
+      expect({ service, image: gate[service] }).toEqual({
+        service,
+        image:
+          entry && `${shortName(entry.source)}:${entry.tag}@${entry.digest}`,
+      });
+    }
+  });
+
+  test("lays both overlays over the stack, and checks nothing came from Docker Hub", () => {
+    const gate = steps?.find((step) => step.run === "scripts/d2-gate/run.sh");
+    expect(gate?.env?.D2_GATE_COMPOSE_OVERRIDE).toBe(
+      `tests/e2e/compose.ci-mirror.yml:${OVERLAY}`,
+    );
+    expect(text).toContain("assert-no-docker-hub-images.sh docker");
+  });
+});

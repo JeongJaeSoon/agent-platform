@@ -1,0 +1,103 @@
+name: D2 gate
+
+# The D2 gate (94S-247: A–E, R1–R2, H1–H5) needs the whole compose stack on
+# images built from the checkout, so ci.yml declares its tests skipped and
+# only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
+# stale without anyone noticing (94S-404: gate A broke on 94S-227's
+# incremental bundles). This workflow runs it every night on main, and on the
+# pull requests that change the gate itself.
+#
+# Deliberately NOT a required status check: it does not run on most pull
+# requests, so a required context would leave them waiting forever. A failure
+# on main lands in an issue instead. scripts/soak/rc.sh runs the same gate
+# before a release candidate's campaigns (docs/ci.md § D2 gate).
+on:
+  schedule:
+    # 03:17 KST, off the hour and apart from main-push-run.yml's checks.
+    - cron: '17 18 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/d2-gate.yml
+      - scripts/d2-gate/**
+      - tests/d2-gate.e2e.test.ts
+      - tests/d2-gate/**
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes a pull request's run. A nightly or manual run is
+  # never cancelled by the next one: a cancellation would read as a failure.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  d2-gate:
+    runs-on: ubuntu-24.04
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
+    # Image builds as in ci.yml's e2e, then the three suites one after
+    # another on one stack.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      # The runner's own daemon, as in ci.yml's e2e: the scheduler refuses one
+      # older than Docker 28 (94S-274). Both overlays point every third-party
+      # image and the Dockerfiles' base at the CI mirror (94S-365).
+      - name: scripts/d2-gate/run.sh
+        env:
+          D2_GATE_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml:scripts/d2-gate/compose.ci-mirror.yml
+          D2_GATE_OUT: ${{ runner.temp }}/d2-gate
+        run: scripts/d2-gate/run.sh
+      # A–E's criteria table, into the log and onto the run's summary page;
+      # R1–R2 and H1–H5 are the `(pass)` lines of the step above.
+      - if: '!cancelled()'
+        name: Report
+        env:
+          REPORT: ${{ runner.temp }}/d2-gate/report.md
+        run: |
+          if [ -f "$REPORT" ]; then
+            cat "$REPORT"
+            cat "$REPORT" >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "no report: the gate stopped before its tests (see the d2-gate-record artifact)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      # run.sh removes the images it built; what compose pulled stays.
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      # Build, compose, worker and suite logs. vars.sh stays behind: it holds
+      # the run's API key.
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: d2-gate-record
+          path: |
+            ${{ runner.temp }}/d2-gate
+            !${{ runner.temp }}/d2-gate/vars.sh
+          if-no-files-found: ignore
+          retention-days: 14
+      # One open issue per signal: repeats append to it. Not on a pull
+      # request, where the red check already says it. `!success()` rather
+      # than `failure()` so a cancelled step counts too; a manual run is a
+      # person asking, and the body names the ref.
+      - if: "!success() && github.event_name != 'pull_request'"
+        name: Open or update the D2 gate failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- ci-d2-gate-failure -->"
+            echo "The D2 gate failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo
+            echo "The run's summary page has the criteria table; the \`d2-gate-record\` artifact has the build, compose and suite logs. Reproduce with \`scripts/d2-gate/run.sh\`. Close this issue once the failure is understood; the next failure opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-d2-gate-failure \
+            "CI: D2 gate failed (nightly)" body.md
