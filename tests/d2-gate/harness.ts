@@ -361,6 +361,7 @@ export type Manifest = {
   };
   workspace: {
     bundle: Ref;
+    baseBundles?: Ref[];
     gitCommit: string;
     untracked: Array<Ref & { executable?: true; path: string }>;
   };
@@ -454,9 +455,13 @@ export async function verifyCheckpoint(
   for (const file of manifest.workspace.untracked) {
     await fetchRef(`untracked ${file.path}`, file);
   }
-  const bundle = await fetchRef("bundle", manifest.workspace.bundle);
+  const bundles: Uint8Array[] = [];
+  for (const base of manifest.workspace.baseBundles ?? []) {
+    bundles.push(await fetchRef("base bundle", base));
+  }
+  bundles.push(await fetchRef("bundle", manifest.workspace.bundle));
   const { heads, tree } = await unbundle(
-    bundle,
+    bundles,
     manifest.workspace.gitCommit,
     problems,
   );
@@ -472,28 +477,57 @@ export async function verifyCheckpoint(
 
 /**
  * What the bundle names and carries: its heads as `git bundle list-heads`
- * prints them, and every file of the manifest's commit.
+ * prints them, and every file of the manifest's commit. `bundles` is the
+ * manifest's chain, base bundles oldest first and its own bundle last: an
+ * incremental bundle (94S-227) needs commits only an earlier one carries, so
+ * they are fetched in that order into one repository, the way a restore
+ * stacks them (scripts/lib/backup-lib.sh `unbundle_chain`).
  */
 async function unbundle(
-  bundle: Uint8Array,
+  bundles: Uint8Array[],
   commit: string,
   problems: string[],
 ): Promise<{ heads: string; tree: Record<string, string> }> {
   const directory = await mkdtemp(join(tmpdir(), "d2-gate-bundle-"));
   try {
-    const file = join(directory, "workspace.bundle");
     const repo = join(directory, "repo.git");
-    await writeFile(file, bundle);
     await run(["git", "init", "--quiet", "--bare", repo]);
     const git = (args: string[], allowFail = false) =>
       run(["git", "-C", repo, ...args], { allowFail });
-    const verified = await git(["bundle", "verify", file], true);
-    if (verified.code !== 0)
-      problems.push(`git bundle verify: ${verified.stderr.trim()}`);
-    const heads = (await git(["bundle", "list-heads", file])).stdout.trim();
-    await git(["fetch", "--quiet", file, "refs/*:refs/*"]);
+    let heads = "";
+    for (const [index, bundle] of bundles.entries()) {
+      const file = join(directory, `workspace-${index}.bundle`);
+      await writeFile(file, bundle);
+      const verified = await git(["bundle", "verify", file], true);
+      if (verified.code !== 0)
+        problems.push(
+          `git bundle verify of bundle ${index + 1}/${bundles.length}: ${verified.stderr.trim()}`,
+        );
+      heads = (await git(["bundle", "list-heads", file])).stdout.trim();
+      // fsckObjects as unbundle_chain and the worker restore fetch: a
+      // malformed object they refuse must fail the gate too.
+      await git([
+        "-c",
+        "fetch.fsckObjects=true",
+        "fetch",
+        "--quiet",
+        "--no-write-fetch-head",
+        file,
+        `refs/*:refs/chain/${index}/*`,
+      ]);
+    }
+    // Peeled: a capture that changed nothing tags a commit an earlier
+    // bundle carries (94S-374).
     const worktree = (
-      await git(["rev-parse", "refs/checkpoint/worktree"], true)
+      await git(
+        [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `refs/chain/${bundles.length - 1}/checkpoint/worktree^{commit}`,
+        ],
+        true,
+      )
     ).stdout.trim();
     if (worktree !== commit) {
       problems.push(
@@ -659,8 +693,8 @@ export class Workers {
   }
 
   /**
-   * The worker's structured log: one `{level, event, ...fields}` object per
-   * line (apps/worker/src/worker-host.ts `log`).
+   * The worker's structured log: one `{timestamp, level, event, ...fields}`
+   * object per line (apps/worker/src/worker-host.ts `createConsoleLogger`).
    */
   async events(name: string): Promise<WorkerEvent[]> {
     const file = this.follow(name);

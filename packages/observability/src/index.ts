@@ -1,5 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { type LogFields, sanitizeFields, sanitizeText } from "./redaction.ts";
+
+export {
+  type LogFields,
+  REDACTED,
+  sanitizeFields,
+  sanitizeText,
+} from "./redaction.ts";
+
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -11,8 +20,6 @@ export interface ObservabilityContext {
   readonly request_id?: string;
   readonly trace_id?: string;
 }
-
-export type LogFields = Readonly<Record<string, unknown>>;
 
 export interface LogRecord extends ObservabilityContext {
   readonly timestamp: string;
@@ -39,16 +46,6 @@ const levelRank: Readonly<Record<LogLevel, number>> = {
   error: 40,
 };
 
-const sensitiveKey =
-  /(?:authorization|token|secret|password|credential|api[-_]?key|access[-_]?key|private[-_]?key)/i;
-const messageBodyKey =
-  /(?:message|body|content|prompt|input|output|transcript)/i;
-const secretValue =
-  /(?:\bbearer\s+\S+|\b(?:gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|AKIA[0-9A-Z]{16})\b)/i;
-const sensitiveText =
-  /(?:\b(?:authorization|token|secret|password|credential|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key)\b\s*[:=]|\b(?:(?:request|response)[-_ ]?)?(?:message|body|content|prompt|input|output|transcript)\b\s*[:=])/i;
-const redacted = "[REDACTED]";
-
 function isLogLevel(value: string | undefined): value is LogLevel {
   return (
     value !== undefined && (LOG_LEVELS as readonly string[]).includes(value)
@@ -60,55 +57,9 @@ export function resolveLogLevel(value = process.env.LOG_LEVEL): LogLevel {
   return isLogLevel(normalized) ? normalized : "info";
 }
 
-function sanitizeText(value: string): string {
-  return secretValue.test(value) || sensitiveText.test(value)
-    ? redacted
-    : value;
-}
-
-function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
-  if (typeof value === "string") {
-    return sanitizeText(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeValue(entry, includeMessageBodies));
-  }
-
-  if (value !== null && typeof value === "object") {
-    return sanitizeFields(
-      value as Readonly<Record<string, unknown>>,
-      includeMessageBodies,
-    );
-  }
-
-  return value;
-}
-
 function sanitizeException(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
-  const sanitized = sanitizeValue(value, false);
-  return typeof sanitized === "string" ? sanitized : redacted;
-}
-
-export function sanitizeFields(
-  fields: LogFields,
-  includeMessageBodies = false,
-): LogFields {
-  const sanitized: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(fields)) {
-    if (sensitiveKey.test(key)) {
-      sanitized[key] = redacted;
-      continue;
-    }
-    if (!includeMessageBodies && messageBodyKey.test(key)) {
-      continue;
-    }
-    sanitized[key] = sanitizeValue(value, includeMessageBodies);
-  }
-
-  return sanitized;
+  return sanitizeText(value);
 }
 
 export class MemoryLogSink implements LogSink {

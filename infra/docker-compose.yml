@@ -126,7 +126,7 @@ services:
 
   # The Messages API the example profile (config/profiles.yaml) points at, so
   # the local stack runs sessions without an Anthropic account. Workers reach
-  # it through the proxy (EGRESS_PRIVATE_ALLOWLIST).
+  # it through the proxy's provider route (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST).
   fake-messages:
     image: oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
     command: ["bun", "run", "/app/packages/testkit/src/fake-messages-main.ts"]
@@ -146,9 +146,12 @@ services:
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__security__INSTALL_LOCK: "true"
+      # Accounts come from the admin CLI (gitea-init) only: an open sign-up
+      # would let anyone who reaches Gitea make a channel between sessions.
+      GITEA__service__DISABLE_REGISTRATION: "true"
     ports:
       # Web UI and HTTP clone for this host. SSH is not published: workers
-      # clone over HTTP through the proxy (gitea:3000).
+      # clone over HTTP through the proxy's repository route (gitea:3000).
       - "127.0.0.1:3001:3000"
     volumes:
       - gitea-data:/data
@@ -191,14 +194,14 @@ services:
       dockerfile: apps/egress-proxy/Dockerfile
     image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
     environment:
-      EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-api.anthropic.com:443}
-      # api:3000 is the compose-run API (`apps` profile); host.docker.internal
-      # stays for an API started on the host with `bun run --cwd apps/control-host start`.
-      # fake-messages:4010 is the example profile's Messages API (94S-132).
-      # `secrets` is deliberately absent, and so is `localstack`: LocalStack
-      # takes any signature, so a forward request to it would be a way round
-      # the object store route.
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000,gitea:3000,fake-messages:4010}
+      # Nothing public: a worker's one public destination is its provider,
+      # which it reaches through the credential route below (94S-383).
+      EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
+      # The worker gateway alone. api:3000 is the compose-run API (`apps`
+      # profile); host.docker.internal stays for an API started on the host
+      # with `bun run --cwd apps/control-host start`. `secrets` is
+      # deliberately absent.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
       EGRESS_PROXY_PORT: "3128"
       # The credential routes (94S-252): workers send their provider and git
       # calls here with an attempt-scoped token, and the proxy puts the
@@ -207,9 +210,16 @@ services:
       # http://host.docker.internal:3100.
       EGRESS_CREDENTIAL_PORT: "3129"
       EGRESS_AUTHORIZER_URL: ${EGRESS_AUTHORIZER_URL:-http://api:3100}
-      # Upstreams only the credential routes reach: the object store, which
+      # Upstreams only the credential routes reach, never a worker directly
+      # (94S-383): the provider, the repository and the object store, which
       # the object store route sends the API-signed request to (94S-251).
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-localstack:4566}
+      # On the forward proxy each would be a way round its route: the
+      # provider with a key of the worker's own, outside cost accounting;
+      # Gitea without a token; LocalStack, which takes any signature, into
+      # every session's prefix. fake-messages:4010 is the example profile's
+      # Messages API (94S-132).
+      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:

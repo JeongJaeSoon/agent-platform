@@ -62,10 +62,29 @@ export function egressProxyConfigFromEnv(
       "EGRESS_ALLOWLIST or EGRESS_PRIVATE_ALLOWLIST must name at least one destination",
     );
   }
+  const credential = credentialConfig(environment);
+  // A credential route's upstream on a forward list is a way round the
+  // route: an installation still carrying the pre-94S-383 allowlists must
+  // stop here rather than keep that bypass open after an upgrade. Compared
+  // by name as written; one upstream under two names is not caught.
+  const forward = new Set(
+    [...allow, ...allowPrivate].map(({ host, port }) => `${host}:${port}`),
+  );
+  const overlap = [
+    ...(credential?.allow ?? []),
+    ...(credential?.allowPrivate ?? []),
+  ]
+    .map(({ host, port }) => `${host}:${port}`)
+    .filter((destination) => forward.has(destination));
+  if (overlap.length > 0) {
+    throw new Error(
+      `${overlap.join(", ")} must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST alone: on EGRESS_ALLOWLIST or EGRESS_PRIVATE_ALLOWLIST a worker reaches it without its credential route`,
+    );
+  }
   return {
     allow,
     allowPrivate,
-    credential: credentialConfig(environment),
+    credential,
     hostname: environment.EGRESS_PROXY_HOST ?? "0.0.0.0",
     logLevel: resolveProxyLogLevel(environment.LOG_LEVEL),
     port: port(

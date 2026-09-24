@@ -5,7 +5,7 @@
 # Only the API gets the key, passed through by name from run.sh's
 # environment so its value is in no file and no argument; the proxy puts it
 # on each worker call (94S-252) and api.anthropic.com:443 is already the
-# proxy's default EGRESS_ALLOWLIST. The limits bound what one run can
+# proxy's default EGRESS_CREDENTIAL_ALLOWLIST. The limits bound what one run can
 # spend: the run makes one session, and the worker hands the session's
 # remaining budget to the SDK as maxBudgetUsd (94S-279).
 x-real-model-limits: &real-model-limits

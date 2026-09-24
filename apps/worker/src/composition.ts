@@ -22,6 +22,7 @@ import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
+import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
   consoleLogger,
@@ -67,14 +68,18 @@ export function createWorkerHost(
     overrides.workspace ??
     new GitWorkspace(config.runtime.cwd, config.egressCredentialUrl);
   const objectToken = new ObjectStoreToken();
-  return new WorkerHost({
+  // Built before the host that learns the claim's secrets, so it asks the
+  // host for them at each line.
+  let host: WorkerHost | undefined;
+  const checkpointLogger = scrubbingLogger(logger, () => host?.secrets);
+  host = new WorkerHost({
     checkpoints:
       overrides.checkpoints ??
       new SessionCheckpoints({
         fingerprint: claudeClaimFingerprint(config),
         gateway,
         instructionsCommit: () => workspace.instructionsCommit(),
-        logger,
+        logger: checkpointLogger,
         objectPrefix: config.objectStore.scope,
         objects:
           overrides.objectStore ??
@@ -96,6 +101,7 @@ export function createWorkerHost(
     timeouts: config.timeouts,
     workspace,
   });
+  return host;
 }
 
 /**

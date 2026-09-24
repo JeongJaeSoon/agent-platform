@@ -282,7 +282,7 @@ unset ANTHROPIC_API_KEY
 **무엇이 바뀌나.** `tests/e2e/run.sh`가 평소 e2e와 같은 스택(격리된 compose project, 루프백 임시 포트)을 띄우되 `tests/e2e/compose.real-model.yml`을 하나 더 얹는다.
 
 - 카탈로그가 `tests/e2e/real-model/`로 바뀐다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. key는 `value_env: ANTHROPIC_API_KEY`로 API 프로세스 환경에서 읽는다. 이 카탈로그에는 fake를 가리키는 profile이 없다.
-- key는 API 컨테이너에만 이름으로 전달된다. compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
+- key는 API 컨테이너에만 이름으로 전달된다. compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
 - `SESSION_COST_LIMIT_USD=1`, `MAX_TURN_SECONDS=600`으로 한 번의 실행에 상한을 건다.
 - 스크립트된 스위트 대신 `tests/e2e/real-model.e2e.ts`를 돈다.
 
