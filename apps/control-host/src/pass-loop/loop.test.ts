@@ -177,6 +177,29 @@ describe("pass loop", () => {
     });
   }, 30_000);
 
+  test("a stop that arrives just before a pass starts does not start it", async () => {
+    const controller = new AbortController();
+    let clock = 0;
+    const started = performance.now();
+    const loop = runPassLoop({
+      name: "Test",
+      command: HANGS,
+      config,
+      logger,
+      signal: controller.signal,
+      // The first call stamps loopStartedAt; the second is the pass
+      // deadline, taken after the loop's own stop check.
+      now: () => {
+        clock += 1;
+        if (clock === 2) controller.abort();
+        return new Date();
+      },
+    });
+    expect(await loop).toBe(0);
+    expect(performance.now() - started).toBeLessThan(config.passTimeoutMs);
+    expect(await readStatus(config.statusFile)).toMatchObject({ passes: 0 });
+  }, 30_000);
+
   test("shutdown stops a running pass without recording it either way", async () => {
     const controller = new AbortController();
     const loop = runPassLoop({

@@ -192,6 +192,9 @@ export async function runPassLoop(input: {
       now().getTime() + config.passTimeoutMs,
     ).toISOString();
     await writeStatus(config.statusFile, status, logger);
+    // A stop that arrived during the write must not start a pass: its abort
+    // listener would be added after the event and never forward SIGTERM.
+    if (signal?.aborted) break;
     const started = performance.now();
     const result = await runPass(command, config, signal);
     const durationMs = Math.round(performance.now() - started);

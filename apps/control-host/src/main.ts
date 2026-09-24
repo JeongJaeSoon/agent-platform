@@ -90,7 +90,9 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     schedulerConfigFromEnv(process.env);
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
+    const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
     reconcilerDatabaseUrl(process.env);
+    reconcilerSettings(process.env);
   }
   const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
   const logger = createLogger(

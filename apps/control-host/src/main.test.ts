@@ -69,6 +69,16 @@ describe("control host executable", () => {
           "DATABASE_URL or QUEUE_DATABASE_URL is required",
         );
       }
+      // The loop refuses a bad pass setting once at startup rather than
+      // failing every pass until the restart policy gives up. The unused
+      // address shows no connection is needed to find it.
+      const loop = await run(["reconciler"], {
+        DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+        RECONCILER_BATCH_SIZE: "0",
+      });
+      expect(loop.exitCode).not.toBe(0);
+      expect(loop.stderr).toContain("RECONCILER_BATCH_SIZE");
+      expect(loop.stdout).not.toContain("Reconciler loop started");
     },
     TIMEOUT_MS,
   );
