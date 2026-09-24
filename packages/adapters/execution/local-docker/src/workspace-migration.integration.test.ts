@@ -376,7 +376,7 @@ integration("workspace migration against a real daemon", () => {
     await expect(
       new WorkspaceMigrator(tight, client).migrate({
         deadlineMs: 60_000,
-        helperImage: DEFAULT_MIGRATION_HELPER_IMAGE,
+        helperImage: HELPER_IMAGE,
         pollMs: 200,
         sessionId,
       }),

@@ -192,6 +192,20 @@ describe("ci.yml", () => {
     }
   });
 
+  test("hands no suite's migrator the Docker Hub helper directly", () => {
+    // The migrator never pulls its helper, so a real daemon in CI has only
+    // the mirror's copy. Unit suites with a fake daemon may name it.
+    for (const file of suiteFiles(root).filter((file) =>
+      file.endsWith(".integration.test.ts"),
+    ))
+      expect({
+        file,
+        direct: read(file).includes(
+          "helperImage: DEFAULT_MIGRATION_HELPER_IMAGE",
+        ),
+      }).toEqual({ file, direct: false });
+  });
+
   test("points every image a suite pulls itself at the mirror", () => {
     // variable → its string-literal fallback, if it has one
     const overrides = new Map<string, string | undefined>();
