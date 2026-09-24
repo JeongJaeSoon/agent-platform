@@ -32,6 +32,7 @@ import {
   secretsManagerReader,
 } from "./catalog-config.ts";
 import {
+  assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
@@ -110,6 +111,11 @@ if (checkpointStorage === "disabled") {
   );
 } else {
   await assertCheckpointBucketProtection(checkpointStorage);
+}
+if (checkpointStorage !== "disabled") {
+  await assertCheckpointBucketEncryption(checkpointStorage, {
+    warn: (message, fields) => logger.warn(message, fields),
+  });
 }
 
 const pool = createApiPool(databaseUrl, logger);

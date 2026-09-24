@@ -32,8 +32,8 @@ import type {
   WorkerReadyResponse,
   WorkspaceDescriptor,
 } from "@agent-platform/contracts";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
 /** What the fake claim hands out for the object store route. */

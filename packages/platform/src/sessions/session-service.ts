@@ -186,12 +186,13 @@ export function createSessionService(deps: {
     );
   }
 
-  function runtimeFor(profileId: string | null): SessionRuntime {
+  function runtimeFor(profileId: string | null): SessionRuntime | null {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
+    if (!profile || !profileId) return null;
     return {
-      kind: profile?.runtime_kind ?? "claude_agent_sdk",
-      version: profile?.runtime_version ?? "unknown",
-      profile_id: profileId ?? "unknown",
+      kind: profile.runtime_kind,
+      version: profile.runtime_version,
+      profile_id: profileId,
     };
   }
 
