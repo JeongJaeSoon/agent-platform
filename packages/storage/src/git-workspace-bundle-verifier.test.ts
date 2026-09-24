@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGitBundle,
+  createGitBundleChain,
   type GitBundleFixture,
   verifyBundleBytes,
 } from "@agent-platform/testkit/git-bundle";
@@ -78,6 +79,47 @@ describe("git workspace bundle verifier", () => {
       key: "k",
     });
     expect(verdict).toEqual({ status: "restorable" });
+  });
+
+  test("a chain is restorable fetched in order, and its incremental bundle alone is not (94S-227)", async () => {
+    const chain = await createGitBundleChain();
+    const directory = await mkdtemp(join(tempRoot, "chain-"));
+    const base = {
+      bytes: chain.base.bytes.byteLength,
+      key: "base",
+      path: join(directory, "base.bundle"),
+    };
+    const tip = {
+      bytes: chain.tip.bytes.byteLength,
+      key: "tip",
+      path: join(directory, "tip.bundle"),
+    };
+    await writeFile(base.path, chain.base.bytes);
+    await writeFile(tip.path, chain.tip.bytes);
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
+
+    expect(
+      await verifier.verify({
+        ...tip,
+        bases: [base],
+        commit: chain.tip.commit,
+      }),
+    ).toEqual({ status: "restorable" });
+    expect(
+      await verifier.verify({ ...tip, commit: chain.tip.commit }),
+    ).toMatchObject({ status: "unusable" });
+    // The base must come first: the tip does not stand in for it.
+    expect(
+      await verifier.verify({
+        ...base,
+        bases: [tip],
+        commit: chain.base.commit,
+      }),
+    ).toMatchObject({
+      status: "unusable",
+      reason: expect.stringContaining("tip: "),
+    });
+    await rm(directory, { force: true, recursive: true });
   });
 
   test("a rewritten header over a whole pack is unusable", async () => {
