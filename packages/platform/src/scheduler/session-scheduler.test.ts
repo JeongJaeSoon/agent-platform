@@ -77,7 +77,7 @@ class MemoryStore implements SchedulerStore {
   readonly launchFailures: Array<{ executionId: string } & LaunchFailureInput> =
     [];
   /** Sessions with a turn that has not ended, as a drain sees them. */
-  readonly openTurns = new Set<string>();
+  readonly busySessions = new Set<string>();
 
   private storageNow(): number {
     return Date.now() + this.clockOffsetMs;
@@ -373,7 +373,7 @@ class MemoryStore implements SchedulerStore {
     }
     row.drainRequestedAt ??= this.storageNow();
     return {
-      turnOpen: this.openTurns.has(row.sessionId),
+      busy: this.busySessions.has(row.sessionId),
       overdue: row.drainRequestedAt + deadlineMs <= this.storageNow(),
     };
   }
@@ -1011,7 +1011,7 @@ describe("runScheduler", () => {
     test("is left running while its turn runs, and replaced on the pass after the turn ends", async () => {
       const { backend, records, run, store } = harness();
       const { ref, sessionId } = claimedStale(store, backend);
-      store.openTurns.add(sessionId);
+      store.busySessions.add(sessionId);
 
       const first = await run();
       expect(first.draining).toEqual([ref]);
@@ -1029,7 +1029,7 @@ describe("runScheduler", () => {
         requestedAt,
       );
 
-      store.openTurns.delete(sessionId);
+      store.busySessions.delete(sessionId);
       const after = await run();
       expect(after.draining).toEqual([]);
       expect(after.drainsOverdue).toEqual([]);
@@ -1057,7 +1057,7 @@ describe("runScheduler", () => {
         drainDeadlineMs: 60_000,
       });
       const { ref, sessionId } = claimedStale(store, backend);
-      store.openTurns.add(sessionId);
+      store.busySessions.add(sessionId);
       expect((await run()).draining).toEqual([ref]);
 
       store.elapse(60_000);

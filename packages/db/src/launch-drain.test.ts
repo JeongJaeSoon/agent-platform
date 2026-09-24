@@ -190,7 +190,7 @@ describe("launch drain (94S-250)", () => {
 
     const store = schedulerStore();
     expect(await store.requestDrain(ref, 60_000)).toEqual({
-      turnOpen: true,
+      busy: true,
       overdue: false,
     });
     const requestedAt = await drainRequestedAt(ref.executionId);
@@ -219,9 +219,33 @@ describe("launch drain (94S-250)", () => {
     // The second input waits for the replacement.
     expect((await gateway.nextInput(principal, scope)).input).toBeNull();
     expect(await store.requestDrain(ref, 60_000)).toEqual({
-      turnOpen: false,
+      busy: false,
       overdue: false,
     });
+  });
+
+  test("a worker still starting up is busy until its first poll, which hands it no turn", async () => {
+    const { ref, principal, scope } = await claimedSession();
+    const store = schedulerStore();
+    // Claimed and restoring: torn down now, it would count as a failed
+    // startup (94S-302).
+    expect(await store.requestDrain(ref, 60_000)).toEqual({
+      busy: true,
+      overdue: false,
+    });
+    expect((await gateway.nextInput(principal, scope)).input).toBeNull();
+    expect(await store.requestDrain(ref, 60_000)).toEqual({
+      busy: false,
+      overdue: false,
+    });
+    const [session] = await db
+      .select({
+        restoreAttemptId: sessions.restoreAttemptId,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.executionId, ref.executionId));
+    expect(session).toEqual({ restoreAttemptId: null, status: "queued" });
   });
 
   test("a drain older than the deadline is overdue, on the database clock", async () => {
@@ -234,7 +258,7 @@ describe("launch drain (94S-250)", () => {
       .set({ drainRequestedAt: new Date(Date.now() - 61_000) })
       .where(eq(workerLaunches.executionId, ref.executionId));
     expect(await store.requestDrain(ref, 60_000)).toEqual({
-      turnOpen: true,
+      busy: true,
       overdue: true,
     });
   });

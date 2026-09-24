@@ -89,9 +89,9 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 
 claim된 컨테이너가 stale이면 scheduler는 바로 부수지 않는다.
 1. 첫 pass가 `worker_launches.drain_requested_at`을 DB 시계로 기록한다. 그때부터 그 worker는 새 turn을 받지 않는다. 이미 받은 turn은 끝까지 돌고, 뒤에 온 입력은 queued로 남는다.
-2. 도는 turn(`running`·`needs_input`)이 있으면 컨테이너를 그대로 두고 pass summary의 `draining`(로그 `draining_count`, `Claimed execution draining before its replacement`)에 올린다.
+2. 도는 turn(`running`·`needs_input`)이 있거나 worker가 아직 첫 입력을 청하지 않았으면(workspace 준비·checkpoint 복원 중. 이때 끊으면 실패한 기동으로 센다) 컨테이너를 그대로 두고 pass summary의 `draining`(로그 `draining_count`, `Claimed execution draining before its replacement`)에 올린다.
 3. turn이 끝난 뒤 첫 pass가 컨테이너를 teardown한다. turn의 checkpoint는 그 finalize에 실려 이미 확정됐다. SIGTERM을 받은 worker는 idle drain으로 release하고, queued 입력은 새 launch(현재 계약)가 받아 checkpoint에서 이어간다.
-4. drain 기한이 지나도 turn이 열려 있으면 그대로 teardown한다. 이때 그 turn은 전처럼 `outcome_unknown`이 된다. pass summary의 `drainsOverdue`(로그 `drain_overdue_count`)와 경고 `Drain deadline passed with the turn still open; replacing anyway` 한 줄이 남는다. 기한은 `MAX_TURN_SECONDS` + 5분이다. 어떤 turn도 `MAX_TURN_SECONDS`를 넘지 못하고, 5분은 그 turn을 끝내는 finalize·checkpoint 몫이다.
+4. drain 기한이 지나도 turn이 열려 있거나 기동이 끝나지 않았으면 그대로 teardown한다. 이때 그 turn은 전처럼 `outcome_unknown`이 되고, 끝나지 않은 기동은 실패 1회로 센다. pass summary의 `drainsOverdue`(로그 `drain_overdue_count`)와 경고 `Drain deadline passed with the worker still busy; replacing anyway` 한 줄이 남는다. 기한은 `MAX_TURN_SECONDS` + 5분이다. 어떤 turn도 `MAX_TURN_SECONDS`를 넘지 못하고, 5분은 그 turn을 끝내는 finalize·checkpoint 몫이다.
 
 claim되지 않은 stale 컨테이너는 전처럼 곧바로 교체된다.
 

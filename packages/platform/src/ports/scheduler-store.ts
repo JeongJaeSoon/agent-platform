@@ -203,8 +203,11 @@ export type PendingWorkspaceReclaim = {
  */
 /** Where the drain of a claimed launch stands (`requestDrain`). */
 export type DrainState = {
-  /** A turn on the session the launch serves has not ended yet. */
-  turnOpen: boolean;
+  /**
+   * The worker is not at a boundary yet: a turn on the session it serves is
+   * still open, or it has not asked for its first input (still starting up).
+   */
+  busy: boolean;
   /** The first request is at least the deadline old, on the storage clock. */
   overdue: boolean;
 };
@@ -275,7 +278,7 @@ export interface SchedulerStore {
    * call on, the worker is handed no new turn, so the one it runs is its
    * last. Idempotent — the first request's time is kept and the deadline
    * counts from it. Answered under the lock a worker's next-input takes, so
-   * `turnOpen: false` means no turn can start on it any more. Null when the
+   * `busy: false` means no turn can start on it any more. Null when the
    * launch holds no binding, has given its slot back, or was asked to go.
    */
   requestDrain(

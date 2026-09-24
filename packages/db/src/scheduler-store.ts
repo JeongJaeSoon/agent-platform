@@ -635,7 +635,10 @@ export function createPostgresSchedulerStore(
         // The session still bound to this launch; one it let go of has no
         // turn here to wait for.
         const [session] = await tx
-          .select({ id: sessions.id })
+          .select({
+            id: sessions.id,
+            restoreAttemptId: sessions.restoreAttemptId,
+          })
           .from(sessions)
           .where(eq(sessions.executionId, ref.executionId))
           .limit(1)
@@ -662,8 +665,14 @@ export function createPostgresSchedulerStore(
                   ),
                 )
                 .limit(1);
+        // A worker that has not asked for input yet is still restoring or
+        // starting up; cut short, it would count as a failed startup
+        // (94S-302). Its first poll ends that, and gets no turn.
+        const startingUp =
+          session !== undefined &&
+          session.restoreAttemptId === launch.claimedAttemptId;
         return {
-          turnOpen: open.length > 0,
+          busy: open.length > 0 || startingUp,
           overdue: requested?.overdue === true,
         };
       });

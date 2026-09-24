@@ -1049,7 +1049,7 @@ async function pass(
     // The binding moved on since the rows were read; the next pass sees
     // what the launch is now.
     if (drain === null) return false;
-    if (!drain.turnOpen) return true;
+    if (!drain.busy) return true;
     if (!drain.overdue) {
       summary.draining.push(ref);
       logger.info("Claimed execution draining before its replacement", {
@@ -1061,7 +1061,7 @@ async function pass(
     }
     summary.drainsOverdue.push(ref);
     logger.warn(
-      "Drain deadline passed with the turn still open; replacing anyway",
+      "Drain deadline passed with the worker still busy; replacing anyway",
       {
         ...fieldsOf(ref),
         deadline_ms: drainDeadlineMs,
