@@ -113,8 +113,12 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
 fi
 # The gate, then 94S-320's recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
-# Last, 94S-117's role checks, which restart the services and stop
-# PostgreSQL: nothing may run after them on this stack.
+status=0
 bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
-  tests/d2-gate/control-host-roles.e2e.test.ts \
-  --timeout 1800000 2>&1 | tee "$out/test.log"
+  --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
+# Last, 94S-117's role checks, which restart the services and stop
+# PostgreSQL, so nothing may run after them on this stack. A run of its own:
+# bun orders the files of one run by path, not as given.
+bun test tests/d2-gate/control-host-roles.e2e.test.ts \
+  --timeout 1800000 2>&1 | tee -a "$out/test.log" || status=$?
+exit "$status"
