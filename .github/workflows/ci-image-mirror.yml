@@ -89,7 +89,7 @@ jobs:
             tag: "28-dind"
             digest: sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac
           # The compose stack `e2e` and `quickstart` start (94S-365); the
-          # digest is infra/docker-compose.yml's own.
+          # digest is infra/compose.core.yml's own.
           - name: gitea
             source: docker.io/gitea/gitea
             tag: "1.22"

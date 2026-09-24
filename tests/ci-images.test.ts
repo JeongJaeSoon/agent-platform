@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@agent-platform/execution-local-docker";
 import { suiteFiles } from "../.github/scripts/test-files.ts";
+import { LOCAL_LAYERS, layeredServices } from "./compose-layers.ts";
 
 // CI pulls third-party images from its ghcr.io mirror only, by digests the
 // mirror workflow copies there (94S-308). What ci.yml names must be on that
@@ -317,7 +318,7 @@ describe("the e2e compose overlay", () => {
   const services = (path: string) =>
     (Bun.YAML.parse(read(path)) as { services: Record<string, Service> })
       .services;
-  const stack = services("infra/docker-compose.yml");
+  const stack = layeredServices<Service>(LOCAL_LAYERS);
   const overlay = services(OVERLAY);
   /** The mirror entry a reference resolves to, or undefined. */
   const resolve = (reference: string | undefined) => {

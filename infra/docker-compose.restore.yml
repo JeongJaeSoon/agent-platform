@@ -9,7 +9,8 @@
 # them. Worker networks need no counterpart: the scheduler names each one
 # after its installation and execution. The restore starts no egress proxy,
 # so its label cannot collide with the live installation's. `!override`
-# replaces the base list instead of merging into it; it needs compose v2.24+.
+# replaces the base list instead of merging into it. Compose v2.24.6+: older
+# releases refuse an overlay on services docker-compose.yml includes.
 #
 # The postgres init mounts are dropped too. The base file applies the legacy
 # M0 SQL on first start, which would leave tables the restored dump then

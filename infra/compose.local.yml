@@ -1,0 +1,139 @@
+# The local layer over compose.core.yml (94S-430): what a machine without
+# test-ops' AWS account needs to run the product. docker-compose.yml merges
+# the two. It adds
+# - the local dependencies: LocalStack for S3 and, apart, for the API's
+#   Secrets Manager, the fake Messages API, and the sample repository;
+# - the builds of the apps from this checkout;
+# - the endpoints and LocalStack credentials that point the API at them,
+#   and the ordering on them.
+# Nothing here loosens what compose.core.yml sets; tests/images.test.ts
+# keeps the security settings out of this file. Paths are relative to this
+# directory.
+services:
+  # Workers reach this only through the egress proxy's object store route
+  # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST in compose.core.yml, 94S-251), which
+  # the API signs for one session's prefix. It runs S3 alone all the same: nothing here
+  # uses Secrets Manager.
+  localstack:
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    ports:
+      - "127.0.0.1:4566:4566"
+    # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
+    # with the container whatever is mounted (94S-422). The API refuses to
+    # start on an empty bucket the database still holds checkpoints for.
+    volumes:
+      - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
+    healthcheck:
+      # Healthy once the init script has also set the bucket's default
+      # encryption: the API refuses to start on anything but AES256
+      # (94S-337). Three CLI calls do not fit the old 3s.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null && [ \"$$(awslocal s3api get-bucket-encryption --bucket claude-sessions --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)\" = AES256 ]"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 5s
+
+  # The API's Secrets Manager (94S-132), apart from `localstack` on purpose:
+  # workers reach that one through the egress proxy, and nothing on the
+  # allowlist may answer for the provider keys the catalog references. Only
+  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER).
+  secrets:
+    image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    environment:
+      SERVICES: secretsmanager
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    ports:
+      # For an API started on the host (README); loopback only.
+      - "127.0.0.1:4567:4566"
+    volumes:
+      - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id agent-platform/local/fake-messages >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # The Messages API the example profile (config/profiles.yaml) points at, so
+  # the local stack runs sessions without an Anthropic account. Workers reach
+  # it through the proxy's provider route (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST).
+  fake-messages:
+    image: oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+    command: ["bun", "run", "/app/packages/testkit/src/fake-messages-main.ts"]
+    environment:
+      FAKE_MESSAGES_PORT: "4010"
+    volumes:
+      - ..:/app:ro
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4010/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # One-shot: the example catalog's repository (config/repositories.yaml),
+  # so a fresh `up` can run a session without touching Gitea by hand. Skips
+  # whatever already exists (infra/gitea/init-sample-repo.sh).
+  gitea-init:
+    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+    profiles: ["apps"]
+    user: git
+    entrypoint: ["/bin/sh", "/init-sample-repo.sh"]
+    environment:
+      # Empty: a random password nobody knows (infra/gitea/init-sample-repo.sh).
+      GITEA_AGENT_PASSWORD: ${GITEA_AGENT_PASSWORD:-}
+    volumes:
+      - gitea-data:/data
+      - ./gitea/init-sample-repo.sh:/init-sample-repo.sh:ro
+    depends_on:
+      gitea:
+        condition: service_healthy
+
+  # Built from the API's Dockerfile. No `image:` of its own: two services
+  # naming one tag race to export it, so this one gets compose's default
+  # name and shares every layer with `api` through the build cache.
+  migrate:
+    build:
+      context: ..
+      dockerfile: apps/control-host/Dockerfile
+
+  egress-proxy:
+    build:
+      context: ..
+      dockerfile: apps/egress-proxy/Dockerfile
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/control-host/Dockerfile
+    environment:
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: ${AWS_ENDPOINT_URL_SECRETS_MANAGER:-http://secrets:4566}
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+    depends_on:
+      localstack:
+        condition: service_healthy
+      secrets:
+        condition: service_healthy
+      fake-messages:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+
+  scheduler:
+    depends_on:
+      localstack:
+        condition: service_healthy
+      gitea-init:
+        condition: service_completed_successfully

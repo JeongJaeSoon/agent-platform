@@ -1,0 +1,25 @@
+# The test-ops layer over compose.core.yml (94S-430), merged after it:
+#
+#   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml ...
+#
+# A skeleton so far: it runs no local dependency and builds nothing, and
+# every app image must be named — the released digest, never the local
+# `:dev` tag. The object store is real S3; its credentials and the rest of
+# the installation's settings come with scripts/test-ops.sh (94S-432).
+# tests/images.test.ts renders this and keeps the security settings out of
+# it.
+services:
+  migrate:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+  api:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+  scheduler:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+    environment:
+      WORKER_IMAGE: ${WORKER_IMAGE:?WORKER_IMAGE must name the released worker image}
+  reconciler:
+    image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+  egress-proxy:
+    image: ${EGRESS_PROXY_IMAGE:?EGRESS_PROXY_IMAGE must name the released egress-proxy image}
+  worker:
+    image: ${WORKER_IMAGE:?WORKER_IMAGE must name the released worker image}

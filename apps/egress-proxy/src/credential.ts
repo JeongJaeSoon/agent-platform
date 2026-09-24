@@ -84,7 +84,7 @@ const MAX_OBJECT_BODY_BYTES = 512 * 1024 * 1024;
  * going out. Each admission reserves its declared length, or the route's
  * cap when it declares none, and one that does not fit is refused at once,
  * before Bun has taken any of it. Two of the largest bundles fit; the
- * container's mem_limit in infra/docker-compose.yml is sized from this.
+ * container's mem_limit in infra/compose.core.yml is sized from this.
  */
 export const DEFAULT_MAX_BODY_BYTES_IN_FLIGHT = 512 * 1024 * 1024;
 /**
