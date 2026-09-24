@@ -256,7 +256,7 @@ post "/v1/sessions/$SID/resume" "$(jq -nc --argjson r "$(revision)" '{expected_r
 wait_for "/v1/sessions/$SID" .admission_state active
 post "/v1/sessions/$SID/messages" "$(say 'GATE-SPEC {"id":"q6","steps":[{"tool":"Bash","input":{"command":"cat hello.txt","description":"read hello.txt"}}],"final":"still here"}')" | jq .
 wait_for "/v1/sessions/$SID/turns/6" .status completed
-get "/v1/sessions/$SID/turns/6" | jq -e '.status == "completed"'
+get "/v1/sessions/$SID/turns/6" | jq -e '.status == "failed"'
 ```
 
 - terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: failed`, `admission_state: recovery_required`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
