@@ -30,7 +30,9 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { createApiApp } from "../app.ts";
 import { registerWorkerRoutes } from "./worker.ts";
 
-const LEASE_TTL_MS = 1_000;
+// Every call in a test that expects success has to land inside one lease on
+// a loaded runner; only the expiry test waits it out.
+const LEASE_TTL_MS = 2_000;
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
