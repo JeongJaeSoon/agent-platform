@@ -35,6 +35,17 @@ env:
   REGISTRY: ghcr.io
   # Lower-cased in the metadata step: ghcr rejects upper-case repository paths.
   IMAGE_PREFIX: ${{ github.repository }}
+  # Pulled from the CI mirror, not Docker Hub (94S-317): the Dockerfiles'
+  # own BUN_IMAGE by the same digest, so the image bytes do not change, the
+  # BuildKit that setup-buildx-action runs, and the Dockerfile frontend.
+  # ci-image-mirror.yml copies them; tests/ci-images.test.ts holds them to
+  # that list and the Dockerfiles.
+  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+  # The frontend the Dockerfiles' `# syntax=` line names, by the digest of
+  # that tag; BUILDKIT_SYNTAX overrides the line, which BuildKit would
+  # otherwise resolve on Docker Hub.
+  DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 
 jobs:
   build:
@@ -48,6 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
       - id: meta
         name: Image name and tags
@@ -72,6 +85,9 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}
           cache-to: type=gha,scope=images-${{ matrix.app }},mode=max
+          build-args: |
+            BUN_IMAGE=${{ env.BUN_IMAGE }}
+            BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
 
       - name: Smoke
         env:
@@ -176,6 +192,8 @@ jobs:
             exit 1
           fi
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
       - id: meta
         env:
           APP: ${{ matrix.app }}
@@ -198,6 +216,9 @@ jobs:
           push: true
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}
+          build-args: |
+            BUN_IMAGE=${{ env.BUN_IMAGE }}
+            BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
@@ -264,6 +285,8 @@ jobs:
           path: staged
           merge-multiple: true
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}

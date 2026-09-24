@@ -238,6 +238,7 @@ jobs:
               - packages/testkit/src/workspace.
               - tests/architecture.
               - tests/ci-images.
+              - tests/ci-services.
               - tests/d2-gate
               - tests/soak/
               - tests/ci-issue-scripts.
@@ -296,38 +297,20 @@ jobs:
       EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
       EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
-    # An empty image skips the service, so each job starts only its own.
-    services:
-      postgres:
-        image: ${{ matrix.postgres && 'ghcr.io/jeongjaesoon/agent-platform-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6' || '' }}
-        env:
-          POSTGRES_DB: sessions
-          POSTGRES_PASSWORD: dev
-          POSTGRES_USER: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sessions"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-      localstack:
-        image: ${{ matrix.localstack && 'ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7' || '' }}
-        env:
-          # secretsmanager: the catalog's secret_id references (94S-132).
-          SERVICES: s3,secretsmanager
-          AWS_DEFAULT_REGION: ap-northeast-1
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-        ports:
-          - 4566:4566
-        options: >-
-          --health-cmd "curl -fsS http://localhost:4566/_localstack/health"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Not `services:`, which the runner starts one by one before the first
+      # step and polls on a 2·4·8s backoff (46s for api). From here the pulls
+      # overlap each other and the install below; `wait` then probes every
+      # second, and fails with the container's log if one never gets ready
+      # (94S-316).
+      - if: matrix.postgres || matrix.localstack
+        env:
+          POSTGRES: ${{ matrix.postgres }}
+          LOCALSTACK: ${{ matrix.localstack }}
+          POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+        run: .github/scripts/ci-services.sh start
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
       # Unset rather than empty where the service is absent: a test reading
@@ -365,6 +348,11 @@ jobs:
         run: |
           echo "DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')" >>"$GITHUB_ENV"
           nohup docker events --format '{{json .}}' >"$RUNNER_TEMP/docker-events.jsonl" 2>&1 &
+      - if: matrix.postgres || matrix.localstack
+        env:
+          POSTGRES: ${{ matrix.postgres }}
+          LOCALSTACK: ${{ matrix.localstack }}
+        run: .github/scripts/ci-services.sh wait
       - name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
@@ -404,6 +392,8 @@ jobs:
             ${{ runner.temp }}/goroutine-stacks-*.log
           if-no-files-found: ignore
           retention-days: 14
+      - if: always()
+        run: .github/scripts/ci-services.sh stop
 
   # The required check. Branch protection names `integration`, and a matrix
   # reports one context per job, so this job stands in for all of them:
