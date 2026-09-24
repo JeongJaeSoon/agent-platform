@@ -239,6 +239,7 @@ jobs:
               - tests/ci-images.
               - tests/ci-services.
               - tests/d2-gate
+              - tests/e2e/real-model.
               - tests/soak/
               - tests/ci-issue-scripts.
               - tests/integration-jobs.

@@ -1,0 +1,24 @@
+# The catalog `tests/e2e/run.sh --real-model` mounts over config/ (94S-373):
+# the example profile pointed at the real Messages API. Paid calls, so no CI
+# job runs it (docs/quickstart.md, "실제 모델로 돌리기").
+#
+# Its own id rather than claude-coding-local, so a session made here can only
+# run against api.anthropic.com: nothing in this catalog names the compose
+# fake. The key is read from the API process's environment; the API refuses
+# to start without it, and workers only ever hold an egress token for it
+# (94S-252).
+profiles:
+  claude-coding-real:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.com
+      auth:
+        kind: api_key
+        value_env: ANTHROPIC_API_KEY
+    project_settings:
+      claude_md: true

@@ -22,10 +22,33 @@
 # bun. Leaves nothing behind unless E2E_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
 # installation id, and the four images are removed on exit.
+#
+#   tests/e2e/run.sh --real-model
+#
+# The same stack against the real Messages API (94S-373): the catalog in
+# tests/e2e/real-model replaces config/, the API alone reads the key from
+# ANTHROPIC_API_KEY (tests/e2e/compose.real-model.yml, which also caps what
+# the run can spend), and tests/e2e/real-model.e2e.ts runs in place of the
+# scripted suites. Without a key it stops before touching Docker, and it
+# fails if the key's value turns up anywhere in E2E_OUT. Paid calls, so no
+# CI job runs it; docs/quickstart.md gives the command and its cost.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+
+real_model=""
+case "$*" in
+  "") ;;
+  --real-model) real_model=1 ;;
+  *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
+esac
+if [ -n "$real_model" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  # Never a quiet fallback to the scripted fake: that run would pass and
+  # prove nothing about the real model.
+  echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty; nothing was started" >&2
+  exit 2
+fi
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
@@ -45,6 +68,7 @@ label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror (94S-365).
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
+    ${real_model:+-f tests/e2e/compose.real-model.yml} \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
@@ -69,6 +93,17 @@ cleanup() {
   # its container, which is gone by now unless the stack is kept.
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
   [ "${E2E_KEEP:-0}" = 1 ] || wait 2>/dev/null || true
+  if [ -n "$real_model" ]; then
+    # The pattern goes in through a builtin and a pipe, never an argument,
+    # and only file names come out.
+    local leaked
+    leaked="$(grep -rlF -D skip -f <(printf '%s\n' "$ANTHROPIC_API_KEY") "$out" || true)"
+    if [ -n "$leaked" ]; then
+      echo "e2e --real-model: ANTHROPIC_API_KEY's value is in the record:" >&2
+      echo "$leaked" >&2
+      [ "$status" != 0 ] || status=1
+    fi
+  fi
   echo "e2e record: $out" >&2
   exit "$status"
 }
@@ -104,7 +139,7 @@ claude_version="$(dc logs --no-color worker 2>/dev/null | sed -n 's/.*| //p' | t
 sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p' \
   packages/adapters/runtimes/claude/package.json)"
 {
-  echo "command: tests/e2e/run.sh"
+  echo "command: tests/e2e/run.sh${real_model:+ --real-model}"
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
@@ -112,6 +147,11 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "egress_proxy_image: ${EGRESS_PROXY_IMAGE} $(image_id "$EGRESS_PROXY_IMAGE")"
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
+  if [ -n "$real_model" ]; then
+    echo "model: $(sed -n 's/^ *model: //p' tests/e2e/real-model/profiles.yaml)"
+    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' tests/e2e/real-model/profiles.yaml)"
+    echo "session_cost_limit_usd: $(sed -n 's/^ *SESSION_COST_LIMIT_USD: "\(.*\)"$/\1/p' tests/e2e/compose.real-model.yml)"
+  fi
 } | tee "$out/record.txt" >&2
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
@@ -127,7 +167,13 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-bun test ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts --timeout 900000 \
+if [ -n "$real_model" ]; then
+  suites=(./tests/e2e/real-model.e2e.ts)
+else
+  suites=(./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
+fi
+# The suites drive the public API and never need the provider key.
+env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \
   --reporter=junit --reporter-outfile="$out/junit.xml" 2>&1 | tee "$out/test.log"
 status="${PIPESTATUS[0]}"
 set -e
