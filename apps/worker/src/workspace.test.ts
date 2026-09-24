@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
 import {
   chmod,
   mkdir,
   mkdtemp,
   readdir,
+  rename,
   rm,
   symlink,
   utimes,
@@ -13,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceDescriptor } from "@agent-platform/contracts";
 
+import { RESTORED_CHECKPOINT_DIRECTORY } from "./checkpoint-restore.ts";
 import { COMMITTED_CLAUDE_MD_MAX_BYTES, GitWorkspace } from "./workspace.ts";
 
 let scratch: string;
@@ -64,12 +67,13 @@ afterEach(async () => {
  * Git's dumb HTTP protocol is plain files, so a static server behind Basic
  * auth is enough to make a credential load-bearing.
  */
-function serveOrigin(expected: string | null) {
+function serveOrigin(expected: string | null, onRequest?: () => void) {
   git(["update-server-info"], origin);
   const seen: string[] = [];
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
+      onRequest?.();
       const auth = request.headers.get("authorization");
       seen.push(auth ?? "anonymous");
       if (expected !== null && auth !== expected) {
@@ -297,6 +301,76 @@ describe("GitWorkspace", () => {
 
     await expect(prepare(descriptor())).rejects.toThrow("refused");
     expect(await Bun.file(join(root, "WORK.md")).text()).toBe("only here\n");
+  });
+
+  test("fetches a reuse through a mirror inside .git that git status never shows and nothing outlives (94S-377)", async () => {
+    const gitDirectory = join(root, ".git");
+    const worker = (names: string[]) =>
+      names.filter((name) => name.startsWith("agent-platform-"));
+    let watching = false;
+    const during: Array<{ scratch: string[]; status: string }> = [];
+    const { server } = serveOrigin(null, () => {
+      if (!watching) return;
+      during.push({
+        scratch: worker(readdirSync(gitDirectory)),
+        status: git(["status", "--porcelain", "--untracked-files=all"], root),
+      });
+    });
+    try {
+      const url = `http://127.0.0.1:${server.port}/repo.git`;
+      await prepare(descriptor(url));
+      watching = true;
+
+      expect(await prepare(descriptor(url))).toBe("reuse");
+      // Every request is the mirror's clone: a reuse reaches origin only
+      // through it.
+      expect(during.length).toBeGreaterThan(0);
+      for (const seen of during) {
+        expect(seen.scratch).toEqual([
+          expect.stringMatching(/^agent-platform-fetch-/),
+        ]);
+        expect(seen.status).toBe("");
+      }
+      expect(worker(await readdir(gitDirectory))).toEqual([]);
+      expect(
+        git(["status", "--porcelain", "--untracked-files=all"], root),
+      ).toBe("");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a reuse clears the scratch a killed worker left in .git and keeps the restored checkpoint (94S-377)", async () => {
+    await prepare(descriptor());
+    const gitDirectory = join(root, ".git");
+    const mirror = join(gitDirectory, "agent-platform-fetch-Ab3xYz", "o.git");
+    await mkdir(mirror, { recursive: true });
+    await writeFile(join(mirror, "pack"), "left by a killed worker\n");
+    await mkdir(join(gitDirectory, "agent-platform-capture-q1W2e3"));
+    await mkdir(join(gitDirectory, RESTORED_CHECKPOINT_DIRECTORY));
+
+    expect(await prepare(descriptor())).toBe("reuse");
+    expect(
+      (await readdir(gitDirectory)).filter((name) =>
+        name.startsWith("agent-platform-"),
+      ),
+    ).toEqual([RESTORED_CHECKPOINT_DIRECTORY]);
+  });
+
+  test("refuses a reuse whose .git is not a directory of its own rather than put the mirror elsewhere (94S-377)", async () => {
+    await prepare(descriptor());
+    const elsewhere = join(scratch, "elsewhere.git");
+    await rename(join(root, ".git"), elsewhere);
+    await symlink(elsewhere, join(root, ".git"));
+
+    await expect(prepare(descriptor())).rejects.toThrow(
+      ".git is not a directory",
+    );
+    expect(
+      (await readdir(elsewhere)).filter((name) =>
+        name.startsWith("agent-platform-"),
+      ),
+    ).toEqual([]);
   });
 
   test("brings the origin's new commits into a reused checkout", async () => {

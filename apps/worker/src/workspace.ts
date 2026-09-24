@@ -1,5 +1,4 @@
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import type {
   CheckpointRef,
@@ -217,6 +216,7 @@ export class GitWorkspace implements WorkspacePreparer {
           git(["remote", "set-url", "origin", remote.url]),
           "remote set-url",
         );
+        await sweepWorkerScratch(this.root);
         await this.fetchThroughMirror(
           git,
           remote.route?.url ?? remote.url,
@@ -341,13 +341,22 @@ export class GitWorkspace implements WorkspacePreparer {
     branch: string,
     signal: AbortSignal,
   ): Promise<void> {
-    const scratch = await mkdtemp(join(tmpdir(), "worker-fetch-"));
+    // Only a reuse fetches, and it found `.git` when it observed the
+    // checkout; a clone writes straight into the root and needs no mirror.
+    const scratch = await workerScratch(this.root, "fetch");
+    if (scratch === undefined) {
+      throw new Error(
+        `Workspace ${this.root} refused: its .git is not a directory`,
+      );
+    }
     const mirror = join(scratch, "origin.git");
     try {
       await check(
         git(["clone", "--quiet", "--bare", "--", url, mirror], {
           network: true,
-          cwd: scratch,
+          // Outside the checkout: a git that looked for a repository from
+          // its cwd would find the config the last engine could write.
+          cwd: join(this.root, ".."),
         }),
         "fetch",
       );
@@ -383,6 +392,43 @@ export class GitWorkspace implements WorkspacePreparer {
     }
   }
 }
+
+/**
+ * A new directory of the worker's own inside the workspace's `.git`: the
+ * workspace volume is the only disk a worker has (`/tmp` and HOME are tmpfs,
+ * paid for out of the container's memory), and inside `.git` neither git nor
+ * a capture takes it for a file of the tree. Undefined when `.git` is not a
+ * directory. The engine runs as the worker's user and could reach it anyway,
+ * so a link it planted grants nothing; what is read back is checked.
+ */
+export async function workerScratch(
+  root: string,
+  purpose: string,
+): Promise<string | undefined> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return undefined;
+  return mkdtemp(join(gitDirectory, `agent-platform-${purpose}-`));
+}
+
+/**
+ * Removes what `workerScratch` made and a killed worker never did: on the
+ * volume it outlives the container and keeps counting against the quota.
+ * Only a reuse can meet one; a clone and a restore start from an empty root.
+ */
+async function sweepWorkerScratch(root: string): Promise<void> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return;
+  for (const entry of await readdir(gitDirectory)) {
+    if (WORKER_SCRATCH_NAME.test(entry)) {
+      await rm(join(gitDirectory, entry), { force: true, recursive: true });
+    }
+  }
+}
+
+/** `mkdtemp`'s six characters: the restored checkpoint directory has none. */
+const WORKER_SCRATCH_NAME = /^agent-platform-[a-z]+-[A-Za-z0-9]{6}$/;
 
 /** Enough for a CLAUDE.md -> AGENTS.md -> docs/... chain; more is a loop. */
 const MAX_LINK_HOPS = 8;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { lstat, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, open, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type GitResourceLimits,
@@ -18,6 +18,7 @@ import {
   type GitResult,
   LOCAL_DEADLINE_MS,
   runGitBytes,
+  workerScratch,
 } from "./workspace.ts";
 
 /**
@@ -184,24 +185,6 @@ export function checkpointGitLimits(
       FILE_SIZE_SLACK_BYTES,
     memoryBytes: CHECKPOINT_GIT_MEMORY_BYTES,
   };
-}
-
-/**
- * A new directory of the worker's own inside the workspace's `.git`: the
- * workspace volume is the only disk a worker has (`/tmp` and HOME are tmpfs,
- * paid for out of the container's memory), and inside `.git` neither git nor
- * a capture takes it for a file of the tree. Undefined when `.git` is not a
- * directory. The engine runs as the worker's user and could reach it anyway,
- * so a link it planted grants nothing; what is read back is checked.
- */
-export async function workerScratch(
-  root: string,
-  purpose: string,
-): Promise<string | undefined> {
-  const gitDirectory = join(root, ".git");
-  const found = await lstat(gitDirectory).catch(() => null);
-  if (found?.isDirectory() !== true) return undefined;
-  return mkdtemp(join(gitDirectory, `agent-platform-${purpose}-`));
 }
 
 /**
