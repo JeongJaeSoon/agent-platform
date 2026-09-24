@@ -76,7 +76,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints   # 새 빈 bucket
 ```
 
-`localstack`이면 새 project의 LocalStack에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 LocalStack을 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
+`localstack`이면 새 project의 LocalStack에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 LocalStack을 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
 
 순서와 거부 조건:
 
@@ -88,7 +88,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 6. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 7. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
    1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 LocalStack이라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 localstack init이 만든다.
-   2. versioning `Enabled`, Object Lock `Enabled`, 기본 암호화 `AES256`인지 확인한다. 아니면 exit 1이다. version이나 delete marker가 하나라도 있으면 exit 4로 거부한다.
+   2. versioning `Enabled`, Object Lock `Enabled`(기본 보존 기간 없음), 기본 암호화 `AES256`인지 확인한다. 아니면 exit 1이다. version이나 delete marker가 하나라도 있으면 exit 4로 거부한다.
    3. 저장소가 `If-None-Match: *` 두 번째 쓰기를 412로 거부하는지 scratch key로 확인한다. 확인이 끝나면 scratch key의 version과 delete marker를 모두 version id로 지우고, bucket이 다시 비었는지 본다.
    4. `checkpoints` 행이 가리키는 manifest key를 **빼고** `object-store-cli.ts upload`로 올린다. 모든 쓰기는 create-only(`If-None-Match: *`)다. 그 사이 누가 같은 key를 썼으면 멈춘다. 빈 bucket 검사는 다른 writer를 막지 못한다. 그래서 대상 bucket은 이 복원 전용으로 새로 만든다. 다른 설치의 자격 증명이 그 bucket에 쓸 수 없게 하는 것은 운영자 몫이다.
    5. `checkpoint-pins-cli.ts repin`이 재고정한다. 먼저 모든 행을 쓰기 없이 검증한다. 백업 manifest가 행의 sha256과 맞는지, 모든 ref가 복원 bucket에서 같은 바이트의 version으로 있는지 본다.

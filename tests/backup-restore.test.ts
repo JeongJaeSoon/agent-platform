@@ -293,6 +293,7 @@ type FakeBucket = {
   readonly deleteMarkers?: number;
   readonly encryption?: string;
   readonly objectLock?: boolean;
+  readonly retention?: boolean;
   readonly versioning?: "Enabled" | "Suspended";
   readonly versions?: number;
 };
@@ -331,7 +332,7 @@ function fakeS3(buckets: Record<string, FakeBucket>) {
       if (url.searchParams.has("object-lock")) {
         return bucket.objectLock
           ? xml(
-              `<ObjectLockConfiguration ${ns}><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`,
+              `<ObjectLockConfiguration ${ns}><ObjectLockEnabled>Enabled</ObjectLockEnabled>${bucket.retention ? "<Rule><DefaultRetention><Mode>COMPLIANCE</Mode><Days>1</Days></DefaultRetention></Rule>" : ""}</ObjectLockConfiguration>`,
             )
           : notFound("ObjectLockConfigurationNotFoundError");
       }
@@ -381,6 +382,7 @@ describe("restore target bucket (--object-store env)", () => {
       "has-marker": { ...LOCKED, deleteMarkers: 1 },
       "has-version": { ...LOCKED, versions: 1 },
       "no-lock": { encryption: "AES256", versioning: "Enabled" },
+      retained: { ...LOCKED, retention: true },
     });
   });
 
@@ -477,6 +479,18 @@ describe("restore target bucket (--object-store env)", () => {
     });
     expect(result.stderr).toContain(
       "bucket no-lock has versioning Enabled and Object Lock not configured; a restore needs both",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(writes()).toEqual([]);
+  }, 30_000);
+
+  test("refuses a bucket with a default retention, which would keep anything the restore wrote", async () => {
+    const result = await restoreInto("retained", {
+      bucket: "claude-sessions",
+      count: 0,
+    });
+    expect(result.stderr).toContain(
+      "bucket retained has an Object Lock default retention",
     );
     expect(result.exitCode).toBe(1);
     expect(writes()).toEqual([]);

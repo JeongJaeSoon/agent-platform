@@ -35,6 +35,7 @@ import {
   type BucketLocationConstraint,
   CreateBucketCommand,
   DeleteObjectCommand,
+  GetObjectLockConfigurationCommand,
   HeadBucketCommand,
   ListObjectVersionsCommand,
   PutBucketEncryptionCommand,
@@ -127,6 +128,17 @@ export async function checkRestoreTarget(input: {
   if (protection.versioning !== "Enabled" || !protection.objectLock) {
     throw new Error(
       `bucket ${bucket} has versioning ${protection.versioning} and Object Lock ${protection.objectLock ? "enabled" : "not configured"}; a restore needs both`,
+    );
+  }
+  // A default retention would lock every version written here, the probe's
+  // scratch key included, so a failed restore could never empty it again;
+  // checkpoints are protected by legal holds alone.
+  const lock = (await client.send(
+    new GetObjectLockConfigurationCommand({ Bucket: bucket }),
+  )) as { ObjectLockConfiguration?: { Rule?: { DefaultRetention?: unknown } } };
+  if (lock.ObjectLockConfiguration?.Rule?.DefaultRetention !== undefined) {
+    throw new Error(
+      `bucket ${bucket} has an Object Lock default retention; a restore needs a bucket protected by legal holds alone`,
     );
   }
   const encryption = await describeBucketEncryption(client, bucket);
@@ -252,15 +264,34 @@ async function scratchVersions(
   bucket: string,
   key: string,
 ): Promise<string[]> {
-  const page = (await client.send(
-    new ListObjectVersionsCommand({ Bucket: bucket, Prefix: key }),
-  )) as {
-    DeleteMarkers?: Array<{ Key?: string; VersionId?: string }>;
-    Versions?: Array<{ Key?: string; VersionId?: string }>;
-  };
-  return [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
-    .filter((entry) => entry.Key === key)
-    .map((entry) => entry.VersionId ?? "null");
+  const found: string[] = [];
+  let keyMarker: string | undefined;
+  let versionMarker: string | undefined;
+  do {
+    const page = (await client.send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        KeyMarker: keyMarker,
+        Prefix: key,
+        VersionIdMarker: versionMarker,
+      }),
+    )) as {
+      DeleteMarkers?: Array<{ Key?: string; VersionId?: string }>;
+      IsTruncated?: boolean;
+      NextKeyMarker?: string;
+      NextVersionIdMarker?: string;
+      Versions?: Array<{ Key?: string; VersionId?: string }>;
+    };
+    for (const entry of [
+      ...(page.Versions ?? []),
+      ...(page.DeleteMarkers ?? []),
+    ]) {
+      if (entry.Key === key) found.push(entry.VersionId ?? "null");
+    }
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+    versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+  } while (keyMarker !== undefined);
+  return found;
 }
 
 async function main(argv: readonly string[]): Promise<number> {
