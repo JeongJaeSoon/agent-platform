@@ -157,11 +157,12 @@ manifest() {
   IFS='|' read -r ref version < <(psql_in "$1" -Atc \
     "select manifest_ref, manifest_version from checkpoints
      where session_id = '$2' and revision = $3" </dev/null)
-  compose "$1" exec -T localstack sh -c '
-    out="/tmp/rr-manifest-$$"
-    awslocal s3api get-object --bucket claude-sessions --key "$1" --version-id "$2" "$out" >/dev/null \
-      && cat "$out"; status=$?; rm -f "$out"; exit "$status"
-  ' sh "$ref" "$version" </dev/null
+  local out status=0
+  out="$(mktemp)"
+  object_store "$1" claude-sessions read "$ref" "$version" "$out" >/dev/null || status=$?
+  [ "$status" != 0 ] || cat "$out"
+  rm -f "$out"
+  return "$status"
 }
 
 # The image the session's running worker container was started from.

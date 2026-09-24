@@ -6,14 +6,27 @@
 # bound on loopback from --port-base (postgres, localstack, gitea http, gitea
 # ssh = base, base+1, base+2, base+3).
 #
+# The objects go into a bucket that must be new as well: versioned, Object
+# Lock, SSE-S3 by default, and without a single object version or delete
+# marker. --object-store localstack (default) uses the new project's own
+# LocalStack and the backup's bucket name, creating the bucket if its init
+# did not. --object-store env uses the store the environment names
+# (AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL
+# unless it is AWS S3) and needs --bucket, which may not carry the name of
+# the bucket the backup was taken from; the new project then runs no
+# LocalStack. The bucket must be this restore's alone: no check can keep
+# another writer out of it once the upload starts.
+#
 # Checkpoint objects get new VersionIds in the new bucket; every checkpoint
 # is re-pinned to them and held, so the restored API runs `locked`.
 #
 # Refusals, by exit code: 2 usage, 3 schema mismatch (the backup's applied
-# migrations are not exactly this checkout's), 4 target project not empty.
-# A failed re-pin exits 1 and leaves a target to tear down, not to retry.
+# migrations are not exactly this checkout's), 4 target project or bucket
+# not new. A failed re-pin exits 1 and leaves a target to tear down, not to
+# retry.
 #
 # Usage: scripts/restore.sh <backup-dir> --into <project> [--port-base 25432] [--check-only]
+#                           [--object-store localstack|env] [--bucket <name>]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -22,9 +35,10 @@ BACKUP=""
 INTO=""
 PORT_BASE=25432
 CHECK_ONLY=0
+BUCKET=""
 
 usage() {
-  sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -33,6 +47,8 @@ while [ $# -gt 0 ]; do
     --into) INTO="$2"; shift 2 ;;
     --port-base) PORT_BASE="$2"; shift 2 ;;
     --check-only) CHECK_ONLY=1; shift ;;
+    --object-store) set_object_store "$2"; shift 2 ;;
+    --bucket) BUCKET="$2"; shift 2 ;;
     -h|--help) usage ;;
     -*) log "unknown argument: $1"; usage ;;
     *) [ -z "$BACKUP" ] || usage; BACKUP="$1"; shift ;;
@@ -49,6 +65,7 @@ esac
 case "$PORT_BASE" in
   ''|*[!0-9]*) die "--port-base must be a number" ;;
 esac
+[ "$OBJECT_STORE" != env ] || [ -n "$BUCKET" ] || die "--object-store env needs --bucket, a new empty bucket"
 
 require_tools docker jq bun
 
@@ -57,6 +74,22 @@ log "restore: checking $BACKUP"
 verify_checksums "$BACKUP" || die "SHA256SUMS mismatch in $BACKUP; the bundle is damaged or edited"
 MANIFEST="$BACKUP/manifest.json"
 schema_check "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
+BUCKET="${BUCKET:-$(jq -r '.objects.bucket' "$MANIFEST")}"
+
+# `check_target [--create|--source-bucket <b>]`: the target bucket is new,
+# empty and locked, or the restore stops with the CLI's reason; 4 when it
+# has the source's bucket name or holds anything.
+check_target() {
+  local status=0
+  object_store "$INTO" "$BUCKET" check-target "$@" || status=$?
+  [ "$status" = 0 ] && return 0
+  [ "$status" != "$EXIT_TARGET_NOT_EMPTY" ] || exit "$EXIT_TARGET_NOT_EMPTY"
+  die "bucket $BUCKET cannot take this restore"
+}
+SOURCE_BUCKET="$(jq -r '.objects.bucket' "$MANIFEST")"
+# An outside store exists before the project does, so it is checked before
+# docker is: a live bucket is refused without a container started.
+[ "$OBJECT_STORE" != env ] || check_target --source-bucket "$SOURCE_BUCKET"
 if project_has_resources "$INTO"; then
   log "restore: project '$INTO' already has containers, volumes or networks; pick an unused name"
   exit "$EXIT_TARGET_NOT_EMPTY"
@@ -80,7 +113,6 @@ if [ "$CHECK_ONLY" = 1 ]; then
   exit 0
 fi
 
-BUCKET="$(jq -r '.objects.bucket' "$MANIFEST")"
 # The fresh postgres must create the database the dump was taken from, not
 # whatever POSTGRES_DB/POSTGRES_USER the restoring shell happens to carry.
 export POSTGRES_DB="$(jq -r '.db.name' "$MANIFEST")"
@@ -91,8 +123,10 @@ export RESTORE_GITEA_HTTP_PORT="$((PORT_BASE + 2))"
 export RESTORE_GITEA_SSH_PORT="$((PORT_BASE + 3))"
 
 # --- fresh services ----------------------------------------------------------
-log "restore: starting postgres, localstack, gitea as project '$INTO' (ports ${RESTORE_POSTGRES_PORT}..${RESTORE_GITEA_SSH_PORT})"
-compose_restore "$INTO" up -d --wait postgres localstack gitea
+SERVICES=(postgres gitea)
+[ "$OBJECT_STORE" = env ] || SERVICES+=(localstack)
+log "restore: starting ${SERVICES[*]} as project '$INTO' (ports ${RESTORE_POSTGRES_PORT}..${RESTORE_GITEA_SSH_PORT})"
+compose_restore "$INTO" up -d --wait "${SERVICES[@]}"
 
 # --- database ----------------------------------------------------------------
 # The override dropped the init SQL mounts, so the database is empty apart
@@ -113,53 +147,33 @@ log "restore: db.sql applied ($(psql_in "$INTO" -Atc "SELECT count(*) FROM sessi
 # once, re-pinned to the new versions, by `checkpoint_pins repin` below
 # (docs/backup-restore.md, "checkpoint 객체의 version").
 MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpoints WHERE collected_at IS NULL ORDER BY 1")"
-while IFS= read -r key; do
-  [ -n "$key" ] || continue
-  # Removed from the stage by path below; a key that could climb out of it
-  # is no checkpoint manifest (manifestRefFor).
-  case "/$key/" in
-    *//*|*/../*|*/./*) die "checkpoint manifest key '$key' is not a plain path" ;;
-  esac
-done < <(printf '%s\n' "$MANIFEST_KEYS")
-STAGE="/tmp/ap-restore-$$"
-LOCALSTACK_CID="$(compose_restore "$INTO" ps -q localstack)"
-docker cp "$BACKUP/objects/." "${LOCALSTACK_CID}:${STAGE}/"
-printf '%s\n' "$MANIFEST_KEYS" | compose_restore "$INTO" exec -T localstack sh -c "
-  set -eu
-  keys=\"\$(cat)\"
-  awslocal s3api head-bucket --bucket '$BUCKET' >/dev/null 2>&1 \
-    || awslocal s3api create-bucket --bucket '$BUCKET' --create-bucket-configuration LocationConstraint=\"\$AWS_DEFAULT_REGION\" --object-lock-enabled-for-bucket >/dev/null
-  # Before the sync: objects take the default in force when they are
-  # written, and the restored API refuses any other (94S-337).
-  awslocal s3api put-bucket-encryption --bucket '$BUCKET' \
-    --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'
-  # Versions and holds are what the restored checkpoints are pinned by; a
-  # bucket without them cannot take the re-pin, and the API refuses it
-  # under CHECKPOINT_OBJECT_PROTECTION=locked.
-  [ \"\$(awslocal s3api get-bucket-versioning --bucket '$BUCKET' --query Status --output text)\" = Enabled ] \
-    && [ \"\$(awslocal s3api get-object-lock-configuration --bucket '$BUCKET' --query ObjectLockConfiguration.ObjectLockEnabled --output text 2>/dev/null)\" = Enabled ] \
-    || { echo 'bucket $BUCKET lacks versioning or Object Lock' >&2; exit 1; }
-  # Only ever into an empty bucket, delete markers and old versions
-  # included: sync would replace an object whose bytes differ, and nothing
-  # on the restore side may rewrite a checkpoint object.
-  [ \"\$(awslocal s3api list-object-versions --bucket '$BUCKET' --max-items 1 --query 'length([Versions, DeleteMarkers][])' --output text)\" = 0 ] \
-    || { echo 'bucket $BUCKET is not empty' >&2; exit 1; }
-  printf '%s\\n' \"\$keys\" | while IFS= read -r key; do
-    [ -n \"\$key\" ] || continue
-    rm -f -- '$STAGE/'\"\$key\"
-  done
-  awslocal s3 sync '$STAGE' 's3://$BUCKET' --quiet
-  rm -rf '$STAGE'
-"
+SKIP_KEYS="$(mktemp)"
+trap 'rm -f "$SKIP_KEYS"; docker network rm "$LOCK" >/dev/null 2>&1 || true' EXIT
+printf '%s\n' "$MANIFEST_KEYS" > "$SKIP_KEYS"
+# The project's own LocalStack made the bucket at init, or gets it made
+# here. The store must enforce If-None-Match before anything relies on it;
+# the probe removes what it wrote, and the bucket is checked empty again
+# right before the first write.
+if [ "$OBJECT_STORE" = env ]; then
+  check_target --source-bucket "$SOURCE_BUCKET"
+else
+  check_target --create
+fi
+object_store "$INTO" "$BUCKET" create-only-check \
+  || die "bucket $BUCKET does not refuse a second create-only write; restoring into it could replace objects"
+check_target
+# Create-only: a key someone wrote meanwhile stops the upload.
+object_store "$INTO" "$BUCKET" upload "$BACKUP/objects" "$SKIP_KEYS" >/dev/null \
+  || die "objects could not be uploaded to $BUCKET; project '$INTO' is unusable — tear it down and restore into a fresh project and bucket"
 # Nothing above can be undone once the re-pin starts writing: a refusal
 # leaves a target that must be torn down, never promoted or retried.
 checkpoint_pins "$INTO" "$BUCKET" repin "$BACKUP/objects" >/dev/null \
   || die "checkpoint re-pin failed; project '$INTO' is unusable — tear it down and restore into a fresh project"
 EXPECTED_OBJECTS="$(jq -r '.objects.count' "$MANIFEST")"
-RESTORED_OBJECTS="$(compose_restore "$INTO" exec -T localstack awslocal s3 ls "s3://$BUCKET" --recursive | grep -c . || true)"
+RESTORED_OBJECTS="$(object_store "$INTO" "$BUCKET" count)" || die "could not count the objects in $BUCKET"
 [ "$RESTORED_OBJECTS" = "$EXPECTED_OBJECTS" ] \
   || die "object count after sync and re-pin is $RESTORED_OBJECTS, manifest says $EXPECTED_OBJECTS"
-log "restore: $RESTORED_OBJECTS objects in s3://$BUCKET, $(printf '%s\n' "$MANIFEST_KEYS" | grep -c . || true) checkpoint manifests re-pinned and held"
+log "restore: $RESTORED_OBJECTS objects in $BUCKET, $(printf '%s\n' "$MANIFEST_KEYS" | grep -c . || true) checkpoint manifests re-pinned and held"
 
 # --- gitea -------------------------------------------------------------------
 # Gitea wrote a fresh app.ini and gitea.db on first start; both are replaced
@@ -244,18 +258,23 @@ printf '%s\n' "$MIGRATE_LOG" | grep -q 'db.migrate.noop' \
   || { printf '%s\n' "$MIGRATE_LOG" >&2; die "migrate did not report noop on the restored database"; }
 log "restore: migrate reports noop"
 
+if [ "$OBJECT_STORE" = env ]; then
+  STORE_LINE="objects    bucket $BUCKET at ${AWS_ENDPOINT_URL:-AWS S3}"
+else
+  STORE_LINE="localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)"
+fi
 cat <<EOF
 restore: done — project '$INTO'
   postgres   postgresql://${POSTGRES_USER}@127.0.0.1:${RESTORE_POSTGRES_PORT}/${POSTGRES_DB}
              (password: the POSTGRES_PASSWORD this shell started the project with; compose default otherwise)
-  localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)
+  $STORE_LINE
   gitea      http://127.0.0.1:${RESTORE_GITEA_HTTP_PORT}
-  verify     scripts/verify-restore.sh --project $INTO --bucket $BUCKET
+  verify     scripts/verify-restore.sh --project $INTO --object-store $OBJECT_STORE --bucket $BUCKET
   start again (always with the override; the base file alone rebinds the
   source's ports while Gitea keeps advertising these ones)
              RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
              POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
-             docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d postgres localstack gitea
+             docker compose -p $INTO -f infra/docker-compose.yml -f infra/docker-compose.restore.yml up -d ${SERVICES[*]}
   tear down  docker compose -p $INTO -f infra/docker-compose.yml down -v
 EOF

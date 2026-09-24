@@ -17,7 +17,11 @@
 # Exit 0 when every row passes, 5 when any fails. A database with no
 # checkpoints passes with a warning: there was nothing to disagree.
 #
+# --object-store localstack (default) reads the project's LocalStack; env
+# reads the store the environment names, as scripts/restore.sh does.
+#
 # Usage: scripts/verify-restore.sh --project <project> [--bucket claude-sessions]
+#                                  [--object-store localstack|env]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -26,7 +30,7 @@ PROJECT=""
 BUCKET=claude-sessions
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -34,6 +38,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --project) PROJECT="$2"; shift 2 ;;
     --bucket) BUCKET="$2"; shift 2 ;;
+    --object-store) set_object_store "$2"; shift 2 ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
@@ -43,24 +48,6 @@ require_tools docker jq git bun
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-
-# `fetch_object <key> <version>`: that exact version's bytes on stdout. The
-# key and version travel as arguments, never inside the script text.
-fetch_object() {
-  # `</dev/null`: exec -T would otherwise swallow the row loop's stdin.
-  compose "$PROJECT" exec -T localstack sh -c '
-    out="/tmp/verify-object-$$"
-    awslocal s3api get-object --bucket "$1" --key "$2" --version-id "$3" "$out" >/dev/null 2>&1 \
-      && cat "$out"; status=$?; rm -f "$out"; exit "$status"
-  ' sh "$BUCKET" "$1" "$2" </dev/null
-}
-
-# `ON` when a legal hold keeps that version from being deleted.
-hold_status() {
-  compose "$PROJECT" exec -T localstack awslocal s3api head-object \
-    --bucket "$BUCKET" --key "$1" --version-id "$2" \
-    --query ObjectLockLegalHoldStatus --output text 2>/dev/null </dev/null
-}
 
 FAILED=0
 PASSED=0
@@ -80,9 +67,11 @@ check_ref() {
     fail "$label: $key is not pinned by version; the restore did not re-pin it"
     return 1
   fi
-  # Presence is the fetch's exit status: a zero-byte object (an empty untracked
-  # file, bytes: 0) is a valid artifact and still gets hashed.
-  if ! fetch_object "$key" "$version" > "$out"; then
+  # Presence is the read's exit status: a zero-byte object (an empty untracked
+  # file, bytes: 0) is a valid artifact and still gets hashed. It prints the
+  # version's legal hold, ON or OFF.
+  local hold
+  if ! hold="$(object_store "$PROJECT" "$BUCKET" read "$key" "$version" "$out")"; then
     fail "$label: object missing $key (version $version)"
     return 1
   fi
@@ -96,8 +85,6 @@ check_ref() {
     fail "$label: $(wc -c < "$out" | tr -d ' ') bytes, manifest says $bytes ($key)"
     return 1
   fi
-  local hold
-  hold="$(hold_status "$key" "$version" || true)"
   if [ "$hold" != ON ]; then
     fail "$label: $key (version $version) has legal hold '${hold:-none}', not ON"
     return 1
@@ -201,24 +188,10 @@ done <<< "$ROWS_TEXT"
 
 # The restored store must still refuse to replace an object: a scratch key is
 # written once, then again with If-None-Match, which has to fail with 412.
-SCRATCH="verify-restore/$(date -u +%s)-$$"
-if compose "$PROJECT" exec -T localstack sh -c "
-  set -eu
-  printf one > /tmp/verify-one; printf two > /tmp/verify-two
-  awslocal s3api put-object --bucket '$BUCKET' --key '$SCRATCH' --body /tmp/verify-one >/dev/null
-  # Only a 412 proves the store enforces the precondition; any other failure
-  # (bad option, transient error) leaves the object untouched for the wrong
-  # reason.
-  if err=\"\$(awslocal s3api put-object --bucket '$BUCKET' --key '$SCRATCH' --if-none-match '*' --body /tmp/verify-two 2>&1 >/dev/null)\"; then
-    awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet; exit 1
-  fi
-  case \"\$err\" in *PreconditionFailed*) ;; *) echo \"\$err\" >&2; awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet; exit 1 ;; esac
-  [ \"\$(awslocal s3 cp 's3://$BUCKET/$SCRATCH' -)\" = one ]
-  awslocal s3 rm 's3://$BUCKET/$SCRATCH' --quiet
-"; then
-  echo "PASS create-only write refused on s3://$BUCKET (If-None-Match)"
+if object_store "$PROJECT" "$BUCKET" create-only-check; then
+  echo "PASS create-only write refused on $BUCKET (If-None-Match)"
 else
-  fail "create-only write was not refused on s3://$BUCKET"
+  fail "create-only write was not refused on $BUCKET"
 fi
 
 # The restored API's own answer, in `locked` mode: the bucket check it runs
