@@ -81,6 +81,7 @@ describe("structured logging", () => {
 
     logger.warn("fetch https://agent:tok123@gitea:3000/a.git failed", {
       remote: "https://tok123@github.com/o/r.git",
+      at: "https://user:p@ss@host.test/r?by=a@b",
       mail: "someone@example.test",
     });
 
@@ -89,6 +90,7 @@ describe("structured logging", () => {
     );
     expect(sink.records[0]?.fields).toEqual({
       remote: "https://[REDACTED]@github.com/o/r.git",
+      at: "https://[REDACTED]@host.test/r?by=a@b",
       mail: "someone@example.test",
     });
   });

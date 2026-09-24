@@ -18,8 +18,10 @@ const secretValue =
 const sensitiveText =
   /(?:\b(?:authorization|token|secret|password|credential|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key)\b\s*[:=]|\b(?:(?:request|response)[-_ ]?)?(?:message|body|content|prompt|input|output|transcript)\b\s*[:=])/i;
 // Only the login goes: the rest of the URL is what says which call failed.
-// The scheme is bounded so a long dotted word cannot make this quadratic.
-const urlLogin = /\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/?#@]+@/gi;
+// Up to the authority's last `@`, as a URL parser reads an unescaped one in
+// the password. The scheme is bounded so a long dotted word cannot make
+// this quadratic.
+const urlLogin = /\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/?#]*@/gi;
 
 export type LogFields = Readonly<Record<string, unknown>>;
 
