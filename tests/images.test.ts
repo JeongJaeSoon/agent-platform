@@ -230,6 +230,76 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
+  // A credential route's upstream on a forward list is a way round the
+  // route: the provider outside cost accounting, Gitea without a token,
+  // LocalStack into every session's prefix (94S-383).
+  test("workers reach the provider, Gitea and the object store only through the credential routes", () => {
+    const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
+    const credential = [
+      "EGRESS_CREDENTIAL_ALLOWLIST",
+      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
+    ];
+    const upstreams = [
+      "api.anthropic.com:443",
+      "gitea:3000",
+      "fake-messages:4010",
+      "localstack:4566",
+    ];
+    const proxy = composeServices("infra/docker-compose.yml")["egress-proxy"];
+    const composeDefault = (name: string) =>
+      proxy?.environment?.[name]?.match(
+        new RegExp(`^\\$\\{${name}:-([^}]*)\\}$`),
+      )?.[1];
+    const example = Object.fromEntries(
+      read(EXAMPLE_ENV_PATH)
+        .split("\n")
+        .map((line) => line.match(/^(EGRESS_[A-Z_]+)=(.*)$/)?.slice(1))
+        .filter((entry) => entry !== undefined),
+    );
+    const listOf = (value: string | undefined) =>
+      (value ?? "").split(",").filter((entry) => entry !== "");
+
+    for (const name of [...forward, ...credential]) {
+      expect(composeDefault(name)).toBeDefined();
+      expect(example[name]).toBe(composeDefault(name));
+    }
+    const forwarded = forward.flatMap((name) => listOf(composeDefault(name)));
+    const routed = credential.flatMap((name) => listOf(composeDefault(name)));
+    for (const upstream of upstreams) {
+      expect(forwarded).not.toContain(upstream);
+      expect(routed).toContain(upstream);
+    }
+    // The worker gateway alone.
+    expect(
+      forwarded.every((entry) =>
+        /^(api|host\.docker\.internal):3000$/.test(entry),
+      ),
+    ).toBe(true);
+
+    // The e2e overlays run the product's allowlists; the gate's own are held
+    // to the same split.
+    for (const overlay of [
+      "tests/e2e/compose.yml",
+      "tests/e2e/compose.real-model.yml",
+      "tests/e2e/compose.ci-mirror.yml",
+    ]) {
+      expect(
+        composeServices(overlay)["egress-proxy"]?.environment,
+      ).toBeUndefined();
+    }
+    const gate = composeServices("scripts/d2-gate/compose.yml")["egress-proxy"]
+      ?.environment;
+    const gateForward = forward.flatMap((name) => listOf(gate?.[name]));
+    expect(gateForward).toEqual(["gate-gateway:3000"]);
+
+    // Accounts come from the admin CLI; an open sign-up is a channel
+    // between sessions for anything that reaches Gitea.
+    expect(
+      composeServices("infra/docker-compose.yml").gitea?.environment
+        ?.GITEA__service__DISABLE_REGISTRATION,
+    ).toBe("true");
+  });
+
   const apiBlock = compose.slice(
     compose.indexOf("\n  api:"),
     compose.indexOf("\n  worker:"),
