@@ -588,7 +588,9 @@ function render(
     [
       "docker",
       "compose",
-      // Nothing from a checkout's .env files: the tests compare defaults.
+      // Interpolation from defaults alone, not a checkout's env file. An
+      // `include` reads its own from the included file's directory, so the
+      // tests render the layers with -f rather than through one.
       "--env-file",
       "/dev/null",
       "--profile",
@@ -715,10 +717,20 @@ describe("compose layers", () => {
     expect(read(CORE)).not.toMatch(/^ +env_file:/m);
   });
 
-  test("docker-compose.yml renders the core with the local layer, as the tests merge them", () => {
-    const { exitCode, stderr, model } = render(["infra/docker-compose.yml"]);
+  test("docker-compose.yml is the core with the local layer, and renders as the tests merge them", () => {
+    const entry = Bun.YAML.parse(read("infra/docker-compose.yml")) as {
+      name?: string;
+      include?: { path?: string[] }[];
+      services?: unknown;
+    };
+    expect(entry).toEqual({
+      name: "agent-platform",
+      include: [
+        { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
+      ],
+    });
+    const { exitCode, stderr, model } = render(LOCAL_LAYERS);
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    expect(model?.name).toBe("agent-platform");
     const merged = localStack();
     const services = model?.services ?? {};
     expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
