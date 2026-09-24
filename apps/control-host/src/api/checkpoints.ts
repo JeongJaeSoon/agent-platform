@@ -19,9 +19,11 @@ import {
   createObjectRouteSigner,
   createStorageS3Client,
   DEFAULT_MAX_GIT_MEMORY_BYTES,
+  describeBucketEncryption,
   describeBucketProtection,
   type GitCommandRunner,
   type ObjectRouteSigner,
+  type S3ClientLike,
 } from "@agent-platform/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
@@ -121,6 +123,10 @@ export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] = {
  * `CHECKPOINT_OBJECT_PROTECTION` is `locked` (default) or `unversioned`, the
  * CheckpointService `objectProtection`. Degrading to `unversioned` has to be
  * said out loud for the same reason.
+ *
+ * `CHECKPOINT_OBJECT_ENCRYPTION_CHECK` is `enforce` (default) or `warn`: what
+ * `assertCheckpointBucketEncryption` does with a bucket whose default
+ * encryption is not SSE-S3.
  */
 export type CheckpointStorageEnvironment = Readonly<
   Record<string, string | undefined>
@@ -130,6 +136,8 @@ export type CheckpointStorageConfig = {
   accessKeyId: string;
   bucket: string;
   endpoint?: string;
+  /** Absent means `enforce`. */
+  encryptionCheck?: "warn";
   protection: ObjectProtection;
   region: string;
   secretAccessKey: string;
@@ -178,10 +186,23 @@ export function checkpointStorageConfigFromEnv(
       `CHECKPOINT_OBJECT_PROTECTION must be "locked" (default) or "unversioned", not ${protection}`,
     );
   }
+  const encryptionCheck =
+    environment.CHECKPOINT_OBJECT_ENCRYPTION_CHECK?.trim();
+  if (
+    encryptionCheck !== undefined &&
+    encryptionCheck !== "" &&
+    encryptionCheck !== "enforce" &&
+    encryptionCheck !== "warn"
+  ) {
+    throw new Error(
+      `CHECKPOINT_OBJECT_ENCRYPTION_CHECK must be "enforce" (default) or "warn", not ${encryptionCheck}`,
+    );
+  }
   return {
     accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket,
     ...(endpoint ? { endpoint } : {}),
+    ...(encryptionCheck === "warn" ? { encryptionCheck } : {}),
     protection: protection === "unversioned" ? "unversioned" : "locked",
     region: required(environment.AWS_REGION, "AWS_REGION"),
     secretAccessKey: required(
@@ -279,6 +300,51 @@ export async function assertCheckpointBucketProtection(
         `Checkpoint bucket ${config.bucket} has versioning ${found.versioning} and Object Lock ${found.objectLock ? "enabled" : "not configured"}; CHECKPOINT_OBJECT_PROTECTION=locked needs both (set it to "unversioned" to run without version pinning and holds)`,
       );
     }
+  } finally {
+    client.destroy();
+  }
+}
+
+/**
+ * The default encryption a checkpoint bucket must have: SSE-S3. Checkpoint
+ * writes name no encryption, so the bucket default is what every object
+ * gets. SSE-KMS is not accepted in its place: every worker would need
+ * GenerateDataKey on the key, which is exactly the credential 94S-251
+ * narrows, and a worker without it fails its first write rather than this
+ * check (docs/operations.md, 94S-337).
+ */
+export const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
+
+/**
+ * Refuses to start on a checkpoint bucket whose default encryption is not
+ * `CHECKPOINT_BUCKET_ENCRYPTION`, whatever the protection mode: an
+ * unversioned deployment still stores transcripts and workspaces.
+ * `CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn` reports it through `warn` and
+ * starts anyway.
+ */
+export async function assertCheckpointBucketEncryption(
+  config: CheckpointStorageConfig,
+  options: {
+    /** Tests substitute a fake; the product path never passes this. */
+    readonly client?: S3ClientLike;
+    readonly warn: (message: string, fields: { bucket: string }) => void;
+  },
+): Promise<void> {
+  const check = async (client: S3ClientLike) => {
+    const found = await describeBucketEncryption(client, config.bucket);
+    if (found === CHECKPOINT_BUCKET_ENCRYPTION) return;
+    const message = `Checkpoint bucket ${config.bucket} encrypts new objects with ${found}; checkpoints need the bucket default SSE-S3 (${CHECKPOINT_BUCKET_ENCRYPTION})`;
+    if (config.encryptionCheck !== "warn") {
+      throw new Error(
+        `${message} (set CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn to start anyway)`,
+      );
+    }
+    options.warn(message, { bucket: config.bucket });
+  };
+  if (options.client !== undefined) return check(options.client);
+  const client = checkpointS3Client(config);
+  try {
+    await check(client);
   } finally {
     client.destroy();
   }

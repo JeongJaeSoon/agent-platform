@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as schema from "@agent-platform/db";
 import {
   executions,
@@ -29,6 +32,8 @@ import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { judgeHealth, readStatus } from "../pass-loop/health.ts";
+import { runPassLoop } from "../pass-loop/loop.ts";
 import { main } from "./main.ts";
 
 /**
@@ -576,6 +581,199 @@ integration(
       const next = await main(environment("sleep 600"));
       expect(next.launched).toHaveLength(1);
       expect(next.failedLaunches).toEqual([]);
+      const [running] = await client.listContainers([
+        `${LABELS.installation}=${runLabel}`,
+        `${LABELS.sessionId}=${healthy}`,
+      ]);
+      expect(running?.State).toBe("running");
+    }, 300_000);
+  },
+);
+
+integration(
+  "the scheduler loop over a crash-looping session against Docker and PostgreSQL (94S-368)",
+  () => {
+    let database: TempDatabase;
+    let pool: Pool;
+    let db: NodePgDatabase<typeof schema>;
+    let dir: string;
+    const client = new DockerClient(dockerHost);
+    const runLabel = `it-${crypto.randomUUID()}`;
+    const crashing = crypto.randomUUID();
+    const healthy = crypto.randomUUID();
+    let proxy: string | undefined;
+
+    const settings = (command: string) => ({
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "test",
+      DATABASE_URL: database.url,
+      DOCKER_HOST: dockerHost,
+      EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
+      EXECUTION_INSTALLATION_ID: runLabel,
+      EXECUTION_DOCKER_COMMAND: command,
+      EXECUTION_SLOT_LIMIT: "2",
+      EXECUTION_WORKSPACE_QUOTA: "off",
+      MAX_TURN_SECONDS: "3600",
+      PROVIDER_MAX_RETRIES: "2",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
+      S3_BUCKET: "claude-sessions",
+      WORKER_CPUS: "0.25",
+      WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
+      WORKER_IMAGE: IMAGE,
+      WORKER_MEMORY_MB: "64",
+      WORKER_PIDS_LIMIT: "32",
+    });
+
+    async function session(id: string) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: runLabel,
+        repoUrl: "https://example.invalid/repo.git",
+        branch: `session/${id}`,
+      });
+      await db.insert(turns).values({
+        sessionId: id,
+        sequence: 1,
+        message: "hi",
+        status: "queued",
+      });
+      await db.insert(unassignedSessions).values({ sessionId: id });
+    }
+
+    beforeAll(async () => {
+      await new DockerClient(dockerHost, "v1.44", {
+        timeoutMs: 110_000,
+      }).pullImage(IMAGE);
+      proxy = await startStandInProxy({
+        dockerHost,
+        image: IMAGE,
+        installationId: runLabel,
+      });
+      database = await createTempDatabase({ prefix: "scheduler_loop_it" });
+      pool = new Pool({ connectionString: database.url });
+      db = drizzle(pool, { schema });
+      dir = await mkdtemp(join(tmpdir(), "scheduler-loop-it-"));
+      await session(crashing);
+    }, 120_000);
+
+    afterAll(async () => {
+      for (const container of await client
+        .listContainers([`${LABELS.installation}=${runLabel}`])
+        .catch(() => [])) {
+        await client
+          .stopAndRemoveContainer(container.Id, 1)
+          .catch(() => undefined);
+      }
+      for (const sessionId of [crashing, healthy]) {
+        for (const volume of await client
+          .listVolumes([`${LABELS.sessionId}=${sessionId}`])
+          .catch(() => [])) {
+          await fetch(`http://docker/v1.44/volumes/${volume.Name}?force=true`, {
+            method: "DELETE",
+            unix: dockerHost.replace("unix://", ""),
+          } as RequestInit).catch(() => undefined);
+        }
+      }
+      if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
+      await removeWorkerNetworks(client, runLabel).catch((error: unknown) => {
+        console.warn("[scheduler.integration] worker networks left", error);
+      });
+      await pool.end();
+      await database.drop();
+      await rm(dir, { force: true, recursive: true });
+    }, 120_000);
+
+    test("a session waiting out its launch backoff neither ends the loop nor holds up another session", async () => {
+      const launch = async () => {
+        const [row] = await db
+          .select()
+          .from(workerLaunches)
+          .where(eq(workerLaunches.sessionId, crashing));
+        return row;
+      };
+      // A worker that dies before it claims, until the scheduler has counted
+      // it as a failed launch; then its backoff outlasts this test, so every
+      // pass of the loop below finds it backing off.
+      for (let pass = 0; pass < 10; pass += 1) {
+        await main({ ...process.env, ...settings("false") });
+        if ((await launch())?.launchFailureCount === 1) break;
+        await Bun.sleep(500);
+      }
+      expect((await launch())?.launchFailureCount).toBe(1);
+      await db
+        .update(workerLaunches)
+        .set({ launchRetryAt: sql`clock_timestamp() + interval '1 hour'` })
+        .where(eq(workerLaunches.sessionId, crashing));
+      await session(healthy);
+
+      // The scheduler role as compose runs it: the loop over `--once` child
+      // processes, giving up after three failed passes in a row.
+      const statusFile = join(dir, "status.json");
+      const passes = 5;
+      const controller = new AbortController();
+      const loop = runPassLoop({
+        name: "Scheduler",
+        command: [
+          "env",
+          ...Object.entries(settings("sleep 600")).map(
+            ([name, value]) => `${name}=${value}`,
+          ),
+          process.execPath,
+          "run",
+          join(import.meta.dir, "..", "main.ts"),
+          "scheduler",
+          "--once",
+        ],
+        config: {
+          intervalMs: 100,
+          passTimeoutMs: 120_000,
+          killGraceMs: 30_000,
+          maxConsecutiveFailures: 3,
+          statusFile,
+        },
+        logger: {
+          info: () => {},
+          warn: () => {},
+          error: (message, fields) => console.error(message, fields),
+        },
+        signal: controller.signal,
+      });
+      let ended = false;
+      void loop.then(() => {
+        ended = true;
+      });
+      const deadline = Date.now() + 240_000;
+      while (!ended && Date.now() < deadline) {
+        if (((await readStatus(statusFile))?.passes ?? 0) >= passes) break;
+        await Bun.sleep(250);
+      }
+      controller.abort();
+      // Before 94S-368 every one of these passes exited 1 and the loop
+      // returned 1 on the third: the restart policy's cue.
+      expect(await loop).toBe(0);
+      const status = await readStatus(statusFile);
+      expect(status?.passes).toBeGreaterThanOrEqual(passes);
+      expect(status).toMatchObject({
+        consecutiveFailures: 0,
+        lastFailureAt: null,
+        lastSuccessAt: null,
+      });
+      const degradedAt = Date.parse(status?.lastDegradedAt ?? "");
+      expect(judgeHealth(status, new Date(degradedAt), 140_000)).toEqual({
+        healthy: true,
+        reason: "last pass 0s ago completed degraded",
+      });
+
+      // Still backing off in its slot: one launch, one generation.
+      const row = await launch();
+      expect(row?.generation).toBe(1);
+      expect(row?.launchFailureCount).toBe(1);
+      expect(row?.slotReleasedAt).toBeNull();
+      // And the other session got the other slot meanwhile.
       const [running] = await client.listContainers([
         `${LABELS.installation}=${runLabel}`,
         `${LABELS.sessionId}=${healthy}`,

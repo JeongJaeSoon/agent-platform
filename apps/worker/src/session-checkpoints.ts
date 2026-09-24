@@ -19,6 +19,7 @@ import {
   type CheckpointObjectStore,
   type CheckpointPreparation,
   type CheckpointTranscripts,
+  isOwnershipLost,
   ObjectIntegrityError,
   type ObjectRef,
   type ReadyCheckpoint,
@@ -44,7 +45,6 @@ import {
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
-import { isOwnershipLost } from "./gateway-client.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import { committedClaudeMdOf, storableRepositoryUrl } from "./workspace.ts";
 import {

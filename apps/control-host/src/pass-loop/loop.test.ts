@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { checkHealth, judgeHealth, readStatus } from "./health.ts";
 import {
+  PASS_DEGRADED_EXIT,
   PASS_LOOP_ROLES,
   PASS_SKIPPED_EXIT,
   type PassLoopConfig,
@@ -24,6 +25,12 @@ const IGNORES_SIGTERM = bun(
 const SUCCEEDS = bun("process.exit(0)");
 const FAILS = bun("process.exit(3)");
 const SKIPS = bun(`process.exit(${PASS_SKIPPED_EXIT})`);
+const DEGRADES = bun(`process.exit(${PASS_DEGRADED_EXIT})`);
+/** Exits with `codes[n]` on its nth run, counted in `file`; 0 past the end. */
+const exitsInTurn = (file: string, codes: readonly number[]) =>
+  bun(
+    `const f = ${JSON.stringify(file)}; const n = Number(await Bun.file(f).text().catch(() => "0")); await Bun.write(f, String(n + 1)); process.exit(${JSON.stringify(codes)}[n] ?? 0)`,
+  );
 
 describe("pass loop", () => {
   let dir: string;
@@ -255,7 +262,7 @@ describe("pass loop", () => {
     expect(judgeHealth(killed, new Date(), staleMs)).toEqual({
       healthy: false,
       reason:
-        "1 failed pass(es) since the last success: pass did not finish within 2s and was killed",
+        "1 failed pass(es) since the last completed one: pass did not finish within 2s and was killed",
     });
   }, 30_000);
 
@@ -358,9 +365,189 @@ describe("pass loop", () => {
     // A loop that only ever skips has done nothing, and is not healthy.
     expect(judgeHealth(status, new Date(), 60_000)).toEqual({
       healthy: false,
-      reason: `no pass has succeeded since ${status?.loopStartedAt}`,
+      reason: `no pass has completed since ${status?.loopStartedAt}`,
     });
   }, 30_000);
+});
+
+describe("pass loop: degraded passes (94S-368)", () => {
+  let dir: string;
+  let sink: MemoryLogSink;
+  let logger: StructuredLogger;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "pass-loop-degraded-"));
+    sink = new MemoryLogSink();
+    logger = new StructuredLogger({ sinks: [sink] });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  const config = (maxConsecutiveFailures: number): PassLoopConfig => ({
+    intervalMs: 10,
+    passTimeoutMs: 10_000,
+    killGraceMs: 300,
+    maxConsecutiveFailures,
+    statusFile: join(dir, "status.json"),
+  });
+  const messages = () => sink.records.map((record) => record.message);
+
+  /** Runs until `passes` passes have logged, then stops the loop. */
+  function runFor(
+    command: readonly string[],
+    maxConsecutiveFailures: number,
+    passes: number,
+  ): Promise<number> {
+    const controller = new AbortController();
+    const count = () => {
+      if (
+        sink.records.filter((r) => r.message.includes(" pass ")).length >=
+        passes
+      ) {
+        controller.abort();
+      }
+    };
+    return runPassLoop({
+      name: "Test",
+      command,
+      config: config(maxConsecutiveFailures),
+      logger: {
+        info(message, fields) {
+          logger.info(message, fields);
+          count();
+        },
+        warn(message, fields) {
+          logger.warn(message, fields);
+          count();
+        },
+        error(message, fields) {
+          logger.error(message, fields);
+          count();
+        },
+      },
+      signal: controller.signal,
+    });
+  }
+
+  test("degraded passes never add up to giving up, and keep the loop healthy while saying so", async () => {
+    // Five degraded passes against a failure limit of one.
+    expect(await runFor(DEGRADES, 1, 5)).toBe(0);
+    const status = await readStatus(join(dir, "status.json"));
+    expect(status).toMatchObject({
+      passes: 5,
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+    });
+    expect(messages()).toEqual(Array(5).fill("Test pass completed degraded"));
+    const lastDegraded = Date.parse(status?.lastDegradedAt ?? "");
+    expect(judgeHealth(status, new Date(lastDegraded + 1_000), 5_000)).toEqual({
+      healthy: true,
+      reason: "last pass 1s ago completed degraded",
+    });
+    // Degraded passes that stopped coming go stale like successes do.
+    expect(judgeHealth(status, new Date(lastDegraded + 6_000), 5_000)).toEqual({
+      healthy: false,
+      reason: "last pass 6s ago completed degraded",
+    });
+  }, 30_000);
+
+  test("a degraded pass ends a run of failures", async () => {
+    // With a limit of three, fail-fail-degraded-fail-fail never reaches it;
+    // without the reset the fourth pass would be the third failure in a row.
+    const command = exitsInTurn(join(dir, "count"), [
+      3,
+      3,
+      PASS_DEGRADED_EXIT,
+      3,
+      3,
+      PASS_DEGRADED_EXIT,
+    ]);
+    expect(await runFor(command, 3, 6)).toBe(0);
+    expect(messages()).toEqual([
+      "Test pass failed",
+      "Test pass failed",
+      "Test pass completed degraded",
+      "Test pass failed",
+      "Test pass failed",
+      "Test pass completed degraded",
+    ]);
+    expect(await readStatus(join(dir, "status.json"))).toMatchObject({
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastFailureReason: "pass exited with code 3",
+    });
+  }, 30_000);
+
+  test("lastSuccessAt means a clean pass only; health reports whichever came last", async () => {
+    const command = exitsInTurn(join(dir, "count"), [0, PASS_DEGRADED_EXIT]);
+    expect(await runFor(command, 1, 2)).toBe(0);
+    const status = await readStatus(join(dir, "status.json"));
+    const success = Date.parse(status?.lastSuccessAt ?? "");
+    const degraded = Date.parse(status?.lastDegradedAt ?? "");
+    expect(degraded).toBeGreaterThanOrEqual(success);
+    expect(judgeHealth(status, new Date(degraded), 60_000)).toEqual({
+      healthy: true,
+      reason: "last pass 0s ago completed degraded",
+    });
+    // A clean pass after it is reported as one.
+    const clean = {
+      ...status,
+      lastSuccessAt: new Date(degraded + 1).toISOString(),
+    } as PassStatus;
+    expect(judgeHealth(clean, new Date(degraded + 1), 60_000)).toEqual({
+      healthy: true,
+      reason: "last successful pass 0s ago",
+    });
+  }, 30_000);
+
+  test("a failure or a pass past its deadline after a degraded pass is unhealthy", () => {
+    const at = Date.parse("2026-09-24T00:00:00.000Z");
+    const degraded: PassStatus = {
+      loopStartedAt: new Date(at - 60_000).toISOString(),
+      passes: 3,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastFailureReason: null,
+      lastSkippedAt: null,
+      lastDegradedAt: new Date(at).toISOString(),
+      lastPassDurationMs: 10,
+      consecutiveFailures: 0,
+      passDeadlineAt: null,
+    };
+    expect(judgeHealth(degraded, new Date(at + 1_000), 60_000).healthy).toBe(
+      true,
+    );
+    expect(
+      judgeHealth(
+        {
+          ...degraded,
+          consecutiveFailures: 1,
+          lastFailureAt: new Date(at + 5_000).toISOString(),
+          lastFailureReason: "pass exited with code 1",
+        },
+        new Date(at + 6_000),
+        60_000,
+      ),
+    ).toEqual({
+      healthy: false,
+      reason:
+        "1 failed pass(es) since the last completed one: pass exited with code 1",
+    });
+    const deadline = new Date(at + 5_000).toISOString();
+    expect(
+      judgeHealth(
+        { ...degraded, passDeadlineAt: deadline },
+        new Date(at + 6_000),
+        60_000,
+      ),
+    ).toEqual({
+      healthy: false,
+      reason: `a pass has been running past its deadline of ${deadline}`,
+    });
+  });
 });
 
 describe("pass loop configuration", () => {

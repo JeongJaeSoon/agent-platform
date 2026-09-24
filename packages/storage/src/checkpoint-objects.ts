@@ -8,6 +8,7 @@ import type {
 } from "@agent-platform/runtime-core";
 import {
   DeleteObjectCommand,
+  GetBucketEncryptionCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
   HeadObjectCommand,
@@ -319,6 +320,37 @@ export async function describeBucketProtection(
         ? versioning.Status
         : "Off",
   };
+}
+
+/**
+ * The algorithm a bucket encrypts new objects with when a write names none —
+ * which is every checkpoint write — or `"none"` when it has no default
+ * encryption. Read at startup next to `describeBucketProtection`.
+ */
+export async function describeBucketEncryption(
+  client: S3ClientLike,
+  bucket: string,
+): Promise<string> {
+  try {
+    const found = (await client.send(
+      new GetBucketEncryptionCommand({ Bucket: bucket }),
+    )) as {
+      ServerSideEncryptionConfiguration?: {
+        Rules?: Array<{
+          ApplyServerSideEncryptionByDefault?: { SSEAlgorithm?: string };
+        }>;
+      };
+    };
+    const rule = found.ServerSideEncryptionConfiguration?.Rules?.find(
+      (candidate) => candidate.ApplyServerSideEncryptionByDefault,
+    );
+    return rule?.ApplyServerSideEncryptionByDefault?.SSEAlgorithm ?? "none";
+  } catch (error) {
+    const name = (error as { name?: string } | null)?.name;
+    if (name === "ServerSideEncryptionConfigurationNotFoundError")
+      return "none";
+    throw error;
+  }
 }
 
 function isMissingLockConfiguration(error: unknown): boolean {

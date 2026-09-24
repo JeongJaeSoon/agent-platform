@@ -5,9 +5,9 @@ import type {
   SessionEvent,
   WorkerScope,
 } from "@agent-platform/contracts";
+import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
 import { EventPublisher } from "./event-publisher.ts";
-import { WorkerGatewayRequestError } from "./gateway-client.ts";
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",

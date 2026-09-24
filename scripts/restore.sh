@@ -129,6 +129,10 @@ printf '%s\n' "$MANIFEST_KEYS" | compose_restore "$INTO" exec -T localstack sh -
   keys=\"\$(cat)\"
   awslocal s3api head-bucket --bucket '$BUCKET' >/dev/null 2>&1 \
     || awslocal s3api create-bucket --bucket '$BUCKET' --create-bucket-configuration LocationConstraint=\"\$AWS_DEFAULT_REGION\" --object-lock-enabled-for-bucket >/dev/null
+  # Before the sync: objects take the default in force when they are
+  # written, and the restored API refuses any other (94S-337).
+  awslocal s3api put-bucket-encryption --bucket '$BUCKET' \
+    --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'
   # Versions and holds are what the restored checkpoints are pinned by; a
   # bucket without them cannot take the re-pin, and the API refuses it
   # under CHECKPOINT_OBJECT_PROTECTION=locked.

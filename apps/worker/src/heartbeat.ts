@@ -4,13 +4,12 @@ import type {
   TranscriptReport,
   WorkerScope,
 } from "@agent-platform/contracts";
-import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
-
 import {
   isOwnershipLost,
   isRetryable,
+  type WorkerGatewayClient,
   WorkerGatewayRequestError,
-} from "./gateway-client.ts";
+} from "@agent-platform/runtime-core";
 
 /**
  * A lease as the gateway granted it: what was left of it on the database
