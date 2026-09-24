@@ -9,7 +9,7 @@ import {
   normalizeHost,
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
-import { upstreamExchange } from "./upstream-http.ts";
+import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
 
 /**
  * The proxy's credential routes (94S-252): the one place a worker's request
@@ -30,6 +30,13 @@ import { upstreamExchange } from "./upstream-http.ts";
  * Only the operations a session needs are routed — the Messages API, and
  * the read half of git's smart HTTP — so a leaked token buys at most that,
  * for as long as its attempt still owns its session.
+ *
+ * The object store route (94S-251) is the one way a worker reaches its
+ * objects: the store itself is not on its allowlist. The worker's S3 client
+ * sends ordinary S3 requests here with its token as the access key id; the
+ * authorizer judges each one against the session's prefix and signs it with
+ * the API's key, and only what it signed — its target, its headers — goes
+ * upstream. Nothing of the worker's request travels but the body.
  */
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
@@ -60,6 +67,12 @@ const MAX_ERROR_BODY_BYTES = 64 * 1024;
 /** Above the Messages API's own request limit. */
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
 /**
+ * Twice the control plane's workspace bundle ceiling (256 MiB,
+ * `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`), the largest object a worker writes.
+ * Streamed, never held: it is the listener's cap, not a buffer.
+ */
+const MAX_OBJECT_BODY_BYTES = 512 * 1024 * 1024;
+/**
  * Bun's idle clock before a request is authorized: a client that opens a
  * connection and sends nothing is dropped. An authorized exchange runs on
  * the exchange deadline instead, since a non-streaming Messages call can
@@ -67,7 +80,7 @@ const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
  */
 const UNAUTHORIZED_IDLE_SECONDS = 30;
 
-export type EgressPurpose = "provider" | "repository";
+export type EgressPurpose = "provider" | "repository" | "object_store";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
@@ -80,12 +93,23 @@ const PROVIDER_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
 // Claude Code asks for the beta surface with `?beta=true`; nothing else.
 const PROVIDER_QUERIES = new Set(["", "?beta=true"]);
 
+const OBJECT_STORE_PREFIX = "/object-store";
+
 /** The exact operations routed, or null for everything else. */
 export function routeOf(
   method: string,
   pathname: string,
   search: string,
 ): CredentialRoute | null {
+  // Every object store request is the authorizer's to judge, so a refused
+  // delete answers like S3 would, not as a missing route.
+  if (pathname.startsWith(`${OBJECT_STORE_PREFIX}/`)) {
+    return {
+      purpose: "object_store",
+      path: pathname.slice(OBJECT_STORE_PREFIX.length),
+      search,
+    };
+  }
   if (pathname.startsWith("/provider/")) {
     const path = pathname.slice("/provider".length);
     if (
@@ -116,6 +140,8 @@ export function routeOf(
 }
 
 const BEARER = /^Bearer ([!-~]+)$/;
+/** An S3 client's header signature; the access key id is the token. */
+const SIGV4 = /^AWS4-HMAC-SHA256 Credential=([A-Za-z0-9_-]+)\//;
 
 /**
  * The one token the request carries. Two carriers — an `x-api-key` beside an
@@ -128,6 +154,10 @@ export function tokenOf(
 ): string | null {
   const apiKey = headers.get("x-api-key");
   const authorization = headers.get("authorization");
+  if (purpose === "object_store") {
+    if (apiKey !== null || authorization === null) return null;
+    return SIGV4.exec(authorization)?.[1] ?? null;
+  }
   if (apiKey !== null && authorization !== null) return null;
   if (authorization !== null) return BEARER.exec(authorization)?.[1] ?? null;
   if (apiKey !== null && purpose === "provider" && /^[!-~]+$/.test(apiKey)) {
@@ -141,10 +171,16 @@ export type EgressGrant = {
   attemptId: string;
   upstream: URL;
   headers: Array<[string, string]>;
+  /**
+   * The object store route's request line as signed, path and query; null
+   * for the other routes, whose path comes from the route itself.
+   */
+  target: string | null;
 };
 
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
+const REQUEST_TARGET = /^\/[!-~]*$/;
 
 /**
  * The authorizer's answer, checked field by field: the proxy has no schema
@@ -158,8 +194,14 @@ export function parseGrant(body: unknown): EgressGrant | null {
     return null;
   }
   if (typeof upstream !== "object" || upstream === null) return null;
-  const { url, headers } = upstream as Record<string, unknown>;
+  const { url, headers, target } = upstream as Record<string, unknown>;
   if (typeof url !== "string" || !Array.isArray(headers)) return null;
+  if (
+    target !== undefined &&
+    (typeof target !== "string" || !REQUEST_TARGET.test(target))
+  ) {
+    return null;
+  }
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -194,7 +236,75 @@ export function parseGrant(body: unknown): EgressGrant | null {
     attemptId: attempt_id,
     upstream: parsed,
     headers: pairs,
+    target: target ?? null,
   };
+}
+
+/**
+ * What of an S3 request the authorizer is shown, to judge and sign: the
+ * standard headers that change what S3 does, and every `x-amz-` header but
+ * the ones a signature is made of, which it replaces. The rest (the SDK's
+ * user agent and invocation ids) is dropped. The authorizer refuses any
+ * header it does not know, so a copy source or an Object Lock header is a
+ * refusal, not a header quietly lost on the way.
+ */
+const OBJECT_REQUEST_HEADERS = new Set([
+  "content-encoding",
+  "content-length",
+  "content-md5",
+  "content-type",
+  "if-match",
+  "if-modified-since",
+  "if-none-match",
+  "if-unmodified-since",
+  "range",
+]);
+const SIGNATURE_HEADERS = new Set([
+  "x-amz-content-sha256",
+  "x-amz-date",
+  "x-amz-security-token",
+  "x-amz-user-agent",
+]);
+
+export type ObjectRequest = {
+  method: string;
+  target: string;
+  headers: Array<[string, string]>;
+};
+
+export function objectRequestOf(
+  method: string,
+  target: string,
+  incoming: Headers,
+): ObjectRequest {
+  const headers: Array<[string, string]> = [];
+  incoming.forEach((value, name) => {
+    if (
+      OBJECT_REQUEST_HEADERS.has(name) ||
+      (name.startsWith("x-amz-") && !SIGNATURE_HEADERS.has(name))
+    ) {
+      headers.push([name, value]);
+    }
+  });
+  return { method, target, headers };
+}
+
+/**
+ * The credentials in an object store grant, for the echo checks: the API's
+ * access key id inside the signature, and a session token if it signs with
+ * one. The rest of what it adds (a date, a length, a signature good for one
+ * request) is not worth withholding a response over.
+ */
+function objectStoreSecrets(grant: EgressGrant): string[] {
+  const found: string[] = [];
+  for (const [name, value] of grant.headers) {
+    if (name === "x-amz-security-token") found.push(value);
+    if (name === "authorization") {
+      const keyId = /Credential=([^/,\s]+)\//.exec(value)?.[1];
+      if (keyId !== undefined) found.push(keyId);
+    }
+  }
+  return found;
 }
 
 /** Headers that describe this hop, or that this proxy sets itself. */
@@ -413,7 +523,12 @@ export function startCredentialProxy(
   let open = 0;
   const perClient = new Map<string, number>();
 
-  function reply(status: number, message: string): Response {
+  function reply(
+    status: number,
+    message: string,
+    purpose?: EgressPurpose,
+  ): Response {
+    if (purpose === "object_store") return s3Error(status, message);
     return new Response(`${message}\n`, {
       status,
       headers: { "content-type": "text/plain; charset=utf-8" },
@@ -423,6 +538,7 @@ export function startCredentialProxy(
   async function authorize(
     token: string,
     purpose: EgressPurpose,
+    objectRequest?: ObjectRequest,
   ): Promise<Authorized> {
     let response: Response;
     try {
@@ -432,7 +548,11 @@ export function startCredentialProxy(
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ token, purpose }),
+        body: JSON.stringify(
+          objectRequest === undefined
+            ? { token, purpose }
+            : { token, purpose, request: objectRequest },
+        ),
         redirect: "error",
         signal: AbortSignal.timeout(
           options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
@@ -498,7 +618,7 @@ export function startCredentialProxy(
         ...fields,
         reason: decision.reason,
       });
-      return reply(403, `egress denied: ${decision.reason}`);
+      return reply(403, `egress denied: ${decision.reason}`, route.purpose);
     }
     // A privately listed name may resolve publicly for a worker's own
     // traffic, but a name that carries a login stays inside: an internal git
@@ -511,7 +631,11 @@ export function startCredentialProxy(
         ...fields,
         reason: `${outside} is public, and ${host} is listed as private`,
       });
-      return reply(403, "egress denied: a private upstream resolved publicly");
+      return reply(
+        403,
+        "egress denied: a private upstream resolved publicly",
+        route.purpose,
+      );
     }
     // The address that was judged, and only it. A POST is never retried
     // against a second address: its body may already have reached the
@@ -526,9 +650,14 @@ export function startCredentialProxy(
         ...fields,
         reason: "an https upstream must be named, not an address",
       });
-      return reply(502, "an https upstream must be named");
+      return reply(502, "an https upstream must be named", route.purpose);
     }
     const base = upstream.pathname.replace(/\/$/, "");
+    const objectStore = route.purpose === "object_store";
+    if (objectStore && grant.target === null) {
+      logger.error("Egress authorizer signed no target", fields);
+      return reply(502, "the authorizer signed no request", route.purpose);
+    }
     // From here, including the wait for the request body: a client that
     // trickles it must still meet the deadline and the grant's end.
     const signal = AbortSignal.any([
@@ -538,8 +667,10 @@ export function startCredentialProxy(
     ]);
     let response: Response;
     try {
-      // Whole, before the upstream is dialled; the listener caps its size.
-      const body = await readWhole(request.body, signal);
+      const body = objectStore
+        ? objectBody(request, grant)
+        : // Whole, before the upstream is dialled.
+          await readWhole(request.body, signal, MAX_REQUEST_BODY_BYTES);
       response = await upstreamExchange(
         {
           address,
@@ -556,36 +687,58 @@ export function startCredentialProxy(
         },
         {
           method: request.method,
-          target: `${base}${route.path}${route.search}`,
-          headers: [...upstreamRequestHeaders(request.headers, grant)],
+          target: grant.target ?? `${base}${route.path}${route.search}`,
+          // Only what the authorizer signed: the worker's own headers are
+          // what it was judged on, not what goes upstream.
+          headers: objectStore
+            ? [
+                ["host", upstream.host],
+                ["accept-encoding", "identity"],
+                ...grant.headers,
+              ]
+            : [...upstreamRequestHeaders(request.headers, grant)],
           body,
           signal,
         },
       );
     } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return reply(413, "request body too large", route.purpose);
+      }
       logger.warn("Credential route upstream failed", {
         ...fields,
         error: error instanceof Error ? error.message : String(error),
       });
-      return reply(502, "upstream connection failed");
+      return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
     if (response.status >= 300 && response.status < 400) {
       // A followed redirect would carry the credential somewhere the catalog
       // never named, and a relayed one invites the client to.
       await response.body?.cancel();
-      return reply(502, "upstream redirected");
+      return reply(502, "upstream redirected", route.purpose);
     }
     // Every spelling the upstream could echo back to the worker: headers,
     // a success body and an error body are all checked for them.
-    const secrets = secretsOf(grant);
+    const secrets = objectStore ? objectStoreSecrets(grant) : secretsOf(grant);
     const headers = responseHeaders(response.headers, secrets);
-    if (!response.ok) return withheldIfLeaking(response, headers, grant);
+    // A head's answer is its length; there is no body to take it from.
+    const length = response.headers.get("content-length");
+    if (objectStore && request.method === "HEAD" && length !== null) {
+      headers.set("content-length", length);
+    }
+    if (!response.ok) {
+      return withheldIfLeaking(response, headers, secrets, route.purpose);
+    }
     const encoding = response.headers.get("content-encoding");
     if (encoding !== null && encoding.toLowerCase() !== "identity") {
       // Asked for identity; a body it cannot read is one it cannot vouch for.
       await response.body?.cancel();
-      return reply(502, "upstream answered with an encoded body");
+      return reply(
+        502,
+        "upstream answered with an encoded body",
+        route.purpose,
+      );
     }
     return new Response(
       response.body?.pipeThrough(
@@ -609,7 +762,8 @@ export function startCredentialProxy(
   async function withheldIfLeaking(
     response: Response,
     headers: Headers,
-    grant: EgressGrant,
+    secrets: readonly string[],
+    purpose: EgressPurpose,
   ): Promise<Response> {
     const encoding = response.headers.get("content-encoding");
     const body = await readAtMost(response, MAX_ERROR_BODY_BYTES);
@@ -618,8 +772,18 @@ export function startCredentialProxy(
       body === null ||
       text === null ||
       (encoding !== null && encoding.toLowerCase() !== "identity") ||
-      secretsOf(grant).some((secret) => text.includes(secret))
+      secrets.some((secret) => text.includes(secret))
     ) {
+      if (purpose === "object_store") {
+        const withheld = s3Error(
+          response.status,
+          "the upstream error was withheld by the egress proxy",
+        );
+        return new Response(withheld.body, {
+          status: response.status,
+          headers: withheld.headers,
+        });
+      }
       headers.delete("content-encoding");
       headers.set("content-type", "application/json");
       return new Response(
@@ -656,7 +820,8 @@ export function startCredentialProxy(
     hostname: options.hostname ?? "0.0.0.0",
     port: options.port ?? DEFAULT_CREDENTIAL_PORT,
     idleTimeout: UNAUTHORIZED_IDLE_SECONDS,
-    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+    // The object store's cap; the other routes hold to their own below.
+    maxRequestBodySize: MAX_OBJECT_BODY_BYTES,
     async fetch(request, server) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/healthz") {
@@ -666,13 +831,21 @@ export function startCredentialProxy(
       if (route === null) return reply(404, "no such credential route");
       const token = tokenOf(request.headers, route.purpose);
       if (token === null) {
-        return reply(401, "one egress token is required");
+        return reply(401, "one egress token is required", route.purpose);
       }
+      const objectRequest =
+        route.purpose === "object_store"
+          ? objectRequestOf(
+              request.method,
+              `${route.path}${route.search}`,
+              request.headers,
+            )
+          : undefined;
       const client = server.requestIP(request)?.address ?? "unknown";
       const admitted = admit(client);
       if (admitted === null) {
         logger.warn("Refusing a credential exchange over the cap", { client });
-        return reply(503, "too many exchanges from this client");
+        return reply(503, "too many exchanges from this client", route.purpose);
       }
       const revocation = new AbortController();
       let regrant: ReturnType<typeof setTimeout> | undefined;
@@ -688,7 +861,7 @@ export function startCredentialProxy(
       let grantedAt = performance.now();
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
-          const again = await authorize(token, route.purpose);
+          const again = await authorize(token, route.purpose, objectRequest);
           if (ended) return;
           if (again.kind === "granted") grantedAt = performance.now();
           const refused = again.kind === "refused" && again.status !== 503;
@@ -709,10 +882,14 @@ export function startCredentialProxy(
         }, regrantIntervalMs);
       };
       try {
-        const authorized = await authorize(token, route.purpose);
+        const authorized = await authorize(token, route.purpose, objectRequest);
         if (authorized.kind === "refused") {
           release();
-          return reply(authorized.status, "egress token refused");
+          return reply(
+            authorized.status,
+            "egress token refused",
+            route.purpose,
+          );
         }
         // Authorized: from here the exchange deadline bounds it, not the
         // idle clock, which a silent non-streaming call would trip.
@@ -734,7 +911,7 @@ export function startCredentialProxy(
         logger.error("Credential exchange failed", {
           error: error instanceof Error ? error.name : "error",
         });
-        return reply(502, "credential exchange failed");
+        return reply(502, "credential exchange failed", route.purpose);
       }
     },
   });
@@ -751,10 +928,16 @@ export function startCredentialProxy(
   };
 }
 
-/** The request body in one piece, given up the moment `signal` fires. */
+class BodyTooLargeError extends Error {}
+
+/**
+ * The request body in one piece, given up the moment `signal` fires or it
+ * passes `max`.
+ */
 async function readWhole(
   body: ReadableStream<Uint8Array> | null,
   signal: AbortSignal,
+  max: number,
 ): Promise<Uint8Array | null> {
   if (body === null) return null;
   const reader = body.getReader();
@@ -772,6 +955,7 @@ async function readWhole(
       if (next.done) break;
       chunks.push(next.value);
       total += next.value.byteLength;
+      if (total > max) throw new BodyTooLargeError();
     }
     const out = new Uint8Array(total);
     let offset = 0;
@@ -783,6 +967,43 @@ async function readWhole(
   } finally {
     signal.removeEventListener("abort", stop);
   }
+}
+
+/**
+ * An object store PUT's body, streamed upstream at the length the authorizer
+ * signed. Bun already holds the worker to the length it declared, and the
+ * authorizer signed that same declaration; the upstream client checks the
+ * stream against it again as it writes.
+ */
+function objectBody(request: Request, grant: EgressGrant): UpstreamBody {
+  const declared = grant.headers.find(([name]) => name === "content-length");
+  if (declared === undefined || request.body === null) return null;
+  return { stream: request.body, length: Number(declared[1]) };
+}
+
+const S3_ERROR_CODES: Record<number, string> = {
+  401: "InvalidAccessKeyId",
+  403: "AccessDenied",
+  409: "AccessDenied",
+  413: "EntityTooLarge",
+  502: "BadGateway",
+  503: "ServiceUnavailable",
+};
+
+/**
+ * A refusal an S3 client can read: its SDK reports the code as the error's
+ * name (`AccessDenied`), and retries the ones S3 itself would have it retry.
+ */
+function s3Error(status: number, message: string): Response {
+  const code = S3_ERROR_CODES[status] ?? "InternalError";
+  const escaped = message.replace(
+    /[<>&]/g,
+    (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[char] ?? char,
+  );
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>${code}</Code><Message>${escaped}</Message></Error>\n`,
+    { status, headers: { "content-type": "application/xml" } },
+  );
 }
 
 /** A body that frees its slot once it ends, errors or is cancelled. */

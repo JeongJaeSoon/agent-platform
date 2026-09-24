@@ -93,6 +93,48 @@ export type CheckpointTranscripts = {
   readonly subagents: Readonly<Record<string, TranscriptRevision>>;
 };
 
+/**
+ * The most transcript one checkpoint may carry, per part and in total across
+ * the root and every subagent (94S-296). The engine reads the whole
+ * transcript when it resumes, and the worker verifies and holds it before
+ * that, so this is a session-lifetime ceiling sized against the worker's
+ * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
+ * worker checks it before publishing, finalize before reading any part, and
+ * a restore before fetching any part — all against these same values. A
+ * session past it keeps running on its last checkpoint: see DESIGN §6.3.1.
+ */
+export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+
+/** Every part of the root transcript and of each subagent's. */
+export function transcriptParts(
+  transcripts: CheckpointTranscripts,
+): ObjectRef[] {
+  return [transcripts.root, ...Object.values(transcripts.subagents)].flatMap(
+    (revision) => revision.parts,
+  );
+}
+
+/**
+ * Why a session's transcript parts are over the limits above, judged from
+ * the sizes they claim — every reader holds the stored bytes to those before
+ * trusting them — so nothing has to be fetched to answer.
+ */
+export function transcriptSizeProblem(
+  parts: Iterable<{ readonly bytes: number; readonly key: string }>,
+): string | undefined {
+  let total = 0;
+  for (const part of parts) {
+    if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
+      return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
+    }
+    total += part.bytes;
+  }
+  return total > MAX_TRANSCRIPT_BYTES
+    ? `the transcript is ${total} bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit`
+    : undefined;
+}
+
 export type CheckpointManifest = {
   readonly createdAt: string;
   readonly cwd: string;
@@ -210,8 +252,9 @@ export interface CheckpointObjectStore {
    * is released, whatever their other permissions say. Idempotent. Only a
    * store with versions and Object Lock offers it; the control plane calls it
    * on everything a checkpoint it commits names. Whoever holds the permission
-   * to place a hold can also release one, so workers must not have it — they
-   * still share the bucket-wide credentials until 94S-251 scopes them.
+   * to place a hold can also release one, so workers must not have it: they
+   * reach the store only through the object store route, which never signs
+   * a hold (94S-251).
    */
   hold?(key: string, version: string): Promise<void>;
 }

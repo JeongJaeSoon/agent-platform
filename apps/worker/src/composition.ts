@@ -21,7 +21,7 @@ import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
-import { createWorkerObjectStore } from "./object-store.ts";
+import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
   consoleLogger,
@@ -66,6 +66,7 @@ export function createWorkerHost(
   const workspace =
     overrides.workspace ??
     new GitWorkspace(config.runtime.cwd, config.egressCredentialUrl);
+  const objectToken = new ObjectStoreToken();
   return new WorkerHost({
     checkpoints:
       overrides.checkpoints ??
@@ -76,7 +77,10 @@ export function createWorkerHost(
         logger,
         objectPrefix: config.objectStore.scope,
         objects:
-          overrides.objectStore ?? createWorkerObjectStore(config.objectStore),
+          overrides.objectStore ??
+          createWorkerObjectStore(config.objectStore, () =>
+            objectToken.current(),
+          ),
         workspaceRoot: config.runtime.cwd,
       }),
     engines,
@@ -87,8 +91,8 @@ export function createWorkerHost(
     },
     gateway,
     logger,
+    objectStoreAccess: objectToken,
     runtimes: overrides.runtimes ?? claudeRuntimeRegistry(config, engines),
-    secrets: [config.objectStore.secretAccessKey],
     timeouts: config.timeouts,
     workspace,
   });

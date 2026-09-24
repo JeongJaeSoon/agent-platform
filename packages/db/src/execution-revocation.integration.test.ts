@@ -322,8 +322,9 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       receiptStatus: "accepted",
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
-      // The attempt's gateway credential and both egress tokens (94S-252).
-      revokedCredentials: 3,
+      // The attempt's gateway credential and its three egress tokens
+      // (94S-252, 94S-251).
+      revokedCredentials: 4,
     });
 
     const after = await sessionRow(session.session_id);
@@ -358,6 +359,7 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
         .sort((a, b) => a.purpose.localeCompare(b.purpose)),
     ).toEqual([
       { purpose: "gateway", revoked: true },
+      { purpose: "object_store", revoked: true },
       { purpose: "provider", revoked: true },
       { purpose: "repository", revoked: true },
     ]);

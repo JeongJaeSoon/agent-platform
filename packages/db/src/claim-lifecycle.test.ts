@@ -171,7 +171,12 @@ function claim(ref: ExecutionRef, nonce: string) {
     egress: {
       providerHash: hashWorkerToken(`wep-${crypto.randomUUID()}`),
       repositoryHash: hashWorkerToken(`wer-${crypto.randomUUID()}`),
-      bindingsOf: () => ({ provider: "provider", repository: "repository" }),
+      objectStoreHash: hashWorkerToken(`weo-${crypto.randomUUID()}`),
+      bindingsOf: () => ({
+        provider: "provider",
+        repository: "repository",
+        object_store: "sessions/s/",
+      }),
     },
     executionGeneration: ref.generation,
     executionId: ref.executionId,

@@ -196,6 +196,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
+  // The object store route's capability (94S-251): the worker holds no
+  // object store credential, only this token, which reaches its session's
+  // prefix for as long as the attempt owns the session.
+  object_store: z.object({ access: egressTokenAuthSchema }).strict(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the

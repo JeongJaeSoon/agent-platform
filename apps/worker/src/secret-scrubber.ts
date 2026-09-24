@@ -32,6 +32,7 @@ export function claimSecrets(
     claim.session_credential,
     claim.runtime_config.provider.auth.token,
     claim.workspace.repository.access?.token,
+    claim.object_store.access.token,
   ];
 }
 

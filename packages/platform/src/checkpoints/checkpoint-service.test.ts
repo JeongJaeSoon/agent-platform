@@ -4,13 +4,15 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  CheckpointCodec,
-  CheckpointManifest,
-  CheckpointWorkspace,
-  ObjectRef,
-  RuntimeFingerprint,
-  WorkspaceArtifact,
+import {
+  type CheckpointCodec,
+  type CheckpointManifest,
+  type CheckpointWorkspace,
+  MAX_TRANSCRIPT_BYTES,
+  MAX_TRANSCRIPT_PART_BYTES,
+  type ObjectRef,
+  type RuntimeFingerprint,
+  type WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -764,6 +766,58 @@ describe("validateManifest", () => {
     });
     // Only the manifest itself was looked at.
     expect(heads).toEqual([checkpoint.manifest_ref]);
+  });
+
+  test("refuses a transcript over the size limit before reading any part (94S-296)", async () => {
+    const requests: string[] = [];
+    const watched = {
+      ...objects,
+      async get(key: string, version?: string) {
+        requests.push(key);
+        return objects.get(key, version);
+      },
+      async head(key: string, version?: string) {
+        requests.push(key);
+        return objects.head(key, version);
+      },
+    };
+    const capped = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects: watched,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const body = manifest();
+    const { checkpoint } = await upload({
+      ...body,
+      transcripts: {
+        ...body.transcripts,
+        root: {
+          ...body.transcripts.root,
+          // Each part within its own limit, the transcript over the total.
+          parts: Array.from(
+            { length: MAX_TRANSCRIPT_BYTES / MAX_TRANSCRIPT_PART_BYTES + 1 },
+            () => ({ ...ref(ROOT_PART), bytes: MAX_TRANSCRIPT_PART_BYTES }),
+          ),
+        },
+      },
+    });
+
+    expect(
+      await capped.finalize({
+        checkpoint,
+        fence: fence(),
+        now: new Date(),
+        sessionId,
+        turnId: "1",
+      }),
+    ).toEqual({
+      outcome: "rejected",
+      reason: expect.stringMatching(/over the \d+-byte limit/),
+    });
+    expect(checkpoints.pointer()).toBeNull();
+    expect(new Set(requests)).toEqual(new Set([checkpoint.manifest_ref]));
   });
 
   test("defers the commit question to the injected bundle verifier", async () => {

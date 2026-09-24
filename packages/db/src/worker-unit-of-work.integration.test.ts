@@ -493,7 +493,7 @@ integration("worker gateway on PostgreSQL", () => {
       });
     }
 
-    // A heartbeat extends all three together.
+    // A heartbeat extends all four together.
     await gateway.heartbeat(principalOf(retry), {
       ...scopeOf(retry),
       attempt_state: "draining",
@@ -504,6 +504,7 @@ integration("worker gateway on PostgreSQL", () => {
     );
     expect(live.rows.map((row) => row.purpose)).toEqual([
       "gateway",
+      "object_store",
       "provider",
       "repository",
     ]);
