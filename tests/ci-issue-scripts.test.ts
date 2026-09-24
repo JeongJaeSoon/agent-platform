@@ -380,7 +380,9 @@ describe("upsert-ci-issue.sh", () => {
 });
 
 describe("check-main-push-run.sh", () => {
-  const oldCommit = (sha: string) => `${sha} 2026-09-22T14:27:16Z`;
+  const oldCommit = (sha: string, parent = "") =>
+    `${sha} 2026-09-22T14:27:16Z ${parent}`;
+  const activity = "api repos/octo/repo/activity?ref=refs/heads/main";
 
   test("reports present when the commit has a push run of ci.yml", async () => {
     const outcome = await run("check-main-push-run.sh", ["10e58fb"], {
@@ -394,15 +396,126 @@ describe("check-main-push-run.sh", () => {
     expect(outcome.stdout).toBe("present 10e58fb 35688714425\n");
   });
 
-  test("reports missing, with exit 1, when no push run exists for the commit", async () => {
+  test("reports missing, with exit 1, when the commit was the tip and has no push run", async () => {
     const outcome = await run("check-main-push-run.sh", ["70139eb"], {
-      "api repos/octo/repo/commits/70139eb": oldCommit("70139eb0000"),
+      "api repos/octo/repo/commits/70139eb": oldCommit(
+        "70139eb0000",
+        "10e58fb0000",
+      ),
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=70139eb0000&per_page=1":
         "0 ",
+      // The update that made it the tip was lost with its push event; the
+      // next one left from it.
+      [activity]: "pr_merge 70139eb0000 d6810ca0000",
     });
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.stdout).toBe("missing 70139eb\n");
+  });
+
+  test("reports coalesced, not missing, for a commit one push carried past the tip", async () => {
+    const outcome = await run("check-main-push-run.sh", ["1583f5d"], {
+      "api repos/octo/repo/commits/1583f5d": oldCommit(
+        "1583f5d0000",
+        "654a3380000",
+      ),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=1583f5d0000&per_page=1":
+        "0 ",
+      [activity]: [
+        "pr_merge 95b0e7b0000 3c230800000\npr_merge 654a3380000 95b0e7b0000\npr_merge 760fd000000 654a3380000",
+      ],
+      "api repos/octo/repo/compare/1583f5d0000...95b0e7b0000": "ahead",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("coalesced 1583f5d 95b0e7b\n");
+  });
+
+  test("walks up through commits that were never the tip to the push that carried them", async () => {
+    const outcome = await run("check-main-push-run.sh", [], {
+      "api repos/octo/repo/commits?sha=main&since=": [
+        [
+          oldCommit("ccccccc333", "bbbbbbb222"),
+          oldCommit("bbbbbbb222", "aaaaaaa111"),
+        ].join("\\n"),
+      ],
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=ccccccc333&per_page=1":
+        "1 333",
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+      // aaaaaaa111 is outside the window, so its parent is asked for.
+      "api repos/octo/repo/commits/aaaaaaa111 --jq .parents": "9999999000",
+      [activity]: "pr_merge 9999999000 ccccccc333",
+      "api repos/octo/repo/compare/bbbbbbb222...ccccccc333": "ahead",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe(
+      "present ccccccc 333\ncoalesced bbbbbbb ccccccc\n",
+    );
+    // Activity is read once, and only because a run was missing.
+    expect(
+      outcome.calls.filter((call) => call.startsWith(activity)),
+    ).toHaveLength(1);
+  });
+
+  test("an update from the parent that does not contain the commit does not cover it", async () => {
+    // aaaaaaa111 was the tip twice: it moved on to 999, a force push brought
+    // main back, and the update that made bbbbbbb222 the tip was lost.
+    const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
+      "api repos/octo/repo/commits/bbbbbbb": oldCommit(
+        "bbbbbbb222",
+        "aaaaaaa111",
+      ),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+      [activity]:
+        "force_push 9999999000 aaaaaaa111\npr_merge aaaaaaa111 9999999000",
+      "api repos/octo/repo/compare/bbbbbbb222...9999999000": "diverged",
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stdout).toBe("missing bbbbbbb\n");
+  });
+
+  test("a failed compare exits 2 rather than judging the commit", async () => {
+    const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
+      "api repos/octo/repo/commits/bbbbbbb": oldCommit(
+        "bbbbbbb222",
+        "aaaaaaa111",
+      ),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+      [activity]: "pr_merge aaaaaaa111 ccccccc333",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("the push that carried bbbbbbb");
+  });
+
+  test("a commit with no trace in the activity is missing", async () => {
+    const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
+      "api repos/octo/repo/commits/bbbbbbb": oldCommit("bbbbbbb222"),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+      [activity]: "",
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stdout).toBe("missing bbbbbbb\n");
+  });
+
+  test("a failed activity lookup exits 2 rather than calling the commit missing", async () => {
+    const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
+      "api repos/octo/repo/commits/bbbbbbb": oldCommit("bbbbbbb222"),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("activity of main");
   });
 
   test("judges every main commit in the lookback window when no sha is given", async () => {
@@ -414,6 +527,7 @@ describe("check-main-push-run.sh", () => {
         "1 222",
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=aaaaaaa111&per_page=1":
         "0 ",
+      [activity]: "pr_merge aaaaaaa111 bbbbbbb222",
     });
 
     // The tip is fine; the commit under it lost its run and is still reported.
@@ -475,6 +589,7 @@ describe("check-main-push-run.sh", () => {
         "api repos/octo/repo/commits/fresh": `fresh0000 ${justNow}`,
         "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=fresh0000&per_page=1":
           "0 ",
+        [activity]: "pr_merge fresh0000 later0000",
       },
       { MIN_AGE_MINUTES: "0" },
     );
