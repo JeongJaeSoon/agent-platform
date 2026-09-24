@@ -37,8 +37,8 @@ export type GitBundleVerdict =
       /** How many objects the pack header declares. */
       readonly objects: number;
       /**
-       * Ref names a fetch may ask for to land the commit, or every ref when
-       * no commit was asked about.
+       * Every ref's name. A restore fetches them all, so a verifier that
+       * stands in for one fetches them all too.
        */
       readonly refs: readonly string[];
       readonly status: "offers";
@@ -112,7 +112,9 @@ export function readGitBundleHeader(
  * unless the receiver already has that commit, and a restore starts from an
  * empty workspace. The commit has to be a *ref tip*, because a fetch asks for
  * refs and a commit merely somewhere in the packed history is not reachable by
- * name. And the *packfile* has to be intact — a header alone says what the
+ * name — this bundle's, or in a chain an earlier one's: a capture that
+ * changed nothing since the checkpoint before it has only new tags over old
+ * commits to carry. And the *packfile* has to be intact — a header alone says what the
  * bundle claims to carry, not that it still carries it.
  *
  * What this does not establish is that the intact pack contains the object the
@@ -188,8 +190,7 @@ type HeaderTips = {
 };
 
 /**
- * Everything the header alone settles; the refs whose tip is the commit.
- * A prerequisite is allowed only when an earlier bundle of the chain offers
+ * Everything the header alone settles. A prerequisite is allowed only when an earlier bundle of the chain offers
  * it as a ref tip: a fetch of the chain in order then has it, and nothing
  * short of a ref tip can be vouched for from headers alone.
  */
@@ -231,21 +232,18 @@ function headerTips(
           : `git bundle needs ${lacking.length} prerequisite commit(s) no earlier bundle offers as a ref tip`,
     };
   }
+  if (header.refs.length === 0) {
+    return { status: "unusable", reason: "git bundle offers no ref" };
+  }
   const tips = header.refs.map((ref) => ref.oid.toLowerCase());
   const wanted = commit?.toLowerCase();
-  const refs = header.refs
-    .filter((ref) => wanted === undefined || ref.oid.toLowerCase() === wanted)
-    .map((ref) => ref.name);
-  if (refs.length === 0) {
+  if (wanted !== undefined && !tips.includes(wanted) && !earlier.has(wanted)) {
     return {
       status: "unusable",
-      reason:
-        commit === undefined
-          ? "git bundle offers no ref"
-          : `git bundle does not offer ${commit} as a ref tip`,
+      reason: `git bundle does not offer ${commit} as a ref tip`,
     };
   }
-  return { refs, status: "tips", tips };
+  return { refs: header.refs.map((ref) => ref.name), status: "tips", tips };
 }
 
 /**

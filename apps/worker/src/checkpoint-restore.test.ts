@@ -13,6 +13,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readGitBundleHeader } from "@agent-platform/runtime-core";
+import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
 
 import {
   restoreCheckpointTree,
@@ -21,8 +23,10 @@ import {
 } from "./checkpoint-restore.ts";
 import { GitResourceLimitError } from "./workspace.ts";
 import {
+  type BundleBase,
   CHECKPOINT_WORKTREE_REF,
   captureWorkspace,
+  DEFAULT_WORKSPACE_CAPTURE_LIMITS,
   type InstructionsPin,
   type WorkspaceCapture,
 } from "./workspace-capture.ts";
@@ -78,12 +82,14 @@ async function commitFiles(files: Record<string, string>): Promise<string> {
 async function captured(
   from = root,
   instructions?: InstructionsPin,
+  base?: BundleBase,
 ): Promise<WorkspaceCapture> {
   const result = await captureWorkspace({
     root: from,
     bundlePath: join(scratch, `capture-${crypto.randomUUID()}.bundle`),
     signal: new AbortController().signal,
     ...(instructions === undefined ? {} : { instructions }),
+    ...(base === undefined ? {} : { base }),
   });
   if (result.status !== "captured") throw new Error(result.reason);
   return result.capture;
@@ -356,5 +362,146 @@ describe("staging a checkpoint bundle", () => {
     expect(capture.gitCommit).toBe(
       (await git(repository, "rev-parse", CHECKPOINT_WORKTREE_REF)).trim(),
     );
+  });
+});
+
+describe("a bundle built on the checkpoint before (94S-227)", () => {
+  const onto = (...earlier: WorkspaceCapture[]): BundleBase => ({
+    maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
+    tips: earlier.flatMap((capture) => capture.bundle.tips),
+  });
+  /** Stages `tip` after `bases`, oldest first, the way a restore does. */
+  const staged = (tip: WorkspaceCapture, ...bases: WorkspaceCapture[]) =>
+    stageCheckpointBundle({
+      bases: bases.map((base) => base.bundle.path),
+      bundle: tip.bundle.path,
+      gitCommit: tip.gitCommit,
+      repository: join(scratch, `staged-${crypto.randomUUID()}.git`),
+      signal: new AbortController().signal,
+    });
+  /** The control plane's verdict, git-backed, on the chain as finalize sees it. */
+  const verdict = (tip: WorkspaceCapture, ...bases: WorkspaceCapture[]) => {
+    const file = (capture: WorkspaceCapture, key: string) => ({
+      bytes: capture.bundle.bytes,
+      key,
+      path: capture.bundle.path,
+    });
+    return createGitWorkspaceBundleVerifier({ tempRoot: scratch }).verify({
+      ...file(tip, "tip"),
+      bases: bases.map((base, index) => file(base, `base-${index}`)),
+      commit: tip.gitCommit,
+    });
+  };
+  const restoredFrom = async (
+    tip: WorkspaceCapture,
+    ...bases: WorkspaceCapture[]
+  ) => {
+    const target = await staleRoot();
+    await restoreCheckpointTree({
+      origin: "https://git.example.test/acme/app.git",
+      root: target,
+      signal: new AbortController().signal,
+      staged: await staged(tip, ...bases),
+    });
+    return target;
+  };
+
+  test("carries only what is new, and restores after its base", async () => {
+    await commitFiles({
+      "a.txt": "a\n",
+      "random.txt": crypto.getRandomValues(new Uint8Array(64 * 1024)).join(),
+    });
+    const first = await captured();
+    const head = await commitFiles({ "a.txt": "a, then b\n" });
+    await writeFile(join(root, "a.txt"), "uncommitted\n");
+
+    const second = await captured(root, undefined, onto(first));
+
+    expect(first.bundle.incremental).toBe(false);
+    expect(second.bundle.incremental).toBe(true);
+    expect(second.bundle.bytes).toBeLessThan(first.bundle.bytes / 10);
+    await expect(staged(second)).rejects.toThrow();
+    const target = await restoredFrom(second, first);
+    expect(await readFile(join(target, "a.txt"), "utf8")).toBe("uncommitted\n");
+    expect((await git(target, "rev-parse", "HEAD")).trim()).toBe(head);
+    expect(await git(target, "symbolic-ref", "HEAD")).toBe("refs/heads/main\n");
+  });
+
+  test("carries a capture that changed nothing as tags over the commits its base has", async () => {
+    const head = await commitFiles({ "a.txt": "a\n" });
+    const first = await captured();
+
+    const second = await captured(root, undefined, onto(first));
+
+    expect(second.bundle.incremental).toBe(true);
+    expect(second.gitCommit).toBe(head);
+    expect(await verdict(second, first)).toEqual({ status: "restorable" });
+    const checkout = await staged(second, first);
+    expect(checkout).toMatchObject({
+      branch: "refs/heads/main",
+      head,
+      worktree: head,
+    });
+    const target = await restoredFrom(second, first);
+    expect((await git(target, "rev-parse", "HEAD")).trim()).toBe(head);
+    expect(await git(target, "status", "--porcelain")).toBe("");
+  });
+
+  test("chains three deep, each link needing only tips of the ones before", async () => {
+    await commitFiles({ "a.txt": "1\n" });
+    const first = await captured();
+    await commitFiles({ "a.txt": "2\n" });
+    const second = await captured(root, undefined, onto(first));
+    await writeFile(join(root, "a.txt"), "3, uncommitted\n");
+    const third = await captured(root, undefined, onto(first, second));
+
+    expect([second, third].map(({ bundle }) => bundle.incremental)).toEqual([
+      true,
+      true,
+    ]);
+    expect(await verdict(third, first, second)).toEqual({
+      status: "restorable",
+    });
+    expect(await verdict(third, second)).toMatchObject({
+      status: "unusable",
+    });
+    const target = await restoredFrom(third, first, second);
+    expect(await readFile(join(target, "a.txt"), "utf8")).toBe(
+      "3, uncommitted\n",
+    );
+  });
+
+  test("stands alone when history was rewritten under its base", async () => {
+    await commitFiles({ "a.txt": "1\n" });
+    await commitFiles({ "a.txt": "2\n" });
+    const first = await captured();
+    // Back past the base's tip, then on: the new commit's parent is in the
+    // base's history, but no ref of the base offers it.
+    await git(root, "reset", "--quiet", "--hard", "HEAD~1");
+    await commitFiles({ "b.txt": "b\n" });
+
+    const second = await captured(root, undefined, onto(first));
+
+    expect(second.bundle.incremental).toBe(false);
+    expect(
+      readGitBundleHeader(await readFile(second.bundle.path)),
+    ).toMatchObject({ prerequisites: [] });
+    await staged(second);
+  });
+
+  test("stands alone when what it adds would take the chain over its byte limit", async () => {
+    await commitFiles({ "a.txt": "a\n" });
+    const first = await captured();
+    await commitFiles({
+      "random.txt": crypto.getRandomValues(new Uint8Array(32 * 1024)).join(),
+    });
+
+    const second = await captured(root, undefined, {
+      ...onto(first),
+      maxBytes: 1024,
+    });
+
+    expect(second.bundle.incremental).toBe(false);
+    await staged(second);
   });
 });

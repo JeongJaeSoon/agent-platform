@@ -171,10 +171,7 @@ export function createGitWorkspaceBundleVerifier(
           reason: bases.length === 0 ? reason : `${link.key}: ${reason}`,
         });
         if (offer.status !== "offers") return unusable(offer.reason);
-        // One ref lands the commit; an earlier link lands every ref, since a
-        // later one may need any of them.
-        const refs = tip ? offer.refs.slice(0, 1) : [...offer.refs];
-        if (refs.length === 0) return unusable("git bundle offers no ref");
+        const refs = [...offer.refs];
         // The ref name goes into a refspec and, if git objects to it, into
         // stderr. Only a name git itself would accept gets that far, so a
         // bundle cannot choose what the failure below looks like.
@@ -241,10 +238,10 @@ export function createGitWorkspaceBundleVerifier(
         // recreate the repository after it has been removed. One index-pack
         // thread keeps a verification to one core; left alone it takes one
         // per CPU.
-        // In chain order, each link's refs kept where the next link's
-        // prerequisites are looked for.
+        // In chain order, every ref of each, as a restore fetches them: a
+        // link's tips are where the next one's prerequisites are looked for,
+        // and any ref of the last may be all that lands the commit.
         for (const [index, link] of links.entries()) {
-          const tip = index === links.length - 1;
           const fetch = await git(
             [
               "-c",
@@ -264,10 +261,8 @@ export function createGitWorkspaceBundleVerifier(
               // Absolute: fetch runs inside the repository, not where the
               // service put the file.
               resolve(link.path),
-              ...link.refs.map((ref) =>
-                tip
-                  ? `${ref}:refs/verify/tip`
-                  : `${ref}:refs/verify/chain/${index}/${ref.slice("refs/".length)}`,
+              ...link.refs.map(
+                (ref, at) => `${ref}:refs/verify/chain/${index}/${at}`,
               ),
             ],
             repository,

@@ -31,6 +31,7 @@ import {
   ObjectIntegrityError,
   type ObjectRef,
   type RuntimeFingerprint,
+  readGitBundleHeader,
   type TranscriptMirror,
   WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
@@ -672,8 +673,10 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
         capture: {
           bundle: {
             bytes: bundle.byteLength,
+            incremental: false,
             path: input.bundlePath,
             sha256: sha256(bundle),
+            tips: [],
           },
           gitCommit: "c".repeat(40),
           untracked,
@@ -969,7 +972,10 @@ function planOf(
         {
           kind: "workspace_bundle",
           label: "workspace",
-          objects: [wire(manifest.workspace.bundle)],
+          objects: [
+            ...(manifest.workspace.baseBundles ?? []),
+            manifest.workspace.bundle,
+          ].map(wire),
         },
         {
           kind: "transcript_root",
@@ -1550,5 +1556,106 @@ describe("restoring a transcript over the size limit (94S-296)", () => {
     await expect(refused).rejects.toThrow(/over the \d+-byte part limit/);
     expect(from.objects.reads()).toEqual([from.ref.manifest_ref]);
     expect(existsSync(join(workspace, "left-behind.txt"))).toBe(true);
+  });
+});
+
+describe("a bundle built on the checkpoint before (94S-227)", () => {
+  /** Two turns of one run, the gateway committing the first in between. */
+  async function twoTurns(
+    between: (
+      h: ReturnType<typeof harness>,
+      first: CheckpointManifest,
+      scope: ReturnType<typeof scopeOf>,
+    ) => Promise<void> = async () => {},
+  ) {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    await writeFile(
+      join(workspace, "random.txt"),
+      crypto.getRandomValues(new Uint8Array(64 * 1024)).join(),
+    );
+    await git("add", "random.txt");
+    await git("commit", "--quiet", "-m", "big");
+    const turn = { scope: scopeOf(claim), recheck: async () => ready };
+    const manifestOf = async (ref: CheckpointRef | null) => {
+      if (ref === null)
+        throw new Error(`nothing published: ${JSON.stringify(h.warnings)}`);
+      const bytes = await h.objects.get(ref.manifest_ref);
+      if (bytes === undefined) throw new Error("manifest missing");
+      return {
+        manifest: claudeCheckpointCodec.decode(bytes),
+        objects: h.objects,
+        ref,
+      };
+    };
+    const first = await manifestOf(await h.port.capture(ready, turn));
+    h.gateway.checkpointRevision = first.ref.revision;
+    await between(h, first.manifest, turn.scope);
+    await writeFile(join(workspace, "README.md"), "second turn\n");
+    const second = await manifestOf(await h.port.capture(ready, turn));
+    return { first, h, second };
+  }
+
+  test("uploads only what is new, and a restore fetches the chain in order", async () => {
+    const { first, second } = await twoTurns();
+
+    expect(second.ref.revision).toBe(first.ref.revision + 1);
+    expect(second.manifest.workspace.baseBundles).toEqual([
+      first.manifest.workspace.bundle,
+    ]);
+    expect(second.manifest.workspace.bundle.bytes).toBeLessThan(
+      first.manifest.workspace.bundle.bytes / 10,
+    );
+
+    await replaceWorkspaceWithLeftovers();
+    const h = restoring(second);
+    const claim = await claimOf(h.gateway);
+    const plan = await h.port.restorePlan(claim, neverStopped());
+    expect(h.errors).toEqual([]);
+    if (plan.mode !== "resume") throw new Error("expected a resume plan");
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "second turn\n",
+    );
+    expect(await git("status", "--porcelain")).toBe(" M README.md\n");
+
+    // The restored chain is what the next capture builds on.
+    h.gateway.checkpointRevision = second.ref.revision;
+    await writeFile(join(workspace, "README.md"), "third turn\n");
+    const third = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (third === null)
+      throw new Error(`nothing published: ${JSON.stringify(h.warnings)}`);
+    const bytes = await second.objects.get(third.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    expect(claudeCheckpointCodec.decode(bytes).workspace.baseBundles).toEqual([
+      first.manifest.workspace.bundle,
+      second.manifest.workspace.bundle,
+    ]);
+  });
+
+  test("stands alone once a bundle it would build on is gone from the store", async () => {
+    const { second } = await twoTurns(async (h, first) => {
+      h.objects.remove(first.workspace.bundle.key);
+    });
+
+    expect(second.manifest.workspace.baseBundles).toBeUndefined();
+    const bundle = await second.objects.get(
+      second.manifest.workspace.bundle.key,
+    );
+    if (bundle === undefined) throw new Error("bundle missing");
+    expect(readGitBundleHeader(bundle)?.prerequisites).toEqual([]);
+  });
+
+  test("stands alone after finalize refused the one before", async () => {
+    const { second } = await twoTurns(async (h, first, scope) => {
+      h.gateway.checkpointRevision =
+        first.revision > 0 ? first.revision - 1 : null;
+      await h.port.finalizeRefused("refused", scope);
+    });
+
+    expect(second.manifest.workspace.baseBundles).toBeUndefined();
   });
 });

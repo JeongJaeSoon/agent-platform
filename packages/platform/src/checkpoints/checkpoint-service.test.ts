@@ -1458,6 +1458,33 @@ describe("a bundle that builds on the previous checkpoint's (94S-227)", () => {
     ).toEqual([baseRef, tipRef]);
   });
 
+  test("refuses a chain with a link left out, and the pointer stays", async () => {
+    await committedBase();
+    expect(await finalize(incremental(), "2")).toMatchObject({
+      outcome: "committed",
+    });
+    const skipping: ObjectRef = { ...tipRef, key: bundleKeyFor(2, attemptId) };
+    await objects.put(skipping.key, chain.tip.bytes);
+
+    expect(
+      await finalize(
+        manifest({
+          revision: 2,
+          workspace: workspace({
+            baseBundles: [baseRef],
+            bundle: skipping,
+            gitCommit: chain.tip.commit,
+          }),
+        }),
+        "3",
+      ),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason: "workspace bundle builds on bundles other than revision 1's",
+    });
+    expect(checkpoints.pointer()).toMatchObject({ revision: 1 });
+  });
+
   test("refuses bases other than the pointer's", async () => {
     await committedBase();
     const stranger = bundleKeyFor(0, "attempt-2");

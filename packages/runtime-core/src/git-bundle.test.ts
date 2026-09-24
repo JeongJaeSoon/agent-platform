@@ -212,6 +212,10 @@ describe.each([
     expect(
       await offers(incremental, shas[1] as string, new Set(first.tips)),
     ).toMatchObject({ refs: ["refs/heads/main"], status: "offers" });
+    // Nothing new on top: the commit is the earlier bundle's tip.
+    expect(
+      await offers(incremental, shas[0] as string, new Set(first.tips)),
+    ).toMatchObject({ status: "offers" });
     // A commit the chain has, but not as a tip: nothing vouches for it.
     expect(
       await offers(incremental, shas[1] as string, new Set(["a".repeat(40)])),
