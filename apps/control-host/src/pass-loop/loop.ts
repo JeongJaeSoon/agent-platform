@@ -70,6 +70,16 @@ export type PassLoopRoleName = keyof typeof PASS_LOOP_ROLES;
  */
 export const PASS_SKIPPED_EXIT = 75;
 
+/**
+ * A pass that did all it could, but left a session it cannot help this pass:
+ * a launch waiting out its backoff, one just given up on, a replacement
+ * budget spent (94S-368). Not a success, so health says so; not a failure,
+ * because a restart fixes none of it — the state is in the database — and
+ * would stop scheduling for every other session while one crash-loops.
+ * Next to PASS_SKIPPED_EXIT; sysexits.h has nothing that means this.
+ */
+export const PASS_DEGRADED_EXIT = 76;
+
 export type PassLoopEnvironment = Readonly<Record<string, string | undefined>>;
 
 export function passLoopConfigFromEnv(
@@ -142,6 +152,9 @@ export type PassStatus = {
   lastFailureAt: string | null;
   lastFailureReason: string | null;
   lastSkippedAt: string | null;
+  // A pass that completed but reported a session it could not help. It
+  // keeps the loop fresh like a success; lastSuccessAt stays clean passes only.
+  lastDegradedAt: string | null;
   lastPassDurationMs: number | null;
   consecutiveFailures: number;
   // Set while a pass runs: past it, the pass is stuck until the kill lands.
@@ -157,6 +170,7 @@ export type PassLoopLogger = {
 type PassOutcome =
   | { outcome: "succeeded" }
   | { outcome: "skipped" }
+  | { outcome: "degraded" }
   | { outcome: "failed"; reason: string };
 
 /**
@@ -182,6 +196,7 @@ export async function runPassLoop(input: {
     lastFailureAt: null,
     lastFailureReason: null,
     lastSkippedAt: null,
+    lastDegradedAt: null,
     lastPassDurationMs: null,
     consecutiveFailures: 0,
     passDeadlineAt: null,
@@ -207,6 +222,12 @@ export async function runPassLoop(input: {
       status.lastSuccessAt = now().toISOString();
       status.consecutiveFailures = 0;
       logger.info(`${name} pass completed`, { duration_ms: durationMs });
+    } else if (result.outcome === "degraded") {
+      status.lastDegradedAt = now().toISOString();
+      status.consecutiveFailures = 0;
+      logger.warn(`${name} pass completed degraded`, {
+        duration_ms: durationMs,
+      });
     } else if (result.outcome === "skipped") {
       status.lastSkippedAt = now().toISOString();
       logger.warn(`${name} pass skipped; another pass holds the lock`, {
@@ -268,6 +289,7 @@ async function runPass(
     }
     if (code === 0) return { outcome: "succeeded" };
     if (code === PASS_SKIPPED_EXIT) return { outcome: "skipped" };
+    if (code === PASS_DEGRADED_EXIT) return { outcome: "degraded" };
     return { outcome: "failed", reason: `pass exited with code ${code}` };
   } finally {
     clearTimeout(deadline);
