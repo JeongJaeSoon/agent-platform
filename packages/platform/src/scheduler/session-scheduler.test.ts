@@ -14,6 +14,7 @@ import type {
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import {
+  LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchSpecFingerprint,
 } from "../ports/execution-backend.ts";
@@ -581,6 +582,11 @@ class FakeBackend implements ExecutionBackend {
   exitOnStartFor = new Set<string>();
   /** Session ids whose create is taken but whose start the daemon cannot show. */
   createPendingFor = new Set<string>();
+  /**
+   * Session ids whose create gets no answer from the daemon: one that never
+   * took, or one that did and was never started.
+   */
+  unansweredFor = new Map<string, "not_created" | "created">();
   /** Execution ids whose inspect throws (ownership conflict, stuck daemon call). */
   failInspectFor = new Set<string>();
   failTerminateFor = new Set<string>();
@@ -707,7 +713,16 @@ class FakeBackend implements ExecutionBackend {
       sessionId: intent.sessionId,
       ...(pending ? { started: false } : {}),
     };
+    const unanswered = this.unansweredFor.get(intent.sessionId);
+    const timedOut = new LaunchOutcomeUnknownError(intent, {
+      cause: new Error("Docker API POST /containers/create timed out"),
+    });
+    if (unanswered === "not_created") throw timedOut;
     this.containers.set(nameOf(intent), container);
+    if (unanswered === "created") {
+      container.started = false;
+      throw timedOut;
+    }
     return {
       created: true,
       providerRef: this.providerRefOf(nameOf(intent), container),
@@ -2488,6 +2503,113 @@ describe("runScheduler", () => {
     expect(second.launched).toHaveLength(0);
     expect(store.executions.size).toBe(1);
     expect(backend.containers.size).toBe(1);
+  });
+
+  test("a create the daemon never answered is adopted by the next pass, not counted (94S-393)", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "created");
+
+    const first = await run();
+    expect(first.failedLaunches).toHaveLength(1);
+    expect(first.launched).toHaveLength(0);
+    const [row] = store.executions.values();
+    const [container] = backend.containers.values();
+    expect(row?.observedState).toBe("unknown");
+    expect(row?.launchFailureCount).toBe(0);
+    expect(store.launchFailures).toEqual([]);
+    // The credential the container was built with is still the accepted one.
+    expect(row?.nonce).toBe(container?.nonce ?? "missing");
+
+    // No backoff to wait out: the next pass inspects, finds the container
+    // the create left behind, and starts it rather than building another.
+    const second = await run();
+    expect(second.failedLaunches).toEqual([]);
+    expect(second.reensured).toHaveLength(1);
+    expect(backend.terminateCalls).toEqual([]);
+    expect(backend.containers.size).toBe(1);
+    expect(container?.started).toBe(true);
+    expect(row?.observedState).toBe("running");
+    expect(row?.launchFailureCount).toBe(0);
+    expect(row?.nonce).toBe(container?.nonce ?? "missing");
+  });
+
+  test("a start the daemon never answered but carried out is recorded running next pass", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "created");
+    await run();
+    const [container] = backend.containers.values();
+    if (!container) throw new Error("no container");
+    container.started = true;
+
+    const second = await run();
+    expect(second.failedLaunches).toEqual([]);
+    expect(second.reensured).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(1);
+    expect(store.executions.values().next().value?.observedState).toBe(
+      "running",
+    );
+    expect(store.launchFailures).toEqual([]);
+  });
+
+  test("an unanswered create that never took is counted by the next pass, and bounded", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "not_created");
+
+    const first = await run();
+    expect(first.failedLaunches).toHaveLength(1);
+    expect(backend.containers.size).toBe(0);
+    expect(store.launchFailures).toEqual([]);
+
+    // Inspect finds nothing: the create failed after all.
+    const second = await run();
+    expect(second.reensured).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(1);
+    const [row] = store.executions.values();
+    expect(row?.launchFailureCount).toBe(1);
+    expect(row?.nonce).toBeNull();
+    expect(store.launchFailures[0]?.error).toContain("never answered");
+
+    // A create that never takes runs into the limit like any failure.
+    for (let pass = 0; pass < 2 * DEFAULT_LAUNCH_FAILURE_LIMIT; pass += 1) {
+      store.elapse(11 * 60_000);
+      await run();
+    }
+    expect(store.quarantined.has(sessionId)).toBe(true);
+    expect(row?.launchFailureCount).toBe(DEFAULT_LAUNCH_FAILURE_LIMIT);
+  });
+
+  test("an unanswered create that lands after its failure was counted is torn down, not adopted", async () => {
+    const { backend, run, store } = harness();
+    const [sessionId] = store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    backend.unansweredFor.set(sessionId, "not_created");
+    await run();
+    await run();
+    const [row] = store.executions.values();
+    const [intent] = backend.ensureCalls;
+    if (!row || !intent) throw new Error("no launch");
+    expect(row.launchFailureCount).toBe(1);
+    // The daemon carries the lost create out after all, with the credential
+    // the failure record revoked.
+    backend.containers.set(nameOf(intent), {
+      exited: false,
+      generation: intent.generation,
+      id: "ctr-late",
+      nonce: "nonce-revoked",
+      operationId: intent.operationId,
+      sessionId,
+    });
+    backend.unansweredFor.clear();
+    store.elapse(11 * 60_000);
+    await run();
+    expect(backend.terminateCalls).toHaveLength(1);
+    expect(row.launchFailureCount).toBe(1);
   });
 
   test("a pass that cannot take the lock does nothing and says so", async () => {

@@ -729,6 +729,47 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
+  test("keeps beating while the shutdown flushes the event tail, until the release (94S-392)", async () => {
+    class StalledAppend extends FakeWorkerGateway {
+      override appendEvents(): Promise<never> {
+        this.calls.push("appendEvents");
+        return new Promise(() => {});
+      }
+    }
+    const gateway = new StalledAppend();
+    const { host } = harness(
+      [
+        { type: "emit", message: assistantMessage("before any input") },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        timeouts: {
+          drainTimeoutMs: 300,
+          heartbeatIntervalMs: 5,
+          idleTimeoutMs: 60_000,
+        },
+      },
+    );
+    const loop = host.runLoop();
+    await waitFor(() => gateway.calls.includes("appendEvents"), "the tail");
+    await waitFor(() => gateway.calls.includes("nextInput"), "the first poll");
+    host.drain("received SIGTERM");
+    const drainedAt = gateway.calls.length;
+
+    await loop;
+
+    const released = gateway.calls.indexOf("release");
+    expect(released).toBeGreaterThan(drainedAt);
+    // The flush waits out the drain budget on a gateway that never stores
+    // the tail; the lease is renewed all the way through it.
+    const beatsWhileFlushing = gateway.calls
+      .slice(drainedAt, released)
+      .filter((call) => call === "heartbeat").length;
+    expect(beatsWhileFlushing).toBeGreaterThan(5);
+    expect(gateway.calls.slice(released)).not.toContain("heartbeat");
+  });
+
   test("drains on request: finishes the turn in flight, then releases", async () => {
     const gateway = new FakeWorkerGateway();
     const { host } = harness(
@@ -2456,6 +2497,39 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     // The turn the server may have committed is not run and not finalized;
     // the release leaves it to confirmExecutionGone as outcome_unknown.
     expect(runtime.inputs).toEqual([]);
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("events the gateway keeps failing end the worker within the retry budget instead of holding the turn's finalize (94S-392)", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.appendFailure = unavailable();
+    gateway.enqueue("a turn whose events never land");
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: assistantMessage("answer") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        timeouts: {
+          drainTimeoutMs: 60_000,
+          heartbeatIntervalMs: 5,
+          idleTimeoutMs: 60_000,
+          nextInputRetryTimeoutMs: 300,
+        },
+      },
+    );
+
+    const began = performance.now();
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toContain("The gateway is unavailable");
+    expect(performance.now() - began).toBeLessThan(3_000);
+    expect(gateway.heartbeats.length).toBeGreaterThan(1);
     expect(gateway.finalized).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
   });

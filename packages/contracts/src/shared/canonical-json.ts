@@ -86,3 +86,13 @@ function canonicalize(value: unknown, path: string): unknown {
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value, "$"));
 }
+
+/**
+ * `canonicalJson` of what `JSON.stringify` makes of `value`: an undefined
+ * property is left out and `-0` reads as `0` instead of being refused. The
+ * checkpoint manifest, the Claude profile fingerprint and transcript entries
+ * have always been hashed that way, and their digests are stored (94S-400).
+ */
+export function canonicalJsonOfJson(value: unknown): string {
+  return canonicalJson(JSON.parse(JSON.stringify(value)));
+}

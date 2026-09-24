@@ -92,9 +92,10 @@ export type WorkerTimeouts = {
    */
   maxTurnMs: number;
   /**
-   * How long a poll keeps retrying a gateway that answers with transient
-   * errors. The server may already have handed the turn over, so without it
-   * a worker whose heartbeats still land holds that turn forever (94S-269).
+   * How long a poll, or one batch of events, keeps retrying a gateway that
+   * answers with transient errors. The server may already have handed the
+   * turn over, and a finalize waits on its events, so without it a worker
+   * whose heartbeats still land holds that turn forever (94S-269, 94S-392).
    * Counted from the first failure; retries are not charged to `maxTurnMs`.
    */
   nextInputRetryTimeoutMs: number;

@@ -185,12 +185,16 @@ type PassOutcome =
 export async function runPassLoop(input: {
   name: string;
   command: readonly string[];
+  /** Set for every pass on top of this process's own environment. */
+  env?: Readonly<Record<string, string>>;
   config: PassLoopConfig;
   logger: PassLoopLogger;
   signal?: AbortSignal;
   now?: () => Date;
 }): Promise<number> {
   const { name, command, config, logger, signal } = input;
+  const env =
+    input.env === undefined ? undefined : { ...Bun.env, ...input.env };
   const now = input.now ?? (() => new Date());
   const status: PassStatus = {
     loopStartedAt: now().toISOString(),
@@ -214,7 +218,7 @@ export async function runPassLoop(input: {
     // listener would be added after the event and never forward SIGTERM.
     if (signal?.aborted) break;
     const started = performance.now();
-    const result = await runPass(command, config, signal);
+    const result = await runPass(command, env, config, signal);
     const durationMs = Math.round(performance.now() - started);
     // A pass cut short by shutdown is neither a success nor a failure.
     if (signal?.aborted) break;
@@ -260,10 +264,12 @@ export async function runPassLoop(input: {
 
 async function runPass(
   command: readonly string[],
+  env: Record<string, string | undefined> | undefined,
   config: PassLoopConfig,
   signal: AbortSignal | undefined,
 ): Promise<PassOutcome> {
   const child = Bun.spawn([...command], {
+    ...(env === undefined ? {} : { env }),
     stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",

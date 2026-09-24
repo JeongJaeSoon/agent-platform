@@ -55,6 +55,7 @@ type Pending = {
   input: Record<string, unknown>;
   inputHash: string;
   settle: (decision: PermissionDecision) => void;
+  /** On `performance.now`: a wall-clock jump must not move it (94S-392). */
   openedAt: number;
   deadline: number;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -123,8 +124,8 @@ export class PendingRequestRegistry {
         input: request.input,
         inputHash,
         settle: resolve,
-        openedAt: Date.now(),
-        deadline: Date.now() + this.options.timeoutMs,
+        openedAt: performance.now(),
+        deadline: performance.now() + this.options.timeoutMs,
         timer: undefined,
       });
     });
@@ -168,14 +169,14 @@ export class PendingRequestRegistry {
    * to what it holds instead of leaving receipts unknown.
    */
   async flush(timeoutMs: number): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
+    const deadline = performance.now() + timeoutMs;
     if (this.registering.size > 0) {
       await within(Promise.all(this.registering), timeoutMs);
     }
     if (this.settlements.size === 0) return;
     this.poll();
     if (this.polling !== undefined) {
-      await within(this.polling, deadline - Date.now());
+      await within(this.polling, deadline - performance.now());
     }
   }
 
@@ -227,7 +228,7 @@ export class PendingRequestRegistry {
           "expired",
         );
       },
-      Math.max(0, entry.deadline - Date.now()),
+      Math.max(0, entry.deadline - performance.now()),
     );
   }
 
@@ -349,7 +350,8 @@ export class PendingRequestRegistry {
         // holds the engine for answers that can no longer be given, and
         // giving up before it denies one the owner may still send. The
         // margin lets an answer taken just before it still be picked up.
-        entry.deadline = Date.now() + response.expires_in_ms + 2 * interval;
+        entry.deadline =
+          performance.now() + response.expires_in_ms + 2 * interval;
         this.arm(requestId);
         this.poll();
         return;

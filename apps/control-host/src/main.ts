@@ -9,6 +9,7 @@
 // `--health` judges the status file the loop writes. Each role module is
 // imported only when chosen: a process reads and validates only its own
 // role's settings, and only the scheduler ever loads the Docker backend.
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
@@ -89,13 +90,21 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
   const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
   // Every pass child logs at this level; a typo stops the loop here, once.
   const level = logLevelFromEnv(process.env.LOG_LEVEL);
+  let passEnv: Record<string, string> | undefined;
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
     const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
       "./scheduler/config.ts"
     );
+    const { QUOTA_PREFLIGHT_MARKER_ENV } = await import(
+      "./scheduler/quota-preflight.ts"
+    );
     const { docker } = schedulerConfigFromEnv(process.env);
     assertPassOutlastsStop(config.passTimeoutMs, docker);
+    // The first pass of every loop probes the workspace quota afresh.
+    const marker = `${config.statusFile}.quota-verified`;
+    await rm(marker, { force: true });
+    passEnv = { [QUOTA_PREFLIGHT_MARKER_ENV]: marker };
   } else {
     const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
@@ -129,6 +138,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
       role,
       "--once",
     ],
+    ...(passEnv === undefined ? {} : { env: passEnv }),
     config,
     logger,
     signal: shutdown.signal,

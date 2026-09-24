@@ -147,6 +147,25 @@ describe("pass loop", () => {
     ).toBe(false);
   }, 30_000);
 
+  test("every pass gets the loop's extra environment on top of its own", async () => {
+    const controller = new AbortController();
+    const code = await runPassLoop({
+      name: "Test",
+      command: bun(
+        "process.exit(process.env.PASS_EXTRA === 'yes' && process.env.PATH ? 0 : 3)",
+      ),
+      env: { PASS_EXTRA: "yes" },
+      config: { ...config, maxConsecutiveFailures: 1 },
+      logger: {
+        info: () => controller.abort(),
+        warn: (message, fields) => logger.warn(message, fields),
+        error: (message, fields) => logger.error(message, fields),
+      },
+      signal: controller.signal,
+    });
+    expect(code).toBe(0);
+  }, 30_000);
+
   test("failures below the limit are retried on the next pass", async () => {
     const controller = new AbortController();
     let run = 0;
