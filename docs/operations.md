@@ -93,10 +93,17 @@ proxy attach 결과는 응답 코드가 아니라 proxy 컨테이너가 보고�
 - `retry_at`: 다음 시도 시각이다. 멈춘 뒤에는 null이다.
 
 이벤트 스트림에는 실패마다 system `checkpoint_restore_failed`가 남는다. worker 로그의 `worker.checkpoint.restore_refused`, `worker.failed`에서 원인을 확인한다. 저장소 응답 checksum 불일치(전송 중 손상)도 `CHECKPOINT_UNAVAILABLE`로 분류된다.
+- 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다(94S-348). 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 다음 worker는 실패하던 worker와 같은 pointer에서 복원 계획을 다시 받는다.
+  ```sh
+  # KEY: sessions:recover scope가 있는 API 키
+  curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+    -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+    -H 'Content-Type: application/json' \
+    -d '{"decision":"retry_restore","expected_revision":<revision>,"reason":"proxy fixed"}'
+  ```
+  한도에 닿아 멈춘 세션에만 받는다. backoff 중이거나 다른 이유(context gap, unknown turn, 복원 없는 `STARTUP_FAILED`)로 멈춘 세션은 409 `REQUEST_STALE`이다.
 - checkpoint를 포기해도 되면 `start_fresh`로 이어간다. checkpoint 없이 새 engine session이 시작된다.
 - 세션을 끝내려면 `close`를 쓴다.
-
-원인(프록시, 저장소 경로)을 고친 뒤 같은 checkpoint로 다시 복원하게 하는 결정은 아직 없다.
 
 ### 시작 단계에서 계속 죽는 세션 (94S-302, 94S-347)
 
