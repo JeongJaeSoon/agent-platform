@@ -765,6 +765,23 @@ async function giveUpOnCatalogMismatch(
   return "catalog_mismatch";
 }
 
+async function drainRequested(
+  tx: Database,
+  attempt: Pick<AttemptRow, "executionId" | "executionGeneration">,
+): Promise<boolean> {
+  const [launch] = await tx
+    .select({ drainRequestedAt: workerLaunches.drainRequestedAt })
+    .from(workerLaunches)
+    .where(
+      and(
+        eq(workerLaunches.executionId, attempt.executionId),
+        eq(workerLaunches.generation, attempt.executionGeneration),
+      ),
+    )
+    .limit(1);
+  return launch?.drainRequestedAt != null;
+}
+
 // `at` is a database instant read after the worker sent its request, which
 // is what lets the worker count the remainder from its own send time.
 async function bindingOf(
@@ -1316,6 +1333,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
+        // The scheduler is draining the launch to replace it (94S-250): the
+        // turn this attempt runs is its last. Read under the session lock,
+        // which `requestDrain` takes before it looks for an open turn.
+        if (!redelivery && (await drainRequested(tx, fenced.attempt))) {
+          return none;
+        }
 
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {

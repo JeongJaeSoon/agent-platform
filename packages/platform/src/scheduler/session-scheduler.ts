@@ -47,6 +47,14 @@ export const DEFAULT_REPLACEMENT_LIMIT = 3;
 export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
 
 /**
+ * How long a claimed resource on an older isolation contract is left to
+ * finish its turn before it is replaced anyway (94S-250). The control host
+ * derives it from the installation's turn limit; this covers callers that
+ * do not.
+ */
+export const DEFAULT_DRAIN_DEADLINE_MS = 30 * 60_000;
+
+/**
  * Failed attempts before a launch is given up on (94S-207). With the backoff
  * below, four retries wait 30s, 1m, 2m and 4m: a daemon restart or a slow
  * image pull gets through, while an image that does not exist hands its slot
@@ -75,6 +83,8 @@ export type SchedulerLogger = {
 
 export type SchedulerOptions = {
   backend: ExecutionBackend;
+  /** See `DEFAULT_DRAIN_DEADLINE_MS`. */
+  drainDeadlineMs?: number;
   /** The configured reference; each new launch is pinned to what it names. */
   image: string;
   /** Failed attempts per launch before it is given up on; see the default. */
@@ -111,6 +121,17 @@ export type SchedulerRunSummary = {
   activeBefore: number;
   /** Executions whose row lists them as live but the provider had lost. */
   failedLaunches: ExecutionRef[];
+  /**
+   * Claimed resources on an older isolation contract left running this pass
+   * because their turn has not ended (94S-250). Their worker is handed no
+   * new turn; each is replaced once its turn ends or the deadline passes.
+   */
+  draining: ExecutionRef[];
+  /**
+   * Claimed resources replaced this pass with their turn still open: the
+   * drain deadline passed first. Each is also in `replaced`.
+   */
+  drainsOverdue: ExecutionRef[];
   /**
    * true when the configured image could not be pinned, so no session was
    * admitted this pass. A fault: sessions wait on it until someone looks.
@@ -588,6 +609,8 @@ function emptySummary(slotLimit: number): SchedulerRunSummary {
   return {
     activeAfter: 0,
     activeBefore: 0,
+    draining: [],
+    drainsOverdue: [],
     failedLaunches: [],
     imageUnresolved: false,
     launched: [],
@@ -626,6 +649,7 @@ async function pass(
     options.replacementLimit ?? DEFAULT_REPLACEMENT_LIMIT;
   const launchFailureLimit =
     options.launchFailureLimit ?? DEFAULT_LAUNCH_FAILURE_LIMIT;
+  const drainDeadlineMs = options.drainDeadlineMs ?? DEFAULT_DRAIN_DEADLINE_MS;
   const { backend, logger, store } = options;
   // `attempt` is the one `openAttempt` opened for this ensure: the credential
   // is issued only while no later attempt has been opened, so a pass that
@@ -730,6 +754,7 @@ async function pass(
         session_id: execution.sessionId,
         state: observed.state,
       });
+      if (execution.claimed && !(await drained(execution))) return;
       await replace(execution, "stale_isolation", observed);
       return;
     }
@@ -1007,6 +1032,43 @@ async function pass(
     // created and never started. The stored intent covers both: ensure is
     // idempotent and starts a pending resource it already owns.
     await reensure(execution, "missing");
+  }
+
+  /**
+   * A claimed resource cannot be rebuilt, only torn down and its session
+   * handed to a new launch, so tearing it down mid-turn would leave that
+   * turn unknown for an operator (94S-250). Its worker is asked to take no
+   * new turn instead, and it goes once the one it runs has ended. True when
+   * the teardown may go ahead now: nothing is left open, or the deadline
+   * passed first.
+   */
+  async function drained(execution: ActiveExecution): Promise<boolean> {
+    const ref = refOf(execution);
+    lock.throwIfAborted();
+    const drain = await store.requestDrain(ref, drainDeadlineMs);
+    // The binding moved on since the rows were read; the next pass sees
+    // what the launch is now.
+    if (drain === null) return false;
+    if (!drain.turnOpen) return true;
+    if (!drain.overdue) {
+      summary.draining.push(ref);
+      logger.info("Claimed execution draining before its replacement", {
+        ...fieldsOf(ref),
+        deadline_ms: drainDeadlineMs,
+        session_id: execution.sessionId,
+      });
+      return false;
+    }
+    summary.drainsOverdue.push(ref);
+    logger.warn(
+      "Drain deadline passed with the turn still open; replacing anyway",
+      {
+        ...fieldsOf(ref),
+        deadline_ms: drainDeadlineMs,
+        session_id: execution.sessionId,
+      },
+    );
+    return true;
   }
 
   // The snapshot is checked first, then the row: a terminate that committed
@@ -1643,6 +1705,8 @@ async function pass(
   logger.info("Scheduling pass completed", {
     active_after: summary.activeAfter,
     active_before: summary.activeBefore,
+    draining_count: summary.draining.length,
+    drain_overdue_count: summary.drainsOverdue.length,
     failed_count: summary.failedLaunches.length,
     image_unresolved: summary.imageUnresolved,
     kill_failed_count: summary.killFailed.length,

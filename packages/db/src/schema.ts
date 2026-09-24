@@ -929,6 +929,11 @@ export const workerLaunches = pgTable(
     // or the launch was given up on.
     launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
     lastLaunchError: text("last_launch_error"),
+    // When the scheduler first asked the worker this launch bound to drain,
+    // because its resource no longer meets the isolation contract (94S-250).
+    // From then on the worker is handed no new turn; the replacement waits
+    // for the one it runs, up to a deadline counted from here.
+    drainRequestedAt: timestamp("drain_requested_at", { withTimezone: true }),
     slotReservedAt: timestamp("slot_reserved_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -26,6 +26,7 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
 export type SchedulerConfig = {
   databaseUrl: string;
   docker: LocalDockerBackendConfig;
+  drainDeadlineMs: number;
   image: string;
   limits: InstallationLimits;
   logLevel: string | undefined;
@@ -54,6 +55,10 @@ export function schedulerConfigFromEnv(
   const limits = installationLimitsFromEnv(environment);
   return {
     databaseUrl,
+    // A claimed worker on an older isolation contract finishes its turn
+    // before it is replaced (94S-250). No turn outlasts MAX_TURN_SECONDS;
+    // the grace covers the finalize and checkpoint that end it.
+    drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
     docker: {
       ...localDockerConfigFromEnv(environment),
       workerLimits: {
@@ -89,6 +94,8 @@ export function schedulerConfigFromEnv(
       ) * 1_000,
   };
 }
+
+const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
 
 /** Docker's smallest CPU quota is 0.01 CPU; below that NanoCpus rounds to "no limit". */
 const MIN_CPUS = 0.01;

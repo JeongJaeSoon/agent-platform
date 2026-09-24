@@ -53,7 +53,12 @@ function fingerprintOf(nonce: string | null | undefined): string | null {
 }
 
 /** A launch row: the slot it holds and the credential it has handed out. */
-type Launch = ActiveExecution & { slotReleased: boolean; nonce: string | null };
+type Launch = ActiveExecution & {
+  slotReleased: boolean;
+  nonce: string | null;
+  /** On the storage clock, once a drain was asked of its worker. */
+  drainRequestedAt?: number;
+};
 
 class MemoryStore implements SchedulerStore {
   readonly executions = new Map<string, Launch>();
@@ -71,6 +76,8 @@ class MemoryStore implements SchedulerStore {
   readonly quarantined = new Map<string, string>();
   readonly launchFailures: Array<{ executionId: string } & LaunchFailureInput> =
     [];
+  /** Sessions with a turn that has not ended, as a drain sees them. */
+  readonly openTurns = new Set<string>();
 
   private storageNow(): number {
     return Date.now() + this.clockOffsetMs;
@@ -351,6 +358,24 @@ class MemoryStore implements SchedulerStore {
     row.slotReleased = true;
     row.observedState = "terminated";
     return "confirmed";
+  }
+
+  async requestDrain(ref: ExecutionRef, deadlineMs: number) {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.slotReleased ||
+      !row.claimed ||
+      row.desiredState !== "running"
+    ) {
+      return null;
+    }
+    row.drainRequestedAt ??= this.storageNow();
+    return {
+      turnOpen: this.openTurns.has(row.sessionId),
+      overdue: row.drainRequestedAt + deadlineMs <= this.storageNow(),
+    };
   }
 
   async desiredStateOf(ref: ExecutionRef) {
@@ -814,6 +839,7 @@ function recordingLogger() {
 function harness(
   slotLimit = 10,
   options: {
+    drainDeadlineMs?: number;
     stop?: AbortSignal;
     stoppedWorkspaceTtlMs?: number;
     workspaceGc?: boolean;
@@ -833,6 +859,9 @@ function harness(
         ? {}
         : { stoppedWorkspaceTtlMs: options.stoppedWorkspaceTtlMs }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),
+      ...(options.drainDeadlineMs === undefined
+        ? {}
+        : { drainDeadlineMs: options.drainDeadlineMs }),
       store,
     });
   const reclaim = () => reclaimWorkspaces({ backend, logger, store });
@@ -954,6 +983,97 @@ describe("runScheduler", () => {
     const after = await run();
     expect(after.replaced).toHaveLength(0);
     expect(after.reensured).toHaveLength(0);
+  });
+
+  describe("a claimed resource on an older isolation contract (94S-250)", () => {
+    function claimedStale(
+      store: MemoryStore,
+      backend: FakeBackend,
+    ): { ref: ExecutionRef; sessionId: string } {
+      const row = store.seedActive({
+        claimed: true,
+        executionId: "exec-1",
+        observedState: "running",
+      });
+      backend.containers.set("exec-1#1", {
+        exited: false,
+        generation: 1,
+        operationId: row.operationId ?? "op",
+        sessionId: row.sessionId,
+      });
+      backend.staleFor.add("exec-1#1");
+      return {
+        ref: { executionId: "exec-1", generation: 1 },
+        sessionId: row.sessionId,
+      };
+    }
+
+    test("is left running while its turn runs, and replaced on the pass after the turn ends", async () => {
+      const { backend, records, run, store } = harness();
+      const { ref, sessionId } = claimedStale(store, backend);
+      store.openTurns.add(sessionId);
+
+      const first = await run();
+      expect(first.draining).toEqual([ref]);
+      expect(first.replaced).toEqual([]);
+      expect(backend.terminateCalls).toEqual([]);
+      expect(backend.containers.get("exec-1#1")?.exited).toBe(false);
+      expect(store.confirmedGone).toEqual([]);
+      const requestedAt = store.executions.get("exec-1")?.drainRequestedAt;
+      expect(requestedAt).toBeDefined();
+
+      // Still running: the request keeps its first time.
+      store.elapse(1_000);
+      expect((await run()).draining).toEqual([ref]);
+      expect(store.executions.get("exec-1")?.drainRequestedAt).toBe(
+        requestedAt,
+      );
+
+      store.openTurns.delete(sessionId);
+      const after = await run();
+      expect(after.draining).toEqual([]);
+      expect(after.drainsOverdue).toEqual([]);
+      expect(after.replaced).toEqual([ref]);
+      expect(backend.terminateCalls).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
+      // Nothing is rebuilt from a claimed launch; the session gets a new one.
+      expect(backend.ensureCalls).toEqual([]);
+      expect(
+        records.filter((r) => r.message.includes("Drain deadline passed")),
+      ).toEqual([]);
+    });
+
+    test("with no turn open is replaced at once, as before", async () => {
+      const { backend, run, store } = harness();
+      const { ref } = claimedStale(store, backend);
+      const summary = await run();
+      expect(summary.draining).toEqual([]);
+      expect(summary.replaced).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
+    });
+
+    test("is replaced with its turn still open once the drain deadline passes, and says so", async () => {
+      const { backend, records, run, store } = harness(10, {
+        drainDeadlineMs: 60_000,
+      });
+      const { ref, sessionId } = claimedStale(store, backend);
+      store.openTurns.add(sessionId);
+      expect((await run()).draining).toEqual([ref]);
+
+      store.elapse(60_000);
+      const overdue = await run();
+      expect(overdue.draining).toEqual([]);
+      expect(overdue.drainsOverdue).toEqual([ref]);
+      expect(overdue.replaced).toEqual([ref]);
+      expect(backend.terminateCalls).toEqual([ref]);
+      expect(store.confirmedGone).toEqual(["exec-1"]);
+      expect(
+        records.filter(
+          (r) =>
+            r.level === "warn" && r.message.includes("Drain deadline passed"),
+        ),
+      ).toHaveLength(1);
+    });
   });
 
   test("a stale-isolation replacement does not revoke a credential issued since it was judged", async () => {
